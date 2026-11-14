@@ -115,6 +115,9 @@ public struct PaginatedMessagesResponse: Codable, Sendable {
     public let errorMessage: String?
     public let swarm: SwarmBrief?
     public let contextMeter: ContextMeterItem?
+    public let subagents: [SubagentItem]?
+    public let parentConversationId: String?
+    public let subagentRole: String?
     
     public struct GatewayMessageItem: Codable, Sendable {
         public let id: String
@@ -168,4 +171,7 @@ public struct FetchMessagesResult: Sendable {
     public let errorMessage: String?
     public let swarm: SwarmBrief?
     public let contextMeter: ContextMeterItem?
+    public let subagents: [SubagentItem]?
+    public let parentConversationId: String?
+    public let subagentRole: String?
 }

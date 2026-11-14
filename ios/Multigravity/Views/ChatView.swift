@@ -298,7 +298,7 @@ public struct ChatView: View {
             handleViewAppear()
         }
         .task {
-            if let url = AppSettings.shared.serverURL, !AppSettings.shared.isDemoMode {
+            if let url = AppSettings.shared.serverURL {
                 Task {
                     await ModelCatalogStore.shared.refreshIfNeeded(settings: AppSettings.shared, baseURL: url)
                 }

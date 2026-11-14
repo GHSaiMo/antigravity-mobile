@@ -251,7 +251,7 @@ public struct SettingsSheet: View {
             await connectionManager.probeEndpoints()
         }
         .task {
-            if let url = settings.serverURL, !settings.isDemoMode {
+            if let url = settings.serverURL {
                 await modelCatalog.refresh(settings: settings, baseURL: url, force: true)
             }
         }

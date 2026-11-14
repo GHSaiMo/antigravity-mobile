@@ -146,6 +146,10 @@ public final class ConversationEventsClient {
 
     /// Runs one socket until it ends. Returns true when the handshake succeeded.
     private func connectOnce(generation gen: Int) async -> Bool {
+        if DemoGateway.isEnabled {
+            return await runDemoHeartbeat(generation: gen)
+        }
+
         guard let baseURL = baseURLProvider?(),
               var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: true) else {
             print("[EventsWS] Invalid or missing baseURL")
@@ -170,6 +174,31 @@ public final class ConversationEventsClient {
         } else {
             return await connectWithURLSession(targetURL: targetURL, generation: gen)
         }
+    }
+
+    /// Simulates an active `/gateway/events` heartbeat stream while running in Demo Mode so the
+    /// home indicator dot and link diagnostics reflect live connected telemetry without network I/O.
+    private func runDemoHeartbeat(generation gen: Int) async -> Bool {
+        guard !Task.isCancelled, self.generation == gen else { return false }
+        hasEverConnected = true
+        supportsBeat = true
+        desktopState = "ok"
+        lastBeatAt = Date()
+        lastServerTS = Int64(Date().timeIntervalSince1970 * 1000)
+        beatCount &+= 1
+        setConnected(true)
+        onChange?()
+
+        while !Task.isCancelled, self.generation == gen, DemoGateway.isEnabled {
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            guard !Task.isCancelled, self.generation == gen, DemoGateway.isEnabled else { break }
+            lastBeatAt = Date()
+            lastServerTS = Int64(Date().timeIntervalSince1970 * 1000)
+            desktopState = "ok"
+            beatCount &+= 1
+        }
+        setConnected(false)
+        return true
     }
 
     // MARK: - Primary Transport: URLSessionWebSocketTask (Supports System / Wi-Fi Proxies)

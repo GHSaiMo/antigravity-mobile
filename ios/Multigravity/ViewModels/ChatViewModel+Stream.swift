@@ -90,6 +90,7 @@ extension ChatViewModel {
                     case "agent": return .agent
                     case "error": return .error
                     case "subagent": return .subagent
+                    case "workflow": return .workflow
                     default: return .toolBatch(count: item.toolCount ?? 1, tools: item.toolNames ?? [])
                     }
                 }()

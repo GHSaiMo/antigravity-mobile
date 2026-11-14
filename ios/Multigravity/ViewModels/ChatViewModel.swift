@@ -855,6 +855,18 @@ public final class ChatViewModel {
             } else if !isBackgroundPoll {
                 self.swarmBrief = nil
             }
+            if let subagents = result.subagents {
+                if self.subagents != subagents { self.subagents = subagents }
+            }
+            let newParent = result.parentConversationId?.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let newParent, !newParent.isEmpty {
+                self.parentConversationId = newParent
+            } else if !isBackgroundPoll && result.parentConversationId != nil {
+                self.parentConversationId = nil
+            }
+            if let role = result.subagentRole {
+                self.subagentRole = role
+            }
             
             if result.messages.isEmpty {
                 if self.pendingOptimisticMessageId == nil {

@@ -1,568 +1,1711 @@
 import Foundation
-import CryptoKit
+import UniformTypeIdentifiers
 
-/// In-app simulated gateway used by "演示模式" (demo mode).
-///
-/// Demo mode lets App Review (and anyone without a desktop gateway) explore the whole app: the
-/// conversation list, chat, sending messages, attaching photos / files and previewing them. Requests
+/// In-memory simulated gateway backing Demo Mode. All requests addressed
 /// to `DemoGateway.baseURL` are answered locally by `DemoURLProtocol`; nothing leaves the device.
-///
-/// Replies are scripted: a sent message first shows the agent as running (with a tool step) and then
-/// an agent reply appears. State lives in memory and is reset every time demo mode is entered.
 final class DemoGateway: @unchecked Sendable {
-    static let shared = DemoGateway()
-    
     static let host = "127.0.0.1"
     static let port = 9
     static let baseURL = URL(string: "http://\(host):\(port)")!
-    static let inboxPath = "/Users/demo/Multigravity/Inbox/2026-10"
-    
-    private static let flagLock = NSLock()
-    nonisolated(unsafe) private static var enabledFlag = false
+
+    private static let enabledLock = NSLock()
+    private static var _isEnabled = false
     /// Mirrors `AppSettings.isDemoMode`; readable from any thread (URLProtocol runs off the main actor).
     static var isEnabled: Bool {
-        get { flagLock.lock(); defer { flagLock.unlock() }; return enabledFlag }
-        set { flagLock.lock(); enabledFlag = newValue; flagLock.unlock() }
+        get { enabledLock.lock(); defer { enabledLock.unlock() }; return _isEnabled }
+        set { enabledLock.lock(); _isEnabled = newValue; enabledLock.unlock() }
     }
-    
-    // MARK: - State
-    
+
+    static let shared = DemoGateway()
+
     struct Project {
         let id: String
         let name: String
-        let uri: String
+        var alias: String?
+        let workspaceUri: String
+        let path: String
+        let isWorkspace: Bool
     }
-    
+
+    struct DemoFileDiff {
+        let fileUri: String
+        let fileName: String
+        let actionType: String // "MODIFY" | "CREATE" | "DELETE"
+        let additions: Int
+        let deletions: Int
+        let diffLines: [(type: String, text: String)] // "INSERT" | "DELETE" | "UNCHANGED"
+
+        func toJSON() -> [String: Any] {
+            [
+                "fileUri": fileUri,
+                "fileName": fileName,
+                "actionType": actionType,
+                "additions": additions,
+                "deletions": deletions,
+                "diffLines": diffLines.map { ["type": $0.type, "text": $0.text] }
+            ]
+        }
+    }
+
+    struct DemoGitState {
+        let repoName: String
+        var branch: String
+        let upstream: String?
+        var ahead: Int
+        let behind: Int
+        let detached: Bool
+        var files: [[String: Any]]
+        let githubTarget: [String: Any]?
+        var pullRequests: [[String: Any]]
+
+        var isClean: Bool { files.isEmpty }
+
+        func toJSON() -> [String: Any] {
+            var dict: [String: Any] = [
+                "repoName": repoName,
+                "branch": branch,
+                "ahead": ahead,
+                "behind": behind,
+                "detached": detached,
+                "files": files,
+                "clean": files.isEmpty,
+                "pullRequests": pullRequests
+            ]
+            if let upstream { dict["upstream"] = upstream }
+            if let githubTarget { dict["githubTarget"] = githubTarget }
+            return dict
+        }
+    }
+
     struct Conversation {
         let id: String
         var title: String
-        var project: Project?
-        let createdAt: Date
+        let workspaceName: String
+        let workspaceUri: String
+        var status: String
+        var duration: String
+        var messages: [Message]
+        var pendingInteraction: [String: Any]?
+        var canProceed: Bool
+        var proceedArtifactUri: String?
+        var runningTasks: [[String: Any]]
+        var queuedMessages: [[String: Any]]
         var lastModified: Date
-        var messages: [[String: Any]]
-        var pending: Pending?
-        var unread = false
-        // Static states used to showcase every kind of status in the demo list / chat.
-        var forcedStatus: String? = nil           // e.g. "CASCADE_RUN_STATUS_RUNNING"
-        var needsInput = false
-        var hasError = false
-        var errorMessage: String? = nil
-        var pendingInteraction: [String: Any]? = nil
-        var canProceed = false
-        var proceedUri: String? = nil
-        var runningTasks: [[String: Any]] = []
-        var queued: [[String: Any]] = []
+        var unread: Bool
+        var pinned: Bool
+        var modelId: String
+        var modelName: String
+        var startedAt: String
+        var contextMeter: ContextMeterItem?
+        var swarm: [String: Any]?
+        var subagents: [[String: Any]]
+        var parentConversationId: String?
+        var subagentRole: String?
+        var gitStatus: DemoGitState?
+        var changes: [DemoFileDiff]
+        var chapters: [[String: Any]]
+
+        var isSubagent: Bool {
+            guard let parent = parentConversationId else { return false }
+            return !parent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
     }
-    
-    struct Pending {
-        let startedAt: Date
-        let userText: String
-        let fileNames: [String]
-        let imageCount: Int
-        var toolAdded = false
-        /// Scripted reply; when nil a generic demo reply is generated.
-        var reply: String? = nil
-    }
-    
-    struct StoredFile {
+
+    struct Message {
         let id: String
+        var type: String // "user" | "agent" | "tools" | "error" | "subagent" | "workflow"
+        var text: String
+        var toolCount: Int?
+        var toolNames: [String]?
+        var imageUrls: [String]?
+        var artifacts: [[String: Any]]?
+        var stepIndex: Int
+        var attemptCount: Int?
+        var maxAttempts: Int?
+        var model: String?
+        var modelName: String?
+        var timestamp: String?
+        var subagent: [String: Any]?
+        var workflow: [String: Any]?
+        var slashCommands: [[String: Any]]?
+        var clientMessageId: String?
+        var errorKind: String?
+        var isOverflow: Bool?
+
+        func toJSON() -> [String: Any] {
+            var dict: [String: Any] = [
+                "id": id,
+                "type": type,
+                "text": text,
+                "stepIndex": stepIndex
+            ]
+            if let toolCount { dict["toolCount"] = toolCount }
+            if let toolNames { dict["toolNames"] = toolNames }
+            if let imageUrls { dict["imageUrls"] = imageUrls }
+            if let artifacts { dict["artifacts"] = artifacts }
+            if let attemptCount { dict["attemptCount"] = attemptCount }
+            if let maxAttempts { dict["maxAttempts"] = maxAttempts }
+            if let model { dict["model"] = model }
+            if let modelName { dict["modelName"] = modelName }
+            if let timestamp { dict["timestamp"] = timestamp }
+            if let subagent { dict["subagent"] = subagent }
+            if let workflow { dict["workflow"] = workflow }
+            if let slashCommands { dict["slashCommands"] = slashCommands }
+            if let clientMessageId { dict["clientMessageId"] = clientMessageId }
+            if let errorKind { dict["errorKind"] = errorKind }
+            if let isOverflow { dict["isOverflow"] = isOverflow }
+            return dict
+        }
+    }
+
+    struct StoredFile {
         let name: String
         let data: Data
-        let path: String
     }
-    
-    let lock = NSRecursiveLock()
-    var conversations: [String: Conversation] = [:]
-    var files: [String: StoredFile] = [:]      // keyed by path
-    private var counter = 0
-    
-    /// Simulated Cockpit Tools quota accounts. Percentages are 0...100; reset offsets are seconds from "now".
+
     struct QuotaAccount {
         let id: String
         let email: String
         let name: String
-        let subscriptionTier: String
-        var claude5h: Double
-        var claudeWeekly: Double
-        var gemini5h: Double
-        var geminiWeekly: Double
-        var gemini4Argon: Double?
-        let reset5h: TimeInterval
-        let resetWeekly: TimeInterval
+        let tier: String
+        var claude5h: Int
+        var claudeWeekly: Int
+        var gemini5h: Int
+        var geminiWeekly: Int
+        var argon: Int?
+        var claude5hOffsetHours: Double
+        var claudeWeeklyOffsetDays: Double
+        var gemini5hOffsetHours: Double
+        var geminiWeeklyOffsetDays: Double
     }
-    private var quotaAccounts: [QuotaAccount] = []
-    private var currentQuotaId = ""
-    private var quotaUpdatedAt: Int64 = 0
-    
-    let projects: [Project] = [
-        Project(id: "demo-project-sales", name: "销售分析", uri: "file:///Users/demo/Projects/sales-analysis"),
-        Project(id: "demo-project-web", name: "官网前端", uri: "file:///Users/demo/Projects/website"),
-        Project(id: "demo-project-api", name: "后端服务", uri: "file:///Users/demo/Projects/backend")
-    ]
-    
-    private init() { reset() }
-    
-    // MARK: - Lifecycle
-    
+
+    let lock = NSLock()
+    var projects: [Project] = []
+    var conversations: [Conversation] = []
+    var files: [String: StoredFile] = [:]
+    var accounts: [QuotaAccount] = []
+    var activeAccountId: String = "acc-ultra"
+    var activeGlobalModelId: String = "gemini-4-carbon-high"
+    var nextIdCounter = 100
+    var plugins: [[String: Any]] = []
+    var pluginProviders: [[String: Any]] = []
+    var automations: [[String: Any]] = []
+    var automationEvents: [[String: Any]] = []
+    var workflowTemplates: [WorkflowTemplateRecord] = []
+    var globalDaemonTasks: [[String: Any]] = []
+    var taskLogs: [String: String] = [:]
+    var mcpServers: [McpServerState] = []
+    var skills: [SkillInfo] = []
+    var nextSwarmSeq: Int = 10
+
+    private init() {
+        seed()
+    }
+
     func reset() {
-        lock.lock(); defer { lock.unlock() }
-        conversations = [:]
+        lock.lock()
+        projects = []
+        conversations = []
         files = [:]
-        counter = 0
-        quotaAccounts = [
-            QuotaAccount(id: "demo-acc-1", email: "alice@multigravity.app", name: "Alice（演示）", subscriptionTier: "ULTRA",
-                         claude5h: 100, claudeWeekly: 96, gemini5h: 88, geminiWeekly: 64, gemini4Argon: 94,
-                         reset5h: 4 * 3600 + 12 * 60, resetWeekly: 5 * 86400 + 2 * 3600),
-            QuotaAccount(id: "demo-acc-2", email: "bob@multigravity.app", name: "Bob（演示）", subscriptionTier: "PRO",
-                         claude5h: 12, claudeWeekly: 41, gemini5h: 55, geminiWeekly: 23, gemini4Argon: nil,
-                         reset5h: 1 * 3600 + 5 * 60, resetWeekly: 2 * 86400 + 20 * 3600),
-            QuotaAccount(id: "demo-acc-3", email: "carol@multigravity.app", name: "", subscriptionTier: "FREE",
-                         claude5h: 78, claudeWeekly: 9, gemini5h: 100, geminiWeekly: 100, gemini4Argon: nil,
-                         reset5h: 3 * 3600 + 40 * 60, resetWeekly: 6 * 86400 + 11 * 3600)
-        ]
-        currentQuotaId = "demo-acc-1"
-        quotaUpdatedAt = Int64(Date().timeIntervalSince1970 * 1000)
-        
-        seedAll(now: Date())
+        accounts = []
+        activeAccountId = "acc-ultra"
+        activeGlobalModelId = "gemini-4-carbon-high"
+        nextIdCounter = 100
+        plugins = []
+        pluginProviders = []
+        automations = []
+        automationEvents = []
+        workflowTemplates = []
+        globalDaemonTasks = []
+        taskLogs = [:]
+        mcpServers = []
+        skills = []
+        nextSwarmSeq = 10
+        lock.unlock()
+        seed()
     }
-    
-    // MARK: - Message builders
-    
-    func iso(_ date: Date) -> String {
+
+    // MARK: - Payloads
+
+    func trajectoriesPayload() -> [String: Any] {
+        lock.lock()
+        defer { lock.unlock() }
+        var summaries: [String: Any] = [:]
+        for c in conversations where !c.isSubagent {
+            var annotations: [String: Any] = [
+                "title": c.title,
+                "markedAsUnread": c.unread
+            ]
+            if c.pinned {
+                annotations["pinned"] = true
+            }
+            summaries[c.id] = [
+                "summary": c.title,
+                "status": c.status,
+                "stepCount": c.messages.count,
+                "lastModifiedTime": Self.iso(c.lastModified),
+                "annotations": annotations,
+                "trajectoryMetadata": [
+                    "createdAt": c.startedAt,
+                    "workspaces": [["workspaceFolderAbsoluteUri": c.workspaceUri]]
+                ]
+            ]
+        }
+        return ["trajectorySummaries": summaries]
+    }
+
+    func projectsPayload() -> [[String: Any]] {
+        lock.lock()
+        defer { lock.unlock() }
+        return projects.map { p in
+            let count = conversations.filter { $0.workspaceUri == p.workspaceUri && !$0.isSubagent }.count
+            let latest = conversations
+                .filter { $0.workspaceUri == p.workspaceUri && !$0.isSubagent }
+                .map(\.lastModified)
+                .max() ?? Date().addingTimeInterval(-3600)
+            var dict: [String: Any] = [
+                "id": p.id,
+                "name": p.name,
+                "uri": p.workspaceUri,
+                "path": p.path,
+                "isWorkspace": p.isWorkspace,
+                "sessionCount": count,
+                "lastActive": Self.iso(latest)
+            ]
+            if let alias = p.alias, !alias.isEmpty {
+                dict["alias"] = alias
+            }
+            return dict
+        }
+    }
+
+    func updateProjectAlias(path: String, alias: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        let cleanPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanAlias = alias.trimmingCharacters(in: .whitespacesAndNewlines)
+        for i in projects.indices {
+            if projects[i].path == cleanPath || projects[i].workspaceUri == cleanPath || projects[i].id == cleanPath {
+                projects[i].alias = cleanAlias.isEmpty ? nil : cleanAlias
+            }
+        }
+    }
+
+    func statusPayload() -> [String: Any] {
+        lock.lock()
+        let first = conversations.first(where: { !$0.isSubagent })
+        lock.unlock()
+        var payload: [String: Any] = [
+            "status": "ok",
+            "os": "darwin",
+            "platform": "macOS (Apple M4 Max · 演示网关)",
+            "usedInterface": "DemoLoopback",
+            "connectionDescription": "本机演示模拟网关",
+            "upstream": [
+                "pid": 4821,
+                "port": 51034,
+                "is_healthy": true
+            ],
+            "compat": [
+                "version": "2.35.0",
+                "checked": true,
+                "coreOk": true,
+                "unavailable": [],
+                "missingRpcs": []
+            ]
+        ]
+        if let first {
+            payload["unified_cursor"] = [
+                "cascade_id": first.id,
+                "title": first.title,
+                "source": "desktop",
+                "updated_at": Self.iso(first.lastModified),
+                "is_sticky": false,
+                "time_skew_ms": 0
+            ]
+        }
+        return payload
+    }
+
+    func modelsPayload() -> Data {
+        let options: [ModelOption] = [
+            ModelOption(id: "gemini-4-carbon-high", name: "Gemini 4 Carbon (High)", provider: "gemini", enum: "MODEL_PLACEHOLDER_M427", supportsImages: true, thinking: true, tag: "New"),
+            ModelOption(id: "gemini-4-carbon-medium", name: "Gemini 4 Carbon (Medium)", provider: "gemini", enum: "MODEL_PLACEHOLDER_M437", supportsImages: true, thinking: true, tag: nil),
+            ModelOption(id: "gemini-4-carbon-low", name: "Gemini 4 Carbon (Low)", provider: "gemini", enum: "MODEL_PLACEHOLDER_M438", supportsImages: true, thinking: true, tag: nil),
+            ModelOption(id: "gemini-4-argon-high", name: "Gemini 4 Argon (High)", provider: "gemini", enum: "MODEL_PLACEHOLDER_M417", supportsImages: true, thinking: true, tag: nil),
+            ModelOption(id: "gemini-4-argon-medium", name: "Gemini 4 Argon (Medium)", provider: "gemini", enum: "MODEL_PLACEHOLDER_M418", supportsImages: true, thinking: true, tag: nil),
+            ModelOption(id: "gemini-4-argon-low", name: "Gemini 4 Argon (Low)", provider: "gemini", enum: "MODEL_PLACEHOLDER_M419", supportsImages: true, thinking: false, tag: nil),
+            ModelOption(id: "gemini-4-hydrogen-high", name: "Gemini 4 Hydrogen (High)", provider: "gemini", enum: "MODEL_PLACEHOLDER_M525", supportsImages: true, thinking: true, tag: "Fast"),
+            ModelOption(id: "gemini-3.8-flash-high", name: "Gemini 3.8 Flash (High)", provider: "gemini", enum: "MODEL_PLACEHOLDER_M318", supportsImages: true, thinking: true, tag: nil),
+            ModelOption(id: "claude-opus-5-5-high", name: "Claude Opus 5.5 (High)", provider: "claude", enum: "MODEL_PLACEHOLDER_M402", supportsImages: true, thinking: true, tag: "Peak"),
+            ModelOption(id: "claude-opus-5-5-medium", name: "Claude Opus 5.5 (Medium)", provider: "claude", enum: "MODEL_PLACEHOLDER_M401", supportsImages: true, thinking: true, tag: nil),
+            ModelOption(id: "claude-sonnet-5-5-high", name: "Claude Sonnet 5.5 (High)", provider: "claude", enum: "MODEL_PLACEHOLDER_M405", supportsImages: true, thinking: true, tag: nil),
+            ModelOption(id: "claude-sonnet-5-5-medium", name: "Claude Sonnet 5.5 (Medium)", provider: "claude", enum: "MODEL_PLACEHOLDER_M404", supportsImages: true, thinking: false, tag: nil),
+            ModelOption(id: "gemini-pro-orchestrator", name: "Orchestrator Carbon", provider: "orchestrator", enum: "MODEL_PLACEHOLDER_M667", supportsImages: true, thinking: true, tag: "Swarm")
+        ]
+        let response = ModelsResponse(
+            models: options,
+            defaults: [
+                "gemini": "gemini-4-carbon-high",
+                "claude": "claude-opus-5-5-high",
+                "orchestrator": "gemini-pro-orchestrator"
+            ],
+            live: true
+        )
+        return (try? JSONEncoder().encode(response)) ?? Data("{\"models\":[],\"defaults\":{},\"live\":true}".utf8)
+    }
+
+    func slashCommandsPayload() -> [String: Any] {
+        let commands: [[String: Any]] = [
+            ["name": "compact", "title": "压缩上下文", "description": "提炼当前对话关键事实并大幅释放上下文窗口占用", "icon": "collapse_all", "kind": "system"],
+            ["name": "plan", "title": "制定实施计划", "description": "先拆解架构、关键路径与风险，确认后再动手改代码", "icon": "ballot", "kind": "system"],
+            ["name": "grill-me", "title": "深度追问对齐", "description": "通过多轮聚焦提问暴露隐含前提并消除设计歧义", "icon": "forum", "kind": "system"],
+            ["name": "workflow", "title": "动态多智能体工作流", "description": "编写并执行 Python 并发/流水线编排工作流脚本", "icon": "graph_2", "kind": "system"],
+            ["name": "teamwork", "title": "蜂群协同攻坚", "description": "组建多角色 Swarm Agent 协作板并发推进大型任务", "icon": "graph_2", "kind": "system"],
+            ["name": "goal", "title": "长程目标模式", "description": "持续自主验证与迭代直至完全达成验收目标", "icon": "timer", "kind": "system"],
+            ["name": "boost", "title": "深度思考强化", "description": "调用多视角严格验证与高算力推理链路", "icon": "bolt", "kind": "system"],
+            ["name": "schedule", "title": "定时自动化", "description": "创建 Cron 定时巡检或延时唤醒触发器", "icon": "schedule", "kind": "system"],
+            ["name": "btw", "title": "旁路快问", "description": "不打断主线上下文的轻量临时提问", "icon": "chat_add_on", "kind": "system"],
+            ["name": "chart-generator", "title": "chart-generator", "description": "自动化图表生成与多维度可视化分析", "icon": "code_blocks", "kind": "skill"],
+            ["name": "sql-inspector", "title": "sql-inspector", "description": "SQL 查询调优与执行计划诊断", "icon": "code_blocks", "kind": "skill"],
+            ["name": "jiuge-market-analysis", "title": "jiuge-market-analysis", "description": "首席宏观研判与市场逻辑观点体系", "icon": "lightbulb_2", "kind": "skill"],
+            ["name": "swift-refactor", "title": "swift-refactor", "description": "SwiftUI / Swift 并发与视图拆分重构指南", "icon": "code", "kind": "skill"]
+        ]
+        return ["commands": commands]
+    }
+
+    func messagesPayload(cascadeId: String, limit: Int, offset: Int?) -> [String: Any]? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let c = conversations.first(where: { $0.id == cascadeId }) else { return nil }
+        let total = c.messages.count
+        let clampedLimit = max(1, limit)
+        let end = min(total, offset ?? total)
+        let start = max(0, end - clampedLimit)
+        let slice = Array(c.messages[start..<end])
+        let toolCount = c.messages.reduce(0) { $0 + ($1.toolCount ?? 0) }
+        var payload: [String: Any] = [
+            "cascadeId": c.id,
+            "title": c.title,
+            "status": c.status,
+            "duration": c.duration,
+            "totalSteps": total,
+            "totalTools": toolCount,
+            "totalMessages": total,
+            "hasMore": start > 0,
+            "nextOffset": start,
+            "canProceed": c.canProceed,
+            "runningTasks": c.runningTasks,
+            "queuedMessages": c.queuedMessages,
+            "activeModel": c.modelId,
+            "activeModelName": c.modelName,
+            "modelDisplayName": c.modelName,
+            "startedAt": c.startedAt,
+            "messages": slice.map { $0.toJSON() }
+        ]
+        if let uri = c.proceedArtifactUri { payload["proceedArtifactUri"] = uri }
+        if let pi = c.pendingInteraction { payload["pendingInteraction"] = pi }
+        if let cm = c.contextMeter,
+           let cmData = try? JSONEncoder().encode(cm),
+           let cmObj = try? JSONSerialization.jsonObject(with: cmData) {
+            payload["contextMeter"] = cmObj
+        }
+        if let swarm = c.swarm, let brief = swarm["brief"] {
+            payload["swarm"] = brief
+        }
+        if !c.subagents.isEmpty {
+            payload["subagents"] = c.subagents
+        }
+        if let parentId = c.parentConversationId {
+            payload["parentConversationId"] = parentId
+        }
+        if let role = c.subagentRole {
+            payload["subagentRole"] = role
+        }
+        if c.status == "CASCADE_RUN_STATUS_ERROR", let lastErr = c.messages.last(where: { $0.type == "error" }) {
+            payload["hasError"] = true
+            payload["errorMessage"] = lastErr.text
+        }
+        return payload
+    }
+
+    func quotasPayload() -> [String: Any] {
+        lock.lock()
+        defer { lock.unlock() }
+        let now = Date()
+        func accountDict(_ acc: QuotaAccount) -> [String: Any] {
+            let fmt = ISO8601DateFormatter()
+            let claude5hReset = now.addingTimeInterval(acc.claude5hOffsetHours * 3600)
+            let claudeWeeklyReset = now.addingTimeInterval(acc.claudeWeeklyOffsetDays * 86400)
+            let gemini5hReset = now.addingTimeInterval(acc.gemini5hOffsetHours * 3600)
+            let geminiWeeklyReset = now.addingTimeInterval(acc.geminiWeeklyOffsetDays * 86400)
+
+            var d: [String: Any] = [
+                "id": acc.id,
+                "email": acc.email,
+                "name": acc.name,
+                "subscription_tier": acc.tier,
+                "claude_weekly": [
+                    "remaining_percent": acc.claudeWeekly,
+                    "reset_time": fmt.string(from: claudeWeeklyReset),
+                    "reset_friendly": friendlyCountdown(from: now, to: claudeWeeklyReset)
+                ],
+                "gemini_weekly": [
+                    "remaining_percent": acc.geminiWeekly,
+                    "reset_time": fmt.string(from: geminiWeeklyReset),
+                    "reset_friendly": friendlyCountdown(from: now, to: geminiWeeklyReset)
+                ]
+            ]
+            if acc.tier.uppercased() != "FREE" {
+                d["claude_5h"] = [
+                    "remaining_percent": acc.claude5h,
+                    "reset_time": fmt.string(from: claude5hReset),
+                    "reset_friendly": friendlyCountdown(from: now, to: claude5hReset)
+                ]
+                d["gemini_5h"] = [
+                    "remaining_percent": acc.gemini5h,
+                    "reset_time": fmt.string(from: gemini5hReset),
+                    "reset_friendly": friendlyCountdown(from: now, to: gemini5hReset)
+                ]
+            }
+            if let argon = acc.argon {
+                d["gemini_4_argon"] = [
+                    "remaining_percent": argon,
+                    "reset_time": fmt.string(from: gemini5hReset),
+                    "reset_friendly": friendlyCountdown(from: now, to: gemini5hReset)
+                ]
+            }
+            return d
+        }
+        let current = accounts.first { $0.id == activeAccountId } ?? accounts.first
+        return [
+            "source": "demo-cockpit",
+            "cockpit_installed": true,
+            "current_account": current.map(accountDict) as Any,
+            "accounts": accounts.map(accountDict),
+            "updated_at": Int64(Date().timeIntervalSince1970 * 1000)
+        ]
+    }
+
+    private func friendlyCountdown(from now: Date, to target: Date) -> String {
+        let secs = max(60, Int(target.timeIntervalSince(now)))
+        let days = secs / 86400
+        let hours = (secs % 86400) / 3600
+        let mins = (secs % 3600) / 60
+        if days > 0 { return "\(days) 天 \(hours) 小时后" }
+        if hours > 0 { return "\(hours) 小时 \(mins) 分后" }
+        return "\(mins) 分钟后"
+    }
+
+    func tokenHistoryPayload() -> Data {
+        let cal = Calendar(identifier: .gregorian)
+        let today = cal.startOfDay(for: Date())
+        let df = DateFormatter()
+        df.dateFormat = "yyyy-MM-dd"
+        df.timeZone = TimeZone.current
+
+        var matrix: [DailyTokenRecord] = []
+        var totalTokens: Int64 = 0
+        var todayTokens: Int64 = 0
+        var last7dTokens: Int64 = 0
+        var totalCostUsd: Double = 0
+        var activeDays = 0
+        var totalSteps = 0
+
+        let totalDays = 364
+        for offset in stride(from: -totalDays, through: 0, by: 1) {
+            guard let date = cal.date(byAdding: .day, value: offset, to: today) else { continue }
+            let dayStr = df.string(from: date)
+            let weekday = cal.component(.weekday, from: date)
+            // Deterministic varied pattern so the 52-week heatmap looks authentic & active.
+            let seed = abs(offset * 73 + weekday * 19) % 100
+            let isRecent = offset >= -21
+            let isIdleDay = (offset < -3) && ((weekday == 1 && seed < 55) || seed < 14)
+
+            if isIdleDay {
+                matrix.append(DailyTokenRecord(
+                    date: dayStr,
+                    total: 0,
+                    input: 0,
+                    output: 0,
+                    cacheRead: 0,
+                    thinking: 0,
+                    steps: 0,
+                    costUsd: 0,
+                    models: [:]
+                ))
+                continue
+            }
+
+            let intensityMultiplier: Int64 = {
+                if offset == 0 { return 9 }
+                if isRecent { return Int64(4 + (seed % 7)) }
+                if seed > 86 { return 10 }
+                if seed > 62 { return 6 }
+                if seed > 30 { return 3 }
+                return 1
+            }()
+
+            let input = 140_000 * intensityMultiplier + Int64((seed % 11) * 12_000)
+            let cacheRead = 680_000 * intensityMultiplier + Int64((seed % 17) * 41_000)
+            let output = 48_000 * intensityMultiplier + Int64((seed % 9) * 3_500)
+            let thinking = 26_000 * intensityMultiplier + Int64((seed % 7) * 2_200)
+            let total = input + cacheRead + output + thinking
+            let steps = Int(intensityMultiplier * 14 + Int64(seed % 19))
+            let costUsd = (Double(input) * 1.25 + Double(cacheRead) * 0.12 + Double(output + thinking) * 5.0) / 1_000_000.0
+
+            let carbonShare = Int64(Double(total) * 0.44)
+            let opusShare = Int64(Double(total) * 0.31)
+            let flashShare = Int64(Double(total) * 0.17)
+            let argonShare = max(0, total - carbonShare - opusShare - flashShare)
+            let models: [String: Int64] = [
+                "Gemini 4 Carbon (High)": carbonShare,
+                "Claude Opus 5.5 (High)": opusShare,
+                "Gemini 3.8 Flash": flashShare,
+                "Gemini 4 Argon (High)": argonShare
+            ]
+
+            matrix.append(DailyTokenRecord(
+                date: dayStr,
+                total: total,
+                input: input,
+                output: output,
+                cacheRead: cacheRead,
+                thinking: thinking,
+                steps: steps,
+                costUsd: costUsd,
+                models: models
+            ))
+
+            totalTokens += total
+            if offset == 0 { todayTokens = total }
+            if offset >= -6 { last7dTokens += total }
+            totalCostUsd += costUsd
+            activeDays += 1
+            totalSteps += steps
+        }
+
+        let desktopTokens = Int64(Double(totalTokens) * 0.72)
+        let cliTokens = totalTokens - desktopTokens
+        let summary = TokenHistorySummary(
+            totalTokens: totalTokens,
+            todayTokens: todayTokens,
+            last7dTokens: last7dTokens,
+            desktopTokens: desktopTokens,
+            cliTokens: cliTokens,
+            estimatedCostUsd: totalCostUsd,
+            estimatedCostCny: totalCostUsd * 7.24,
+            activeDays: activeDays,
+            totalSteps: totalSteps
+        )
+        let resp = TokenHistoryResponse(
+            updatedAt: Int64(Date().timeIntervalSince1970 * 1000),
+            summary: summary,
+            dailyMatrix: matrix
+        )
+        return (try? JSONEncoder().encode(resp)) ?? Data("{}".utf8)
+    }
+
+    // MARK: - Actions
+
+    func createConversation(workspace: String?, model: String?) -> String {
+        lock.lock()
+        defer { lock.unlock() }
+        nextIdCounter += 1
+        let id = String(format: "demo-%04d-live", nextIdCounter)
+        let matched = projects.first { $0.workspaceUri == workspace || $0.name == workspace || $0.path == workspace }
+        let wsName = matched?.name ?? "Chat"
+        let wsUri = matched?.workspaceUri ?? "chat"
+        let chosenModel = (model?.isEmpty == false) ? model! : activeGlobalModelId
+        let conv = Conversation(
+            id: id,
+            title: "新对话",
+            workspaceName: wsName,
+            workspaceUri: wsUri,
+            status: "CASCADE_RUN_STATUS_IDLE",
+            duration: "0秒",
+            messages: [],
+            pendingInteraction: nil,
+            canProceed: false,
+            proceedArtifactUri: nil,
+            runningTasks: [],
+            queuedMessages: [],
+            lastModified: Date(),
+            unread: false,
+            pinned: false,
+            modelId: chosenModel,
+            modelName: ModelDefaultsLogic.displayName(forID: chosenModel),
+            startedAt: Self.iso(Date()),
+            contextMeter: ContextMeterItem(
+                usedTokens: 0,
+                maxTokens: 200_000,
+                percentage: 0,
+                inputTokens: 0,
+                outputTokens: 0,
+                cacheReadTokens: 0,
+                thinkingTokens: 0,
+                timeToFirstTokenSec: nil,
+                streamingDurationSec: nil,
+                tokensPerSecond: nil,
+                isOverflow: false,
+                errorKind: nil
+            ),
+            swarm: nil,
+            subagents: [],
+            parentConversationId: nil,
+            subagentRole: nil,
+            gitStatus: matched?.isWorkspace == true ? DemoGitState(
+                repoName: wsName,
+                branch: "main",
+                upstream: "origin/main",
+                ahead: 0,
+                behind: 0,
+                detached: false,
+                files: [],
+                githubTarget: ["host": "github.com", "owner": "hal9000", "repo": wsName, "branch": "main"],
+                pullRequests: []
+            ) : nil,
+            changes: [],
+            chapters: []
+        )
+        conversations.insert(conv, at: 0)
+        return id
+    }
+
+    func switchModel(cascadeId: String?, modelEnum: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        let resolvedId = ModelCatalogStore.shared.id(forEnum: modelEnum)
+            ?? ModelDefaultsLogic.staticIDByEnum[modelEnum]
+            ?? activeGlobalModelId
+        activeGlobalModelId = resolvedId
+        if let cid = cascadeId, !cid.isEmpty,
+           let idx = conversations.firstIndex(where: { $0.id == cid }) {
+            conversations[idx].modelId = resolvedId
+            conversations[idx].modelName = ModelDefaultsLogic.displayName(forID: resolvedId)
+        }
+    }
+
+    func send(
+        cascadeId: String,
+        text: String,
+        clientMessageId: String? = nil,
+        media: [String]? = nil,
+        slashCommands: [[String: Any]]? = nil,
+        isArtifactApproval: Bool = false
+    ) {
+        lock.lock()
+        guard let idx = conversations.firstIndex(where: { $0.id == cascadeId }) else {
+            lock.unlock()
+            return
+        }
+
+        if isArtifactApproval {
+            conversations[idx].canProceed = false
+            conversations[idx].proceedArtifactUri = nil
+            conversations[idx].status = "CASCADE_RUN_STATUS_RUNNING"
+            conversations[idx].lastModified = Date()
+            lock.unlock()
+
+            DispatchQueue.global().asyncAfter(deadline: .now() + 0.9) {
+                self.lock.lock()
+                defer { self.lock.unlock() }
+                guard let i = self.conversations.firstIndex(where: { $0.id == cascadeId }) else { return }
+                let s1 = self.conversations[i].messages.count
+                self.conversations[i].messages.append(Self.toolMsg(id: "\(cascadeId)-tool-\(s1)", step: s1, tools: ["write_to_file", "run_command", "read_file"]))
+                let s2 = self.conversations[i].messages.count
+                self.conversations[i].messages.append(Self.agentMsg(
+                    id: "\(cascadeId)-agent-\(s2)",
+                    step: s2,
+                    model: self.conversations[i].modelId,
+                    modelName: self.conversations[i].modelName,
+                    text: "已按审批通过的方案完成实施与本地验证：\n\n1. 更新核心模块化边界，保留旧接口向后兼容。\n2. 全部单元测试与编译校验均已通过 ✅。\n\n如需查看本次修改的增量 Diff 或直接 Commit，可点击顶部栏的 **Changes** / **Commit**。"
+                ))
+                self.conversations[i].status = "CASCADE_RUN_STATUS_IDLE"
+                self.conversations[i].duration = "4秒"
+                self.conversations[i].lastModified = Date()
+                self.bumpContextMeter(at: i, addInput: 3_200, addOutput: 410, speed: 54.6, ttft: 0.61)
+            }
+            return
+        }
+
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // If already running, queue the message briefly then drain it
+        if conversations[idx].status == "CASCADE_RUN_STATUS_RUNNING" && !trimmed.isEmpty {
+            let qid = "q-\(UUID().uuidString.prefix(8))"
+            conversations[idx].queuedMessages.append([
+                "id": qid,
+                "text": trimmed,
+                "status": "QUEUED",
+                "clientMessageId": clientMessageId ?? ""
+            ])
+            conversations[idx].lastModified = Date()
+            lock.unlock()
+
+            DispatchQueue.global().asyncAfter(deadline: .now() + 1.1) {
+                self.lock.lock()
+                guard let i = self.conversations.firstIndex(where: { $0.id == cascadeId }) else {
+                    self.lock.unlock()
+                    return
+                }
+                self.conversations[i].queuedMessages.removeAll { ($0["id"] as? String) == qid }
+                self.conversations[i].status = "CASCADE_RUN_STATUS_IDLE"
+                self.lock.unlock()
+                self.send(cascadeId: cascadeId, text: trimmed, clientMessageId: clientMessageId, media: media, slashCommands: slashCommands)
+            }
+            return
+        }
+
+        if conversations[idx].title == "新对话", !trimmed.isEmpty {
+            conversations[idx].title = String(trimmed.prefix(24))
+        }
+
+        let imageUrls: [String]? = media?.enumerated().map { offset, b64 in
+            let name = "photo-\(offset + 1).jpg"
+            let data = Data(base64Encoded: b64) ?? Data()
+            files[name] = StoredFile(name: name, data: data)
+            return "/api/v1/files/raw?path=\(name)"
+        }
+
+        let step = conversations[idx].messages.count
+        let promptText = trimmed.isEmpty ? "Continue" : trimmed
+        var userM = Self.userMsg(
+            id: "\(cascadeId)-u-\(step)",
+            step: step,
+            text: promptText,
+            imageUrls: imageUrls,
+            slashCommands: slashCommands
+        )
+        userM.clientMessageId = clientMessageId
+        if trimmed != "Continue" {
+            conversations[idx].messages.append(userM)
+        }
+        conversations[idx].canProceed = false
+        conversations[idx].pendingInteraction = nil
+        conversations[idx].status = "CASCADE_RUN_STATUS_RUNNING"
+        conversations[idx].lastModified = Date()
+        let activeModelId = conversations[idx].modelId
+        let activeModelName = conversations[idx].modelName
+        lock.unlock()
+
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.85) {
+            self.lock.lock()
+            defer { self.lock.unlock() }
+            guard let i = self.conversations.firstIndex(where: { $0.id == cascadeId }),
+                  self.conversations[i].status == "CASCADE_RUN_STATUS_RUNNING" else { return }
+
+            let lower = promptText.lowercased()
+            if lower.hasPrefix("/compact") {
+                let s = self.conversations[i].messages.count
+                let prevPct = self.conversations[i].contextMeter?.percentage ?? 88.0
+                let newUsed: Int64 = 48_600
+                let maxT: Int64 = 200_000
+                let newPct = Double(newUsed) / Double(maxT) * 100.0
+                self.conversations[i].contextMeter = ContextMeterItem(
+                    usedTokens: newUsed,
+                    maxTokens: maxT,
+                    percentage: newPct,
+                    inputTokens: 12_400,
+                    outputTokens: 640,
+                    cacheReadTokens: 31_200,
+                    thinkingTokens: 480,
+                    timeToFirstTokenSec: 0.44,
+                    streamingDurationSec: 2.1,
+                    tokensPerSecond: 61.4,
+                    isOverflow: false,
+                    errorKind: nil
+                )
+                self.conversations[i].messages.append(Self.agentMsg(
+                    id: "\(cascadeId)-a-\(s)",
+                    step: s,
+                    model: activeModelId,
+                    modelName: activeModelName,
+                    text: String(format: "已完成上下文压缩 **`/compact`** ✅\n\n- 上下文占用从 **%.1f%%** 降至 **%.1f%%**（48.6K / 200K tokens）\n- 保留了核心需求、文件路径、改动 Diff 与验收约束，移除了冗余中间工具输出\n\n现在可以继续畅通对话了。", prevPct, newPct)
+                ))
+            } else if lower.hasPrefix("/workflow") || lower.contains("run_workflow") || lower.contains("工作流") {
+                let wfSubId = "demo-subagent-live-wf-\(self.nextIdCounter)"
+                self.nextIdCounter += 1
+                let wfObj: [String: Any] = [
+                    "description": "实时触发的多智能体并发工作流",
+                    "scriptPath": "workflows/live_pipeline.py",
+                    "phases": [
+                        [
+                            "name": "Phase 1 · 并发采集与静态检查",
+                            "status": "done",
+                            "logs": [
+                                "[00:00.2] spawn parallel workers (n=2)",
+                                "[00:01.1] scanner finished: 0 critical issues"
+                            ],
+                            "subagents": [
+                                [
+                                    "conversationId": "demo-subagent-audit-1",
+                                    "typeName": "research",
+                                    "role": "依赖与静态审计官",
+                                    "modelTier": "flash",
+                                    "status": "done",
+                                    "stepCount": 4,
+                                    "title": "依赖与静态审计官"
+                                ]
+                            ]
+                        ],
+                        [
+                            "name": "Phase 2 · 方案综合与收敛",
+                            "status": "done",
+                            "logs": ["[00:02.0] aggregated summary & emitted JSON finish contract"],
+                            "subagents": [
+                                [
+                                    "conversationId": wfSubId,
+                                    "typeName": "research",
+                                    "role": "结论校验子代理",
+                                    "modelTier": "pro",
+                                    "status": "done",
+                                    "stepCount": 3,
+                                    "title": "结论校验子代理"
+                                ]
+                            ]
+                        ]
+                    ],
+                    "logs": [
+                        "workflow engine initialized (max_parallel=4)",
+                        "all phases converged cleanly in 2.3s"
+                    ],
+                    "output": "全部 2 个阶段已完成，无阻断风险。",
+                    "resultJson": "{\"ok\":true,\"phases\":2,\"findings\":0,\"recommendedNextStep\":\"可执行 Commit\"}",
+                    "status": "done",
+                    "duration": "2.3s"
+                ]
+                let s1 = self.conversations[i].messages.count
+                self.conversations[i].messages.append(Message(
+                    id: "\(cascadeId)-wf-\(s1)",
+                    type: "workflow",
+                    text: "",
+                    toolCount: 1,
+                    toolNames: ["run_workflow"],
+                    stepIndex: s1,
+                    workflow: wfObj
+                ))
+                let s2 = self.conversations[i].messages.count
+                self.conversations[i].messages.append(Self.agentMsg(
+                    id: "\(cascadeId)-a-\(s2)",
+                    step: s2,
+                    model: activeModelId,
+                    modelName: activeModelName,
+                    text: "动态工作流已执行完毕，详见上方工作流编排卡片中的阶段日志与 JSON 产物。"
+                ))
+                self.bumpContextMeter(at: i, addInput: 4_800, addOutput: 520, speed: 58.2, ttft: 0.55)
+            } else {
+                let s1 = self.conversations[i].messages.count
+                self.conversations[i].messages.append(Self.toolMsg(id: "\(cascadeId)-t-\(s1)", step: s1, tools: ["read_file", "grep_search"]))
+                let s2 = self.conversations[i].messages.count
+                let reply = self.demoReply(for: promptText, hasMedia: !(imageUrls?.isEmpty ?? true))
+                self.conversations[i].messages.append(Self.agentMsg(
+                    id: "\(cascadeId)-a-\(s2)",
+                    step: s2,
+                    model: activeModelId,
+                    modelName: activeModelName,
+                    text: reply
+                ))
+                self.bumpContextMeter(at: i, addInput: 2_600, addOutput: 340, speed: 49.5, ttft: 0.64)
+            }
+
+            self.conversations[i].status = "CASCADE_RUN_STATUS_IDLE"
+            self.conversations[i].duration = "2秒"
+            self.conversations[i].lastModified = Date()
+        }
+    }
+
+    private func bumpContextMeter(at index: Int, addInput: Int64, addOutput: Int64, speed: Double, ttft: Double) {
+        let prev = conversations[index].contextMeter
+        let maxT = prev?.maxTokens ?? 200_000
+        let newUsed = min(maxT - 1_200, (prev?.usedTokens ?? 18_400) + addInput + addOutput)
+        let pct = Double(newUsed) / Double(maxT) * 100.0
+        conversations[index].contextMeter = ContextMeterItem(
+            usedTokens: newUsed,
+            maxTokens: maxT,
+            percentage: pct,
+            inputTokens: (prev?.inputTokens ?? 8_200) + addInput,
+            outputTokens: (prev?.outputTokens ?? 1_100) + addOutput,
+            cacheReadTokens: (prev?.cacheReadTokens ?? 24_000) + addInput * 2,
+            thinkingTokens: (prev?.thinkingTokens ?? 620) + addOutput / 2,
+            timeToFirstTokenSec: ttft,
+            streamingDurationSec: max(1.2, Double(addOutput) / speed),
+            tokensPerSecond: speed,
+            isOverflow: pct >= 95.0,
+            errorKind: pct >= 95.0 ? "context_overflow" : nil
+        )
+    }
+
+    func respond(cascadeId: String, stepIndex: Int, allow: Bool?, optionId: String?, answers: [[String: Any]]?) {
+        lock.lock()
+        guard let idx = conversations.firstIndex(where: { $0.id == cascadeId }) else {
+            lock.unlock()
+            return
+        }
+        let interactionType = conversations[idx].pendingInteraction?["type"] as? String ?? ""
+        conversations[idx].pendingInteraction = nil
+        conversations[idx].status = "CASCADE_RUN_STATUS_RUNNING"
+        conversations[idx].lastModified = Date()
+        let activeModelId = conversations[idx].modelId
+        let activeModelName = conversations[idx].modelName
+        lock.unlock()
+
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.75) {
+            self.lock.lock()
+            defer { self.lock.unlock() }
+            guard let i = self.conversations.firstIndex(where: { $0.id == cascadeId }) else { return }
+            if allow == false {
+                let s = self.conversations[i].messages.count
+                self.conversations[i].messages.append(Self.agentMsg(
+                    id: "\(cascadeId)-a-\(s)",
+                    step: s,
+                    model: activeModelId,
+                    modelName: activeModelName,
+                    text: "好的，已按你的选择取消执行该操作，工作区保持原状。"
+                ))
+            } else if interactionType == "workflow_approval" {
+                let s1 = self.conversations[i].messages.count
+                self.conversations[i].messages.append(Message(
+                    id: "\(cascadeId)-wf-\(s1)",
+                    type: "workflow",
+                    text: "",
+                    toolCount: 1,
+                    toolNames: ["run_workflow"],
+                    stepIndex: s1,
+                    workflow: [
+                        "description": "灰度发布与冒烟验证流水线",
+                        "scriptPath": "deploy/canary_rollout.py",
+                        "phases": [
+                            [
+                                "name": "构建镜像与推送",
+                                "status": "done",
+                                "logs": ["docker buildx ok", "pushed tag v2.35.0-canary"],
+                                "subagents": []
+                            ],
+                            [
+                                "name": "灰度发布 10% 流量",
+                                "status": "done",
+                                "logs": ["canary pods 2/2 ready", "error rate 0.00%"],
+                                "subagents": []
+                            ],
+                            [
+                                "name": "冒烟验证",
+                                "status": "done",
+                                "logs": ["18/18 smoke assertions passed"],
+                                "subagents": []
+                            ]
+                        ],
+                        "logs": ["workflow completed after approval"],
+                        "output": "灰度实例健康检查通过，可随时全量切流。",
+                        "resultJson": "{\"canary\":\"healthy\",\"smokePassed\":18,\"p99Ms\":42}",
+                        "status": "done",
+                        "duration": "6.4s"
+                    ]
+                ))
+                let s2 = self.conversations[i].messages.count
+                self.conversations[i].messages.append(Self.agentMsg(
+                    id: "\(cascadeId)-a-\(s2)",
+                    step: s2,
+                    model: activeModelId,
+                    modelName: activeModelName,
+                    text: "已批准并完成灰度发布工作流！18 项冒烟断言全部通过（P99 = 42ms）。"
+                ))
+            } else {
+                let summary: String
+                if let answers, !answers.isEmpty {
+                    let chosen = answers.compactMap { $0["selectedOptionIds"] as? [String] }.flatMap { $0 }
+                    summary = "已收到你的确认（\(chosen.joined(separator: ", "))），继续完成剩余步骤：\n\n1. 已更新配置并生成变更摘要。\n2. 全部检查通过，随时可继续下一轮对话。"
+                } else if let optionId, !optionId.isEmpty {
+                    summary = "已按所选方案（`\(optionId)`）执行完毕 ✅。"
+                } else {
+                    summary = "已获得执行权限并顺利完成命令运行 ✅。"
+                }
+                let s = self.conversations[i].messages.count
+                self.conversations[i].messages.append(Self.agentMsg(
+                    id: "\(cascadeId)-a-\(s)",
+                    step: s,
+                    model: activeModelId,
+                    modelName: activeModelName,
+                    text: summary
+                ))
+            }
+            self.conversations[i].status = "CASCADE_RUN_STATUS_IDLE"
+            self.conversations[i].duration = "3秒"
+            self.conversations[i].lastModified = Date()
+            self.bumpContextMeter(at: i, addInput: 1_900, addOutput: 260, speed: 53.1, ttft: 0.58)
+        }
+    }
+
+    func stop(cascadeId: String, killBackgroundTasks: Bool = false) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let idx = conversations.firstIndex(where: { $0.id == cascadeId }) else { return }
+        conversations[idx].status = "CASCADE_RUN_STATUS_IDLE"
+        if killBackgroundTasks {
+            conversations[idx].runningTasks = []
+            globalDaemonTasks.removeAll { ($0["conversationId"] as? String) == cascadeId }
+        }
+        conversations[idx].lastModified = Date()
+    }
+
+    func stopTask(cascadeId: String, taskId: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        if let idx = conversations.firstIndex(where: { $0.id == cascadeId }) {
+            conversations[idx].runningTasks.removeAll { ($0["taskId"] as? String) == taskId }
+            if conversations[idx].runningTasks.isEmpty && conversations[idx].status == "CASCADE_RUN_STATUS_RUNNING" {
+                conversations[idx].status = "CASCADE_RUN_STATUS_IDLE"
+            }
+        }
+        globalDaemonTasks.removeAll { ($0["taskId"] as? String) == taskId }
+    }
+
+    func stopSubagent(conversationId: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        if let childIdx = conversations.firstIndex(where: { $0.id == conversationId }) {
+            conversations[childIdx].status = "CASCADE_RUN_STATUS_IDLE"
+            conversations[childIdx].runningTasks = []
+        }
+        for i in conversations.indices {
+            conversations[i].subagents = conversations[i].subagents.map { item in
+                guard (item["conversationId"] as? String) == conversationId else { return item }
+                var copy = item
+                copy["status"] = "done"
+                return copy
+            }
+        }
+    }
+
+    func deleteQueuedMessage(cascadeId: String, messageId: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let idx = conversations.firstIndex(where: { $0.id == cascadeId }) else { return }
+        conversations[idx].queuedMessages.removeAll { ($0["id"] as? String) == messageId }
+    }
+
+    func updateAnnotations(cascadeId: String, title: String?, markedAsUnread: Bool?, pinned: Bool?) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let idx = conversations.firstIndex(where: { $0.id == cascadeId }) else { return }
+        if let title, !title.isEmpty { conversations[idx].title = title }
+        if let markedAsUnread { conversations[idx].unread = markedAsUnread }
+        if let pinned { conversations[idx].pinned = pinned }
+    }
+
+    func deleteConversation(cascadeId: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        conversations.removeAll { $0.id == cascadeId }
+    }
+
+    // MARK: - Changes / Revert / Git / Chapters / Search / Export
+
+    func changesPayload(cascadeId: String) -> [String: Any] {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let conv = conversations.first(where: { $0.id == cascadeId }) else {
+            return ["cascadeId": cascadeId, "files": [], "additions": 0, "deletions": 0, "hasChanges": false]
+        }
+        let additions = conv.changes.reduce(0) { $0 + $1.additions }
+        let deletions = conv.changes.reduce(0) { $0 + $1.deletions }
+        return [
+            "cascadeId": conv.id,
+            "files": conv.changes.map { $0.toJSON() },
+            "additions": additions,
+            "deletions": deletions,
+            "hasChanges": !conv.changes.isEmpty
+        ]
+    }
+
+    func revertPreviewPayload(cascadeId: String, stepIndex: Int) -> [String: Any] {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let conv = conversations.first(where: { $0.id == cascadeId }) else {
+            return ["cascadeId": cascadeId, "stepIndex": stepIndex, "targetStepIndex": stepIndex, "files": [], "hasCodeChanges": false]
+        }
+        return [
+            "cascadeId": conv.id,
+            "stepIndex": stepIndex,
+            "targetStepIndex": max(0, stepIndex),
+            "files": conv.changes.map { $0.toJSON() },
+            "hasCodeChanges": !conv.changes.isEmpty
+        ]
+    }
+
+    func revertExecute(cascadeId: String, stepIndex: Int, conversationOnly: Bool) -> [String: Any] {
+        lock.lock()
+        defer { lock.unlock() }
+        if let idx = conversations.firstIndex(where: { $0.id == cascadeId }) {
+            let kept = conversations[idx].messages.filter { $0.stepIndex < stepIndex }
+            conversations[idx].messages = kept.isEmpty ? Array(conversations[idx].messages.prefix(2)) : kept
+            conversations[idx].status = "CASCADE_RUN_STATUS_IDLE"
+            conversations[idx].pendingInteraction = nil
+            if !conversationOnly {
+                conversations[idx].changes = []
+            }
+            conversations[idx].lastModified = Date()
+        }
+        return ["ok": true, "cascadeId": cascadeId, "stepIndex": stepIndex]
+    }
+
+    func gitStatusPayload(cascadeId: String) -> [String: Any]? {
+        lock.lock()
+        defer { lock.unlock() }
+        return conversations.first(where: { $0.id == cascadeId })?.gitStatus?.toJSON()
+    }
+
+    func gitCommit(cascadeId: String, message: String, paths: [String], push: Bool) -> [String: Any] {
+        lock.lock()
+        defer { lock.unlock() }
+        let sha = String(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(7)).lowercased()
+        if let idx = conversations.firstIndex(where: { $0.id == cascadeId }), var git = conversations[idx].gitStatus {
+            if paths.isEmpty {
+                git.files.removeAll()
+            } else {
+                let targetSet = Set(paths)
+                git.files.removeAll { targetSet.contains(($0["path"] as? String) ?? "") }
+            }
+            git.ahead = push ? 0 : (git.ahead + 1)
+            conversations[idx].gitStatus = git
+            conversations[idx].lastModified = Date()
+        }
+        return [
+            "committed": true,
+            "pushed": push,
+            "commitId": sha,
+            "output": "[demo-branch \(sha)] \(message)\n \(max(1, paths.count)) file(s) changed"
+        ]
+    }
+
+    func gitPush(cascadeId: String) -> [String: Any] {
+        lock.lock()
+        defer { lock.unlock() }
+        if let idx = conversations.firstIndex(where: { $0.id == cascadeId }), var git = conversations[idx].gitStatus {
+            git.ahead = 0
+            conversations[idx].gitStatus = git
+        }
+        return ["pushed": true, "output": "To origin (demo): everything up-to-date"]
+    }
+
+    func chaptersPayload(cascadeId: String, ranges: [[String: Any]]) -> [String: Any] {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let conv = conversations.first(where: { $0.id == cascadeId }) else {
+            return ["chapters": []]
+        }
+        if !conv.chapters.isEmpty && ranges.isEmpty {
+            return ["chapters": conv.chapters]
+        }
+        var out: [[String: Any]] = []
+        for (i, r) in ranges.enumerated() {
+            let s = (r["startStepIndex"] as? Int) ?? 0
+            let e = (r["endStepIndexExclusive"] as? Int) ?? s + 1
+            if let preset = conv.chapters.first(where: { ($0["startStepIndex"] as? Int) == s }) {
+                out.append(preset)
+            } else {
+                let firstUser = conv.messages.first(where: { $0.stepIndex >= s && $0.stepIndex < e && $0.type == "user" })?.text ?? "阶段 \(i + 1)"
+                let shortTitle = String(firstUser.replacingOccurrences(of: "\n", with: " ").prefix(22))
+                out.append([
+                    "startStepIndex": s,
+                    "endStepIndexExclusive": e,
+                    "title": shortTitle.isEmpty ? "第 \(i + 1) 轮对话" : shortTitle,
+                    "generatedAt": Self.iso(Date())
+                ])
+            }
+        }
+        return ["chapters": out]
+    }
+
+    func searchConversationsPayload(query: String) -> [String: Any] {
+        lock.lock()
+        defer { lock.unlock() }
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !q.isEmpty else { return ["results": []] }
+        var results: [[String: Any]] = []
+
+        for conv in conversations where !conv.isSubagent {
+            if let range = conv.title.range(of: q, options: .caseInsensitive) {
+                let sOff = conv.title.unicodeScalars.distance(from: conv.title.unicodeScalars.startIndex, to: range.lowerBound)
+                let eOff = conv.title.unicodeScalars.distance(from: conv.title.unicodeScalars.startIndex, to: range.upperBound)
+                results.append([
+                    "cascadeId": conv.id,
+                    "title": conv.title,
+                    "workspaceName": conv.workspaceName,
+                    "lastModifiedTime": Self.iso(conv.lastModified),
+                    "snippet": conv.title,
+                    "snippetMatchRanges": [["startOffset": sOff, "endOffsetExclusive": eOff]],
+                    "matchSource": "title",
+                    "matchedStepIndex": 0
+                ])
+                continue
+            }
+            for msg in conv.messages where !msg.text.isEmpty {
+                if let range = msg.text.range(of: q, options: .caseInsensitive) {
+                    let prefixStart = msg.text.index(range.lowerBound, offsetBy: -24, limitedBy: msg.text.startIndex) ?? msg.text.startIndex
+                    let suffixEnd = msg.text.index(range.upperBound, offsetBy: 60, limitedBy: msg.text.endIndex) ?? msg.text.endIndex
+                    let snippet = String(msg.text[prefixStart..<suffixEnd]).replacingOccurrences(of: "\n", with: " ")
+                    var matchRanges: [[String: Any]] = []
+                    if let sRange = snippet.range(of: q, options: .caseInsensitive) {
+                        let sOff = snippet.unicodeScalars.distance(from: snippet.unicodeScalars.startIndex, to: sRange.lowerBound)
+                        let eOff = snippet.unicodeScalars.distance(from: snippet.unicodeScalars.startIndex, to: sRange.upperBound)
+                        matchRanges.append(["startOffset": sOff, "endOffsetExclusive": eOff])
+                    }
+                    results.append([
+                        "cascadeId": conv.id,
+                        "title": conv.title,
+                        "workspaceName": conv.workspaceName,
+                        "lastModifiedTime": Self.iso(conv.lastModified),
+                        "snippet": snippet,
+                        "snippetMatchRanges": matchRanges,
+                        "matchSource": msg.type == "user" ? "user" : "agent",
+                        "matchedStepIndex": msg.stepIndex
+                    ])
+                    break
+                }
+            }
+        }
+        return ["results": results]
+    }
+
+    func exportMarkdownPayload(cascadeId: String) -> [String: Any] {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let conv = conversations.first(where: { $0.id == cascadeId }) else {
+            return ["markdown": "# 会话导出\n\n（未找到会话内容）"]
+        }
+        var lines: [String] = [
+            "# \(conv.title)",
+            "",
+            "- **工作区**: \(conv.workspaceName)",
+            "- **模型**: \(conv.modelName)",
+            "- **发起时间**: \(conv.startedAt)",
+            ""
+        ]
+        for msg in conv.messages {
+            switch msg.type {
+            case "user":
+                lines.append("## User (Step \(msg.stepIndex))")
+                lines.append("")
+                lines.append(msg.text)
+                lines.append("")
+            case "agent":
+                let tag = msg.modelName.map { " (\($0))" } ?? ""
+                lines.append("## Assistant\(tag)")
+                lines.append("")
+                lines.append(msg.text)
+                lines.append("")
+            case "workflow":
+                lines.append("> **[Workflow]** \((msg.workflow?["description"] as? String) ?? "动态工作流")")
+                lines.append("")
+            case "tools":
+                let names = (msg.toolNames ?? []).joined(separator: ", ")
+                lines.append("> **[Tools x\(msg.toolCount ?? 1)]** \(names)")
+                lines.append("")
+            case "error":
+                lines.append("> **[Error]** \(msg.text)")
+                lines.append("")
+            default:
+                break
+            }
+        }
+        return ["markdown": lines.joined(separator: "\n")]
+    }
+
+    // MARK: - Swarm
+
+    func swarmSnapshotPayload(cascadeId: String) -> [String: Any] {
+        lock.lock()
+        defer { lock.unlock() }
+        if let swarm = conversations.first(where: { $0.id == cascadeId })?.swarm {
+            return swarm
+        }
+        return [
+            "cascadeId": cascadeId,
+            "coordinatorId": cascadeId,
+            "title": "蜂群协同",
+            "brief": ["active": false, "coordinatorId": cascadeId, "title": "蜂群协同", "phase": "", "headline": "", "workingCount": 0, "totalMembers": 0, "latestSeq": 0, "attentionCount": 0],
+            "members": [],
+            "messages": []
+        ]
+    }
+
+    func sendSwarmFeedback(cascadeId: String, feedback: String) -> [String: Any] {
+        lock.lock()
+        defer { lock.unlock() }
+        let trimmed = feedback.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return ["ok": true] }
+        if let idx = conversations.firstIndex(where: { $0.id == cascadeId }), var swarm = conversations[idx].swarm {
+            nextSwarmSeq += 1
+            let seq = nextSwarmSeq
+            var messages = (swarm["messages"] as? [[String: Any]]) ?? []
+            messages.append([
+                "seq": seq,
+                "agent": "user",
+                "text": trimmed,
+                "time": Self.iso(Date()),
+                "channel": "feedback",
+                "mentions": ["coordinator"]
+            ])
+            nextSwarmSeq += 1
+            messages.append([
+                "seq": nextSwarmSeq,
+                "agent": "coordinator",
+                "text": "@reviewer @tester 已同步用户反馈「\(String(trimmed.prefix(36)))」，优先核查并汇总结果。",
+                "time": Self.iso(Date()),
+                "channel": "board",
+                "mentions": ["reviewer", "tester"]
+            ])
+            swarm["messages"] = messages
+            if var brief = swarm["brief"] as? [String: Any] {
+                brief["latestSeq"] = nextSwarmSeq
+                swarm["brief"] = brief
+            }
+            conversations[idx].swarm = swarm
+        }
+        return ["ok": true]
+    }
+
+    func nudgeSwarmMember(cascadeId: String, workerName: String) -> [String: Any] {
+        lock.lock()
+        defer { lock.unlock() }
+        if let idx = conversations.firstIndex(where: { $0.id == cascadeId }), var swarm = conversations[idx].swarm {
+            nextSwarmSeq += 1
+            var messages = (swarm["messages"] as? [[String: Any]]) ?? []
+            messages.append([
+                "seq": nextSwarmSeq,
+                "agent": "coordinator",
+                "text": "@\(workerName) 收到前端轻推（nudge），请回报当前阶段进展与阻塞项。",
+                "time": Self.iso(Date()),
+                "channel": "nudge",
+                "mentions": [workerName]
+            ])
+            var members = (swarm["members"] as? [[String: Any]]) ?? []
+            for mIdx in members.indices where (members[mIdx]["name"] as? String) == workerName {
+                members[mIdx]["lastNudgedSeq"] = nextSwarmSeq
+                members[mIdx]["lastActivity"] = "刚刚轻推唤醒"
+                if (members[mIdx]["status"] as? String) == "waiting" {
+                    members[mIdx]["status"] = "working"
+                }
+            }
+            swarm["messages"] = messages
+            swarm["members"] = members
+            if var brief = swarm["brief"] as? [String: Any] {
+                brief["latestSeq"] = nextSwarmSeq
+                brief["workingCount"] = members.filter { ($0["status"] as? String) == "working" }.count
+                swarm["brief"] = brief
+            }
+            conversations[idx].swarm = swarm
+        }
+        return ["ok": true]
+    }
+
+    // MARK: - MCP, Skills, Plugins, Automations, Background Tasks, Workflow Templates
+
+    func mcpStatesPayload() -> Data {
+        lock.lock()
+        let resp = GetMcpServerStatesResponse(states: mcpServers)
+        lock.unlock()
+        return (try? JSONEncoder().encode(resp)) ?? Data("{\"states\":[]}".utf8)
+    }
+
+    func skillsPayload() -> Data {
+        lock.lock()
+        let resp = GetAllSkillsResponse(skills: skills)
+        lock.unlock()
+        return (try? JSONEncoder().encode(resp)) ?? Data("{\"skills\":[]}".utf8)
+    }
+
+    func pluginsPayload() -> [String: Any] {
+        lock.lock()
+        defer { lock.unlock() }
+        return ["plugins": plugins, "providers": pluginProviders]
+    }
+
+    func installPlugin(pluginId: String) -> [String: Any] {
+        lock.lock()
+        defer { lock.unlock() }
+        for i in plugins.indices where (plugins[i]["id"] as? String) == pluginId {
+            plugins[i]["installed"] = true
+            plugins[i]["enabled"] = true
+            plugins[i]["authStatus"] = "authenticated"
+        }
+        return [
+            "status": "ok",
+            "success": true,
+            "pluginId": pluginId,
+            "installed": true,
+            "resumed": true,
+            "message": "演示模式已模拟安装插件 \(pluginId)"
+        ]
+    }
+
+    func automationsPayload() -> [String: Any] {
+        lock.lock()
+        defer { lock.unlock() }
+        return ["automations": automations, "events": automationEvents]
+    }
+
+    func manageAutomation(sidecarId: String, action: String) -> [String: Any] {
+        lock.lock()
+        defer { lock.unlock() }
+        let nowIso = Self.iso(Date())
+        for i in automations.indices where (automations[i]["id"] as? String) == sidecarId {
+            switch action {
+            case "stop":
+                automations[i]["status"] = "STOPPED"
+                automations[i]["enabled"] = false
+            case "start":
+                automations[i]["status"] = "RUNNING"
+                automations[i]["enabled"] = true
+                automations[i]["nextRunAt"] = Self.iso(Date().addingTimeInterval(3600))
+            case "run_now":
+                automations[i]["lastRunAt"] = nowIso
+                let linkedConvId = conversations.first(where: { !$0.isSubagent })?.id ?? "demo-0001-upload"
+                automationEvents.insert([
+                    "id": "evt-\(UUID().uuidString.prefix(6))",
+                    "scheduleId": automations[i]["name"] as? String ?? sidecarId,
+                    "conversationId": linkedConvId,
+                    "timestamp": nowIso,
+                    "status": "SUCCESS",
+                    "message": "手动触发执行完成：检查通过 4 项，生成简报摘要。"
+                ], at: 0)
+            default:
+                break
+            }
+        }
+        return ["ok": true]
+    }
+
+    func workflowTemplatesPayload() -> Data {
+        lock.lock()
+        let resp = WorkflowTemplatesResponse(templates: workflowTemplates, updatedAt: Self.iso(Date()))
+        lock.unlock()
+        return (try? JSONEncoder().encode(resp)) ?? Data("{\"templates\":[]}".utf8)
+    }
+
+    func saveWorkflowTemplates(data: Data) -> Data {
+        struct Payload: Decodable { let templates: [WorkflowTemplateRecord] }
+        if let decoded = try? JSONDecoder().decode(Payload.self, from: data) {
+            lock.lock()
+            workflowTemplates = WorkflowTemplateRecord.partitioned(decoded.templates)
+            let resp = WorkflowTemplatesResponse(templates: workflowTemplates, updatedAt: Self.iso(Date()))
+            lock.unlock()
+            return (try? JSONEncoder().encode(resp)) ?? Data("{\"templates\":[]}".utf8)
+        }
+        return workflowTemplatesPayload()
+    }
+
+    func resetWorkflowTemplates() -> Data {
+        lock.lock()
+        workflowTemplates = Self.defaultDemoWorkflowTemplates()
+        let resp = WorkflowTemplatesResponse(templates: workflowTemplates, updatedAt: Self.iso(Date()))
+        lock.unlock()
+        return (try? JSONEncoder().encode(resp)) ?? Data("{\"templates\":[]}".utf8)
+    }
+
+    static func defaultDemoWorkflowTemplates() -> [WorkflowTemplateRecord] {
+        var list = WorkflowTemplateDefaults.all
+        if let first = list.first {
+            list[0] = WorkflowTemplateRecord(
+                id: first.id,
+                title: first.title,
+                subtitle: first.subtitle,
+                icon: first.icon,
+                color: first.color,
+                templatePrompt: first.templatePrompt,
+                inQuickMenu: true
+            )
+        }
+        list.insert(
+            WorkflowTemplateRecord(
+                id: "fullstack_diagnose",
+                title: "全栈故障排查与修复",
+                subtitle: "并发分析网关日志、前端请求链路与单测回归，给出最小修复补丁",
+                icon: "bolt",
+                color: "orange",
+                templatePrompt: "/workflow 请使用 run_workflow 编排并发排查：Worker-1 分析服务端日志与超时链路，Worker-2 验证接口契约与单测，汇总修复方案。",
+                inQuickMenu: true
+            ),
+            at: 1
+        )
+        return WorkflowTemplateRecord.partitioned(list)
+    }
+
+    func globalBackgroundTasksPayload() -> [String: Any] {
+        lock.lock()
+        defer { lock.unlock() }
+        return ["tasks": globalDaemonTasks]
+    }
+
+    func backgroundTaskLogPayload(conversationId: String, taskId: String) -> [String: Any] {
+        lock.lock()
+        defer { lock.unlock() }
+        let content = taskLogs[taskId]
+            ?? taskLogs["\(conversationId):\(taskId)"]
+            ?? "[\(Self.iso(Date()))] task \(taskId) running normally...\nListening on loopback demo worker\n0 warnings, 0 errors."
+        return [
+            "taskId": taskId,
+            "logUri": "demo://logs/\(taskId).log",
+            "content": content,
+            "truncated": false,
+            "sizeBytes": Int64(content.utf8.count)
+        ]
+    }
+
+    // MARK: - Accounts & Files
+
+    func refreshQuotas() {
+        lock.lock()
+        defer { lock.unlock() }
+        for i in accounts.indices {
+            if accounts[i].tier.uppercased() != "FREE" {
+                accounts[i].claude5h = min(100, accounts[i].claude5h + 2)
+                accounts[i].gemini5h = min(100, accounts[i].gemini5h + 2)
+            }
+        }
+    }
+
+    func switchAccount(to email: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        if let acc = accounts.first(where: { $0.email == email }) {
+            activeAccountId = acc.id
+        }
+    }
+
+    func storeFile(name: String, data: Data) -> String {
+        lock.lock()
+        defer { lock.unlock() }
+        let safe = (name as NSString).lastPathComponent
+        let key = safe.isEmpty ? "file-\(UUID().uuidString.prefix(6))" : safe
+        files[key] = StoredFile(name: key, data: data)
+        return "/api/v1/files/raw?path=\(key)"
+    }
+
+    func fileData(forPath path: String) -> (data: Data, name: String)? {
+        lock.lock()
+        defer { lock.unlock() }
+        let key = path.split(separator: "/").last.map(String.init) ?? path
+        if let f = files[path] ?? files[key] { return (f.data, f.name) }
+        return nil
+    }
+
+    // MARK: - Replies & Message Builders
+
+    private func demoReply(for prompt: String, hasMedia: Bool) -> String {
+        if hasMedia {
+            return "已收到你上传的文件 / 图片（演示模式模拟分析）：\n\n- 已完成格式解析与结构提取\n- 如需进一步导出报告或验证 Diff，可点击工具栏功能继续体验"
+        }
+        return "这是**演示模式**下的本地模拟回复（未连接真实电脑网关）：\n\n已收到你的消息：「\(String(prompt.prefix(60)))」。\n\n你可以继续体验：\n- 左滑或长按消息触发 **撤回 / 导出 Markdown**\n- 在输入框键入 **`/`** 呼出斜杠命令与技能，或长按 **Workflow** 胶囊体验快捷模板\n- 点击右上角导轨切换 **章节 TOC / 轮次跳转**，或点顶部 **Changes / Commit** 查看代码与 PR"
+    }
+
+    static func iso(_ date: Date) -> String {
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return f.string(from: date)
     }
-    
-    func userMsg(_ step: Int, _ text: String, fileLines: [String], media: [String] = []) -> [String: Any] {
-        var full = text
-        if !fileLines.isEmpty {
-            full = (text.isEmpty ? "" : text + "\n\n") + AttachmentRules.blockHeader + "\n" + fileLines.joined(separator: "\n")
-        }
-        var m: [String: Any] = ["id": "step-\(step)", "type": "user", "role": "user", "text": full, "content": full, "stepIndex": step]
-        if !media.isEmpty { m["media"] = media }
-        return m
+
+    static func userMsg(
+        id: String,
+        step: Int,
+        text: String,
+        imageUrls: [String]? = nil,
+        timestamp: String? = nil,
+        slashCommands: [[String: Any]]? = nil
+    ) -> Message {
+        Message(
+            id: id,
+            type: "user",
+            text: text,
+            imageUrls: imageUrls,
+            stepIndex: step,
+            timestamp: timestamp,
+            slashCommands: slashCommands
+        )
     }
-    
-    func agentMsg(_ step: Int, _ text: String) -> [String: Any] {
-        ["id": "step-\(step)", "type": "agent", "role": "agent", "text": text, "content": text, "stepIndex": step]
+
+    static func agentMsg(
+        id: String,
+        step: Int,
+        model: String? = "gemini-4-carbon-high",
+        modelName: String? = "Gemini 4 Carbon (High)",
+        text: String,
+        artifacts: [[String: Any]]? = nil,
+        timestamp: String? = nil
+    ) -> Message {
+        Message(
+            id: id,
+            type: "agent",
+            text: text,
+            artifacts: artifacts,
+            stepIndex: step,
+            model: model,
+            modelName: modelName,
+            timestamp: timestamp
+        )
     }
-    
-    func toolMsg(_ step: Int, count: Int, names: [String]) -> [String: Any] {
-        ["id": "step-\(step)", "type": "tools", "role": "tools", "text": "已思考并执行 \(count) 项操作",
-         "content": "已思考并执行 \(count) 项操作", "stepIndex": step, "toolCount": count, "toolNames": names]
+
+    static func toolMsg(id: String, step: Int, tools: [String]) -> Message {
+        Message(id: id, type: "tools", text: "", toolCount: tools.count, toolNames: tools, stepIndex: step)
     }
-    
-    // MARK: - Files
-    
-    func seedFile(name: String, text: String) -> String {
-        let data = Data(text.utf8)
-        let id = Self.fileID(for: data)
-        let path = "\(Self.inboxPath)/\(id)-\(name)"
-        files[path] = StoredFile(id: id, name: name, data: data, path: path)
-        return path
+
+    static func errorMsg(
+        id: String,
+        step: Int,
+        text: String,
+        attempts: Int,
+        max: Int,
+        errorKind: String? = nil,
+        isOverflow: Bool? = nil
+    ) -> Message {
+        Message(
+            id: id,
+            type: "error",
+            text: text,
+            stepIndex: step,
+            attemptCount: attempts,
+            maxAttempts: max,
+            errorKind: errorKind,
+            isOverflow: isOverflow
+        )
     }
-    
-    func fileSize(_ path: String) -> Int64 { Int64(files[path]?.data.count ?? 0) }
-    
-    func fileLine(path: String, name: String, size: Int64) -> String {
-        let ext = (name as NSString).pathExtension.lowercased()
-        return "- \(path) (\(ext), \(Self.humanSize(size)))"
+
+    static func subagentMsg(
+        id: String,
+        step: Int,
+        conversationId: String,
+        role: String,
+        typeName: String = "research",
+        prompt: String,
+        modelTier: String = "flash",
+        status: String = "done",
+        stepCount: Int = 5
+    ) -> Message {
+        Message(
+            id: id,
+            type: "subagent",
+            text: "",
+            stepIndex: step,
+            subagent: [
+                "conversationId": conversationId,
+                "typeName": typeName,
+                "role": role,
+                "prompt": prompt,
+                "modelTier": modelTier,
+                "stepIndex": step,
+                "status": status,
+                "stepCount": stepCount,
+                "title": role
+            ]
+        )
     }
-    
-    static func fileID(for data: Data) -> String {
-        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined().prefix(16).description
-    }
-    
-    static func humanSize(_ n: Int64) -> String {
-        if n >= 1 << 20 { return String(format: "%.1f MB", Double(n) / 1_048_576.0) }
-        if n >= 1 << 10 { return String(format: "%.0f KB", Double(n) / 1024.0) }
-        return "\(n) B"
-    }
-    
-    /// Stores an uploaded attachment and returns the same JSON the real gateway returns.
-    func storeUpload(name: String, data: Data) -> (status: Int, json: [String: Any]) {
-        guard AttachmentRules.isAllowedName(name) else {
-            return (415, ["error": "unsupported_type", "message": "不支持的文件类型: .\((name as NSString).pathExtension)"])
-        }
-        guard !data.isEmpty else { return (400, ["error": "empty_file", "message": "文件为空"]) }
-        guard Int64(data.count) <= AttachmentRules.maxFileBytes else {
-            return (413, ["error": "too_large", "message": "文件超过 50MB 上限"])
-        }
-        lock.lock(); defer { lock.unlock() }
-        let sum = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
-        let id = String(sum.prefix(16))
-        let path = "\(Self.inboxPath)/\(id)-\(name)"
-        files[path] = StoredFile(id: id, name: name, data: data, path: path)
-        let line = fileLine(path: path, name: name, size: Int64(data.count))
-        return (200, [
-            "id": id, "path": path, "name": name, "size": data.count,
-            "mime": Self.mime(for: name), "sha256": sum, "kind": "document", "line": line
-        ])
-    }
-    
-    func fileData(forPath path: String) -> (name: String, data: Data)? {
-        lock.lock(); defer { lock.unlock() }
-        var p = path
-        if p.hasPrefix("file://") { p = String(p.dropFirst(7)) }
-        p = p.removingPercentEncoding ?? p
-        if let f = files[p] { return (f.name, f.data) }
-        return nil
-    }
-    
-    private func attachmentLines(ids: [String]) -> [String] {
-        var lines: [String] = []
-        for id in ids {
-            if let f = files.values.first(where: { $0.id == id }) {
-                lines.append(fileLine(path: f.path, name: f.name, size: Int64(f.data.count)))
-            }
-        }
-        return lines
-    }
-    
+
     static func mime(for name: String) -> String {
-        switch (name as NSString).pathExtension.lowercased() {
-        case "md", "markdown": return "text/markdown; charset=utf-8"
-        case "txt", "log", "csv", "json", "xml", "html", "yaml", "yml": return "text/plain; charset=utf-8"
-        case "pdf": return "application/pdf"
-        case "png": return "image/png"
-        case "jpg", "jpeg": return "image/jpeg"
-        default: return "application/octet-stream"
+        let ext = (name as NSString).pathExtension
+        if let ut = UTType(filenameExtension: ext), let m = ut.preferredMIMEType {
+            return m
         }
-    }
-    
-    // MARK: - Conversations
-    
-    func settle(_ id: String) {
-        guard var conv = conversations[id], var p = conv.pending else { return }
-        let elapsed = Date().timeIntervalSince(p.startedAt)
-        if elapsed >= 1.2 && !p.toolAdded {
-            p.toolAdded = true
-            conv.messages.append(toolMsg(conv.messages.count, count: 2, names: ["读取文件", "思考"]))
-            conv.pending = p
-            conversations[id] = conv
-        }
-        if elapsed >= 3.0 {
-            var reply: String
-            if let scripted = p.reply {
-                reply = scripted
-            } else if !p.fileNames.isEmpty {
-                reply = "我已收到 \(p.fileNames.count) 个附件：\n\n" + p.fileNames.map { "- `\($0)`" }.joined(separator: "\n")
-                    + "\n\n演示模式不会真正读取文件内容。连接到你电脑上的网关后，我会直接读取这些文件并按你的要求处理。"
-            } else if p.imageCount > 0 {
-                reply = "我收到了 \(p.imageCount) 张图片。演示模式不会分析图片内容；连接真实网关后即可使用。"
-            } else {
-                reply = "收到：「\(p.userText.prefix(60))」\n\n这是**演示模式**的模拟回复。连接到你电脑上的网关后，这里会是 Agent 的真实执行结果。"
-            }
-            conv.messages.append(agentMsg(conv.messages.count, reply))
-            conv.pending = nil
-            conv.lastModified = Date()
-            conv.unread = false
-            conversations[id] = conv
-        }
-    }
-    
-    func status(of conv: Conversation) -> String {
-        if conv.pending != nil { return "CASCADE_RUN_STATUS_RUNNING" }
-        if let forced = conv.forcedStatus { return forced }
-        if conv.hasError { return "CASCADE_RUN_STATUS_ERROR" }
-        return "CASCADE_RUN_STATUS_IDLE"
-    }
-    
-    func trajectorySummaries() -> [String: Any] {
-        lock.lock(); defer { lock.unlock() }
-        var out: [String: Any] = [:]
-        for id in conversations.keys { settle(id) }
-        for (id, c) in conversations {
-            var workspaces: [[String: Any]] = []
-            var meta: [String: Any] = ["createdAt": iso(c.createdAt)]
-            if let p = c.project {
-                workspaces = [["workspaceFolderAbsoluteUri": p.uri]]
-                meta["projectId"] = p.id
-                meta["workspaceUris"] = [p.uri]
-                meta["workspaces"] = workspaces
-            }
-            var s: [String: Any] = [
-                "annotations": ["title": c.title, "markedAsUnread": c.unread, "lastUserViewTime": iso(Date())],
-                "createdTime": iso(c.createdAt),
-                "lastModifiedTime": iso(c.lastModified),
-                "status": status(of: c),
-                "stepCount": c.messages.count,
-                "summary": c.title,
-                "trajectoryId": id,
-                "trajectoryMetadata": meta,
-                "trajectoryType": "CORTEX_TRAJECTORY_TYPE_CASCADE",
-                "needsInput": c.needsInput,
-                "hasError": c.hasError
-            ]
-            if !workspaces.isEmpty { s["workspaces"] = workspaces }
-            out[id] = s
-        }
-        return out
-    }
-    
-    func messagesPayload(cascadeId: String) -> [String: Any]? {
-        lock.lock(); defer { lock.unlock() }
-        settle(cascadeId)
-        guard let c = conversations[cascadeId] else { return nil }
-        let toolCount = c.messages.filter { ($0["type"] as? String) == "tools" }.count
-        var payload: [String: Any] = [
-            "cascadeId": c.id, "title": c.title, "status": status(of: c), "hasError": false,
-            "duration": "12秒", "totalSteps": c.messages.count, "totalTools": toolCount,
-            "totalMessages": c.messages.count, "hasMore": false, "nextOffset": 0,
-            "messages": c.messages, "queuedMessages": c.queued, "runningTasks": c.runningTasks,
-            "activeModel": "gemini-3.8-flash-high", "modelDisplayName": "Gemini",
-            "canProceed": c.canProceed
-        ]
-        if let uri = c.proceedUri, c.canProceed { payload["proceedArtifactUri"] = uri }
-        if let pi = c.pendingInteraction { payload["pendingInteraction"] = pi }
-        if c.hasError {
-            payload["hasError"] = true
-            payload["errorMessage"] = c.errorMessage ?? "Agent execution terminated due to error."
-        }
-        return payload
-    }
-    
-    func createConversation(project: Project?, prompt: String) -> String {
-        lock.lock(); defer { lock.unlock() }
-        counter += 1
-        let id = String(format: "demo-%04d-new-%d", 100 + counter, counter)
-        var c = Conversation(id: id, title: "新对话", project: project, createdAt: Date(), lastModified: Date(), messages: [])
-        conversations[id] = c
-        if !prompt.isEmpty {
-            c.title = String(prompt.prefix(20))
-            c.messages = [userMsg(0, prompt, fileLines: [])]
-            c.pending = Pending(startedAt: Date(), userText: prompt, fileNames: [], imageCount: 0)
-            conversations[id] = c
-        }
-        return id
-    }
-    
-    func project(forURI uri: String, id: String?) -> Project? {
-        projects.first { $0.id == id || $0.uri == uri }
-    }
-    
-    /// Handles SendUserCascadeMessage. Returns an error message for invalid attachment ids.
-    func send(body: [String: Any]) -> String? {
-        lock.lock(); defer { lock.unlock() }
-        guard let cid = body["cascadeId"] as? String, var c = conversations[cid] else { return nil }
-        var text = (body["text"] as? String) ?? ""
-        if text.isEmpty, let items = body["items"] as? [[String: Any]], let t = items.first?["text"] as? String { text = t }
-        
-        var ids: [String] = []
-        for a in (body["attachments"] as? [[String: Any]]) ?? [] { if let id = a["id"] as? String { ids.append(id) } }
-        let lines = attachmentLines(ids: ids)
-        if lines.count != ids.count { return "附件不存在或已过期" }
-        
-        var media: [String] = []
-        for m in (body["media"] as? [[String: Any]]) ?? [] { if let b = m["inlineData"] as? String { media.append(b) } }
-        if media.isEmpty {
-            for img in (body["images"] as? [[String: Any]]) ?? [] { if let b = img["base64Data"] as? String { media.append(b) } }
-        }
-        
-        let names = lines.map { line -> String in
-            let path = line.dropFirst(2).components(separatedBy: " (").first ?? ""
-            return files[path]?.name ?? path
-        }
-        // Approving a plan ("Proceed") arrives as an artifact comment without text.
-        if let comments = body["artifactComments"] as? [[String: Any]], !comments.isEmpty, c.canProceed {
-            c.canProceed = false
-            c.proceedUri = nil
-            c.messages.append(toolMsg(c.messages.count, count: 3, names: ["拆分任务", "编辑文件", "运行测试"]))
-            var proceedPending = Pending(startedAt: Date(), userText: "已批准实施方案", fileNames: [], imageCount: 0)
-            proceedPending.reply = """
-            已按方案完成首页改版：
-
-            - ✅ 抽出 `Hero`、`CaseStudies`、`Pricing` 三个组件
-            - ✅ 首屏只保留「免费试用」主按钮
-            - ✅ 客户案例上移到第二屏
-            - ✅ 价格区块改为三档对比卡片
-            - ✅ 接入转化埋点（`home_cta_click`）
-
-            测试全部通过，改动已提交到 `feat/home-redesign` 分支。
-            """
-            c.pending = proceedPending
-            c.lastModified = Date()
-            conversations[cid] = c
-            return nil
-        }
-        if text.isEmpty && lines.isEmpty && media.isEmpty { return nil }
-        // A message sent while the agent is (statically) running is queued, like the real app.
-        if c.forcedStatus != nil, (body["deliveryStrategy"] as? Int) == 2 {
-            c.queued.append(["id": "queue-\(UUID().uuidString)", "text": text, "createdAt": iso(Date())])
-            conversations[cid] = c
-            return nil
-        }
-        // Sending (e.g. "Continue" after an error) resets the static states.
-        c.hasError = false
-        c.errorMessage = nil
-        c.forcedStatus = nil
-        c.needsInput = false
-        c.pendingInteraction = nil
-        c.runningTasks = []
-        c.messages = c.messages.filter { ($0["type"] as? String) != "error" }
-        c.messages.append(userMsg(c.messages.count, text, fileLines: lines, media: media))
-        var pending = Pending(startedAt: Date(), userText: text, fileNames: names, imageCount: media.count)
-        if text == "Continue" {
-            pending.reply = """
-            已恢复。根据日志，500 来自 `session_store` 的连接池耗尽：高峰期登录请求并发超过了连接池上限（20）。
-
-            ```diff
-            - pool = create_pool(max_size=20)
-            + pool = create_pool(max_size=100, acquire_timeout=3)
-            ```
-
-            我已调大连接池并加上获取超时，超时会返回 503 而不是挂起。建议上线后观察 `pool_wait_ms` 指标。
-            """
-        }
-        c.pending = pending
-        c.lastModified = Date()
-        conversations[cid] = c
-        return nil
-    }
-    
-    func rename(ids: [String], title: String) {
-        lock.lock(); defer { lock.unlock() }
-        for id in ids { conversations[id]?.title = title }
-    }
-    
-    func markRead(ids: [String]) {
-        lock.lock(); defer { lock.unlock() }
-        for id in ids { conversations[id]?.unread = false }
-    }
-    
-    func delete(id: String) {
-        lock.lock(); defer { lock.unlock() }
-        conversations.removeValue(forKey: id)
-    }
-    
-    func cancel(id: String) {
-        lock.lock(); defer { lock.unlock() }
-        conversations[id]?.pending = nil
-        conversations[id]?.forcedStatus = nil
-        conversations[id]?.runningTasks = []
-    }
-    
-    /// Handles POST /gateway/cascade/interaction (answer / approve / deny a pending request).
-    /// `answers` carries the per-question selections of a multi-question prompt.
-    func submitInteraction(cascadeId: String, optionId: String, answers: [[String: Any]]) {
-        lock.lock(); defer { lock.unlock() }
-        guard var c = conversations[cascadeId], let pi = c.pendingInteraction else { return }
-        c.pendingInteraction = nil
-        c.needsInput = false
-        c.forcedStatus = nil
-        var reply: String
-        if let questions = pi["questions"] as? [[String: Any]], !answers.isEmpty {
-            var lines: [String] = []
-            for (i, q) in questions.enumerated() {
-                let title = (q["question"] as? String) ?? "问题 \(i + 1)"
-                let opts = (q["options"] as? [[String: Any]]) ?? []
-                let ans = answers.first { ($0["questionIndex"] as? Int) == i }
-                let ids = (ans?["selectedOptionIds"] as? [String]) ?? []
-                var picked = ids.compactMap { id in opts.first { ($0["id"] as? String) == id }?["text"] as? String }
-                if let w = ans?["writeInResponse"] as? String, !w.isEmpty { picked.append("「\(w)」") }
-                if (ans?["skipped"] as? Bool) == true || picked.isEmpty { picked = ["（跳过）"] }
-                lines.append("- **\(title)**：\(picked.joined(separator: "、"))")
-            }
-            reply = "已按你的选择执行：\n\n" + lines.joined(separator: "\n")
-                + "\n\n```\nCREATE INDEX\nTime: 1243.512 ms (00:01.244)\n```\n\n索引 `idx_orders_user_id` 已创建，查询计划已切换为 Index Scan。"
-            c.messages.append(toolMsg(c.messages.count, count: 2, names: ["运行迁移", "验证查询计划"]))
-        } else {
-            let denied = (optionId == "2" || optionId == "5")
-            reply = denied ? "好的，已取消，不会执行该命令。" : "命令已执行成功。"
-            c.messages.append(toolMsg(c.messages.count, count: 1, names: [denied ? "已拒绝命令" : "运行命令"]))
-        }
-        var pending = Pending(startedAt: Date(), userText: "", fileNames: [], imageCount: 0)
-        pending.reply = reply
-        c.pending = pending
-        c.lastModified = Date()
-        conversations[cascadeId] = c
-    }
-    
-    /// Removes a queued follow-up message (DeleteAgentMessage).
-    func deleteQueued(cascadeId: String, messageId: String) {
-        lock.lock(); defer { lock.unlock() }
-        conversations[cascadeId]?.queued.removeAll { ($0["id"] as? String) == messageId }
-    }
-    
-    /// Stops a running background task card.
-    func stopTask(cascadeId: String) {
-        lock.lock(); defer { lock.unlock() }
-        conversations[cascadeId]?.runningTasks = []
-    }
-    
-    func projectsPayload() -> [[String: Any]] {
-        lock.lock(); defer { lock.unlock() }
-        return projects.map { p in
-            let count = conversations.values.filter { $0.project?.id == p.id }.count
-            return [
-                "id": p.id, "name": p.name, "uri": p.uri, "path": String(p.uri.dropFirst(7)),
-                "isWorkspace": false, "sessionCount": count, "lastActive": iso(Date())
-            ] as [String: Any]
-        }
-    }
-    
-    private static func friendly(_ seconds: TimeInterval) -> String {
-        let total = Int(seconds)
-        let d = total / 86400, h = (total % 86400) / 3600, m = (total % 3600) / 60
-        if d > 0 { return "\(d)d \(h)h" }
-        if h > 0 { return "\(h)h \(m)m" }
-        return "\(m)m"
-    }
-    
-    func quotasPayload() -> [String: Any] {
-        lock.lock(); defer { lock.unlock() }
-        func bucket(_ pct: Double, _ reset: TimeInterval) -> [String: Any] {
-            ["remaining_fraction": pct / 100, "remaining_percent": pct,
-             "reset_time": iso(Date().addingTimeInterval(reset)), "reset_friendly": Self.friendly(reset)]
-        }
-        func account(_ a: QuotaAccount) -> [String: Any] {
-            var dict: [String: Any] = [
-                "id": a.id, "email": a.email, "name": a.name,
-                "subscription_tier": a.subscriptionTier,
-                "is_current": a.id == currentQuotaId,
-                "claude_weekly": bucket(a.claudeWeekly, a.resetWeekly),
-                "gemini_weekly": bucket(a.geminiWeekly, a.resetWeekly),
-                "updated_at": quotaUpdatedAt
-            ]
-            if a.subscriptionTier != "FREE" {
-                dict["claude_5h"] = bucket(a.claude5h, a.reset5h)
-                dict["gemini_5h"] = bucket(a.gemini5h, a.reset5h)
-            }
-            if let argon = a.gemini4Argon {
-                dict["gemini_4_argon"] = bucket(argon, a.resetWeekly)
-            }
-            return dict
-        }
-        let all = quotaAccounts.map(account)
-        let current = quotaAccounts.first { $0.id == currentQuotaId }.map(account) ?? all.first as Any
-        return ["current_account": current, "accounts": all, "updated_at": quotaUpdatedAt]
-    }
-    
-    /// Simulates POST /api/v1/cockpit/switch.
-    func switchQuotaAccount(id: String) {
-        lock.lock(); defer { lock.unlock() }
-        if quotaAccounts.contains(where: { $0.id == id }) { currentQuotaId = id }
-        quotaUpdatedAt = Int64(Date().timeIntervalSince1970 * 1000)
-    }
-    
-    /// Simulates POST /api/v1/cockpit/refresh: new timestamp and slightly different numbers.
-    func refreshQuotas() {
-        lock.lock(); defer { lock.unlock() }
-        func jitter(_ v: Double) -> Double { max(0, min(100, (v + Double.random(in: -3...1)).rounded(toPlaces: 1))) }
-        quotaAccounts = quotaAccounts.map { a in
-            var b = a
-            b.claude5h = jitter(a.claude5h); b.claudeWeekly = jitter(a.claudeWeekly)
-            b.gemini5h = jitter(a.gemini5h); b.geminiWeekly = jitter(a.geminiWeekly)
-            return b
-        }
-        quotaUpdatedAt = Int64(Date().timeIntervalSince1970 * 1000)
-    }
-}
-
-private extension Double {
-    func rounded(toPlaces places: Int) -> Double {
-        let f = pow(10, Double(places))
-        return (self * f).rounded() / f
+        return "application/octet-stream"
     }
 }
