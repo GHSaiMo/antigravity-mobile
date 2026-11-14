@@ -290,36 +290,6 @@ function buildAccountQuotaCard(acc, isCurrent) {
   const switchBtnHtml = (!isCurrent && isCockpitSwitchEnabled())
     ? `<button class="quota-switch-btn" data-id="${escapeHtml(acc.id)}" data-email="${escapeHtml(acc.email)}">切换</button>`
     : "";
-  const isUltra = (acc.subscription_tier && acc.subscription_tier.toUpperCase() === "ULTRA");
-  let bottomBarHtml = "";
-  if (isUltra) {
-    const carbon = acc.gemini_weekly || acc.gemini_4_argon || null;
-    if (carbon && typeof carbon.remaining_percent === "number") {
-      const carbonStatusClass = carbon.remaining_percent < 20 ? "danger" : "carbon";
-      const carbonPace = calculateQuotaPace("Gemini 4 Carbon Weekly", carbon, acc.subscription_tier);
-      let carbonCursorHtml = "";
-      let carbonPaceTooltip = "";
-      if (carbonPace) {
-        carbonPaceTooltip = `\n• 消耗节奏：${carbonPace.status}\n• 已使用：${carbonPace.used.toFixed(1)}% (${carbonPace.windowLabel}匀速应耗 ${carbonPace.expectedUsed.toFixed(1)}%)\n• 理论应剩：${carbonPace.expectedRemaining.toFixed(1)}% (白色游标位置)`;
-        carbonCursorHtml = `<div class="weekly-pace-cursor ${carbonPace.isOver ? "over-pacing" : ""}" style="left: ${carbonPace.expectedRemaining.toFixed(1)}%;" title="${carbonPace.windowLabel}匀速基准线: ${carbonPace.expectedRemaining.toFixed(1)}%"></div>`;
-      }
-      const carbonResetText = getQuotaResetDisplayText(carbon);
-      const carbonFullTitle = `${carbonResetText}${carbonPaceTooltip}`;
-      bottomBarHtml = `
-      <!-- 5. Bottom Full Width: Gemini 4 Carbon Weekly (Ultra exclusive) -->
-      <div class="metric-box metric-box-full metric-box-carbon" title="${escapeHtml(carbonFullTitle)}">
-        <div class="metric-box-header">
-          <span class="metric-box-title carbon">Gemini 4 Carbon Weekly</span>
-          <span class="metric-box-value ${carbonStatusClass}">${carbon.remaining_percent.toFixed(1)}%</span>
-        </div>
-        <div class="metric-mini-track carbon-track">
-          <div class="metric-mini-fill ${carbonStatusClass}" style="width: ${Math.min(100, Math.max(0, carbon.remaining_percent))}%;"></div>
-          ${carbonCursorHtml}
-        </div>
-        <span class="metric-box-reset" title="${escapeHtml(carbonFullTitle)}">${escapeHtml(carbonResetText)}</span>
-      </div>`;
-    }
-  }
 
   const isFree = (acc.subscription_tier && acc.subscription_tier.toUpperCase() === "FREE") ||
     (!acc.claude_5h && !acc.gemini_5h);
@@ -338,7 +308,6 @@ function buildAccountQuotaCard(acc, isCurrent) {
       <!-- Row 2: Claude (5h in left, Weekly in right) -->
       ${renderPacedMetricBox("Claude · 5h", "claude", c5h, acc.subscription_tier)}
       ${renderPacedMetricBox("Claude · Weekly", "claude", cWk, acc.subscription_tier)}
-      ${bottomBarHtml}
   `;
 
   card.innerHTML = `

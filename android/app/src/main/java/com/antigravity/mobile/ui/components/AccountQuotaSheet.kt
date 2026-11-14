@@ -678,24 +678,6 @@ private fun AccountQuotaCard(
                         modifier = Modifier.weight(1f)
                     )
                 }
-
-                val isUltra = account.subscriptionTier?.trim()?.equals("ULTRA", ignoreCase = true) == true
-                if (isUltra) {
-                    // Ultra 专属通栏：展示 Gemini 4 Carbon Weekly，数据对齐 geminiWeekly
-                    val carbonBucket = account.geminiWeekly ?: account.gemini4Argon
-                    carbonBucket?.let { carbon ->
-                        val carbonPaceInfo = if (showWeeklyPaceCursor) carbon.calculatePaceForTitle("Gemini 4 Carbon Weekly", account.subscriptionTier) else null
-                        QuotaMetricCell(
-                            title = "Gemini 4 Carbon Weekly",
-                            bucket = carbon,
-                            isCarbon = true,
-                            tier = account.subscriptionTier,
-                            showPaceCursor = showWeeklyPaceCursor && carbonPaceInfo != null,
-                            onWeeklyClick = onWeeklyClick?.let { cb -> { cb("Gemini 4 Carbon Weekly", it) } },
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-                }
             }
         }
     }
@@ -717,7 +699,15 @@ private fun TierBadge(tier: String?) {
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(5.dp))
-                    .background(Brush.horizontalGradient(colors = carbonAuroraColors(colors.isDark)))
+                    .background(
+                        Brush.linearGradient(
+                            colors = listOf(
+                                Color(0xFFD97706),
+                                Color(0xFFF59E0B),
+                                Color(0xFFEA580C)
+                            )
+                        )
+                    )
                     .padding(horizontal = 6.dp, vertical = 2.dp),
                 contentAlignment = Alignment.Center
             ) {
@@ -731,8 +721,8 @@ private fun TierBadge(tier: String?) {
                     style = TextStyle(
                         platformStyle = CompactPlatformTextStyle,
                         shadow = Shadow(
-                            color = Color(0x554C1D95),
-                            offset = Offset(0f, 0.8f),
+                            color = Color(0x557C2D12),
+                            offset = Offset(0f, 1f),
                             blurRadius = 1.5f
                         )
                     )
