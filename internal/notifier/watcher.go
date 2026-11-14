@@ -91,6 +91,7 @@ func (w *Watcher) run(ctx context.Context) {
 	scanTicker := time.NewTicker(3500 * time.Millisecond)
 	defer scanTicker.Stop()
 
+	maxAge := 1500 * time.Millisecond
 	for {
 		select {
 		case <-ctx.Done():
@@ -100,24 +101,30 @@ func (w *Watcher) run(ctx context.Context) {
 			w.notifier.Dedup().Cleanup(4 * time.Hour)
 			w.cleanupKnownSessions()
 		case <-scanTicker.C:
-			runningCount := w.scanOnce()
-			// Adjust scan frequency: faster when tasks are running
+			runningCount := w.scanOnceWithMaxAge(maxAge)
+			// Adjust scan frequency: faster when tasks are running, calm when idle
 			if runningCount > 0 {
+				maxAge = 400 * time.Millisecond
 				scanTicker.Reset(1500 * time.Millisecond)
 			} else {
-				scanTicker.Reset(3500 * time.Millisecond)
+				maxAge = 1500 * time.Millisecond
+				scanTicker.Reset(5000 * time.Millisecond)
 			}
 		}
 	}
 }
 
 func (w *Watcher) scanOnce() int {
+	return w.scanOnceWithMaxAge(0)
+}
+
+func (w *Watcher) scanOnceWithMaxAge(summaryMaxAge time.Duration) int {
 	port, _ := w.proxy.ActiveUpstream()
 	if port == 0 {
 		return 0
 	}
 
-	summaries, runningSubagents, err := w.proxy.FetchRawCascadeSummaries()
+	summaries, runningSubagents, err := w.proxy.FetchRawCascadeSummariesWithMaxAge(summaryMaxAge)
 	if err != nil || len(summaries) == 0 {
 		return 0
 	}
@@ -151,7 +158,7 @@ func (w *Watcher) scanOnce() int {
 
 	runningCount := 0
 
-	// 2. Continuous delta inspection
+	// 2. Continuous delta inspection (all mutations on sessionTrackingState guarded by w.mu)
 	for id, s := range summaries {
 		status, _ := s["status"].(string)
 		steps := extractStepCount(s["stepCount"])
@@ -169,18 +176,22 @@ func (w *Watcher) scanOnce() int {
 			}
 			w.knownSessions[id] = prev
 		}
+		prevStatus := prev.lastStatus
+		wasWaitingBg := prev.waitingForBackground
+		prevRetries := prev.fetchRetryCount
+		cooldownUntil := prev.actionRetryAfter
 		w.mu.Unlock()
+
+		nextWaitingBg := wasWaitingBg
+		nextRetries := prevRetries
 
 		if status == "CASCADE_RUN_STATUS_RUNNING" {
 			runningCount++
-			prev.waitingForBackground = false
-			prev.fetchRetryCount = 0
+			nextWaitingBg = false
+			nextRetries = 0
 			// Fetch real-time trajectory to check for PendingInteraction or CanProceed
 			details, err := w.proxy.FetchTrajectoryDetails(id, 250*time.Millisecond)
 			if err == nil && details != nil {
-				w.mu.RLock()
-				cooldownUntil := prev.actionRetryAfter
-				w.mu.RUnlock()
 				if time.Now().After(cooldownUntil) {
 					if details.PendingInteraction != nil {
 						cid, dTitle, pi := id, details.Title, details.PendingInteraction
@@ -206,14 +217,18 @@ func (w *Watcher) scanOnce() int {
 					}
 				}
 			}
-		} else if prev.lastStatus == "CASCADE_RUN_STATUS_RUNNING" && status != "CASCADE_RUN_STATUS_RUNNING" {
+		} else if prevStatus == "CASCADE_RUN_STATUS_RUNNING" && status != "CASCADE_RUN_STATUS_RUNNING" {
 			// Transition: Running -> Finished / Waiting / Idle
 			details, err := w.proxy.FetchTrajectoryDetails(id, 250*time.Millisecond)
 			if err != nil || details == nil {
-				prev.fetchRetryCount++
-				if prev.fetchRetryCount <= 3 {
-					slog.Warn(fmt.Sprintf("[Watcher] ⚠️ Session %s status transitioned from RUNNING to %s, but FetchTrajectoryDetails failed (retry %d/3)", id, status, prev.fetchRetryCount), "err", err)
+				nextRetries++
+				if nextRetries <= 3 {
+					slog.Warn(fmt.Sprintf("[Watcher] ⚠️ Session %s status transitioned from RUNNING to %s, but FetchTrajectoryDetails failed (retry %d/3)", id, status, nextRetries), "err", err)
 					runningCount++
+					w.mu.Lock()
+					prev.fetchRetryCount = nextRetries
+					prev.lastUpdated = time.Now()
+					w.mu.Unlock()
 					// Do not advance prev.lastStatus yet so we retry on the next tick!
 					continue
 				}
@@ -222,9 +237,9 @@ func (w *Watcher) scanOnce() int {
 					cid, dTitle, st := id, title, steps
 					w.dispatchNotify(func() { _ = w.notifier.NotifyCompleted(cid, dTitle, st) })
 				}
-				prev.fetchRetryCount = 0
+				nextRetries = 0
 			} else {
-				prev.fetchRetryCount = 0
+				nextRetries = 0
 				if details.PendingInteraction != nil {
 					cid, dTitle, pi := id, details.Title, details.PendingInteraction
 					w.dispatchNotify(func() { _ = w.notifier.NotifyAction(cid, dTitle, pi) })
@@ -237,22 +252,22 @@ func (w *Watcher) scanOnce() int {
 				} else if (details.Status == "CASCADE_RUN_STATUS_COMPLETED" || details.Status == "CASCADE_RUN_STATUS_IDLE") && details.TotalSteps > 0 {
 					inProgress, _ := IsCascadeInProgress(details, hasSubagent)
 					if inProgress {
-						prev.waitingForBackground = true
+						nextWaitingBg = true
 						runningCount++
 					} else {
-						prev.waitingForBackground = false
+						nextWaitingBg = false
 						cid, dTitle, totalSteps := id, details.Title, details.TotalSteps
 						w.dispatchNotify(func() { _ = w.notifier.NotifyCompleted(cid, dTitle, totalSteps) })
 					}
 				}
 			}
-		} else if prev.waitingForBackground {
+		} else if wasWaitingBg {
 			// Session was waiting for background task or transitional step to finish while in IDLE
 			details, err := w.proxy.FetchTrajectoryDetails(id, 250*time.Millisecond)
 			if err == nil && details != nil {
 				inProgress, _ := IsCascadeInProgress(details, hasSubagent)
 				if !inProgress {
-					prev.waitingForBackground = false
+					nextWaitingBg = false
 					slog.Info(fmt.Sprintf("[Watcher] ✅ 会话 %s 后台任务已完成", shortID(id)))
 					if details.PendingInteraction != nil {
 						cid, dTitle, pi := id, details.Title, details.PendingInteraction
@@ -273,12 +288,16 @@ func (w *Watcher) scanOnce() int {
 			}
 		}
 
+		w.mu.Lock()
+		prev.waitingForBackground = nextWaitingBg
+		prev.fetchRetryCount = nextRetries
 		prev.lastStatus = status
 		prev.lastSteps = steps
 		prev.lastUpdated = time.Now()
 		if title != "" && title != MsgUntitledSession {
 			prev.title = title
 		}
+		w.mu.Unlock()
 	}
 
 	return runningCount

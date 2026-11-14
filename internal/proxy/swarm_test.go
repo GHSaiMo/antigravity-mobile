@@ -208,3 +208,87 @@ func TestSwarmNumericWaitSinceMtimeSortAndTranscript(t *testing.T) {
 		t.Errorf("expected non-empty swarm signature for worker")
 	}
 }
+
+func TestSwarmNarratorNumericVersionFallbackAndTranscriptETag(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	brainBase := filepath.Join(home, ".gemini", "antigravity", "brain")
+	coordID := "coord-2321"
+	narratorID := "conv-narrator-2321"
+	workerID := "conv-worker-2321"
+	swarmDir := filepath.Join(brainBase, coordID, ".system_generated", "swarm")
+	if err := os.MkdirAll(swarmDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	membersJSON := `{
+		"title": "2.32.1 蜂群",
+		"members": {
+			"worker-1": {
+				"conversation_id": "conv-worker-2321",
+				"model": "gemini-4-carbon-high",
+				"role": "worker",
+				"wake_mode": "working",
+				"last_read_seq": 1,
+				"killed": false
+			},
+			"narrator": {
+				"conversation_id": "conv-narrator-2321",
+				"model": "gemini-3.8-flash-high",
+				"role": "narrator",
+				"wake_mode": "any",
+				"last_read_seq": 1,
+				"killed": false
+			}
+		}
+	}`
+	_ = os.WriteFile(filepath.Join(swarmDir, "members.json"), []byte(membersJSON), 0644)
+	_ = os.WriteFile(filepath.Join(swarmDir, "board.jsonl"), []byte(`{"seq":1,"agent":"coordinator","text":"@worker-1 go","time":"2026-11-15T00:00:00Z"}`+"\n"), 0644)
+
+	// Place view.json ONLY in <brainBase>/<narratorID>/swarm_view/view.json with numeric "version": 1
+	narratorViewDir := filepath.Join(brainBase, narratorID, "swarm_view")
+	if err := os.MkdirAll(narratorViewDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	narratorView := `{"version":1,"as_of_seq":1,"headline":"Narrator 回退路径与数字版本解析成功","phase":{"label":"审计阶段","index":1,"total":2}}`
+	_ = os.WriteFile(filepath.Join(narratorViewDir, "view.json"), []byte(narratorView), 0644)
+
+	workerLogDir := filepath.Join(brainBase, workerID, ".system_generated", "logs")
+	_ = os.MkdirAll(workerLogDir, 0755)
+	workerTranscript := filepath.Join(workerLogDir, "transcript.jsonl")
+	_ = os.WriteFile(workerTranscript, []byte(`{"step_index":1,"type":"PLANNER_RESPONSE","status":"DONE","tool_calls":[{"name":"grep_search"}]}`+"\n"), 0644)
+
+	brief := GetSwarmBrief(coordID)
+	if brief == nil || brief.Headline != "Narrator 回退路径与数字版本解析成功" {
+		t.Fatalf("expected narrator fallback headline, got %+v", brief)
+	}
+
+	snap1, notMod, err := GetSwarmSnapshot(coordID, 0, "")
+	if err != nil || notMod || snap1 == nil || snap1.View == nil {
+		t.Fatalf("expected valid snapshot with narrator view, err=%v snap=%+v", err, snap1)
+	}
+	if string(snap1.View.Version) != "1" {
+		t.Errorf("expected version '1', got %q", snap1.View.Version)
+	}
+
+	// Update ONLY worker transcript (into swarm_wait) without touching board.jsonl or members.json:
+	// ETag must change so client does not get stuck on 304 Not Modified!
+	_ = os.WriteFile(workerTranscript, []byte(
+		`{"step_index":1,"type":"PLANNER_RESPONSE","status":"DONE","tool_calls":[{"name":"swarm_wait"}]}`+"\n"+
+			`{"step_index":2,"type":"GENERIC","status":"DONE","content":"Waiting for a message"}`+"\n",
+	), 0644)
+
+	snap2, notModAfterTranscript, err := GetSwarmSnapshot(coordID, 0, snap1.ETag)
+	if err != nil || notModAfterTranscript || snap2 == nil {
+		t.Fatalf("expected ETag invalidation after transcript update, err=%v notMod=%v", err, notModAfterTranscript)
+	}
+	if snap1.ETag == snap2.ETag {
+		t.Errorf("expected distinct ETags after transcript growth: %s", snap1.ETag)
+	}
+
+	// Non-swarm conversation negative cache check
+	if nonSwarm := GetSwarmBrief("ordinary-non-swarm-cascade"); nonSwarm != nil {
+		t.Errorf("expected nil brief for non-swarm conversation, got %+v", nonSwarm)
+	}
+}

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 )
@@ -1147,24 +1148,47 @@ func buildPendingInteraction(rawResp *upstreamTrajectoryResp, steps []Trajectory
 				}
 				applyDenyWriteIn(pi)
 			} else if req.Mcp != nil {
-				pi.Type = "approval"
+				pi.Type = "mcp"
 				pi.Title = "MCP 工具调用确认"
+				mcpLabel := ""
+				if s.McpTool != nil && s.McpTool.ToolName != "" {
+					if s.McpTool.ServerName != "" {
+						mcpLabel = s.McpTool.ServerName + "/" + s.McpTool.ToolName
+					} else {
+						mcpLabel = s.McpTool.ToolName
+					}
+					if s.McpTool.ArgumentsJson != "" {
+						pi.Target = s.McpTool.ArgumentsJson
+					}
+				} else if tn := extractToolNameFromStep(s); tn != "" && tn != "mcp_tool" && tn != "run_command" {
+					mcpLabel = tn
+				}
+				if mcpLabel != "" {
+					pi.Title = "MCP 工具调用确认：" + mcpLabel
+				}
+				if pi.Target == "" {
+					if args := extractStepToolArgsJSON(s); args != "" {
+						pi.Target = args
+					}
+				}
 				pi.Options = []InteractionOption{
 					{ID: "1", Text: "允许执行", Scope: 1},
 					{ID: "2", Text: "拒绝", IsDeny: true},
 				}
 				applyDenyWriteIn(pi)
 			} else if req.Elicitation != nil {
-				pi.Type = "approval"
-				pi.Title = "输入补充信息"
+				pi.Type = "elicitation"
+				pi.Title = "MCP 补充信息输入"
+				if req.Elicitation.ServerName != "" {
+					pi.Title = fmt.Sprintf("MCP 补充信息 (%s)", req.Elicitation.ServerName)
+				}
 				if req.Elicitation.Message != "" {
 					pi.Description = req.Elicitation.Message
 				}
-				pi.Options = []InteractionOption{
-					{ID: "1", Text: "提交", Scope: 1},
-					{ID: "2", Text: "取消", IsDeny: true},
+				if req.Elicitation.URL != "" {
+					pi.Target = req.Elicitation.URL
 				}
-				applyDenyWriteIn(pi)
+				applyElicitationSchema(pi, req.Elicitation.RequestedSchemaJSON, req.Elicitation.Message)
 			}
 			pendingInteraction = pi
 			break
@@ -1342,6 +1366,104 @@ func applyPermissionOptions(pi *PendingInteraction) {
 		{ID: "5", Text: "No", IsDeny: true},
 	}
 	applyDenyWriteIn(pi)
+}
+
+// applyElicitationSchema maps an MCP Elicitation JSON Schema into PendingInteraction options/questions
+// so existing iOS, Android, and Web cards can collect single-choice, boolean, or free-text answers.
+func applyElicitationSchema(pi *PendingInteraction, schemaJSON string, fallbackMsg string) {
+	type schemaProp struct {
+		Type        string   `json:"type"`
+		Title       string   `json:"title"`
+		Description string   `json:"description"`
+		Enum        []string `json:"enum"`
+		EnumNames   []string `json:"enumNames"`
+	}
+	var schema struct {
+		Properties map[string]schemaProp `json:"properties"`
+		Required   []string              `json:"required"`
+	}
+	if strings.TrimSpace(schemaJSON) != "" {
+		_ = json.Unmarshal([]byte(schemaJSON), &schema)
+	}
+
+	if len(schema.Properties) > 0 {
+		keys := make([]string, 0, len(schema.Properties))
+		seen := make(map[string]bool, len(schema.Properties))
+		for _, rk := range schema.Required {
+			if _, ok := schema.Properties[rk]; ok && !seen[rk] {
+				keys = append(keys, rk)
+				seen[rk] = true
+			}
+		}
+		rest := make([]string, 0, len(schema.Properties))
+		for k := range schema.Properties {
+			if !seen[k] {
+				rest = append(rest, k)
+			}
+		}
+		sort.Strings(rest)
+		keys = append(keys, rest...)
+
+		questions := make([]InteractionQuestion, 0, len(keys))
+		for _, k := range keys {
+			prop := schema.Properties[k]
+			qLabel := strings.TrimSpace(prop.Title)
+			if qLabel == "" {
+				qLabel = strings.TrimSpace(prop.Description)
+			}
+			if qLabel == "" {
+				qLabel = k
+			}
+			iq := InteractionQuestion{
+				Question: qLabel,
+			}
+			if len(prop.Enum) > 0 {
+				for idx, ev := range prop.Enum {
+					txt := ev
+					if idx < len(prop.EnumNames) && strings.TrimSpace(prop.EnumNames[idx]) != "" {
+						txt = prop.EnumNames[idx]
+					}
+					iq.Options = append(iq.Options, InteractionOption{ID: ev, Text: txt})
+				}
+				iq.DefaultOptionID = iq.Options[0].ID
+			} else if strings.EqualFold(prop.Type, "boolean") {
+				iq.Options = []InteractionOption{
+					{ID: "true", Text: "是 (True)"},
+					{ID: "false", Text: "否 (False)"},
+				}
+				iq.DefaultOptionID = "true"
+			} else {
+				iq.Options = []InteractionOption{}
+				iq.HasWriteIn = true
+				iq.WriteInLabel = "填写 " + k
+				iq.WriteInPlaceholder = "输入 " + qLabel + "..."
+				iq.DefaultOptionID = "__write_in__"
+			}
+			questions = append(questions, iq)
+		}
+
+		pi.Action = strings.Join(keys, ",")
+		pi.Questions = questions
+		q0 := questions[0]
+		if len(questions) == 1 && fallbackMsg != "" {
+			pi.Title = fallbackMsg
+		} else if q0.Question != "" {
+			pi.Title = q0.Question
+		}
+		pi.Options = q0.Options
+		pi.DefaultOptionID = q0.DefaultOptionID
+		pi.HasWriteIn = q0.HasWriteIn
+		pi.WriteInLabel = q0.WriteInLabel
+		pi.WriteInPlaceholder = q0.WriteInPlaceholder
+		return
+	}
+
+	// URL-mode or schema-less confirmation elicitation
+	pi.Options = []InteractionOption{
+		{ID: "1", Text: "确认继续", Scope: 1},
+		{ID: "2", Text: "取消", IsDeny: true},
+	}
+	pi.DefaultOptionID = "1"
 }
 
 func parsePermissionGrant(action, target, desc string) *PermissionGrantDetails {

@@ -47,7 +47,8 @@ ANNOTATIONS_DIR = Path.home() / ".gemini" / "antigravity" / "annotations"
 BRAIN_DIR = Path.home() / ".gemini" / "antigravity" / "brain"
 STATE_PBTXT = Path.home() / ".gemini" / "antigravity" / "antigravity_state.pbtxt"
 HERMES_STATE_DB = Path.home() / ".hermes" / "state.db"
-ADMIN_TOKEN_FILE = Path.home() / ".antigravity-mobile" / "admin_token"
+ADMIN_TOKEN_FILE = Path.home() / ".multigravity" / "admin_token"
+LEGACY_ADMIN_TOKEN_FILE = Path.home() / ".antigravity-mobile" / "admin_token"
 
 GATEWAY_BASE_URL = "http://127.0.0.1:58900"
 GATEWAY_STATUS_URL = f"{GATEWAY_BASE_URL}/gateway/status"
@@ -56,14 +57,15 @@ GATEWAY_API_URL = f"{GATEWAY_BASE_URL}/api/exa.language_server_pb.LanguageServer
 
 
 def get_admin_token() -> str:
-    """读取 Mobile Gateway 本地 Admin 访问令牌."""
-    if ADMIN_TOKEN_FILE.exists():
-        try:
-            tok = ADMIN_TOKEN_FILE.read_text(encoding="utf-8").strip()
-            if tok:
-                return tok
-        except Exception:
-            pass
+    """读取 Mobile Gateway 本地 Admin 访问令牌 (优先 ~/.multigravity，兼容旧版目录)."""
+    for candidate in (ADMIN_TOKEN_FILE, LEGACY_ADMIN_TOKEN_FILE):
+        if candidate.exists():
+            try:
+                tok = candidate.read_text(encoding="utf-8").strip()
+                if tok:
+                    return tok
+            except Exception:
+                pass
     return ""
 
 

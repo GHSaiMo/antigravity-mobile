@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -757,9 +758,12 @@ func (p *Proxy) HandleCascadeInteraction(w http.ResponseWriter, r *http.Request)
 		TrajectoryID        string                 `json:"trajectoryId"`
 		StepIndex           int                    `json:"stepIndex"`
 		Permission          map[string]interface{} `json:"permission,omitempty"`
+		FilePermission      map[string]interface{} `json:"filePermission,omitempty"`
 		AskQuestion         map[string]interface{} `json:"askQuestion,omitempty"`
 		RunCommand          map[string]interface{} `json:"runCommand,omitempty"`
 		ApprovalInteraction map[string]interface{} `json:"approvalInteraction,omitempty"`
+		Mcp                 map[string]interface{} `json:"mcp,omitempty"`
+		Elicitation         map[string]interface{} `json:"elicitation,omitempty"`
 	}
 
 	type rpcRequest struct {
@@ -773,7 +777,7 @@ func (p *Proxy) HandleCascadeInteraction(w http.ResponseWriter, r *http.Request)
 	}
 
 	switch req.Type {
-	case "permission", "file_permission":
+	case "permission":
 		allow := req.Allow
 		scope := req.Scope
 		denyReason := ""
@@ -793,6 +797,24 @@ func (p *Proxy) HandleCascadeInteraction(w http.ResponseWriter, r *http.Request)
 			"scope":               scope,
 			"userDenyInstruction": denyReason,
 			"editedTarget":        req.Target,
+		}
+
+	case "file_permission":
+		allow := req.Allow
+		scope := req.Scope
+		if req.Skipped || req.OptionID == "5" || !req.Allow {
+			allow = false
+			scope = 0
+		} else {
+			allow = true
+			if scope <= 0 {
+				scope = 1
+			}
+		}
+		interaction.FilePermission = map[string]interface{}{
+			"allow":           allow,
+			"scope":           scope,
+			"absolutePathUri": req.Target,
 		}
 
 	case "ask_question":
@@ -860,6 +882,22 @@ func (p *Proxy) HandleCascadeInteraction(w http.ResponseWriter, r *http.Request)
 		interaction.ApprovalInteraction = map[string]interface{}{
 			"confirm": confirm,
 		}
+
+	case "mcp":
+		confirm := req.Allow && !req.Skipped && req.OptionID != "2" && req.OptionID != "5" && req.OptionID != "deny"
+		interaction.Mcp = map[string]interface{}{
+			"confirm": confirm,
+		}
+
+	case "elicitation":
+		action, contentJSON := p.buildElicitationResponse(req, port, token)
+		elicit := map[string]interface{}{
+			"action": action,
+		}
+		if contentJSON != "" {
+			elicit["contentJson"] = contentJSON
+		}
+		interaction.Elicitation = elicit
 
 	default:
 		interaction.Permission = map[string]interface{}{
@@ -951,16 +989,20 @@ func (p *Proxy) handleCascadeTaskStop(w http.ResponseWriter, r *http.Request) {
 	}
 
 	stepIndex := -1
-	if req.StepIndex != nil {
+	hasExplicitStep := false
+	if req.StepIndex != nil && *req.StepIndex >= 0 {
 		stepIndex = *req.StepIndex
-	} else if req.StepIndex2 != nil {
+		hasExplicitStep = true
+	} else if req.StepIndex2 != nil && *req.StepIndex2 >= 0 {
 		stepIndex = *req.StepIndex2
+		hasExplicitStep = true
 	}
 
-	if stepIndex <= 0 && taskID != "" {
+	if !hasExplicitStep && taskID != "" {
 		if idx := strings.LastIndex(taskID, "task-"); idx != -1 {
-			if num, err := strconv.Atoi(taskID[idx+5:]); err == nil && num > 0 {
+			if num, err := strconv.Atoi(taskID[idx+5:]); err == nil && num >= 0 {
 				stepIndex = num
+				hasExplicitStep = true
 			}
 		}
 	}
@@ -975,24 +1017,25 @@ func (p *Proxy) handleCascadeTaskStop(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if stepIndex <= 0 {
+	if !hasExplicitStep {
 		rawResp, err := p.fetchUpstreamTrajectory(cascadeID, port, token)
 		if err == nil && rawResp != nil {
-			details := p.ParseTrajectoryDetails(rawResp)
+			details := p.ParseTrajectoryDetailsCached(rawResp)
 			for _, t := range details.RunningTasks {
 				if taskID == "" || t.ID == taskID || strings.HasSuffix(t.ID, "/"+taskID) || strings.HasSuffix(taskID, "/"+t.ID) {
 					stepIndex = t.StepIndex
 					break
 				}
 			}
-			if stepIndex <= 0 && len(details.RunningTasks) == 1 {
+			if stepIndex < 0 && taskID == "" && len(details.RunningTasks) == 1 {
 				stepIndex = details.RunningTasks[0].StepIndex
 			}
 		}
 	}
 
 	if stepIndex < 0 {
-		stepIndex = 0
+		writeJSONError(w, "no matching running task found", http.StatusNotFound)
+		return
 	}
 
 	if err := p.CancelCascadeStep(cascadeID, stepIndex, port, token); err != nil {
@@ -1094,4 +1137,113 @@ func (p *Proxy) HandleCascadeRevertExecute(w http.ResponseWriter, r *http.Reques
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	w.Write(data)
+}
+
+func coerceElicitationValue(rawVal string, propType string) interface{} {
+	switch strings.ToLower(strings.TrimSpace(propType)) {
+	case "boolean":
+		return strings.EqualFold(strings.TrimSpace(rawVal), "true") || rawVal == "1"
+	case "integer":
+		if n, err := strconv.ParseInt(strings.TrimSpace(rawVal), 10, 64); err == nil {
+			return n
+		}
+	case "number":
+		if f, err := strconv.ParseFloat(strings.TrimSpace(rawVal), 64); err == nil {
+			return f
+		}
+	}
+	return rawVal
+}
+
+func (p *Proxy) buildElicitationResponse(req InteractionSubmitRequest, port int, token string) (string, string) {
+	if req.Skipped {
+		return "cancel", ""
+	}
+	trimmedWriteIn := strings.TrimSpace(req.WriteInResponse)
+	if req.OptionID == "2" || req.OptionID == "decline" || req.OptionID == "deny" ||
+		(!req.Allow && req.OptionID != "__write_in__" && len(req.QuestionResponses) == 0 && trimmedWriteIn == "") {
+		return "decline", ""
+	}
+
+	// If caller supplied a direct JSON object payload, forward it verbatim.
+	if strings.HasPrefix(trimmedWriteIn, "{") && strings.HasSuffix(trimmedWriteIn, "}") {
+		var obj map[string]interface{}
+		if err := json.Unmarshal([]byte(trimmedWriteIn), &obj); err == nil {
+			return "accept", trimmedWriteIn
+		}
+	}
+
+	type schemaProp struct {
+		Type string `json:"type"`
+	}
+	var orderedKeys []string
+	propTypes := make(map[string]string)
+
+	if rawResp, err := p.fetchUpstreamTrajectoryWithMaxAge(req.CascadeID, port, token, 10*time.Second); err == nil && rawResp != nil {
+		if req.StepIndex >= 0 && req.StepIndex < len(rawResp.Trajectory.Steps) {
+			ri := rawResp.Trajectory.Steps[req.StepIndex].RequestedInteraction
+			if ri != nil && ri.Elicitation != nil && strings.TrimSpace(ri.Elicitation.RequestedSchemaJSON) != "" {
+				var schema struct {
+					Properties map[string]schemaProp `json:"properties"`
+					Required   []string              `json:"required"`
+				}
+				if json.Unmarshal([]byte(ri.Elicitation.RequestedSchemaJSON), &schema) == nil && len(schema.Properties) > 0 {
+					seen := make(map[string]bool, len(schema.Properties))
+					for _, rk := range schema.Required {
+						if p, ok := schema.Properties[rk]; ok && !seen[rk] {
+							orderedKeys = append(orderedKeys, rk)
+							propTypes[rk] = p.Type
+							seen[rk] = true
+						}
+					}
+					var rest []string
+					for k, p := range schema.Properties {
+						propTypes[k] = p.Type
+						if !seen[k] {
+							rest = append(rest, k)
+						}
+					}
+					sort.Strings(rest)
+					orderedKeys = append(orderedKeys, rest...)
+				}
+			}
+		}
+	}
+
+	content := make(map[string]interface{})
+	if len(req.QuestionResponses) > 0 && len(orderedKeys) > 0 {
+		for i, qr := range req.QuestionResponses {
+			idx := qr.QuestionIndex
+			if idx < 0 || idx >= len(orderedKeys) {
+				idx = i
+			}
+			if idx >= len(orderedKeys) || qr.Skipped {
+				continue
+			}
+			key := orderedKeys[idx]
+			val := strings.TrimSpace(qr.WriteInResponse)
+			if val == "" && len(qr.SelectedOptionIDs) > 0 {
+				opt := qr.SelectedOptionIDs[0]
+				if opt != "__write_in__" && opt != "5" {
+					val = opt
+				}
+			}
+			content[key] = coerceElicitationValue(val, propTypes[key])
+		}
+	} else if len(orderedKeys) > 0 {
+		key := orderedKeys[0]
+		val := trimmedWriteIn
+		if val == "" && req.OptionID != "" && req.OptionID != "__write_in__" && req.OptionID != "1" && req.OptionID != "5" {
+			val = req.OptionID
+		}
+		content[key] = coerceElicitationValue(val, propTypes[key])
+	} else if trimmedWriteIn != "" {
+		content["value"] = trimmedWriteIn
+	}
+
+	encoded, err := json.Marshal(content)
+	if err != nil {
+		return "accept", "{}"
+	}
+	return "accept", string(encoded)
 }

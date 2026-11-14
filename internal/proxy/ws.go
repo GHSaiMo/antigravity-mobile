@@ -1,12 +1,13 @@
 package proxy
 
 import (
-	"log/slog"
 	"bytes"
+	"compress/flate"
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
@@ -152,9 +153,12 @@ func CheckWebSocketOrigin(r *http.Request) bool {
 	return allowed
 }
 
+var proxyWriteBufferPool = &sync.Pool{}
+
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:    131072, // 128KB (was 32KB)
 	WriteBufferSize:   131072, // 128KB (was 32KB)
+	WriteBufferPool:   proxyWriteBufferPool,
 	CheckOrigin:       CheckWebSocketOrigin,
 	EnableCompression: true, // PERF: permessage-deflate — reduces text/JSON WS bandwidth by 60-80%
 }
@@ -264,6 +268,7 @@ func (p *Proxy) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("[WS] Upgrade failed", "err", err)
 		return
 	}
+	_ = clientConn.SetCompressionLevel(flate.BestSpeed)
 	defer clientConn.Close()
 	defer p.trackWSConn(clientConn)()
 

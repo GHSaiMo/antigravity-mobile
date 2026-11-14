@@ -466,9 +466,18 @@ type TrajectoryStep struct {
 			Confirm bool `json:"confirm,omitempty"`
 		} `json:"mcp,omitempty"`
 		Elicitation *struct {
-			Message string `json:"message,omitempty"`
+			ServerName          string `json:"serverName,omitempty"`
+			Mode                string `json:"mode,omitempty"`
+			Message             string `json:"message,omitempty"`
+			RequestedSchemaJSON string `json:"requestedSchemaJson,omitempty"`
+			URL                 string `json:"url,omitempty"`
 		} `json:"elicitation,omitempty"`
 	} `json:"requestedInteraction"`
+	McpTool *struct {
+		ServerName    string `json:"serverName,omitempty"`
+		ToolName      string `json:"toolName,omitempty"`
+		ArgumentsJson string `json:"argumentsJson,omitempty"`
+	} `json:"mcpTool,omitempty"`
 	ErrorMessage *struct {
 		Error struct {
 			UserErrorMessage  string `json:"userErrorMessage"`

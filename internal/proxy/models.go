@@ -38,6 +38,7 @@ type ModelOption struct {
 	SupportsImages bool   `json:"supportsImages,omitempty"`
 	Thinking       bool   `json:"thinking,omitempty"`
 	Tag            string `json:"tag,omitempty"`
+	MaxTokens      int64  `json:"maxTokens,omitempty"`
 }
 
 // ModelsResponse is the response of /gateway/models.
@@ -83,14 +84,15 @@ var fallbackModels = []ModelOption{
 
 // upstreamModel mirrors the fields of GetAvailableModels we care about.
 type upstreamModel struct {
-	DisplayName    string `json:"displayName"`
-	Model          string `json:"model"`
-	ModelProvider  string `json:"modelProvider"`
-	Recommended    bool   `json:"recommended"`
-	IsInternal     bool   `json:"isInternal"`
-	SupportsImages bool   `json:"supportsImages"`
-	Thinking       bool   `json:"supportsThinking"`
-	TagTitle       string `json:"tagTitle"`
+	DisplayName    string    `json:"displayName"`
+	Model          string    `json:"model"`
+	ModelProvider  string    `json:"modelProvider"`
+	Recommended    bool      `json:"recommended"`
+	IsInternal     bool      `json:"isInternal"`
+	SupportsImages bool      `json:"supportsImages"`
+	Thinking       bool      `json:"supportsThinking"`
+	TagTitle       string    `json:"tagTitle"`
+	MaxTokens      flexInt64 `json:"maxTokens"`
 }
 
 // upstreamModelList is the whole GetAvailableModels payload: the model map plus the vendor's own
@@ -247,6 +249,7 @@ func buildModelTables(raw map[string]upstreamModel, curatedIDs []string) (option
 			SupportsImages: m.SupportsImages,
 			Thinking:       m.Thinking,
 			Tag:            tag,
+			MaxTokens:      int64(m.MaxTokens),
 		}
 		byID[strings.ToLower(id)] = opt
 		if isLeavingSoon(m.TagTitle) {
@@ -353,6 +356,24 @@ func (r *modelRegistry) displayName(idOrEnum string) string {
 		}
 	}
 	return ""
+}
+
+// maxTokensFor returns the live context window token limit reported by GetAvailableModels
+// for the given model ID or enum (0 when unknown).
+func (r *modelRegistry) maxTokensFor(idOrEnum string) int64 {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	key := strings.TrimSpace(idOrEnum)
+	if key == "" {
+		return 0
+	}
+	if o, ok := r.byID[strings.ToLower(key)]; ok && o.MaxTokens > 0 {
+		return o.MaxTokens
+	}
+	if o, ok := r.byEnum[key]; ok && o.MaxTokens > 0 {
+		return o.MaxTokens
+	}
+	return 0
 }
 
 func (r *modelRegistry) snapshot() (ModelsResponse, bool) {

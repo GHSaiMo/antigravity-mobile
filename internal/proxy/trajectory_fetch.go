@@ -483,9 +483,21 @@ func (p *Proxy) fetchUpstreamTrajectoryUncached(ctx context.Context, cascadeID s
 		reader = gzReader
 	}
 
+	const maxRawCacheBytes = 8 * 1024 * 1024
+	rawBuf := GetLargeBuffer()
+	defer PutLargeBuffer(rawBuf)
+	if _, err := rawBuf.ReadFrom(reader); err != nil {
+		return nil, fmt.Errorf("failed to read upstream response: %w", err)
+	}
+
 	var data upstreamTrajectoryResp
-	if err := json.NewDecoder(reader).Decode(&data); err != nil {
+	if err := json.Unmarshal(rawBuf.Bytes(), &data); err != nil {
 		return nil, fmt.Errorf("failed to decode upstream response: %w", err)
+	}
+	var preservedRaw []byte
+	if rawBuf.Len() > 0 && rawBuf.Len() <= maxRawCacheBytes {
+		preservedRaw = make([]byte, rawBuf.Len())
+		copy(preservedRaw, rawBuf.Bytes())
 	}
 	compactTrajectoryMedia(&data)
 
@@ -495,6 +507,7 @@ func (p *Proxy) fetchUpstreamTrajectoryUncached(ctx context.Context, cascadeID s
 			fetchedAt: time.Now(),
 			port:      port,
 			data:      &data,
+			rawJSON:   preservedRaw,
 		}
 		defaultTrajCache.evictTrajCacheLocked()
 	}
@@ -557,13 +570,17 @@ func (p *Proxy) FetchTrajectoryDetails(cascadeID string, maxAge time.Duration) (
 // FetchRawCascadeSummaries queries upstream GetAllCascadeTrajectories and returns non-subagent summaries
 // along with a map of parent conversation IDs that currently have active running subagents.
 func (p *Proxy) FetchRawCascadeSummaries() (map[string]map[string]interface{}, map[string]bool, error) {
+	return p.FetchRawCascadeSummariesWithMaxAge(0)
+}
+
+// FetchRawCascadeSummariesWithMaxAge queries GetAllCascadeTrajectories allowing reuse of recent list snapshots.
+func (p *Proxy) FetchRawCascadeSummariesWithMaxAge(maxAge time.Duration) (map[string]map[string]interface{}, map[string]bool, error) {
 	port, token := p.ActiveUpstream()
 	if port == 0 {
 		return nil, nil, fmt.Errorf("antigravity upstream not connected")
 	}
 
-	// Always refresh: the Watcher needs current state, and doing so keeps the snapshot warm for client list polls.
-	raw, err := p.fetchAllTrajectoriesRawMaxAge(context.Background(), port, token, 0)
+	raw, err := p.fetchAllTrajectoriesRawMaxAge(context.Background(), port, token, maxAge)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -600,8 +617,9 @@ func (p *Proxy) FetchRawCascadeSummaries() (map[string]map[string]interface{}, m
 }
 
 type contextMeterCacheEntry struct {
-	item *ContextMeterItem
-	at   time.Time
+	item       *ContextMeterItem
+	at         time.Time
+	nextOffset int
 }
 
 var (
@@ -615,50 +633,97 @@ func (p *Proxy) fetchUpstreamGeneratorMetadata(cascadeID string, port int, token
 		return nil
 	}
 
+	reqOffset := 0
+	var prevItem *ContextMeterItem
 	contextMeterCacheMu.Lock()
-	if entry, ok := contextMeterCache[cascadeID]; ok && time.Since(entry.at) < 1200*time.Millisecond {
-		contextMeterCacheMu.Unlock()
-		return entry.item
+	if entry, ok := contextMeterCache[cascadeID]; ok {
+		if time.Since(entry.at) < 1200*time.Millisecond {
+			contextMeterCacheMu.Unlock()
+			return entry.item
+		}
+		reqOffset = entry.nextOffset
+		prevItem = entry.item
 	}
 	contextMeterCacheMu.Unlock()
 
-	buf := GetSmallBuffer()
-	defer PutSmallBuffer(buf)
-	buf.WriteString(`{"cascadeId":`)
-	buf.WriteString(strconv.Quote(cascadeID))
-	buf.WriteString(`,"generatorMetadataOffset":0,"includeMessages":false}`)
+	doQuery := func(offset int) (*ContextMeterItem, generatorMetaSummary, bool) {
+		buf := GetSmallBuffer()
+		defer PutSmallBuffer(buf)
+		buf.WriteString(`{"cascadeId":`)
+		buf.WriteString(strconv.Quote(cascadeID))
+		buf.WriteString(`,"generatorMetadataOffset":`)
+		buf.WriteString(strconv.Itoa(offset))
+		buf.WriteString(`,"includeMessages":false}`)
 
-	url := fmt.Sprintf("https://127.0.0.1:%d/exa.language_server_pb.LanguageServerService/GetCascadeTrajectoryGeneratorMetadata", port)
-	req, err := http.NewRequest(http.MethodPost, url, buf)
-	if err != nil {
-		return nil
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Connect-Protocol-Version", "1")
-	if token != "" {
-		req.Header.Set("x-codeium-csrf-token", token)
+		url := fmt.Sprintf("https://127.0.0.1:%d/exa.language_server_pb.LanguageServerService/GetCascadeTrajectoryGeneratorMetadata", port)
+		req, err := http.NewRequest(http.MethodPost, url, buf)
+		if err != nil {
+			return nil, generatorMetaSummary{}, false
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Connect-Protocol-Version", "1")
+		if token != "" {
+			req.Header.Set("x-codeium-csrf-token", token)
+		}
+
+		resp, err := p.shortClient.Do(req)
+		if err != nil {
+			return nil, generatorMetaSummary{}, false
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			return nil, generatorMetaSummary{}, false
+		}
+		item, sum := parseGeneratorMetadataDetailed(resp.Body)
+		return item, sum, true
 	}
 
-	resp, err := p.shortClient.Do(req)
-	if err != nil {
-		return nil
+	item, sum, ok := doQuery(reqOffset)
+	if !ok {
+		return prevItem
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil
+	// If trajectory reverted or tail slice had no chat model metrics, fall back to full offset=0 once.
+	if reqOffset > 0 && (item == nil || (!sum.hasMetrics && prevItem != nil)) {
+		reqOffset = 0
+		item, sum, ok = doQuery(0)
+		if !ok {
+			return prevItem
+		}
 	}
-
-	item := parseGeneratorMetadata(resp.Body)
 	if item == nil {
 		return nil
+	}
+
+	if !sum.explicitMax && sum.model != "" {
+		if liveMax := liveModels.maxTokensFor(sum.model); liveMax > 0 {
+			item.MaxTokens = liveMax
+			pct := 0.0
+			if item.UsedTokens > 0 {
+				pct = float64(item.UsedTokens) / float64(liveMax) * 100.0
+				if pct > 100.0 {
+					pct = 100.0
+				}
+			}
+			item.Percentage = float64(int(pct*10+0.5)) / 10
+		}
+	}
+
+	totalCount := reqOffset + sum.count
+	nextOffset := 0
+	if totalCount > 5 {
+		nextOffset = totalCount - 5
 	}
 
 	contextMeterCacheMu.Lock()
 	if len(contextMeterCache) > 200 {
 		contextMeterCache = make(map[string]contextMeterCacheEntry)
 	}
-	contextMeterCache[cascadeID] = contextMeterCacheEntry{item: item, at: time.Now()}
+	contextMeterCache[cascadeID] = contextMeterCacheEntry{
+		item:       item,
+		at:         time.Now(),
+		nextOffset: nextOffset,
+	}
 	contextMeterCacheMu.Unlock()
 
 	return item
@@ -692,7 +757,19 @@ func (f *flexInt64) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+type generatorMetaSummary struct {
+	count       int
+	model       string
+	explicitMax bool
+	hasMetrics  bool
+}
+
 func parseGeneratorMetadata(r io.Reader) *ContextMeterItem {
+	item, _ := parseGeneratorMetadataDetailed(r)
+	return item
+}
+
+func parseGeneratorMetadataDetailed(r io.Reader) (*ContextMeterItem, generatorMetaSummary) {
 	var metaResp struct {
 		GeneratorMetadata []struct {
 			ChatModel struct {
@@ -720,14 +797,16 @@ func parseGeneratorMetadata(r io.Reader) *ContextMeterItem {
 	}
 
 	if err := json.NewDecoder(r).Decode(&metaResp); err != nil || len(metaResp.GeneratorMetadata) == 0 {
-		return nil
+		return nil, generatorMetaSummary{}
 	}
 
 	selected := metaResp.GeneratorMetadata[len(metaResp.GeneratorMetadata)-1]
+	hasMetrics := false
 	for i := len(metaResp.GeneratorMetadata) - 1; i >= 0; i-- {
 		cm := metaResp.GeneratorMetadata[i].ChatModel
 		if cm.Usage != nil || cm.ChatStartMetadata != nil || cm.Model != "" {
 			selected = metaResp.GeneratorMetadata[i]
+			hasMetrics = cm.Usage != nil || cm.ChatStartMetadata != nil
 			break
 		}
 	}
@@ -738,6 +817,7 @@ func parseGeneratorMetadata(r io.Reader) *ContextMeterItem {
 		maxTokens = int64(cm.ChatStartMetadata.ContextWindowMetadata.MaxContextTokens)
 		usedTokens = int64(cm.ChatStartMetadata.ContextWindowMetadata.EstimatedTokensUsed)
 	}
+	explicitMax := maxTokens > 0
 
 	var inp, outp, capTokens, thinking int64
 	if cm.Usage != nil {
@@ -776,19 +856,24 @@ func parseGeneratorMetadata(r io.Reader) *ContextMeterItem {
 	errKind := ClassifyErrorKind(lastErr)
 
 	return &ContextMeterItem{
-		UsedTokens:        usedTokens,
-		MaxTokens:         maxTokens,
-		Percentage:        float64(int(percentage*10+0.5)) / 10,
-		InputTokens:       inp,
-		OutputTokens:      outp,
-		CacheReadTokens:   capTokens,
-		ThinkingTokens:    thinking,
-		TimeToFirstToken:  ttftSec,
-		StreamingDuration: streamSec,
-		TokensPerSecond:   float64(int(tps*10+0.5)) / 10,
-		IsOverflow:        errKind == "context_overflow",
-		ErrorKind:         errKind,
-	}
+			UsedTokens:        usedTokens,
+			MaxTokens:         maxTokens,
+			Percentage:        float64(int(percentage*10+0.5)) / 10,
+			InputTokens:       inp,
+			OutputTokens:      outp,
+			CacheReadTokens:   capTokens,
+			ThinkingTokens:    thinking,
+			TimeToFirstToken:  ttftSec,
+			StreamingDuration: streamSec,
+			TokensPerSecond:   float64(int(tps*10+0.5)) / 10,
+			IsOverflow:        errKind == "context_overflow",
+			ErrorKind:         errKind,
+		}, generatorMetaSummary{
+			count:       len(metaResp.GeneratorMetadata),
+			model:       cm.Model,
+			explicitMax: explicitMax,
+			hasMetrics:  hasMetrics,
+		}
 }
 
 func parseDurationToSec(s string) float64 {

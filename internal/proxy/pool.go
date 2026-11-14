@@ -49,12 +49,13 @@ func GetLargeBuffer() *bytes.Buffer {
 }
 
 // PutLargeBuffer resets and returns a buffer to the large buffer pool.
-// Buffers that have expanded beyond 256KB are dropped to prevent memory bloat.
+// Buffers that have expanded beyond 2MB are dropped to prevent memory bloat while keeping
+// typical 800KB-1.5MB trajectory and summary payloads pooled.
 func PutLargeBuffer(buf *bytes.Buffer) {
 	if buf == nil {
 		return
 	}
-	if buf.Cap() > 256*1024 {
+	if buf.Cap() > 2*1024*1024 {
 		return
 	}
 	buf.Reset()
