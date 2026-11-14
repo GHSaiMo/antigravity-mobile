@@ -19,11 +19,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.antigravity.mobile.data.model.ContextMeterItem
@@ -137,19 +140,49 @@ fun ContextAuditSheet(
         else -> colors.accentGreen
     }
 
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        containerColor = colors.surface,
-        dragHandle = { BottomSheetDefaults.DragHandle(color = colors.textMuted.copy(alpha = 0.35f)) }
+        sheetState = sheetState,
+        sheetMaxWidth = Dp.Unspecified,
+        containerColor = Color.Transparent,
+        shape = RectangleShape,
+        tonalElevation = 0.dp,
+        dragHandle = null,
+        contentWindowInsets = { WindowInsets(0, 0, 0, 0) },
+        modifier = Modifier
+            .fillMaxWidth()
+            .fillMaxHeight()
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp)
-                .padding(bottom = 26.dp)
-                .navigationBarsPadding(),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
+        TallSheetBody(containerColor = colors.background, onDismiss = onDismiss) {
+            Column(
+                modifier = Modifier.fillMaxSize()
+            ) {
+                // Floating grab handle hinting pull-down dismissal (matching AccountQuotaSheet 38x5)
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp, bottom = 10.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(width = 38.dp, height = 5.dp)
+                            .clip(CircleShape)
+                            .background(colors.textMuted.copy(alpha = 0.35f))
+                    )
+                }
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .padding(horizontal = 20.dp)
+                        .padding(bottom = 26.dp)
+                        .navigationBarsPadding(),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -272,7 +305,14 @@ fun ContextAuditSheet(
                             modifier = Modifier.size(16.dp)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("一键压缩 /compact", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            text = "一键压缩",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
                 }
                 OutlinedButton(
@@ -289,8 +329,17 @@ fun ContextAuditSheet(
                         modifier = Modifier.size(16.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("开启新会话", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        text = "开启新会话",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
+            }
+        }
             }
         }
     }

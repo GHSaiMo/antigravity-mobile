@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -42,15 +43,22 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -155,7 +163,7 @@ fun WorkflowTemplateSheet(
     onDismissRequest: () -> Unit,
     onSelectTemplate: (String) -> Unit
 ) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
     val colors = AntigravityTheme.colors
     val haptic = rememberHaptic()
     val context = LocalContext.current
@@ -263,90 +271,138 @@ fun WorkflowTemplateSheet(
             }
     }
 
+    LaunchedEffect(editorDraft != null) {
+        if (editorDraft != null) {
+            sheetState.expand()
+        }
+    }
+
     ModalBottomSheet(
         onDismissRequest = onDismissRequest,
         sheetState = sheetState,
-        containerColor = colors.surface
+        sheetMaxWidth = Dp.Unspecified,
+        containerColor = Color.Transparent,
+        shape = RectangleShape,
+        tonalElevation = 0.dp,
+        dragHandle = null,
+        contentWindowInsets = { WindowInsets(0, 0, 0, 0) },
+        modifier = Modifier
+            .fillMaxWidth()
+            .fillMaxHeight()
     ) {
-        val currentDraft = editorDraft
-        if (currentDraft != null) {
-            WorkflowTemplateEditorContent(
-                draft = currentDraft,
-                colors = colors,
-                onBack = { editorDraft = null },
-                onSave = { saved ->
-                    val next = if (currentDraft.isNew) {
-                        templates + saved
-                    } else {
-                        templates.map { if (it.id == saved.id) saved else it }
-                    }
-                    editorDraft = null
-                    persistAndSync(next)
-                }
-            )
-        } else {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp)
-                    .padding(bottom = 28.dp)
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                // Top Bar: Icon Edit/Done toggle on left, Title in center, + icon only on right
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+        TallSheetBody(containerColor = colors.surface, onDismiss = onDismissRequest) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                // Floating grab handle hinting pull-down dismissal (matching AccountQuotaSheet 38x5)
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp, bottom = 10.dp),
+                    contentAlignment = Alignment.Center
                 ) {
-                    IconButton(
-                        onClick = {
-                            haptic.light()
-                            swipedId = null
-                            isEditing = !isEditing
-                        },
-                        modifier = Modifier.size(38.dp)
-                    ) {
-                        Icon(
-                            imageVector = if (isEditing) Icons.Default.Check else Icons.Default.Edit,
-                            contentDescription = if (isEditing) "完成" else "编辑",
-                            tint = colors.accentIndigo,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-
-                    Text(
-                        text = "Workflow 模板",
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                        color = colors.textPrimary
+                    Box(
+                        modifier = Modifier
+                            .size(width = 38.dp, height = 5.dp)
+                            .clip(CircleShape)
+                            .background(colors.textMuted.copy(alpha = 0.35f))
                     )
-
-                    IconButton(
-                        onClick = {
-                            haptic.light()
-                            swipedId = null
-                            editorDraft = WorkflowEditorDraft(
-                                isNew = true,
-                                record = WorkflowTemplateRecord(
-                                    id = "wf_${UUID.randomUUID().toString().lowercase()}",
-                                    title = "",
-                                    subtitle = "",
-                                    icon = "workflow",
-                                    color = "indigo",
-                                    templatePrompt = ""
-                                )
-                            )
-                        },
-                        modifier = Modifier.size(38.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Add,
-                            contentDescription = "新增",
-                            tint = colors.accentIndigo,
-                            modifier = Modifier.size(22.dp)
-                        )
-                    }
                 }
+
+                val currentDraft = editorDraft
+                if (currentDraft != null) {
+                    WorkflowTemplateEditorContent(
+                        draft = currentDraft,
+                        colors = colors,
+                        onBack = { editorDraft = null },
+                        onSave = { saved ->
+                            val next = if (currentDraft.isNew) {
+                                templates + saved
+                            } else {
+                                templates.map { if (it.id == saved.id) saved else it }
+                            }
+                            editorDraft = null
+                            persistAndSync(next)
+                        },
+                        modifier = Modifier.weight(1f)
+                    )
+                } else {
+                    // Top Bar: Icon Edit/Done toggle on left, Title in center, + icon only on right (matching AccountQuotaSheet)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 10.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        IconButton(
+                            onClick = {
+                                haptic.light()
+                                swipedId = null
+                                isEditing = !isEditing
+                            },
+                            modifier = Modifier
+                                .align(Alignment.CenterStart)
+                                .padding(start = 8.dp)
+                                .size(34.dp)
+                        ) {
+                            Icon(
+                                imageVector = if (isEditing) Icons.Default.Check else Icons.Default.Edit,
+                                contentDescription = if (isEditing) "完成" else "编辑",
+                                tint = colors.accentIndigo,
+                                modifier = Modifier.size(19.dp)
+                            )
+                        }
+
+                        Text(
+                            text = "Workflow 模板",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 17.sp,
+                            lineHeight = 20.sp,
+                            color = colors.textPrimary,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .align(Alignment.Center)
+                        )
+
+                        IconButton(
+                            onClick = {
+                                haptic.light()
+                                swipedId = null
+                                editorDraft = WorkflowEditorDraft(
+                                    isNew = true,
+                                    record = WorkflowTemplateRecord(
+                                        id = "wf_${UUID.randomUUID().toString().lowercase()}",
+                                        title = "",
+                                        subtitle = "",
+                                        icon = "workflow",
+                                        color = "indigo",
+                                        templatePrompt = ""
+                                    )
+                                )
+                            },
+                            modifier = Modifier
+                                .align(Alignment.CenterEnd)
+                                .padding(end = 8.dp)
+                                .size(34.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Add,
+                                contentDescription = "新增",
+                                tint = colors.accentIndigo,
+                                modifier = Modifier.size(19.dp)
+                            )
+                        }
+                    }
+
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f)
+                            .verticalScroll(rememberScrollState())
+                            .padding(horizontal = 16.dp)
+                            .padding(bottom = 28.dp)
+                            .navigationBarsPadding(),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
 
                 // Header Banner
                 Row(
@@ -532,8 +588,10 @@ fun WorkflowTemplateSheet(
                         )
                     }
                 }
+                }
             }
         }
+    }
     }
 
     if (showResetDialog) {
@@ -805,49 +863,55 @@ private fun WorkflowTemplateEditorContent(
     draft: WorkflowEditorDraft,
     colors: AntigravityColors,
     onBack: () -> Unit,
-    onSave: (WorkflowTemplateRecord) -> Unit
+    onSave: (WorkflowTemplateRecord) -> Unit,
+    modifier: Modifier = Modifier
 ) {
     var title by remember(draft) { mutableStateOf(draft.record.title) }
     var subtitle by remember(draft) { mutableStateOf(draft.record.subtitle) }
     var icon by remember(draft) { mutableStateOf(draft.record.icon.ifBlank { "workflow" }) }
     var colorKey by remember(draft) { mutableStateOf(draft.record.color.ifBlank { "indigo" }) }
-    var prompt by remember(draft) { mutableStateOf(draft.record.templatePrompt) }
+    var promptValue by remember(draft) { mutableStateOf(TextFieldValue(draft.record.templatePrompt)) }
+    val promptFocusRequester = remember { FocusRequester() }
 
-    val canSave = title.trim().isNotEmpty() && prompt.trim().isNotEmpty()
+    val canSave = title.trim().isNotEmpty() && promptValue.text.trim().isNotEmpty()
     val selectedColor = WorkflowStyleCatalog.resolveColor(colorKey, colors)
 
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp)
-            .padding(bottom = 28.dp)
-            .verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        // Editor Header
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+    Column(modifier = modifier.fillMaxSize()) {
+        // Editor Header: icon-only Back on left, centered Title, icon-only Checkmark Save on right (matching AccountQuotaSheet)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 10.dp),
+            contentAlignment = Alignment.Center
         ) {
-            TextButton(onClick = onBack) {
+            IconButton(
+                onClick = onBack,
+                modifier = Modifier
+                    .align(Alignment.CenterStart)
+                    .padding(start = 8.dp)
+                    .size(34.dp)
+            ) {
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                     contentDescription = "返回",
                     tint = colors.textPrimary,
-                    modifier = Modifier.size(18.dp)
+                    modifier = Modifier.size(19.dp)
                 )
-                Spacer(modifier = Modifier.width(4.dp))
-                Text("返回", color = colors.textPrimary)
             }
 
             Text(
                 text = if (draft.isNew) "新增 Workflow" else "编辑 Workflow",
-                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                color = colors.textPrimary
+                fontWeight = FontWeight.Bold,
+                fontSize = 17.sp,
+                lineHeight = 20.sp,
+                color = colors.textPrimary,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.Center)
             )
 
-            TextButton(
+            IconButton(
                 onClick = {
                     onSave(
                         WorkflowTemplateRecord(
@@ -856,19 +920,35 @@ private fun WorkflowTemplateEditorContent(
                             subtitle = subtitle.trim(),
                             icon = icon,
                             color = colorKey,
-                            templatePrompt = prompt.trim()
+                            templatePrompt = promptValue.text.trim()
                         )
                     )
                 },
-                enabled = canSave
+                enabled = canSave,
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .padding(end = 8.dp)
+                    .size(34.dp)
             ) {
-                Text(
-                    text = "保存",
-                    color = if (canSave) colors.accentIndigo else colors.textMuted,
-                    fontWeight = FontWeight.Bold
+                Icon(
+                    imageVector = Icons.Default.Check,
+                    contentDescription = "保存",
+                    tint = if (canSave) colors.accentIndigo else colors.textMuted,
+                    modifier = Modifier.size(19.dp)
                 )
             }
         }
+
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 28.dp)
+                .navigationBarsPadding(),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
 
         OutlinedTextField(
             value = title,
@@ -961,13 +1041,66 @@ private fun WorkflowTemplateEditorContent(
         }
 
         OutlinedTextField(
-            value = prompt,
-            onValueChange = { prompt = it },
+            value = promptValue,
+            onValueChange = { promptValue = it },
             label = { Text("提示词 / 命令模板（必填）") },
             placeholder = { Text("支持任意提示词或 /workflow、/plan 等命令，可用 [占位符] 提示补充参数") },
             minLines = 4,
             maxLines = 8,
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier
+                .fillMaxWidth()
+                .focusRequester(promptFocusRequester)
         )
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                text = "占位符在编辑框中可以直接选中",
+                fontSize = 12.sp,
+                color = colors.textSecondary,
+                modifier = Modifier.weight(1f)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            OutlinedButton(
+                onClick = {
+                    val current = promptValue
+                    val start = current.selection.min.coerceIn(0, current.text.length)
+                    val end = current.selection.max.coerceIn(start, current.text.length)
+                    val token = "[占位符]"
+                    val nextText = buildString {
+                        append(current.text.substring(0, start))
+                        append(token)
+                        append(current.text.substring(end))
+                    }
+                    // Select "占位符" inside [...] so user can type to replace it directly
+                    promptValue = TextFieldValue(
+                        text = nextText,
+                        selection = TextRange(start + 1, start + 1 + "占位符".length)
+                    )
+                    promptFocusRequester.requestFocus()
+                },
+                shape = RoundedCornerShape(10.dp),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                border = BorderStroke(1.dp, colors.accentIndigo.copy(alpha = 0.4f))
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Add,
+                    contentDescription = null,
+                    tint = colors.accentIndigo,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(
+                    text = "插入占位符",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = colors.accentIndigo
+                )
+            }
+        }
+        }
     }
 }

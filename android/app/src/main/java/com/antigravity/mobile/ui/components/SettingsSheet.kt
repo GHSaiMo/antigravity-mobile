@@ -946,6 +946,13 @@ private fun DefaultModelSection(
     val catalog by prefs.modelCatalogFlow.collectAsState()
     val gemini by prefs.defaultGeminiModelFlow.collectAsState()
     val claude by prefs.defaultClaudeModelFlow.collectAsState()
+    val orchestrator by prefs.defaultOrchestratorModelFlow.collectAsState()
+    val orchestratorOptions = remember(catalog) {
+        catalog?.models?.filter {
+            ModelDefaults.providerKind(it.id) == "orchestrator" || it.provider.equals("orchestrator", ignoreCase = true)
+        }.orEmpty()
+    }
+    val hasOrchestrator = orchestratorOptions.isNotEmpty()
     var loadState by remember { mutableStateOf(if (catalog != null) "ok" else "loading") } // loading | ok | failed
 
     LaunchedEffect(Unit) {
@@ -966,7 +973,11 @@ private fun DefaultModelSection(
     val footer = when (loadState) {
         "loading" -> "正在读取可用模型..."
         "failed" -> "暂时无法读取可用模型列表，仍会使用当前已保存的默认模型。"
-        else -> "输入框上方短按切换 Gemini 与 Claude，长按选择模型及思考强度；已有会话自动跟随桌面当前模型，更改后随消息发送生效。"
+        else -> if (hasOrchestrator) {
+            "输入框上方短按在 Gemini / Claude / Orchestrator 间切换，长按上滑并右滑选择模型及思考强度；已有会话自动跟随桌面当前模型，更改后随消息发送生效。"
+        } else {
+            "输入框上方短按切换 Gemini 与 Claude，长按上滑并右滑选择模型及思考强度；已有会话自动跟随桌面当前模型，更改后随消息发送生效。"
+        }
     }
 
     SettingsSection(title = "默认模型", footer = footer) {
@@ -990,6 +1001,15 @@ private fun DefaultModelSection(
                 options = catalog?.models?.filter { it.provider == "claude" }.orEmpty(),
                 onSelect = { prefs.defaultClaudeModel = it }
             )
+            if (hasOrchestrator) {
+                HorizontalDivider(color = colors.separator.copy(alpha = 0.4f), thickness = 0.5.dp)
+                ModelPickerRow(
+                    label = "Orchestrator",
+                    selectedId = orchestrator,
+                    options = orchestratorOptions,
+                    onSelect = { prefs.defaultOrchestratorModel = it }
+                )
+            }
         }
     }
 }

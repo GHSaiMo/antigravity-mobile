@@ -1,10 +1,9 @@
 package com.antigravity.mobile.ui.components
 
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -13,44 +12,35 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountTree
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.antigravity.mobile.data.model.ModelDefaults
-import com.antigravity.mobile.data.model.ModelFamily
 import com.antigravity.mobile.data.model.ModelsResponse
 import com.antigravity.mobile.data.model.SlashCommandOption
 import com.antigravity.mobile.ui.theme.AntigravityTheme
 
-/**
- * 精简模型菜单中的前缀（去掉开头的 "Gemini " / "Claude "，完整保留 "Orchestrator" 等其余名称）。
- */
-private fun displayModelMenuTitle(rawTitle: String): String {
-    val trimmed = rawTitle.trim()
-    for (prefix in listOf("Gemini ", "Claude ")) {
-        if (trimmed.length > prefix.length && trimmed.startsWith(prefix, ignoreCase = true)) {
-            return trimmed.substring(prefix.length)
-        }
-    }
-    return trimmed
-}
-
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun QuickActionChips(
     activeModel: String,
     onToggleModel: () -> Unit,
     onSelectModel: (String) -> Unit = {},
     modelCatalog: ModelsResponse? = null,
+    modelSlidePickerState: ModelSlidePickerState? = null,
     onAddImage: () -> Unit,
     selectedSlashCommand: SlashCommandOption? = null,
     onClearSlashCommand: () -> Unit = {},
@@ -80,8 +70,9 @@ fun QuickActionChips(
         else -> colors.accentBlue
     }
     val haptic = com.antigravity.mobile.ui.util.rememberHaptic()
-    var showModelMenu by remember { mutableStateOf(false) }
-    var selectedFamily by remember { mutableStateOf<ModelFamily?>(null) }
+    val hapticFeedback = LocalHapticFeedback.current
+    val density = LocalDensity.current
+    var chipBoundsInRoot by remember { mutableStateOf(Rect.Zero) }
 
     Row(
         modifier = modifier
@@ -113,126 +104,66 @@ fun QuickActionChips(
             )
         }
 
-        // 2. Gemini / Claude / Model Switcher (Tap to toggle, Long-press for hierarchical menu)
-        Box {
-            Box(
-                modifier = Modifier
-                    .height(32.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(chipTextColor.copy(alpha = 0.12f))
-                    .border(
-                        1.dp,
-                        chipTextColor.copy(alpha = 0.35f),
-                        RoundedCornerShape(10.dp)
-                    )
-                    .combinedClickable(
-                        onClick = {
-                            haptic.light()
-                            onToggleModel()
-                        },
-                        onLongClick = {
-                            haptic.medium()
-                            selectedFamily = null
-                            showModelMenu = true
-                        }
-                    )
-                    .padding(horizontal = 11.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = compactName,
-                    color = chipTextColor,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Medium
+        // 2. Gemini / Claude / Orchestrator Model Switcher (Tap to cycle, Long-press + slide up/right for iOS-style picker)
+        Box(
+            modifier = Modifier
+                .height(32.dp)
+                .onGloballyPositioned { coords ->
+                    val rect = coords.boundsInRoot()
+                    chipBoundsInRoot = rect
+                    modelSlidePickerState?.anchorRect = rect
+                }
+                .clip(RoundedCornerShape(10.dp))
+                .background(chipTextColor.copy(alpha = 0.12f))
+                .border(
+                    1.dp,
+                    chipTextColor.copy(alpha = 0.35f),
+                    RoundedCornerShape(10.dp)
                 )
-            }
-
-            DropdownMenu(
-                expanded = showModelMenu,
-                onDismissRequest = {
-                    showModelMenu = false
-                    selectedFamily = null
-                }
-            ) {
-                val families = remember(modelCatalog, providerKind) {
-                    ModelDefaults.modelFamilies(modelCatalog?.models.orEmpty(), provider = providerKind)
-                }
-                val currentFamily = selectedFamily
-                if (currentFamily == null) {
-                    families.forEach { family ->
-                        DropdownMenuItem(
-                            text = {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        text = displayModelMenuTitle(family.name),
-                                        fontWeight = FontWeight.Medium
-                                    )
-                                    if (family.variants.size > 1) {
-                                        Text(
-                                            text = "›",
-                                            color = colors.textSecondary,
-                                            fontSize = 14.sp
-                                        )
-                                    }
-                                }
-                            },
-                            onClick = {
-                                if (family.variants.size == 1) {
-                                    onSelectModel(family.variants.first().id)
-                                    showModelMenu = false
-                                } else {
-                                    selectedFamily = family
-                                }
-                            }
-                        )
+                .clickable {
+                    haptic.light()
+                    if (modelSlidePickerState?.isPresented == true) {
+                        modelSlidePickerState.dismiss()
+                    } else {
+                        onToggleModel()
                     }
-                } else {
-                    DropdownMenuItem(
-                        text = {
-                            Text(
-                                text = "← ${displayModelMenuTitle(currentFamily.name)}",
-                                color = colors.accentBlue,
-                                fontWeight = FontWeight.SemiBold
+                }
+                .pointerInput(providerKind, activeModel, modelCatalog, modelSlidePickerState) {
+                    if (modelSlidePickerState == null) return@pointerInput
+                    detectDragGesturesAfterLongPress(
+                        onDragStart = {
+                            haptic.medium()
+                            modelSlidePickerState.open(
+                                provider = providerKind,
+                                activeModel = activeModel,
+                                options = modelCatalog?.models.orEmpty()
                             )
                         },
-                        onClick = { selectedFamily = null }
+                        onDrag = { change, _ ->
+                            change.consume()
+                            val rootPoint = Offset(
+                                x = chipBoundsInRoot.left + change.position.x,
+                                y = chipBoundsInRoot.top + change.position.y
+                            )
+                            modelSlidePickerState.updateDrag(rootPoint, density, hapticFeedback)
+                        },
+                        onDragEnd = {
+                            modelSlidePickerState.endDrag(onSelect = onSelectModel)
+                        },
+                        onDragCancel = {
+                            modelSlidePickerState.dismiss()
+                        }
                     )
-                    currentFamily.variants.forEach { variant ->
-                        val isSelected = activeModel.equals(variant.id, ignoreCase = true)
-                        DropdownMenuItem(
-                            text = {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        text = variant.label,
-                                        color = if (isSelected) colors.accentBlue else colors.textPrimary,
-                                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal
-                                    )
-                                    if (isSelected) {
-                                        Text(
-                                            text = "✓",
-                                            color = colors.accentBlue,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    }
-                                }
-                            },
-                            onClick = {
-                                onSelectModel(variant.id)
-                                showModelMenu = false
-                                selectedFamily = null
-                            }
-                        )
-                    }
                 }
-            }
+                .padding(horizontal = 11.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = compactName,
+                color = chipTextColor,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium
+            )
         }
 
         // 2b. Workflow: 动态多智能体工作流预设面板（固定放到模型按钮右边）
