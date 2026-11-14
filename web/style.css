@@ -6184,6 +6184,37 @@ html[data-kb-open] .ios-sheet-overlay {
   gap: 4px;
 }
 
+.metric-box.is-selectable {
+  cursor: pointer;
+  transition: border-color 0.18s ease, background 0.18s ease;
+}
+
+.metric-box.is-selected {
+  background: color-mix(in srgb, var(--ios-blue) 10%, var(--q-cell));
+  border: 1.5px solid color-mix(in srgb, var(--ios-blue) 80%, transparent);
+}
+
+.metric-box-title-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.metric-selected-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--ios-blue);
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.metric-box.is-selected .metric-box-title {
+  color: var(--ios-label);
+  font-weight: 600;
+}
+
 .metric-box-title,
 .metric-box-title.claude,
 .metric-box-title.gemini {

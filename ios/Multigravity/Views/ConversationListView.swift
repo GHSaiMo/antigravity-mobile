@@ -629,7 +629,7 @@ public struct ConversationListView: View {
     
     private var listView: some View {
         List {
-            if viewModel.quotaResponse?.currentAccount?.gemini5h != nil {
+            if viewModel.quotaResponse?.currentAccount?.resolvedQuotaDisplay(preferred: AppSettings.shared.selectedQuotaBucket) != nil {
                 QuotaStatusBarView(account: viewModel.quotaResponse?.currentAccount, linkMonitor: viewModel.linkMonitor) {
                     showAccountQuota = true
                 }

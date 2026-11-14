@@ -40,6 +40,7 @@ public final class AppSettings {
     private let autoApprovePermissionsKey = "antigravity.auto_approve_permissions"
     private let enableVoiceModeKey = "antigravity.enable_voice_mode"
     private let weeklyPaceCursorKey = "antigravity.weekly_pace_cursor"
+    private let selectedQuotaBucketKey = "antigravity.selected_quota_bucket"
     private let themeModeKey = "antigravity.theme_mode"
     private let fontSizeScaleKey = "antigravity.font_size_scale"
     private let knowledgeModeKey = "antigravity.knowledge_mode_enabled"
@@ -205,6 +206,13 @@ public final class AppSettings {
     public var weeklyPaceCursorEnabled: Bool {
         didSet {
             UserDefaults.standard.set(weeklyPaceCursorEnabled, forKey: weeklyPaceCursorKey)
+        }
+    }
+
+    /// 首页额度条默认对齐显示的配额框（默认 Gemini · 5h）
+    public var selectedQuotaBucket: QuotaBucketKind {
+        didSet {
+            UserDefaults.standard.set(selectedQuotaBucket.rawValue, forKey: selectedQuotaBucketKey)
         }
     }
 
@@ -645,6 +653,8 @@ public final class AppSettings {
         } else {
             self.weeklyPaceCursorEnabled = UserDefaults.standard.bool(forKey: weeklyPaceCursorKey)
         }
+        let savedQuotaBucket = UserDefaults.standard.string(forKey: selectedQuotaBucketKey) ?? QuotaBucketKind.gemini5h.rawValue
+        self.selectedQuotaBucket = QuotaBucketKind(rawValue: savedQuotaBucket) ?? .gemini5h
         self.themeMode = UserDefaults.standard.string(forKey: themeModeKey) ?? "system"
         let savedScale = UserDefaults.standard.string(forKey: fontSizeScaleKey) ?? "standard"
         self.fontSizeScale = FontSizeScale(rawValue: savedScale) ?? .standard
