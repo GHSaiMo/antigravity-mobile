@@ -310,7 +310,7 @@ fun WorkflowTemplateSheet(
                         Icon(
                             imageVector = if (isEditing) Icons.Default.Check else Icons.Default.Edit,
                             contentDescription = if (isEditing) "完成" else "编辑",
-                            tint = if (isEditing) colors.accentIndigo else colors.textPrimary,
+                            tint = colors.accentIndigo,
                             modifier = Modifier.size(20.dp)
                         )
                     }
@@ -667,14 +667,13 @@ private fun WorkflowSwipeableCard(
             }
         }
 
-        // Foreground card
+        // Foreground card (horizontal swipe pointerInput placed before offset to avoid coordinate feedback jitter)
         Surface(
             shape = RoundedCornerShape(12.dp),
             color = colors.surfaceVariant.copy(alpha = if (isDragging) 0.95f else 0.72f),
             shadowElevation = if (isDragging) 6.dp else 0.dp,
             modifier = Modifier
                 .fillMaxWidth()
-                .offset { IntOffset(offsetX.value.roundToInt(), 0) }
                 .pointerInput(item.id) {
                     detectHorizontalDragGestures(
                         onDragStart = {
@@ -704,6 +703,7 @@ private fun WorkflowSwipeableCard(
                         }
                     )
                 }
+                .offset { IntOffset(offsetX.value.roundToInt(), 0) }
                 .then(
                     if (!isEditing) {
                         Modifier.clickable {
