@@ -456,17 +456,160 @@ async function handleInteractionSubmit(isSkip) {
   }
 }
 
+function initPromptJumpStepper() {
+  const stepperEl = document.getElementById("prompt-jump-stepper");
+  if (!stepperEl || stepperEl.dataset.inited) return;
+  stepperEl.dataset.inited = "true";
+
+  const btnUp = document.getElementById("pjs-btn-up");
+  const btnDown = document.getElementById("pjs-btn-down");
+  const streamEl = document.getElementById("messages-stream");
+
+  if (btnUp) {
+    btnUp.addEventListener("click", () => {
+      const userRows = Array.from(streamEl.querySelectorAll(".message-row.user"));
+      if (userRows.length < 2) return;
+      const currentIdx = getVisibleTurnIndex(userRows, streamEl);
+      const targetIdx = Math.max(0, currentIdx - 1);
+      userRows[targetIdx]?.scrollIntoView({ behavior: "smooth", block: "start" });
+      setTimeout(() => updatePromptJumpStepper(), 350);
+    });
+  }
+
+  if (btnDown) {
+    let longPressTimer = null;
+    let isLongPress = false;
+
+    const handleDownAction = () => {
+      const userRows = Array.from(streamEl.querySelectorAll(".message-row.user"));
+      if (userRows.length < 2) return;
+      const currentIdx = getVisibleTurnIndex(userRows, streamEl);
+      if (currentIdx < userRows.length - 1) {
+        const targetIdx = currentIdx + 1;
+        userRows[targetIdx]?.scrollIntoView({ behavior: "smooth", block: "start" });
+      } else {
+        streamEl.scrollTo({ top: streamEl.scrollHeight, behavior: "smooth" });
+      }
+      setTimeout(() => updatePromptJumpStepper(), 350);
+    };
+
+    btnDown.addEventListener("click", () => {
+      if (isLongPress) return;
+      handleDownAction();
+    });
+
+    const startLongPress = () => {
+      isLongPress = false;
+      longPressTimer = setTimeout(() => {
+        isLongPress = true;
+        streamEl.scrollTo({ top: streamEl.scrollHeight, behavior: "smooth" });
+        setTimeout(() => updatePromptJumpStepper(), 350);
+      }, 450);
+    };
+
+    const cancelLongPress = () => {
+      if (longPressTimer) {
+        clearTimeout(longPressTimer);
+        longPressTimer = null;
+      }
+    };
+
+    btnDown.addEventListener("touchstart", startLongPress, { passive: true });
+    btnDown.addEventListener("touchend", cancelLongPress, { passive: true });
+    btnDown.addEventListener("touchcancel", cancelLongPress, { passive: true });
+    btnDown.addEventListener("mousedown", startLongPress);
+    btnDown.addEventListener("mouseup", cancelLongPress);
+    btnDown.addEventListener("mouseleave", cancelLongPress);
+  }
+}
+
+function getVisibleTurnIndex(userRows, streamEl) {
+  if (!userRows || userRows.length === 0) return 0;
+  const scrollTop = streamEl.scrollTop;
+  let bestIdx = 0;
+  for (let i = 0; i < userRows.length; i++) {
+    const rowTop = userRows[i].offsetTop - streamEl.offsetTop;
+    if (rowTop <= scrollTop + 60) {
+      bestIdx = i;
+    } else {
+      break;
+    }
+  }
+  return bestIdx;
+}
+
+function updatePromptJumpStepper() {
+  const stepperEl = document.getElementById("prompt-jump-stepper");
+  const streamEl = document.getElementById("messages-stream");
+  const chatInput = document.getElementById("chat-input");
+  if (!stepperEl || !streamEl) return;
+
+  initPromptJumpStepper();
+
+  const userRows = Array.from(streamEl.querySelectorAll(".message-row.user"));
+  const totalTurns = userRows.length;
+
+  const isInputFocused = chatInput && document.activeElement === chatInput;
+  const dist = streamEl.scrollHeight - streamEl.scrollTop - streamEl.clientHeight;
+  const isNearBottom = dist <= 120;
+
+  if (totalTurns < 2 || isNearBottom || isInputFocused) {
+    stepperEl.classList.add("hidden");
+    return;
+  }
+
+  stepperEl.classList.remove("hidden");
+
+  const currentIdx = getVisibleTurnIndex(userRows, streamEl);
+  const isAtTop = currentIdx <= 0;
+  const isAtLastTurn = currentIdx >= totalTurns - 1;
+
+  const btnUp = document.getElementById("pjs-btn-up");
+  const iconDown = document.getElementById("pjs-icon-down");
+  const iconBottom = document.getElementById("pjs-icon-bottom");
+
+  if (btnUp) {
+    btnUp.disabled = isAtTop;
+    btnUp.classList.toggle("disabled", isAtTop);
+  }
+
+  if (iconDown && iconBottom) {
+    if (isAtLastTurn) {
+      iconDown.classList.add("hidden");
+      iconBottom.classList.remove("hidden");
+    } else {
+      iconDown.classList.remove("hidden");
+      iconBottom.classList.add("hidden");
+    }
+  }
+}
+
 function initScrollListener() {
   const streamEl = document.getElementById("messages-stream");
   if (!streamEl || streamEl.dataset.hasScrollListener) return;
   streamEl.dataset.hasScrollListener = "true";
 
+  initPromptJumpStepper();
+
+  let scrollFadeTimer = null;
   const updateNearBottom = () => {
     const dist = streamEl.scrollHeight - streamEl.scrollTop - streamEl.clientHeight;
     userIsNearBottom = dist <= 80;
+    updatePromptJumpStepper();
   };
 
-  streamEl.addEventListener("scroll", updateNearBottom, { passive: true });
+  streamEl.addEventListener("scroll", () => {
+    updateNearBottom();
+    const stepperEl = document.getElementById("prompt-jump-stepper");
+    if (stepperEl && !stepperEl.classList.contains("hidden")) {
+      stepperEl.classList.add("is-scrolling");
+      if (scrollFadeTimer) clearTimeout(scrollFadeTimer);
+      scrollFadeTimer = setTimeout(() => {
+        stepperEl.classList.remove("is-scrolling");
+      }, 150);
+    }
+  }, { passive: true });
+
   streamEl.addEventListener("touchstart", () => { isUserTouching = true; }, { passive: true });
   streamEl.addEventListener("touchend", () => {
     isUserTouching = false;
@@ -476,6 +619,13 @@ function initScrollListener() {
     isUserTouching = false;
     updateNearBottom();
   }, { passive: true });
+
+  const chatInput = document.getElementById("chat-input");
+  if (chatInput && !chatInput.dataset.hasStepperFocusListener) {
+    chatInput.dataset.hasStepperFocusListener = "true";
+    chatInput.addEventListener("focus", () => updatePromptJumpStepper());
+    chatInput.addEventListener("blur", () => updatePromptJumpStepper());
+  }
 }
 
 function closeActiveWs(resetBackoff = false) {
@@ -1574,6 +1724,8 @@ function renderMessages(steps, isRunning = false) {
   if (hasDOMChanges) {
     renderAllMermaidDiagrams(streamEl);
   }
+
+  setTimeout(() => updatePromptJumpStepper(), 50);
 }
 
 // --- Running Background Tasks Manager (Desktop Antigravity Parity) ---

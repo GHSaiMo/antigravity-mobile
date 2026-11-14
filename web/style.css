@@ -5559,6 +5559,67 @@ html[data-unavail~="models"] [data-feature="models"] {
   padding-bottom: calc(var(--bottom-stack-h, 150px) + 12px);
 }
 
+/* ---- 垂直纵向双钮跳跃导航条 (Prompt Jump Stepper) ---- */
+.prompt-jump-stepper {
+  position: absolute;
+  right: 14px;
+  bottom: calc(var(--bottom-stack-h, 150px) + 14px);
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+  pointer-events: auto;
+  transition: opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1), transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.prompt-jump-stepper.hidden {
+  opacity: 0 !important;
+  pointer-events: none !important;
+  transform: scale(0.85);
+  display: none !important;
+}
+
+.prompt-jump-stepper.is-scrolling {
+  opacity: 0.45;
+}
+
+.pjs-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--glass-bg-strong, rgba(255, 255, 255, 0.85));
+  backdrop-filter: var(--glass-filter, blur(16px));
+  -webkit-backdrop-filter: var(--glass-filter, blur(16px));
+  border: 0.5px solid var(--glass-border, rgba(0, 0, 0, 0.12));
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ios-label, #000);
+  cursor: pointer;
+  padding: 0;
+  outline: none;
+  transition: transform 0.12s ease, opacity 0.15s ease;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.pjs-btn:active:not(:disabled) {
+  transform: scale(0.92);
+}
+
+.pjs-btn:disabled,
+.pjs-btn.disabled {
+  opacity: 0.25;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.pjs-btn svg {
+  display: block;
+}
+
 .ios-input-bar {
   background: transparent;
   border-top: none;

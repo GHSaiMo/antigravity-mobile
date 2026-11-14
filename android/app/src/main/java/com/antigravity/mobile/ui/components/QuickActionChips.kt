@@ -1,8 +1,10 @@
 package com.antigravity.mobile.ui.components
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -10,9 +12,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -20,13 +24,19 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.antigravity.mobile.data.model.ModelDefaults
+import com.antigravity.mobile.data.model.ModelFamily
+import com.antigravity.mobile.data.model.ModelsResponse
 import com.antigravity.mobile.data.model.SlashCommandOption
 import com.antigravity.mobile.ui.theme.AntigravityTheme
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun QuickActionChips(
     activeModel: String,
     onToggleModel: () -> Unit,
+    onSelectModel: (String) -> Unit = {},
+    modelCatalog: ModelsResponse? = null,
     onAddImage: () -> Unit,
     selectedSlashCommand: SlashCommandOption? = null,
     onClearSlashCommand: () -> Unit = {},
@@ -42,9 +52,21 @@ fun QuickActionChips(
     modifier: Modifier = Modifier
 ) {
     val colors = AntigravityTheme.colors
-    val isClaude = com.antigravity.mobile.data.model.ModelDefaults.isClaude(activeModel)
-    val providerLabel = com.antigravity.mobile.data.model.ModelDefaults.providerLabel(activeModel)
+    val compactName = remember(activeModel, modelCatalog) {
+        ModelDefaults.compactDisplayName(activeModel, modelCatalog?.models.orEmpty())
+    }
+    val providerKind = remember(activeModel) {
+        ModelDefaults.providerKind(activeModel)
+    }
+    val chipTextColor = when (providerKind) {
+        "claude" -> colors.accentOrange
+        "orchestrator" -> colors.accentPurple
+        "other" -> colors.accentIndigo
+        else -> colors.accentBlue
+    }
     val haptic = com.antigravity.mobile.ui.util.rememberHaptic()
+    var showModelMenu by remember { mutableStateOf(false) }
+    var selectedFamily by remember { mutableStateOf<ModelFamily?>(null) }
 
     Row(
         modifier = modifier
@@ -76,34 +98,126 @@ fun QuickActionChips(
             )
         }
 
-        // 2. Gemini / Claude Model Switcher
-        Box(
-            modifier = Modifier
-                .height(32.dp)
-                .clip(RoundedCornerShape(10.dp))
-                .background(
-                    if (isClaude) colors.accentOrange.copy(alpha = 0.12f)
-                    else colors.accentBlue.copy(alpha = 0.12f)
+        // 2. Gemini / Claude / Model Switcher (Tap to toggle, Long-press for hierarchical menu)
+        Box {
+            Box(
+                modifier = Modifier
+                    .height(32.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(chipTextColor.copy(alpha = 0.12f))
+                    .border(
+                        1.dp,
+                        chipTextColor.copy(alpha = 0.35f),
+                        RoundedCornerShape(10.dp)
+                    )
+                    .combinedClickable(
+                        onClick = {
+                            haptic.light()
+                            onToggleModel()
+                        },
+                        onLongClick = {
+                            haptic.medium()
+                            selectedFamily = null
+                            showModelMenu = true
+                        }
+                    )
+                    .padding(horizontal = 11.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = compactName,
+                    color = chipTextColor,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium
                 )
-                .border(
-                    1.dp,
-                    if (isClaude) colors.accentOrange.copy(alpha = 0.35f)
-                    else colors.accentBlue.copy(alpha = 0.35f),
-                    RoundedCornerShape(10.dp)
-                )
-                .clickable {
-                    haptic.light()
-                    onToggleModel()
+            }
+
+            DropdownMenu(
+                expanded = showModelMenu,
+                onDismissRequest = {
+                    showModelMenu = false
+                    selectedFamily = null
                 }
-                .padding(horizontal = 11.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = providerLabel,
-                color = if (isClaude) colors.accentOrange else colors.accentBlue,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Medium
-            )
+            ) {
+                val families = remember(modelCatalog, providerKind) {
+                    ModelDefaults.modelFamilies(modelCatalog?.models.orEmpty(), provider = providerKind)
+                }
+                val currentFamily = selectedFamily
+                if (currentFamily == null) {
+                    families.forEach { family ->
+                        DropdownMenuItem(
+                            text = {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = family.name,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                    if (family.variants.size > 1) {
+                                        Text(
+                                            text = "›",
+                                            color = colors.textSecondary,
+                                            fontSize = 14.sp
+                                        )
+                                    }
+                                }
+                            },
+                            onClick = {
+                                if (family.variants.size == 1) {
+                                    onSelectModel(family.variants.first().id)
+                                    showModelMenu = false
+                                } else {
+                                    selectedFamily = family
+                                }
+                            }
+                        )
+                    }
+                } else {
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                text = "← ${currentFamily.name}",
+                                color = colors.accentBlue,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        },
+                        onClick = { selectedFamily = null }
+                    )
+                    currentFamily.variants.forEach { variant ->
+                        val isSelected = activeModel.equals(variant.id, ignoreCase = true)
+                        DropdownMenuItem(
+                            text = {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = variant.label,
+                                        color = if (isSelected) colors.accentBlue else colors.textPrimary,
+                                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal
+                                    )
+                                    if (isSelected) {
+                                        Text(
+                                            text = "✓",
+                                            color = colors.accentBlue,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                            },
+                            onClick = {
+                                onSelectModel(variant.id)
+                                showModelMenu = false
+                                selectedFamily = null
+                            }
+                        )
+                    }
+                }
+            }
         }
 
         // 2b. 已选中的斜杠命令按钮（紧跟 Gemini 右侧，样式同高对齐，右上角带小叉）

@@ -463,12 +463,17 @@ public final class ChatViewModel {
         return isClaudeActive ? "MODEL_PLACEHOLDER_M26" : "MODEL_PLACEHOLDER_M318"
     }
     
-    /// 输入框上方胶囊的文字：只有厂商名，保持简洁。
+    /// 输入框上方胶囊的文字：紧凑短名展示（如 Carbon · High、Opus 5.5 · High 等）。
     public var activeModelDisplayName: String {
-        ModelDefaultsLogic.providerLabel(activeModel)
+        ModelCatalogStore.shared.compactDisplayName(forID: activeModel)
+    }
+
+    public var activeModelProviderKind: ModelProviderKind {
+        ModelDefaultsLogic.providerKind(forID: activeModel)
     }
     
     public func syncModel(from raw: String?) {
+        guard !hasUserManuallySelectedModel else { return }
         guard let raw = raw, !raw.isEmpty else { return }
         let target = ModelDefaultsLogic.resolveActive(
             raw: raw,
@@ -549,8 +554,9 @@ public final class ChatViewModel {
             self.isNewConversation = true
         }
         
-        var initialModel = resolvedSettings.activeModel
-        if let cached = resolvedCacheManager.loadSession(for: cascadeId),
+        var initialModel = resolvedSettings.defaultGeminiModel
+        if !cascadeId.isEmpty,
+           let cached = resolvedCacheManager.loadSession(for: cascadeId),
            let cfg = cached.cascadeConfigRaw {
             if let enumName = ModelDefaultsLogic.extractModelEnum(fromConfig: cfg),
                let knownID = ModelCatalogStore.shared.id(forEnum: enumName) {

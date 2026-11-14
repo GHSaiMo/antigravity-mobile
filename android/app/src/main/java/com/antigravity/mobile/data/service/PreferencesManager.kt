@@ -221,6 +221,21 @@ class PreferencesManager(context: Context) {
     private val _defaultClaudeModelFlow = MutableStateFlow(defaultClaudeModel)
     val defaultClaudeModelFlow: StateFlow<String> = _defaultClaudeModelFlow.asStateFlow()
 
+    /** 新建会话默认厂商（"gemini" | "claude"） */
+    var defaultNewSessionProvider: String
+        get() = prefs.getString(KEY_DEFAULT_NEW_SESSION_PROVIDER, "gemini")?.takeIf { it.isNotBlank() } ?: "gemini"
+        set(value) {
+            val trimmed = value.trim()
+            prefs.edit().putString(KEY_DEFAULT_NEW_SESSION_PROVIDER, trimmed).apply()
+            _defaultNewSessionProviderFlow.value = trimmed.ifBlank { "gemini" }
+        }
+
+    private val _defaultNewSessionProviderFlow = MutableStateFlow(defaultNewSessionProvider)
+    val defaultNewSessionProviderFlow: StateFlow<String> = _defaultNewSessionProviderFlow.asStateFlow()
+
+    val defaultNewSessionModel: String
+        get() = if (defaultNewSessionProvider == "claude") defaultClaudeModel else defaultGeminiModel
+
     val cachedModelCatalog: ModelsResponse?
         get() {
             val raw = prefs.getString(KEY_CACHED_MODEL_CATALOG, null) ?: return null
@@ -798,6 +813,7 @@ class PreferencesManager(context: Context) {
         private const val KEY_KNOWLEDGE_MODE = "knowledge_mode_enabled"
         private const val KEY_DEFAULT_GEMINI_MODEL = "default_gemini_model"
         private const val KEY_DEFAULT_CLAUDE_MODEL = "default_claude_model"
+        private const val KEY_DEFAULT_NEW_SESSION_PROVIDER = "default_new_session_provider"
         private const val KEY_AUTO_APPROVE = "auto_approve_permissions"
         private const val KEY_LIVE_NOTIFICATIONS = "live_notifications"
         private const val KEY_ENABLE_VOICE_MODE = "enable_voice_mode"

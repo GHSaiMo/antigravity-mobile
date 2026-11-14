@@ -272,17 +272,18 @@ extension ChatViewModel {
         )
         activeModelName = nil
         updateCascadeConfigRawModel(activeModelEnum, modelName: activeModel)
-        guard let url = settings.serverURL else { return }
-        let cid = self.cascadeId
-        let currentEnum = self.activeModelEnum
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                try await self.apiClient.switchModel(to: currentEnum, cascadeId: cid.isEmpty ? nil : cid, baseURL: url)
-            } catch {
-                print("⚠️ Failed to switch model upstream: \(error)")
-            }
-        }
+        // 本地切换即刻生效，不立即发起网络请求，在发送消息时统一提交到桌面网关
+    }
+
+    @MainActor
+    public func selectModel(_ modelId: String) {
+        guard activeModel != modelId else { return }
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        hasUserManuallySelectedModel = true
+        activeModel = modelId
+        activeModelName = nil
+        updateCascadeConfigRawModel(activeModelEnum, modelName: activeModel)
+        // 本地选择即刻生效，在发送消息时统一提交到桌面网关
     }
     
     @discardableResult
@@ -304,6 +305,18 @@ extension ChatViewModel {
         
         hasUserManuallySelectedModel = true
         updateCascadeConfigRawModel(activeModelEnum, modelName: activeModel)
+        
+        // 发送时将当前选定的模型同步提交到网关（上游 Language Server）
+        let cid = self.cascadeId
+        let currentEnum = self.activeModelEnum
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await self.apiClient.switchModel(to: currentEnum, cascadeId: cid.isEmpty ? nil : cid, baseURL: url)
+            } catch {
+                print("⚠️ Failed to switch model upstream on send: \(error)")
+            }
+        }
         
         isSending = true
         defer { isSending = false }

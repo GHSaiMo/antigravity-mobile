@@ -13,20 +13,48 @@ extension ChatView {
             } else {
                 GeometryReader { geometry in
                     ScrollViewReader { proxy in
-                        messagesScrollView(proxy: proxy, viewportWidth: geometry.size.width, viewportHeight: geometry.size.height)
-                            .onAppear {
-                                currentViewportHeight = geometry.size.height
-                            }
-                            .onChange(of: geometry.size.height) { oldHeight, newHeight in
-                                currentViewportHeight = newHeight
-                                if newHeight != oldHeight {
-                                    if !hasInitiallyAligned {
-                                        alignMessages(proxy: proxy, animated: false)
-                                    } else if isNearBottom && !hasUserInteracted {
-                                        scrollToBottom(proxy: proxy, animated: true)
+                        ZStack(alignment: .bottomTrailing) {
+                            messagesScrollView(proxy: proxy, viewportWidth: geometry.size.width, viewportHeight: geometry.size.height)
+                            
+                            // 浮动跳跃双钮导航条 (Prompt Jump Stepper)
+                            if shouldShowJumpStepper {
+                                PromptJumpStepperView(
+                                    currentTurn: currentVisibleTurnIndex,
+                                    totalTurns: viewModel.turns.count,
+                                    isAtTop: currentVisibleTurnIndex <= 1,
+                                    isAtLastTurn: currentVisibleTurnIndex >= viewModel.turns.count,
+                                    isUserDragging: isUserDragging,
+                                    onJumpPrevious: {
+                                        jumpToPreviousTurn()
+                                    },
+                                    onJumpNextOrBottom: {
+                                        jumpToNextTurnOrBottom()
+                                    },
+                                    onForceJumpBottom: {
+                                        forceJumpToBottom()
                                     }
+                                )
+                                .padding(.trailing, 14)
+                                .padding(.bottom, 12)
+                                .transition(.asymmetric(
+                                    insertion: .scale(scale: 0.85).combined(with: .opacity).combined(with: .move(edge: .trailing)),
+                                    removal: .scale(scale: 0.85).combined(with: .opacity)
+                                ))
+                            }
+                        }
+                        .onAppear {
+                            currentViewportHeight = geometry.size.height
+                        }
+                        .onChange(of: geometry.size.height) { oldHeight, newHeight in
+                            currentViewportHeight = newHeight
+                            if newHeight != oldHeight {
+                                if !hasInitiallyAligned {
+                                    alignMessages(proxy: proxy, animated: false)
+                                } else if isNearBottom && !hasUserInteracted {
+                                    scrollToBottom(proxy: proxy, animated: true)
                                 }
                             }
+                        }
                     }
                 }
             }
@@ -582,5 +610,43 @@ extension ChatView {
         }
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 32)
+    }
+    
+    // MARK: - Prompt Jump Stepper Helpers
+    
+    private var shouldShowJumpStepper: Bool {
+        viewModel.turns.count >= 2 && !isNearBottom && !isInputFocused
+    }
+    
+    private func jumpToPreviousTurn() {
+        let turns = viewModel.turns
+        guard !turns.isEmpty else { return }
+        let targetIdx = max(1, currentVisibleTurnIndex - 1)
+        lockedTurnIndex = targetIdx
+        currentVisibleTurnIndex = targetIdx
+        if let match = turns.first(where: { $0.turnIndex == targetIdx }) {
+            targetScrollTurnId = match.firstMessageId
+        }
+    }
+    
+    private func jumpToNextTurnOrBottom() {
+        let turns = viewModel.turns
+        guard !turns.isEmpty else { return }
+        let lastIdx = turns.last?.turnIndex ?? 1
+        if currentVisibleTurnIndex < lastIdx {
+            let targetIdx = currentVisibleTurnIndex + 1
+            lockedTurnIndex = targetIdx
+            currentVisibleTurnIndex = targetIdx
+            if let match = turns.first(where: { $0.turnIndex == targetIdx }) {
+                targetScrollTurnId = match.firstMessageId
+            }
+        } else {
+            forceJumpToBottom()
+        }
+    }
+    
+    private func forceJumpToBottom() {
+        lockedTurnIndex = nil
+        targetScrollTurnId = "BOTTOM_ANCHOR"
     }
 }

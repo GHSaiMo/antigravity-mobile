@@ -37,28 +37,57 @@ extension ChatView {
                     }
                     .buttonStyle(.plain)
                     
-                    // 2. Gemini / Claude Model Switch Button
-                    Button(action: {
-                        withAnimation(.easeInOut(duration: 0.15)) {
-                            viewModel.toggleModel()
+                    // 2. Model Switch Button (Tap to toggle Gemini/Claude, Long press for current provider's family & thinking menu)
+                    Menu {
+                        let currentProvider = viewModel.activeModelProviderKind.rawValue
+                        let families = ModelCatalogStore.shared.modelFamilies(for: currentProvider)
+                        ForEach(families) { family in
+                            if family.variants.count == 1, let single = family.variants.first {
+                                Button {
+                                    withAnimation(.easeInOut(duration: 0.15)) {
+                                        viewModel.selectModel(single.id)
+                                    }
+                                } label: {
+                                    if viewModel.activeModel == single.id {
+                                        Label(family.name, systemImage: "checkmark")
+                                    } else {
+                                        Text(family.name)
+                                    }
+                                }
+                            } else {
+                                Menu(family.name) {
+                                    ForEach(family.variants) { variant in
+                                        Button {
+                                            withAnimation(.easeInOut(duration: 0.15)) {
+                                                viewModel.selectModel(variant.id)
+                                            }
+                                        } label: {
+                                            if viewModel.activeModel == variant.id {
+                                                Label(variant.label, systemImage: "checkmark")
+                                            } else {
+                                                Text(variant.label)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
-                    }) {
+                    } label: {
                         Text(viewModel.activeModelDisplayName)
                             .font(.system(size: 13, weight: .medium))
-                            .foregroundColor(viewModel.isClaudeActive ? .orange : .blue)
+                            .foregroundColor(modelChipForegroundColor)
                             .padding(.horizontal, 11)
                             .frame(height: 32)
-                            .background(
-                                viewModel.isClaudeActive ? Color.orange.opacity(0.12) : Color.blue.opacity(0.12)
-                            )
+                            .background(modelChipBackgroundColor)
                             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                             .overlay(
                                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                    .stroke(
-                                        viewModel.isClaudeActive ? Color.orange.opacity(0.35) : Color.blue.opacity(0.35),
-                                        lineWidth: 1
-                                    )
+                                    .stroke(modelChipBorderColor, lineWidth: 1)
                             )
+                    } primaryAction: {
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            viewModel.toggleModel()
+                        }
                     }
                     .buttonStyle(.plain)
 
@@ -266,6 +295,23 @@ extension ChatView {
     }
     // hasSendableDraft / isSendDisabled 仅在 ChatInputTextAndSendRow 内部计算：
     // 不要在 ChatView 上重新声明并在 body 中读取，否则会把 inputText 订阅带回 ChatView.body，打字时整页重绘。
+
+    private var modelChipForegroundColor: Color {
+        switch viewModel.activeModelProviderKind {
+        case .claude: return .orange
+        case .orchestrator: return .purple
+        case .other: return .teal
+        case .gemini: return .blue
+        }
+    }
+
+    private var modelChipBackgroundColor: Color {
+        modelChipForegroundColor.opacity(0.12)
+    }
+
+    private var modelChipBorderColor: Color {
+        modelChipForegroundColor.opacity(0.35)
+    }
 }
 
 private struct ChatFloatingSlashPopupHost: View {

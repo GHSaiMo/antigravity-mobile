@@ -966,7 +966,7 @@ private fun DefaultModelSection(
     val footer = when (loadState) {
         "loading" -> "正在读取可用模型..."
         "failed" -> "暂时无法读取可用模型列表，仍会使用当前已保存的默认模型。"
-        else -> "输入框上方的 Gemini / Claude 切换会使用这里选定的模型；已有会话继续沿用它正在使用的模型。"
+        else -> "输入框上方短按切换 Gemini 与 Claude，长按选择模型及思考强度；已有会话自动跟随桌面当前模型，更改后随消息发送生效。"
     }
 
     SettingsSection(title = "默认模型", footer = footer) {
@@ -978,14 +978,14 @@ private fun DefaultModelSection(
                 .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
         ) {
             ModelPickerRow(
-                label = "Gemini",
+                label = "Gemini 默认",
                 selectedId = gemini,
                 options = catalog?.models?.filter { it.provider == "gemini" }.orEmpty(),
                 onSelect = { prefs.defaultGeminiModel = it }
             )
             HorizontalDivider(color = colors.separator.copy(alpha = 0.4f), thickness = 0.5.dp)
             ModelPickerRow(
-                label = "Claude",
+                label = "Claude 默认",
                 selectedId = claude,
                 options = catalog?.models?.filter { it.provider == "claude" }.orEmpty(),
                 onSelect = { prefs.defaultClaudeModel = it }

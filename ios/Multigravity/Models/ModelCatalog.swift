@@ -14,6 +14,41 @@ public struct ModelOption: Codable, Sendable, Identifiable, Hashable {
     public var tag: String?
 }
 
+public enum ModelProviderKind: String, Sendable {
+    case gemini
+    case claude
+    case orchestrator
+    case other
+}
+
+public struct ModelVariant: Identifiable, Hashable, Sendable {
+    public var id: String
+    public var label: String
+    public var rawName: String
+    public var tag: String?
+
+    public init(id: String, label: String, rawName: String, tag: String? = nil) {
+        self.id = id
+        self.label = label
+        self.rawName = rawName
+        self.tag = tag
+    }
+}
+
+public struct ModelFamily: Identifiable, Hashable, Sendable {
+    public var id: String
+    public var name: String
+    public var provider: String
+    public var variants: [ModelVariant]
+
+    public init(id: String, name: String, provider: String, variants: [ModelVariant]) {
+        self.id = id
+        self.name = name
+        self.provider = provider
+        self.variants = variants
+    }
+}
+
 public struct ModelsResponse: Codable, Sendable {
     public var models: [ModelOption]
     /// 网关建议的各厂商默认模型（provider -> model id）。
@@ -76,6 +111,10 @@ public enum ModelDefaultsLogic {
         "gemini-4-argon-high": "Gemini 4 Argon (High)",
         "gemini-4-argon-medium": "Gemini 4 Argon (Medium)",
         "gemini-4-argon-low": "Gemini 4 Argon (Low)",
+        "gemini-4-hydrogen-xhigh": "Gemini 4 Hydrogen (XHigh)",
+        "gemini-4-hydrogen-high": "Gemini 4 Hydrogen (High)",
+        "gemini-4-hydrogen-medium": "Gemini 4 Hydrogen (Medium)",
+        "gemini-4-hydrogen-low": "Gemini 4 Hydrogen (Low)",
         "gemini-3.8-flash-high": "Gemini 3.8 Flash (High)",
         "gemini-3.8-flash-medium": "Gemini 3.8 Flash (Medium)",
         "gemini-3.8-flash-low": "Gemini 3.8 Flash (Low)",
@@ -89,7 +128,40 @@ public enum ModelDefaultsLogic {
         "claude-sonnet-5-5-low": "Claude Sonnet 5.5 (Low)",
         "claude-opus-4-6-thinking": "Claude Opus 4.6 (Thinking)",
         "claude-sonnet-4-6": "Claude Sonnet 4.6 (Thinking)",
+        "orchestrator-carbon": "Orchestrator (Carbon)",
+        "orchestrator-argon": "Orchestrator (Argon)",
         "gpt-oss-120b-medium": "GPT-OSS 120B (Medium)",
+    ]
+
+    /// 顶栏芯片紧凑展示名映射（如 `Gemini 4 Carbon (High)` → `Carbon · High`）。
+    public static let staticCompactDisplayNameByID: [String: String] = [
+        "gemini-4-carbon-high": "Carbon · High",
+        "gemini-4-carbon-medium": "Carbon · Med",
+        "gemini-4-carbon-low": "Carbon · Low",
+        "gemini-4-carbon": "Carbon",
+        "gemini-4-argon-high": "Argon · High",
+        "gemini-4-argon-medium": "Argon · Med",
+        "gemini-4-argon-low": "Argon · Low",
+        "gemini-4-hydrogen-xhigh": "Hydrogen · XH",
+        "gemini-4-hydrogen-high": "Hydrogen · High",
+        "gemini-4-hydrogen-medium": "Hydrogen · Med",
+        "gemini-4-hydrogen-low": "Hydrogen · Low",
+        "gemini-3.8-flash-high": "Flash 3.8 · High",
+        "gemini-3.8-flash-medium": "Flash 3.8 · Med",
+        "gemini-3.8-flash-low": "Flash 3.8 · Low",
+        "gemini-3.1-pro-high": "Pro 3.1 · High",
+        "gemini-3.1-pro-low": "Pro 3.1 · Low",
+        "claude-opus-5-5-high": "Opus 5.5 · High",
+        "claude-opus-5-5-medium": "Opus 5.5 · Med",
+        "claude-opus-5-5-low": "Opus 5.5 · Low",
+        "claude-sonnet-5-5-high": "Sonnet 5.5 · High",
+        "claude-sonnet-5-5-medium": "Sonnet 5.5 · Med",
+        "claude-sonnet-5-5-low": "Sonnet 5.5 · Low",
+        "claude-opus-4-6-thinking": "Opus 4.6 · Think",
+        "claude-sonnet-4-6": "Sonnet 4.6 · Think",
+        "orchestrator-carbon": "Orch · Carbon",
+        "orchestrator-argon": "Orch · Argon",
+        "gpt-oss-120b-medium": "GPT-OSS · Med",
     ]
 
     /// 将未知模型 ID 转为统一规范的展示名（如 `claude-sonnet-5-5-high` → `Claude Sonnet 5.5 (High)`）。
@@ -153,6 +225,142 @@ public enum ModelDefaultsLogic {
             return name
         }
         return "\(name) · \(tag)"
+    }
+
+    public static func providerKind(forID id: String) -> ModelProviderKind {
+        let lower = id.lowercased()
+        if isClaude(lower) { return .claude }
+        if lower.contains("orch") { return .orchestrator }
+        if lower.contains("gpt") { return .other }
+        return .gemini
+    }
+
+    /// 顶栏芯片紧凑展示名（优先查预设表，再对全名进行自然紧凑格式化）
+    public static func compactDisplayName(forID id: String, options: [ModelOption] = []) -> String {
+        let key = id.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !key.isEmpty else { return "" }
+        if let known = staticCompactDisplayNameByID[key.lowercased()] {
+            return known
+        }
+        let full = displayName(forID: key, options: options)
+        return formatFullNameToCompact(full)
+    }
+
+    public static func formatFullNameToCompact(_ full: String) -> String {
+        let trimmed = full.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "" }
+        if let openParen = trimmed.lastIndex(of: "("),
+           trimmed.hasSuffix(")"),
+           openParen > trimmed.startIndex {
+            var base = String(trimmed[..<openParen]).trimmingCharacters(in: .whitespaces)
+            let insideStartIndex = trimmed.index(after: openParen)
+            let insideEndIndex = trimmed.index(before: trimmed.endIndex)
+            var variant = String(trimmed[insideStartIndex..<insideEndIndex]).trimmingCharacters(in: .whitespaces)
+            
+            if base.lowercased().hasPrefix("gemini 4 ") {
+                base = String(base.dropFirst("gemini 4 ".count))
+            } else if base.lowercased().hasPrefix("gemini ") {
+                base = String(base.dropFirst("gemini ".count))
+            } else if base.lowercased().hasPrefix("claude ") {
+                base = String(base.dropFirst("claude ".count))
+            } else if base.lowercased().hasPrefix("orchestrator") {
+                base = "Orch"
+            }
+            
+            let vLower = variant.lowercased()
+            if vLower == "medium" {
+                variant = "Med"
+            } else if vLower == "thinking" {
+                variant = "Think"
+            } else if vLower == "xhigh" {
+                variant = "XH"
+            }
+            return "\(base) · \(variant)"
+        }
+        
+        var base = trimmed
+        if base.lowercased().hasPrefix("gemini 4 ") {
+            base = String(base.dropFirst("gemini 4 ".count))
+        } else if base.lowercased().hasPrefix("gemini ") {
+            base = String(base.dropFirst("gemini ".count))
+        } else if base.lowercased().hasPrefix("claude ") {
+            base = String(base.dropFirst("claude ".count))
+        } else if base.lowercased().hasPrefix("orchestrator") {
+            base = "Orch"
+        }
+        return base
+    }
+
+    /// 将扁平模型列表按大类/家族归类（如 Gemini 4 Carbon、Gemini 4 Argon、Claude Opus 5.5、Orchestrator 等），
+    /// 用于长按呼出二级选择菜单（上滑选大类、右滑选强度）。
+    public static func modelFamilies(from options: [ModelOption]) -> [ModelFamily] {
+        let effectiveOptions: [ModelOption]
+        if options.isEmpty {
+            effectiveOptions = staticDisplayNameByID.keys.sorted().map { key in
+                let name = staticDisplayNameByID[key] ?? key
+                return ModelOption(
+                    id: key,
+                    name: name,
+                    provider: isClaude(key) ? "claude" : (key.contains("orch") ? "other" : "gemini")
+                )
+            }
+        } else {
+            effectiveOptions = options
+        }
+        
+        var familyMap: [String: (name: String, provider: String, variants: [ModelVariant])] = [:]
+        var familyOrder: [String] = []
+        
+        for opt in effectiveOptions {
+            let fullName = opt.name.isEmpty ? displayName(forID: opt.id, options: options) : opt.name
+            var familyName = fullName
+            var variantLabel = "默认"
+            
+            if let openParen = fullName.lastIndex(of: "("),
+               fullName.hasSuffix(")"),
+               openParen > fullName.startIndex {
+                familyName = String(fullName[..<openParen]).trimmingCharacters(in: .whitespaces)
+                let insideStartIndex = fullName.index(after: openParen)
+                let insideEndIndex = fullName.index(before: fullName.endIndex)
+                variantLabel = String(fullName[insideStartIndex..<insideEndIndex]).trimmingCharacters(in: .whitespaces)
+            }
+            
+            let p = opt.provider.lowercased()
+            let familyProvider: String
+            if isClaude(opt.id) || p == "claude" {
+                familyProvider = "claude"
+            } else if opt.id.lowercased().contains("orch") || familyName.lowercased().contains("orch") {
+                familyProvider = "orchestrator"
+            } else if p == "gemini" || opt.id.lowercased().contains("gemini") {
+                familyProvider = "gemini"
+            } else {
+                familyProvider = "other"
+            }
+            
+            let variant = ModelVariant(
+                id: opt.id,
+                label: variantLabel,
+                rawName: fullName,
+                tag: opt.tag
+            )
+            
+            if familyMap[familyName] == nil {
+                familyOrder.append(familyName)
+                familyMap[familyName] = (name: familyName, provider: familyProvider, variants: [variant])
+            } else {
+                familyMap[familyName]?.variants.append(variant)
+            }
+        }
+        
+        return familyOrder.compactMap { key in
+            guard let entry = familyMap[key] else { return nil }
+            return ModelFamily(
+                id: key,
+                name: entry.name,
+                provider: entry.provider,
+                variants: entry.variants
+            )
+        }
     }
 
     /// 输入框上方胶囊的文字：只有厂商名，保持简洁。
@@ -225,6 +433,21 @@ public final class ModelCatalogStore {
 
     public func options(for provider: String) -> [ModelOption] {
         (catalog?.models ?? []).filter { $0.provider == provider }
+    }
+
+    public func modelFamilies(for provider: String? = nil) -> [ModelFamily] {
+        let all = ModelDefaultsLogic.modelFamilies(from: catalog?.models ?? [])
+        guard let provider = provider?.lowercased(), !provider.isEmpty else { return all }
+        let filtered = all.filter { $0.provider.lowercased() == provider }
+        return filtered.isEmpty ? all : filtered
+    }
+
+    public var modelFamilies: [ModelFamily] {
+        modelFamilies(for: nil)
+    }
+
+    public func compactDisplayName(forID id: String) -> String {
+        ModelDefaultsLogic.compactDisplayName(forID: id, options: catalog?.models ?? [])
     }
 
     public func displayName(forID id: String) -> String? {
