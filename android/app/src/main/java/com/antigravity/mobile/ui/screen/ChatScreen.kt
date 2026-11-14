@@ -80,7 +80,9 @@ import androidx.compose.ui.platform.LocalView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import java.net.URLDecoder
@@ -146,6 +148,8 @@ import com.antigravity.mobile.ui.viewmodel.stopTask
 import com.antigravity.mobile.ui.viewmodel.submitInteraction
 import com.antigravity.mobile.ui.viewmodel.updateGlobalBackgroundTasks
 
+private val BracketPlaceholderRegex = Regex("\\[[^\\[\\]\\n]+\\]")
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
 @Composable
 fun ChatScreen(
@@ -199,6 +203,34 @@ fun ChatScreen(
     var showSendQueuedNowConfirmDialog by remember { mutableStateOf(false) }
     var queuedItemToSendNow by remember { mutableStateOf<com.antigravity.mobile.data.model.QueuedMessageItem?>(null) }
     var showWorkflowTemplateSheet by remember { mutableStateOf(false) }
+    var pendingSelectFirstPlaceholder by remember { mutableStateOf(false) }
+    var inputFieldValue by remember { mutableStateOf(TextFieldValue(inputText)) }
+    LaunchedEffect(inputText) {
+        if (inputFieldValue.text != inputText) {
+            inputFieldValue = TextFieldValue(
+                text = inputText,
+                selection = TextRange(inputText.length)
+            )
+        }
+    }
+    LaunchedEffect(pendingSelectFirstPlaceholder, inputText) {
+        if (pendingSelectFirstPlaceholder) {
+            pendingSelectFirstPlaceholder = false
+            val firstMatch = BracketPlaceholderRegex.find(inputText)
+            if (firstMatch != null) {
+                kotlinx.coroutines.delay(80)
+                inputFieldValue = TextFieldValue(
+                    text = inputText,
+                    selection = TextRange(firstMatch.range.first, firstMatch.range.last + 1)
+                )
+                focusRequester.requestFocus()
+                keyboardController?.show()
+            } else {
+                focusRequester.requestFocus()
+                keyboardController?.show()
+            }
+        }
+    }
     var selectedWorkflowSubagent by remember { mutableStateOf<com.antigravity.mobile.data.model.SubagentItem?>(null) }
     var lockedTurnIndex by remember { mutableStateOf<Int?>(null) }
     var isSlashPickerDismissed by remember { mutableStateOf(false) }
@@ -1641,8 +1673,26 @@ fun ChatScreen(
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
                             BasicTextField(
-                                value = inputText,
-                                onValueChange = { viewModel.onInputTextChanged(it) },
+                                value = inputFieldValue,
+                                onValueChange = { newValue ->
+                                    val expandedValue = if (newValue.text == inputFieldValue.text && newValue.selection.collapsed) {
+                                        val pos = newValue.selection.start
+                                        val matched = BracketPlaceholderRegex.findAll(newValue.text).firstOrNull { match ->
+                                            pos in match.range.first..(match.range.last + 1)
+                                        }
+                                        if (matched != null) {
+                                            newValue.copy(selection = TextRange(matched.range.first, matched.range.last + 1))
+                                        } else {
+                                            newValue
+                                        }
+                                    } else {
+                                        newValue
+                                    }
+                                    inputFieldValue = expandedValue
+                                    if (expandedValue.text != inputText) {
+                                        viewModel.onInputTextChanged(expandedValue.text)
+                                    }
+                                },
                                 modifier = Modifier
                                     .weight(1f)
                                     .focusRequester(focusRequester)
@@ -2144,6 +2194,7 @@ fun ChatScreen(
             onSelectTemplate = { prompt ->
                 showWorkflowTemplateSheet = false
                 viewModel.onInputTextChanged(prompt)
+                pendingSelectFirstPlaceholder = true
             }
         )
     }
