@@ -31,6 +31,10 @@ public final class ConversationListViewModel {
     public var linkMonitor: ConversationEventsClient { eventsClient }
     /// While the event socket is up, pushed hints drive refreshes and polling only runs this slowly.
     private static let eventsSafetyPollSeconds = 60
+    /// Cooldown window for background list reordering so concurrent running sessions don't swap rows rapidly.
+    private static let reorderCooldownSeconds: TimeInterval = 8.0
+    private var lastReorderUptime: TimeInterval = 0
+    private var pendingReorderTask: Task<Void, Never>? = nil
     private var lastCompatRefresh: Date = .distantPast
     private var lastResumeTime: Date = .distantPast
     
@@ -52,6 +56,7 @@ public final class ConversationListViewModel {
             let pinnedIds = self.cacheManager.getPinnedConversationIDs()
             let all = (drafts + nonDraftCached).map { $0.withPinned(pinnedIds.contains($0.id)) }
             self.conversations = Self.sortItems(all)
+            self.lastReorderUptime = ProcessInfo.processInfo.systemUptime
             self.cacheManager.prewarmSessions(for: nonDraftCached.prefix(15).map(\.id))
         }
         
@@ -191,6 +196,7 @@ public final class ConversationListViewModel {
             let pinnedIds = cacheManager.getPinnedConversationIDs()
             let all = (drafts + nonDraftCached).map { $0.withPinned(pinnedIds.contains($0.id)) }
             self.conversations = Self.sortItems(all)
+            self.markReorderedNow()
         }
     }
     
@@ -236,6 +242,8 @@ public final class ConversationListViewModel {
     public func stopAutoRefresh() {
         pollTask?.cancel()
         pollTask = nil
+        pendingReorderTask?.cancel()
+        pendingReorderTask = nil
         eventsClient.stop()
         eventsClient.onChange = nil
     }
@@ -312,7 +320,8 @@ public final class ConversationListViewModel {
             let drafts = cacheManager.loadLocalDraftConversations()
             let draftIds = Set(drafts.map(\.id))
             let nonDraftEnriched = enriched.filter { !draftIds.contains($0.id) && !$0.isDraft }
-            let all = Self.sortItems(drafts + nonDraftEnriched)
+            let sorted = Self.sortItems(drafts + nonDraftEnriched)
+            let all = applyReorderBuffer(sorted: sorted, forceReorder: !isBackgroundPoll)
             updateConversationsWithAnimation(all)
             cacheManager.saveConversations(nonDraftEnriched)
             cacheManager.prewarmSessions(for: all.prefix(15).map(\.id))
@@ -351,7 +360,8 @@ public final class ConversationListViewModel {
                     let nonDraftEnriched = enriched.filter { !draftIds.contains($0.id) && !$0.isDraft }
                     let pinnedIds = cacheManager.getPinnedConversationIDs()
                     let all = (drafts + nonDraftEnriched).map { $0.withPinned(pinnedIds.contains($0.id)) }
-                    updateConversationsWithAnimation(Self.sortItems(all))
+                    let buffered = applyReorderBuffer(sorted: Self.sortItems(all), forceReorder: !isBackgroundPoll)
+                    updateConversationsWithAnimation(buffered)
                     cacheManager.saveConversations(nonDraftEnriched)
                     cacheManager.prewarmSessions(for: all.prefix(15).map(\.id))
                     self.isLoading = false
@@ -460,6 +470,56 @@ public final class ConversationListViewModel {
         }
     }
     
+    private func markReorderedNow() {
+        lastReorderUptime = ProcessInfo.processInfo.systemUptime
+        pendingReorderTask?.cancel()
+        pendingReorderTask = nil
+    }
+
+    private func applyReorderBuffer(sorted: [ConversationItem], forceReorder: Bool) -> [ConversationItem] {
+        let now = ProcessInfo.processInfo.systemUptime
+        if forceReorder || conversations.isEmpty || lastReorderUptime == 0 || (now - lastReorderUptime) >= Self.reorderCooldownSeconds {
+            markReorderedNow()
+            return sorted
+        }
+
+        let newById = Dictionary(uniqueKeysWithValues: sorted.map { ($0.id, $0) })
+        let prevIDs = conversations.map(\.id)
+        let prevIDSet = Set(prevIDs)
+        let preserved = prevIDs.compactMap { newById[$0] }
+        let added = sorted.filter { !prevIDSet.contains($0.id) }
+
+        let buffered = (added.filter { $0.isPinned } + preserved.filter { $0.isPinned }) +
+            (added.filter { !$0.isPinned } + preserved.filter { !$0.isPinned })
+
+        let orderChanged = buffered.map(\.id) != sorted.map(\.id)
+        if orderChanged {
+            if pendingReorderTask == nil {
+                let remaining = max(0.05, Self.reorderCooldownSeconds - (now - lastReorderUptime))
+                pendingReorderTask = Task { [weak self] in
+                    try? await Task.sleep(nanoseconds: UInt64(remaining * 1_000_000_000))
+                    guard !Task.isCancelled else { return }
+                    self?.flushPendingReorder()
+                }
+            }
+        } else {
+            pendingReorderTask?.cancel()
+            pendingReorderTask = nil
+        }
+        return buffered
+    }
+
+    private func flushPendingReorder() {
+        pendingReorderTask = nil
+        guard !conversations.isEmpty else { return }
+        let sorted = Self.sortItems(conversations)
+        lastReorderUptime = ProcessInfo.processInfo.systemUptime
+        if sorted.map(\.id) != conversations.map(\.id) {
+            updateConversationsWithAnimation(sorted)
+            cacheManager.saveConversations(sorted.filter { !$0.isDraft && !$0.isSubagent })
+        }
+    }
+
     private func updateConversationsWithAnimation(_ newItems: [ConversationItem]) {
         let oldIDs = self.conversations.map(\.id)
         let newIDs = newItems.map(\.id)
@@ -483,6 +543,7 @@ public final class ConversationListViewModel {
             updated.append(resolved)
         }
         let sorted = Self.sortItems(updated)
+        markReorderedNow()
         updateConversationsWithAnimation(sorted)
     }
     
@@ -493,6 +554,7 @@ public final class ConversationListViewModel {
             var updated = conversations
             updated[idx] = updated[idx].withPinned(newPinned)
             let sorted = Self.sortItems(updated)
+            markReorderedNow()
             withAnimation(.spring(response: 0.42, dampingFraction: 0.72)) {
                 self.conversations = sorted
             }
