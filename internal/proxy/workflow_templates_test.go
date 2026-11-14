@@ -29,15 +29,19 @@ func TestHandleWorkflowTemplates_Lifecycle(t *testing.T) {
 		t.Fatalf("default templates len = %d, want 4", len(got.Templates))
 	}
 
-	// 2. PUT reorders and adds a custom template (with default icon/color fallback).
+	// 2. PUT reorders, marks inQuickMenu, and adds a custom template (with default/migrated icon fallback).
+	quickResearch := got.Templates[2]
+	quickResearch.InQuickMenu = true
 	updated := []WorkflowTemplate{
 		{
 			ID:             "my_daily",
 			Title:          "每日代码巡检",
 			Subtitle:       "检查今日 git diff",
+			Icon:           "star",
 			TemplatePrompt: "请帮我检查今天所有的 git diff 并列出潜在风险。",
+			InQuickMenu:    false,
 		},
-		got.Templates[2], // research moved ahead
+		quickResearch,    // research moved ahead & placed in quick menu
 		got.Templates[0], // code_review
 	}
 	body, _ := json.Marshal(map[string]interface{}{"templates": updated})
@@ -54,14 +58,18 @@ func TestHandleWorkflowTemplates_Lifecycle(t *testing.T) {
 	if len(saved.Templates) != 3 {
 		t.Fatalf("saved templates len = %d, want 3", len(saved.Templates))
 	}
-	if saved.Templates[0].ID != "my_daily" || saved.Templates[0].Icon != "workflow" || saved.Templates[0].Color != "indigo" {
-		t.Fatalf("unexpected normalized first template: %+v", saved.Templates[0])
+	// Stable partition puts inQuickMenu=true ("research") first, followed by inQuickMenu=false items in order.
+	if saved.Templates[0].ID != "research" || !saved.Templates[0].InQuickMenu {
+		t.Fatalf("expected quick menu template first, got: %+v", saved.Templates[0])
 	}
-	if saved.Templates[1].ID != "research" || saved.Templates[2].ID != "code_review" {
+	if saved.Templates[1].ID != "my_daily" || saved.Templates[1].Icon != "build" || saved.Templates[1].Color != "indigo" || saved.Templates[1].InQuickMenu {
+		t.Fatalf("unexpected normalized second template: %+v", saved.Templates[1])
+	}
+	if saved.Templates[2].ID != "code_review" {
 		t.Fatalf("order not preserved: %+v", saved.Templates)
 	}
 
-	// 3. Subsequent GET returns the persisted custom order.
+	// 3. Subsequent GET returns the persisted custom order & quick-menu flag.
 	rec2 := httptest.NewRecorder()
 	p.ServeHTTP(rec2, httptest.NewRequest(http.MethodGet, "/gateway/workflow-templates", nil))
 	if rec2.Code != http.StatusOK {
@@ -71,7 +79,7 @@ func TestHandleWorkflowTemplates_Lifecycle(t *testing.T) {
 	if err := json.Unmarshal(rec2.Body.Bytes(), &got2); err != nil {
 		t.Fatalf("decode GET2: %v", err)
 	}
-	if len(got2.Templates) != 3 || got2.Templates[0].ID != "my_daily" {
+	if len(got2.Templates) != 3 || got2.Templates[0].ID != "research" || !got2.Templates[0].InQuickMenu || got2.Templates[1].ID != "my_daily" {
 		t.Fatalf("persisted GET2 mismatch: %+v", got2.Templates)
 	}
 

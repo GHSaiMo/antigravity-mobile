@@ -98,8 +98,10 @@ extension ChatView {
                 }
             )
         }
-        .sheet(isPresented: $showWorkflowTemplateSheet) {
-            WorkflowTemplateSheet { templatePrompt in
+        .sheet(isPresented: $showWorkflowTemplateSheet, onDismiss: {
+            workflowSheetStartInEditMode = false
+        }) {
+            WorkflowTemplateSheet(initialEditing: workflowSheetStartInEditMode) { templatePrompt in
                 viewModel.inputText = templatePrompt
                 viewModel.pendingSelectFirstPlaceholder = true
                 isInputFocused = true

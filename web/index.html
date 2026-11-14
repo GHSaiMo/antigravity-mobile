@@ -300,15 +300,7 @@
               <span id="model-switch-text" class="model-switch-text">Gemini</span>
             </button>
 
-            <button id="btn-workflow-templates" class="chip-pill" type="button" title="Workflow 模板">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="6" cy="6" r="3"></circle>
-                <circle cx="18" cy="6" r="3"></circle>
-                <circle cx="12" cy="18" r="3"></circle>
-                <path d="M8.5 7.5 11 15.5"></path>
-                <path d="M15.5 7.5 13 15.5"></path>
-                <line x1="9" y1="6" x2="15" y2="6"></line>
-              </svg>
+            <button id="btn-workflow-templates" class="chip-pill" type="button" title="单击打开 Workflow 模板，长按上滑快捷输入">
               <span>Workflow</span>
             </button>
 
@@ -396,6 +388,8 @@
 
     <!-- Long-press / Context-menu: All-Models 2-Level Picker -->
     <div id="model-picker-overlay" class="model-picker-overlay hidden"></div>
+    <!-- Long-press / Context-menu: Workflow Quick Slide Picker -->
+    <div id="workflow-picker-overlay" class="model-picker-overlay wf-picker-overlay hidden"></div>
 
     <!-- iOS Bottom Sheet: Settings & Gateway Status (Aligned with SettingsSheet.swift) -->
     <div id="sheet-settings" class="ios-sheet-overlay hidden">

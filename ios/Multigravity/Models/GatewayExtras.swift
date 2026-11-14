@@ -712,6 +712,7 @@ public struct WorkflowTemplateRecord: Codable, Sendable, Identifiable, Equatable
     public var icon: String
     public var color: String
     public var templatePrompt: String
+    public var inQuickMenu: Bool
 
     public init(
         id: String = UUID().uuidString,
@@ -719,7 +720,8 @@ public struct WorkflowTemplateRecord: Codable, Sendable, Identifiable, Equatable
         subtitle: String = "",
         icon: String = "workflow",
         color: String = "indigo",
-        templatePrompt: String
+        templatePrompt: String,
+        inQuickMenu: Bool = false
     ) {
         self.id = id
         self.title = title
@@ -727,6 +729,7 @@ public struct WorkflowTemplateRecord: Codable, Sendable, Identifiable, Equatable
         self.icon = icon
         self.color = color
         self.templatePrompt = templatePrompt
+        self.inQuickMenu = inQuickMenu
     }
 
     public init(from decoder: Decoder) throws {
@@ -734,13 +737,21 @@ public struct WorkflowTemplateRecord: Codable, Sendable, Identifiable, Equatable
         id = try c.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
         title = try c.decodeIfPresent(String.self, forKey: .title) ?? ""
         subtitle = try c.decodeIfPresent(String.self, forKey: .subtitle) ?? ""
-        icon = try c.decodeIfPresent(String.self, forKey: .icon) ?? "workflow"
+        let rawIcon = try c.decodeIfPresent(String.self, forKey: .icon) ?? "workflow"
+        icon = rawIcon == "star" ? "build" : rawIcon
         color = try c.decodeIfPresent(String.self, forKey: .color) ?? "indigo"
         templatePrompt = try c.decodeIfPresent(String.self, forKey: .templatePrompt) ?? ""
+        inQuickMenu = try c.decodeIfPresent(Bool.self, forKey: .inQuickMenu) ?? false
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, title, subtitle, icon, color, templatePrompt
+        case id, title, subtitle, icon, color, templatePrompt, inQuickMenu
+    }
+
+    public static func partitioned(_ list: [WorkflowTemplateRecord]) -> [WorkflowTemplateRecord] {
+        let quick = list.filter(\.inQuickMenu)
+        let more = list.filter { !$0.inQuickMenu }
+        return quick + more
     }
 }
 

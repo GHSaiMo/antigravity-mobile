@@ -45,7 +45,9 @@ public struct ChatView: View {
     @State var showSwarmSheet = false
     @State var showContextAuditSheet = false
     @State var showWorkflowTemplateSheet = false
+    @State var workflowSheetStartInEditMode = false
     @State var modelPickerState = ModelSlidePickerState()
+    @State var workflowPickerState = WorkflowSlidePickerState()
     @State var selectedSubagentDetail: SubagentItem? = nil
     @State var currentVisibleTurnIndex: Int = 1
     @State var lockedTurnIndex: Int? = nil
@@ -164,12 +166,36 @@ public struct ChatView: View {
             proxy.size
         } action: { newSize in
             modelPickerState.containerSize = newSize
+            workflowPickerState.containerSize = newSize
         }
         .overlay {
             ModelSlidePickerOverlay(state: modelPickerState) { modelId in
                 withAnimation(.easeInOut(duration: 0.15)) {
                     viewModel.selectModel(modelId)
                 }
+            }
+            WorkflowSlidePickerOverlay(
+                state: workflowPickerState,
+                onSelectTemplate: { templatePrompt in
+                    viewModel.inputText = templatePrompt
+                    viewModel.pendingSelectFirstPlaceholder = true
+                    isInputFocused = true
+                },
+                onOpenSetup: {
+                    isInputFocused = false
+                    workflowSheetStartInEditMode = true
+                    showWorkflowTemplateSheet = true
+                }
+            )
+        }
+        .onChange(of: modelPickerState.isPresented) { _, presented in
+            if presented && workflowPickerState.isPresented {
+                workflowPickerState.dismiss()
+            }
+        }
+        .onChange(of: workflowPickerState.isPresented) { _, presented in
+            if presented && modelPickerState.isPresented {
+                modelPickerState.dismiss()
             }
         }
         .navigationTitle(viewModel.currentTitle)
@@ -275,6 +301,9 @@ public struct ChatView: View {
             if let url = AppSettings.shared.serverURL, !AppSettings.shared.isDemoMode {
                 Task {
                     await ModelCatalogStore.shared.refreshIfNeeded(settings: AppSettings.shared, baseURL: url)
+                }
+                Task {
+                    await WorkflowTemplateStore.shared.refresh()
                 }
             }
             await viewModel.loadMessages()

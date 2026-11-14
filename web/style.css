@@ -7820,3 +7820,285 @@ body.font-comfortable pre, body.font-comfortable code {
   justify-content: center;
   cursor: pointer;
 }
+
+
+/* Workflow Chip, Long-Press Quick Slide Picker, Guide Banner & Partitioned Drag-Drop */
+#btn-workflow-templates {
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.wf-picker-overlay .wf-picker-card {
+  gap: 3px;
+  border-color: var(--ios-separator-subtle);
+}
+
+.wf-picker-overlay .wf-picker-row {
+  color: var(--ios-label);
+}
+
+.wf-picker-overlay .wf-picker-row.is-hovered,
+.wf-picker-overlay .wf-picker-row:hover {
+  background: rgba(120, 120, 128, 0.24);
+  border-color: rgba(255, 255, 255, 0.22);
+  color: var(--ios-label);
+}
+
+.wf-picker-overlay .wf-picker-empty-row {
+  color: var(--ios-secondary-label);
+}
+
+.wf-picker-overlay .wf-picker-empty-row.is-hovered,
+.wf-picker-overlay .wf-picker-empty-row:hover {
+  color: var(--ios-label);
+}
+
+/* Top Dismissible Quick-Menu Onboarding Guide Card */
+.wf-guide-card {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+  padding: 12px 34px 12px 12px;
+  border-radius: 14px;
+  background: var(--ios-secondary-bg);
+  border: 1px solid var(--ios-separator-subtle);
+}
+
+.wf-guide-visual {
+  flex: 0 0 auto;
+  width: 52px;
+  height: 48px;
+  border-radius: 10px;
+  background: rgba(120, 120, 128, 0.12);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ios-label);
+}
+
+.wf-guide-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.wf-guide-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ios-label);
+  line-height: 1.3;
+}
+
+.wf-guide-sub {
+  font-size: 12px;
+  color: var(--ios-secondary-label);
+  line-height: 1.4;
+}
+
+.wf-guide-action-btn {
+  align-self: flex-start;
+  margin-top: 4px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(10, 132, 255, 0.35);
+  background: rgba(10, 132, 255, 0.14);
+  color: var(--ios-blue);
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.wf-guide-dismiss {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  border: none;
+  background: rgba(120, 120, 128, 0.16);
+  color: var(--ios-secondary-label);
+  font-size: 15px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.wf-guide-dismiss:hover {
+  color: var(--ios-label);
+  background: rgba(120, 120, 128, 0.28);
+}
+
+/* Partitioned Workflow Sections */
+.wf-sections-root {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.wf-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.wf-section-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 2px 2px;
+}
+
+.wf-section-boundary {
+  margin-top: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--ios-separator-subtle);
+}
+
+.wf-section-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ios-secondary-label);
+  letter-spacing: 0.02em;
+}
+
+.wf-section-badge {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: rgba(120, 120, 128, 0.16);
+  color: var(--ios-secondary-label);
+  font-size: 11px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.wf-section-hint {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--ios-tertiary-label, var(--ios-secondary-label));
+}
+
+.wf-empty-dropzone {
+  padding: 16px 14px;
+  border-radius: 13px;
+  border: 1.5px dashed rgba(120, 120, 128, 0.38);
+  background: rgba(120, 120, 128, 0.06);
+  color: var(--ios-secondary-label);
+  font-size: 12.5px;
+  text-align: center;
+  line-height: 1.45;
+  transition: border-color 150ms ease, background-color 150ms ease, color 150ms ease;
+}
+
+.wf-empty-dropzone.is-tappable {
+  cursor: pointer;
+}
+
+.wf-empty-dropzone.drag-over {
+  border-color: var(--ios-blue);
+  background: rgba(10, 132, 255, 0.12);
+  color: var(--ios-label);
+}
+
+.wf-more-all-hint {
+  padding: 10px 12px;
+  font-size: 12px;
+  color: var(--ios-secondary-label);
+  text-align: center;
+}
+
+.wf-card.editing {
+  cursor: pointer;
+}
+
+.wf-drag-handle {
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Quick Menu Toggle inside Add/Edit Form */
+.wf-form-toggle-row {
+  display: flex;
+  flex-direction: row !important;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 12px;
+  border-radius: 12px;
+  background: var(--ios-secondary-bg);
+  border: 1px solid var(--ios-separator-subtle);
+}
+
+.wf-form-toggle-copy {
+  flex: 1;
+  min-width: 0;
+}
+
+.wf-form-toggle-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ios-label);
+}
+
+.wf-form-toggle-sub {
+  margin-top: 2px;
+  font-size: 11.5px;
+  color: var(--ios-secondary-label);
+  line-height: 1.35;
+}
+
+.wf-switch {
+  position: relative;
+  display: inline-block;
+  width: 48px;
+  height: 28px;
+  flex: 0 0 auto;
+}
+
+.wf-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.wf-switch-slider {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: rgba(120, 120, 128, 0.34);
+  transition: background-color 180ms ease;
+  cursor: pointer;
+}
+
+.wf-switch-slider::before {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 3px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  transition: transform 180ms ease;
+}
+
+.wf-switch input:checked + .wf-switch-slider {
+  background: var(--ios-green, #30d158);
+}
+
+.wf-switch input:checked + .wf-switch-slider::before {
+  transform: translateX(20px);
+}
