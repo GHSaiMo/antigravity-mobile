@@ -79,16 +79,14 @@ public final class WorkflowTemplateStore {
         guard let baseURL = AppSettings.shared.serverURL else { return }
         do {
             let resp = try await APIClient.shared.fetchWorkflowTemplates(baseURL: baseURL)
-            templates = resp.templates
-            Self.saveCache(resp.templates)
-            syncError = nil
+            if resp.templates != templates {
+                templates = resp.templates
+                Self.saveCache(resp.templates)
+            }
+            if syncError != nil { syncError = nil }
         } catch {
             // 离线兜底：保留本地缓存，不打断使用
         }
-    }
-
-    public func setLocalOrder(_ next: [WorkflowTemplateRecord]) {
-        templates = next
     }
 
     public func applyAndSync(_ next: [WorkflowTemplateRecord]) {
@@ -102,8 +100,10 @@ public final class WorkflowTemplateStore {
             defer { isSyncing = false }
             do {
                 let resp = try await APIClient.shared.saveWorkflowTemplates(next, baseURL: baseURL)
-                templates = resp.templates
-                Self.saveCache(resp.templates)
+                if resp.templates != templates {
+                    templates = resp.templates
+                    Self.saveCache(resp.templates)
+                }
             } catch {
                 syncError = "已保存本机缓存，网关同步失败：\(error.localizedDescription)"
             }
@@ -137,8 +137,10 @@ public final class WorkflowTemplateStore {
             defer { isSyncing = false }
             do {
                 let resp = try await APIClient.shared.resetWorkflowTemplates(baseURL: baseURL)
-                templates = resp.templates
-                Self.saveCache(resp.templates)
+                if resp.templates != templates {
+                    templates = resp.templates
+                    Self.saveCache(resp.templates)
+                }
             } catch {
                 syncError = "已重置本机列表，网关同步失败：\(error.localizedDescription)"
             }
@@ -152,6 +154,13 @@ private struct EditorDraft: Identifiable {
     var record: WorkflowTemplateRecord
 }
 
+private struct RowHeightPreferenceKey: PreferenceKey {
+    static var defaultValue: [String: CGFloat] { [:] }
+    static func reduce(value: inout [String: CGFloat], nextValue: () -> [String: CGFloat]) {
+        value.merge(nextValue(), uniquingKeysWith: { _, new in new })
+    }
+}
+
 /// 动态多智能体工作流模板选择与管理抽屉 (WorkflowTemplateSheet)。
 public struct WorkflowTemplateSheet: View {
     @Environment(\.dismiss) private var dismiss
@@ -159,11 +168,16 @@ public struct WorkflowTemplateSheet: View {
     @State private var isEditing = false
     @State private var editorDraft: EditorDraft?
     @State private var showResetConfirm = false
+    @State private var swipedId: String?
 
-    // Drag-to-reorder state (leftmost handle)
+    // Zero-flicker drag state: visual-only offsets during drag, single commit on end
     @State private var draggingId: String?
+    @State private var dragStartIndex: Int?
+    @State private var dragTargetIndex: Int?
     @State private var dragOffsetY: CGFloat = 0
-    @State private var lastDragTranslationY: CGFloat = 0
+    @State private var rowHeights: [String: CGFloat] = [:]
+
+    private let cardSpacing: CGFloat = 10
 
     public let onSelectTemplate: (String) -> Void
 
@@ -171,39 +185,11 @@ public struct WorkflowTemplateSheet: View {
         self.onSelectTemplate = onSelectTemplate
     }
 
-    /// 仿照 ConversationListView 的 38pt 红色圆形垃圾桶左滑删除按钮
-    private static let trashActionImage: UIImage = {
-        let size: CGFloat = 40
-        let circleDiameter: CGFloat = 38
-        let format = UIGraphicsImageRendererFormat()
-        format.opaque = false
-        let renderer = UIGraphicsImageRenderer(size: CGSize(width: size, height: size), format: format)
-        return renderer.image { ctx in
-            let offset = (size - circleDiameter) / 2
-            let rect = CGRect(x: offset, y: offset, width: circleDiameter, height: circleDiameter)
-            UIColor.systemRed.setFill()
-            ctx.cgContext.fillEllipse(in: rect)
-
-            let config = UIImage.SymbolConfiguration(pointSize: 16, weight: .semibold)
-            if let baseSymbol = UIImage(systemName: "trash", withConfiguration: config) {
-                let symbol = baseSymbol.withTintColor(.white, renderingMode: .alwaysOriginal)
-                let symSize = symbol.size
-                let symRect = CGRect(
-                    x: (size - symSize.width) / 2,
-                    y: (size - symSize.height) / 2,
-                    width: symSize.width,
-                    height: symSize.height
-                )
-                symbol.draw(in: symRect)
-            }
-        }
-    }()
-
     public var body: some View {
         NavigationStack {
-            List {
-                // Header Banner
-                Section {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    // Header Banner
                     HStack(spacing: 10) {
                         ZStack {
                             Circle()
@@ -224,24 +210,18 @@ public struct WorkflowTemplateSheet: View {
                         }
                     }
                     .padding(.vertical, 4)
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
-                    .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
-                }
 
-                if let errorMsg = store.syncError {
-                    Section {
+                    if let errorMsg = store.syncError {
                         Text(errorMsg)
                             .font(.system(size: 12.5))
                             .foregroundColor(.red)
-                            .padding(.vertical, 4)
-                            .listRowBackground(Color.red.opacity(0.1))
+                            .padding(10)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(Color.red.opacity(0.1))
+                            .cornerRadius(10)
                     }
-                }
 
-                // Templates List
-                if store.templates.isEmpty {
-                    Section {
+                    if store.templates.isEmpty {
                         VStack(spacing: 12) {
                             Text("暂无 Workflow 模板")
                                 .font(.system(size: 14))
@@ -261,57 +241,86 @@ public struct WorkflowTemplateSheet: View {
                         }
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 28)
-                        .listRowBackground(Color.clear)
-                        .listRowSeparator(.hidden)
-                    }
-                } else {
-                    Section {
-                        ForEach(store.templates) { item in
-                            rowView(for: item)
-                                .listRowBackground(Color.clear)
-                                .listRowSeparator(.hidden)
-                                .listRowInsets(EdgeInsets(top: 5, leading: 16, bottom: 5, trailing: 16))
-                                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                    Button {
+                    } else {
+                        VStack(spacing: cardSpacing) {
+                            ForEach(Array(store.templates.enumerated()), id: \.element.id) { index, item in
+                                let isDragging = draggingId == item.id
+                                let displacement = siblingDisplacement(for: index)
+
+                                WorkflowSwipeableRow(
+                                    item: item,
+                                    isEditing: isEditing,
+                                    isDragging: isDragging,
+                                    isSwiped: Binding(
+                                        get: { swipedId == item.id },
+                                        set: { open in
+                                            if open {
+                                                swipedId = item.id
+                                            } else if swipedId == item.id {
+                                                swipedId = nil
+                                            }
+                                        }
+                                    ),
+                                    onSelect: {
+                                        swipedId = nil
+                                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                                        onSelectTemplate(item.templatePrompt)
+                                        dismiss()
+                                    },
+                                    onEdit: {
+                                        swipedId = nil
+                                        editorDraft = EditorDraft(id: item.id, isNew: false, record: item)
+                                    },
+                                    onDelete: {
+                                        swipedId = nil
                                         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                                         withAnimation(.easeInOut(duration: 0.2)) {
                                             store.delete(id: item.id)
                                         }
-                                    } label: {
-                                        Image(uiImage: Self.trashActionImage)
+                                    },
+                                    dragHandleGesture: dragGesture(for: item, index: index)
+                                )
+                                .background(
+                                    GeometryReader { geo in
+                                        Color.clear.preference(
+                                            key: RowHeightPreferenceKey.self,
+                                            value: [item.id: geo.size.height]
+                                        )
                                     }
-                                    .tint(.clear)
-                                }
+                                )
+                                .offset(y: isDragging ? dragOffsetY : displacement)
+                                .zIndex(isDragging ? 10 : 0)
+                                .animation(isDragging ? nil : .snappy(duration: 0.18), value: displacement)
+                            }
+                        }
+                        .coordinateSpace(name: "wfVStack")
+                        .onPreferenceChange(RowHeightPreferenceKey.self) { heights in
+                            rowHeights.merge(heights, uniquingKeysWith: { _, new in new })
                         }
                     }
-                }
 
-                if isEditing {
-                    Section {
+                    if isEditing {
                         Button(role: .destructive) {
                             showResetConfirm = true
                         } label: {
-                            HStack {
-                                Spacer()
-                                Text("恢复默认模板")
-                                    .font(.system(size: 14, weight: .medium))
-                                Spacer()
-                            }
+                            Text("恢复默认模板")
+                                .font(.system(size: 14, weight: .medium))
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 8)
                         }
-                        .listRowBackground(Color.clear)
-                        .listRowSeparator(.hidden)
+                        .padding(.top, 4)
                     }
                 }
+                .padding(16)
             }
-            .listStyle(.plain)
-            .scrollContentBackground(.hidden)
-            .coordinateSpace(name: "wfList")
+            .scrollDisabled(draggingId != nil)
             .navigationTitle("Workflow 模板")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button {
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        swipedId = nil
                         withAnimation(.easeInOut(duration: 0.2)) {
                             isEditing.toggle()
                         }
@@ -325,6 +334,7 @@ public struct WorkflowTemplateSheet: View {
 
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
+                        swipedId = nil
                         openNewEditor()
                     } label: {
                         Image(systemName: "plus")
@@ -356,126 +366,96 @@ public struct WorkflowTemplateSheet: View {
         .presentationDetents([.medium, .large])
     }
 
-    @ViewBuilder
-    private func rowView(for item: WorkflowTemplateRecord) -> some View {
-        let isDragging = draggingId == item.id
-        let iconColor = WorkflowTemplateStyle.color(for: item.color)
-        let systemImage = WorkflowTemplateStyle.systemImage(for: item.icon)
-        let displaySubtitle = item.subtitle.isEmpty ? item.templatePrompt : item.subtitle
+    private func siblingDisplacement(for index: Int) -> CGFloat {
+        guard let dId = draggingId,
+              let start = dragStartIndex,
+              let target = dragTargetIndex,
+              index != start else {
+            return 0
+        }
+        let draggedHeight = (rowHeights[dId] ?? 68) + cardSpacing
+        if target > start && index > start && index <= target {
+            return -draggedHeight
+        }
+        if target < start && index >= target && index < start {
+            return draggedHeight
+        }
+        return 0
+    }
 
-        let cardContent = HStack(spacing: 12) {
-            if isEditing {
-                Image(systemName: "line.3.horizontal")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(isDragging ? .indigo : .secondary)
-                    .frame(width: 28, height: 36)
-                    .contentShape(Rectangle())
-                    .highPriorityGesture(
-                        DragGesture(minimumDistance: 2, coordinateSpace: .named("wfList"))
-                            .onChanged { value in
-                                if draggingId == nil {
-                                    draggingId = item.id
-                                    lastDragTranslationY = 0
-                                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                                }
-                                let deltaY = value.translation.height - lastDragTranslationY
-                                lastDragTranslationY = value.translation.height
-                                dragOffsetY += deltaY
+    private func computeTargetIndex(startIndex: Int, offsetY: CGFloat) -> Int {
+        let list = store.templates
+        guard startIndex >= 0, startIndex < list.count else { return startIndex }
 
-                                let stepThreshold: CGFloat = 56
-                                guard let currentIdx = store.templates.firstIndex(where: { $0.id == item.id }) else { return }
-
-                                if dragOffsetY > stepThreshold && currentIdx < store.templates.count - 1 {
-                                    var next = store.templates
-                                    let moved = next.remove(at: currentIdx)
-                                    next.insert(moved, at: currentIdx + 1)
-                                    withAnimation(.easeInOut(duration: 0.15)) {
-                                        store.setLocalOrder(next)
-                                    }
-                                    dragOffsetY -= stepThreshold
-                                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                                } else if dragOffsetY < -stepThreshold && currentIdx > 0 {
-                                    var next = store.templates
-                                    let moved = next.remove(at: currentIdx)
-                                    next.insert(moved, at: currentIdx - 1)
-                                    withAnimation(.easeInOut(duration: 0.15)) {
-                                        store.setLocalOrder(next)
-                                    }
-                                    dragOffsetY += stepThreshold
-                                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                                }
-                            }
-                            .onEnded { _ in
-                                draggingId = nil
-                                dragOffsetY = 0
-                                lastDragTranslationY = 0
-                                store.applyAndSync(store.templates)
-                            }
-                    )
-            }
-
-            ZStack {
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(iconColor.opacity(0.15))
-                    .frame(width: 40, height: 40)
-                Image(systemName: systemImage)
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundColor(iconColor)
-            }
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text(item.title)
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(.primary)
-                    .lineLimit(1)
-                Text(displaySubtitle)
-                    .font(.system(size: 11.5))
-                    .foregroundColor(.secondary)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            Spacer(minLength: 4)
-
-            if isEditing {
-                Button {
-                    editorDraft = EditorDraft(id: item.id, isNew: false, record: item)
-                } label: {
-                    Image(systemName: "pencil.circle.fill")
-                        .font(.system(size: 20))
-                        .foregroundColor(.indigo)
+        if offsetY > 0 {
+            var accumulated: CGFloat = 0
+            var target = startIndex
+            for i in (startIndex + 1)..<list.count {
+                let h = (rowHeights[list[i].id] ?? 68) + cardSpacing
+                if offsetY > accumulated + h * 0.5 {
+                    target = i
+                    accumulated += h
+                } else {
+                    break
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("编辑 \(item.title)")
-            } else {
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 12, weight: .bold))
-                    .foregroundColor(Color(uiColor: .tertiaryLabel))
             }
+            return target
+        } else if offsetY < 0 {
+            var accumulated: CGFloat = 0
+            var target = startIndex
+            for i in stride(from: startIndex - 1, through: 0, by: -1) {
+                let h = (rowHeights[list[i].id] ?? 68) + cardSpacing
+                if -offsetY > accumulated + h * 0.5 {
+                    target = i
+                    accumulated += h
+                } else {
+                    break
+                }
+            }
+            return target
         }
-        .padding(12)
-        .background(Color(uiColor: .secondarySystemBackground))
-        .cornerRadius(12)
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(isDragging ? Color.indigo.opacity(0.75) : Color(uiColor: .separator).opacity(0.4), lineWidth: isDragging ? 1.2 : 0.5)
-        )
-        .offset(y: isDragging ? dragOffsetY : 0)
-        .zIndex(isDragging ? 10 : 0)
-        .shadow(color: isDragging ? Color.black.opacity(0.16) : .clear, radius: 8, y: 4)
+        return startIndex
+    }
 
-        if isEditing {
-            cardContent
-        } else {
-            Button {
-                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                onSelectTemplate(item.templatePrompt)
-                dismiss()
-            } label: {
-                cardContent
+    private func dragGesture(for item: WorkflowTemplateRecord, index: Int) -> some Gesture {
+        DragGesture(minimumDistance: 1, coordinateSpace: .named("wfVStack"))
+            .onChanged { value in
+                if draggingId == nil {
+                    swipedId = nil
+                    draggingId = item.id
+                    dragStartIndex = index
+                    dragTargetIndex = index
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                }
+                dragOffsetY = value.translation.height
+                if let start = dragStartIndex {
+                    let nextTarget = computeTargetIndex(startIndex: start, offsetY: dragOffsetY)
+                    if nextTarget != dragTargetIndex {
+                        dragTargetIndex = nextTarget
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    }
+                }
             }
-            .buttonStyle(.plain)
-        }
+            .onEnded { _ in
+                let start = dragStartIndex
+                let target = dragTargetIndex
+                var tx = Transaction()
+                tx.disablesAnimations = true
+                withTransaction(tx) {
+                    if let start, let target, start != target,
+                       start >= 0, start < store.templates.count,
+                       target >= 0, target < store.templates.count {
+                        var next = store.templates
+                        let moved = next.remove(at: start)
+                        next.insert(moved, at: target)
+                        store.applyAndSync(next)
+                    }
+                    draggingId = nil
+                    dragStartIndex = nil
+                    dragTargetIndex = nil
+                    dragOffsetY = 0
+                }
+            }
     }
 
     private func openNewEditor() {
@@ -488,6 +468,148 @@ public struct WorkflowTemplateSheet: View {
             templatePrompt: ""
         )
         editorDraft = EditorDraft(id: newRecord.id, isNew: true, record: newRecord)
+    }
+}
+
+/// 支持仿照会话列表左滑删除的单行卡片（独立状态避免整表重绘）。
+private struct WorkflowSwipeableRow<DragHandleGesture: Gesture>: View {
+    let item: WorkflowTemplateRecord
+    let isEditing: Bool
+    let isDragging: Bool
+    @Binding var isSwiped: Bool
+    let onSelect: () -> Void
+    let onEdit: () -> Void
+    let onDelete: () -> Void
+    let dragHandleGesture: DragHandleGesture
+
+    @State private var swipeDragX: CGFloat = 0
+    @State private var isHorizontalSwiping = false
+
+    private let maxRevealWidth: CGFloat = 68
+
+    private var currentOffsetX: CGFloat {
+        let base: CGFloat = isSwiped ? -maxRevealWidth : 0
+        return min(0, max(-maxRevealWidth, base + swipeDragX))
+    }
+
+    var body: some View {
+        let iconColor = WorkflowTemplateStyle.color(for: item.color)
+        let systemImage = WorkflowTemplateStyle.systemImage(for: item.icon)
+        let displaySubtitle = item.subtitle.isEmpty ? item.templatePrompt : item.subtitle
+
+        ZStack(alignment: .trailing) {
+            if currentOffsetX < -1 || isSwiped {
+                Button(action: onDelete) {
+                    ZStack {
+                        Circle()
+                            .fill(Color.red)
+                            .frame(width: 38, height: 38)
+                        Image(systemName: "trash")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundColor(.white)
+                    }
+                    .frame(width: maxRevealWidth)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("删除 \(item.title)")
+            }
+
+            HStack(spacing: 12) {
+                if isEditing {
+                    Image(systemName: "line.3.horizontal")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(isDragging ? .indigo : .secondary)
+                        .frame(width: 28, height: 36)
+                        .contentShape(Rectangle())
+                        .highPriorityGesture(dragHandleGesture)
+                }
+
+                ZStack {
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(iconColor.opacity(0.15))
+                        .frame(width: 40, height: 40)
+                    Image(systemName: systemImage)
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundColor(iconColor)
+                }
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(item.title)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(.primary)
+                        .lineLimit(1)
+                    Text(displaySubtitle)
+                        .font(.system(size: 11.5))
+                        .foregroundColor(.secondary)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 4)
+
+                if isEditing {
+                    Button(action: onEdit) {
+                        Image(systemName: "pencil.circle.fill")
+                            .font(.system(size: 20))
+                            .foregroundColor(.indigo)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("编辑 \(item.title)")
+                } else {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundColor(Color(uiColor: .tertiaryLabel))
+                }
+            }
+            .padding(12)
+            .background(Color(uiColor: .secondarySystemBackground))
+            .cornerRadius(12)
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(
+                        isDragging ? Color.indigo.opacity(0.85) : Color(uiColor: .separator).opacity(0.4),
+                        lineWidth: isDragging ? 1.5 : 0.5
+                    )
+            )
+            .scaleEffect(isDragging ? 1.02 : 1.0)
+            .contentShape(Rectangle())
+            .offset(x: currentOffsetX)
+            .onTapGesture {
+                if isSwiped {
+                    withAnimation(.snappy(duration: 0.2)) {
+                        isSwiped = false
+                    }
+                } else if !isEditing {
+                    onSelect()
+                }
+            }
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 14)
+                    .onChanged { value in
+                        let dx = value.translation.width
+                        let dy = value.translation.height
+                        if !isHorizontalSwiping {
+                            // 仅在明显横向滑动时接管，避免干扰垂直滚动
+                            guard abs(dx) > 14, abs(dx) > abs(dy) * 1.6 else { return }
+                            isHorizontalSwiping = true
+                        }
+                        swipeDragX = dx
+                    }
+                    .onEnded { value in
+                        defer {
+                            swipeDragX = 0
+                            isHorizontalSwiping = false
+                        }
+                        guard isHorizontalSwiping else { return }
+                        let projected = (isSwiped ? -maxRevealWidth : 0) + value.translation.width
+                        withAnimation(.snappy(duration: 0.2)) {
+                            isSwiped = projected < -maxRevealWidth * 0.45
+                        }
+                    }
+            )
+        }
+        .clipped()
     }
 }
 
