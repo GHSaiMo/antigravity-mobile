@@ -152,8 +152,8 @@ class ChatViewModel(
     val uiState: StateFlow<ChatUiState> = _uiState.asStateFlow()
 
     init {
-        // 新会话默认走「设置 › 新建会话默认」选定的模型
-        val defaultModel = prefs?.defaultNewSessionModel ?: geminiDefaultModel
+        // 新会话首选「设置 › 常用模型」中的常用模型 1
+        val defaultModel = prefs?.favoriteModel1 ?: favoriteModel1
         _uiState.value = _uiState.value.copy(activeModel = defaultModel)
     }
 
@@ -238,25 +238,20 @@ class ChatViewModel(
     }
 
     var hasUserManuallySelectedModel: Boolean = false
-        private set
+        internal set
 
-    /** 胶囊切换：Ultra 账号在 Gemini → Claude → Orchestrator 间循环；否则 Gemini ↔ Claude。 */
+    /** 单击胶囊在「设置 › 常用模型」的两个常用模型间快速切换；若当前是第 3 个模型则切回常用模型 1。 */
     fun toggleModel() {
         hasUserManuallySelectedModel = true
-        val hasOrchestrator = ModelDefaults.hasOrchestratorModels(
-            prefs?.cachedModelCatalog?.models.orEmpty()
-        )
-        val nextModel = ModelDefaults.toggleTarget(
+        val nextModel = ModelDefaults.toggleFavoriteTarget(
             current = _uiState.value.activeModel,
-            geminiDefault = geminiDefaultModel,
-            claudeDefault = claudeDefaultModel,
-            orchestratorDefault = orchestratorDefaultModel,
-            hasOrchestrator = hasOrchestrator
+            favorite1 = favoriteModel1,
+            favorite2 = favoriteModel2
         )
         _uiState.value = _uiState.value.copy(activeModel = nextModel, activeModelName = null)
     }
 
-    /** 手动选择具体模型（如长按选择二级菜单中的大类或思考强度）。 */
+    /** 手动选择具体模型（如长按选择全部模型大类或思考强度）。 */
     fun selectModel(modelId: String) {
         if (_uiState.value.activeModel == modelId) return
         hasUserManuallySelectedModel = true
@@ -269,21 +264,17 @@ class ChatViewModel(
             activeModel = ModelDefaults.resolveActive(
                 raw = model,
                 current = _uiState.value.activeModel,
-                geminiDefault = geminiDefaultModel,
-                claudeDefault = claudeDefaultModel,
-                orchestratorDefault = orchestratorDefaultModel
+                geminiDefault = favoriteModel1,
+                claudeDefault = favoriteModel2
             )
         )
     }
 
-    internal val geminiDefaultModel: String
-        get() = prefs?.defaultGeminiModel ?: ModelDefaults.FALLBACK_GEMINI
+    internal val favoriteModel1: String
+        get() = prefs?.favoriteModel1 ?: ModelDefaults.FALLBACK_GEMINI
 
-    internal val claudeDefaultModel: String
-        get() = prefs?.defaultClaudeModel ?: ModelDefaults.FALLBACK_CLAUDE
-
-    internal val orchestratorDefaultModel: String
-        get() = prefs?.defaultOrchestratorModel ?: ModelDefaults.FALLBACK_ORCHESTRATOR
+    internal val favoriteModel2: String
+        get() = prefs?.favoriteModel2 ?: ModelDefaults.FALLBACK_CLAUDE
 
     fun insertCommitAndPush() {
         val cmd = "Commit and Push"

@@ -257,14 +257,16 @@ extension ChatView {
                 return
             }
             if !hasUserInteracted || isNearBottom {
-                scrollToBottom(proxy: proxy, animated: true)
+                // 新 Agent 气泡进入流式传输时无动画贴底，避免与 PacedAgentRow 的 followStreamGrowth 动画冲突抖动
+                let shouldAnimate = !(viewModel.messages.last?.isAgent == true && viewModel.isActivelyRunning)
+                scrollToBottom(proxy: proxy, animated: shouldAnimate)
             }
         }
         .onChange(of: viewModel.messages.last) { oldMsg, lastMsg in
             guard let lastMsg else { return }
             guard hasInitiallyAligned else { return }
-            // 同一条 Agent 消息的文本增长由 PacedAgentRow 按节奏驱动滚动，这里不再每个增量都动画滚动
-            if lastMsg.isAgent, oldMsg?.id == lastMsg.id { return }
+            // 新消息 ID 切换已由上方 last?.id 处理；同一条 Agent 消息的文本增长由 PacedAgentRow 按节奏驱动滚动
+            guard oldMsg?.id == lastMsg.id, !lastMsg.isAgent else { return }
             if !hasUserInteracted || isNearBottom {
                 scrollToBottom(proxy: proxy, animated: true)
             }

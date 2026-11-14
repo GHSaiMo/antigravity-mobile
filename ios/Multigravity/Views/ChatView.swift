@@ -8,7 +8,7 @@ public struct ChatView: View {
     @State var viewModel: ChatViewModel
     @Environment(\.isSplitDetail) var isSplitDetail
     @Environment(\.horizontalSizeClass) var horizontalSizeClass
-    @FocusState var isInputFocused: Bool
+    @State var isInputFocused: Bool = false
     @State var hasInitiallyAligned = false
     /// 进入子代理等子页面再返回时，保持原滚动位置，不重新对齐到底部。
     @State var preserveScrollOnReturn = false

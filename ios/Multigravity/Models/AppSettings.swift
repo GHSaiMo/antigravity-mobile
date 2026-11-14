@@ -31,6 +31,8 @@ public final class AppSettings {
     private let activeServerURLKey = "antigravity.active_server_url"
     private let enableLiveActivityKey = "antigravity.enable_live_activity"
     private let activeModelKey = "antigravity.active_model"
+    private let favoriteModel1Key = "antigravity.favorite_model_1"
+    private let favoriteModel2Key = "antigravity.favorite_model_2"
     private let defaultGeminiModelKey = "antigravity.default_gemini_model"
     private let defaultClaudeModelKey = "antigravity.default_claude_model"
     private let defaultOrchestratorModelKey = "antigravity.default_orchestrator_model"
@@ -268,32 +270,18 @@ public final class AppSettings {
         }
     }
     
-    /// 「默认模型」：输入框上方 Gemini / Claude 胶囊切换时使用的具体模型。
-    public var defaultGeminiModel: String {
-        didSet { UserDefaults.standard.set(defaultGeminiModel, forKey: defaultGeminiModelKey) }
+    /// 「常用模型」：设置页配置的两个常用模型（全模型全思考强度可选）。
+    /// 常用模型 1 为进入新会话的首选模型；单击输入框上方模型胶囊在常用模型 1 与常用模型 2 间快速切换。
+    public var favoriteModel1: String {
+        didSet { UserDefaults.standard.set(favoriteModel1, forKey: favoriteModel1Key) }
     }
 
-    public var defaultClaudeModel: String {
-        didSet { UserDefaults.standard.set(defaultClaudeModel, forKey: defaultClaudeModelKey) }
+    public var favoriteModel2: String {
+        didSet { UserDefaults.standard.set(favoriteModel2, forKey: favoriteModel2Key) }
     }
 
-    public var defaultOrchestratorModel: String {
-        didSet { UserDefaults.standard.set(defaultOrchestratorModel, forKey: defaultOrchestratorModelKey) }
-    }
-
-    /// 新建会话默认使用的模型厂商（"gemini" | "claude" | "orchestrator"）
-    public var defaultNewSessionProvider: String {
-        didSet { UserDefaults.standard.set(defaultNewSessionProvider, forKey: defaultNewSessionProviderKey) }
-    }
-
-    /// 新建会话默认选用的具体模型（跟随对应厂商的默认设置）
-    public var defaultNewSessionModel: String {
-        switch defaultNewSessionProvider {
-        case "claude": return defaultClaudeModel
-        case "orchestrator": return defaultOrchestratorModel
-        default: return defaultGeminiModel
-        }
-    }
+    /// 新建会话默认选用的具体模型（首选常用模型 1）
+    public var defaultNewSessionModel: String { favoriteModel1 }
 
     public var activeModelEnum: String {
         if let known = ModelCatalogStore.shared.modelEnum(forID: activeModel) { return known }
@@ -317,12 +305,10 @@ public final class AppSettings {
     }
 
     public func toggleActiveModel() {
-        activeModel = ModelDefaultsLogic.toggleTarget(
+        activeModel = ModelDefaultsLogic.toggleFavoriteTarget(
             current: activeModel,
-            geminiDefault: defaultGeminiModel,
-            claudeDefault: defaultClaudeModel,
-            orchestratorDefault: defaultOrchestratorModel,
-            hasOrchestrator: ModelCatalogStore.shared.hasOrchestratorModels
+            favorite1: favoriteModel1,
+            favorite2: favoriteModel2
         )
     }
 
@@ -330,9 +316,8 @@ public final class AppSettings {
         let target = ModelDefaultsLogic.resolveActive(
             raw: raw,
             current: activeModel,
-            geminiDefault: defaultGeminiModel,
-            claudeDefault: defaultClaudeModel,
-            orchestratorDefault: defaultOrchestratorModel
+            geminiDefault: favoriteModel1,
+            claudeDefault: favoriteModel2
         )
         if activeModel != target {
             activeModel = target
@@ -633,12 +618,24 @@ public final class AppSettings {
         self.activeServerURL = savedActive
         self.enableLiveActivities = savedLive
         
-        let savedModel = UserDefaults.standard.string(forKey: activeModelKey) ?? "gemini-3.8-flash-high"
+        let legacyGemini = UserDefaults.standard.string(forKey: defaultGeminiModelKey).flatMap { $0.isEmpty ? nil : $0 } ?? ModelDefaultsLogic.fallbackGemini
+        let legacyClaude = UserDefaults.standard.string(forKey: defaultClaudeModelKey).flatMap { $0.isEmpty ? nil : $0 } ?? ModelDefaultsLogic.fallbackClaude
+        let legacyOrch = UserDefaults.standard.string(forKey: defaultOrchestratorModelKey).flatMap { $0.isEmpty ? nil : $0 } ?? ModelDefaultsLogic.fallbackOrchestrator
+        let legacyProvider = UserDefaults.standard.string(forKey: defaultNewSessionProviderKey).flatMap { $0.isEmpty ? nil : $0 } ?? "gemini"
+        let migratedFav1: String = {
+            switch legacyProvider {
+            case "claude": return legacyClaude
+            case "orchestrator": return legacyOrch
+            default: return legacyGemini
+            }
+        }()
+        let migratedFav2 = migratedFav1.caseInsensitiveCompare(legacyClaude) == .orderedSame ? legacyGemini : legacyClaude
+        let resolvedFav1 = UserDefaults.standard.string(forKey: favoriteModel1Key).flatMap { $0.isEmpty ? nil : $0 } ?? migratedFav1
+        let resolvedFav2 = UserDefaults.standard.string(forKey: favoriteModel2Key).flatMap { $0.isEmpty ? nil : $0 } ?? migratedFav2
+        self.favoriteModel1 = resolvedFav1
+        self.favoriteModel2 = resolvedFav2
+        let savedModel = UserDefaults.standard.string(forKey: activeModelKey).flatMap { $0.isEmpty ? nil : $0 } ?? resolvedFav1
         self.activeModel = savedModel
-        self.defaultGeminiModel = UserDefaults.standard.string(forKey: defaultGeminiModelKey).flatMap { $0.isEmpty ? nil : $0 } ?? ModelDefaultsLogic.fallbackGemini
-        self.defaultClaudeModel = UserDefaults.standard.string(forKey: defaultClaudeModelKey).flatMap { $0.isEmpty ? nil : $0 } ?? ModelDefaultsLogic.fallbackClaude
-        self.defaultOrchestratorModel = UserDefaults.standard.string(forKey: defaultOrchestratorModelKey).flatMap { $0.isEmpty ? nil : $0 } ?? ModelDefaultsLogic.fallbackOrchestrator
-        self.defaultNewSessionProvider = UserDefaults.standard.string(forKey: defaultNewSessionProviderKey).flatMap { $0.isEmpty ? nil : $0 } ?? "gemini"
         
         let savedAutoApprove = UserDefaults.standard.bool(forKey: autoApprovePermissionsKey)
         self.autoApprovePermissions = savedAutoApprove

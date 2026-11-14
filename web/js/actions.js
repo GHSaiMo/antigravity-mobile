@@ -798,6 +798,12 @@ function renderNewProjectsList(projects) {
 function startDraftSession(sessionInfo) {
   activeDraftSession = sessionInfo;
   activeCascadeId = null;
+  hasUserManuallySelectedModel = false;
+  if (typeof getFavoriteModel === "function") {
+    activeModel = getFavoriteModel(1);
+    try { localStorage.setItem("agy_active_model", activeModel); } catch (_) {}
+    if (typeof updateModelSwitchUI === "function") updateModelSwitchUI();
+  }
   navigateTo("#draft");
 }
 

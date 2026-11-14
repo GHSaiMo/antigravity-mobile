@@ -96,8 +96,11 @@ func TestBuildModelTables_CurationDedupeAndOrder(t *testing.T) {
 	if got := idsOf(options, "claude"); len(got) != 2 || got[0] != "claude-opus-4-6-thinking" && got[1] != "claude-opus-4-6-thinking" {
 		t.Fatalf("claude options = %v", got)
 	}
-	if got := idsOf(options, "other"); len(got) != 1 || got[0] != "gpt-oss-120b-medium" {
-		t.Fatalf("other options = %v", got)
+	if got := idsOf(options, "other"); len(got) != 0 {
+		t.Fatalf("other options = %v, want excluded (no gpt-oss)", got)
+	}
+	if _, ok := byID["gpt-oss-120b-medium"]; !ok {
+		t.Error("excluded gpt-oss model must stay resolvable by id")
 	}
 
 	// 枚举反查：别名共用枚举时选真实 id
@@ -383,10 +386,14 @@ func TestBuildModelTables_UsesVendorCuratedList(t *testing.T) {
 	for _, o := range options {
 		got = append(got, o.ID)
 	}
-	// 3.7 与 pro-agent 带「Leaving Soon」，即使官方列表里有也不提供选择
-	want := []string{"gemini-3.8-flash-high", "claude-sonnet-4-6", "claude-opus-4-6-thinking", "gpt-oss-120b-medium"}
+	// 3.7 与 pro-agent 带「Leaving Soon」，gpt-oss-120b-medium 已屏蔽：即使官方列表里有也不提供选择
+	want := []string{"gemini-3.8-flash-high", "claude-sonnet-4-6", "claude-opus-4-6-thinking"}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("curated list:\n got  %v\n want %v", got, want)
+	}
+	// 被排除的 gpt-oss-120b-medium 仍可按 id 解析，避免历史会话显示异常
+	if _, ok := byID["gpt-oss-120b-medium"]; !ok {
+		t.Error("excluded gpt-oss-120b-medium must stay resolvable")
 	}
 	// 官方列表之外的推荐模型（如 3.5 Flash Lite、3.8 Medium/Low）不再出现，但仍可按 id 解析
 	if _, ok := byID["gemini-3.5-flash-lite"]; !ok {

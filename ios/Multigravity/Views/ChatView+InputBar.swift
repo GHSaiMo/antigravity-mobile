@@ -358,7 +358,7 @@ private struct ChatFloatingSlashPopupHost: View {
 private struct ChatInputTextAndSendRow: View {
     @Bindable var viewModel: ChatViewModel
     @ObservedObject var voiceCall: VoiceCallManager
-    var isInputFocused: FocusState<Bool>.Binding
+    @Binding var isInputFocused: Bool
     @Binding var isSlashPickerDismissed: Bool
     let onSend: () -> Void
     let onCancel: () -> Void
@@ -383,11 +383,9 @@ private struct ChatInputTextAndSendRow: View {
             BracketPlaceholderTextInput(
                 text: $viewModel.inputText,
                 placeholder: viewModel.isActivelyRunning ? "向队列添加指令..." : "发送对 Agent 的指令...",
-                isFocused: isInputFocused,
+                isFocused: $isInputFocused,
                 pendingSelectFirstPlaceholder: $viewModel.pendingSelectFirstPlaceholder
             )
-            .padding(.horizontal, 16)
-            .padding(.vertical, 11)
             .frame(minHeight: 44)
             .background(Color(uiColor: .secondarySystemBackground))
             .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
@@ -550,29 +548,31 @@ struct AntigravityVoiceShape: Shape {
 private struct BracketPlaceholderTextInput: View {
     @Binding var text: String
     let placeholder: String
-    var isFocused: FocusState<Bool>.Binding
+    @Binding var isFocused: Bool
     @Binding var pendingSelectFirstPlaceholder: Bool
 
     var body: some View {
         ZStack(alignment: .topLeading) {
+            BracketPlaceholderUITextView(
+                text: $text,
+                isFocused: $isFocused,
+                pendingSelectFirstPlaceholder: $pendingSelectFirstPlaceholder
+            )
             if text.isEmpty {
                 Text(placeholder)
                     .font(.system(size: 16))
                     .foregroundColor(Color(uiColor: .placeholderText))
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
                     .allowsHitTesting(false)
             }
-            BracketPlaceholderUITextView(
-                text: $text,
-                isFocused: isFocused,
-                pendingSelectFirstPlaceholder: $pendingSelectFirstPlaceholder
-            )
         }
     }
 }
 
 private struct BracketPlaceholderUITextView: UIViewRepresentable {
     @Binding var text: String
-    var isFocused: FocusState<Bool>.Binding
+    @Binding var isFocused: Bool
     @Binding var pendingSelectFirstPlaceholder: Bool
 
     private static let placeholderRegex = try? NSRegularExpression(pattern: "\\[[^\\[\\]\\n]+\\]")
@@ -593,7 +593,7 @@ private struct BracketPlaceholderUITextView: UIViewRepresentable {
         textView.font = .systemFont(ofSize: 16)
         textView.textColor = .label
         textView.backgroundColor = .clear
-        textView.textContainerInset = .zero
+        textView.textContainerInset = UIEdgeInsets(top: 12, left: 16, bottom: 12, right: 16)
         textView.textContainer.lineFragmentPadding = 0
         textView.isScrollEnabled = false
         textView.showsVerticalScrollIndicator = true
@@ -615,6 +615,10 @@ private struct BracketPlaceholderUITextView: UIViewRepresentable {
             uiView.invalidateIntrinsicContentSize()
         }
 
+        let parentFocused = isFocused
+        let focusChangedFromParent = (parentFocused != context.coordinator.lastParentFocused)
+        context.coordinator.lastParentFocused = parentFocused
+
         if pendingSelectFirstPlaceholder {
             let currentText = uiView.text ?? text
             let firstRange = Self.bracketPlaceholderRanges(in: currentText).first
@@ -633,16 +637,18 @@ private struct BracketPlaceholderUITextView: UIViewRepresentable {
             }
         }
 
-        if isFocused.wrappedValue && !uiView.isFirstResponder {
-            DispatchQueue.main.async {
-                if self.isFocused.wrappedValue && !uiView.isFirstResponder {
-                    uiView.becomeFirstResponder()
+        if focusChangedFromParent {
+            if parentFocused && !uiView.isFirstResponder {
+                DispatchQueue.main.async {
+                    if self.isFocused && !uiView.isFirstResponder {
+                        uiView.becomeFirstResponder()
+                    }
                 }
-            }
-        } else if !isFocused.wrappedValue && uiView.isFirstResponder {
-            DispatchQueue.main.async {
-                if !self.isFocused.wrappedValue && uiView.isFirstResponder {
-                    uiView.resignFirstResponder()
+            } else if !parentFocused && uiView.isFirstResponder {
+                DispatchQueue.main.async {
+                    if !self.isFocused && uiView.isFirstResponder {
+                        uiView.resignFirstResponder()
+                    }
                 }
             }
         }
@@ -652,9 +658,11 @@ private struct BracketPlaceholderUITextView: UIViewRepresentable {
         let targetWidth = proposal.width ?? uiView.bounds.width
         guard targetWidth > 0 else { return nil }
         let lineHeight = uiView.font?.lineHeight ?? 20
-        let maxHeight = ceil(lineHeight * 5)
+        let verticalInset = uiView.textContainerInset.top + uiView.textContainerInset.bottom
+        let minHeight = max(44, ceil(lineHeight) + verticalInset)
+        let maxHeight = ceil(lineHeight * 5) + verticalInset
         let fittingSize = uiView.sizeThatFits(CGSize(width: targetWidth, height: .greatestFiniteMagnitude))
-        let clampedHeight = min(max(ceil(lineHeight), ceil(fittingSize.height)), maxHeight)
+        let clampedHeight = min(max(minHeight, ceil(fittingSize.height)), maxHeight)
         let needsScroll = ceil(fittingSize.height) > maxHeight
         if uiView.isScrollEnabled != needsScroll {
             uiView.isScrollEnabled = needsScroll
@@ -664,6 +672,7 @@ private struct BracketPlaceholderUITextView: UIViewRepresentable {
 
     final class Coordinator: NSObject, UITextViewDelegate, UIGestureRecognizerDelegate {
         var parent: BracketPlaceholderUITextView
+        var lastParentFocused: Bool = false
 
         init(parent: BracketPlaceholderUITextView) {
             self.parent = parent
@@ -679,16 +688,18 @@ private struct BracketPlaceholderUITextView: UIViewRepresentable {
 
         func textViewDidBeginEditing(_ textView: UITextView) {
             DispatchQueue.main.async {
-                if !self.parent.isFocused.wrappedValue {
-                    self.parent.isFocused.wrappedValue = true
+                self.lastParentFocused = true
+                if !self.parent.isFocused {
+                    self.parent.isFocused = true
                 }
             }
         }
 
         func textViewDidEndEditing(_ textView: UITextView) {
             DispatchQueue.main.async {
-                if self.parent.isFocused.wrappedValue {
-                    self.parent.isFocused.wrappedValue = false
+                self.lastParentFocused = false
+                if self.parent.isFocused {
+                    self.parent.isFocused = false
                 }
             }
         }

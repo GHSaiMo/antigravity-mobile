@@ -94,13 +94,13 @@ public struct ModelFamily: Identifiable, Hashable, Sendable {
     }
 
     /// Variants ordered from top to bottom in the floating effort list:
-    /// Bottom-to-top is Low -> Medium -> High -> Extra, so top-to-bottom is Extra -> High -> Medium -> Low.
+    /// Matches desktop order: Low (top) -> Medium -> High -> Extra (bottom).
     public var variantsTopToBottom: [ModelVariant] {
         guard hasEffortVariants else { return variants }
         return variants.sorted { lhs, rhs in
-            let l = lhs.effortRank?.rawValue ?? -1
-            let r = rhs.effortRank?.rawValue ?? -1
-            return l > r
+            let l = lhs.effortRank?.rawValue ?? Int.max
+            let r = rhs.effortRank?.rawValue ?? Int.max
+            return l < r
         }
     }
 
@@ -413,27 +413,37 @@ public enum ModelDefaultsLogic {
         "gemini-pro-orchestrator", "gemini-pro-orchestrator-argon"
     ]
 
-    /// 将扁平模型列表按大类/家族归类（如 Gemini 4 Carbon、Gemini 4 Argon、Claude Opus 5.5、Orchestrator 等），
-    /// 用于长按呼出二级选择菜单（上滑选大类、右滑选强度）。
-    public static func modelFamilies(from options: [ModelOption]) -> [ModelFamily] {
-        let effectiveOptions: [ModelOption]
-        if options.isEmpty {
-            effectiveOptions = fallbackFamilyOrder.compactMap { key in
-                guard let name = staticDisplayNameByID[key] else { return nil }
-                return ModelOption(
-                    id: key,
-                    name: name,
-                    provider: providerKind(forID: key).rawValue
-                )
-            }
-        } else {
-            effectiveOptions = options
+    public static var fallbackOptions: [ModelOption] {
+        fallbackFamilyOrder.compactMap { key in
+            guard let name = staticDisplayNameByID[key] else { return nil }
+            return ModelOption(
+                id: key,
+                name: name,
+                provider: providerKind(forID: key).rawValue
+            )
         }
+    }
+
+    private static func providerSortRank(_ provider: String) -> Int {
+        switch provider.lowercased() {
+        case "gemini": return 0
+        case "claude": return 1
+        case "orchestrator": return 2
+        default: return 3
+        }
+    }
+
+    /// 将扁平模型列表按大类/家族归类（如 Gemini 4 Carbon、Gemini 4 Argon、Claude Opus 5.5、Orchestrator 等），
+    /// 并按 Gemini (蓝) -> Claude (橙) -> Orchestrator (紫) -> Other 的厂商顺序排列，
+    /// 用于长按呼出二级选择菜单（上下选模型、右滑选强度）。
+    public static func modelFamilies(from options: [ModelOption]) -> [ModelFamily] {
+        let effectiveOptions: [ModelOption] = options.isEmpty ? fallbackOptions : options
         
         var familyMap: [String: (name: String, provider: String, variants: [ModelVariant])] = [:]
         var familyOrder: [String] = []
         
         for opt in effectiveOptions {
+            if opt.id.lowercased().contains("gpt-oss") { continue }
             let fullName = opt.name.isEmpty ? displayName(forID: opt.id, options: options) : normalizeDisplayName(opt.name)
             var familyName = fullName
             var variantLabel = "默认"
@@ -474,7 +484,7 @@ public enum ModelDefaultsLogic {
             }
         }
         
-        return familyOrder.compactMap { key in
+        let ordered = familyOrder.compactMap { key -> ModelFamily? in
             guard let entry = familyMap[key] else { return nil }
             return ModelFamily(
                 id: key,
@@ -483,6 +493,13 @@ public enum ModelDefaultsLogic {
                 variants: entry.variants
             )
         }
+        // 稳定分组排序：Gemini -> Claude -> Orchestrator -> Other，同厂商内保持目录原有顺序
+        return ordered.enumerated().sorted { lhs, rhs in
+            let lr = providerSortRank(lhs.element.provider)
+            let rr = providerSortRank(rhs.element.provider)
+            if lr != rr { return lr < rr }
+            return lhs.offset < rhs.offset
+        }.map { $0.element }
     }
 
     /// 输入框上方胶囊的文字：只有厂商名，保持简洁。
@@ -493,6 +510,56 @@ public enum ModelDefaultsLogic {
         case .other: return "GPT"
         case .gemini: return "Gemini"
         }
+    }
+
+    /// 单击胶囊在两个常用模型之间快速切换：
+    /// 当前是常用模型 1 -> 切到常用模型 2；
+    /// 当前是常用模型 2 或通过长按选中的其他模型 -> 切回常用模型 1。
+    public static func toggleFavoriteTarget(
+        current: String,
+        favorite1: String,
+        favorite2: String
+    ) -> String {
+        let f1 = favorite1.trimmingCharacters(in: .whitespacesAndNewlines)
+        let f2 = favorite2.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !f1.isEmpty else { return f2.isEmpty ? current : f2 }
+        guard !f2.isEmpty else { return f1 }
+        if current.caseInsensitiveCompare(f1) == .orderedSame {
+            return f2
+        }
+        return f1
+    }
+
+    /// 校验并修正常用模型：若已保存的模型在实时目录中下线/不可用，则自动替换为可用模型（尽量避开 `avoid`）。
+    public static func validatedFavorite(
+        saved: String,
+        fallback: String,
+        avoid: String? = nil,
+        catalog: ModelsResponse
+    ) -> String {
+        guard catalog.isLive, !catalog.models.isEmpty else { return saved }
+        let selectable = catalog.models.filter { !$0.id.lowercased().contains("gpt-oss") }
+        guard !selectable.isEmpty else { return saved }
+        if selectable.contains(where: { $0.id == saved }) {
+            return saved
+        }
+        let isDifferentFromAvoid: (String) -> Bool = { id in
+            guard let avoid, !avoid.isEmpty else { return true }
+            return id.caseInsensitiveCompare(avoid) != .orderedSame
+        }
+        let savedProvider = providerKind(forID: saved).rawValue
+        if let def = catalog.defaults[savedProvider],
+           selectable.contains(where: { $0.id == def }),
+           isDifferentFromAvoid(def) {
+            return def
+        }
+        if selectable.contains(where: { $0.id == fallback }), isDifferentFromAvoid(fallback) {
+            return fallback
+        }
+        if let diff = selectable.first(where: { isDifferentFromAvoid($0.id) })?.id {
+            return diff
+        }
+        return selectable.first?.id ?? saved
     }
 
     /// 胶囊点击后要切到的默认模型：Ultra 账号在 Gemini → Claude → Orchestrator 间循环；否则 Gemini ↔ Claude。
@@ -591,6 +658,30 @@ public final class ModelCatalogStore {
         }
     }
 
+    /// 所有可用模型（实时/缓存目录优先，离线时退回内置常用列表），按 Gemini -> Claude -> Orchestrator -> Other 排序。
+    public var allOptions: [ModelOption] {
+        let raw = (catalog?.models ?? []).filter { !$0.id.lowercased().contains("gpt-oss") }
+        let list = raw.isEmpty ? ModelDefaultsLogic.fallbackOptions : raw
+        let rank: (String) -> Int = { p in
+            switch p.lowercased() {
+            case "gemini": return 0
+            case "claude": return 1
+            case "orchestrator": return 2
+            default: return 3
+            }
+        }
+        return list.enumerated().sorted { lhs, rhs in
+            let lk = ModelDefaultsLogic.providerKind(forID: lhs.element.id).rawValue
+            let rk = ModelDefaultsLogic.providerKind(forID: rhs.element.id).rawValue
+            let lp = (lk == "orchestrator" || lhs.element.provider.isEmpty) ? lk : lhs.element.provider
+            let rp = (rk == "orchestrator" || rhs.element.provider.isEmpty) ? rk : rhs.element.provider
+            let lr = rank(lp)
+            let rr = rank(rp)
+            if lr != rr { return lr < rr }
+            return lhs.offset < rhs.offset
+        }.map { $0.element }
+    }
+
     public func options(for provider: String) -> [ModelOption] {
         let p = provider.lowercased()
         return (catalog?.models ?? []).filter { opt in
@@ -665,18 +756,22 @@ public final class ModelCatalogStore {
             if let data = try? JSONEncoder().encode(fresh) {
                 UserDefaults.standard.set(data, forKey: Self.storageKey)
             }
-            let validatedGemini = ModelDefaultsLogic.validated(saved: settings.defaultGeminiModel, provider: "gemini", catalog: fresh)
-            let validatedClaude = ModelDefaultsLogic.validated(saved: settings.defaultClaudeModel, provider: "claude", catalog: fresh)
-            let validatedOrch = ModelDefaultsLogic.validated(saved: settings.defaultOrchestratorModel, provider: "orchestrator", catalog: fresh)
-            settings.defaultGeminiModel = validatedGemini
-            settings.defaultClaudeModel = validatedClaude
-            settings.defaultOrchestratorModel = validatedOrch
+            let validatedFav1 = ModelDefaultsLogic.validatedFavorite(
+                saved: settings.favoriteModel1,
+                fallback: ModelDefaultsLogic.fallbackGemini,
+                avoid: nil,
+                catalog: fresh
+            )
+            let validatedFav2 = ModelDefaultsLogic.validatedFavorite(
+                saved: settings.favoriteModel2,
+                fallback: ModelDefaultsLogic.fallbackClaude,
+                avoid: validatedFav1,
+                catalog: fresh
+            )
+            settings.favoriteModel1 = validatedFav1
+            settings.favoriteModel2 = validatedFav2
             if fresh.isLive && !fresh.models.contains(where: { $0.id == settings.activeModel }) {
-                switch ModelDefaultsLogic.providerKind(forID: settings.activeModel) {
-                case .claude: settings.activeModel = validatedClaude
-                case .orchestrator: settings.activeModel = hasOrchestratorModels ? validatedOrch : validatedGemini
-                case .gemini, .other: settings.activeModel = validatedGemini
-                }
+                settings.activeModel = validatedFav1
             }
         } catch {
             loadFailed = true

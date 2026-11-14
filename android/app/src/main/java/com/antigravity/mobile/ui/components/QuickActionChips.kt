@@ -66,7 +66,7 @@ fun QuickActionChips(
     val chipTextColor = when (providerKind) {
         "claude" -> colors.accentOrange
         "orchestrator" -> colors.accentPurple
-        "other" -> colors.accentIndigo
+        "other" -> Color(0xFF30B0C7)
         else -> colors.accentBlue
     }
     val haptic = com.antigravity.mobile.ui.util.rememberHaptic()
@@ -128,13 +128,12 @@ fun QuickActionChips(
                         onToggleModel()
                     }
                 }
-                .pointerInput(providerKind, activeModel, modelCatalog, modelSlidePickerState) {
+                .pointerInput(activeModel, modelCatalog, modelSlidePickerState) {
                     if (modelSlidePickerState == null) return@pointerInput
                     detectDragGesturesAfterLongPress(
                         onDragStart = {
                             haptic.medium()
                             modelSlidePickerState.open(
-                                provider = providerKind,
                                 activeModel = activeModel,
                                 options = modelCatalog?.models.orEmpty()
                             )

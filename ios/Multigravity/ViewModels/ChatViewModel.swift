@@ -484,9 +484,8 @@ public final class ChatViewModel {
         let target = ModelDefaultsLogic.resolveActive(
             raw: raw,
             current: activeModel,
-            geminiDefault: settings.defaultGeminiModel,
-            claudeDefault: settings.defaultClaudeModel,
-            orchestratorDefault: settings.defaultOrchestratorModel
+            geminiDefault: settings.favoriteModel1,
+            claudeDefault: settings.favoriteModel2
         )
         if activeModel != target {
             activeModel = target
@@ -561,7 +560,7 @@ public final class ChatViewModel {
             self.isNewConversation = true
         }
         
-        var initialModel = resolvedSettings.defaultGeminiModel
+        var initialModel = resolvedSettings.favoriteModel1
         if !cascadeId.isEmpty,
            let cached = resolvedCacheManager.loadSession(for: cascadeId),
            let cfg = cached.cascadeConfigRaw {
@@ -571,11 +570,17 @@ public final class ChatViewModel {
             } else {
                 let lower = cfg.lowercased()
                 if ModelDefaultsLogic.isClaude(lower) {
-                    initialModel = resolvedSettings.defaultClaudeModel
+                    initialModel = ModelDefaultsLogic.providerKind(forID: resolvedSettings.favoriteModel2) == .claude
+                        ? resolvedSettings.favoriteModel2
+                        : ModelDefaultsLogic.fallbackClaude
                 } else if lower.contains("m667") || lower.contains("m681") || lower.contains("orch") {
-                    initialModel = resolvedSettings.defaultOrchestratorModel
+                    initialModel = ModelDefaultsLogic.providerKind(forID: resolvedSettings.favoriteModel2) == .orchestrator
+                        ? resolvedSettings.favoriteModel2
+                        : ModelDefaultsLogic.fallbackOrchestrator
                 } else if lower.contains("m318") || lower.contains("m417") || lower.contains("m418") || lower.contains("m419") || lower.contains("gemini") {
-                    initialModel = resolvedSettings.defaultGeminiModel
+                    initialModel = ModelDefaultsLogic.providerKind(forID: resolvedSettings.favoriteModel1) == .gemini
+                        ? resolvedSettings.favoriteModel1
+                        : ModelDefaultsLogic.fallbackGemini
                 }
             }
         }
@@ -677,7 +682,7 @@ public final class ChatViewModel {
         self.activityManager = ActivityManager.shared
         self.cacheManager = resolvedCacheManager
         self.streamClient = StreamWebSocketClient()
-        self.activeModel = resolvedSettings.activeModel
+        self.activeModel = resolvedSettings.favoriteModel1
         let draftKey = "draft_project_\(draftProject.id)"
         self.selectedImageData = resolvedCacheManager.getDraftImages(for: draftKey)
         self.inputText = resolvedCacheManager.getDraft(for: draftKey)
@@ -709,7 +714,7 @@ public final class ChatViewModel {
         self.activityManager = ActivityManager.shared
         self.cacheManager = resolvedCacheManager
         self.streamClient = StreamWebSocketClient()
-        self.activeModel = resolvedSettings.activeModel
+        self.activeModel = resolvedSettings.favoriteModel1
         let sessionImages = !draftSession.draftImages.isEmpty ? draftSession.draftImages : resolvedCacheManager.getDraftImages(for: draftSession.id)
         self.selectedImageData = sessionImages
         if !sessionImages.isEmpty {

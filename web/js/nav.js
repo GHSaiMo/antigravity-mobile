@@ -48,7 +48,10 @@ function renderRoute() {
       WebVoiceCallManager.endCall();
     }
     activeCascadeId = newCascadeId;
-    if (changed) SubagentManager.reset(); // 切换会话时清掉上一个会话的子代理 / 只读状态
+    if (changed) {
+      SubagentManager.reset(); // 切换会话时清掉上一个会话的子代理 / 只读状态
+      hasUserManuallySelectedModel = false;
+    }
     markConversationAsRead(newCascadeId);
 
     // View toggling with iOS NavigationStack slide

@@ -208,6 +208,10 @@ func normalizeModelDisplayName(name string) string {
 	return name
 }
 
+func isExcludedPickerModel(id string) bool {
+	return strings.Contains(strings.ToLower(strings.TrimSpace(id)), "gpt-oss")
+}
+
 // buildModelTables turns raw upstream models into client options plus lookup tables.
 //
 // When curatedIDs (the vendor's own "Recommended" picker list) is present it decides both membership
@@ -255,7 +259,7 @@ func buildModelTables(raw map[string]upstreamModel, curatedIDs []string) (option
 			}
 		}
 		// 退役的 2.5 枚举会被 normalizeLegacyEnum 改映射到别的模型，列出来只会让用户选 A 跑 B
-		if !m.Recommended || isRetiredEnum(opt.Enum) || isLeavingSoon(m.TagTitle) {
+		if !m.Recommended || isRetiredEnum(opt.Enum) || isLeavingSoon(m.TagTitle) || isExcludedPickerModel(opt.ID) {
 			continue
 		}
 		if prev, ok := bestByName[opt.Name]; !ok || legacyRank(opt.ID) < legacyRank(prev.ID) {
@@ -267,7 +271,7 @@ func buildModelTables(raw map[string]upstreamModel, curatedIDs []string) (option
 		seen := map[string]bool{}
 		for _, id := range curatedIDs {
 			opt, ok := byID[strings.ToLower(id)]
-			if !ok || seen[opt.ID] || isRetiredEnum(opt.Enum) || leavingSoon[opt.ID] {
+			if !ok || seen[opt.ID] || isRetiredEnum(opt.Enum) || leavingSoon[opt.ID] || isExcludedPickerModel(opt.ID) {
 				continue
 			}
 			seen[opt.ID] = true
@@ -284,10 +288,11 @@ func buildModelTables(raw map[string]upstreamModel, curatedIDs []string) (option
 	for _, opt := range bestByName {
 		options = append(options, opt)
 	}
+	rank := map[string]int{"gemini": 0, "claude": 1, "orchestrator": 2, "other": 3}
 	sort.SliceStable(options, func(i, j int) bool {
 		a, b := options[i], options[j]
 		if a.Provider != b.Provider {
-			return a.Provider < b.Provider
+			return rank[a.Provider] < rank[b.Provider]
 		}
 		if less, decided := lessVersionDesc(versionKey(a.Name), versionKey(b.Name)); decided {
 			return less

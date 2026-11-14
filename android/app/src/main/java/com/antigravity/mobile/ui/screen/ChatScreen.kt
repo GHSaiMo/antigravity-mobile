@@ -843,7 +843,12 @@ fun ChatScreen(
                 if (total > 0) {
                     isProgrammaticScrolling = true
                     try {
-                        listState.animateScrollToItem(total - 1)
+                        // 新 Agent 气泡进入流式传输时无动画贴底，避免与 rememberPacedMessage 的生长跟随冲突抖动
+                        if (msgSizeChanged && uiState.isRunning && uiState.messages.lastOrNull()?.isAgent == true) {
+                            listState.scrollToItem(total - 1)
+                        } else {
+                            listState.animateScrollToItem(total - 1)
+                        }
                     } finally {
                         delay(50)
                         isProgrammaticScrolling = false
@@ -1142,6 +1147,7 @@ fun ChatScreen(
                                 )
                             }
                         ) {
+                            val lastFollowScrollAtMs = remember { longArrayOf(0L) }
                             LazyColumn(
                                 state = listState,
                                 modifier = Modifier.fillMaxSize(),
@@ -1195,7 +1201,32 @@ fun ChatScreen(
                                     uiState.messages,
                                     key = { if (it.id.isNotBlank()) it.id else "${it.timestamp}_${it.role}_${it.stepIndex ?: 0}" }
                                 ) { rawMsg ->
-                                    val msg = com.antigravity.mobile.ui.util.rememberPacedMessage(rawMsg)
+                                    val isLastAgentStreaming = uiState.isRunning && rawMsg.isAgent && rawMsg.id == uiState.messages.lastOrNull()?.id
+                                    val msg = com.antigravity.mobile.ui.util.rememberPacedMessage(
+                                        message = rawMsg,
+                                        onGrow = if (isLastAgentStreaming) {
+                                            {
+                                                if (hasInitiallyAligned && !preserveScrollOnReturn && !listState.isScrollInProgress && (isNearBottom || !hasUserInteracted)) {
+                                                    val now = android.os.SystemClock.uptimeMillis()
+                                                    if (now - lastFollowScrollAtMs[0] >= 60L) {
+                                                        lastFollowScrollAtMs[0] = now
+                                                        coroutineScope.launch {
+                                                            val total = listState.layoutInfo.totalItemsCount
+                                                            if (total > 0) {
+                                                                isProgrammaticScrolling = true
+                                                                try {
+                                                                    listState.scrollToItem(total - 1)
+                                                                } finally {
+                                                                    delay(30)
+                                                                    isProgrammaticScrolling = false
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        } else null
+                                    )
                                     MessageBubble(
                                         message = msg,
                                         onPlanClick = { uri, title ->

@@ -27,8 +27,8 @@ class ModelDefaultsTest {
     fun toggleUsesConfiguredDefaults() {
         assertEquals(g, ModelDefaults.toggleTarget("claude-opus-4-6-thinking", g, c))
         assertEquals(c, ModelDefaults.toggleTarget("gemini-3.7-flash-low", g, c))
-        // 非 Claude（含 GPT）都切到 Claude 默认
-        assertEquals(c, ModelDefaults.toggleTarget("gpt-oss-120b-medium", g, c))
+        // 非 Gemini（含 Claude 与其他）在旧版双核切换规则中退回 Gemini 默认
+        assertEquals(g, ModelDefaults.toggleTarget("gpt-oss-120b-medium", g, c))
     }
 
     @Test
@@ -86,5 +86,56 @@ class ModelDefaultsTest {
         assertEquals("Claude Opus 4.6 (Thinking)", ModelDefaults.displayName("claude-opus-4-6-thinking"))
         assertEquals("Claude Sonnet 4.6 (Thinking)", ModelDefaults.displayName("claude-sonnet-4-6"))
         assertEquals("Claude Opus 6 (High)", ModelDefaults.displayName("claude-opus-6-high"))
+    }
+
+    @Test
+    fun effortSubmenuTopToBottomIsLowToExtraWithMediumDefault() {
+        val options = listOf(
+            ModelOption(id = "gemini-4-hydrogen-xhigh", name = "Gemini 4 Hydrogen (Extra)", provider = "gemini"),
+            ModelOption(id = "gemini-4-hydrogen-high", name = "Gemini 4 Hydrogen (High)", provider = "gemini"),
+            ModelOption(id = "gemini-4-hydrogen-medium", name = "Gemini 4 Hydrogen (Medium)", provider = "gemini"),
+            ModelOption(id = "gemini-4-hydrogen-low", name = "Gemini 4 Hydrogen (Low)", provider = "gemini")
+        )
+        val families = ModelDefaults.modelFamilies(options)
+        assertEquals(1, families.size)
+        val hydro = families.first()
+        assertEquals(
+            listOf("gemini-4-hydrogen-low", "gemini-4-hydrogen-medium", "gemini-4-hydrogen-high", "gemini-4-hydrogen-xhigh"),
+            hydro.variantsTopToBottom.map { it.id }
+        )
+        assertEquals("gemini-4-hydrogen-medium", hydro.defaultVariant?.id)
+        assertEquals(1, hydro.defaultVariantIndexTopToBottom)
+    }
+
+    @Test
+    fun favoriteToggleAndValidationBehavior() {
+        val fav1 = "gemini-4-carbon-medium"
+        val fav2 = "claude-opus-5-5-high"
+        // Fav1 -> Fav2 -> Fav1
+        assertEquals(fav2, ModelDefaults.toggleFavoriteTarget(fav1, fav1, fav2))
+        assertEquals(fav1, ModelDefaults.toggleFavoriteTarget(fav2, fav1, fav2))
+        // Third/custom model -> back to Fav1
+        assertEquals(fav1, ModelDefaults.toggleFavoriteTarget("gemini-pro-orchestrator", fav1, fav2))
+
+        val catalog = ModelsResponse(
+            models = listOf(
+                ModelOption(id = "gemini-4-carbon-medium", name = "Gemini 4 Carbon (Medium)", provider = "gemini"),
+                ModelOption(id = "claude-sonnet-4-6", name = "Claude Sonnet 4.6", provider = "claude")
+            ),
+            defaults = mapOf("gemini" to "gemini-4-carbon-medium", "claude" to "claude-sonnet-4-6"),
+            live = true
+        )
+        assertEquals("claude-sonnet-4-6", ModelDefaults.validatedFavorite("gemini-pro-orchestrator", ModelDefaults.FALLBACK_CLAUDE, avoid = "gemini-4-carbon-medium", catalog = catalog))
+    }
+
+    @Test
+    fun modelFamiliesGroupsGeminiClaudeOrchestratorInOrder() {
+        val mixed = listOf(
+            ModelOption(id = "gemini-pro-orchestrator", name = "Orchestrator (Carbon)", provider = "orchestrator"),
+            ModelOption(id = "claude-opus-5-5-medium", name = "Claude Opus 5.5 (Medium)", provider = "claude"),
+            ModelOption(id = "gemini-4-carbon-medium", name = "Gemini 4 Carbon (Medium)", provider = "gemini")
+        )
+        val families = ModelDefaults.modelFamilies(mixed)
+        assertEquals(listOf("gemini", "claude", "orchestrator"), families.map { it.provider })
     }
 }

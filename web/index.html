@@ -296,7 +296,7 @@
             </button>
             <input type="file" id="image-file-input" accept="image/*" multiple style="display: none;" />
 
-            <button id="btn-model-switch" class="chip-pill chip-model-switch chip-gemini" type="button" title="点击切换模型: Gemini / Claude">
+            <button id="btn-model-switch" class="chip-pill chip-model-switch chip-gemini" type="button" title="单击快切常用模型，长按或右键选择全部模型">
               <span id="model-switch-text" class="model-switch-text">Gemini</span>
             </button>
 
@@ -394,6 +394,9 @@
       </div>
     </div>
 
+    <!-- Long-press / Context-menu: All-Models 2-Level Picker -->
+    <div id="model-picker-overlay" class="model-picker-overlay hidden"></div>
+
     <!-- iOS Bottom Sheet: Settings & Gateway Status (Aligned with SettingsSheet.swift) -->
     <div id="sheet-settings" class="ios-sheet-overlay hidden">
       <div class="ios-sheet-card">
@@ -461,20 +464,26 @@
             </div>
           </div>
 
-          <!-- 默认模型：输入框上方「Gemini / Claude」胶囊切换到的具体模型（js/models.js） -->
+          <!-- 常用模型：两个槽位均可在全部模型与全部思考强度中任选；新会话首选常用模型 1，单击胶囊快切 -->
           <div class="ios-grouped-section">
             <div class="ios-cell between">
-              <span class="cell-label">默认 Gemini 模型</span>
-              <select id="settings-default-gemini" class="settings-select" aria-label="默认 Gemini 模型"></select>
+              <div class="cell-label-stack">
+                <span class="cell-label">常用模型 1</span>
+                <span class="cell-subtitle">进入新会话首选</span>
+              </div>
+              <select id="settings-favorite-1" class="settings-select" aria-label="常用模型 1"></select>
             </div>
             <div class="ios-cell between">
-              <span class="cell-label">默认 Claude 模型</span>
-              <select id="settings-default-claude" class="settings-select" aria-label="默认 Claude 模型"></select>
+              <div class="cell-label-stack">
+                <span class="cell-label">常用模型 2</span>
+                <span class="cell-subtitle">单击胶囊快切</span>
+              </div>
+              <select id="settings-favorite-2" class="settings-select" aria-label="常用模型 2"></select>
             </div>
             <button id="btn-refresh-models" class="ios-cell-button" type="button">
               <span>刷新模型列表</span>
             </button>
-            <div id="settings-models-note" class="settings-note hidden"></div>
+            <div id="settings-models-note" class="settings-note">进入新会话首选常用模型 1；单击模型胶囊可在两个常用模型间快切，长按/右键可选择全部模型与思考强度。</div>
           </div>
 
           <!-- Section 3: 本地数据与缓存 -->

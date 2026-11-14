@@ -194,12 +194,12 @@ data class ModelFamily(
     val hasEffortVariants: Boolean
         get() = variants.size > 1 && variants.all { it.effortRank != null }
 
-    /** Top-to-bottom is Extra -> High -> Medium -> Low (so bottom-to-top is Low -> Medium -> High -> Extra). */
+    /** Matches desktop order: Low (top) -> Medium -> High -> Extra (bottom). */
     val variantsTopToBottom: List<ModelVariant>
         get() = if (!hasEffortVariants) {
             variants
         } else {
-            variants.sortedByDescending { it.effortRank?.rank ?: -1 }
+            variants.sortedBy { it.effortRank?.rank ?: Int.MAX_VALUE }
         }
 
     val defaultVariant: ModelVariant?
@@ -427,18 +427,48 @@ object ModelDefaults {
     fun hasOrchestratorModels(options: List<ModelOption>): Boolean =
         options.any { providerKind(it.id) == "orchestrator" || it.provider.equals("orchestrator", ignoreCase = true) }
 
+    private val FALLBACK_FAMILY_ORDER = listOf(
+        "gemini-4-carbon-medium", "gemini-4-carbon-high", "gemini-4-carbon-low",
+        "gemini-4-argon-medium", "gemini-4-argon-high", "gemini-4-argon-low",
+        "gemini-4-hydrogen-xhigh", "gemini-4-hydrogen-high", "gemini-4-hydrogen-medium", "gemini-4-hydrogen-low",
+        "gemini-3.8-flash-high", "gemini-3.8-flash-medium", "gemini-3.8-flash-low",
+        "claude-opus-5-5-high", "claude-opus-5-5-medium", "claude-opus-5-5-low",
+        "claude-sonnet-5-5-high", "claude-sonnet-5-5-medium", "claude-sonnet-5-5-low",
+        "claude-opus-4-6-thinking", "claude-sonnet-4-6",
+        "gemini-pro-orchestrator", "gemini-pro-orchestrator-argon"
+    )
+
+    private fun providerSortRank(provider: String): Int = when (provider.lowercase()) {
+        "gemini" -> 0
+        "claude" -> 1
+        "orchestrator" -> 2
+        else -> 3
+    }
+
+    fun fallbackOptions(): List<ModelOption> = FALLBACK_FAMILY_ORDER.mapNotNull { key ->
+        val name = STATIC_DISPLAY_NAME_BY_ID[key] ?: return@mapNotNull null
+        ModelOption(
+            id = key,
+            name = name,
+            provider = providerKind(key)
+        )
+    }
+
+    fun allSortedOptions(options: List<ModelOption>): List<ModelOption> {
+        val filtered = options.filterNot { it.id.contains("gpt-oss", ignoreCase = true) }
+        val list = if (filtered.isEmpty()) fallbackOptions() else filtered
+        return list.withIndex().sortedWith(
+            compareBy<IndexedValue<ModelOption>> { (_, opt) ->
+                val kind = providerKind(opt.id)
+                val resolved = if (kind == "orchestrator" || opt.provider.isBlank()) kind else opt.provider.lowercase()
+                providerSortRank(resolved)
+            }.thenBy { it.index }
+        ).map { it.value }
+    }
+
     fun modelFamilies(options: List<ModelOption> = emptyList(), provider: String? = null): List<ModelFamily> {
-        val effective = if (options.isEmpty()) {
-            STATIC_DISPLAY_NAME_BY_ID.keys.sorted().map { key ->
-                ModelOption(
-                    id = key,
-                    name = STATIC_DISPLAY_NAME_BY_ID[key] ?: key,
-                    provider = providerKind(key)
-                )
-            }
-        } else {
-            options
-        }
+        val filteredOptions = options.filterNot { it.id.contains("gpt-oss", ignoreCase = true) }
+        val effective = if (filteredOptions.isEmpty()) fallbackOptions() else filteredOptions
         val familyMap = mutableMapOf<String, Triple<String, String, MutableList<ModelVariant>>>()
         val familyOrder = mutableListOf<String>()
 
@@ -476,7 +506,10 @@ object ModelDefaults {
             familyMap[key]?.let { (name, prov, variants) ->
                 ModelFamily(id = key, name = name, provider = prov, variants = variants)
             }
-        }
+        }.withIndex().sortedWith(
+            compareBy<IndexedValue<ModelFamily>> { providerSortRank(it.value.provider) }
+                .thenBy { it.index }
+        ).map { it.value }
         val target = provider?.lowercase()?.trim().orEmpty()
         if (target.isEmpty()) return all
         val filtered = all.filter { it.provider.lowercase() == target }
@@ -489,6 +522,48 @@ object ModelDefaults {
         "orchestrator" -> "Orchestrator"
         "other" -> "GPT"
         else -> "Gemini"
+    }
+
+    /**
+     * 单击胶囊在两个常用模型之间快速切换：
+     * 当前是常用模型 1 -> 切到常用模型 2；
+     * 当前是常用模型 2 或长按选中的其他模型 -> 切回常用模型 1。
+     */
+    fun toggleFavoriteTarget(
+        current: String,
+        favorite1: String,
+        favorite2: String
+    ): String {
+        val f1 = favorite1.trim()
+        val f2 = favorite2.trim()
+        if (f1.isEmpty()) return f2.ifEmpty { current }
+        if (f2.isEmpty()) return f1
+        return if (current.equals(f1, ignoreCase = true)) f2 else f1
+    }
+
+    /** 校验并修正常用模型：已保存模型不在实时目录时自动替换为可用模型（尽量避开 avoid）。 */
+    fun validatedFavorite(
+        saved: String,
+        fallback: String,
+        avoid: String? = null,
+        catalog: ModelsResponse
+    ): String {
+        if (!catalog.live || catalog.models.isEmpty()) return saved
+        val selectable = catalog.models.filterNot { it.id.contains("gpt-oss", ignoreCase = true) }
+        if (selectable.isEmpty()) return saved
+        if (selectable.any { it.id == saved }) return saved
+        val differsFromAvoid: (String) -> Boolean = { id ->
+            avoid.isNullOrBlank() || !id.equals(avoid, ignoreCase = true)
+        }
+        val savedProvider = providerKind(saved)
+        catalog.defaults[savedProvider]?.takeIf { def ->
+            selectable.any { it.id == def } && differsFromAvoid(def)
+        }?.let { return it }
+        if (selectable.any { it.id == fallback } && differsFromAvoid(fallback)) {
+            return fallback
+        }
+        selectable.firstOrNull { differsFromAvoid(it.id) }?.id?.let { return it }
+        return selectable.firstOrNull()?.id ?: saved
     }
 
     /** 胶囊点击后要切到的默认模型：Ultra 账号在 Gemini → Claude → Orchestrator 间循环；否则 Gemini ↔ Claude。 */

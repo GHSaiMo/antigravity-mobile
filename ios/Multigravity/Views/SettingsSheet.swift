@@ -136,16 +136,21 @@ public struct SettingsSheet: View {
                         }
                 }
                 
-                // MARK: - 4b. 默认模型
+                // MARK: - 4b. 常用模型
                 Section(
-                    header: Text("默认模型"),
-                    footer: Text(defaultModelFooter)
+                    header: Text("常用模型"),
+                    footer: Text(favoriteModelFooter)
                 ) {
-                    defaultModelPicker(title: "Gemini", provider: "gemini", selection: $settings.defaultGeminiModel)
-                    defaultModelPicker(title: "Claude", provider: "claude", selection: $settings.defaultClaudeModel)
-                    if !modelCatalog.options(for: "orchestrator").isEmpty {
-                        defaultModelPicker(title: "Orchestrator", provider: "orchestrator", selection: $settings.defaultOrchestratorModel)
-                    }
+                    favoriteModelPicker(
+                        title: "常用模型 1",
+                        subtitle: "进入新会话首选",
+                        selection: $settings.favoriteModel1
+                    )
+                    favoriteModelPicker(
+                        title: "常用模型 2",
+                        subtitle: "单击胶囊快速切换",
+                        selection: $settings.favoriteModel2
+                    )
                 }
                 
                 // MARK: - 4c. MCP 工具与技能看板
@@ -295,32 +300,68 @@ public struct SettingsSheet: View {
 }
 
 
-// MARK: - 默认模型
+// MARK: - 常用模型
 
 extension SettingsSheet {
-    fileprivate var defaultModelFooter: String {
+    fileprivate var favoriteModelFooter: String {
         if modelCatalog.isLoading && modelCatalog.catalog == nil { return "正在读取可用模型..." }
-        if modelCatalog.loadFailed && modelCatalog.catalog == nil { return "暂时无法读取可用模型列表，仍会使用当前已保存的默认模型。" }
-        if modelCatalog.hasOrchestratorModels {
-            return "输入框上方短按在 Gemini / Claude / Orchestrator 间切换，长按上滑并右滑选择模型及思考强度；已有会话自动跟随桌面当前模型，更改后随消息发送生效。"
+        if modelCatalog.loadFailed && modelCatalog.catalog == nil {
+            return "暂时无法读取实时模型列表，可先从内置列表中选择常用模型；进入新会话首选常用模型 1，单击模型胶囊可在两个常用模型间快速切换。"
         }
-        return "输入框上方短按切换 Gemini 与 Claude，长按上滑并右滑选择模型及思考强度；已有会话自动跟随桌面当前模型，更改后随消息发送生效。"
+        return "两个常用模型均可在全部可用模型与全部思考强度中任选。进入新会话首选常用模型 1；单击输入框上方模型胶囊在两个常用模型间快速切换，长按可从全部模型中单独选择。"
     }
 
-    /// 列表来自网关实时取到的可用模型；已保存的模型不在列表里时显示统一可读名称，避免露出小写裸 ID。
+    private func providerSectionTitle(_ key: String) -> String {
+        switch key {
+        case "gemini": return "Gemini"
+        case "claude": return "Claude"
+        case "orchestrator": return "Orchestrator"
+        default: return "其他模型"
+        }
+    }
+
+    /// 列表来自网关实时取到的全部可用模型（离线回退到内置列表），按厂商分组并保留全部思考强度。
     @ViewBuilder
-    fileprivate func defaultModelPicker(title: String, provider: String, selection: Binding<String>) -> some View {
-        let options = modelCatalog.options(for: provider)
-        Picker(title, selection: selection) {
-            if !options.contains(where: { $0.id == selection.wrappedValue }) {
+    fileprivate func favoriteModelPicker(
+        title: String,
+        subtitle: String? = nil,
+        selection: Binding<String>
+    ) -> some View {
+        let all = modelCatalog.allOptions
+        let groups: [(key: String, items: [ModelOption])] = ["gemini", "claude", "orchestrator", "other"].compactMap { key in
+            let items = all.filter { opt in
+                let kind = ModelDefaultsLogic.providerKind(forID: opt.id).rawValue
+                let resolved = (kind == "orchestrator" || opt.provider.isEmpty) ? kind : opt.provider.lowercased()
+                if key == "other" {
+                    return !["gemini", "claude", "orchestrator"].contains(resolved)
+                }
+                return resolved == key
+            }
+            return items.isEmpty ? nil : (key, items)
+        }
+        Picker(selection: selection) {
+            if !all.contains(where: { $0.id == selection.wrappedValue }) {
                 Text(modelCatalog.resolvedDisplayName(forID: selection.wrappedValue)).tag(selection.wrappedValue)
             }
-            ForEach(options) { option in
-                let label = ModelDefaultsLogic.formatPickerLabel(name: option.name, tag: option.tag)
-                Text(label).tag(option.id)
+            ForEach(groups, id: \.key) { group in
+                Section(providerSectionTitle(group.key)) {
+                    ForEach(group.items) { option in
+                        let label = ModelDefaultsLogic.formatPickerLabel(name: option.name, tag: option.tag)
+                        Text(label).tag(option.id)
+                    }
+                }
+            }
+        } label: {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                if let subtitle {
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
             }
         }
         .pickerStyle(.menu)
-        .disabled(options.isEmpty)
+        .disabled(all.isEmpty)
     }
 }
