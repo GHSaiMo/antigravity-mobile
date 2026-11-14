@@ -1188,8 +1188,8 @@ public struct McpSkillsSheet: View {
         isLoading = true
         errorMessage = nil
         
-        // Demo Mode Fallback
-        if settings.isDemoMode || settings.serverURL == nil {
+        // Offline Fallback when serverURL is missing
+        if settings.serverURL == nil {
             applyDemoData()
             isLoading = false
             return

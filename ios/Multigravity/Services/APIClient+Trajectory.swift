@@ -100,7 +100,10 @@ extension APIClient {
                     hasError: isErr,
                     errorMessage: errMsg,
                     swarm: decoded.swarm,
-                    contextMeter: decoded.contextMeter
+                    contextMeter: decoded.contextMeter,
+                    subagents: decoded.subagents,
+                    parentConversationId: decoded.parentConversationId,
+                    subagentRole: decoded.subagentRole
                 )
             }
         } catch {
@@ -130,7 +133,10 @@ extension APIClient {
             hasError: hasErr,
             errorMessage: errMsg,
             swarm: nil,
-            contextMeter: nil
+            contextMeter: nil,
+            subagents: nil,
+            parentConversationId: nil,
+            subagentRole: nil
         )
     }
     

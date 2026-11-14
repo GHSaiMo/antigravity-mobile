@@ -77,6 +77,7 @@ public struct ConversationListView: View {
                         Task {
                             await viewModel.fetchConversations()
                             await ProjectCacheManager.shared.fetchAndCacheProjects()
+                            await WorkflowTemplateStore.shared.refresh()
                         }
                     },
                     onEasterEggTap: handleEasterEggTap
