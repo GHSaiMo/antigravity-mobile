@@ -40,59 +40,26 @@ extension ChatView {
                     }
                     .buttonStyle(.plain)
                     
-                    // 2. Model Switch Button (Tap to toggle Gemini/Claude, Long press for current provider's family & thinking menu)
-                    Menu {
-                        let currentProvider = viewModel.activeModelProviderKind.rawValue
-                        let families = ModelCatalogStore.shared.modelFamilies(for: currentProvider)
-                        ForEach(families) { family in
-                            if family.variants.count == 1, let single = family.variants.first {
-                                Button {
-                                    withAnimation(.easeInOut(duration: 0.15)) {
-                                        viewModel.selectModel(single.id)
-                                    }
-                                } label: {
-                                    if viewModel.activeModel == single.id {
-                                        Label(family.name, systemImage: "checkmark")
-                                    } else {
-                                        Text(family.name)
-                                    }
-                                }
-                            } else {
-                                Menu(family.name) {
-                                    ForEach(family.variants) { variant in
-                                        Button {
-                                            withAnimation(.easeInOut(duration: 0.15)) {
-                                                viewModel.selectModel(variant.id)
-                                            }
-                                        } label: {
-                                            if viewModel.activeModel == variant.id {
-                                                Label(variant.label, systemImage: "checkmark")
-                                            } else {
-                                                Text(variant.label)
-                                            }
-                                        }
-                                    }
-                                }
+                    // 2. Model Switch Button (Tap to cycle Gemini/Claude/Orchestrator, Long-press + slide up/right for custom menu)
+                    ModelSwitchChipButton(
+                        displayName: viewModel.activeModelDisplayName,
+                        foregroundColor: modelChipForegroundColor,
+                        backgroundColor: modelChipBackgroundColor,
+                        borderColor: modelChipBorderColor,
+                        providerKind: viewModel.activeModelProviderKind,
+                        activeModelID: viewModel.activeModel,
+                        pickerState: modelPickerState,
+                        onToggle: {
+                            withAnimation(.easeInOut(duration: 0.15)) {
+                                viewModel.toggleModel()
+                            }
+                        },
+                        onSelectModel: { modelId in
+                            withAnimation(.easeInOut(duration: 0.15)) {
+                                viewModel.selectModel(modelId)
                             }
                         }
-                    } label: {
-                        Text(viewModel.activeModelDisplayName)
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundColor(modelChipForegroundColor)
-                            .padding(.horizontal, 11)
-                            .frame(height: 32)
-                            .background(modelChipBackgroundColor)
-                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                    .stroke(modelChipBorderColor, lineWidth: 1)
-                            )
-                    } primaryAction: {
-                        withAnimation(.easeInOut(duration: 0.15)) {
-                            viewModel.toggleModel()
-                        }
-                    }
-                    .buttonStyle(.plain)
+                    )
 
                     // 2b. Workflow: 打开动态工作流模板抽屉（固定放到模型按钮右边）
                     Button {

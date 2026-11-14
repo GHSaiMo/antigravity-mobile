@@ -196,6 +196,14 @@ func lessVersionDesc(a, b []int) (less, decided bool) {
 	return false, false
 }
 
+func normalizeModelDisplayName(name string) string {
+	// Align "(XHigh)" with the desktop client's "(Extra)" label.
+	if strings.HasSuffix(name, "(XHigh)") {
+		return strings.TrimSuffix(name, "(XHigh)") + "(Extra)"
+	}
+	return name
+}
+
 // buildModelTables turns raw upstream models into client options plus lookup tables.
 //
 // When curatedIDs (the vendor's own "Recommended" picker list) is present it decides both membership
@@ -225,7 +233,7 @@ func buildModelTables(raw map[string]upstreamModel, curatedIDs []string) (option
 		}
 		opt := ModelOption{
 			ID:             id,
-			Name:           m.DisplayName,
+			Name:           normalizeModelDisplayName(m.DisplayName),
 			Provider:       providerOf(m.ModelProvider, id),
 			Enum:           m.Model,
 			SupportsImages: m.SupportsImages,

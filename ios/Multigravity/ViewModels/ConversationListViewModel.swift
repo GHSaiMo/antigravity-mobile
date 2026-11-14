@@ -357,6 +357,9 @@ public final class ConversationListViewModel {
                     self.isLoading = false
                     self.errorMessage = nil
                     await fetchQuotas()
+                    if !settings.isDemoMode {
+                        await ModelCatalogStore.shared.refreshIfNeeded(settings: settings, baseURL: retryURL)
+                    }
                     return
                 } catch {
                     // Fallthrough to standard error handling
@@ -370,6 +373,9 @@ public final class ConversationListViewModel {
         
         await fetchQuotas()
         await fetchGlobalBackgroundTasks()
+        if let url = settings.serverURL, !settings.isDemoMode {
+            await ModelCatalogStore.shared.refreshIfNeeded(settings: settings, baseURL: url)
+        }
     }
 
     @MainActor

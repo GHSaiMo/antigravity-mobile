@@ -457,10 +457,14 @@ public final class ChatViewModel {
         ModelDefaultsLogic.isClaude(activeModel)
     }
     
-    /// 发给网关/LS 的模型枚举：优先用模型目录里的，目录还没取到时回退到内置的两个固定枚举。
+    /// 发给网关/LS 的模型枚举：优先用模型目录里的，目录还没取到时回退到内置枚举。
     public var activeModelEnum: String {
         if let known = ModelCatalogStore.shared.modelEnum(forID: activeModel) { return known }
-        return isClaudeActive ? "MODEL_PLACEHOLDER_M26" : "MODEL_PLACEHOLDER_M318"
+        switch activeModelProviderKind {
+        case .claude: return "MODEL_PLACEHOLDER_M26"
+        case .orchestrator: return "MODEL_PLACEHOLDER_M667"
+        case .gemini, .other: return "MODEL_PLACEHOLDER_M318"
+        }
     }
     
     /// 输入框上方胶囊的文字：紧凑短名展示（如 Carbon · High、Opus 5.5 · High 等）。
@@ -479,7 +483,8 @@ public final class ChatViewModel {
             raw: raw,
             current: activeModel,
             geminiDefault: settings.defaultGeminiModel,
-            claudeDefault: settings.defaultClaudeModel
+            claudeDefault: settings.defaultClaudeModel,
+            orchestratorDefault: settings.defaultOrchestratorModel
         )
         if activeModel != target {
             activeModel = target
@@ -565,6 +570,8 @@ public final class ChatViewModel {
                 let lower = cfg.lowercased()
                 if ModelDefaultsLogic.isClaude(lower) {
                     initialModel = resolvedSettings.defaultClaudeModel
+                } else if lower.contains("m667") || lower.contains("m681") || lower.contains("orch") {
+                    initialModel = resolvedSettings.defaultOrchestratorModel
                 } else if lower.contains("m318") || lower.contains("m417") || lower.contains("m418") || lower.contains("m419") || lower.contains("gemini") {
                     initialModel = resolvedSettings.defaultGeminiModel
                 }
