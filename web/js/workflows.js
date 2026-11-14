@@ -51,7 +51,12 @@ const WORKFLOW_ICON_CATALOG = [
   { key: "terminal", label: "终端脚本" },
   { key: "doc", label: "文档总结" },
   { key: "star", label: "常用收藏" },
-  { key: "sparkles", label: "AI 增强" }
+  { key: "sparkles", label: "AI 增强" },
+  { key: "git", label: "Git 分支" },
+  { key: "merge", label: "分支合并" },
+  { key: "pipeline", label: "流水线" },
+  { key: "checklist", label: "流程清单" },
+  { key: "report", label: "分析报告" }
 ];
 
 const WORKFLOW_COLOR_CATALOG = [
@@ -99,6 +104,16 @@ function workflowIconSvg(iconKey, size = 18) {
       return `<svg ${s}><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>`;
     case "sparkles":
       return `<svg ${s}><path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z"></path></svg>`;
+    case "git":
+      return `<svg ${s}><line x1="6" y1="3" x2="6" y2="15"></line><circle cx="18" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><path d="M18 9a9 9 0 0 1-9 9"></path></svg>`;
+    case "merge":
+      return `<svg ${s}><circle cx="18" cy="18" r="3"></circle><circle cx="6" cy="6" r="3"></circle><path d="M6 21V9a9 9 0 0 0 9 9"></path></svg>`;
+    case "pipeline":
+      return `<svg ${s}><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"></path><path d="M21 3v5h-5"></path></svg>`;
+    case "checklist":
+      return `<svg ${s}><path d="m3 7 2 2 4-4"></path><path d="m3 17 2 2 4-4"></path><line x1="13" y1="6" x2="21" y2="6"></line><line x1="13" y1="12" x2="21" y2="12"></line><line x1="13" y1="18" x2="21" y2="18"></line></svg>`;
+    case "report":
+      return `<svg ${s}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="8" y1="18" x2="8" y2="15"></line><line x1="12" y1="18" x2="12" y2="12"></line><line x1="16" y1="18" x2="16" y2="14"></line></svg>`;
     default:
       return `<svg ${s}><circle cx="6" cy="6" r="3"></circle><circle cx="18" cy="6" r="3"></circle><circle cx="12" cy="18" r="3"></circle><path d="M8.5 7.5 11 15.5"></path><path d="M15.5 7.5 13 15.5"></path><line x1="9" y1="6" x2="15" y2="6"></line></svg>`;
   }

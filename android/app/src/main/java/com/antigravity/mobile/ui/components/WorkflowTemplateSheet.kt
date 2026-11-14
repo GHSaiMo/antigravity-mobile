@@ -16,18 +16,23 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.CallSplit
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.AccountTree
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Autorenew
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Merge
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Star
@@ -85,7 +90,12 @@ private object WorkflowStyleCatalog {
         WorkflowIconOption("terminal", Icons.Default.Terminal, "终端脚本"),
         WorkflowIconOption("doc", Icons.Default.Description, "文档总结"),
         WorkflowIconOption("star", Icons.Default.Star, "常用收藏"),
-        WorkflowIconOption("sparkles", Icons.Default.AutoAwesome, "AI 增强")
+        WorkflowIconOption("sparkles", Icons.Default.AutoAwesome, "AI 增强"),
+        WorkflowIconOption("git", Icons.AutoMirrored.Filled.CallSplit, "Git 分支"),
+        WorkflowIconOption("merge", Icons.Default.Merge, "分支合并"),
+        WorkflowIconOption("pipeline", Icons.Default.Autorenew, "流水线"),
+        WorkflowIconOption("checklist", Icons.Default.Checklist, "流程清单"),
+        WorkflowIconOption("report", Icons.Default.Assessment, "分析报告")
     )
 
     val colors = listOf(

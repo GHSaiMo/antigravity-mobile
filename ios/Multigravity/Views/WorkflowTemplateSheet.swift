@@ -27,7 +27,12 @@ private enum WorkflowTemplateStyle {
         IconOption(key: "terminal", systemImage: "terminal.fill", label: "终端脚本"),
         IconOption(key: "doc", systemImage: "doc.text.fill", label: "文档总结"),
         IconOption(key: "star", systemImage: "star.fill", label: "常用收藏"),
-        IconOption(key: "sparkles", systemImage: "sparkles", label: "AI 增强")
+        IconOption(key: "sparkles", systemImage: "sparkles", label: "AI 增强"),
+        IconOption(key: "git", systemImage: "arrow.triangle.branch", label: "Git 分支"),
+        IconOption(key: "merge", systemImage: "arrow.triangle.merge", label: "分支合并"),
+        IconOption(key: "pipeline", systemImage: "arrow.triangle.2.circlepath", label: "流水线"),
+        IconOption(key: "checklist", systemImage: "checklist", label: "流程清单"),
+        IconOption(key: "report", systemImage: "chart.bar.doc.horizontal.fill", label: "分析报告")
     ]
 
     static let colors: [ColorOption] = [
@@ -564,15 +569,14 @@ private struct WorkflowSwipeableRow<DragHandleGesture: Gesture>: View {
             }
             .padding(12)
             .background(Color(uiColor: .secondarySystemBackground))
-            .cornerRadius(12)
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(
                         isDragging ? Color.indigo.opacity(0.85) : Color(uiColor: .separator).opacity(0.4),
                         lineWidth: isDragging ? 1.5 : 0.5
                     )
             )
-            .scaleEffect(isDragging ? 1.02 : 1.0)
             .contentShape(Rectangle())
             .offset(x: currentOffsetX)
             .onTapGesture {
@@ -609,7 +613,9 @@ private struct WorkflowSwipeableRow<DragHandleGesture: Gesture>: View {
                     }
             )
         }
-        .clipped()
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .scaleEffect(isDragging ? 1.015 : 1.0)
+        .shadow(color: isDragging ? Color.black.opacity(0.12) : .clear, radius: 8, y: 4)
     }
 }
 
