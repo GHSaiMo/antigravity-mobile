@@ -124,11 +124,11 @@ public struct McpSkillsSheet: View {
     
     private var searchPrompt: String {
         switch selectedTab {
-        case .mcp: return "搜索 MCP 服务或工具名称"
-        case .skills: return "搜索技能名称或描述"
-        case .plugins: return "搜索插件名称或描述"
-        case .automations: return "搜索定时任务或表达式"
-        case .tasks: return "搜索命令、会话标题或工作区"
+        case .mcp: return String(localized: "搜索 MCP 服务或工具名称")
+        case .skills: return String(localized: "搜索技能名称或描述")
+        case .plugins: return String(localized: "搜索插件名称或描述")
+        case .automations: return String(localized: "搜索定时任务或表达式")
+        case .tasks: return String(localized: "搜索命令、会话标题或工作区")
         }
     }
     
@@ -1197,7 +1197,7 @@ public struct McpSkillsSheet: View {
         
         guard let url = settings.serverURL else {
             if mcpServers.isEmpty && skills.isEmpty {
-                errorMessage = "未连接网关"
+                errorMessage = String(localized: "未连接网关")
             }
             isLoading = false
             return
@@ -1236,47 +1236,83 @@ public struct McpSkillsSheet: View {
             if settings.isDemoMode {
                 applyDemoData()
             } else if backgroundTasks.isEmpty {
-                errorMessage = "无法获取 MCP 服务与技能清单，请检查网关连接"
+                errorMessage = String(localized: "无法获取 MCP 服务与技能清单，请检查网关连接")
             }
         }
         isLoading = false
     }
     
     private func applyDemoData() {
+        let isZH = DemoGateway.isZH
         self.mcpServers = [
             McpServerState(
-                spec: McpServerSpec(serverName: "ifind", command: "python3 -m ifind_mcp.server run"),
+                spec: McpServerSpec(serverName: "github", command: "npx -y @modelcontextprotocol/server-github"),
                 status: "MCP_SERVER_STATUS_READY",
                 tools: [
-                    McpToolDefinition(name: "get_realtime_quotation", description: "查询证券实时行情、最新价、涨跌幅、盘口及资金流", serverName: "ifind", jsonSchemaString: "{\"properties\":{\"codes\":{\"type\":\"string\",\"description\":\"证券代码，如 600519.SH\"}},\"required\":[\"codes\"]}"),
-                    McpToolDefinition(name: "get_history_quotation", description: "查询历史K线行情与序列数据", serverName: "ifind", jsonSchemaString: "{\"properties\":{\"codes\":{\"type\":\"string\"},\"period\":{\"type\":\"string\",\"default\":\"D\"}},\"required\":[\"codes\"]}")
+                    McpToolDefinition(
+                        name: "search_repositories",
+                        description: isZH ? "检索 GitHub 开源仓库、Issue 与 Pull Request 上下文" : "Search GitHub repositories, issues, and pull requests",
+                        serverName: "github",
+                        jsonSchemaString: "{\"properties\":{\"query\":{\"type\":\"string\",\"description\":\"Search query\"}},\"required\":[\"query\"]}"
+                    ),
+                    McpToolDefinition(
+                        name: "get_file_contents",
+                        description: isZH ? "按分支与路径读取仓库源码文件内容" : "Read file contents by branch and path from a repository",
+                        serverName: "github",
+                        jsonSchemaString: "{\"properties\":{\"owner\":{\"type\":\"string\"},\"repo\":{\"type\":\"string\"},\"path\":{\"type\":\"string\"}},\"required\":[\"owner\",\"repo\",\"path\"]}"
+                    )
                 ],
-                serverInfo: McpServerInfoDetail(name: "ifind-mcp", version: "4.0.0"),
-                instructions: "iFinD 金融数据终端服务接口"
+                serverInfo: McpServerInfoDetail(name: "github-mcp", version: "2.4.0"),
+                instructions: isZH ? "GitHub 仓库检索与 PR 协作工具集" : "GitHub repository search and pull request integration"
             ),
             McpServerState(
                 spec: McpServerSpec(serverName: "weather", command: "uv run weather-server"),
                 status: "MCP_SERVER_STATUS_READY",
                 tools: [
-                    McpToolDefinition(name: "get_current_weather", description: "获取指定城市的当前实时天气情况", serverName: "weather", jsonSchemaString: "{\"properties\":{\"city\":{\"type\":\"string\",\"description\":\"城市名称\"}},\"required\":[\"city\"]}")
+                    McpToolDefinition(
+                        name: "get_current_weather",
+                        description: isZH ? "获取指定城市的当前实时天气情况" : "Fetch current weather conditions for a city",
+                        serverName: "weather",
+                        jsonSchemaString: "{\"properties\":{\"city\":{\"type\":\"string\",\"description\":\"City name\"}},\"required\":[\"city\"]}"
+                    )
                 ],
                 serverInfo: McpServerInfoDetail(name: "weather-service", version: "1.2.0"),
-                instructions: "全球实时与未来天气查询"
+                instructions: isZH ? "全球实时与未来天气查询" : "Global real-time and forecast weather service"
             ),
             McpServerState(
-                spec: McpServerSpec(serverName: "message_hub", command: "node message_hub.js"),
+                spec: McpServerSpec(serverName: "postgres", command: "uvx mcp-postgres-readonly"),
                 status: "MCP_SERVER_STATUS_READY",
                 tools: [
-                    McpToolDefinition(name: "send_message", description: "统一向微信或元宝渠道发送通知与长图", serverName: "message_hub", jsonSchemaString: "{\"properties\":{\"target\":{\"type\":\"string\"},\"text\":{\"type\":\"string\"}},\"required\":[\"target\",\"text\"]}")
+                    McpToolDefinition(
+                        name: "explain_query",
+                        description: isZH ? "执行只读 EXPLAIN ANALYZE 查询计划诊断" : "Run read-only EXPLAIN ANALYZE query plan diagnostics",
+                        serverName: "postgres",
+                        jsonSchemaString: "{\"properties\":{\"sql\":{\"type\":\"string\"}},\"required\":[\"sql\"]}"
+                    )
                 ],
-                serverInfo: McpServerInfoDetail(name: "message-hub", version: "2.1.0"),
-                instructions: "统一消息与多端通信路由"
+                serverInfo: McpServerInfoDetail(name: "postgres-mcp", version: "1.8.0"),
+                instructions: isZH ? "PostgreSQL 只读 Schema 与执行计划排查" : "Read-only PostgreSQL schema and query-plan inspector"
             )
         ]
         self.skills = [
-            SkillInfo(name: "chart-generator", description: "自动化图表生成与多维度可视化分析", path: "builtin/skills/chart-generator/SKILL.md", content: "# Chart Generator\n自动根据输入数据渲染交互图表"),
-            SkillInfo(name: "sql-inspector", description: "SQL 查询调优与执行计划诊断", path: "builtin/skills/sql-inspector/SKILL.md", content: "# SQL Inspector\n分析 SQL 慢查询并提出索引优化方案"),
-            SkillInfo(name: "jiuge-market-analysis", description: "首席宏观研判与市场逻辑观点体系", path: "config/skills/jiuge-market-analysis/SKILL.md", content: "# Jiuge Market Analysis\n宏观与大宗商品核心驱动逻辑")
+            SkillInfo(
+                name: "chart-generator",
+                description: isZH ? "自动化图表生成与多维度可视化分析" : "Automated data visualization and chart rendering",
+                path: "builtin/skills/chart-generator/SKILL.md",
+                content: isZH ? "# Chart Generator\n自动根据输入数据渲染交互图表" : "# Chart Generator\nRender interactive charts directly from structured datasets."
+            ),
+            SkillInfo(
+                name: "sql-inspector",
+                description: isZH ? "SQL 查询调优与执行计划诊断" : "SQL query tuning and execution plan diagnostics",
+                path: "builtin/skills/sql-inspector/SKILL.md",
+                content: isZH ? "# SQL Inspector\n分析 SQL 慢查询并提出索引优化方案" : "# SQL Inspector\nAnalyze slow SQL queries and recommend safe indexing strategies."
+            ),
+            SkillInfo(
+                name: "swift-concurrency-audit",
+                description: isZH ? "Swift 6 并发模型与 Actor 隔离静态审查" : "Swift 6 concurrency and actor-isolation audit workflow",
+                path: "config/skills/swift-concurrency-audit/SKILL.md",
+                content: isZH ? "# Swift Concurrency Audit\n检查 @MainActor 隔离、Sendable 合规性与取消传递" : "# Swift Concurrency Audit\nVerify @MainActor isolation, Sendable conformance, and task cancellation."
+            )
         ]
     }
 }

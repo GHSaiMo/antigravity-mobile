@@ -830,11 +830,11 @@ public final class VoiceCallManager: ObservableObject {
         case 4: // STOPPING
             endCall()
         case 5: // FAILED
-            var errMsg = messageText.isEmpty ? "语音会话启动失败" : messageText
+            var errMsg = messageText.isEmpty ? String(localized: "语音会话启动失败") : messageText
             if failureReason == 5 {
-                errMsg = "桌面端 Antigravity 账号授权已过期，请在电脑端重新登录后再发起语音"
+                errMsg = String(localized: "桌面端账号授权已过期，请在电脑端重新登录后再发起语音")
             } else if failureReason == 2 {
-                errMsg = "语音服务并发受限，请稍后重试"
+                errMsg = String(localized: "语音服务并发受限，请稍后重试")
             }
             callState = .failed(errMsg)
             endCall(preserveFailure: true)

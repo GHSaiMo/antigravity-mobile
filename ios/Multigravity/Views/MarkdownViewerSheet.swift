@@ -159,7 +159,7 @@ public struct MarkdownViewerSheet: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     if let url = shareURL {
-                        ShareLink(item: url, preview: SharePreview(data.title.isEmpty ? "文档详情" : data.title)) {
+                        ShareLink(item: url, preview: SharePreview(data.title.isEmpty ? String(localized: "文档详情") : data.title)) {
                             Image(systemName: "square.and.arrow.up")
                                 .font(.system(size: 16, weight: .semibold))
                         }

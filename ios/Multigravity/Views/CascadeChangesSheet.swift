@@ -121,9 +121,9 @@ public struct CascadeChangesSheet: View {
     private func actionBadge(_ action: String) -> some View {
         let (color, text): (Color, String) = {
             switch action.uppercased() {
-            case "CREATE": return (.green, "新增")
-            case "DELETE": return (.red, "删除")
-            default: return (.blue, "修改")
+            case "CREATE": return (.green, String(localized: "新增"))
+            case "DELETE": return (.red, String(localized: "删除"))
+            default: return (.blue, String(localized: "修改"))
             }
         }()
         return Text(text)

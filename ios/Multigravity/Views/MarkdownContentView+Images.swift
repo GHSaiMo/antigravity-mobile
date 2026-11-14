@@ -197,11 +197,11 @@ public struct MarkdownVideoPreviewCard: View {
     }
     
     private var displayTitle: String {
-        if !title.isEmpty && title != "视频预览" && title != "文档详情" {
+        if !title.isEmpty && title != "视频预览" && title != String(localized: "视频预览") && title != "文档详情" && title != String(localized: "文档详情") {
             return title
         }
         let fn = url.lastPathComponent.removingPercentEncoding ?? url.lastPathComponent
-        return (fn.isEmpty || fn == "raw") ? "MP4 视频" : fn
+        return (fn.isEmpty || fn == "raw") ? String(localized: "MP4 视频") : fn
     }
     
     public var body: some View {
@@ -391,7 +391,7 @@ extension MarkdownContentView {
             if isVideoURL(urlString) || isVideoURL(url.absoluteString) {
                 MarkdownVideoPreviewCard(
                     url: url,
-                    title: alt.isEmpty ? (url.lastPathComponent.isEmpty ? "视频预览" : url.lastPathComponent) : alt,
+                    title: alt.isEmpty ? (url.lastPathComponent.isEmpty ? String(localized: "视频预览") : url.lastPathComponent) : alt,
                     rawUri: urlString
                 )
             } else {

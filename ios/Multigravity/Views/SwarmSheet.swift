@@ -226,19 +226,19 @@ public struct SwarmSheet: View {
 
                     HStack(spacing: 10) {
                         statBox(
-                            title: "活跃成员",
+                            title: String(localized: "活跃成员"),
                             value: "\(snap.brief.workingCount) / \(snap.brief.totalMembers)",
                             icon: "person.2.fill",
                             color: SwarmTheme.liveGreen
                         )
                         statBox(
-                            title: "协作消息",
+                            title: String(localized: "协作消息"),
                             value: "\(max(snap.messages.count, snap.brief.latestSeq))",
                             icon: "bubble.left.and.bubble.right.fill",
                             color: SwarmTheme.infoBlue
                         )
                         statBox(
-                            title: "待关注",
+                            title: String(localized: "待关注"),
                             value: "\(snap.brief.attentionCount)",
                             icon: "exclamationmark.triangle.fill",
                             color: snap.brief.attentionCount > 0 ? SwarmTheme.warnAmber : SwarmTheme.muted
@@ -1009,7 +1009,7 @@ public struct SwarmSheet: View {
 
     private func loadSnapshot(silent: Bool) async {
         guard let url = settings.serverURL else {
-            if !silent { errorMessage = "未连接网关" }
+            if !silent { errorMessage = String(localized: "未连接网关") }
             return
         }
         if !silent {
@@ -1047,10 +1047,10 @@ public struct SwarmSheet: View {
                 )
                 UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                 feedbackText = ""
-                showToast("反馈已发送至协调员")
+                showToast(String(localized: "反馈已发送至协调员"))
                 await loadSnapshot(silent: true)
             } catch {
-                showToast("发送失败: \(error.localizedDescription)")
+                showToast(String(localized: "发送失败: \(error.localizedDescription)"))
             }
             isSendingFeedback = false
         }
@@ -1071,10 +1071,10 @@ public struct SwarmSheet: View {
                     baseURL: url
                 )
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
-                showToast("已催促唤醒 @\(member)")
+                showToast(String(localized: "已催促唤醒 @\(member)"))
                 await loadSnapshot(silent: true)
             } catch {
-                showToast("催促失败: \(error.localizedDescription)")
+                showToast(String(localized: "催促失败: \(error.localizedDescription)"))
             }
             nudgingMembers.remove(member)
         }

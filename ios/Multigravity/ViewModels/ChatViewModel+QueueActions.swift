@@ -130,7 +130,7 @@ extension ChatViewModel {
                     self.pendingOptimisticMessageId = nil
                 }
             }
-            self.errorMessage = "发送失败: \(error.localizedDescription)"
+            self.errorMessage = String(localized: "发送失败: \(error.localizedDescription)")
         }
     }
     
@@ -353,7 +353,7 @@ extension ChatViewModel {
             await self.loadMessages(isBackgroundPoll: true)
         } catch {
             print("❌ proceedArtifact error: \(error)")
-            errorMessage = "确认方案失败: \(error.localizedDescription)"
+            errorMessage = String(localized: "确认方案失败: \(error.localizedDescription)")
             isRunning = false
             isAwaitingResponse = false
             awaitingResponseSince = nil
@@ -389,7 +389,7 @@ extension ChatViewModel {
             if isWalkthrough { return "Walkthrough" }
             if isPlan { return "Implementation Plan" }
             if !fileName.isEmpty && fileName != "/" { return fileName }
-            return "文档详情"
+            return String(localized: "文档详情")
         }()
         
         let isProceedActive = self.canProceed && isPlan
@@ -444,7 +444,7 @@ extension ChatViewModel {
                     self.viewingMarkdownFile?.isRefreshing = false
                     if !hasCache {
                         self.viewingMarkdownFile?.isLoading = false
-                        self.viewingMarkdownFile?.errorMessage = "未连接到网关服务器"
+                        self.viewingMarkdownFile?.errorMessage = String(localized: "未连接到网关服务器")
                     }
                 }
                 return
@@ -484,7 +484,7 @@ extension ChatViewModel {
                     self.viewingMarkdownFile?.isRefreshing = false
                     if !hasCache {
                         self.viewingMarkdownFile?.isLoading = false
-                        self.viewingMarkdownFile?.errorMessage = "加载文档失败: \(error.localizedDescription)"
+                        self.viewingMarkdownFile?.errorMessage = String(localized: "加载文档失败: \(error.localizedDescription)")
                     }
                 }
             }
@@ -592,7 +592,7 @@ extension ChatViewModel {
             guard let self else { return }
             guard let url = self.settings.serverURL else {
                 self.isDownloadingDocument = false
-                self.errorMessage = "未连接到网关服务器"
+                self.errorMessage = String(localized: "未连接到网关服务器")
                 return
             }
             do {
@@ -625,7 +625,7 @@ extension ChatViewModel {
             } catch {
                 guard !Task.isCancelled else { return }
                 self.isDownloadingDocument = false
-                self.errorMessage = "下载文档失败: \(error.localizedDescription)"
+                self.errorMessage = String(localized: "下载文档失败: \(error.localizedDescription)")
             }
         }
     }
@@ -695,7 +695,7 @@ extension ChatViewModel {
             }
             await loadMessages(isBackgroundPoll: true)
         } catch {
-            errorMessage = "取消任务失败: \(error.localizedDescription)"
+            errorMessage = String(localized: "取消任务失败: \(error.localizedDescription)")
         }
     }
     

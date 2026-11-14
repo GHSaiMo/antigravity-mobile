@@ -48,9 +48,9 @@ public struct SubagentItem: Identifiable, Sendable, Codable, Hashable {
 
     public var statusText: String {
         switch status {
-        case "running": return "运行中"
-        case "gone": return "已清理"
-        case "done": return "已结束"
+        case "running": return String(localized: "运行中")
+        case "gone": return String(localized: "已清理")
+        case "done": return String(localized: "已结束")
         default: return ""
         }
     }

@@ -64,7 +64,7 @@ enum ImageActions {
             presentPermissionAlert()
         case .failed(let message):
             UINotificationFeedbackGenerator().notificationOccurred(.error)
-            CopiedHUD.show("保存失败: \(message)")
+            CopiedHUD.show(String(localized: "保存失败: \(message)"))
         }
     }
 
@@ -72,16 +72,16 @@ enum ImageActions {
     static func presentPermissionAlert() {
         guard let top = topViewController() else { return }
         let alert = UIAlertController(
-            title: "需要相册权限",
-            message: "请在系统“设置”中允许 Multigravity 访问相册以保存图片。",
+            title: String(localized: "需要相册权限"),
+            message: String(localized: "请在系统“设置”中允许 Multigravity 访问相册以保存图片。"),
             preferredStyle: .alert
         )
-        alert.addAction(UIAlertAction(title: "前往设置", style: .default) { _ in
+        alert.addAction(UIAlertAction(title: String(localized: "前往设置"), style: .default) { _ in
             if let url = URL(string: UIApplication.openSettingsURLString) {
                 UIApplication.shared.open(url)
             }
         })
-        alert.addAction(UIAlertAction(title: "取消", style: .cancel))
+        alert.addAction(UIAlertAction(title: String(localized: "取消"), style: .cancel))
         top.present(alert, animated: true)
     }
 

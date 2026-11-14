@@ -107,10 +107,10 @@ public struct McpServerState: Codable, Sendable, Identifiable, Hashable {
     }
 
     public var statusTitle: String {
-        if status.contains("READY") { return "就绪" }
-        if status.contains("STARTING") { return "启动中" }
-        if status.contains("ERROR") { return "异常" }
-        if status.contains("STOPPED") { return "已停止" }
+        if status.contains("READY") { return String(localized: "就绪") }
+        if status.contains("STARTING") { return String(localized: "启动中") }
+        if status.contains("ERROR") { return String(localized: "异常") }
+        if status.contains("STOPPED") { return String(localized: "已停止") }
         return status
     }
 
@@ -148,9 +148,9 @@ public struct SkillInfo: Codable, Sendable, Identifiable, Hashable {
     }
 
     public var locationCategory: String {
-        if isBuiltin { return "内置技能" }
-        if path?.contains(".gemini/config") == true { return "用户技能" }
-        return "工作区技能"
+        if isBuiltin { return String(localized: "内置技能") }
+        if path?.contains(".gemini/config") == true { return String(localized: "用户技能") }
+        return String(localized: "工作区技能")
     }
 }
 

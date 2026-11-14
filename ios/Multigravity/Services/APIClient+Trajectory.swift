@@ -150,7 +150,7 @@ extension APIClient {
         )
         
         guard let traj = resp.trajectory, let steps = traj.steps else {
-            return ("UNKNOWN", [], 0, 0, "0秒", nil, false, nil)
+            return ("UNKNOWN", [], 0, 0, String(localized: "0秒"), nil, false, nil)
         }
         
         var messages: [ChatMessage] = []
@@ -223,7 +223,7 @@ extension APIClient {
                             if let attr = try? FileManager.default.attributesOfItem(atPath: path), let s = attr[.size] as? Int64, s > 0 {
                                 return formatFileSize(s)
                             }
-                            return "已上传"
+                            return String(localized: "已上传")
                         }()
                         lines.append("- \(path) (\(ext), \(sizeStr))")
                     }

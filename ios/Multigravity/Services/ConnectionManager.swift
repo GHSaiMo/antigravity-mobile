@@ -284,7 +284,7 @@ public final class ConnectionManager {
                 urlString: urlString,
                 isReachable: false,
                 latencyMs: 0,
-                errorMessage: "无效地址"
+                errorMessage: String(localized: "无效地址")
             )
         }
         
@@ -298,7 +298,7 @@ public final class ConnectionManager {
                 urlString: urlString,
                 isReachable: false,
                 latencyMs: 0,
-                errorMessage: "无效探测地址"
+                errorMessage: String(localized: "无效探测地址")
             )
         }
         
@@ -317,7 +317,7 @@ public final class ConnectionManager {
                     urlString: urlString,
                     isReachable: false,
                     latencyMs: elapsedMs,
-                    errorMessage: "无效网络响应"
+                    errorMessage: String(localized: "无效网络响应")
                 )
             }
             

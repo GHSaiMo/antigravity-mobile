@@ -94,13 +94,13 @@ extension MessageBubbleView {
     
     private var errorBadgeText: String {
         if let cur = message.attemptCount, let max = message.maxAttempts, max > 0 {
-            return "error · 尝试 \(cur)/\(max)"
+            return String(localized: "error · 尝试 \(cur)/\(max)")
         } else if let cur = message.attemptCount, cur > 1 {
-            return "error · 重试 \(cur) 次"
+            return String(localized: "error · 重试 \(cur) 次")
         }
         let info = APIClient.parseAttemptError(message.content)
         if info.isAttempt {
-            return "error · 尝试 \(info.attempt)/\(info.maxAttempts)"
+            return String(localized: "error · 尝试 \(info.attempt)/\(info.maxAttempts)")
         }
         return "error"
     }
@@ -112,9 +112,9 @@ extension MessageBubbleView {
             return info.isAttempt ? info.attempt : 1
         }()
         if count > 1 {
-            return "执行遇到错误 (已重试 \(count) 次)"
+            return String(localized: "执行遇到错误 (已重试 \(count) 次)")
         }
-        return "执行遇到错误"
+        return String(localized: "执行遇到错误")
     }
 
     var rescueOverflowCard: some View {

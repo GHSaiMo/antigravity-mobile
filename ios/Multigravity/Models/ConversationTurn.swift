@@ -149,20 +149,20 @@ public enum ConversationTurnBuilder {
                         return combined
                     }
                     if let files = parsed?.files, !files.isEmpty {
-                        let firstFile = files.first?.name ?? "文件"
+                        let firstFile = files.first?.name ?? String(localized: "文件")
                         if files.count == 1 {
-                            return "[附件: \(firstFile)]"
+                            return String(localized: "[附件: \(firstFile)]")
                         } else {
-                            return "[附件: \(firstFile) 等 \(files.count) 个文件]"
+                            return String(localized: "[附件: \(firstFile) 等 \(files.count) 个文件]")
                         }
                     }
                     if !u.imageDataList.isEmpty || !u.imageUrls.isEmpty {
                         let count = max(u.imageDataList.count, u.imageUrls.count)
-                        return "[包含 \(count) 张图片]"
+                        return String(localized: "[包含 \(count) 张图片]")
                     }
                 }
                 // 无用户消息的开场轮
-                return "会话开场与初始化"
+                return String(localized: "会话开场与初始化")
             }()
             
             let totalTools = currentMessages.reduce(0) { $0 + $1.toolCount }
@@ -252,9 +252,9 @@ public enum ConversationTurnBuilder {
     private static func formatDateLabel(_ date: Date) -> String {
         let calendar = Calendar.current
         if calendar.isDateInToday(date) {
-            return "今天"
+            return String(localized: "今天")
         } else if calendar.isDateInYesterday(date) {
-            return "昨天"
+            return String(localized: "昨天")
         }
         
         let nowYear = calendar.component(.year, from: Date())
@@ -381,8 +381,8 @@ public enum ConversationTurnBuilder {
                         let subTurns = Array(currentDayTurns[start..<end])
                         let firstTurn = subTurns.first?.turnIndex ?? (start + 1)
                         let lastTurn = subTurns.last?.turnIndex ?? end
-                        let range = "第 \(firstTurn)–\(lastTurn) 轮"
-                        let title = "\(label) (第 \(subIdx) 段) · \(range)"
+                        let range = String(localized: "第 \(firstTurn)–\(lastTurn) 轮")
+                        let title = String(localized: "\(label) (第 \(subIdx) 段) · \(range)")
                         dateChapters.append(ConversationChapter(
                             id: "chapter-date-\(chapterIdx)-\(subIdx)",
                             title: title,
@@ -416,9 +416,9 @@ public enum ConversationTurnBuilder {
         
         // 当总轮次不多时，直接作为一个主章节展示
         if turns.count <= chunkSize {
-            let range = turns.count == 1 ? "第 1 轮" : "第 1–\(turns.count) 轮"
+            let range = turns.count == 1 ? String(localized: "第 1 轮") : String(localized: "第 1–\(turns.count) 轮")
             let dateLabel = turns.first?.timestamp.flatMap(parseTurnDate).map(formatDateLabel)
-            let title = dateLabel != nil ? "\(dateLabel!) · \(range)" : "全部轮次"
+            let title = dateLabel != nil ? "\(dateLabel!) · \(range)" : String(localized: "全部轮次")
             return [ConversationChapter(id: "chapter-all", title: title, rangeText: range, dateText: dateLabel, turns: turns)]
         }
         
@@ -433,9 +433,10 @@ public enum ConversationTurnBuilder {
             let firstTurn = chunkTurns.first?.turnIndex ?? (startIndex + 1)
             let lastTurn = chunkTurns.last?.turnIndex ?? endIndex
             
-            let range = "第 \(firstTurn)–\(lastTurn) 轮"
+            let range = String(localized: "第 \(firstTurn)–\(lastTurn) 轮")
             let chunkDate = chunkTurns.first?.timestamp.flatMap(parseTurnDate).map(formatDateLabel)
-            let title = chunkDate != nil ? "\(chunkDate!) · 第 \(chapterNum) 章节 (\(range))" : "第 \(chapterNum) 章节 (\(range))"
+            let chapterPart = String(localized: "第 \(chapterNum) 章节 (\(range))")
+            let title = chunkDate != nil ? "\(chunkDate!) · \(chapterPart)" : chapterPart
             
             chapters.append(ConversationChapter(
                 id: "chapter-\(chapterNum)",

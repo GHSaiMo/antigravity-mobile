@@ -159,7 +159,7 @@ private struct PluginCardBlockView: View {
                 }
             }
 
-            Text(statusText ?? "来自 Antigravity 官方 / 社区插件市场，安装后自动续聊恢复任务。")
+            Text(statusText ?? String(localized: "来自插件市场，安装后自动续聊恢复任务。"))
                 .font(.system(size: 12))
                 .foregroundColor(.secondary)
         }
@@ -174,7 +174,7 @@ private struct PluginCardBlockView: View {
 
     private func install() {
         guard let baseURL = AppSettings.shared.serverURL else {
-            statusText = "未连接网关"
+            statusText = String(localized: "未连接网关")
             return
         }
         isInstalling = true
@@ -188,10 +188,10 @@ private struct PluginCardBlockView: View {
                     baseURL: baseURL
                 )
                 isInstalled = resp.isSuccess
-                statusText = resp.resumed == true ? "插件已安装，已自动续接当前对话。" : "插件安装成功。"
+                statusText = resp.resumed == true ? String(localized: "插件已安装，已自动续接当前对话。") : String(localized: "插件安装成功。")
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
             } catch {
-                statusText = "安装失败: \(error.localizedDescription)"
+                statusText = String(localized: "安装失败: \(error.localizedDescription)")
             }
             isInstalling = false
         }

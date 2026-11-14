@@ -382,7 +382,7 @@ private struct ChatInputTextAndSendRow: View {
         HStack(alignment: .bottom, spacing: 10) {
             BracketPlaceholderTextInput(
                 text: $viewModel.inputText,
-                placeholder: viewModel.isActivelyRunning ? "向队列添加指令..." : "发送对 Agent 的指令...",
+                placeholder: viewModel.isActivelyRunning ? String(localized: "向队列添加指令...") : String(localized: "发送对 Agent 的指令..."),
                 isFocused: $isInputFocused,
                 pendingSelectFirstPlaceholder: $viewModel.pendingSelectFirstPlaceholder
             )

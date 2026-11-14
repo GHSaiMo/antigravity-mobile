@@ -9,13 +9,13 @@ public enum APIError: LocalizedError, Sendable {
     public var errorDescription: String? {
         switch self {
         case .invalidURL:
-            return "无效的服务器地址，请在设置中检查"
+            return String(localized: "无效的服务器地址，请在设置中检查")
         case .serverError(let code, let msg):
-            return "服务器错误 (\(code)): \(msg)"
+            return String(localized: "服务器错误 (\(code)): \(msg)")
         case .networkError(let msg):
-            return "网络连接失败: \(msg)"
+            return String(localized: "网络连接失败: \(msg)")
         case .decodingError(let msg):
-            return "数据解析失败: \(msg)"
+            return String(localized: "数据解析失败: \(msg)")
         }
     }
 }

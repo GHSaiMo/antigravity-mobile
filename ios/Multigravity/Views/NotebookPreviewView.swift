@@ -194,7 +194,7 @@ public struct NotebookPreviewView: View {
             let data = try Data(contentsOf: url)
             guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let cellsRaw = json["cells"] as? [[String: Any]] else {
-                errorMessage = "无法识别的 Notebook JSON 结构"
+                errorMessage = String(localized: "无法识别的 Notebook JSON 结构")
                 isLoading = false
                 return
             }

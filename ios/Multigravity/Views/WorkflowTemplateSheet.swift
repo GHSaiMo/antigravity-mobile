@@ -21,88 +21,88 @@ private enum WorkflowTemplateStyle {
         IconOption(
             key: "workflow",
             pathData: "M 6 3.3 C 7.5 3.3 8.7 4.5 8.7 6 C 8.7 7.5 7.5 8.7 6 8.7 C 4.5 8.7 3.3 7.5 3.3 6 C 3.3 4.5 4.5 3.3 6 3.3 Z M 18 3.3 C 19.5 3.3 20.7 4.5 20.7 6 C 20.7 7.5 19.5 8.7 18 8.7 C 16.5 8.7 15.3 7.5 15.3 6 C 15.3 4.5 16.5 3.3 18 3.3 Z M 12 15.3 C 13.5 15.3 14.7 16.5 14.7 18 C 14.7 19.5 13.5 20.7 12 20.7 C 10.5 20.7 9.3 19.5 9.3 18 C 9.3 16.5 10.5 15.3 12 15.3 Z M 8.7 6 L 15.3 6 M 7.3 8.4 L 10.7 15.6 M 16.7 8.4 L 13.3 15.6",
-            label: "工作流"
+            label: String(localized: "工作流")
         ),
         IconOption(
             key: "security",
             pathData: "M 12 2.5 L 19.5 5.8 L 19.5 11.5 C 19.5 16.5 16.2 20.0 12 21.5 C 7.8 20.0 4.5 16.5 4.5 11.5 L 4.5 5.8 L 12 2.5 Z M 9 12 L 11.2 14.2 L 15.4 9.8",
-            label: "安全审查"
+            label: String(localized: "安全审查")
         ),
         IconOption(
             key: "bug",
             pathData: "M 9 7.5 L 9 6.5 C 9 4.84 10.34 3.5 12 3.5 C 13.66 3.5 15 4.84 15 6.5 L 15 7.5 M 8.2 2.5 L 10 4.2 M 15.8 2.5 L 14 4.2 M 8.5 7.5 L 15.5 7.5 C 16.88 7.5 18 8.62 18 10 L 18 14 C 18 17.31 15.31 20 12 20 C 8.69 20 6 17.31 6 14 L 6 10 C 6 8.62 7.12 7.5 8.5 7.5 Z M 12 11 L 12 20 M 6 9.5 L 3.2 7.5 M 6 13.2 L 2.5 13.2 M 6.4 16.8 L 3.2 19.2 M 18 9.5 L 20.8 7.5 M 18 13.2 L 21.5 13.2 M 17.6 16.8 L 20.8 19.2",
-            label: "测试修复"
+            label: String(localized: "测试修复")
         ),
         IconOption(
             key: "search",
             pathData: "M 10.8 4 C 14.56 4 17.6 7.04 17.6 10.8 C 17.6 14.56 14.56 17.6 10.8 17.6 C 7.04 17.6 4 14.56 4 10.8 C 4 7.04 7.04 4 10.8 4 Z M 15.8 15.8 L 20.5 20.5",
-            label: "调研分析"
+            label: String(localized: "调研分析")
         ),
         IconOption(
             key: "bolt",
             pathData: "M 13.2 2.5 L 4.5 13.5 L 11.5 13.5 L 10.2 21.5 L 19.5 10.5 L 12.5 10.5 L 13.2 2.5 Z",
-            label: "快捷执行"
+            label: String(localized: "快捷执行")
         ),
         IconOption(
             key: "code",
             pathData: "M 7.5 7.5 L 3 12 L 7.5 16.5 M 16.5 7.5 L 21 12 L 16.5 16.5 M 13.8 5 L 10.2 19",
-            label: "代码开发"
+            label: String(localized: "代码开发")
         ),
         IconOption(
             key: "terminal",
             pathData: "M 5.5 4 L 18.5 4 C 19.88 4 21 5.12 21 6.5 L 21 17.5 C 21 18.88 19.88 20 18.5 20 L 5.5 20 C 4.12 20 3 18.88 3 17.5 L 3 6.5 C 3 5.12 4.12 4 5.5 4 Z M 7 9.5 L 10.5 12.5 L 7 15.5 M 12.5 15.5 L 17 15.5",
-            label: "终端脚本"
+            label: String(localized: "终端脚本")
         ),
         IconOption(
             key: "doc",
             pathData: "M 14 2.5 L 6.5 2.5 C 5.4 2.5 4.5 3.4 4.5 4.5 L 4.5 19.5 C 4.5 20.6 5.4 21.5 6.5 21.5 L 17.5 21.5 C 18.6 21.5 19.5 20.6 19.5 19.5 L 19.5 8 L 14 2.5 Z M 14 2.5 L 14 8 L 19.5 8 M 8.5 13 L 15.5 13 M 8.5 17 L 13.5 17",
-            label: "文档总结"
+            label: String(localized: "文档总结")
         ),
         IconOption(
             key: "build",
             pathData: "M 9 3.2 C 12.0 2.7 14.8 3.7 16.8 5.7 L 21 9.9 L 18.2 12.7 L 14 8.5 C 12.5 7.0 10.8 6.4 9 6.7 L 9 3.2 Z M 13.5 8.1 L 3.4 18.2 C 2.6 19.0 2.6 20.3 3.4 21.1 C 4.2 21.9 5.5 21.9 6.3 21.1 L 16.4 11.0",
-            label: "编译构建"
+            label: String(localized: "编译构建")
         ),
         IconOption(
             key: "sparkles",
             pathData: "M 11 4 L 12.8 9.7 L 18.5 11.5 L 12.8 13.3 L 11 19 L 9.2 13.3 L 3.5 11.5 L 9.2 9.7 L 11 4 Z M 18.5 2.8 L 18.5 7.2 M 16.3 5 L 20.7 5",
-            label: "AI 增强"
+            label: String(localized: "AI 增强")
         ),
         IconOption(
             key: "git",
             pathData: "M 6 3.5 C 7.38 3.5 8.5 4.62 8.5 6 C 8.5 7.38 7.38 8.5 6 8.5 C 4.62 8.5 3.5 7.38 3.5 6 C 3.5 4.62 4.62 3.5 6 3.5 Z M 6 15.5 C 7.38 15.5 8.5 16.62 8.5 18 C 8.5 19.38 7.38 20.5 6 20.5 C 4.62 20.5 3.5 19.38 3.5 18 C 3.5 16.62 4.62 15.5 6 15.5 Z M 18 5.5 C 19.38 5.5 20.5 6.62 20.5 8 C 20.5 9.38 19.38 10.5 18 10.5 C 16.62 10.5 15.5 9.38 15.5 8 C 15.5 6.62 16.62 5.5 18 5.5 Z M 6 8.5 L 6 15.5 M 18 10.5 C 18 14.5 14.5 15.5 8.5 15.5",
-            label: "Git 分支"
+            label: String(localized: "Git 分支")
         ),
         IconOption(
             key: "merge",
             pathData: "M 6 3.5 C 7.38 3.5 8.5 4.62 8.5 6 C 8.5 7.38 7.38 8.5 6 8.5 C 4.62 8.5 3.5 7.38 3.5 6 C 3.5 4.62 4.62 3.5 6 3.5 Z M 6 15.5 C 7.38 15.5 8.5 16.62 8.5 18 C 8.5 19.38 7.38 20.5 6 20.5 C 4.62 20.5 3.5 19.38 3.5 18 C 3.5 16.62 4.62 15.5 6 15.5 Z M 18 15.5 C 19.38 15.5 20.5 16.62 20.5 18 C 20.5 19.38 19.38 20.5 18 20.5 C 16.62 20.5 15.5 19.38 15.5 18 C 15.5 16.62 16.62 15.5 18 15.5 Z M 6 8.5 L 6 15.5 M 6 8.5 C 6 13.5 11 18 15.5 18",
-            label: "分支合并"
+            label: String(localized: "分支合并")
         ),
         IconOption(
             key: "pipeline",
             pathData: "M 4.5 11 C 5.0 6.8 8.6 3.8 12.8 4.0 C 15.8 4.1 18.4 5.8 19.6 8.5 M 20 4.5 L 20 8.8 L 15.7 8.8 M 19.5 13 C 19.0 17.2 15.4 20.2 11.2 20.0 C 8.2 19.9 5.6 18.2 4.4 15.5 M 4 19.5 L 4 15.2 L 8.3 15.2",
-            label: "流水线"
+            label: String(localized: "流水线")
         ),
         IconOption(
             key: "checklist",
             pathData: "M 3.5 7.5 L 5.8 9.8 L 9.8 5.5 M 13 7.8 L 20.5 7.8 M 3.5 16.5 L 5.8 18.8 L 9.8 14.5 M 13 16.8 L 20.5 16.8",
-            label: "流程清单"
+            label: String(localized: "流程清单")
         ),
         IconOption(
             key: "report",
             pathData: "M 3.5 4 L 3.5 20 L 20.5 20 M 8 16.5 L 8 12 M 12.8 16.5 L 12.8 8.5 M 17.6 16.5 L 17.6 5.5",
-            label: "分析报告"
+            label: String(localized: "分析报告")
         )
     ]
 
     static let colors: [ColorOption] = [
-        ColorOption(key: "indigo", color: .indigo, label: "靛蓝"),
-        ColorOption(key: "green", color: .green, label: "翠绿"),
-        ColorOption(key: "blue", color: .blue, label: "湛蓝"),
-        ColorOption(key: "purple", color: .purple, label: "亮紫"),
-        ColorOption(key: "orange", color: .orange, label: "活力橙"),
-        ColorOption(key: "red", color: .red, label: "珊瑚红"),
-        ColorOption(key: "teal", color: .teal, label: "青碧")
+        ColorOption(key: "indigo", color: .indigo, label: String(localized: "靛蓝")),
+        ColorOption(key: "green", color: .green, label: String(localized: "翠绿")),
+        ColorOption(key: "blue", color: .blue, label: String(localized: "湛蓝")),
+        ColorOption(key: "purple", color: .purple, label: String(localized: "亮紫")),
+        ColorOption(key: "orange", color: .orange, label: String(localized: "活力橙")),
+        ColorOption(key: "red", color: .red, label: String(localized: "珊瑚红")),
+        ColorOption(key: "teal", color: .teal, label: String(localized: "青碧"))
     ]
 
     static func normalizedIconKey(_ key: String) -> String {

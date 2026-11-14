@@ -12,10 +12,10 @@ extension LinkHealthState {
 
     var title: String {
         switch self {
-        case .unknown: return "连接中"
-        case .connected: return "已连接电脑"
-        case .attention: return "连接不稳或电脑端未就绪"
-        case .disconnected: return "未连接"
+        case .unknown: return String(localized: "连接中")
+        case .connected: return String(localized: "已连接电脑")
+        case .attention: return String(localized: "连接不稳或电脑端未就绪")
+        case .disconnected: return String(localized: "未连接")
         }
     }
 }
@@ -56,14 +56,14 @@ struct LinkHealthDetailCard: View {
     private func ageText(_ date: Date?, now: Date) -> String {
         guard let date else { return "—" }
         let s = max(0, Int(now.timeIntervalSince(date)))
-        return s < 2 ? "刚刚" : "\(s) 秒前"
+        return s < 2 ? String(localized: "刚刚") : String(localized: "\(s) 秒前")
     }
 
     private var desktopText: String {
         switch monitor.desktopState {
-        case "ok": return "已就绪"
-        case "down": return "未就绪(请确认电脑端 Antigravity 已打开)"
-        default: return "未知"
+        case "ok": return String(localized: "已就绪")
+        case "down": return String(localized: "未就绪（请确认电脑桌面客户端已打开）")
+        default: return String(localized: "未知")
         }
     }
 

@@ -218,8 +218,8 @@ struct SwarmGraphTabView: View {
 
                 Spacer()
 
-                toggleChip(title: "隐藏未活跃", isOn: $hideInactive)
-                toggleChip(title: "展开 @all", isOn: $expandAll)
+                toggleChip(title: String(localized: "隐藏未活跃"), isOn: $hideInactive)
+                toggleChip(title: String(localized: "展开 @all"), isOn: $expandAll)
             }
         }
     }

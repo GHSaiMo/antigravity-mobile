@@ -200,11 +200,11 @@ public struct ConfirmUndoSheet: View {
         let (color, text): (Color, String) = {
             switch action.uppercased() {
             case "CREATE":
-                return (.green, "新增")
+                return (.green, String(localized: "新增"))
             case "DELETE":
-                return (.red, "删除")
+                return (.red, String(localized: "删除"))
             default:
-                return (.blue, "修改")
+                return (.blue, String(localized: "修改"))
             }
         }()
         

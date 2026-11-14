@@ -280,7 +280,7 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
             }
             return trimmed
         }
-        return "未命名会话"
+        return String(localized: "未命名会话")
     }
 
     public init(id: String, summary: TrajectorySummary) {
@@ -302,7 +302,8 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
                 }
             }
         }
-        self.title = resolvedTitle.isEmpty ? "未命名会话" : resolvedTitle
+        let untitledLocalized = String(localized: "未命名会话")
+        self.title = (resolvedTitle.isEmpty || resolvedTitle == untitledLocalized) ? untitledLocalized : resolvedTitle
         
         self.hasRunningTasks = summary.hasRunningTasks == true ||
             (summary.runningTaskCount ?? 0) > 0 ||
@@ -424,10 +425,10 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
         let date = effectiveLastModified
         guard date != .distantPast else { return "" }
         let diff = Date().timeIntervalSince(date)
-        if diff < 60 { return "刚刚" }
-        if diff < 3600 { return "\(Int(diff / 60))分钟前" }
-        if diff < 86400 { return "\(Int(diff / 3600))小时前" }
-        return "\(Int(diff / 86400))天前"
+        if diff < 60 { return String(localized: "刚刚") }
+        if diff < 3600 { return String(localized: "\(Int(diff / 60))分钟前") }
+        if diff < 86400 { return String(localized: "\(Int(diff / 3600))小时前") }
+        return String(localized: "\(Int(diff / 86400))天前")
     }
 }
 

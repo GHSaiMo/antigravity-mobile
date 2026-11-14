@@ -244,9 +244,9 @@ public struct AudioRecordingLockScreenView: View {
 private func resolvedRecordingTitle(_ title: String) -> String {
     let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
     if trimmed.isEmpty {
-        return "录音中"
+        return String(localized: "录音中")
     }
-    return "录音中 · \(trimmed)"
+    return String(localized: "录音中 · \(trimmed)")
 }
 
 private func formatRecordingDuration(_ duration: TimeInterval) -> String {

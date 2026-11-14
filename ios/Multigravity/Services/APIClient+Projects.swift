@@ -122,7 +122,7 @@ extension APIClient {
         
         let res = try JSONDecoder().decode(CreateCascadeResponsePayload.self, from: data)
         guard let cascadeId = res.cascadeId, !cascadeId.isEmpty else {
-            throw APIError.serverError(statusCode: httpResp.statusCode, message: res.error ?? "未能成功生成会话 ID")
+            throw APIError.serverError(statusCode: httpResp.statusCode, message: res.error ?? String(localized: "未能成功生成会话 ID"))
         }
         
         return cascadeId

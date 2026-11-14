@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleDevelopmentRegion</key>
-	<string>zh_CN</string>
+	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
 	<string>Multigravity</string>
 	<key>CFBundleExecutable</key>
@@ -49,7 +49,9 @@
 		</dict>
 	</array>
 	<key>CFBundleVersion</key>
-	<string>1</string>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSAppTransportSecurity</key>
@@ -60,15 +62,15 @@
 		<true/>
 	</dict>
 	<key>NSCameraUsageDescription</key>
-	<string>Multigravity 需要使用相机扫描配对二维码以及拍照发送图片</string>
+	<string>Multigravity uses the camera to scan pairing QR codes and capture photos to send to your agent.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Multigravity 需要访问麦克风以录制语音指令并发送给 Agent</string>
+	<string>Multigravity uses the microphone for voice messages and real-time voice conversations with your agent.</string>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Multigravity 需要访问局域网以直连电脑网关并同步会话</string>
+	<string>Multigravity uses the local network to connect directly to your computer's local gateway and sync conversations.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>Multigravity 需要保存长截图与图表到系统相册，以便在微信等应用中发送与收藏</string>
+	<string>Multigravity saves exported conversation images and charts to your Photo Library.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Multigravity 需要访问您的相册以选择并发送图片</string>
+	<string>Multigravity accesses your Photo Library so you can attach and send images in conversations.</string>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
 	<key>UIBackgroundModes</key>

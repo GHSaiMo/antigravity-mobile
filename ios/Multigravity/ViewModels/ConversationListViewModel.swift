@@ -267,7 +267,7 @@ public final class ConversationListViewModel {
         
         guard let url = settings.serverURL else {
             if conversations.isEmpty {
-                self.errorMessage = "请在设置中配置有效的服务器地址"
+                self.errorMessage = String(localized: "请在设置中配置有效的服务器地址")
             }
             return
         }
@@ -576,7 +576,7 @@ public final class ConversationListViewModel {
         }
         
         guard let url = settings.serverURL else {
-            self.errorMessage = "请在设置中配置有效的服务器地址"
+            self.errorMessage = String(localized: "请在设置中配置有效的服务器地址")
             return
         }
         
@@ -602,7 +602,7 @@ public final class ConversationListViewModel {
             self.recentlyDeletedIDs.removeValue(forKey: item.id)
             self.conversations = originalConversations
             self.cacheManager.saveConversations(originalConversations)
-            self.errorMessage = "删除会话失败: \(error.localizedDescription)"
+            self.errorMessage = String(localized: "删除会话失败: \(error.localizedDescription)")
         }
     }
     
@@ -614,7 +614,7 @@ public final class ConversationListViewModel {
         guard trimmed != item.title else { return }
         
         guard let url = settings.serverURL else {
-            self.errorMessage = "请在设置中配置有效的服务器地址"
+            self.errorMessage = String(localized: "请在设置中配置有效的服务器地址")
             return
         }
         
@@ -655,7 +655,7 @@ public final class ConversationListViewModel {
                 )
             }
             self.cacheManager.updateConversationTitle(cascadeId: item.id, newTitle: originalTitle)
-            self.errorMessage = "重命名会话失败: \(error.localizedDescription)"
+            self.errorMessage = String(localized: "重命名会话失败: \(error.localizedDescription)")
         }
     }
 }

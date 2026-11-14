@@ -64,7 +64,7 @@ public enum MarkdownPlainText {
 enum CopiedHUD {
     private static weak var current: UIView?
 
-    static func show(_ message: String = "已复制全部文字") {
+    static func show(_ message: String = String(localized: "已复制全部文字")) {
         guard let window = UIApplication.shared.connectedScenes
             .compactMap({ $0 as? UIWindowScene })
             .flatMap({ $0.windows })

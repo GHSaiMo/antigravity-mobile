@@ -30,7 +30,7 @@ public struct VoiceTroubleshootBubbleView: View {
                         Text("1.")
                             .font(.system(size: 15, weight: .bold, design: .monospaced))
                             .foregroundColor(.orange)
-                        Text("**重新登录**：退出 Antigravity 登录，完全关闭后重新打开并登录，授权页勾选全部权限")
+                        Text("**重新登录**：退出桌面客户端账号，完全关闭后重新打开并登录，授权页勾选全部权限")
                             .font(.system(size: 15))
                             .lineSpacing(3)
                     }

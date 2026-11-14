@@ -50,7 +50,7 @@ public struct GatewayCompat: Codable, Sendable, Equatable {
     /// 首页顶部提示条文案。
     public var bannerText: String {
         let ver = (version?.isEmpty == false) ? "（\(version!)）" : ""
-        return "当前 Antigravity 版本\(ver) 与网关不兼容，部分基础功能可能无法使用。请升级网关（mgy）。"
+        return String(localized: "当前桌面客户端版本\(ver)与网关不兼容，部分基础功能可能无法使用。请升级网关（mgy）。")
     }
 
     /// 从 /gateway/status 响应体取 compat；缺失或格式不对返回放行的默认值。

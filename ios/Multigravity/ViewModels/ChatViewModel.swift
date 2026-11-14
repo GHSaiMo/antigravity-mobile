@@ -146,7 +146,7 @@ public final class ChatViewModel {
     
     public var emptyConversationTitle: String {
         if isPureChat {
-            return "新对话"
+            return String(localized: "新对话")
         }
         if !workspaceName.isEmpty && workspaceName != "Chat" {
             return workspaceName
@@ -157,7 +157,7 @@ public final class ChatViewModel {
         if let draftSession, !draftSession.project.isPureChat {
             return draftSession.project.name
         }
-        return "新对话"
+        return String(localized: "新对话")
     }
     
     public var isPureChat: Bool {
@@ -668,7 +668,7 @@ public final class ChatViewModel {
     ) {
         self.cascadeId = ""
         let isPure = draftProject.isPureChat
-        let title = isPure ? "新对话" : draftProject.name
+        let title = isPure ? String(localized: "新对话") : draftProject.name
         self.initialTitle = title
         self.currentTitle = title
         self.workspaceName = isPure ? "Chat" : draftProject.name
@@ -699,7 +699,7 @@ public final class ChatViewModel {
     ) {
         self.cascadeId = ""
         let isPure = draftSession.project.isPureChat
-        let title = isPure ? "新对话" : draftSession.project.name
+        let title = isPure ? String(localized: "新对话") : draftSession.project.name
         self.initialTitle = title
         self.currentTitle = title
         self.workspaceName = isPure ? "Chat" : draftSession.project.name
@@ -818,7 +818,7 @@ public final class ChatViewModel {
         
         guard let url = settings.serverURL else {
             if messages.isEmpty {
-                errorMessage = "未配置服务器地址"
+                errorMessage = String(localized: "未配置服务器地址")
             }
             return
         }

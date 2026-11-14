@@ -300,11 +300,11 @@ public struct ManualPairingSheet: View {
         let parsedPort = Int(port.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 58900
         
         guard !trimmedHost.isEmpty else {
-            errorMessage = "请输入网关 IP 或域名"
+            errorMessage = String(localized: "请输入网关 IP 或域名")
             return
         }
         guard !trimmedCode.isEmpty else {
-            errorMessage = "请输入配对码"
+            errorMessage = String(localized: "请输入配对码")
             return
         }
         

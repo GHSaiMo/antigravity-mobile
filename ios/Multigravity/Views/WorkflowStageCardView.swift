@@ -41,11 +41,11 @@ public struct WorkflowStageCardView: View {
 
     private var statusText: String {
         if isRunning {
-            return "编排执行中"
+            return String(localized: "编排执行中")
         } else if isError {
-            return "执行失败"
+            return String(localized: "执行失败")
         }
-        return "工作流完成"
+        return String(localized: "工作流完成")
     }
 
     private var allSubagents: [SubagentItem] {
