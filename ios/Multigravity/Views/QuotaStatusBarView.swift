@@ -26,9 +26,9 @@ public struct QuotaStatusBarView: View {
     
     private var titleText: String {
         if isFree {
-            return account?.geminiWeekly != nil ? "Gemini Weekly" : "Claude Weekly"
+            return account?.geminiWeekly != nil ? "Gemini · Weekly" : "Claude · Weekly"
         }
-        return account?.gemini5h != nil ? "Gemini 5h" : "Gemini Weekly"
+        return account?.gemini5h != nil ? "Gemini · 5h" : "Gemini · Weekly"
     }
     
     private var percent: Double {

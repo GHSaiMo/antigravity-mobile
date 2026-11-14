@@ -610,105 +610,91 @@ private fun AccountQuotaCard(
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             if (isFree) {
-                // Free 账号仅展示两个 weekly 数值：Row 1: Left Claude Weekly, Right Gemini Weekly
+                // Free 账号仅展示两个 weekly 数值：Row 1: Left Gemini · Weekly, Right Claude · Weekly
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     QuotaMetricCell(
-                        title = "Claude Weekly",
-                        bucket = account.claudeWeekly,
-                        tier = account.subscriptionTier,
-                        showPaceCursor = showWeeklyPaceCursor,
-                        onWeeklyClick = onWeeklyClick?.let { cb -> { cb("Claude Weekly", it) } },
-                        modifier = Modifier.weight(1f)
-                    )
-                    QuotaMetricCell(
-                        title = "Gemini Weekly",
+                        title = "Gemini · Weekly",
                         bucket = account.geminiWeekly,
                         tier = account.subscriptionTier,
                         showPaceCursor = showWeeklyPaceCursor,
-                        onWeeklyClick = onWeeklyClick?.let { cb -> { cb("Gemini Weekly", it) } },
+                        onWeeklyClick = onWeeklyClick?.let { cb -> { cb("Gemini · Weekly", it) } },
+                        modifier = Modifier.weight(1f)
+                    )
+                    QuotaMetricCell(
+                        title = "Claude · Weekly",
+                        bucket = account.claudeWeekly,
+                        tier = account.subscriptionTier,
+                        showPaceCursor = showWeeklyPaceCursor,
+                        onWeeklyClick = onWeeklyClick?.let { cb -> { cb("Claude · Weekly", it) } },
                         modifier = Modifier.weight(1f)
                     )
                 }
             } else {
-                // Row 1: Left Claude 5h, Right Gemini 5h
+                // Row 1: Gemini (5h in left, Weekly in right)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     QuotaMetricCell(
-                        title = "Claude 5h",
-                        bucket = account.claude5h,
-                        tier = account.subscriptionTier,
-                        showPaceCursor = showWeeklyPaceCursor,
-                        onWeeklyClick = onWeeklyClick?.let { cb -> { cb("Claude 5h", it) } },
-                        modifier = Modifier.weight(1f)
-                    )
-                    QuotaMetricCell(
-                        title = "Gemini 5h",
+                        title = "Gemini · 5h",
                         bucket = account.gemini5h,
                         tier = account.subscriptionTier,
                         showPaceCursor = showWeeklyPaceCursor,
-                        onWeeklyClick = onWeeklyClick?.let { cb -> { cb("Gemini 5h", it) } },
+                        onWeeklyClick = onWeeklyClick?.let { cb -> { cb("Gemini · 5h", it) } },
+                        modifier = Modifier.weight(1f)
+                    )
+                    QuotaMetricCell(
+                        title = "Gemini · Weekly",
+                        bucket = account.geminiWeekly,
+                        tier = account.subscriptionTier,
+                        showPaceCursor = showWeeklyPaceCursor,
+                        onWeeklyClick = onWeeklyClick?.let { cb -> { cb("Gemini · Weekly", it) } },
                         modifier = Modifier.weight(1f)
                     )
                 }
 
-                // Row 2: Left Claude Weekly, Right Gemini Weekly
+                // Row 2: Claude (5h in left, Weekly in right)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     QuotaMetricCell(
-                        title = "Claude Weekly",
+                        title = "Claude · 5h",
+                        bucket = account.claude5h,
+                        tier = account.subscriptionTier,
+                        showPaceCursor = showWeeklyPaceCursor,
+                        onWeeklyClick = onWeeklyClick?.let { cb -> { cb("Claude · 5h", it) } },
+                        modifier = Modifier.weight(1f)
+                    )
+                    QuotaMetricCell(
+                        title = "Claude · Weekly",
                         bucket = account.claudeWeekly,
                         tier = account.subscriptionTier,
                         showPaceCursor = showWeeklyPaceCursor,
-                        onWeeklyClick = onWeeklyClick?.let { cb -> { cb("Claude Weekly", it) } },
-                        modifier = Modifier.weight(1f)
-                    )
-                    QuotaMetricCell(
-                        title = "Gemini Weekly",
-                        bucket = account.geminiWeekly,
-                        tier = account.subscriptionTier,
-                        showPaceCursor = showWeeklyPaceCursor,
-                        onWeeklyClick = onWeeklyClick?.let { cb -> { cb("Gemini Weekly", it) } },
+                        onWeeklyClick = onWeeklyClick?.let { cb -> { cb("Claude · Weekly", it) } },
                         modifier = Modifier.weight(1f)
                     )
                 }
-            }
 
-            val isUltra = account.subscriptionTier?.trim()?.equals("ULTRA", ignoreCase = true) == true
-            if (isUltra) {
-                // Ultra 专属通栏：展示 Gemini 4 Carbon Weekly，数据对齐 geminiWeekly
-                val carbonBucket = account.geminiWeekly ?: account.gemini4Argon
-                carbonBucket?.let { carbon ->
-                    val carbonPaceInfo = if (showWeeklyPaceCursor) carbon.calculatePaceForTitle("Gemini 4 Carbon Weekly", account.subscriptionTier) else null
-                    QuotaMetricCell(
-                        title = "Gemini 4 Carbon Weekly",
-                        bucket = carbon,
-                        isCarbon = true,
-                        tier = account.subscriptionTier,
-                        showPaceCursor = showWeeklyPaceCursor && carbonPaceInfo != null,
-                        onWeeklyClick = onWeeklyClick?.let { cb -> { cb("Gemini 4 Carbon Weekly", it) } },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-            } else {
-                // 非 Ultra（如 Pro）：若具备 Argon 额度，展示 Gemini 4 Argon Weekly
-                account.gemini4Argon?.let { argon ->
-                    val argonPaceInfo = if (showWeeklyPaceCursor) argon.calculatePaceForTitle("Gemini 4 Argon Weekly", account.subscriptionTier) else null
-                    QuotaMetricCell(
-                        title = "Gemini 4 Argon Weekly",
-                        bucket = argon,
-                        isArgon = true,
-                        tier = account.subscriptionTier,
-                        showPaceCursor = showWeeklyPaceCursor && argonPaceInfo != null,
-                        onWeeklyClick = onWeeklyClick?.let { cb -> { cb("Gemini 4 Argon Weekly", it) } },
-                        modifier = Modifier.fillMaxWidth()
-                    )
+                val isUltra = account.subscriptionTier?.trim()?.equals("ULTRA", ignoreCase = true) == true
+                if (isUltra) {
+                    // Ultra 专属通栏：展示 Gemini 4 Carbon Weekly，数据对齐 geminiWeekly
+                    val carbonBucket = account.geminiWeekly ?: account.gemini4Argon
+                    carbonBucket?.let { carbon ->
+                        val carbonPaceInfo = if (showWeeklyPaceCursor) carbon.calculatePaceForTitle("Gemini 4 Carbon Weekly", account.subscriptionTier) else null
+                        QuotaMetricCell(
+                            title = "Gemini 4 Carbon Weekly",
+                            bucket = carbon,
+                            isCarbon = true,
+                            tier = account.subscriptionTier,
+                            showPaceCursor = showWeeklyPaceCursor && carbonPaceInfo != null,
+                            onWeeklyClick = onWeeklyClick?.let { cb -> { cb("Gemini 4 Carbon Weekly", it) } },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
                 }
             }
         }

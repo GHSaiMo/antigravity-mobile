@@ -366,40 +366,35 @@ public struct AccountQuotaSheet: View {
             
             VStack(spacing: 10) {
                 if isFree {
-                    // Free 账号仅展示两个 weekly 数值：左 Claude Weekly，右 Gemini Weekly
+                    // Free 账号仅展示两个 weekly 数值：左 Gemini · Weekly，右 Claude · Weekly
                     LazyVGrid(columns: [
                         GridItem(.flexible(), spacing: 10),
                         GridItem(.flexible(), spacing: 10)
                     ], spacing: 10) {
-                        metricCell(title: "Claude Weekly", bucket: acc.claudeWeekly, tier: acc.subscriptionTier)
-                        metricCell(title: "Gemini Weekly", bucket: acc.geminiWeekly, tier: acc.subscriptionTier)
+                        metricCell(title: "Gemini · Weekly", bucket: acc.geminiWeekly, tier: acc.subscriptionTier)
+                        metricCell(title: "Claude · Weekly", bucket: acc.claudeWeekly, tier: acc.subscriptionTier)
                     }
                 } else {
-                    // 4 Metrics Grid: Claude on Left, Gemini on Right, 5h on top, Weekly on bottom
+                    // 4 Metrics Grid: 5h in left, Weekly in right, Gemini on top, Claude on bottom
                     LazyVGrid(columns: [
                         GridItem(.flexible(), spacing: 10),
                         GridItem(.flexible(), spacing: 10)
                     ], spacing: 10) {
-                        // Row 1: Left Claude 5h, Right Gemini 5h
-                        metricCell(title: "Claude 5h", bucket: acc.claude5h, tier: acc.subscriptionTier)
-                        metricCell(title: "Gemini 5h", bucket: acc.gemini5h, tier: acc.subscriptionTier)
+                        // Row 1: Left Gemini · 5h, Right Gemini · Weekly
+                        metricCell(title: "Gemini · 5h", bucket: acc.gemini5h, tier: acc.subscriptionTier)
+                        metricCell(title: "Gemini · Weekly", bucket: acc.geminiWeekly, tier: acc.subscriptionTier)
                         
-                        // Row 2: Left Claude Weekly, Right Gemini Weekly
-                        metricCell(title: "Claude Weekly", bucket: acc.claudeWeekly, tier: acc.subscriptionTier)
-                        metricCell(title: "Gemini Weekly", bucket: acc.geminiWeekly, tier: acc.subscriptionTier)
+                        // Row 2: Left Claude · 5h, Right Claude · Weekly
+                        metricCell(title: "Claude · 5h", bucket: acc.claude5h, tier: acc.subscriptionTier)
+                        metricCell(title: "Claude · Weekly", bucket: acc.claudeWeekly, tier: acc.subscriptionTier)
                     }
-                }
-                
-                let isUltra = (acc.subscriptionTier?.trimmingCharacters(in: .whitespacesAndNewlines).uppercased() == "ULTRA")
-                if isUltra {
-                    // Ultra 专属通栏：展示 Gemini 4 Carbon Weekly，数据对齐 geminiWeekly
-                    if let carbon = acc.geminiWeekly ?? acc.gemini4Argon {
-                        metricCell(title: "Gemini 4 Carbon Weekly", bucket: carbon, isCarbon: true, tier: acc.subscriptionTier)
-                    }
-                } else {
-                    // 非 Ultra（如 Pro）：若具备 Argon 额度，展示 Gemini 4 Argon Weekly
-                    if let argon = acc.gemini4Argon {
-                        metricCell(title: "Gemini 4 Argon Weekly", bucket: argon, isArgon: true, tier: acc.subscriptionTier)
+                    
+                    let isUltra = (acc.subscriptionTier?.trimmingCharacters(in: .whitespacesAndNewlines).uppercased() == "ULTRA")
+                    if isUltra {
+                        // Ultra 专属通栏：展示 Gemini 4 Carbon Weekly，数据对齐 geminiWeekly
+                        if let carbon = acc.geminiWeekly ?? acc.gemini4Argon {
+                            metricCell(title: "Gemini 4 Carbon Weekly", bucket: carbon, isCarbon: true, tier: acc.subscriptionTier)
+                        }
                     }
                 }
             }
