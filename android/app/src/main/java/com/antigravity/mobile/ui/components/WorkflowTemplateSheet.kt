@@ -1,10 +1,14 @@
 package com.antigravity.mobile.ui.components
 
 import android.content.Context
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -18,13 +22,12 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.BugReport
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Star
@@ -40,8 +43,10 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
@@ -56,6 +61,7 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.util.UUID
+import kotlin.math.roundToInt
 
 private data class WorkflowIconOption(
     val key: String,
@@ -157,6 +163,7 @@ fun WorkflowTemplateSheet(
     var editorDraft by remember { mutableStateOf<WorkflowEditorDraft?>(null) }
     var syncError by remember { mutableStateOf<String?>(null) }
     var showResetDialog by remember { mutableStateOf(false) }
+    var swipedId by remember { mutableStateOf<String?>(null) }
 
     // Drag-and-drop state in edit mode
     var draggedId by remember { mutableStateOf<String?>(null) }
@@ -177,15 +184,6 @@ fun WorkflowTemplateSheet(
                     syncError = "已保存本机缓存，网关同步失败：${err.message ?: "未知错误"}"
                 }
         }
-    }
-
-    fun moveItem(fromIndex: Int, toIndex: Int) {
-        if (fromIndex == toIndex || fromIndex !in templates.indices || toIndex !in templates.indices) return
-        val mutable = templates.toMutableList()
-        val moved = mutable.removeAt(fromIndex)
-        mutable.add(toIndex, moved)
-        haptic.light()
-        persistAndSync(mutable)
     }
 
     LaunchedEffect(Unit) {
@@ -227,23 +225,25 @@ fun WorkflowTemplateSheet(
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                // Top Bar: Edit toggle + Title + Add button
+                // Top Bar: Icon Edit/Done toggle on left, Title in center, + icon only on right
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    TextButton(
+                    IconButton(
                         onClick = {
                             haptic.light()
+                            swipedId = null
                             isEditing = !isEditing
                         },
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                        modifier = Modifier.size(38.dp)
                     ) {
-                        Text(
-                            text = if (isEditing) "完成" else "编辑",
-                            color = colors.accentIndigo,
-                            fontWeight = if (isEditing) FontWeight.Bold else FontWeight.Medium
+                        Icon(
+                            imageVector = if (isEditing) Icons.Default.Check else Icons.Default.Edit,
+                            contentDescription = if (isEditing) "完成" else "编辑",
+                            tint = if (isEditing) colors.accentIndigo else colors.textPrimary,
+                            modifier = Modifier.size(20.dp)
                         )
                     }
 
@@ -253,9 +253,10 @@ fun WorkflowTemplateSheet(
                         color = colors.textPrimary
                     )
 
-                    TextButton(
+                    IconButton(
                         onClick = {
                             haptic.light()
+                            swipedId = null
                             editorDraft = WorkflowEditorDraft(
                                 isNew = true,
                                 record = WorkflowTemplateRecord(
@@ -268,19 +269,13 @@ fun WorkflowTemplateSheet(
                                 )
                             )
                         },
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                        modifier = Modifier.size(38.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.Add,
                             contentDescription = "新增",
                             tint = colors.accentIndigo,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(2.dp))
-                        Text(
-                            text = "新增",
-                            color = colors.accentIndigo,
-                            fontWeight = FontWeight.SemiBold
+                            modifier = Modifier.size(22.dp)
                         )
                     }
                 }
@@ -312,7 +307,7 @@ fun WorkflowTemplateSheet(
                             color = colors.textPrimary
                         )
                         Text(
-                            text = if (isEditing) "按住左侧手柄拖拽或点箭头排序，支持编辑与删除" else "选择常用模板快速填充，支持自定义与排序",
+                            text = if (isEditing) "按住最左侧手柄拖拽排序，左滑可删除模板" else "选择常用模板快速填充，左滑可删除",
                             style = MaterialTheme.typography.bodySmall,
                             color = colors.textSecondary
                         )
@@ -372,199 +367,77 @@ fun WorkflowTemplateSheet(
                     }
                 } else {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        templates.forEachIndexed { index, item ->
+                        templates.forEach { item ->
                             key(item.id) {
                                 val isDragging = draggedId == item.id
-                                val itemColor = WorkflowStyleCatalog.resolveColor(item.color, colors)
-                                val itemIcon = WorkflowStyleCatalog.resolveIcon(item.icon)
-                                val displaySub = item.subtitle.ifBlank { item.templatePrompt }
-
-                                Surface(
-                                    shape = RoundedCornerShape(12.dp),
-                                    color = colors.surfaceVariant.copy(alpha = if (isDragging) 0.95f else 0.6f),
-                                    shadowElevation = if (isDragging) 6.dp else 0.dp,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .zIndex(if (isDragging) 1f else 0f)
-                                        .graphicsLayer {
-                                            translationY = if (isDragging) dragOffsetY else 0f
-                                        }
-                                        .onSizeChanged { size ->
-                                            itemHeights[item.id] = size.height
-                                        }
-                                        .then(
-                                            if (!isEditing) {
-                                                Modifier.clickable {
-                                                    haptic.medium()
-                                                    onSelectTemplate(item.templatePrompt)
-                                                    onDismissRequest()
+                                WorkflowSwipeableCard(
+                                    item = item,
+                                    isEditing = isEditing,
+                                    isDragging = isDragging,
+                                    dragOffsetY = if (isDragging) dragOffsetY else 0f,
+                                    isSwiped = swipedId == item.id,
+                                    colors = colors,
+                                    onSwipeOpen = { swipedId = item.id },
+                                    onSwipeClose = { if (swipedId == item.id) swipedId = null },
+                                    onSized = { h -> itemHeights[item.id] = h },
+                                    onSelect = {
+                                        swipedId = null
+                                        haptic.medium()
+                                        onSelectTemplate(item.templatePrompt)
+                                        onDismissRequest()
+                                    },
+                                    onEdit = {
+                                        swipedId = null
+                                        editorDraft = WorkflowEditorDraft(isNew = false, record = item)
+                                    },
+                                    onDelete = {
+                                        swipedId = null
+                                        haptic.medium()
+                                        persistAndSync(templates.filter { it.id != item.id })
+                                    },
+                                    dragHandleModifier = Modifier.pointerInput(item.id, templates.size) {
+                                        detectDragGestures(
+                                            onDragStart = {
+                                                swipedId = null
+                                                draggedId = item.id
+                                                dragOffsetY = 0f
+                                                haptic.light()
+                                            },
+                                            onDragEnd = {
+                                                draggedId = null
+                                                dragOffsetY = 0f
+                                                persistAndSync(templates)
+                                            },
+                                            onDragCancel = {
+                                                draggedId = null
+                                                dragOffsetY = 0f
+                                            },
+                                            onDrag = { change, dragAmount ->
+                                                change.consume()
+                                                dragOffsetY += dragAmount.y
+                                                val currentIdx = templates.indexOfFirst { it.id == item.id }
+                                                if (currentIdx >= 0) {
+                                                    val threshold = ((itemHeights[item.id] ?: 160) * 0.6f).coerceAtLeast(48f)
+                                                    if (dragOffsetY > threshold && currentIdx < templates.lastIndex) {
+                                                        val mutable = templates.toMutableList()
+                                                        val moving = mutable.removeAt(currentIdx)
+                                                        mutable.add(currentIdx + 1, moving)
+                                                        templates = mutable
+                                                        dragOffsetY -= threshold
+                                                        haptic.light()
+                                                    } else if (dragOffsetY < -threshold && currentIdx > 0) {
+                                                        val mutable = templates.toMutableList()
+                                                        val moving = mutable.removeAt(currentIdx)
+                                                        mutable.add(currentIdx - 1, moving)
+                                                        templates = mutable
+                                                        dragOffsetY += threshold
+                                                        haptic.light()
+                                                    }
                                                 }
-                                            } else {
-                                                Modifier
                                             }
                                         )
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(12.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                    ) {
-                                        if (isEditing) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(28.dp)
-                                                    .pointerInput(item.id, templates.size) {
-                                                        detectDragGestures(
-                                                            onDragStart = {
-                                                                draggedId = item.id
-                                                                dragOffsetY = 0f
-                                                                haptic.light()
-                                                            },
-                                                            onDragEnd = {
-                                                                draggedId = null
-                                                                dragOffsetY = 0f
-                                                                persistAndSync(templates)
-                                                            },
-                                                            onDragCancel = {
-                                                                draggedId = null
-                                                                dragOffsetY = 0f
-                                                            },
-                                                            onDrag = { change, dragAmount ->
-                                                                change.consume()
-                                                                dragOffsetY += dragAmount.y
-                                                                val currentIdx = templates.indexOfFirst { it.id == item.id }
-                                                                if (currentIdx >= 0) {
-                                                                    val threshold = ((itemHeights[item.id] ?: 160) * 0.6f).coerceAtLeast(48f)
-                                                                    if (dragOffsetY > threshold && currentIdx < templates.lastIndex) {
-                                                                        val mutable = templates.toMutableList()
-                                                                        val moving = mutable.removeAt(currentIdx)
-                                                                        mutable.add(currentIdx + 1, moving)
-                                                                        templates = mutable
-                                                                        dragOffsetY -= threshold
-                                                                        haptic.light()
-                                                                    } else if (dragOffsetY < -threshold && currentIdx > 0) {
-                                                                        val mutable = templates.toMutableList()
-                                                                        val moving = mutable.removeAt(currentIdx)
-                                                                        mutable.add(currentIdx - 1, moving)
-                                                                        templates = mutable
-                                                                        dragOffsetY += threshold
-                                                                        haptic.light()
-                                                                    }
-                                                                }
-                                                            }
-                                                        )
-                                                    },
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Default.DragHandle,
-                                                    contentDescription = "拖拽排序",
-                                                    tint = colors.textMuted,
-                                                    modifier = Modifier.size(20.dp)
-                                                )
-                                            }
-                                        }
-
-                                        Box(
-                                            modifier = Modifier
-                                                .size(40.dp)
-                                                .clip(RoundedCornerShape(10.dp))
-                                                .background(itemColor.copy(alpha = 0.15f)),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Icon(
-                                                imageVector = itemIcon,
-                                                contentDescription = null,
-                                                tint = itemColor,
-                                                modifier = Modifier.size(20.dp)
-                                            )
-                                        }
-
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text(
-                                                text = item.title,
-                                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
-                                                color = colors.textPrimary,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                            Spacer(modifier = Modifier.height(2.dp))
-                                            Text(
-                                                text = displaySub,
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = colors.textSecondary,
-                                                maxLines = 2,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                        }
-
-                                        if (isEditing) {
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(2.dp)
-                                            ) {
-                                                IconButton(
-                                                    onClick = { moveItem(index, index - 1) },
-                                                    enabled = index > 0,
-                                                    modifier = Modifier.size(30.dp)
-                                                ) {
-                                                    Icon(
-                                                        imageVector = Icons.Default.KeyboardArrowUp,
-                                                        contentDescription = "上移",
-                                                        tint = if (index > 0) colors.textPrimary else colors.textMuted.copy(alpha = 0.35f),
-                                                        modifier = Modifier.size(18.dp)
-                                                    )
-                                                }
-                                                IconButton(
-                                                    onClick = { moveItem(index, index + 1) },
-                                                    enabled = index < templates.lastIndex,
-                                                    modifier = Modifier.size(30.dp)
-                                                ) {
-                                                    Icon(
-                                                        imageVector = Icons.Default.KeyboardArrowDown,
-                                                        contentDescription = "下移",
-                                                        tint = if (index < templates.lastIndex) colors.textPrimary else colors.textMuted.copy(alpha = 0.35f),
-                                                        modifier = Modifier.size(18.dp)
-                                                    )
-                                                }
-                                                IconButton(
-                                                    onClick = {
-                                                        editorDraft = WorkflowEditorDraft(isNew = false, record = item)
-                                                    },
-                                                    modifier = Modifier.size(30.dp)
-                                                ) {
-                                                    Icon(
-                                                        imageVector = Icons.Default.Edit,
-                                                        contentDescription = "编辑",
-                                                        tint = colors.accentIndigo,
-                                                        modifier = Modifier.size(16.dp)
-                                                    )
-                                                }
-                                                IconButton(
-                                                    onClick = {
-                                                        haptic.light()
-                                                        persistAndSync(templates.filter { it.id != item.id })
-                                                    },
-                                                    modifier = Modifier.size(30.dp)
-                                                ) {
-                                                    Icon(
-                                                        imageVector = Icons.Default.Delete,
-                                                        contentDescription = "删除",
-                                                        tint = colors.accentRed,
-                                                        modifier = Modifier.size(16.dp)
-                                                    )
-                                                }
-                                            }
-                                        } else {
-                                            Icon(
-                                                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                                                contentDescription = null,
-                                                tint = colors.textMuted,
-                                                modifier = Modifier.size(16.dp)
-                                            )
-                                        }
                                     }
-                                }
+                                )
                             }
                         }
                     }
@@ -621,6 +494,211 @@ fun WorkflowTemplateSheet(
                 }
             }
         )
+    }
+}
+
+@Composable
+private fun WorkflowSwipeableCard(
+    item: WorkflowTemplateRecord,
+    isEditing: Boolean,
+    isDragging: Boolean,
+    dragOffsetY: Float,
+    isSwiped: Boolean,
+    colors: AntigravityColors,
+    onSwipeOpen: () -> Unit,
+    onSwipeClose: () -> Unit,
+    onSized: (Int) -> Unit,
+    onSelect: () -> Unit,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit,
+    dragHandleModifier: Modifier
+) {
+    val density = LocalDensity.current
+    val scope = rememberCoroutineScope()
+    val maxRevealPx = with(density) { 68.dp.toPx() }
+    val offsetX = remember { Animatable(0f) }
+    val haptic = rememberHaptic()
+
+    LaunchedEffect(isSwiped) {
+        if (!isSwiped && offsetX.value != 0f) {
+            offsetX.animateTo(0f, spring(stiffness = Spring.StiffnessMediumLow))
+        }
+    }
+
+    val itemColor = WorkflowStyleCatalog.resolveColor(item.color, colors)
+    val itemIcon = WorkflowStyleCatalog.resolveIcon(item.icon)
+    val displaySub = item.subtitle.ifBlank { item.templatePrompt }
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .zIndex(if (isDragging) 1f else 0f)
+            .graphicsLayer {
+                translationY = dragOffsetY
+            }
+            .onSizeChanged { onSized(it.height) }
+            .clip(RoundedCornerShape(12.dp)),
+        contentAlignment = Alignment.Center
+    ) {
+        // Right-side trailing red circle delete action (revealed on left swipe)
+        if (offsetX.value < -1f) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .padding(end = 14.dp),
+                contentAlignment = Alignment.CenterEnd
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(38.dp)
+                        .clip(CircleShape)
+                        .background(colors.accentRed)
+                        .clickable {
+                            haptic.medium()
+                            onDelete()
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Delete,
+                        contentDescription = "删除",
+                        tint = Color.White,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+        }
+
+        // Foreground card
+        Surface(
+            shape = RoundedCornerShape(12.dp),
+            color = colors.surfaceVariant.copy(alpha = if (isDragging) 0.95f else 0.72f),
+            shadowElevation = if (isDragging) 6.dp else 0.dp,
+            modifier = Modifier
+                .fillMaxWidth()
+                .offset { IntOffset(offsetX.value.roundToInt(), 0) }
+                .pointerInput(item.id) {
+                    detectHorizontalDragGestures(
+                        onDragStart = {
+                            if (!isSwiped) onSwipeOpen()
+                        },
+                        onDragEnd = {
+                            scope.launch {
+                                if (offsetX.value < -maxRevealPx * 0.45f) {
+                                    offsetX.animateTo(-maxRevealPx, spring(stiffness = Spring.StiffnessMediumLow))
+                                    onSwipeOpen()
+                                } else {
+                                    offsetX.animateTo(0f, spring(stiffness = Spring.StiffnessMediumLow))
+                                    onSwipeClose()
+                                }
+                            }
+                        },
+                        onDragCancel = {
+                            scope.launch {
+                                offsetX.animateTo(0f, spring(stiffness = Spring.StiffnessMediumLow))
+                                onSwipeClose()
+                            }
+                        },
+                        onHorizontalDrag = { change, dragAmount ->
+                            change.consume()
+                            val next = (offsetX.value + dragAmount).coerceIn(-maxRevealPx, 0f)
+                            scope.launch { offsetX.snapTo(next) }
+                        }
+                    )
+                }
+                .then(
+                    if (!isEditing) {
+                        Modifier.clickable {
+                            if (offsetX.value < -10f) {
+                                scope.launch {
+                                    offsetX.animateTo(0f, spring(stiffness = Spring.StiffnessMediumLow))
+                                    onSwipeClose()
+                                }
+                            } else {
+                                onSelect()
+                            }
+                        }
+                    } else {
+                        Modifier
+                    }
+                )
+        ) {
+            Row(
+                modifier = Modifier.padding(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                if (isEditing) {
+                    Box(
+                        modifier = Modifier
+                            .size(28.dp)
+                            .then(dragHandleModifier),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.DragHandle,
+                            contentDescription = "拖拽排序",
+                            tint = colors.textMuted,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(itemColor.copy(alpha = 0.15f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = itemIcon,
+                        contentDescription = null,
+                        tint = itemColor,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = item.title,
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                        color = colors.textPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = displaySub,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = colors.textSecondary,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                if (isEditing) {
+                    IconButton(
+                        onClick = onEdit,
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Edit,
+                            contentDescription = "编辑",
+                            tint = colors.accentIndigo,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                } else {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = null,
+                        tint = colors.textMuted,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
+        }
     }
 }
 

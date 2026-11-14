@@ -14,7 +14,7 @@
   <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png?v=4" />
   <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png?v=4" />
   <link rel="manifest" href="/manifest.json" />
-  <link rel="stylesheet" href="/style.css?v=51" />
+  <link rel="stylesheet" href="/style.css?v=52" />
 </head>
 <body>
   <div id="app">
@@ -550,12 +550,9 @@
       <div class="ios-sheet-card tall-sheet-card">
         <div class="sheet-grabber"></div>
         <div class="sheet-header">
-          <button id="btn-workflows-left" class="sheet-header-btn" type="button">编辑</button>
+          <button id="btn-workflows-left" class="sheet-header-btn wf-header-icon-btn" type="button" aria-label="编辑"></button>
           <h2 id="workflows-title" class="sheet-title">Workflow 模板</h2>
-          <div class="sheet-header-right-group">
-            <button id="btn-workflows-add" class="sheet-header-btn primary" type="button">+ 新增</button>
-            <button id="btn-workflows-close" class="sheet-header-btn primary" type="button">关闭</button>
-          </div>
+          <button id="btn-workflows-right" class="sheet-header-btn primary wf-header-icon-btn" type="button" aria-label="新增"></button>
         </div>
         <div id="workflows-body" class="sheet-body"></div>
       </div>
@@ -902,7 +899,7 @@
   <script defer src="/js/scan.js?v=2"></script>
   <script defer src="/js/msgmenu.js?v=3"></script>
   <script defer src="/js/slash.js?v=2"></script>
-  <script defer src="/js/workflows.js?v=1"></script>
+  <script defer src="/js/workflows.js?v=2"></script>
   <script defer src="/js/changes.js?v=1"></script>
   <script defer src="/js/git.js?v=2"></script>
   <script defer src="/js/models.js?v=1"></script>

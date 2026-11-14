@@ -7437,8 +7437,69 @@ body.font-comfortable pre, body.font-comfortable code {
   flex-direction: column;
   gap: 10px;
 }
+.wf-card-wrapper {
+  position: relative;
+  overflow: hidden;
+  border-radius: 12px;
+  touch-action: pan-y;
+}
+.wf-card-wrapper.dragging {
+  opacity: 0.94;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22);
+  z-index: 5;
+}
+.wf-card-wrapper.drop-above {
+  box-shadow: inset 0 2px 0 var(--ios-indigo);
+}
+.wf-card-wrapper.drop-below {
+  box-shadow: inset 0 -2px 0 var(--ios-indigo);
+}
+.wf-card-actions {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 68px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+.wf-card-wrapper.swiping .wf-card-actions,
+.wf-card-wrapper.swiped .wf-card-actions {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+.wf-card-delete-btn {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background-color: #ff3b30;
+  color: #ffffff;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(255, 59, 48, 0.35);
+}
+.wf-header-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 34px;
+  min-height: 32px;
+}
 .wf-card {
+  position: relative;
+  z-index: 2;
   width: 100%;
+  box-sizing: border-box;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -7448,28 +7509,17 @@ body.font-comfortable pre, body.font-comfortable code {
   border: 0.5px solid var(--ios-separator);
   text-align: left;
   cursor: pointer;
-  transition: transform 0.12s ease, opacity 0.15s ease, border-color 0.15s ease;
+  transition: transform 0.2s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.15s ease, border-color 0.15s ease;
   color: var(--ios-label);
 }
-button.wf-card:active {
-  transform: scale(0.985);
+.wf-card-wrapper.swiping .wf-card {
+  transition: none;
+}
+.wf-card:not(.editing):active {
   opacity: 0.85;
 }
 .wf-card.editing {
   cursor: default;
-}
-.wf-card.dragging {
-  opacity: 0.92;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22);
-  border-color: var(--ios-indigo);
-  z-index: 5;
-  position: relative;
-}
-.wf-card.drop-above {
-  box-shadow: inset 0 2px 0 var(--ios-indigo);
-}
-.wf-card.drop-below {
-  box-shadow: inset 0 -2px 0 var(--ios-indigo);
 }
 .wf-drag-handle {
   width: 28px;
