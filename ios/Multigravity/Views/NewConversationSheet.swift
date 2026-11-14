@@ -250,7 +250,7 @@ public struct NewConversationSheet: View {
             do {
                 try await APIClient.shared.updateProjectAlias(path: targetPath, alias: trimmed, baseURL: url)
             } catch {
-                errorMessage = "同步工作区备注失败: \(error.localizedDescription)"
+                errorMessage = String(localized: "同步工作区备注失败: \(error.localizedDescription)")
             }
         }
     }
@@ -265,7 +265,7 @@ public struct NewConversationSheet: View {
     private func refreshProjectsInBackground() async {
         guard let url = AppSettings.shared.gatewayURL else {
             if projects.isEmpty {
-                errorMessage = "请先在设置中配置有效网关地址"
+                errorMessage = String(localized: "请先在设置中配置有效网关地址")
                 isLoading = false
             }
             return
@@ -285,7 +285,7 @@ public struct NewConversationSheet: View {
             errorMessage = nil
         } catch {
             if projects.isEmpty {
-                errorMessage = "拉取项目列表失败: \(error.localizedDescription)"
+                errorMessage = String(localized: "拉取项目列表失败: \(error.localizedDescription)")
             }
             isLoading = false
         }

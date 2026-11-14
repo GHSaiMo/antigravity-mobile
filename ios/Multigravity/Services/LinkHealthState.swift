@@ -39,10 +39,10 @@ public enum LinkHealthState: Equatable, Sendable {
 
     var accessibilityText: String {
         switch self {
-        case .unknown: return "正在连接电脑"
-        case .connected: return "已连接电脑"
-        case .attention: return "连接异常"
-        case .disconnected: return "已断开"
+        case .unknown: return String(localized: "正在连接电脑")
+        case .connected: return String(localized: "已连接电脑")
+        case .attention: return String(localized: "连接异常")
+        case .disconnected: return String(localized: "已断开")
         }
     }
 }

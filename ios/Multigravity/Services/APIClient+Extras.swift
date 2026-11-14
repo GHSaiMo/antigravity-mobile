@@ -65,7 +65,7 @@ extension APIClient {
         }
         guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
             let code = (response as? HTTPURLResponse)?.statusCode ?? -1
-            throw APIError.serverError(statusCode: code, message: "获取模型列表失败")
+            throw APIError.serverError(statusCode: code, message: String(localized: "获取模型列表失败"))
         }
         do {
             return try JSONDecoder().decode(ModelsResponse.self, from: data)
@@ -282,7 +282,7 @@ extension APIClient {
         }
         guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
             let code = (response as? HTTPURLResponse)?.statusCode ?? -1
-            throw APIError.serverError(statusCode: code, message: "获取插件清单失败")
+            throw APIError.serverError(statusCode: code, message: String(localized: "获取插件清单失败"))
         }
         do {
             return try JSONDecoder().decode(CascadePluginsResponse.self, from: data)
@@ -298,7 +298,7 @@ extension APIClient {
             body: PluginInstallRequest(pluginId: id, cascadeId: conversationId, autoResume: autoResume),
             baseURL: baseURL,
             timeout: 30,
-            failurePrefix: "安装插件失败"
+            failurePrefix: String(localized: "安装插件失败")
         )
     }
 
@@ -319,7 +319,7 @@ extension APIClient {
         }
         guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
             let code = (response as? HTTPURLResponse)?.statusCode ?? -1
-            throw APIError.serverError(statusCode: code, message: "获取自动化任务失败")
+            throw APIError.serverError(statusCode: code, message: String(localized: "获取自动化任务失败"))
         }
         do {
             return try JSONDecoder().decode(AutomationsResponse.self, from: data)

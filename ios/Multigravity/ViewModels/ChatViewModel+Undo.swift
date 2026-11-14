@@ -125,7 +125,7 @@ extension ChatViewModel {
                 self.focusInputTrigger &+= 1
             } catch {
                 self.isReverting = false
-                self.errorMessage = "撤回失败: \(error.localizedDescription)"
+                self.errorMessage = String(localized: "撤回失败: \(error.localizedDescription)")
             }
         }
     }

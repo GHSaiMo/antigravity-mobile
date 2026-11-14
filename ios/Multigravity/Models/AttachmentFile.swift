@@ -97,12 +97,12 @@ public enum AttachmentRules {
     
     /// Returns a user-facing rejection reason, or nil when the file may be attached.
     public static func validate(name: String, size: Int64, existing: [DraftFile]) -> String? {
-        if name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "文件名无效" }
-        if size <= 0 { return "文件为空：\(name)" }
-        if size > maxFileBytes { return "文件超过 \(maxFileBytes / 1024 / 1024)MB：\(name)" }
-        if existing.count >= maxFilesPerMessage { return "一条消息最多附带 \(maxFilesPerMessage) 个文件" }
+        if name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return String(localized: "文件名无效") }
+        if size <= 0 { return String(localized: "文件为空：\(name)") }
+        if size > maxFileBytes { return String(localized: "文件超过 \(maxFileBytes / 1024 / 1024)MB：\(name)") }
+        if existing.count >= maxFilesPerMessage { return String(localized: "一条消息最多附带 \(maxFilesPerMessage) 个文件") }
         if existing.reduce(0, { $0 + $1.size }) + size > maxTotalBytes {
-            return "附件总大小超过 \(maxTotalBytes / 1024 / 1024)MB"
+            return String(localized: "附件总大小超过 \(maxTotalBytes / 1024 / 1024)MB")
         }
         return nil
     }

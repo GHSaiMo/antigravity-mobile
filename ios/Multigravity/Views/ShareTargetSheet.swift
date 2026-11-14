@@ -131,7 +131,7 @@ struct ShareTargetSheet: View {
     private var newConversationList: some View {
         ScrollView {
             LazyVStack(spacing: 8) {
-                targetRow(icon: "bubble.left", title: "新对话", subtitle: "不关联任何工作区", tint: .indigo) {
+                targetRow(icon: "bubble.left", title: String(localized: "新对话"), subtitle: String(localized: "不关联任何工作区"), tint: .indigo) {
                     onSelectProject(ProjectItem.pureChat)
                 }
                 ForEach(projects.filter { !$0.isPureChat }) { p in
@@ -159,7 +159,7 @@ struct ShareTargetSheet: View {
                 LazyVStack(spacing: 8) {
                     if let cid = currentConversationId, query.isEmpty,
                        let current = conversations.first(where: { $0.id == cid }) {
-                        targetRow(icon: "bubble.left.fill", title: "当前对话", subtitle: current.title, tint: .green) {
+                        targetRow(icon: "bubble.left.fill", title: String(localized: "当前对话"), subtitle: current.title, tint: .green) {
                             onSelectConversation(current)
                         }
                     }
@@ -167,7 +167,7 @@ struct ShareTargetSheet: View {
                         targetRow(
                             icon: "bubble.left",
                             title: c.title,
-                            subtitle: [c.workspaceName, c.status == .running ? "运行中" : nil]
+                            subtitle: [c.workspaceName, c.status == .running ? String(localized: "运行中") : nil]
                                 .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "),
                             tint: .indigo
                         ) { onSelectConversation(c) }

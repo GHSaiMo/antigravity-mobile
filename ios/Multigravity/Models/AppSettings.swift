@@ -55,9 +55,9 @@ public final class AppSettings {
 
         public var displayName: String {
             switch self {
-            case .compact: return "紧凑 (90%)"
-            case .standard: return "标准 (100%)"
-            case .comfortable: return "舒适 (115%)"
+            case .compact: return String(localized: "紧凑 (90%)")
+            case .standard: return String(localized: "标准 (100%)")
+            case .comfortable: return String(localized: "舒适 (115%)")
             }
         }
 
@@ -98,13 +98,13 @@ public final class AppSettings {
     public var gatewayPlatformDisplayName: String {
         switch gatewayPlatform?.lowercased() {
         case "windows", "win":
-            return "Windows 网关"
+            return String(localized: "Windows 网关")
         case "darwin", "macos", "mac":
-            return "Mac 网关"
+            return String(localized: "Mac 网关")
         case "linux":
-            return "Linux 网关"
+            return String(localized: "Linux 网关")
         default:
-            return "电脑网关"
+            return String(localized: "电脑网关")
         }
     }
     
@@ -348,7 +348,7 @@ public final class AppSettings {
     /// Accurately describes the connection channel based on target endpoint and active interface
     public static func describeEndpoint(url: URL, isCellular: Bool) -> String {
         guard let host = url.host else {
-            return isCellular ? "蜂窝网络" : "Wi-Fi"
+            return isCellular ? String(localized: "蜂窝网络") : String(localized: "Wi-Fi")
         }
         let clean = host.trimmingCharacters(in: CharacterSet(charactersIn: "[]")).lowercased()
         
@@ -356,13 +356,13 @@ public final class AppSettings {
         let isTailscale = NetworkTransport.isTailscaleHost(clean)
         
         if isLAN {
-            return "Wi-Fi 局域网直连"
+            return String(localized: "Wi-Fi 局域网直连")
         } else if isTailscale {
-            return isCellular ? "蜂窝网络 (Tailscale)" : "Wi-Fi (Tailscale)"
+            return isCellular ? String(localized: "蜂窝网络 (Tailscale)") : String(localized: "Wi-Fi (Tailscale)")
         } else if url.scheme == "https" {
-            return isCellular ? "蜂窝网络 (专属公网 HTTPS)" : "Wi-Fi (专属公网 HTTPS)"
+            return isCellular ? String(localized: "蜂窝网络 (专属公网 HTTPS)") : String(localized: "Wi-Fi (专属公网 HTTPS)")
         } else {
-            return isCellular ? "蜂窝网络 (公网直连)" : "Wi-Fi (公网直连)"
+            return isCellular ? String(localized: "蜂窝网络 (公网直连)") : String(localized: "Wi-Fi (公网直连)")
         }
     }
     

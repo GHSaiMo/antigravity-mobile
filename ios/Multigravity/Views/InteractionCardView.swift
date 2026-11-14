@@ -146,25 +146,25 @@ public struct InteractionCardView: View {
     
     private func resolveWriteInLabel(_ raw: String?) -> String {
         guard let raw = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
-            return "自定义输入"
+            return String(localized: "自定义输入")
         }
         let lower = raw.lowercased()
         if lower == "other" || lower == "write in" || lower == "write in..." {
-            return "自定义输入"
+            return String(localized: "自定义输入")
         }
         return raw
     }
 
     private func resolveWriteInPlaceholder(_ raw: String?, isDeny: Bool) -> String {
         guard let raw = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
-            return isDeny ? "告诉 Agent 应该怎么做..." : "输入自定义回答..."
+            return isDeny ? String(localized: "告诉 Agent 应该怎么做...") : String(localized: "输入自定义回答...")
         }
         let lower = raw.lowercased()
         if lower.contains("write in your response") || lower.contains("write in") {
-            return "输入自定义回答..."
+            return String(localized: "输入自定义回答...")
         }
         if lower.contains("tell the agent") || lower.contains("what to do instead") {
-            return "告诉 Agent 应该怎么做..."
+            return String(localized: "告诉 Agent 应该怎么做...")
         }
         return raw
     }
@@ -277,7 +277,7 @@ public struct InteractionCardView: View {
                     .multilineTextAlignment(.leading)
                     .fixedSize(horizontal: false, vertical: true)
             } else {
-                let questionTitle = interaction.title.isEmpty ? (interaction.description ?? "需要用户审批操作") : interaction.title
+                let questionTitle = interaction.title.isEmpty ? (interaction.description ?? String(localized: "需要用户审批操作")) : interaction.title
                 Text(questionTitle)
                     .font(.system(size: 14.5, weight: .semibold))
                     .foregroundColor(.primary)

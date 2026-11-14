@@ -262,7 +262,7 @@ public struct AccountQuotaSheet: View {
                 isPresented: $showSwitchConfirm,
                 titleVisibility: .visible
             ) {
-                Button("切换并重启 Antigravity") {
+                Button("切换并重启桌面端") {
                     if let acc = pendingSwitch {
                         Task { await performSwitch(to: acc) }
                     }
@@ -273,9 +273,9 @@ public struct AccountQuotaSheet: View {
                 }
             } message: {
                 if let acc = pendingSwitch {
-                    Text("切换到 \(acc.email) 将关闭并重启电脑上的 Antigravity。")
+                    Text("切换到 \(acc.email) 将关闭并重启电脑上的桌面客户端。")
                 } else {
-                    Text("切换账号将关闭并重启电脑上的 Antigravity。")
+                    Text("切换账号将关闭并重启电脑上的桌面客户端。")
                 }
             }
             .sheet(item: $paceDetailItem) { item in
@@ -686,10 +686,16 @@ public struct AccountQuotaSheet: View {
     
     private func resetCountdownDisplay(for bucket: CockpitQuotaBucket?) -> String {
         guard let friendly = bucket?.resetFriendly, !friendly.isEmpty else {
-            return "配额充足"
+            return String(localized: "配额充足")
         }
-        if friendly == "已就绪" || friendly == "未知" || friendly == "配额充足" {
-            return friendly
+        if friendly == "已就绪" {
+            return String(localized: "已就绪")
+        }
+        if friendly == "未知" {
+            return String(localized: "未知")
+        }
+        if friendly == "配额充足" {
+            return String(localized: "配额充足")
         }
         if let timeStr = formatEstimatedResetTime(bucket?.resetTime) {
             return "\(friendly) \(timeStr)"
@@ -785,18 +791,18 @@ private struct WeeklyPaceDetailSheet: View {
                 
                 // 明细指标
                 VStack(spacing: 10) {
-                    detailRow(label: "当前实际剩余", value: String(format: "%.1f%%", item.info.actualRemainingPercent), isPrimary: true)
-                    detailRow(label: "当前实际已用", value: String(format: "%.1f%%", item.info.usedPercent), isPrimary: true)
+                    detailRow(label: String(localized: "当前实际剩余"), value: String(format: "%.1f%%", item.info.actualRemainingPercent), isPrimary: true)
+                    detailRow(label: String(localized: "当前实际已用"), value: String(format: "%.1f%%", item.info.usedPercent), isPrimary: true)
                     Divider()
-                    detailRow(label: "\(item.info.windowLabel)匀速应剩 (游标位)", value: String(format: "%.1f%%", item.info.expectedRemainingPercent), isPrimary: false)
-                    detailRow(label: "\(item.info.windowLabel)匀速应耗基准", value: String(format: "%.1f%%", item.info.expectedUsedPercent), isPrimary: false)
+                    detailRow(label: String(localized: "\(item.info.windowLabel)匀速应剩 (游标位)"), value: String(format: "%.1f%%", item.info.expectedRemainingPercent), isPrimary: false)
+                    detailRow(label: String(localized: "\(item.info.windowLabel)匀速应耗基准"), value: String(format: "%.1f%%", item.info.expectedUsedPercent), isPrimary: false)
                     Divider()
                     detailRow(
-                        label: "节奏差值 (实际 - 理论)",
+                        label: String(localized: "节奏差值 (实际 - 理论)"),
                         value: (item.info.paceDeltaPercent >= 0 ? "+" : "") + String(format: "%.1f%%", item.info.paceDeltaPercent),
                         color: item.info.isOverPacing ? .orange : .green
                     )
-                    detailRow(label: "重置倒计时", value: item.info.resetCountdownDisplay, isPrimary: false)
+                    detailRow(label: String(localized: "重置倒计时"), value: item.info.resetCountdownDisplay, isPrimary: false)
                 }
                 .padding(14)
                 .background(Color(uiColor: .secondarySystemGroupedBackground))
@@ -806,7 +812,7 @@ private struct WeeklyPaceDetailSheet: View {
             }
             .padding(.horizontal, 20)
             .padding(.top, 16)
-            .navigationTitle("\(item.title) 消耗节奏")
+            .navigationTitle(String(localized: "\(item.title) 消耗节奏"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
@@ -854,17 +860,17 @@ extension AccountQuotaSheet {
 
             VStack(spacing: 14) {
                 LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 8) {
-                    tokenKpiCard(title: "今日消耗", value: Self.formatTokensCompact(s.todayTokens), sub: "\(s.activeDays) 活跃日")
-                    tokenKpiCard(title: "近 7 日", value: Self.formatTokensCompact(s.last7dTokens), sub: "\(s.totalSteps) 轮采样")
-                    tokenKpiCard(title: "累计总 Token", value: Self.formatTokensCompact(s.totalTokens), sub: "IDE \(Self.formatTokensCompact(s.desktopTokens)) · CLI \(Self.formatTokensCompact(s.cliTokens))")
-                    tokenKpiCard(title: "API 折算", value: String(format: "$%.2f", s.estimatedCostUsd), sub: String(format: "≈ ¥%.1f", s.estimatedCostCny))
+                    tokenKpiCard(title: String(localized: "今日消耗"), value: Self.formatTokensCompact(s.todayTokens), sub: String(localized: "\(s.activeDays) 活跃日"))
+                    tokenKpiCard(title: String(localized: "近 7 日"), value: Self.formatTokensCompact(s.last7dTokens), sub: String(localized: "\(s.totalSteps) 轮采样"))
+                    tokenKpiCard(title: String(localized: "累计总 Token"), value: Self.formatTokensCompact(s.totalTokens), sub: "IDE \(Self.formatTokensCompact(s.desktopTokens)) · CLI \(Self.formatTokensCompact(s.cliTokens))")
+                    tokenKpiCard(title: String(localized: "API 折算"), value: String(format: "$%.2f", s.estimatedCostUsd), sub: String(format: "≈ ¥%.1f", s.estimatedCostCny))
                 }
 
                 let totalSrc = max(Int64(1), s.desktopTokens + s.cliTokens)
                 let desktopPct = Int((Double(s.desktopTokens) * 100.0) / Double(totalSrc))
                 let cliPct = s.cliTokens > 0 ? (100 - desktopPct) : 0
                 HStack {
-                    Text("桌面端 Antigravity \(desktopPct)% · CLI \(cliPct)%")
+                    Text("桌面客户端 \(desktopPct)% · CLI \(cliPct)%")
                         .font(.system(size: 12, weight: .medium))
                         .foregroundColor(.secondary)
                     Spacer()
@@ -1108,8 +1114,8 @@ extension AccountQuotaSheet {
         renderer.scale = max(displayScale, 2.0)
 
         guard let image = renderer.uiImage else {
-            alertTitle = "分享失败"
-            errorMessage = "长图生成失败，请稍后重试"
+            alertTitle = String(localized: "分享失败")
+            errorMessage = String(localized: "长图生成失败，请稍后重试")
             return
         }
 

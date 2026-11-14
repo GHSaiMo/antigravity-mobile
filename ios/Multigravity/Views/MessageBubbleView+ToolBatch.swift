@@ -43,9 +43,9 @@ extension MessageBubbleView {
             if !uniqueNames.isEmpty {
                 let localizedNames = uniqueNames.map { ToolLocalization.localizedName(for: $0) }
                 let namesSummary = localizedNames.joined(separator: ", ")
-                return "已思考并执行 \(actualCount) 项操作 (\(namesSummary))"
+                return String(localized: "已思考并执行 \(actualCount) 项操作 (\(namesSummary))")
             }
-            return "已思考并执行 \(actualCount) 项操作"
+            return String(localized: "已思考并执行 \(actualCount) 项操作")
         }
         
         public var body: some View {

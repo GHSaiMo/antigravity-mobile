@@ -750,52 +750,52 @@ public struct ChatMessage: Identifiable, Hashable, Sendable, Codable {
 public enum ToolLocalization {
     public static func localizedName(for toolName: String?) -> String {
         guard let raw = toolName?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
-            return "工具操作"
+            return String(localized: "工具操作")
         }
 
         switch raw.lowercased() {
         // 命令与任务
-        case "run_command": return "运行终端命令"
-        case "manage_task": return "管理后台任务"
-        case "schedule": return "定时调度"
-        case "shell_command", "command": return "运行命令"
+        case "run_command": return String(localized: "运行终端命令")
+        case "manage_task": return String(localized: "管理后台任务")
+        case "schedule": return String(localized: "定时调度")
+        case "shell_command", "command": return String(localized: "运行命令")
 
         // 文件与代码
-        case "view_file": return "查看文件"
-        case "write_to_file": return "写入文件"
-        case "replace_file_content": return "编辑文件"
-        case "edit_file": return "编辑文件"
-        case "create_file": return "创建文件"
-        case "delete_file": return "删除文件"
-        case "read_file": return "读取文件"
-        case "list_dir", "list_directory": return "浏览目录"
-        case "search_code", "grep_search": return "搜索代码"
-        case "file_search", "find_by_name": return "搜索文件"
+        case "view_file": return String(localized: "查看文件")
+        case "write_to_file": return String(localized: "写入文件")
+        case "replace_file_content": return String(localized: "编辑文件")
+        case "edit_file": return String(localized: "编辑文件")
+        case "create_file": return String(localized: "创建文件")
+        case "delete_file": return String(localized: "删除文件")
+        case "read_file": return String(localized: "读取文件")
+        case "list_dir", "list_directory": return String(localized: "浏览目录")
+        case "search_code", "grep_search": return String(localized: "搜索代码")
+        case "file_search", "find_by_name": return String(localized: "搜索文件")
 
         // 网络与搜索
-        case "search_web": return "搜索网络"
-        case "read_url_content": return "读取网页"
+        case "search_web": return String(localized: "搜索网络")
+        case "read_url_content": return String(localized: "读取网页")
 
         // 子代理与协作
-        case "invoke_subagent": return "调用子代理"
-        case "define_subagent": return "定义子代理"
-        case "manage_subagents": return "管理子代理"
-        case "send_message": return "发送消息"
-        case "browser_subagent": return "浏览器代理"
+        case "invoke_subagent": return String(localized: "调用子代理")
+        case "define_subagent": return String(localized: "定义子代理")
+        case "manage_subagents": return String(localized: "管理子代理")
+        case "send_message": return String(localized: "发送消息")
+        case "browser_subagent": return String(localized: "浏览器代理")
 
         // 人机交互与生成
-        case "ask_question": return "询问用户"
-        case "generate_image": return "生成图片"
+        case "ask_question": return String(localized: "询问用户")
+        case "generate_image": return String(localized: "生成图片")
 
         // MCP 协议工具
-        case "call_mcp_tool": return "调用 MCP 工具"
-        case "list_resources": return "列出 MCP 资源"
-        case "read_resource": return "读取 MCP 资源"
+        case "call_mcp_tool": return String(localized: "调用 MCP 工具")
+        case "list_resources": return String(localized: "列出 MCP 资源")
+        case "read_resource": return String(localized: "读取 MCP 资源")
 
         // 通用兜底
-        case "thinking": return "思考中"
-        case "tool_call": return "工具操作"
-        case "action": return "操作"
+        case "thinking": return String(localized: "思考中")
+        case "tool_call": return String(localized: "工具操作")
+        case "action": return String(localized: "操作")
 
         default:
             if raw.hasPrefix("mcp_") {

@@ -8,8 +8,19 @@ public struct OnboardingGuideView: View {
     
     @Environment(\.openURL) private var openURL
     
-    private let unixInstallCommand = "curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/scripts/install.sh | bash"
-    private let winInstallCommand = "irm https://ghfast.top/https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/scripts/install.ps1 | iex"
+    private var useChinaMirror: Bool {
+        Locale.current.region?.identifier == "CN"
+    }
+    private var unixInstallCommand: String {
+        let rawURL = "https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/scripts/install.sh"
+        let url = useChinaMirror ? "https://ghfast.top/\(rawURL)" : rawURL
+        return "curl -fsSL \(url) | bash"
+    }
+    private var winInstallCommand: String {
+        let rawURL = "https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/scripts/install.ps1"
+        let url = useChinaMirror ? "https://ghfast.top/\(rawURL)" : rawURL
+        return "irm \(url) | iex"
+    }
     private let runCommand = "mgy"
     @State private var isUnixCopied = false
     @State private var isWinCopied = false
@@ -73,7 +84,7 @@ public struct OnboardingGuideView: View {
                                 onEasterEggTap?()
                             }
                         
-                        Text("Google Antigravity 移动伴侣\n随时随地监控任务状态、下发指令")
+                        Text("本地 AI Agent 移动伴侣\n随时随地监控任务状态、下发指令")
                             .font(.system(size: 13.5))
                             .foregroundColor(.secondary)
                             .multilineTextAlignment(.center)
@@ -98,7 +109,7 @@ public struct OnboardingGuideView: View {
                                 .foregroundColor(.primary)
                         }
                         
-                        Text("手机端需配合运行在 Mac、Linux 或 Windows 电脑上的本地网关协同工作，嗅探后台 Google Antigravity 实例打通直连。")
+                        Text("手机端需配合运行在 Mac、Linux 或 Windows 电脑上的开源本地网关协同工作，打通安全直连。")
                             .font(.system(size: 12.5))
                             .foregroundColor(.secondary)
                             .lineSpacing(3.5)
@@ -134,7 +145,7 @@ public struct OnboardingGuideView: View {
                                             Image(systemName: isUnixCopied ? "checkmark" : "doc.on.doc")
                                                 .font(.system(size: 11, weight: .semibold))
                                                 .frame(width: 13, height: 13)
-                                            Text(isUnixCopied ? "已复制" : "一键复制")
+                                            Text(isUnixCopied ? String(localized: "已复制") : String(localized: "一键复制"))
                                                 .font(.system(size: 11, weight: .semibold))
                                         }
                                         .foregroundColor(isUnixCopied ? .green : .blue)
@@ -188,7 +199,7 @@ public struct OnboardingGuideView: View {
                                             Image(systemName: isWinCopied ? "checkmark" : "doc.on.doc")
                                                 .font(.system(size: 11, weight: .semibold))
                                                 .frame(width: 13, height: 13)
-                                            Text(isWinCopied ? "已复制" : "一键复制")
+                                            Text(isWinCopied ? String(localized: "已复制") : String(localized: "一键复制"))
                                                 .font(.system(size: 11, weight: .semibold))
                                         }
                                         .foregroundColor(isWinCopied ? .green : .blue)
@@ -326,20 +337,34 @@ public struct OnboardingGuideView: View {
                     .cornerRadius(16)
                     .padding(.horizontal, 18)
                     
-                    // Demo mode: explore the app without a desktop gateway (also used by App Review)
+                    // Demo mode: prominent secondary CTA to explore without a desktop gateway (also used by App Review)
                     if let onDemoTapped {
                         Button(action: onDemoTapped) {
-                            HStack(spacing: 6) {
-                                Image(systemName: "play.circle")
-                                    .font(.system(size: 14))
-                                Text("没有安装网关？体验演示模式")
-                                    .font(.system(size: 13.5, weight: .semibold))
+                            HStack(spacing: 10) {
+                                Image(systemName: "play.circle.fill")
+                                    .font(.system(size: 20))
+                                    .foregroundColor(.indigo)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("体验演示模式（无需连接电脑）")
+                                        .font(.system(size: 14.5, weight: .semibold))
+                                        .foregroundColor(.primary)
+                                    Text("离线预览完整会话、任务流、终端与项目切换")
+                                        .font(.system(size: 11.5))
+                                        .foregroundColor(.secondary)
+                                }
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundColor(.indigo)
                             }
-                            .foregroundColor(.indigo)
-                            .padding(.vertical, 8)
+                            .padding(.vertical, 12)
                             .padding(.horizontal, 14)
-                            .background(Color.indigo.opacity(0.1))
-                            .clipShape(Capsule())
+                            .background(Color.indigo.opacity(0.08))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .stroke(Color.indigo.opacity(0.28), lineWidth: 1)
+                            )
+                            .cornerRadius(12)
                         }
                         .accessibilityIdentifier("demoModeButton")
                     }

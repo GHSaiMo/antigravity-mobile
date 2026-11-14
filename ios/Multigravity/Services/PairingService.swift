@@ -38,13 +38,13 @@ public struct PairingInfo: Equatable, Sendable {
     public var gatewayDisplayName: String {
         switch (platform ?? os)?.lowercased() {
         case "windows", "win":
-            return "Windows 网关"
+            return String(localized: "Windows 网关")
         case "darwin", "macos", "mac":
-            return "Mac 网关"
+            return String(localized: "Mac 网关")
         case "linux":
-            return "Linux 网关"
+            return String(localized: "Linux 网关")
         default:
-            return "电脑网关"
+            return String(localized: "电脑网关")
         }
     }
     
@@ -109,15 +109,15 @@ public enum PairingError: LocalizedError, Sendable {
     public var errorDescription: String? {
         switch self {
         case .invalidURI(let msg):
-            return "无效的二维码配对链接: \(msg)"
+            return String(localized: "无效的二维码配对链接: \(msg)")
         case .missingFields(let msg):
-            return "二维码缺少必要参数: \(msg)"
+            return String(localized: "二维码缺少必要参数: \(msg)")
         case .networkError(let msg):
-            return "配对网络请求失败: \(msg)"
+            return String(localized: "配对网络请求失败: \(msg)")
         case .serverRejected(let msg):
-            return "配对失败: \(msg)"
+            return String(localized: "配对失败: \(msg)")
         case .decodingError(let msg):
-            return "配对响应解析失败: \(msg)"
+            return String(localized: "配对响应解析失败: \(msg)")
         }
     }
 }
@@ -131,16 +131,16 @@ public final class PairingService: Sendable {
     public func parsePairingURI(_ uriString: String) -> Result<PairingInfo, PairingError> {
         let trimmed = uriString.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let url = URL(string: trimmed) else {
-            return .failure(.invalidURI("无法识别的 URL 格式"))
+            return .failure(.invalidURI(String(localized: "无法识别的 URL 格式")))
         }
         
         guard url.scheme?.lowercased() == "agy" && url.host?.lowercased() == "pair" else {
-            return .failure(.invalidURI("非 Antigravity 配对协议 (需要 agy://pair)"))
+            return .failure(.invalidURI(String(localized: "无效的配对协议（需要 agy://pair）")))
         }
         
         guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
               let queryItems = components.queryItems else {
-            return .failure(.invalidURI("缺少参数"))
+            return .failure(.invalidURI(String(localized: "缺少参数")))
         }
         
         var host: String?
@@ -183,10 +183,10 @@ public final class PairingService: Sendable {
         }
         
         guard let rawHost = host?.trimmingCharacters(in: .whitespacesAndNewlines), !rawHost.isEmpty else {
-            return .failure(.missingFields("未找到主机地址 (host)"))
+            return .failure(.missingFields(String(localized: "未找到主机地址 (host)")))
         }
         guard let validCode = code?.trimmingCharacters(in: .whitespacesAndNewlines), !validCode.isEmpty else {
-            return .failure(.missingFields("未找到配对码 (code)"))
+            return .failure(.missingFields(String(localized: "未找到配对码 (code)")))
         }
         let validPort = port ?? 443
         

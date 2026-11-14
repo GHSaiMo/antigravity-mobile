@@ -144,7 +144,7 @@ public struct AgentActivityWidget: Widget {
                 .cornerRadius(5)
         } else {
             let isRunning = context.state.status == "RUNNING"
-            Text(isRunning ? "Agent 执行中" : "已就绪")
+            Text(isRunning ? String(localized: "Agent 执行中") : String(localized: "已就绪"))
                 .font(.system(size: 11.5, weight: .bold))
                 .foregroundColor(isRunning ? Color(red: 0.6, green: 0.72, blue: 1.0) : .green)
                 .padding(.horizontal, 7)
@@ -170,7 +170,7 @@ public struct AgentActivityWidget: Widget {
             if context.state.runningTaskCount > 0 {
                 let islandTasks: [AgentTaskSnapshot] = !context.state.runningTasks.isEmpty
                     ? Array(context.state.runningTasks.prefix(2))
-                    : [AgentTaskSnapshot(id: "fallback", title: context.state.activeTaskTitle ?? "后台任务", command: context.state.activeTaskCommand)]
+                    : [AgentTaskSnapshot(id: "fallback", title: context.state.activeTaskTitle ?? String(localized: "后台任务"), command: context.state.activeTaskCommand)]
                 
                 VStack(alignment: .leading, spacing: 4) {
                     ForEach(islandTasks) { task in
@@ -424,7 +424,7 @@ struct AgentLockScreenView: View {
                 .cornerRadius(5)
         } else {
             let isRunning = context.state.status == "RUNNING"
-            Text(isRunning ? "Agent 执行中" : "已就绪")
+            Text(isRunning ? String(localized: "Agent 执行中") : String(localized: "已就绪"))
                 .font(.system(size: 11.5, weight: .bold))
                 .foregroundColor(
                     isRunning
@@ -447,7 +447,7 @@ struct AgentLockScreenView: View {
     private var runningTasksBlock: some View {
         let displayedTasks: [AgentTaskSnapshot] = !context.state.runningTasks.isEmpty
             ? Array(context.state.runningTasks.prefix(2))
-            : [AgentTaskSnapshot(id: "fallback", title: context.state.activeTaskTitle ?? "后台任务", command: context.state.activeTaskCommand)]
+            : [AgentTaskSnapshot(id: "fallback", title: context.state.activeTaskTitle ?? String(localized: "后台任务"), command: context.state.activeTaskCommand)]
         
         VStack(alignment: .leading, spacing: 4) {
             ForEach(displayedTasks) { task in

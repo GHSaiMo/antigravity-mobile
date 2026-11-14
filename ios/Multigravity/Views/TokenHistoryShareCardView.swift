@@ -115,10 +115,10 @@ public struct TokenHistoryShareCardView: View {
             columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)],
             spacing: 8
         ) {
-            kpiCell(title: "今日消耗", value: AccountQuotaSheet.formatTokensCompact(s.todayTokens), sub: "\(s.activeDays) 活跃日")
-            kpiCell(title: "近 7 日", value: AccountQuotaSheet.formatTokensCompact(s.last7dTokens), sub: "\(s.totalSteps) 轮采样")
-            kpiCell(title: "累计总 Token", value: AccountQuotaSheet.formatTokensCompact(s.totalTokens), sub: "IDE \(AccountQuotaSheet.formatTokensCompact(s.desktopTokens)) · CLI \(AccountQuotaSheet.formatTokensCompact(s.cliTokens))")
-            kpiCell(title: "API 折算", value: String(format: "$%.2f", s.estimatedCostUsd), sub: String(format: "≈ ¥%.1f", s.estimatedCostCny))
+            kpiCell(title: String(localized: "今日消耗"), value: AccountQuotaSheet.formatTokensCompact(s.todayTokens), sub: String(localized: "\(s.activeDays) 活跃日"))
+            kpiCell(title: String(localized: "近 7 日"), value: AccountQuotaSheet.formatTokensCompact(s.last7dTokens), sub: String(localized: "\(s.totalSteps) 轮采样"))
+            kpiCell(title: String(localized: "累计总 Token"), value: AccountQuotaSheet.formatTokensCompact(s.totalTokens), sub: "IDE \(AccountQuotaSheet.formatTokensCompact(s.desktopTokens)) · CLI \(AccountQuotaSheet.formatTokensCompact(s.cliTokens))")
+            kpiCell(title: String(localized: "API 折算"), value: String(format: "$%.2f", s.estimatedCostUsd), sub: String(format: "≈ ¥%.1f", s.estimatedCostCny))
         }
     }
 
@@ -154,7 +154,7 @@ public struct TokenHistoryShareCardView: View {
 
         return VStack(spacing: 6) {
             HStack {
-                Text("桌面端 Antigravity \(desktopPct)% · CLI \(cliPct)%")
+                Text("桌面客户端 \(desktopPct)% · CLI \(cliPct)%")
                     .font(.system(size: 11.5, weight: .medium))
                     .foregroundColor(secondaryTextColor)
                 Spacer()

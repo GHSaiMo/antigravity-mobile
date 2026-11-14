@@ -104,7 +104,7 @@ extension ChatViewModel {
     public func openChangesSheet() {
         guard let url = settings.serverURL else { return }
         guard !isLocalDraftSession else {
-            errorMessage = "新会话还没有任何改动"
+            errorMessage = String(localized: "新会话还没有任何改动")
             return
         }
         changesSheet = ChangesSheetState()
@@ -129,7 +129,7 @@ extension ChatViewModel {
     public func openGitSheet() {
         guard settings.serverURL != nil else { return }
         guard !isLocalDraftSession else {
-            errorMessage = "新会话还没有关联的工作区"
+            errorMessage = String(localized: "新会话还没有关联的工作区")
             return
         }
         gitSheet = GitSheetState()
@@ -252,7 +252,7 @@ extension ChatViewModel {
     public func exportMarkdown() {
         guard let url = settings.serverURL else { return }
         guard !isLocalDraftSession else {
-            errorMessage = "新会话还没有内容可导出"
+            errorMessage = String(localized: "新会话还没有内容可导出")
             return
         }
         let id = cascadeId
@@ -262,13 +262,13 @@ extension ChatViewModel {
             do {
                 let md = try await apiClient.exportConversationMarkdown(cascadeId: id, baseURL: url)
                 guard !md.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                    self.errorMessage = "会话内容为空，无法导出"
+                    self.errorMessage = String(localized: "会话内容为空，无法导出")
                     return
                 }
                 let file = try MarkdownExportWriter.write(markdown: md, title: title)
                 self.exportedMarkdownFile = ExportedMarkdownFile(url: file)
             } catch {
-                self.errorMessage = "导出失败: \(error.localizedDescription)"
+                self.errorMessage = String(localized: "导出失败: \(error.localizedDescription)")
             }
         }
     }

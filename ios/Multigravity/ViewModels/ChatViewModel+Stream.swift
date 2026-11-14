@@ -371,7 +371,7 @@ extension ChatViewModel {
             await self.loadMessages(isBackgroundPoll: true)
         } catch {
             isSubmittingInteraction = false
-            errorMessage = "提交失败: \(error.localizedDescription)"
+            errorMessage = String(localized: "提交失败: \(error.localizedDescription)")
         }
     }
     
@@ -409,7 +409,7 @@ extension ChatViewModel {
             await self.loadMessages(isBackgroundPoll: true)
         } catch {
             isSubmittingInteraction = false
-            errorMessage = "跳过失败: \(error.localizedDescription)"
+            errorMessage = String(localized: "跳过失败: \(error.localizedDescription)")
         }
     }
     

@@ -189,7 +189,7 @@ extension ChatView {
                 return last
             }
             let fn = (unescaped as NSString).lastPathComponent
-            return fn.isEmpty ? "文档详情" : fn
+            return fn.isEmpty ? String(localized: "文档详情") : fn
         }()
         
         // 1. Images, Presentations, Videos, Audio & Office documents (PNG, JPG, MP4, MOV, M4A, MP3, PPTX, PPT, KEY, DOCX, XLSX, PDF, HTML, etc.)

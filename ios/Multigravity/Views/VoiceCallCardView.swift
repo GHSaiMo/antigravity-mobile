@@ -21,9 +21,9 @@ public struct VoiceCallCardView: View {
         }
         switch voiceCall.callState {
         case .connecting:
-            return "正在准备麦克风与连接语音服务..."
+            return String(localized: "正在准备麦克风与连接语音服务...")
         case .reconnecting:
-            return "语音服务重连中..."
+            return String(localized: "语音服务重连中...")
         default:
             return ""
         }
@@ -204,9 +204,9 @@ public struct VoiceCallCardView: View {
     private var statusTimerLabel: String {
         switch voiceCall.callState {
         case .connecting:
-            return "连接中"
+            return String(localized: "连接中")
         case .reconnecting:
-            return "重连中"
+            return String(localized: "重连中")
         case .listening, .idle, .failed:
             let totalSeconds = Int(voiceCall.duration)
             let minutes = totalSeconds / 60

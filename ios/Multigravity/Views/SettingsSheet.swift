@@ -10,6 +10,9 @@ public struct SettingsSheet: View {
     @State private var customAddress: String = ""
     @State private var modelCatalog = ModelCatalogStore.shared
     @State private var showMcpSkillsSheet: Bool = false
+    @State private var webSheetURL: IdentifiableURL? = nil
+    @State private var showPrivacyPolicySheet: Bool = false
+    @State private var showLicensesSheet: Bool = false
     
     public init() {}
     
@@ -19,7 +22,9 @@ public struct SettingsSheet: View {
                 // MARK: - 1. 设备配对与鉴权
                 Section(
                     header: Text("设备配对"),
-                    footer: Text(settings.isDemoMode ? "当前为演示模式，数据均为模拟，不会连接任何电脑。" : "管理当前设备与 \(settings.gatewayPlatformDisplayName)的配对状态。")
+                    footer: Text(settings.isDemoMode
+                                 ? String(localized: "当前为演示模式，数据均为模拟，不会连接任何电脑。")
+                                 : String(localized: "管理当前设备与 \(settings.gatewayPlatformDisplayName) 的配对状态。"))
                 ) {
                     HStack {
                         Text("配对状态")
@@ -29,7 +34,7 @@ public struct SettingsSheet: View {
                                 Image(systemName: "checkmark.circle.fill")
                                     .foregroundColor(.green)
                                     .font(.system(size: 14))
-                                Text(settings.isDemoMode ? "演示模式" : "已配对")
+                                Text(settings.isDemoMode ? String(localized: "演示模式") : String(localized: "已配对"))
                                     .foregroundColor(.secondary)
                             }
                         } else {
@@ -53,7 +58,7 @@ public struct SettingsSheet: View {
                     Button(role: .destructive, action: {
                         showUnpairAlert = true
                     }) {
-                        Text(settings.isDemoMode ? "退出演示模式" : "解除设备配对")
+                        Text(settings.isDemoMode ? String(localized: "退出演示模式") : String(localized: "解除设备配对"))
                     }
                 }
                 
@@ -142,13 +147,13 @@ public struct SettingsSheet: View {
                     footer: Text(favoriteModelFooter)
                 ) {
                     favoriteModelPicker(
-                        title: "常用模型 1",
-                        subtitle: "进入新会话首选",
+                        title: String(localized: "常用模型 1"),
+                        subtitle: String(localized: "进入新会话首选"),
                         selection: $settings.favoriteModel1
                     )
                     favoriteModelPicker(
-                        title: "常用模型 2",
-                        subtitle: "单击胶囊快速切换",
+                        title: String(localized: "常用模型 2"),
+                        subtitle: String(localized: "单击胶囊快速切换"),
                         selection: $settings.favoriteModel2
                     )
                 }
@@ -233,8 +238,52 @@ public struct SettingsSheet: View {
                     HStack {
                         Text("版本")
                         Spacer()
-                        Text(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.1.4")
+                        Text(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.1.6")
                             .foregroundColor(.secondary)
+                    }
+                    Button {
+                        showPrivacyPolicySheet = true
+                    } label: {
+                        HStack {
+                            Text("隐私政策")
+                                .foregroundColor(.primary)
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    Button {
+                        if let url = URL(string: "https://github.com/GHSaiMo/antigravity-mobile") {
+                            webSheetURL = IdentifiableURL(url: url)
+                        }
+                    } label: {
+                        HStack {
+                            Text("支持与源代码")
+                                .foregroundColor(.primary)
+                            Spacer()
+                            Text("GitHub")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                            Image(systemName: "arrow.up.right.square")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    Button {
+                        showLicensesSheet = true
+                    } label: {
+                        HStack {
+                            Text("开源许可")
+                                .foregroundColor(.primary)
+                            Spacer()
+                            Text("MIT")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                            Image(systemName: "chevron.right")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
                     }
                 }
             }
@@ -255,9 +304,9 @@ public struct SettingsSheet: View {
                 await modelCatalog.refresh(settings: settings, baseURL: url, force: true)
             }
         }
-        .alert(settings.isDemoMode ? "确定退出演示模式？" : "确定解除设备配对？", isPresented: $showUnpairAlert) {
+        .alert(settings.isDemoMode ? String(localized: "确定退出演示模式？") : String(localized: "确定解除设备配对？"), isPresented: $showUnpairAlert) {
             Button("取消", role: .cancel) {}
-            Button(settings.isDemoMode ? "退出演示" : "解除配对", role: .destructive) {
+            Button(settings.isDemoMode ? String(localized: "退出演示") : String(localized: "解除配对"), role: .destructive) {
                 let currentURL = settings.serverURL
                 let currentCandidates = settings.candidateEndpoints.compactMap { URL(string: $0.urlString) }
                 let currentToken = settings.deviceToken
@@ -280,8 +329,8 @@ public struct SettingsSheet: View {
             }
         } message: {
             Text(settings.isDemoMode
-                 ? "将退出演示模式并回到欢迎页，演示数据会被清除。"
-                 : "解除配对将通知网关清理此设备绑定，并清除本地访问令牌与网关配置。")
+                 ? String(localized: "将退出演示模式并回到欢迎页，演示数据会被清除。")
+                 : String(localized: "解除配对将通知网关清理此设备绑定，并清除本地访问令牌与网关配置。"))
         }
         .alert("确定清空本地缓存？", isPresented: $showClearCacheAlert) {
             Button("取消", role: .cancel) {}
@@ -296,6 +345,20 @@ public struct SettingsSheet: View {
         .sheet(isPresented: $showMcpSkillsSheet) {
             McpSkillsSheet()
         }
+        .sheet(item: $webSheetURL) { item in
+            SafariWebViewSheet(url: item.url)
+        }
+        .sheet(isPresented: $showPrivacyPolicySheet) {
+            PrivacyPolicySheet(onOpenWeb: { url in
+                showPrivacyPolicySheet = false
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                    webSheetURL = IdentifiableURL(url: url)
+                }
+            })
+        }
+        .sheet(isPresented: $showLicensesSheet) {
+            OpenSourceLicensesSheet()
+        }
     }
 }
 
@@ -304,11 +367,11 @@ public struct SettingsSheet: View {
 
 extension SettingsSheet {
     fileprivate var favoriteModelFooter: String {
-        if modelCatalog.isLoading && modelCatalog.catalog == nil { return "正在读取可用模型..." }
+        if modelCatalog.isLoading && modelCatalog.catalog == nil { return String(localized: "正在读取可用模型...") }
         if modelCatalog.loadFailed && modelCatalog.catalog == nil {
-            return "暂时无法读取实时模型列表，可先从内置列表中选择常用模型；进入新会话首选常用模型 1，单击模型胶囊可在两个常用模型间快速切换。"
+            return String(localized: "暂时无法读取实时模型列表，可先从内置列表中选择常用模型；进入新会话首选常用模型 1，单击模型胶囊可在两个常用模型间快速切换。")
         }
-        return "两个常用模型均可在全部可用模型与全部思考强度中任选。进入新会话首选常用模型 1；单击输入框上方模型胶囊在两个常用模型间快速切换，长按可从全部模型中单独选择。"
+        return String(localized: "两个常用模型均可在全部可用模型与全部思考强度中任选。进入新会话首选常用模型 1；单击输入框上方模型胶囊在两个常用模型间快速切换，长按可从全部模型中单独选择。")
     }
 
     private func providerSectionTitle(_ key: String) -> String {
@@ -316,7 +379,7 @@ extension SettingsSheet {
         case "gemini": return "Gemini"
         case "claude": return "Claude"
         case "orchestrator": return "Orchestrator"
-        default: return "其他模型"
+        default: return String(localized: "其他模型")
         }
     }
 
@@ -363,5 +426,114 @@ extension SettingsSheet {
         }
         .pickerStyle(.menu)
         .disabled(all.isEmpty)
+    }
+}
+
+// MARK: - 隐私政策与开源许可
+
+private struct PrivacyPolicySheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let onOpenWeb: (URL) -> Void
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section(header: Text("数据收集与连接方式")) {
+                    Text("Multigravity 不包含任何第三方广告 SDK、行为追踪或开发者云端遥测服务。所有会话消息、项目文件与终端输出仅在您的 iOS 设备与您手动配对的自托管网关之间直接传输。")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .padding(.vertical, 4)
+                }
+
+                Section(header: Text("本地存储")) {
+                    Text("设备仅在本地保存网关主机地址、TLS 选项、配对鉴权凭证以及会话/UI 偏好缓存。您可以随时在设置中清空缓存或解除配对。")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .padding(.vertical, 4)
+                }
+
+                Section(header: Text("系统权限用途")) {
+                    Text("相机仅用于扫描配对二维码；本地网络仅用于发现与连接局域网/VPN 网关；麦克风与语音识别仅用于语音输入；相册仅用于选取附件或保存图片。")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .padding(.vertical, 4)
+                }
+
+                Section(header: Text("演示模式")) {
+                    Text("开启演示模式时，所有示例工程与会话均在设备本地离线生成，不会发起网络请求。")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .padding(.vertical, 4)
+                }
+
+                Section {
+                    Button {
+                        if let url = URL(string: "https://github.com/GHSaiMo/antigravity-mobile/blob/main/PRIVACY.md") {
+                            onOpenWeb(url)
+                        }
+                    } label: {
+                        HStack {
+                            Text("在浏览器中查看完整英文/中文隐私政策")
+                            Spacer()
+                            Image(systemName: "arrow.up.right.square")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
+            }
+            .navigationTitle("隐私政策")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完成") { dismiss() }
+                }
+            }
+        }
+    }
+}
+
+private struct OpenSourceLicensesSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    private let items: [(name: String, license: String, summary: String)] = [
+        ("Multigravity", "MIT License", "Copyright (c) 2026 Multigravity Contributors"),
+        ("ZLPhotoBrowser", "MIT License", "Lightweight iOS photo picker framework used for attachment selection."),
+        ("Mermaid", "MIT License", "Diagram and flowchart rendering engine bundled for offline preview."),
+        ("highlight.js", "BSD-3-Clause License", "Syntax highlighting library used in code and file preview.")
+    ]
+
+    var body: some View {
+        NavigationStack {
+            List {
+                ForEach(items, id: \.name) { item in
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text(item.name)
+                                .font(.headline)
+                            Spacer()
+                            Text(item.license)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 2)
+                                .background(Color.secondary.opacity(0.12))
+                                .clipShape(Capsule())
+                        }
+                        Text(item.summary)
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.vertical, 4)
+                }
+            }
+            .navigationTitle("开源许可")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完成") { dismiss() }
+                }
+            }
+        }
     }
 }

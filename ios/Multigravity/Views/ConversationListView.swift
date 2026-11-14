@@ -352,7 +352,7 @@ public struct ConversationListView: View {
         }
         let fallback = ConversationItem(
             id: targetId,
-            title: viewModel.globalBackgroundTasks.first(where: { $0.conversationId == targetId })?.conversationTitle ?? "会话详情",
+            title: viewModel.globalBackgroundTasks.first(where: { $0.conversationId == targetId })?.conversationTitle ?? String(localized: "会话详情"),
             status: .running,
             stepCount: 1,
             workspaceName: viewModel.globalBackgroundTasks.first(where: { $0.conversationId == targetId })?.workspaceName ?? "",
@@ -373,7 +373,9 @@ public struct ConversationListView: View {
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundColor(.indigo)
 
-                Text(daemonCount > 0 ? "\(count) 个后台任务运行中（\(daemonCount) 个常驻）" : "\(count) 个后台任务运行中")
+                Text(daemonCount > 0
+                     ? String(localized: "\(count) 个后台任务运行中（\(daemonCount) 个常驻）")
+                     : String(localized: "\(count) 个后台任务运行中"))
                     .font(.system(size: 12, weight: .medium))
                     .foregroundColor(.primary)
                     .lineLimit(1)
@@ -513,7 +515,7 @@ public struct ConversationListView: View {
             HStack(spacing: 10) {
                 ProgressView()
                     .scaleEffect(0.9)
-                Text(isPairingInProgress ? "正在连接网关并同步会话列表..." : "正在同步会话列表...")
+                Text(isPairingInProgress ? String(localized: "正在连接网关并同步会话列表...") : String(localized: "正在同步会话列表..."))
                     .font(.system(size: 13.5, weight: .medium))
                     .foregroundColor(.secondary)
             }
@@ -606,11 +608,13 @@ public struct ConversationListView: View {
     private var emptyView: some View {
         ContentUnavailableView {
             Label(
-                viewModel.searchQuery.isEmpty ? "暂无会话" : "未找到匹配会话",
+                viewModel.searchQuery.isEmpty ? String(localized: "暂无会话") : String(localized: "未找到匹配会话"),
                 systemImage: viewModel.searchQuery.isEmpty ? "bubble.left.and.bubble.right" : "magnifyingglass"
             )
         } description: {
-            Text(viewModel.searchQuery.isEmpty ? "可点击右上角 + 开启新会话，或下拉刷新同步" : "请尝试其他关键词搜索")
+            Text(viewModel.searchQuery.isEmpty
+                 ? String(localized: "可点击右上角 + 开启新会话，或下拉刷新同步")
+                 : String(localized: "请尝试其他关键词搜索"))
         } actions: {
             if viewModel.searchQuery.isEmpty {
                 Button("刷新列表") {
@@ -688,8 +692,8 @@ public struct ConversationListView: View {
 
                     .confirmationDialog(
                         (conversationToPin?.isPinned == true)
-                            ? "确定取消置顶此会话吗？"
-                            : "确定置顶此会话吗？\n置顶后该会话将固定显示在会话列表顶部。",
+                            ? String(localized: "确定取消置顶此会话吗？")
+                            : String(localized: "确定置顶此会话吗？\n置顶后该会话将固定显示在会话列表顶部。"),
                         isPresented: Binding(
                             get: { showPinConfirm && conversationToPin?.id == item.id },
                             set: { if !$0 {
@@ -699,7 +703,7 @@ public struct ConversationListView: View {
                         ),
                         titleVisibility: .visible
                     ) {
-                        Button((conversationToPin?.isPinned == true) ? "取消置顶" : "置顶会话") {
+                        Button((conversationToPin?.isPinned == true) ? String(localized: "取消置顶") : String(localized: "置顶会话")) {
                             showPinConfirm = false
                             if let target = conversationToPin {
                                 UIImpactFeedbackGenerator(style: .medium).impactOccurred()
@@ -715,8 +719,8 @@ public struct ConversationListView: View {
 
                     .confirmationDialog(
                         (conversationToDelete?.isDraft == true)
-                            ? "确定删除此草稿会话吗？\n此操作将删除本地临时会话且无法撤销。"
-                            : "确定删除此会话吗？\n此操作将永久删除会话记录且无法撤销。",
+                            ? String(localized: "确定删除此草稿会话吗？\n此操作将删除本地临时会话且无法撤销。")
+                            : String(localized: "确定删除此会话吗？\n此操作将永久删除会话记录且无法撤销。"),
                         isPresented: Binding(
                             get: { showDeleteConfirm && conversationToDelete?.id == item.id },
                             set: { if !$0 { 
@@ -788,7 +792,7 @@ public struct ConversationListView: View {
             highlight: highlight
         )
         return VStack(alignment: .leading, spacing: 6) {
-            Text(hit.item.title.isEmpty ? "未命名会话" : hit.item.title)
+            Text(hit.item.title.isEmpty ? String(localized: "未命名会话") : hit.item.title)
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundColor(.primary)
                 .lineLimit(1)
@@ -851,11 +855,11 @@ public struct ConversationListView: View {
     
     private var pendingPairingConfirmText: String {
         guard let info = pendingPairing else {
-            return "请确认这是你自己的电脑网关，不要配对来历不明的链接。"
+            return String(localized: "请确认这是你自己的电脑网关，不要配对来历不明的链接。")
         }
         let scheme = info.ssl ? "HTTPS" : "HTTP"
         let gatewayName = info.gatewayDisplayName
-        return "目标 \(info.host):\(info.port)（\(scheme)）。请确认这是你自己的 \(gatewayName)，不要配对来历不明的链接。"
+        return String(localized: "目标 \(info.host):\(info.port)（\(scheme)）。请确认这是你自己的 \(gatewayName)，不要配对来历不明的链接。")
     }
     
     @MainActor
@@ -891,14 +895,14 @@ public struct ConversationListView: View {
     private func handleSharedFile(_ url: URL) {
         guard settings.isPaired else {
             try? FileManager.default.removeItem(at: url)
-            pairingErrorMessage = "请先完成配对，再分享文件到 Multigravity"
+            pairingErrorMessage = String(localized: "请先完成配对，再分享文件到 Multigravity")
             return
         }
         shareInbox.receive([url])
     }
     
     private func handleDeepLink(_ url: URL) {
-        guard url.scheme == "antigravity" || url.scheme == "agy" else { return }
+        guard url.scheme == "antigravity" || url.scheme == "agy" || url.scheme == "multigravity" else { return }
         
         // Handle agy://pair pairing deep link
         if url.host == "pair" {
@@ -967,7 +971,7 @@ public struct ConversationListView: View {
         } else {
             targetItem = ConversationItem(
                 id: cascadeId,
-                title: "会话",
+                title: String(localized: "会话"),
                 status: .running,
                 stepCount: 0,
                 workspaceName: "Chat",

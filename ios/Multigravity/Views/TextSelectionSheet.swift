@@ -8,7 +8,7 @@ public struct TextSelectionSheet: View {
     public let title: String
     public let content: String
     
-    public init(title: String = "选择文本", content: String) {
+    public init(title: String = String(localized: "选择文本"), content: String) {
         self.title = title
         self.content = content
     }

@@ -231,7 +231,7 @@ extension APIClient {
         let attributes = try? FileManager.default.attributesOfItem(atPath: cachedURL.path)
         let fileSize = (attributes?[.size] as? Int64) ?? 0
         if fileSize == 0 {
-            throw APIError.serverError(statusCode: 500, message: "下载的文件为空")
+            throw APIError.serverError(statusCode: 500, message: String(localized: "下载的文件为空"))
         }
         
         return (cachedURL, resolvedFileName)

@@ -52,10 +52,10 @@ public struct ProjectItem: Identifiable, Hashable, Codable, Sendable {
     public var relativeTimeString: String {
         guard let date = lastActive else { return "" }
         let diff = Date().timeIntervalSince(date)
-        if diff < 60 { return "刚刚" }
-        if diff < 3600 { return "\(Int(diff / 60))分钟前" }
-        if diff < 86400 { return "\(Int(diff / 3600))小时前" }
-        return "\(Int(diff / 86400))天前"
+        if diff < 60 { return String(localized: "刚刚") }
+        if diff < 3600 { return String(localized: "\(Int(diff / 60))分钟前") }
+        if diff < 86400 { return String(localized: "\(Int(diff / 3600))小时前") }
+        return String(localized: "\(Int(diff / 86400))天前")
     }
     
     public static let pureChat = ProjectItem(

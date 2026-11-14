@@ -115,9 +115,9 @@ struct DraftFileChipView: View {
     
     private var subtitle: String {
         switch file.state {
-        case .failed: return "上传失败，点按重试"
+        case .failed: return String(localized: "上传失败，点按重试")
         case .done: return formatFileSize(file.size)
-        default: return "\(formatFileSize(file.size)) · 上传中"
+        default: return String(localized: "\(formatFileSize(file.size)) · 上传中")
         }
     }
 }

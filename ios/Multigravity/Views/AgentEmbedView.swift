@@ -50,7 +50,7 @@ public struct AgentEmbedView: View {
         if !nameWithoutExt.isEmpty && nameWithoutExt != "interactive_preview" && nameWithoutExt != "widget" {
             return nameWithoutExt
         }
-        return "交互预览"
+        return String(localized: "交互预览")
     }
     
     public var body: some View {
@@ -243,7 +243,7 @@ public struct AgentEmbedView: View {
         }
         
         guard let baseURL = AppSettings.shared.gatewayURL else {
-            self.errorMessage = "未配置网关服务器"
+            self.errorMessage = String(localized: "未配置网关服务器")
             return
         }
         

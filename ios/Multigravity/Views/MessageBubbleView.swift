@@ -108,7 +108,7 @@ public struct MessageBubbleView: View {
         }
         .sheet(isPresented: $showTextSelectionSheet) {
             TextSelectionSheet(
-                title: "选择文本",
+                title: String(localized: "选择文本"),
                 content: agentPlainText
             )
             .presentationDetents([.medium, .large])

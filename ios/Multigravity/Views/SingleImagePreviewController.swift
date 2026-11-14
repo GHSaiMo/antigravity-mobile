@@ -174,13 +174,13 @@ final class SingleImagePreviewController: UIViewController, UIScrollViewDelegate
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         
         let alert = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
-        alert.addAction(UIAlertAction(title: "保存图片", style: .default) { [weak self] _ in
+        alert.addAction(UIAlertAction(title: String(localized: "保存图片"), style: .default) { [weak self] _ in
             self?.saveToPhotosAlbum()
         })
-        alert.addAction(UIAlertAction(title: "分享图片", style: .default) { [weak self] _ in
+        alert.addAction(UIAlertAction(title: String(localized: "分享图片"), style: .default) { [weak self] _ in
             self?.shareImage()
         })
-        alert.addAction(UIAlertAction(title: "取消", style: .cancel, handler: nil))
+        alert.addAction(UIAlertAction(title: String(localized: "取消"), style: .cancel, handler: nil))
         
         if let popover = alert.popoverPresentationController {
             popover.sourceView = view
@@ -204,7 +204,7 @@ final class SingleImagePreviewController: UIViewController, UIScrollViewDelegate
     
     private func saveToPhotosAlbum() {
         guard let image = imageView.image else {
-            showToast(message: "图片正在加载，请稍后重试", isError: true)
+            showToast(message: String(localized: "图片正在加载，请稍后重试"), isError: true)
             return
         }
         let fileURL = item.url
@@ -212,19 +212,19 @@ final class SingleImagePreviewController: UIViewController, UIScrollViewDelegate
             switch await ImageActions.saveToPhotos(image, fileURL: fileURL) {
             case .saved:
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
-                self?.showToast(message: "已保存到相册", isError: false)
+                self?.showToast(message: String(localized: "已保存到相册"), isError: false)
             case .denied:
                 self?.showPermissionAlert()
             case .failed(let message):
                 UINotificationFeedbackGenerator().notificationOccurred(.error)
-                self?.showToast(message: "保存失败: \(message)", isError: true)
+                self?.showToast(message: String(localized: "保存失败: \(message)"), isError: true)
             }
         }
     }
     
     private func shareImage() {
         guard let image = imageView.image else {
-            showToast(message: "图片正在加载，请稍后重试", isError: true)
+            showToast(message: String(localized: "图片正在加载，请稍后重试"), isError: true)
             return
         }
         ImageActions.share(image, from: self, sourceView: view)
@@ -232,27 +232,27 @@ final class SingleImagePreviewController: UIViewController, UIScrollViewDelegate
     
     private func copyImage() {
         guard let image = imageView.image else {
-            showToast(message: "图片正在加载，请稍后重试", isError: true)
+            showToast(message: String(localized: "图片正在加载，请稍后重试"), isError: true)
             return
         }
         UIPasteboard.general.image = image
         UINotificationFeedbackGenerator().notificationOccurred(.success)
-        showToast(message: "已拷贝图片", isError: false)
+        showToast(message: String(localized: "已拷贝图片"), isError: false)
     }
     
     private func showPermissionAlert() {
         let alert = UIAlertController(
-            title: "需要相册权限",
-            message: "请在系统“设置”中允许 Multigravity 访问相册以保存图片。",
+            title: String(localized: "需要相册权限"),
+            message: String(localized: "请在系统“设置”中允许 Multigravity 访问相册以保存图片。"),
             preferredStyle: .alert
         )
-        alert.addAction(UIAlertAction(title: "前往设置", style: .default) { _ in
+        alert.addAction(UIAlertAction(title: String(localized: "前往设置"), style: .default) { _ in
             if let settingsURL = URL(string: UIApplication.openSettingsURLString),
                UIApplication.shared.canOpenURL(settingsURL) {
                 UIApplication.shared.open(settingsURL)
             }
         })
-        alert.addAction(UIAlertAction(title: "取消", style: .cancel, handler: nil))
+        alert.addAction(UIAlertAction(title: String(localized: "取消"), style: .cancel, handler: nil))
         present(alert, animated: true)
     }
     

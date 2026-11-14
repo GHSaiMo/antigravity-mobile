@@ -488,7 +488,7 @@ extension ChatViewModel {
                 // Immediately register new conversation item in cache
                 let newConv = ConversationItem(
                     id: newCascadeId,
-                    title: isPure ? "新对话" : project.name,
+                    title: isPure ? String(localized: "新对话") : project.name,
                     status: .running,
                     stepCount: 1,
                     workspaceName: isPure ? "Chat" : project.name,
@@ -640,7 +640,7 @@ extension ChatViewModel {
 
         let newConv = ConversationItem(
             id: newCascadeId,
-            title: isPure ? "新对话" : resolvedProject.name,
+            title: isPure ? String(localized: "新对话") : resolvedProject.name,
             status: .idle,
             stepCount: 0,
             workspaceName: isPure ? "Chat" : resolvedProject.name,

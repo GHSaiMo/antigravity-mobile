@@ -872,9 +872,9 @@ struct ContextAuditSheetView: View {
                 .tint(accentColor)
 
             HStack(spacing: 8) {
-                auditTile(title: "输出速度", value: (meter.tokensPerSecond ?? 0) > 0 ? String(format: "%.1f t/s", meter.tokensPerSecond ?? 0) : "--")
-                auditTile(title: "首字延迟 (TTFT)", value: (meter.timeToFirstTokenSec ?? 0) > 0 ? String(format: "%.2fs", meter.timeToFirstTokenSec ?? 0) : "--")
-                auditTile(title: "流式耗时", value: (meter.streamingDurationSec ?? 0) > 0 ? String(format: "%.1fs", meter.streamingDurationSec ?? 0) : "--")
+                auditTile(title: String(localized: "输出速度"), value: (meter.tokensPerSecond ?? 0) > 0 ? String(format: "%.1f t/s", meter.tokensPerSecond ?? 0) : "--")
+                auditTile(title: String(localized: "首字延迟 (TTFT)"), value: (meter.timeToFirstTokenSec ?? 0) > 0 ? String(format: "%.2fs", meter.timeToFirstTokenSec ?? 0) : "--")
+                auditTile(title: String(localized: "流式耗时"), value: (meter.streamingDurationSec ?? 0) > 0 ? String(format: "%.1fs", meter.streamingDurationSec ?? 0) : "--")
             }
 
             VStack(alignment: .leading, spacing: 8) {

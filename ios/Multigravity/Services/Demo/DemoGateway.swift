@@ -19,6 +19,14 @@ final class DemoGateway: @unchecked Sendable {
 
     static let shared = DemoGateway()
 
+    static var isZH: Bool {
+        Locale.preferredLanguages.first?.hasPrefix("zh") == true
+    }
+
+    static func t(_ zh: String, _ en: String) -> String {
+        isZH ? zh : en
+    }
+
     struct Project {
         let id: String
         let name: String
@@ -339,9 +347,9 @@ final class DemoGateway: @unchecked Sendable {
         var payload: [String: Any] = [
             "status": "ok",
             "os": "darwin",
-            "platform": "macOS (Apple M4 Max · 演示网关)",
+            "platform": Self.t("macOS (Apple M4 Max · 演示网关)", "macOS (Apple M4 Max · Demo Gateway)"),
             "usedInterface": "DemoLoopback",
-            "connectionDescription": "本机演示模拟网关",
+            "connectionDescription": Self.t("本机演示模拟网关", "Local On-Device Demo Gateway"),
             "upstream": [
                 "pid": 4821,
                 "port": 51034,
@@ -398,19 +406,19 @@ final class DemoGateway: @unchecked Sendable {
 
     func slashCommandsPayload() -> [String: Any] {
         let commands: [[String: Any]] = [
-            ["name": "compact", "title": "压缩上下文", "description": "提炼当前对话关键事实并大幅释放上下文窗口占用", "icon": "collapse_all", "kind": "system"],
-            ["name": "plan", "title": "制定实施计划", "description": "先拆解架构、关键路径与风险，确认后再动手改代码", "icon": "ballot", "kind": "system"],
-            ["name": "grill-me", "title": "深度追问对齐", "description": "通过多轮聚焦提问暴露隐含前提并消除设计歧义", "icon": "forum", "kind": "system"],
-            ["name": "workflow", "title": "动态多智能体工作流", "description": "编写并执行 Python 并发/流水线编排工作流脚本", "icon": "graph_2", "kind": "system"],
-            ["name": "teamwork", "title": "蜂群协同攻坚", "description": "组建多角色 Swarm Agent 协作板并发推进大型任务", "icon": "graph_2", "kind": "system"],
-            ["name": "goal", "title": "长程目标模式", "description": "持续自主验证与迭代直至完全达成验收目标", "icon": "timer", "kind": "system"],
-            ["name": "boost", "title": "深度思考强化", "description": "调用多视角严格验证与高算力推理链路", "icon": "bolt", "kind": "system"],
-            ["name": "schedule", "title": "定时自动化", "description": "创建 Cron 定时巡检或延时唤醒触发器", "icon": "schedule", "kind": "system"],
-            ["name": "btw", "title": "旁路快问", "description": "不打断主线上下文的轻量临时提问", "icon": "chat_add_on", "kind": "system"],
-            ["name": "chart-generator", "title": "chart-generator", "description": "自动化图表生成与多维度可视化分析", "icon": "code_blocks", "kind": "skill"],
-            ["name": "sql-inspector", "title": "sql-inspector", "description": "SQL 查询调优与执行计划诊断", "icon": "code_blocks", "kind": "skill"],
-            ["name": "jiuge-market-analysis", "title": "jiuge-market-analysis", "description": "首席宏观研判与市场逻辑观点体系", "icon": "lightbulb_2", "kind": "skill"],
-            ["name": "swift-refactor", "title": "swift-refactor", "description": "SwiftUI / Swift 并发与视图拆分重构指南", "icon": "code", "kind": "skill"]
+            ["name": "compact", "title": Self.t("压缩上下文", "Compact Context"), "description": Self.t("提炼当前对话关键事实并大幅释放上下文窗口占用", "Summarize key facts and free context window capacity"), "icon": "collapse_all", "kind": "system"],
+            ["name": "plan", "title": Self.t("制定实施计划", "Create Plan"), "description": Self.t("先拆解架构、关键路径与风险，确认后再动手改代码", "Break down architecture, milestones, and risks before coding"), "icon": "ballot", "kind": "system"],
+            ["name": "grill-me", "title": Self.t("深度追问对齐", "Deep Clarify"), "description": Self.t("通过多轮聚焦提问暴露隐含前提并消除设计歧义", "Ask focused follow-up questions to resolve design ambiguity"), "icon": "forum", "kind": "system"],
+            ["name": "workflow", "title": Self.t("动态多智能体工作流", "Multi-Agent Workflow"), "description": Self.t("编写并执行 Python 并发/流水线编排工作流脚本", "Write and run a concurrent/pipelined multi-agent Python workflow"), "icon": "graph_2", "kind": "system"],
+            ["name": "teamwork", "title": Self.t("蜂群协同攻坚", "Swarm Teamwork"), "description": Self.t("组建多角色 Swarm Agent 协作板并发推进大型任务", "Coordinate multiple Swarm agents via a shared board"), "icon": "graph_2", "kind": "system"],
+            ["name": "goal", "title": Self.t("长程目标模式", "Goal Mode"), "description": Self.t("持续自主验证与迭代直至完全达成验收目标", "Iterate and self-verify autonomously until acceptance criteria pass"), "icon": "timer", "kind": "system"],
+            ["name": "boost", "title": Self.t("深度思考强化", "Deep Reasoning"), "description": Self.t("调用多视角严格验证与高算力推理链路", "Enable multi-perspective reasoning and rigorous verification"), "icon": "bolt", "kind": "system"],
+            ["name": "schedule", "title": Self.t("定时自动化", "Schedule Automation"), "description": Self.t("创建 Cron 定时巡检或延时唤醒触发器", "Create a recurring cron job or delayed timer trigger"), "icon": "schedule", "kind": "system"],
+            ["name": "btw", "title": Self.t("旁路快问", "Side Question"), "description": Self.t("不打断主线上下文的轻量临时提问", "Ask a lightweight side question without altering main context"), "icon": "chat_add_on", "kind": "system"],
+            ["name": "chart-generator", "title": "chart-generator", "description": Self.t("自动化图表生成与多维度可视化分析", "Automated data visualization and chart generation"), "icon": "code_blocks", "kind": "skill"],
+            ["name": "sql-inspector", "title": "sql-inspector", "description": Self.t("SQL 查询调优与执行计划诊断", "SQL query tuning and execution-plan diagnostics"), "icon": "code_blocks", "kind": "skill"],
+            ["name": "swift-concurrency-audit", "title": "swift-concurrency-audit", "description": Self.t("Swift 6 并发模型与 Actor 隔离静态审查", "Swift 6 concurrency and actor-isolation static audit"), "icon": "lightbulb_2", "kind": "skill"],
+            ["name": "swift-refactor", "title": "swift-refactor", "description": Self.t("SwiftUI / Swift 并发与视图拆分重构指南", "SwiftUI view decomposition and concurrency refactoring guide"), "icon": "code", "kind": "skill"]
         ]
         return ["commands": commands]
     }
@@ -523,9 +531,9 @@ final class DemoGateway: @unchecked Sendable {
         let days = secs / 86400
         let hours = (secs % 86400) / 3600
         let mins = (secs % 3600) / 60
-        if days > 0 { return "\(days) 天 \(hours) 小时后" }
-        if hours > 0 { return "\(hours) 小时 \(mins) 分后" }
-        return "\(mins) 分钟后"
+        if days > 0 { return Self.isZH ? "\(days) 天 \(hours) 小时后" : "in \(days)d \(hours)h" }
+        if hours > 0 { return Self.isZH ? "\(hours) 小时 \(mins) 分后" : "in \(hours)h \(mins)m" }
+        return Self.isZH ? "\(mins) 分钟后" : "in \(mins)m"
     }
 
     func tokenHistoryPayload() -> Data {
@@ -650,11 +658,11 @@ final class DemoGateway: @unchecked Sendable {
         let chosenModel = (model?.isEmpty == false) ? model! : activeGlobalModelId
         let conv = Conversation(
             id: id,
-            title: "新对话",
+            title: Self.t("新对话", "New Chat"),
             workspaceName: wsName,
             workspaceUri: wsUri,
             status: "CASCADE_RUN_STATUS_IDLE",
-            duration: "0秒",
+            duration: Self.t("0秒", "0s"),
             messages: [],
             pendingInteraction: nil,
             canProceed: false,
@@ -693,7 +701,7 @@ final class DemoGateway: @unchecked Sendable {
                 behind: 0,
                 detached: false,
                 files: [],
-                githubTarget: ["host": "github.com", "owner": "hal9000", "repo": wsName, "branch": "main"],
+                githubTarget: ["host": "github.com", "owner": "demo-dev", "repo": wsName, "branch": "main"],
                 pullRequests: []
             ) : nil,
             changes: [],
@@ -740,7 +748,7 @@ final class DemoGateway: @unchecked Sendable {
         for aid in attachmentIds {
             guard let f = files.values.first(where: { $0.id == aid }) else {
                 lock.unlock()
-                return "附件不存在或已过期"
+                return Self.t("附件不存在或已过期", "Attachment not found or expired")
             }
             attachmentLines.append(Self.attachmentLine(path: f.path, name: f.name, size: Int64(f.data.count)))
             attachmentNames.append(f.name)
@@ -762,8 +770,14 @@ final class DemoGateway: @unchecked Sendable {
                 self.conversations[i].messages.append(Self.toolMsg(id: "\(cascadeId)-tool-\(s1)", step: s1, tools: ["write_to_file", "run_command", "read_file"]))
                 let s2 = self.conversations[i].messages.count
                 let replyText = isRedesign
-                    ? "已按方案完成首页改版：\n\n- ✅ 抽出 `Hero`、`CaseStudies`、`Pricing` 三个组件\n- ✅ 首屏只保留「免费试用」主按钮\n- ✅ 客户案例上移到第二屏\n- ✅ 价格区块改为三档对比卡片\n- ✅ 接入转化埋点（`home_cta_click`）\n\n测试全部通过，改动已提交到 `feat/home-redesign` 分支。"
-                    : "已按审批通过的方案完成实施与本地验证：\n\n1. 更新核心模块化边界，保留旧接口向后兼容。\n2. 全部单元测试与编译校验均已通过 ✅。\n\n如需查看本次修改的增量 Diff 或直接 Commit，可点击顶部栏的 **Changes** / **Commit**。"
+                    ? Self.t(
+                        "已按方案完成首页改版：\n\n- ✅ 抽出 `Hero`、`CaseStudies`、`Pricing` 三个组件\n- ✅ 首屏只保留「免费试用」主按钮\n- ✅ 客户案例上移到第二屏\n- ✅ 价格区块改为三档对比卡片\n- ✅ 接入转化埋点（`home_cta_click`）\n\n测试全部通过，改动已提交到 `feat/home-redesign` 分支。",
+                        "Completed the homepage redesign as planned:\n\n- ✅ Extracted `Hero`, `CaseStudies`, and `Pricing` components\n- ✅ Kept a single primary \"Start Free Trial\" CTA above the fold\n- ✅ Moved Customer Case Studies into Section 2\n- ✅ Switched Pricing to a 3-tier comparison grid\n- ✅ Wired conversion telemetry (`home_cta_click`)\n\nAll tests passed and changes are committed to `feat/home-redesign`."
+                    )
+                    : Self.t(
+                        "已按审批通过的方案完成实施与本地验证：\n\n1. 更新核心模块化边界，保留旧接口向后兼容。\n2. 全部单元测试与编译校验均已通过 ✅。\n\n如需查看本次修改的增量 Diff 或直接 Commit，可点击顶部栏的 **Changes** / **Commit**。",
+                        "Implemented the approved plan and completed local verification:\n\n1. Updated core module boundaries while keeping legacy API compatibility.\n2. All unit tests and build checks passed ✅.\n\nTap **Changes** or **Commit** in the top bar to inspect the incremental diff."
+                    )
                 self.conversations[i].messages.append(Self.agentMsg(
                     id: "\(cascadeId)-agent-\(s2)",
                     step: s2,
@@ -772,7 +786,7 @@ final class DemoGateway: @unchecked Sendable {
                     text: replyText
                 ))
                 self.conversations[i].status = "CASCADE_RUN_STATUS_IDLE"
-                self.conversations[i].duration = "4秒"
+                self.conversations[i].duration = Self.t("4秒", "4s")
                 self.conversations[i].lastModified = Date()
                 self.bumpContextMeter(at: i, addInput: 3_200, addOutput: 410, speed: 54.6, ttft: 0.61)
             }
@@ -810,7 +824,7 @@ final class DemoGateway: @unchecked Sendable {
             return nil
         }
 
-        if conversations[idx].title == "新对话", !trimmed.isEmpty {
+        if conversations[idx].title == "新对话" || conversations[idx].title == "New Chat", !trimmed.isEmpty {
             conversations[idx].title = String(trimmed.prefix(24))
         }
 
@@ -887,7 +901,13 @@ final class DemoGateway: @unchecked Sendable {
                     step: s,
                     model: activeModelId,
                     modelName: activeModelName,
-                    text: String(format: "已完成上下文压缩 **`/compact`** ✅\n\n- 上下文占用从 **%.1f%%** 降至 **%.1f%%**（48.6K / 200K tokens）\n- 保留了核心需求、文件路径、改动 Diff 与验收约束，移除了冗余中间工具输出\n\n现在可以继续畅通对话了。", prevPct, newPct)
+                    text: String(
+                        format: Self.t(
+                            "已完成上下文压缩 **`/compact`** ✅\n\n- 上下文占用从 **%.1f%%** 降至 **%.1f%%**（48.6K / 200K tokens）\n- 保留了核心需求、文件路径、改动 Diff 与验收约束，移除了冗余中间工具输出\n\n现在可以继续畅通对话了。",
+                            "Compacted conversation context via **`/compact`** ✅\n\n- Context usage dropped from **%.1f%%** to **%.1f%%** (48.6K / 200K tokens)\n- Preserved key requirements, file paths, code diffs, and constraints while trimming intermediate tool noise"
+                        ),
+                        prevPct, newPct
+                    )
                 ))
             } else if trimmed == "Continue" && isLogin500 {
                 let s1 = self.conversations[i].messages.count
@@ -898,27 +918,39 @@ final class DemoGateway: @unchecked Sendable {
                     step: s2,
                     model: activeModelId,
                     modelName: activeModelName,
-                    text: """
-                    已恢复。根据日志，500 来自 `session_store` 的连接池耗尽：高峰期登录请求并发超过了连接池上限（20）。
+                    text: Self.t(
+                        """
+                        已恢复。根据日志，500 来自 `session_store` 的连接池耗尽：高峰期登录请求并发超过了连接池上限（20）。
 
-                    ```diff
-                    - pool = create_pool(max_size=20)
-                    + pool = create_pool(max_size=100, acquire_timeout=3)
-                    ```
+                        ```diff
+                        - pool = create_pool(max_size=20)
+                        + pool = create_pool(max_size=100, acquire_timeout=3)
+                        ```
 
-                    我已调大连接池并加上获取超时，超时会返回 503 而不是挂起。建议上线后观察 `pool_wait_ms` 指标。
-                    """
+                        我已调大连接池并加上获取超时，超时会返回 503 而不是挂起。建议上线后观察 `pool_wait_ms` 指标。
+                        """,
+                        """
+                        Recovered. Logs show the 500 errors came from `session_store` connection pool exhaustion under peak concurrent logins (pool limit: 20).
+
+                        ```diff
+                        - pool = create_pool(max_size=20)
+                        + pool = create_pool(max_size=100, acquire_timeout=3)
+                        ```
+
+                        I raised the pool size to 100 and added an acquire timeout so overload fails fast with HTTP 503 instead of hanging. Monitor `pool_wait_ms` after rollout.
+                        """
+                    )
                 ))
                 self.bumpContextMeter(at: i, addInput: 2_100, addOutput: 310, speed: 52.4, ttft: 0.58)
             } else if lower.hasPrefix("/workflow") || lower.contains("run_workflow") || lower.contains("工作流") {
                 let wfSubId = "demo-subagent-live-wf-\(self.nextIdCounter)"
                 self.nextIdCounter += 1
                 let wfObj: [String: Any] = [
-                    "description": "实时触发的多智能体并发工作流",
+                    "description": Self.t("实时触发的多智能体并发工作流", "On-Demand Multi-Agent Parallel Workflow"),
                     "scriptPath": "workflows/live_pipeline.py",
                     "phases": [
                         [
-                            "name": "Phase 1 · 并发采集与静态检查",
+                            "name": Self.t("Phase 1 · 并发采集与静态检查", "Phase 1 · Parallel Collection & Static Audit"),
                             "status": "done",
                             "logs": [
                                 "[00:00.2] spawn parallel workers (n=2)",
@@ -928,27 +960,27 @@ final class DemoGateway: @unchecked Sendable {
                                 [
                                     "conversationId": "demo-subagent-audit-1",
                                     "typeName": "research",
-                                    "role": "依赖与静态审计官",
+                                    "role": Self.t("依赖与静态审计官", "Dependency & Static Auditor"),
                                     "modelTier": "flash",
                                     "status": "done",
                                     "stepCount": 4,
-                                    "title": "依赖与静态审计官"
+                                    "title": Self.t("依赖与静态审计官", "Dependency & Static Auditor")
                                 ]
                             ]
                         ],
                         [
-                            "name": "Phase 2 · 方案综合与收敛",
+                            "name": Self.t("Phase 2 · 方案综合与收敛", "Phase 2 · Synthesis & Verification"),
                             "status": "done",
                             "logs": ["[00:02.0] aggregated summary & emitted JSON finish contract"],
                             "subagents": [
                                 [
                                     "conversationId": wfSubId,
                                     "typeName": "research",
-                                    "role": "结论校验子代理",
+                                    "role": Self.t("结论校验子代理", "Verification Subagent"),
                                     "modelTier": "pro",
                                     "status": "done",
                                     "stepCount": 3,
-                                    "title": "结论校验子代理"
+                                    "title": Self.t("结论校验子代理", "Verification Subagent")
                                 ]
                             ]
                         ]
@@ -957,8 +989,8 @@ final class DemoGateway: @unchecked Sendable {
                         "workflow engine initialized (max_parallel=4)",
                         "all phases converged cleanly in 2.3s"
                     ],
-                    "output": "全部 2 个阶段已完成，无阻断风险。",
-                    "resultJson": "{\"ok\":true,\"phases\":2,\"findings\":0,\"recommendedNextStep\":\"可执行 Commit\"}",
+                    "output": Self.t("全部 2 个阶段已完成，无阻断风险。", "All 2 phases completed with zero blocking findings."),
+                    "resultJson": "{\"ok\":true,\"phases\":2,\"findings\":0,\"recommendedNextStep\":\"ready_to_commit\"}",
                     "status": "done",
                     "duration": "2.3s"
                 ]
@@ -978,7 +1010,7 @@ final class DemoGateway: @unchecked Sendable {
                     step: s2,
                     model: activeModelId,
                     modelName: activeModelName,
-                    text: "动态工作流已执行完毕，详见上方工作流编排卡片中的阶段日志与 JSON 产物。"
+                    text: Self.t("动态工作流已执行完毕，详见上方工作流编排卡片中的阶段日志与 JSON 产物。", "Dynamic workflow completed. Inspect phase logs and JSON artifacts in the workflow card above.")
                 ))
                 self.bumpContextMeter(at: i, addInput: 4_800, addOutput: 520, speed: 58.2, ttft: 0.55)
             } else {
@@ -997,7 +1029,7 @@ final class DemoGateway: @unchecked Sendable {
             }
 
             self.conversations[i].status = "CASCADE_RUN_STATUS_IDLE"
-            self.conversations[i].duration = "2秒"
+            self.conversations[i].duration = Self.t("2秒", "2s")
             self.conversations[i].lastModified = Date()
         }
         return nil
@@ -1056,8 +1088,8 @@ final class DemoGateway: @unchecked Sendable {
             if skipped || allow == false {
                 let s = self.conversations[i].messages.count
                 let note = trimmedWriteIn.isEmpty
-                    ? "好的，已按你的选择取消/跳过该操作，工作区保持原状。"
-                    : "已收到你的说明「\(trimmedWriteIn)」，暂不执行该操作，等待你的进一步指示。"
+                    ? Self.t("好的，已按你的选择取消/跳过该操作，工作区保持原状。", "Got it — operation skipped/cancelled. Workspace left unchanged.")
+                    : Self.t("已收到你的说明「\(trimmedWriteIn)」，暂不执行该操作，等待你的进一步指示。", "Received your note \"\(trimmedWriteIn)\". Holding execution pending your next instruction.")
                 self.conversations[i].messages.append(Self.agentMsg(
                     id: "\(cascadeId)-a-\(s)",
                     step: s,
@@ -1075,30 +1107,30 @@ final class DemoGateway: @unchecked Sendable {
                     toolNames: ["run_workflow"],
                     stepIndex: s1,
                     workflow: [
-                        "description": "灰度发布与冒烟验证流水线",
+                        "description": Self.t("灰度发布与冒烟验证流水线", "Canary Rollout & Smoke Verification Pipeline"),
                         "scriptPath": "deploy/canary_rollout.py",
                         "phases": [
                             [
-                                "name": "构建镜像与推送",
+                                "name": Self.t("构建镜像与推送", "Build & Push Image"),
                                 "status": "done",
                                 "logs": ["docker buildx ok", "pushed tag v2.35.0-canary"],
                                 "subagents": []
                             ],
                             [
-                                "name": "灰度发布 10% 流量",
+                                "name": Self.t("灰度发布 10% 流量", "Canary Rollout (10% Traffic)"),
                                 "status": "done",
                                 "logs": ["canary pods 2/2 ready", "error rate 0.00%"],
                                 "subagents": []
                             ],
                             [
-                                "name": "冒烟验证",
+                                "name": Self.t("冒烟验证", "Smoke Verification"),
                                 "status": "done",
                                 "logs": ["18/18 smoke assertions passed"],
                                 "subagents": []
                             ]
                         ],
                         "logs": ["workflow completed after approval"],
-                        "output": "灰度实例健康检查通过，可随时全量切流。",
+                        "output": Self.t("灰度实例健康检查通过，可随时全量切流。", "Canary health checks passed; ready for full traffic promotion."),
                         "resultJson": "{\"canary\":\"healthy\",\"smokePassed\":18,\"p99Ms\":42}",
                         "status": "done",
                         "duration": "6.4s"
@@ -1110,7 +1142,7 @@ final class DemoGateway: @unchecked Sendable {
                     step: s2,
                     model: activeModelId,
                     modelName: activeModelName,
-                    text: "已批准并完成灰度发布工作流！18 项冒烟断言全部通过（P99 = 42ms）。"
+                    text: Self.t("已批准并完成灰度发布工作流！18 项冒烟断言全部通过（P99 = 42ms）。", "Approved and completed canary rollout workflow! All 18 smoke assertions passed (P99 = 42ms).")
                 ))
             } else {
                 let summary: String
@@ -1122,7 +1154,7 @@ final class DemoGateway: @unchecked Sendable {
                         let qWriteIn = (ans["writeInResponse"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
                         let qSkipped = ans["skipped"] as? Bool ?? false
                         if qSkipped {
-                            parts.append("- 第 \(qIdx + 1) 题：已跳过")
+                            parts.append(Self.t("- 第 \(qIdx + 1) 题：已跳过", "- Question \(qIdx + 1): Skipped"))
                             continue
                         }
                         var chosenTexts: [String] = []
@@ -1134,36 +1166,60 @@ final class DemoGateway: @unchecked Sendable {
                         } else {
                             chosenTexts = ids
                         }
-                        if !qWriteIn.isEmpty { chosenTexts.append("补充：\(qWriteIn)") }
-                        parts.append("- 第 \(qIdx + 1) 题：\(chosenTexts.isEmpty ? "已确认" : chosenTexts.joined(separator: "、"))")
+                        if !qWriteIn.isEmpty { chosenTexts.append(Self.t("补充：\(qWriteIn)", "Note: \(qWriteIn)")) }
+                        let sep = Self.isZH ? "、" : ", "
+                        parts.append(Self.isZH
+                            ? "- 第 \(qIdx + 1) 题：\(chosenTexts.isEmpty ? "已确认" : chosenTexts.joined(separator: sep))"
+                            : "- Question \(qIdx + 1): \(chosenTexts.isEmpty ? "Confirmed" : chosenTexts.joined(separator: sep))")
                     }
                     if cascadeId == "demo-0003-migration" {
-                        summary = """
-                        已按你的确认方案生成最终迁移脚本与回滚预案：
+                        summary = Self.t(
+                            """
+                            已按你的确认方案生成最终迁移脚本与回滚预案：
 
-                        \(parts.joined(separator: "\n"))
+                            \(parts.joined(separator: "\n"))
 
-                        ```sql
-                        -- 0019_orders_created_idx.sql（无锁并发创建 + 状态回填）
-                        CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_orders_created_status
-                        ON orders (created_at DESC, status)
-                        WHERE deleted_at IS NULL;
+                            ```sql
+                            -- 0019_orders_created_idx.sql（无锁并发创建 + 状态回填）
+                            CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_orders_created_status
+                            ON orders (created_at DESC, status)
+                            WHERE deleted_at IS NULL;
 
-                        -- 回滚脚本：DROP INDEX CONCURRENTLY IF EXISTS idx_orders_created_status;
-                        ```
+                            -- 回滚脚本：DROP INDEX CONCURRENTLY IF EXISTS idx_orders_created_status;
+                            ```
 
-                        ✅ 预估锁表时间 `< 10ms`，对线上订单写入零阻塞，可直接并入本次发布单。
-                        """
+                            ✅ 预估锁表时间 `< 10ms`，对线上订单写入零阻塞，可直接并入本次发布单。
+                            """,
+                            """
+                            Generated the final lock-free migration script and rollback plan based on your selections:
+
+                            \(parts.joined(separator: "\n"))
+
+                            ```sql
+                            -- 0019_orders_created_idx.sql (lock-free concurrent index)
+                            CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_orders_created_status
+                            ON orders (created_at DESC, status)
+                            WHERE deleted_at IS NULL;
+
+                            -- Rollback: DROP INDEX CONCURRENTLY IF EXISTS idx_orders_created_status;
+                            ```
+
+                            ✅ Estimated lock hold `< 10ms`, zero write blocking on production orders. Ready to merge into this release.
+                            """
+                        )
                     } else {
-                        summary = "已收到你的确认选择：\n\n\(parts.joined(separator: "\n"))\n\n1. 已更新配置并生成变更摘要。\n2. 全部检查通过，随时可继续下一轮对话。"
+                        summary = Self.t(
+                            "已收到你的确认选择：\n\n\(parts.joined(separator: "\n"))\n\n1. 已更新配置并生成变更摘要。\n2. 全部检查通过，随时可继续下一轮对话。",
+                            "Confirmed your selections:\n\n\(parts.joined(separator: "\n"))\n\n1. Updated configuration and generated change summary.\n2. All checks passed; ready for your next instruction."
+                        )
                     }
                 } else if !trimmedWriteIn.isEmpty {
-                    summary = "已收到你的自定义回复「\(trimmedWriteIn)」，并按新要求继续执行完成 ✅。"
+                    summary = Self.t("已收到你的自定义回复「\(trimmedWriteIn)」，并按新要求继续执行完成 ✅。", "Received custom reply \"\(trimmedWriteIn)\" and completed execution ✅.")
                 } else if let optionId, !optionId.isEmpty {
                     let chosenText = pendingOptions?.first(where: { ($0["id"] as? String) == optionId })?["text"] as? String ?? optionId
-                    summary = "已按所选方案（\(chosenText)）执行完毕 ✅。"
+                    summary = Self.t("已按所选方案（\(chosenText)）执行完毕 ✅。", "Executed with selected option (\(chosenText)) ✅.")
                 } else {
-                    summary = "已获得执行权限并顺利完成命令运行 ✅。"
+                    summary = Self.t("已获得执行权限并顺利完成命令运行 ✅。", "Permission granted and command completed ✅.")
                 }
                 let s = self.conversations[i].messages.count
                 self.conversations[i].messages.append(Self.agentMsg(
@@ -1175,7 +1231,7 @@ final class DemoGateway: @unchecked Sendable {
                 ))
             }
             self.conversations[i].status = "CASCADE_RUN_STATUS_IDLE"
-            self.conversations[i].duration = "3秒"
+            self.conversations[i].duration = Self.t("3秒", "3s")
             self.conversations[i].lastModified = Date()
             self.bumpContextMeter(at: i, addInput: 1_900, addOutput: 260, speed: 53.1, ttft: 0.58)
         }
@@ -1353,12 +1409,12 @@ final class DemoGateway: @unchecked Sendable {
             if let preset = conv.chapters.first(where: { ($0["startStepIndex"] as? Int) == s }) {
                 out.append(preset)
             } else {
-                let firstUser = conv.messages.first(where: { $0.stepIndex >= s && $0.stepIndex < e && $0.type == "user" })?.text ?? "阶段 \(i + 1)"
+                let firstUser = conv.messages.first(where: { $0.stepIndex >= s && $0.stepIndex < e && $0.type == "user" })?.text ?? Self.t("阶段 \(i + 1)", "Phase \(i + 1)")
                 let shortTitle = String(firstUser.replacingOccurrences(of: "\n", with: " ").prefix(22))
                 out.append([
                     "startStepIndex": s,
                     "endStepIndexExclusive": e,
-                    "title": shortTitle.isEmpty ? "第 \(i + 1) 轮对话" : shortTitle,
+                    "title": shortTitle.isEmpty ? Self.t("第 \(i + 1) 轮对话", "Turn \(i + 1)") : shortTitle,
                     "generatedAt": Self.iso(Date())
                 ])
             }
@@ -1421,14 +1477,14 @@ final class DemoGateway: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         guard let conv = conversations.first(where: { $0.id == cascadeId }) else {
-            return ["markdown": "# 会话导出\n\n（未找到会话内容）"]
+            return ["markdown": Self.t("# 会话导出\n\n（未找到会话内容）", "# Conversation Export\n\n(No content found)")]
         }
         var lines: [String] = [
             "# \(conv.title)",
             "",
-            "- **工作区**: \(conv.workspaceName)",
-            "- **模型**: \(conv.modelName)",
-            "- **发起时间**: \(conv.startedAt)",
+            "- **\(Self.t("工作区", "Workspace"))**: \(conv.workspaceName)",
+            "- **\(Self.t("模型", "Model"))**: \(conv.modelName)",
+            "- **\(Self.t("发起时间", "Started At"))**: \(conv.startedAt)",
             ""
         ]
         for msg in conv.messages {
@@ -1445,7 +1501,7 @@ final class DemoGateway: @unchecked Sendable {
                 lines.append(msg.text)
                 lines.append("")
             case "workflow":
-                lines.append("> **[Workflow]** \((msg.workflow?["description"] as? String) ?? "动态工作流")")
+                lines.append("> **[Workflow]** \((msg.workflow?["description"] as? String) ?? Self.t("动态工作流", "Dynamic Workflow"))")
                 lines.append("")
             case "tools":
                 let names = (msg.toolNames ?? []).joined(separator: ", ")
@@ -1472,8 +1528,8 @@ final class DemoGateway: @unchecked Sendable {
         return [
             "cascadeId": cascadeId,
             "coordinatorId": cascadeId,
-            "title": "蜂群协同",
-            "brief": ["active": false, "coordinatorId": cascadeId, "title": "蜂群协同", "phase": "", "headline": "", "workingCount": 0, "totalMembers": 0, "latestSeq": 0, "attentionCount": 0],
+            "title": Self.t("蜂群协同", "Agent Swarm"),
+            "brief": ["active": false, "coordinatorId": cascadeId, "title": Self.t("蜂群协同", "Agent Swarm"), "phase": "", "headline": "", "workingCount": 0, "totalMembers": 0, "latestSeq": 0, "attentionCount": 0],
             "members": [],
             "messages": []
         ]
@@ -1500,7 +1556,7 @@ final class DemoGateway: @unchecked Sendable {
             messages.append([
                 "seq": nextSwarmSeq,
                 "agent": "coordinator",
-                "text": "@reviewer @tester 已同步用户反馈「\(String(trimmed.prefix(36)))」，优先核查并汇总结果。",
+                "text": Self.t("@reviewer @tester 已同步用户反馈「\(String(trimmed.prefix(36)))」，优先核查并汇总结果。", "@reviewer @tester Synced user feedback \"\(String(trimmed.prefix(36)))\" — please verify and report back."),
                 "time": Self.iso(Date()),
                 "channel": "board",
                 "mentions": ["reviewer", "tester"]
@@ -1524,7 +1580,7 @@ final class DemoGateway: @unchecked Sendable {
             messages.append([
                 "seq": nextSwarmSeq,
                 "agent": "coordinator",
-                "text": "@\(workerName) 收到前端轻推（nudge），请回报当前阶段进展与阻塞项。",
+                "text": Self.t("@\(workerName) 收到前端轻推（nudge），请回报当前阶段进展与阻塞项。", "@\(workerName) Nudge received from mobile — please report current progress and blockers."),
                 "time": Self.iso(Date()),
                 "channel": "nudge",
                 "mentions": [workerName]
@@ -1532,7 +1588,7 @@ final class DemoGateway: @unchecked Sendable {
             var members = (swarm["members"] as? [[String: Any]]) ?? []
             for mIdx in members.indices where (members[mIdx]["name"] as? String) == workerName {
                 members[mIdx]["lastNudgedSeq"] = nextSwarmSeq
-                members[mIdx]["lastActivity"] = "刚刚轻推唤醒"
+                members[mIdx]["lastActivity"] = Self.t("刚刚轻推唤醒", "Nudged just now")
                 if (members[mIdx]["status"] as? String) == "waiting" {
                     members[mIdx]["status"] = "working"
                 }
@@ -1585,7 +1641,7 @@ final class DemoGateway: @unchecked Sendable {
             "pluginId": pluginId,
             "installed": true,
             "resumed": true,
-            "message": "演示模式已模拟安装插件 \(pluginId)"
+            "message": Self.t("演示模式已模拟安装插件 \(pluginId)", "Simulated plugin install for \(pluginId) in Demo Mode")
         ]
     }
 
@@ -1617,7 +1673,7 @@ final class DemoGateway: @unchecked Sendable {
                     "conversationId": linkedConvId,
                     "timestamp": nowIso,
                     "status": "SUCCESS",
-                    "message": "手动触发执行完成：检查通过 4 项，生成简报摘要。"
+                    "message": Self.t("手动触发执行完成：检查通过 4 项，生成简报摘要。", "Manual trigger completed: 4 checks passed and summary generated.")
                 ], at: 0)
             default:
                 break
@@ -1669,11 +1725,14 @@ final class DemoGateway: @unchecked Sendable {
         list.insert(
             WorkflowTemplateRecord(
                 id: "fullstack_diagnose",
-                title: "全栈故障排查与修复",
-                subtitle: "并发分析网关日志、前端请求链路与单测回归，给出最小修复补丁",
+                title: Self.t("全栈故障排查与修复", "Full-Stack Incident Triage & Fix"),
+                subtitle: Self.t("并发分析网关日志、前端请求链路与单测回归，给出最小修复补丁", "Concurrently inspect gateway logs, client request traces, and regressions to propose a minimal patch"),
                 icon: "bolt",
                 color: "orange",
-                templatePrompt: "/workflow 请使用 run_workflow 编排并发排查：Worker-1 分析服务端日志与超时链路，Worker-2 验证接口契约与单测，汇总修复方案。",
+                templatePrompt: Self.t(
+                    "/workflow 请使用 run_workflow 编排并发排查：Worker-1 分析服务端日志与超时链路，Worker-2 验证接口契约与单测，汇总修复方案。",
+                    "/workflow Orchestrate parallel diagnostics with run_workflow: Worker-1 inspects server logs & timeout paths, Worker-2 verifies API contracts & unit tests, then synthesize a minimal fix."
+                ),
                 inQuickMenu: true
             ),
             at: 1
@@ -1807,12 +1866,19 @@ final class DemoGateway: @unchecked Sendable {
 
     private func demoReply(for prompt: String, attachmentNames: [String], hasMedia: Bool) -> String {
         if hasMedia || !attachmentNames.isEmpty {
+            let sep = Self.isZH ? "、" : ", "
             let fileSummary = attachmentNames.isEmpty
-                ? "随消息发送的图片 / 文件"
-                : attachmentNames.map { "`\($0)`" }.joined(separator: "、")
-            return "已收到你上传的附件（\(fileSummary)，演示模式模拟分析）：\n\n- 已完成格式解析、字节校验与内容结构提取\n- 如需继续分析或导出报告，可直接追问下一步要求"
+                ? Self.t("随消息发送的图片 / 文件", "attached image / file")
+                : attachmentNames.map { "`\($0)`" }.joined(separator: sep)
+            return Self.t(
+                "已收到你上传的附件（\(fileSummary)，演示模式模拟分析）：\n\n- 已完成格式解析、字节校验与内容结构提取\n- 如需继续分析或导出报告，可直接追问下一步要求",
+                "Received your attachment (\(fileSummary)) in Demo Mode:\n\n- Parsed format headers, validated byte integrity, and extracted structure\n- Ask a follow-up question to analyze further or export a report"
+            )
         }
-        return "这是**演示模式**下的本地模拟回复（未连接真实电脑网关）：\n\n已收到你的消息：「\(String(prompt.prefix(60)))」。\n\n你可以继续体验：\n- 左滑或长按消息触发 **撤回 / 导出 Markdown**\n- 在输入框键入 **`/`** 呼出斜杠命令与技能，或长按 **Workflow** 胶囊体验快捷模板\n- 点击右上角导轨切换 **章节 TOC / 轮次跳转**，或点顶部 **Changes / Commit** 查看代码与 PR"
+        return Self.t(
+            "这是**演示模式**下的本地模拟回复（未连接真实电脑网关）：\n\n已收到你的消息：「\(String(prompt.prefix(60)))」。\n\n你可以继续体验：\n- 左滑或长按消息触发 **撤回 / 导出 Markdown**\n- 在输入框键入 **`/`** 呼出斜杠命令与技能，或长按 **Workflow** 胶囊体验快捷模板\n- 点击右上角导轨切换 **章节 TOC / 轮次跳转**，或点顶部 **Changes / Commit** 查看代码与 PR",
+            "This is an offline simulated reply in **Demo Mode** (no desktop gateway connected):\n\nReceived your prompt: \"\(String(prompt.prefix(60)))\".\n\nTry exploring:\n- Long-press messages to **Export Markdown** or **Copy**\n- Type **`/`** in the composer for slash commands & skills, or open **Workflow** templates\n- Tap the outline rail in the top-right to jump between **TOC Chapters / Turns**, or tap **Changes / Commit** to inspect diffs & PRs"
+        )
     }
 
     static func iso(_ date: Date) -> String {

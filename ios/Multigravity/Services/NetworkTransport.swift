@@ -13,7 +13,7 @@ public enum NetworkTransportError: Error, LocalizedError, Sendable {
     public var errorDescription: String? {
         switch self {
         case .requestAlreadyDispatched(let err):
-            return "指令已成功送达服务器，但等待响应超时 (\(err.localizedDescription))"
+            return String(localized: "指令已成功送达服务器，但等待响应超时 (\(err.localizedDescription))")
         }
     }
 }

@@ -190,7 +190,7 @@ extension ChatView {
     func handleVoiceCallStateChange(_ state: VoiceCallManager.CallState) {
         guard case .failed(let reason) = state else { return }
         // 未配置服务器地址属于本地配置问题，与语音链路无关
-        guard reason != "未配置服务器地址" else { return }
+        guard reason != "未配置服务器地址", reason != String(localized: "未配置服务器地址") else { return }
         guard Date().timeIntervalSince(lastVoiceTroubleshootBubbleAt) > 30 else { return }
         lastVoiceTroubleshootBubbleAt = Date()
         withAnimation { showVoiceTroubleshootBubble = true }
@@ -237,7 +237,7 @@ extension ChatView {
                     baseURL: AppSettings.shared.serverURL
                 )
             } catch {
-                viewModel.errorMessage = "无法启动实时语音会话：\(error.localizedDescription)"
+                viewModel.errorMessage = String(localized: "无法启动实时语音会话：\(error.localizedDescription)")
             }
         }
     }

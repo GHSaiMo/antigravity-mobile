@@ -20,7 +20,7 @@ extension DemoGateway {
                 name: "Chat",
                 alias: nil,
                 workspaceUri: "",
-                path: "新对话 · 不关联任何工作区",
+                path: Self.t("新对话 · 不关联任何工作区", "New Chat · No Workspace Attached"),
                 isWorkspace: false
             ),
             Project(
@@ -34,7 +34,7 @@ extension DemoGateway {
             Project(
                 id: "proj-risk",
                 name: "risk-engine",
-                alias: "风控引擎",
+                alias: Self.t("风控引擎", "Risk Engine"),
                 workspaceUri: "file:///Users/demo/Projects/risk-engine",
                 path: "/Users/demo/Projects/risk-engine",
                 isWorkspace: true
@@ -42,7 +42,7 @@ extension DemoGateway {
             Project(
                 id: "proj-analytics",
                 name: "data-analytics",
-                alias: "数据分析台",
+                alias: Self.t("数据分析台", "Analytics Hub"),
                 workspaceUri: "file:///Users/demo/Projects/data-analytics",
                 path: "/Users/demo/Projects/data-analytics",
                 isWorkspace: true
@@ -50,7 +50,7 @@ extension DemoGateway {
             Project(
                 id: "proj-deploy",
                 name: "deploy-scripts",
-                alias: "部署脚本",
+                alias: Self.t("部署脚本", "Deploy Scripts"),
                 workspaceUri: "file:///Users/demo/Projects/deploy-scripts",
                 path: "/Users/demo/Projects/deploy-scripts",
                 isWorkspace: true
@@ -118,24 +118,24 @@ extension DemoGateway {
         let planData = Data(Self.planMarkdown.utf8)
         let chartData = Self.salesChartPNG()
         let invoiceCoffeeData = Self.invoiceJPEG(
-            title: "电子发票（餐饮服务）",
-            shop: "星河精品咖啡（北京国贸店）",
+            title: Self.t("电子发票（餐饮服务）", "Electronic Receipt · Cafe"),
+            shop: Self.t("星河精品咖啡（北京国贸店）", "Starburst Specialty Coffee · Downtown"),
             items: [
-                ("手冲埃塞俄比亚 × 2", "¥76.00"),
-                ("燕麦拿铁（大杯）× 1", "¥38.00"),
-                ("牛角可颂套餐 × 1", "¥44.00")
+                (Self.t("手冲埃塞俄比亚 × 2", "Pour-over Ethiopia × 2"), Self.t("¥76.00", "$11.00")),
+                (Self.t("燕麦拿铁（大杯）× 1", "Oat Milk Latte (L) × 1"), Self.t("¥38.00", "$5.50")),
+                (Self.t("牛角可颂套餐 × 1", "Croissant Combo × 1"), Self.t("¥44.00", "$6.50"))
             ],
-            total: "¥158.00",
+            total: Self.t("¥158.00", "$23.00"),
             no: "NO.20261108-88412"
         )
         let invoiceTaxiData = Self.invoiceJPEG(
-            title: "北京出租车电子客运发票",
-            shop: "京B·82716 首都机场 → 国贸CBD",
+            title: Self.t("北京出租车电子客运发票", "Airport Transit E-Receipt"),
+            shop: Self.t("京B·82716 首都机场 → 国贸CBD", "Cab #82716 · SFO Terminal 2 → SoMa"),
             items: [
-                ("里程 28.4 km（含高速费）", "¥102.00"),
-                ("夜间服务加收", "¥14.00")
+                (Self.t("里程 28.4 km（含高速费）", "Distance 17.6 mi (incl. bridge toll)"), Self.t("¥102.00", "$46.50")),
+                (Self.t("夜间服务加收", "Late-night airport surcharge"), Self.t("¥14.00", "$4.50"))
             ],
-            total: "¥116.00",
+            total: Self.t("¥116.00", "$51.00"),
             no: "NO.20261108-51904"
         )
         let pdfData = Self.reportPDF(chartPNG: chartData)
@@ -147,6 +147,7 @@ extension DemoGateway {
         registerFile(path: "/Users/demo/Documents/meeting_notes.md", name: "meeting_notes.md", data: notesData)
         registerFile(path: "/Users/demo/Documents/sales_chart.png", name: "sales_chart.png", data: chartData)
         registerFile(path: "/Users/demo/Documents/三季度销售报告.pdf", name: "三季度销售报告.pdf", data: pdfData)
+        registerFile(path: "/Users/demo/Documents/q3_sales_report.pdf", name: "q3_sales_report.pdf", data: pdfData)
         registerFile(path: "/Users/demo/Documents/invoice_coffee.jpg", name: "invoice_coffee.jpg", data: invoiceCoffeeData)
         registerFile(path: "/Users/demo/Documents/invoice_taxi.jpg", name: "invoice_taxi.jpg", data: invoiceTaxiData)
         registerFile(path: "/Users/demo/.gemini/antigravity/brain/demo-0005/implementation_plan.md", name: "implementation_plan.md", data: planData)
@@ -158,51 +159,51 @@ extension DemoGateway {
                 spec: McpServerSpec(serverName: "github", command: "npx -y @modelcontextprotocol/server-github"),
                 status: "MCP_SERVER_STATUS_READY",
                 tools: [
-                    McpToolDefinition(name: "create_pull_request", description: "创建或更新 GitHub Pull Request", serverName: "github", jsonSchemaString: "{\"properties\":{\"title\":{\"type\":\"string\"},\"base\":{\"type\":\"string\"}},\"required\":[\"title\"]}"),
-                    McpToolDefinition(name: "get_issue", description: "读取指定 Issue 与评论", serverName: "github", jsonSchemaString: "{\"properties\":{\"issue_number\":{\"type\":\"integer\"}},\"required\":[\"issue_number\"]}"),
-                    McpToolDefinition(name: "list_commits", description: "列出仓库近期提交记录", serverName: "github", jsonSchemaString: "{\"properties\":{\"sha\":{\"type\":\"string\"}}}"),
-                    McpToolDefinition(name: "search_code", description: "跨仓库全文代码检索", serverName: "github", jsonSchemaString: "{\"properties\":{\"q\":{\"type\":\"string\"}},\"required\":[\"q\"]}")
+                    McpToolDefinition(name: "create_pull_request", description: Self.t("创建或更新 GitHub Pull Request", "Create or update a GitHub Pull Request"), serverName: "github", jsonSchemaString: "{\"properties\":{\"title\":{\"type\":\"string\"},\"base\":{\"type\":\"string\"}},\"required\":[\"title\"]}"),
+                    McpToolDefinition(name: "get_issue", description: Self.t("读取指定 Issue 与评论", "Read GitHub issue details and comments"), serverName: "github", jsonSchemaString: "{\"properties\":{\"issue_number\":{\"type\":\"integer\"}},\"required\":[\"issue_number\"]}"),
+                    McpToolDefinition(name: "list_commits", description: Self.t("列出仓库近期提交记录", "List recent commits in a repository"), serverName: "github", jsonSchemaString: "{\"properties\":{\"sha\":{\"type\":\"string\"}}}"),
+                    McpToolDefinition(name: "search_code", description: Self.t("跨仓库全文代码检索", "Full-text code search across repositories"), serverName: "github", jsonSchemaString: "{\"properties\":{\"q\":{\"type\":\"string\"}},\"required\":[\"q\"]}")
                 ],
                 serverInfo: McpServerInfoDetail(name: "github-mcp", version: "2.4.0"),
-                instructions: "GitHub 仓库、Issue 与 PR 自动化工具"
+                instructions: Self.t("GitHub 仓库、Issue 与 PR 自动化工具", "GitHub repositories, issues, and PR automation")
             ),
             McpServerState(
                 spec: McpServerSpec(serverName: "postgres-prod", command: "uvx mcp-postgres --readonly"),
                 status: "MCP_SERVER_STATUS_READY",
                 tools: [
-                    McpToolDefinition(name: "query", description: "执行只读 SQL 查询并格式化结果", serverName: "postgres-prod", jsonSchemaString: "{\"properties\":{\"sql\":{\"type\":\"string\"}},\"required\":[\"sql\"]}"),
-                    McpToolDefinition(name: "explain_analyze", description: "查看 SQL 查询执行计划与索引命中", serverName: "postgres-prod", jsonSchemaString: "{\"properties\":{\"sql\":{\"type\":\"string\"}},\"required\":[\"sql\"]}"),
-                    McpToolDefinition(name: "describe_table", description: "检查表字段、索引与外键约束", serverName: "postgres-prod", jsonSchemaString: "{\"properties\":{\"table\":{\"type\":\"string\"}},\"required\":[\"table\"]}")
+                    McpToolDefinition(name: "query", description: Self.t("执行只读 SQL 查询并格式化结果", "Run a read-only SQL query and format rows"), serverName: "postgres-prod", jsonSchemaString: "{\"properties\":{\"sql\":{\"type\":\"string\"}},\"required\":[\"sql\"]}"),
+                    McpToolDefinition(name: "explain_analyze", description: Self.t("查看 SQL 查询执行计划与索引命中", "Inspect query execution plan and index scans"), serverName: "postgres-prod", jsonSchemaString: "{\"properties\":{\"sql\":{\"type\":\"string\"}},\"required\":[\"sql\"]}"),
+                    McpToolDefinition(name: "describe_table", description: Self.t("检查表字段、索引与外键约束", "Inspect table columns, indexes, and foreign keys"), serverName: "postgres-prod", jsonSchemaString: "{\"properties\":{\"table\":{\"type\":\"string\"}},\"required\":[\"table\"]}")
                 ],
                 serverInfo: McpServerInfoDetail(name: "postgres-readonly", version: "1.3.1"),
-                instructions: "只读数据库诊断与执行计划检查"
+                instructions: Self.t("只读数据库诊断与执行计划检查", "Read-only PostgreSQL schema and query diagnostics")
             ),
             McpServerState(
-                spec: McpServerSpec(serverName: "ifind-finance", command: "uv run ifind-mcp-server"),
+                spec: McpServerSpec(serverName: "xcode-mcp", command: "xcrun mcpbridge"),
                 status: "MCP_SERVER_STATUS_READY",
                 tools: [
-                    McpToolDefinition(name: "get_realtime_quotation", description: "获取 A 股/港股/美股实时行情快照", serverName: "ifind-finance", jsonSchemaString: "{\"properties\":{\"codes\":{\"type\":\"string\"}},\"required\":[\"codes\"]}"),
-                    McpToolDefinition(name: "get_macro_edb", description: "检索宏观经济与利率数据库序列", serverName: "ifind-finance", jsonSchemaString: "{\"properties\":{\"indicators\":{\"type\":\"string\"}},\"required\":[\"indicators\"]}")
+                    McpToolDefinition(name: "build_scheme", description: Self.t("触发 Xcode Scheme 增量构建并返回诊断结果", "Build an Xcode scheme incrementally and return diagnostics"), serverName: "xcode-mcp", jsonSchemaString: "{\"properties\":{\"scheme\":{\"type\":\"string\"}},\"required\":[\"scheme\"]}"),
+                    McpToolDefinition(name: "list_destinations", description: Self.t("列出可用 iOS 模拟器与无线调试真机", "List available iOS simulators and paired physical devices"), serverName: "xcode-mcp", jsonSchemaString: "{\"properties\":{\"platform\":{\"type\":\"string\"}}}")
                 ],
-                serverInfo: McpServerInfoDetail(name: "ifind-mcp", version: "4.0.0"),
-                instructions: "同花顺 iFinD 金融市场与宏观数据库接口"
+                serverInfo: McpServerInfoDetail(name: "xcode-mcpbridge", version: "2.2.0"),
+                instructions: Self.t("Xcode 工程构建、诊断与测试执行接口", "Xcode build, diagnostics, and simulator bridge")
             ),
             McpServerState(
                 spec: McpServerSpec(serverName: "slack-bridge", command: "node slack-mcp.js"),
                 status: "MCP_SERVER_STATUS_ERROR",
                 tools: [],
                 serverInfo: McpServerInfoDetail(name: "slack-bridge", version: "0.9.8"),
-                instructions: "Slack 频道通知推送网关（OAuth token expired）"
+                instructions: Self.t("Slack 频道通知推送网关（OAuth Token 已过期）", "Slack channel notification gateway (OAuth token expired)")
             )
         ]
 
         // MARK: Skills
         skills = [
-            SkillInfo(name: "swiftui-audit", description: "SwiftUI 列表性能、@Observable 渲染与无障碍审计", path: "/Users/demo/.gemini/config/skills/swiftui-audit/SKILL.md", content: "# SwiftUI Audit\n检查长列表视图复用、主线程隔离与动态字体适配。"),
-            SkillInfo(name: "go-test-race", description: "执行 go test -race 并定位并发竞态与连接泄漏", path: "/Users/demo/.gemini/config/skills/go-test-race/SKILL.md", content: "# Go Test Race\n自动排查 goroutine 泄漏与并发 map 读写竞态。"),
-            SkillInfo(name: "sql-migration-review", description: "Zero-downtime PostgreSQL DDL 与回滚脚本审校", path: "/Users/demo/.gemini/config/skills/sql-migration-review/SKILL.md", content: "# SQL Migration Review\n确保所有索引使用 CONCURRENTLY 创建并附带回滚脚本。"),
-            SkillInfo(name: "invoice-reconcile", description: "增值税发票 OCR 验真、分类与费用对账汇总", path: "/Users/demo/.gemini/config/skills/invoice-reconcile/SKILL.md", content: "# Invoice Reconcile\n识别电子发票商户、税号与价税合计金额。"),
-            SkillInfo(name: "release-checklist", description: "Xcode Archive、签名校验与 TestFlight 灰度检查", path: "/Users/demo/.gemini/config/skills/release-checklist/SKILL.md", content: "# Release Checklist\n核验 Bundle Version、签名证书指纹与崩溃符号表上传。")
+            SkillInfo(name: "swiftui-audit", description: Self.t("SwiftUI 列表性能、@Observable 渲染与无障碍审计", "Audit SwiftUI list diffing, @Observable invalidation, and accessibility"), path: "/Users/demo/.gemini/config/skills/swiftui-audit/SKILL.md", content: Self.t("# SwiftUI Audit\n检查长列表视图复用、主线程隔离与动态字体适配。", "# SwiftUI Audit\nInspect list cell reuse, main-actor isolation, and Dynamic Type support.")),
+            SkillInfo(name: "go-test-race", description: Self.t("执行 go test -race 并定位并发竞态与连接泄漏", "Run go test -race and diagnose data races or goroutine leaks"), path: "/Users/demo/.gemini/config/skills/go-test-race/SKILL.md", content: Self.t("# Go Test Race\n自动排查 goroutine 泄漏与并发 map 读写竞态。", "# Go Test Race\nAutomatically pinpoint goroutine leaks and concurrent map access races.")),
+            SkillInfo(name: "sql-migration-review", description: Self.t("Zero-downtime PostgreSQL DDL 与回滚脚本审校", "Review zero-downtime PostgreSQL DDL migrations and rollback safety"), path: "/Users/demo/.gemini/config/skills/sql-migration-review/SKILL.md", content: Self.t("# SQL Migration Review\n确保所有索引使用 CONCURRENTLY 创建并附带回滚脚本。", "# SQL Migration Review\nEnsure indexes use CONCURRENTLY and include reversible rollback statements.")),
+            SkillInfo(name: "invoice-reconcile", description: Self.t("发票 OCR 识别、分类与费用对账汇总", "OCR receipt extraction, categorization, and expense reconciliation"), path: "/Users/demo/.gemini/config/skills/invoice-reconcile/SKILL.md", content: Self.t("# Invoice Reconcile\n识别电子发票商户、单号与价税合计金额。", "# Invoice Reconcile\nExtract merchant names, receipt IDs, and tax-inclusive totals.")),
+            SkillInfo(name: "release-checklist", description: Self.t("Xcode Archive、签名校验与 TestFlight 灰度检查", "Verify Xcode Archive, signing identity, and TestFlight release notes"), path: "/Users/demo/.gemini/config/skills/release-checklist/SKILL.md", content: Self.t("# Release Checklist\n核验 Bundle Version、签名证书指纹与崩溃符号表上传。", "# Release Checklist\nValidate bundle version, signing certificate fingerprint, and dSYM upload."))
         ]
 
         // MARK: Plugins & Providers
@@ -210,7 +211,7 @@ extension DemoGateway {
             [
                 "id": "plugin-git-inspector",
                 "name": "Git & PR Inspector",
-                "description": "实时读取分支状态、Diff 与 GitHub Pull Request",
+                "description": Self.t("实时读取分支状态、Diff 与 GitHub Pull Request", "Inspect branch status, diffs, and GitHub Pull Requests in real time"),
                 "version": "1.8.2",
                 "enabled": true,
                 "canToggle": true,
@@ -223,7 +224,7 @@ extension DemoGateway {
             [
                 "id": "plugin-xcode-bridge",
                 "name": "Xcode Wireless Bridge",
-                "description": "真机无线调试状态监测与构建日志流推送",
+                "description": Self.t("真机无线调试状态监测与构建日志流推送", "Monitor wireless device pairing state and stream build logs"),
                 "version": "2.1.0",
                 "enabled": true,
                 "canToggle": true,
@@ -236,7 +237,7 @@ extension DemoGateway {
             [
                 "id": "plugin-notion-sync",
                 "name": "Notion Knowledge Sync",
-                "description": "将技术评审与会议纪要一键归档至团队知识库",
+                "description": Self.t("将技术评审与会议纪要一键归档至团队知识库", "Archive architecture reviews and meeting notes to Notion"),
                 "version": "0.9.4",
                 "enabled": false,
                 "canToggle": true,
@@ -256,7 +257,7 @@ extension DemoGateway {
                 "displayName": "GitHub OAuth",
                 "signedIn": true,
                 "accounts": [
-                    ["name": "demo-main", "label": "工作账号", "email": "demo-dev@github.com", "isDefault": true]
+                    ["name": "demo-main", "label": Self.t("工作账号", "Work"), "email": "demo-dev@github.com", "isDefault": true]
                 ]
             ],
             [
@@ -283,11 +284,11 @@ extension DemoGateway {
         automations = [
             [
                 "id": "auto-nightly-ci",
-                "name": "夜间回归测试巡检",
-                "prompt": "运行 go test -race ./... 与 iOS 编译检查，若有失败则在群内推送错误摘要。",
+                "name": Self.t("夜间回归测试巡检", "Nightly Regression Suite"),
+                "prompt": Self.t("运行 go test -race ./... 与 iOS 编译检查，若有失败则推送错误摘要。", "Run go test -race ./... and iOS build checks; notify on failure."),
                 "scheduleType": "cron",
                 "cron": "0 2 * * *",
-                "scheduleSummary": "每天 02:00",
+                "scheduleSummary": Self.t("每天 02:00", "Daily at 02:00"),
                 "model": "gemini-4-carbon-high",
                 "workspace": "/Users/demo/Projects/antigravity-mobile",
                 "enabled": true,
@@ -298,11 +299,11 @@ extension DemoGateway {
             ],
             [
                 "id": "auto-quota-alert",
-                "name": "配额水位预警",
-                "prompt": "每小时检查各账号 5h 额度池余量，低于 20% 时提醒切换备用账号。",
+                "name": Self.t("配额水位预警", "Quota Threshold Watch"),
+                "prompt": Self.t("每小时检查各账号 5h 额度池余量，低于 20% 时提醒切换备用账号。", "Check 5h model quota headroom hourly and alert below 20%."),
                 "scheduleType": "interval",
                 "intervalSeconds": 3600,
-                "scheduleSummary": "每 1 小时",
+                "scheduleSummary": Self.t("每 1 小时", "Every 1 hour"),
                 "model": "gemini-3.8-flash",
                 "workspace": "",
                 "enabled": true,
@@ -313,11 +314,11 @@ extension DemoGateway {
             ],
             [
                 "id": "auto-friday-digest",
-                "name": "周五版本发布周报",
-                "prompt": "汇总本周 PR 合并清单、线上崩溃率与未闭环 Issue，生成 Markdown 周报。",
+                "name": Self.t("周五版本发布周报", "Friday Release Digest"),
+                "prompt": Self.t("汇总本周 PR 合并清单、线上崩溃率与未闭环 Issue，生成 Markdown 周报。", "Summarize merged PRs, crash-free rate, and open issues in Markdown."),
                 "scheduleType": "cron",
                 "cron": "0 17 * * 5",
-                "scheduleSummary": "每周五 17:00",
+                "scheduleSummary": Self.t("每周五 17:00", "Fridays at 17:00"),
                 "model": "claude-opus-5-5-thinking",
                 "workspace": "/Users/demo/Projects/antigravity-mobile",
                 "enabled": false,
@@ -328,10 +329,10 @@ extension DemoGateway {
         ]
 
         automationEvents = [
-            ["automationId": "auto-nightly-ci", "automationName": "夜间回归测试巡检", "status": "completed", "message": "41/41 tests passed", "timestamp": isoAgo(minutes: 420)],
-            ["automationId": "auto-quota-alert", "automationName": "配额水位预警", "status": "completed", "message": "Demo Ultra 86% · Pro 42% · Free 18% (已提示)", "timestamp": isoAgo(minutes: 28)],
-            ["automationId": "auto-nightly-ci", "automationName": "夜间回归测试巡检", "status": "running", "message": "正在执行 iOS xcodebuild 增量检查...", "timestamp": isoAgo(minutes: 425)],
-            ["automationId": "auto-friday-digest", "automationName": "周五版本发布周报", "status": "skipped", "message": "自动化已暂停", "timestamp": isoAgo(minutes: 1440)]
+            ["automationId": "auto-nightly-ci", "automationName": Self.t("夜间回归测试巡检", "Nightly Regression Suite"), "status": "completed", "message": "41/41 tests passed", "timestamp": isoAgo(minutes: 420)],
+            ["automationId": "auto-quota-alert", "automationName": Self.t("配额水位预警", "Quota Threshold Watch"), "status": "completed", "message": Self.t("Demo Ultra 86% · Pro 42% · Free 18% (已提示)", "Demo Ultra 86% · Pro 42% · Free 18% (Alert sent)"), "timestamp": isoAgo(minutes: 28)],
+            ["automationId": "auto-nightly-ci", "automationName": Self.t("夜间回归测试巡检", "Nightly Regression Suite"), "status": "running", "message": Self.t("正在执行 iOS xcodebuild 增量检查...", "Running incremental iOS xcodebuild check..."), "timestamp": isoAgo(minutes: 425)],
+            ["automationId": "auto-friday-digest", "automationName": Self.t("周五版本发布周报", "Friday Release Digest"), "status": "skipped", "message": Self.t("自动化已暂停", "Automation paused"), "timestamp": isoAgo(minutes: 1440)]
         ]
 
         // MARK: Workflow Templates
@@ -342,9 +343,9 @@ extension DemoGateway {
             [
                 "taskId": "task-demo-upload-build",
                 "conversationId": "demo-0001-upload",
-                "conversationTitle": "实现文件附件上传",
+                "conversationTitle": Self.t("实现文件附件上传", "File Attachment Upload Flow"),
                 "commandLine": "go test -v ./internal/gateway -run TestAttachmentUpload",
-                "toolSummary": "验证多端附件上传测试",
+                "toolSummary": Self.t("验证多端附件上传测试", "Verify attachment upload tests"),
                 "startedAt": isoAgo(minutes: 2),
                 "isDaemon": false,
                 "elapsedSeconds": 24,
@@ -353,9 +354,9 @@ extension DemoGateway {
             [
                 "taskId": "task-vite-daemon",
                 "conversationId": "demo-0014-running",
-                "conversationTitle": "实时联调与守护进程监控",
+                "conversationTitle": Self.t("实时联调与守护进程监控", "Live Dev Server & Daemon Logs"),
                 "commandLine": "npm run dev -- --host 0.0.0.0 --port 5173",
-                "toolSummary": "启动 Web 控制台热更新守护进程",
+                "toolSummary": Self.t("启动 Web 控制台热更新守护进程", "Web Console HMR Dev Server"),
                 "startedAt": isoAgo(minutes: 6),
                 "isDaemon": true,
                 "elapsedSeconds": 360,
@@ -364,9 +365,9 @@ extension DemoGateway {
             [
                 "taskId": "task-go-race",
                 "conversationId": "demo-0014-running",
-                "conversationTitle": "实时联调与守护进程监控",
+                "conversationTitle": Self.t("实时联调与守护进程监控", "Live Dev Server & Daemon Logs"),
                 "commandLine": "go test -race -count=1 ./internal/cockpit/...",
-                "toolSummary": "运行 Go 并发竞态回归测试",
+                "toolSummary": Self.t("运行 Go 并发竞态回归测试", "Run Go race-detector suite"),
                 "startedAt": isoAgo(minutes: 1.5),
                 "isDaemon": false,
                 "elapsedSeconds": 90,
@@ -411,16 +412,16 @@ extension DemoGateway {
         // MARK: Subagent Conversations (clickable inside demo-0011-workflow)
         let sub1 = Conversation(
             id: "demo-subagent-audit-1",
-            title: "安全扫描：SQL 注入与越权",
-            workspaceName: "风控引擎",
+            title: Self.t("安全扫描：SQL 注入与越权", "Security Scan: SQL Injection & AuthZ"),
+            workspaceName: Self.t("风控引擎", "Risk Engine"),
             workspaceUri: "file:///Users/demo/Projects/risk-engine",
             status: "CASCADE_RUN_STATUS_IDLE",
-            duration: "14秒",
+            duration: Self.t("14秒", "14s"),
             messages: [
                 Self.userMsg(
                     id: "sub1-u0",
                     step: 0,
-                    text: "全面扫描 `handlers/rule_eval.go` 与 `repo/score_store.go` 的参数绑定、租户隔离和 Token 校验逻辑。",
+                    text: Self.t("全面扫描 `handlers/rule_eval.go` 与 `repo/score_store.go` 的参数绑定、租户隔离和 Token 校验逻辑。", "Scan `handlers/rule_eval.go` and `repo/score_store.go` for parameter binding, tenant isolation, and auth token validation."),
                     timestamp: isoAgo(minutes: 25)
                 ),
                 Self.toolMsg(id: "sub1-t1", step: 1, tools: ["GrepSearch", "ReadFile", "RunStaticAudit"]),
@@ -429,15 +430,26 @@ extension DemoGateway {
                     step: 2,
                     model: "claude-opus-5-5-thinking",
                     modelName: "Claude Opus 5.5 (Thinking)",
-                    text: """
-                    已完成 **安全扫描**（共检查 14 个 handler，发现 1 处中高危问题）：
+                    text: Self.t(
+                        """
+                        已完成 **安全扫描**（共检查 14 个 handler，发现 1 处中高危问题）：
 
-                    1. **`repo/score_store.go:88` 动态排序字段未做白名单校验**
-                       - 当前直接拼接 `sortBy` 进 `ORDER BY %s`
-                       - **修复建议**：映射为允许列字典 `allowedSortCols[sortBy]`。
-                    2. **租户隔离检查通过 ✅**
-                       - 所有查询均强制注入 `tenant_id = $1`。
-                    """,
+                        1. **`repo/score_store.go:88` 动态排序字段未做白名单校验**
+                           - 当前直接拼接 `sortBy` 进 `ORDER BY %s`
+                           - **修复建议**：映射为允许列字典 `allowedSortCols[sortBy]`。
+                        2. **租户隔离检查通过 ✅**
+                           - 所有查询均强制注入 `tenant_id = $1`。
+                        """,
+                        """
+                        Completed **Security Scan** (14 handlers inspected, 1 high-severity finding):
+
+                        1. **Unvalidated dynamic sort column in `repo/score_store.go:88`**
+                           - Currently interpolates `sortBy` directly into `ORDER BY %s`.
+                           - **Recommendation**: Map via `allowedSortCols[sortBy]` allowlist.
+                        2. **Tenant isolation checks passed ✅**
+                           - All queries enforce `tenant_id = $1`.
+                        """
+                    ),
                     timestamp: isoAgo(minutes: 24)
                 )
             ],
@@ -456,7 +468,7 @@ extension DemoGateway {
             swarm: nil,
             subagents: [],
             parentConversationId: "demo-0011-workflow",
-            subagentRole: "安全审计专员",
+            subagentRole: Self.t("安全审计专员", "Security Auditor"),
             gitStatus: nil,
             changes: [],
             chapters: []
@@ -464,16 +476,16 @@ extension DemoGateway {
 
         let sub2 = Conversation(
             id: "demo-subagent-perf-2",
-            title: "压测分析：P99 延迟定位",
-            workspaceName: "风控引擎",
+            title: Self.t("压测分析：P99 延迟定位", "Load Profile: P99 Latency Hotspots"),
+            workspaceName: Self.t("风控引擎", "Risk Engine"),
             workspaceUri: "file:///Users/demo/Projects/risk-engine",
             status: "CASCADE_RUN_STATUS_IDLE",
-            duration: "11秒",
+            duration: Self.t("11秒", "11s"),
             messages: [
                 Self.userMsg(
                     id: "sub2-u0",
                     step: 0,
-                    text: "分析 `EvaluateRiskBatch` 在 500 QPS 下的 CPU pprof 火焰图，定位 P99 抖动来源。",
+                    text: Self.t("分析 `EvaluateRiskBatch` 在 500 QPS 下的 CPU pprof 火焰图，定位 P99 抖动来源。", "Analyze the CPU pprof flamegraph for `EvaluateRiskBatch` at 500 QPS and locate P99 latency spikes."),
                     timestamp: isoAgo(minutes: 24)
                 ),
                 Self.toolMsg(id: "sub2-t1", step: 1, tools: ["RunBenchmark", "InspectProfile"]),
@@ -482,12 +494,20 @@ extension DemoGateway {
                     step: 2,
                     model: "gemini-3.8-flash",
                     modelName: "Gemini 3.8 Flash",
-                    text: """
-                    压测采样已完成，P99 耗时 **184ms** 主要集中在两处：
+                    text: Self.t(
+                        """
+                        压测采样已完成，P99 耗时 **184ms** 主要集中在两处：
 
-                    - `regexp.Compile` 在规则循环内重复编译（占总 CPU 44%），改用启动期预编译后可降至 **< 1%**.
-                    - `sync.Pool` 复用临时评分切片可减少 68% GC 停顿。
-                    """,
+                        - `regexp.Compile` 在规则循环内重复编译（占总 CPU 44%），改用启动期预编译后可降至 **< 1%**.
+                        - `sync.Pool` 复用临时评分切片可减少 68% GC 停顿。
+                        """,
+                        """
+                        Profiling complete — **184ms P99** stems from two bottlenecks:
+
+                        - Re-compiling `regexp.Compile` inside the rule loop (44% CPU); pre-compiling at startup drops this to **< 1%**.
+                        - Reusing scratch score slices via `sync.Pool` cuts GC pauses by 68%.
+                        """
+                    ),
                     timestamp: isoAgo(minutes: 23)
                 )
             ],
@@ -506,7 +526,7 @@ extension DemoGateway {
             swarm: nil,
             subagents: [],
             parentConversationId: "demo-0011-workflow",
-            subagentRole: "性能压测专家",
+            subagentRole: Self.t("性能压测专家", "Perf Profiler"),
             gitStatus: nil,
             changes: [],
             chapters: []
@@ -514,16 +534,16 @@ extension DemoGateway {
 
         let sub3 = Conversation(
             id: "demo-subagent-live-3",
-            title: "边界单测自动补全",
-            workspaceName: "风控引擎",
+            title: Self.t("边界单测自动补全", "Edge-Case Unit Test Authoring"),
+            workspaceName: Self.t("风控引擎", "Risk Engine"),
             workspaceUri: "file:///Users/demo/Projects/risk-engine",
             status: "CASCADE_RUN_STATUS_RUNNING",
-            duration: "运行中",
+            duration: Self.t("运行中", "Running"),
             messages: [
                 Self.userMsg(
                     id: "sub3-u0",
                     step: 0,
-                    text: "根据审计和性能结论，为 `handlers/rule_eval_test.go` 补充白名单校验与批量超时单测。",
+                    text: Self.t("根据审计和性能结论，为 `handlers/rule_eval_test.go` 补充白名单校验与批量超时单测。", "Add allowlist validation and batch timeout unit tests to `handlers/rule_eval_test.go` based on audit & perf findings."),
                     timestamp: isoAgo(minutes: 22)
                 ),
                 Self.toolMsg(id: "sub3-t1", step: 1, tools: ["EditFile", "GoTest"]),
@@ -532,7 +552,7 @@ extension DemoGateway {
                     step: 2,
                     model: "gpt-6-astra",
                     modelName: "GPT-6 Astra",
-                    text: "正在写入 6 组表驱动测试用例并执行并发竞争检验，完成后会自动向主流程汇报。",
+                    text: Self.t("正在写入 6 组表驱动测试用例并执行并发竞争检验，完成后会自动向主流程汇报。", "Writing 6 table-driven test cases and running race checks; will report back to the parent workflow once complete."),
                     timestamp: isoAgo(minutes: 21.5)
                 )
             ],
@@ -551,7 +571,7 @@ extension DemoGateway {
             swarm: nil,
             subagents: [],
             parentConversationId: "demo-0011-workflow",
-            subagentRole: "自动化测试工程师",
+            subagentRole: Self.t("自动化测试工程师", "Test Engineer"),
             gitStatus: nil,
             changes: [],
             chapters: []
@@ -562,16 +582,16 @@ extension DemoGateway {
         // 1. Pinned Classic + Running Task + Queued Message (Multigravity)
         let c01Upload = Conversation(
             id: "demo-0001-upload",
-            title: "实现文件附件上传",
+            title: Self.t("实现文件附件上传", "File Attachment Upload Flow"),
             workspaceName: "Multigravity",
             workspaceUri: "file:///Users/demo/Projects/antigravity-mobile",
             status: "CASCADE_RUN_STATUS_RUNNING",
-            duration: "运行中",
+            duration: Self.t("运行中", "Running"),
             messages: [
                 Self.userMsg(
                     id: "c01-u0",
                     step: 0,
-                    text: "帮我给移动端接入“📎 文件附件上传”功能：选中的文档或图片先上传到网关 `Inbox`，再把路径一行写入消息里，并同时跑一下网关测试。",
+                    text: Self.t("帮我给移动端接入“📎 文件附件上传”功能：选中的文档或图片先上传到网关 `Inbox`，再把路径一行写入消息里，并同时跑一下网关测试。", "Wire up \"📎 File Attachment Uploads\" on mobile: upload selected files/images to the gateway `Inbox`, insert attachment links into the prompt, and run gateway tests."),
                     timestamp: isoAgo(minutes: 9)
                 ),
                 Self.toolMsg(id: "c01-t1", step: 1, tools: ["ReadFile", "EditFile", "RunCommand"]),
@@ -580,17 +600,30 @@ extension DemoGateway {
                     step: 2,
                     model: "claude-opus-5-5-thinking",
                     modelName: "Claude Opus 5.5 (Thinking)",
-                    text: """
-                    已完成前后两端附件上传链路与校验保护：
+                    text: Self.t(
+                        """
+                        已完成前后两端附件上传链路与校验保护：
 
-                    1. **网关接收端点 (`POST /api/v1/attachments`)**：按 `X-File-Name` 读取文件流，计算 SHA-256 生成 8 位文件短 ID，落盘至工作区 `Inbox/2026-11/` 并返回标准 `UploadedAttachment` 元数据。
-                    2. **iOS 客户端发送拼接**：选中文件或从“图库 / 文件 / 粘贴板”导入后先并发上传，再生成固定格式引用行：
-                       ```markdown
-                       📎 附件（已上传到本机，可直接读取）：
-                       - [sales_q3.csv](/Users/demo/Multigravity/Inbox/2026-11/9f2a4c1b-sales_q3.csv) (1.8 KB)
-                       ```
-                    3. **后台测试运行中**：正在执行 `go test -v ./internal/gateway -run TestAttachmentUpload`，你也可以随时在顶部卡片点击**查看实时日志**或**停止任务**。
-                    """,
+                        1. **网关接收端点 (`POST /api/v1/attachments`)**：按 `X-File-Name` 读取文件流，计算 SHA-256 生成 8 位文件短 ID，落盘至工作区 `Inbox/2026-11/` 并返回标准 `UploadedAttachment` 元数据。
+                        2. **iOS 客户端发送拼接**：选中文件或从“图库 / 文件 / 粘贴板”导入后先并发上传，再生成固定格式引用行：
+                           ```markdown
+                           📎 附件（已上传到本机，可直接读取）：
+                           - [sales_q3.csv](/Users/demo/Multigravity/Inbox/2026-11/9f2a4c1b-sales_q3.csv) (1.8 KB)
+                           ```
+                        3. **后台测试运行中**：正在执行 `go test -v ./internal/gateway -run TestAttachmentUpload`，你也可以随时在顶部卡片点击**查看实时日志**或**停止任务**。
+                        """,
+                        """
+                        Implemented end-to-end attachment uploads with validation:
+
+                        1. **Gateway Upload Endpoint (`POST /api/v1/attachments`)**: Reads filename via `X-File-Name`, computes an 8-char SHA-256 ID, saves to `Inbox/2026-11/`, and returns `UploadedAttachment` metadata.
+                        2. **iOS Composer Integration**: Uploads selected Photos, Files, or clipboard items concurrently and injects formatted lines:
+                           ```markdown
+                           📎 Attachments (uploaded locally):
+                           - [sales_q3.csv](/Users/demo/Multigravity/Inbox/2026-11/9f2a4c1b-sales_q3.csv) (1.8 KB)
+                           ```
+                        3. **Background Tests Running**: `go test -v ./internal/gateway -run TestAttachmentUpload` is active — tap the **Live Tasks** bar above to stream logs or stop it anytime.
+                        """
+                    ),
                     timestamp: isoAgo(minutes: 2)
                 )
             ],
@@ -603,7 +636,7 @@ extension DemoGateway {
                     "stepIndex": 1,
                     "commandLine": "go test -v ./internal/gateway -run TestAttachmentUpload",
                     "toolName": "RunCommand",
-                    "toolSummary": "验证多端附件上传测试",
+                    "toolSummary": Self.t("验证多端附件上传测试", "Verify attachment upload tests"),
                     "toolAction": "running",
                     "startedAt": isoAgo(minutes: 2),
                     "isDaemon": false
@@ -612,7 +645,7 @@ extension DemoGateway {
             queuedMessages: [
                 [
                     "id": "queue-demo-1",
-                    "text": "测试全部通过后，再帮我把大于 25MB 的文件拦截提示补一条中文错误码文档。",
+                    "text": Self.t("测试全部通过后，再帮我把大于 25MB 的文件拦截提示补一条中文错误码文档。", "Once tests pass, document the HTTP 413 error code for >25MB attachments."),
                     "createdAt": isoAgo(minutes: 1)
                 ]
             ],
@@ -665,59 +698,77 @@ extension DemoGateway {
                 )
             ],
             chapters: [
-                ["id": "c01-ch1", "title": "需求与 Inbox 路径规范", "stepIndex": 0, "summary": "定义多端附件落盘规则与短 ID 格式"],
-                ["id": "c01-ch2", "title": "网关上传接口与单测", "stepIndex": 2, "summary": "实现 SHA-256 持久化并运行 go test"]
+                ["id": "c01-ch1", "title": Self.t("需求与 Inbox 路径规范", "Requirements & Inbox Spec"), "stepIndex": 0, "summary": Self.t("定义多端附件落盘规则与短 ID 格式", "Define upload layout & SHA-256 short ID")],
+                ["id": "c01-ch2", "title": Self.t("网关上传接口与单测", "Gateway Endpoint & Tests"), "stepIndex": 2, "summary": Self.t("实现 SHA-256 持久化并运行 go test", "Persist files and run go test")]
             ]
         )
 
         // 2. Multi-turn Refactor + Chapters TOC + Changes + PR #412 + ContextMeter
         let c10Turns = Conversation(
             id: "demo-0010-turns",
-            title: "多轮重构与代码审校（Chapters · Diff）",
+            title: Self.t("多轮重构与代码审校（Chapters · Diff）", "Multi-Turn Refactor (Chapters · Diff)"),
             workspaceName: "Multigravity",
             workspaceUri: "file:///Users/demo/Projects/antigravity-mobile",
             status: "CASCADE_RUN_STATUS_IDLE",
-            duration: "24秒",
+            duration: Self.t("24秒", "24s"),
             messages: [
-                Self.userMsg(id: "c10-u0", step: 0, text: "先帮我梳理 `APIClient` 目前有哪些网络重试痛点，给出改造方案。", timestamp: isoAgo(minutes: 45)),
+                Self.userMsg(id: "c10-u0", step: 0, text: Self.t("先帮我梳理 `APIClient` 目前有哪些网络重试痛点，给出改造方案。", "Audit current retry & reconnect pain points in `APIClient` and propose a clean fix."), timestamp: isoAgo(minutes: 45)),
                 Self.toolMsg(id: "c10-t1", step: 1, tools: ["GrepSearch", "ReadFile"]),
                 Self.agentMsg(
                     id: "c10-a2",
                     step: 2,
                     model: "gemini-4-carbon-high",
                     modelName: "Gemini 4 Carbon (High)",
-                    text: """
-                    排查 `Services/APIClient*.swift` 后发现 3 个主要痛点：
+                    text: Self.t(
+                        """
+                        排查 `Services/APIClient*.swift` 后发现 3 个主要痛点：
 
-                    1. **401 / 502 重试未区分幂等方法**，POST 请求超时也被重复发送。
-                    2. **SSE 断线重连延迟固定 3s**，切换 Wi-Fi / 5G 时恢复偏慢。
-                    3. **大附件预览未复用内存缓存**，每次返回详情都重新拉流。
-                    """,
+                        1. **401 / 502 重试未区分幂等方法**，POST 请求超时也被重复发送。
+                        2. **SSE 断线重连延迟固定 3s**，切换 Wi-Fi / 5G 时恢复偏慢。
+                        3. **大附件预览未复用内存缓存**，每次返回详情都重新拉流。
+                        """,
+                        """
+                        Found 3 reliability gaps across `Services/APIClient*.swift`:
+
+                        1. **Non-idempotent retries on 401/502**: timed-out `POST` mutations were retried automatically.
+                        2. **Fixed 3s SSE reconnect timer**: slow recovery when switching between Wi-Fi and 5G.
+                        3. **Uncached attachment previews**: large artifacts re-downloaded on every sheet open.
+                        """
+                    ),
                     timestamp: isoAgo(minutes: 44)
                 ),
-                Self.userMsg(id: "c10-u3", step: 3, text: "好，第 1 和第 2 点先按指数退避 + 仅对 GET 幂等请求重试来改，第 3 点加 LRU 缓存。", timestamp: isoAgo(minutes: 39)),
+                Self.userMsg(id: "c10-u3", step: 3, text: Self.t("好，第 1 和第 2 点先按指数退避 + 仅对 GET 幂等请求重试来改，第 3 点加 LRU 缓存。", "Apply exponential backoff only on idempotent GETs for #1, NWPathMonitor reconnect for #2, and an LRU cache for #3."), timestamp: isoAgo(minutes: 39)),
                 Self.toolMsg(id: "c10-t4", step: 4, tools: ["EditFile", "EditFile", "XcodeBuild"]),
                 Self.agentMsg(
                     id: "c10-a5",
                     step: 5,
                     model: "gemini-4-carbon-high",
                     modelName: "Gemini 4 Carbon (High)",
-                    text: """
-                    已完成第 1 阶段改造并验证编译通过：
+                    text: Self.t(
+                        """
+                        已完成第 1 阶段改造并验证编译通过：
 
-                    - `RetryPolicy.swift`：对 `GET` / `HEAD` 开启 `0.4s -> 0.8s -> 1.6s` 退避，POST 严格不自动重发。
-                    - `StreamWatcher.swift`：监听 `NWPathMonitor` 切换事件，网络切换后立即重连 SSE。
-                    - `PreviewCache.swift`：新增 64MB `NSCache` 预览缓存。
-                    """,
+                        - `RetryPolicy.swift`：对 `GET` / `HEAD` 开启 `0.4s -> 0.8s -> 1.6s` 退避，POST 严格不自动重发。
+                        - `StreamWatcher.swift`：监听 `NWPathMonitor` 切换事件，网络切换后立即重连 SSE。
+                        - `PreviewCache.swift`：新增 64MB `NSCache` 预览缓存。
+                        """,
+                        """
+                        Phase 1 landed and compiles cleanly:
+
+                        - `RetryPolicy.swift`: `0.4s -> 0.8s -> 1.6s` backoff scoped strictly to `GET` / `HEAD`.
+                        - `StreamWatcher.swift`: `NWPathMonitor` triggers instant SSE reconnect on interface handoff.
+                        - `PreviewCache.swift`: Added 64MB `NSCache` artifact buffer.
+                        """
+                    ),
                     timestamp: isoAgo(minutes: 37)
                 ),
-                Self.userMsg(id: "c10-u6", step: 6, text: "帮我再确认下后台切回前台时，如果网关重连失败会不会弹出重复 Toast？", timestamp: isoAgo(minutes: 31)),
+                Self.userMsg(id: "c10-u6", step: 6, text: Self.t("帮我再确认下后台切回前台时，如果网关重连失败会不会弹出重复 Toast？", "Verify foreground transitions won't spam duplicate error toasts if the gateway is unreachable."), timestamp: isoAgo(minutes: 31)),
                 Self.agentMsg(
                     id: "c10-a7",
                     step: 7,
                     model: "gemini-4-carbon-high",
                     modelName: "Gemini 4 Carbon (High)",
-                    text: "已补充 8 秒防抖窗口与错误签名去重（`lastErrorSignature`），短时间内同一网关断连只会提示 1 次。右上角可点击 **Changes / Git** 直接查看本轮全部文件 Diff 与已合并 PR `#412`。",
+                    text: Self.t("已补充 8 秒防抖窗口与错误签名去重（`lastErrorSignature`），短时间内同一网关断连只会提示 1 次。右上角可点击 **Changes / Git** 直接查看本轮全部文件 Diff 与已合并 PR `#412`。", "Added an 8s debounce window with `lastErrorSignature` deduplication so repeated failures surface at most once. Open **Changes / Git** in the toolbar to inspect the full diff and merged PR `#412`."),
                     timestamp: isoAgo(minutes: 29)
                 )
             ],
@@ -786,27 +837,27 @@ extension DemoGateway {
                 )
             ],
             chapters: [
-                ["id": "ch-1", "title": "诊断重试与缓存痛点", "stepIndex": 0, "summary": "梳理 401/502 误重试、固定 3s 重连与缓存缺失"],
-                ["id": "ch-2", "title": "实现退避策略与路径监听", "stepIndex": 3, "summary": "新增 RetryPolicy 与 NWPathMonitor 立即重连"],
-                ["id": "ch-3", "title": "Toast 防抖与错误去重", "stepIndex": 6, "summary": "8 秒窗口防抖避免反复弹窗"]
+                ["id": "ch-1", "title": Self.t("诊断重试与缓存痛点", "Diagnose Retry & Cache Gaps"), "stepIndex": 0, "summary": Self.t("梳理 401/502 误重试、固定 3s 重连与缓存缺失", "Identify non-idempotent retries & uncached assets")],
+                ["id": "ch-2", "title": Self.t("实现退避策略与路径监听", "Backoff & NWPathMonitor"), "stepIndex": 3, "summary": Self.t("新增 RetryPolicy 与 NWPathMonitor 立即重连", "Add RetryPolicy and instant SSE reconnect")],
+                ["id": "ch-3", "title": Self.t("Toast 防抖与错误去重", "Toast Debounce & Dedup"), "stepIndex": 6, "summary": Self.t("8 秒窗口防抖避免反复弹窗", "8s debounce to suppress duplicate alerts")]
             ]
         )
 
         // 3. Dynamic Workflow + Clickable Subagents
         let c11Workflow = Conversation(
             id: "demo-0011-workflow",
-            title: "动态多 Agent 质量门禁巡检",
-            workspaceName: "风控引擎",
+            title: Self.t("动态多 Agent 质量门禁巡检", "Parallel Quality Gate Workflow"),
+            workspaceName: Self.t("风控引擎", "Risk Engine"),
             workspaceUri: "file:///Users/demo/Projects/risk-engine",
             status: "CASCADE_RUN_STATUS_RUNNING",
-            duration: "运行中",
+            duration: Self.t("运行中", "Running"),
             messages: [
                 Self.userMsg(
                     id: "c11-u0",
                     step: 0,
-                    text: "/workflow 并发跑一轮风控引擎发布前质量门禁：安全审计、P99 压测分析，以及自动补全边界单测。",
+                    text: Self.t("/workflow 并发跑一轮风控引擎发布前质量门禁：安全审计、P99 压测分析，以及自动补全边界单测。", "/workflow Run pre-release quality gates on risk-engine in parallel: security audit, P99 profiling, and unit-test coverage."),
                     timestamp: isoAgo(minutes: 26),
-                    slashCommands: [["name": "workflow", "description": "动态编排多阶段子代理流水线"]]
+                    slashCommands: [["name": "workflow", "description": Self.t("动态编排多阶段子代理流水线", "Orchestrate staged subagent pipelines")]]
                 ),
                 Message(
                     id: "c11-wf-1",
@@ -818,21 +869,21 @@ extension DemoGateway {
                     modelName: "Claude Opus 5.5 (Thinking)",
                     timestamp: isoAgo(minutes: 25),
                     workflow: [
-                        "description": "发版前并行门禁流水线：安全扫描 + 压测定位 -> 单测补全",
+                        "description": Self.t("发版前并行门禁流水线：安全扫描 + 压测定位 -> 单测补全", "Pre-release parallel gate: security + profiling -> test authoring"),
                         "phaseCount": 2,
                         "phases": [
                             [
-                                "name": "Phase 1 · 深度审计与性能采样",
+                                "name": Self.t("Phase 1 · 深度审计与性能采样", "Phase 1 · Security Audit & Profiling"),
                                 "taskCount": 2,
                                 "tasks": [
                                     [
-                                        "title": "安全审计：SQL 注入与越权",
+                                        "title": Self.t("安全审计：SQL 注入与越权", "Security: SQL Injection & AuthZ"),
                                         "status": "completed",
                                         "conversationId": "demo-subagent-audit-1",
                                         "duration": "14s"
                                     ],
                                     [
-                                        "title": "压测定位：P99 延迟火焰图",
+                                        "title": Self.t("压测定位：P99 延迟火焰图", "Profiling: P99 Flamegraph"),
                                         "status": "completed",
                                         "conversationId": "demo-subagent-perf-2",
                                         "duration": "11s"
@@ -840,14 +891,14 @@ extension DemoGateway {
                                 ]
                             ],
                             [
-                                "name": "Phase 2 · 回归单测自动补全",
+                                "name": Self.t("Phase 2 · 回归单测自动补全", "Phase 2 · Automated Test Coverage"),
                                 "taskCount": 1,
                                 "tasks": [
                                     [
-                                        "title": "生成表驱动边界单测并运行 -race",
+                                        "title": Self.t("生成表驱动边界单测并运行 -race", "Write table-driven tests & run -race"),
                                         "status": "running",
                                         "conversationId": "demo-subagent-live-3",
-                                        "duration": "进行中"
+                                        "duration": Self.t("进行中", "Running")
                                     ]
                                 ]
                             ]
@@ -858,9 +909,9 @@ extension DemoGateway {
                     id: "c11-s2",
                     step: 2,
                     conversationId: "demo-subagent-audit-1",
-                    role: "安全审计专员",
+                    role: Self.t("安全审计专员", "Security Auditor"),
                     typeName: "security-auditor",
-                    prompt: "检查 handlers/rule_eval.go 与 repo/score_store.go 的参数绑定与越权风险",
+                    prompt: Self.t("检查 handlers/rule_eval.go 与 repo/score_store.go 的参数绑定与越权风险", "Inspect SQL parameter binding and AuthZ checks in handlers/rule_eval.go & repo/score_store.go"),
                     modelTier: "pro",
                     status: "completed",
                     stepCount: 3
@@ -869,9 +920,9 @@ extension DemoGateway {
                     id: "c11-s3",
                     step: 3,
                     conversationId: "demo-subagent-perf-2",
-                    role: "性能压测专家",
+                    role: Self.t("性能压测专家", "Perf Profiler"),
                     typeName: "perf-profiler",
-                    prompt: "分析 EvaluateRiskBatch 在 500 QPS 下的 CPU 热点与 GC 停顿",
+                    prompt: Self.t("分析 EvaluateRiskBatch 在 500 QPS 下的 CPU 热点与 GC 停顿", "Profile EvaluateRiskBatch CPU hotspots & GC pauses at 500 QPS"),
                     modelTier: "flash",
                     status: "completed",
                     stepCount: 3
@@ -880,9 +931,9 @@ extension DemoGateway {
                     id: "c11-s4",
                     step: 4,
                     conversationId: "demo-subagent-live-3",
-                    role: "自动化测试工程师",
+                    role: Self.t("自动化测试工程师", "Test Engineer"),
                     typeName: "test-author",
-                    prompt: "根据发现的问题补全 rule_eval_test.go 并跑通并发检查",
+                    prompt: Self.t("根据发现的问题补全 rule_eval_test.go 并跑通并发检查", "Extend rule_eval_test.go and verify with race detector"),
                     modelTier: "inherit",
                     status: "running",
                     stepCount: 3
@@ -892,7 +943,7 @@ extension DemoGateway {
                     step: 5,
                     model: "claude-opus-5-5-thinking",
                     modelName: "Claude Opus 5.5 (Thinking)",
-                    text: "前两个并行子代理已完成分析（点击上方**工作流卡片**或**子代理胶囊**可直接点进去查看各自完整对话详情），第 3 个测试子代理正在补齐单测中。",
+                    text: Self.t("前两个并行子代理已完成分析（点击上方**工作流卡片**或**子代理胶囊**可直接点进去查看各自完整对话详情），第 3 个测试子代理正在补齐单测中。", "Phase 1 subagents finished (tap any **workflow step** or **subagent pill** above to open its full transcript); the test-author subagent is wrapping up coverage."),
                     timestamp: isoAgo(minutes: 21)
                 )
             ],
@@ -913,35 +964,35 @@ extension DemoGateway {
                 [
                     "conversationId": "demo-subagent-audit-1",
                     "typeName": "security-auditor",
-                    "role": "安全审计专员",
-                    "prompt": "检查参数绑定与越权",
+                    "role": Self.t("安全审计专员", "Security Auditor"),
+                    "prompt": Self.t("检查参数绑定与越权", "Check parameter binding & AuthZ"),
                     "modelTier": "pro",
                     "stepIndex": 2,
                     "status": "completed",
                     "stepCount": 3,
-                    "title": "安全扫描：SQL 注入与越权"
+                    "title": Self.t("安全扫描：SQL 注入与越权", "Security Scan: SQL Injection & AuthZ")
                 ],
                 [
                     "conversationId": "demo-subagent-perf-2",
                     "typeName": "perf-profiler",
-                    "role": "性能压测专家",
-                    "prompt": "分析 500 QPS 火焰图",
+                    "role": Self.t("性能压测专家", "Perf Profiler"),
+                    "prompt": Self.t("分析 500 QPS 火焰图", "Profile 500 QPS flamegraph"),
                     "modelTier": "flash",
                     "stepIndex": 3,
                     "status": "completed",
                     "stepCount": 3,
-                    "title": "压测分析：P99 延迟定位"
+                    "title": Self.t("压测分析：P99 延迟定位", "Load Profile: P99 Latency Hotspots")
                 ],
                 [
                     "conversationId": "demo-subagent-live-3",
                     "typeName": "test-author",
-                    "role": "自动化测试工程师",
-                    "prompt": "补全边界单测",
+                    "role": Self.t("自动化测试工程师", "Test Engineer"),
+                    "prompt": Self.t("补全边界单测", "Write edge-case tests"),
                     "modelTier": "inherit",
                     "stepIndex": 4,
                     "status": "running",
                     "stepCount": 3,
-                    "title": "边界单测自动补全"
+                    "title": Self.t("边界单测自动补全", "Edge-Case Unit Test Authoring")
                 ]
             ],
             parentConversationId: nil,
@@ -954,33 +1005,44 @@ extension DemoGateway {
         // 4. Swarm 4-Tab Collaboration (/teamwork)
         let c12Swarm = Conversation(
             id: "demo-0012-swarm",
-            title: "Swarm 协同开发 · 离线草稿同步（/teamwork）",
+            title: Self.t("Swarm 协同开发 · 离线草稿同步（/teamwork）", "Swarm Teamwork · Offline Draft Merge"),
             workspaceName: "Multigravity",
             workspaceUri: "file:///Users/demo/Projects/antigravity-mobile",
             status: "CASCADE_RUN_STATUS_IDLE",
-            duration: "38秒",
+            duration: Self.t("38秒", "38s"),
             messages: [
                 Self.userMsg(
                     id: "c12-u0",
                     step: 0,
-                    text: "/teamwork 组建一个小队同时完成「离线草稿冲突合并」的后端协议、iOS 持久化以及 E2E 校验，并在面板实时同步进度。",
+                    text: Self.t("/teamwork 组建一个小队同时完成「离线草稿冲突合并」的后端协议、iOS 持久化以及 E2E 校验，并在面板实时同步进度。", "/teamwork Spin up a squad to implement offline draft conflict merging across backend CAS, iOS persistence, and cross-review."),
                     timestamp: isoAgo(minutes: 50),
-                    slashCommands: [["name": "teamwork", "description": "组建多代理协同团队与共享公告板"]]
+                    slashCommands: [["name": "teamwork", "description": Self.t("组建多代理协同团队与共享公告板", "Coordinate multiple agents via shared board")]]
                 ),
                 Self.agentMsg(
                     id: "c12-a1",
                     step: 1,
                     model: "claude-opus-5-5-thinking",
                     modelName: "Claude Opus 5.5 (Thinking)",
-                    text: """
-                    已拉起 **Swarm 协同团队（4 位成员）** 并在独立工作区共享公告板上完成协同交付：
+                    text: Self.t(
+                        """
+                        已拉起 **Swarm 协同团队（4 位成员）** 并在独立工作区共享公告板上完成协同交付：
 
-                    - **`@backend`（GPT-6 Astra）**：新增 `version` 乐观锁字段，冲突时返回 `409 Conflict` 与服务端快照。
-                    - **`@ios-ui`（Claude Opus 5.5）**：在 `DraftStore` 实现三路合并提示条，保留用户未发文字。
-                    - **`@reviewer`（Gemini 4 Carbon）**：已评审全部 3 个文件，未发现死锁或数据覆盖缺陷。
+                        - **`@backend`（GPT-6 Astra）**：新增 `version` 乐观锁字段，冲突时返回 `409 Conflict` 与服务端快照。
+                        - **`@ios-ui`（Claude Opus 5.5）**：在 `DraftStore` 实现三路合并提示条，保留用户未发文字。
+                        - **`@reviewer`（Gemini 4 Carbon）**：已评审全部 3 个文件，未发现死锁或数据覆盖缺陷。
 
-                    点击顶部或工具栏中的 **Swarm** 按钮可切换 4 个标签页（总览 / 成员 / 公告板 / 互动发帖），可直接在公告板向任意 `@成员` 下发新指令。
-                    """,
+                        点击顶部或工具栏中的 **Swarm** 按钮可切换 4 个标签页（总览 / 成员 / 公告板 / 互动发帖），可直接在公告板向任意 `@成员` 下发新指令。
+                        """,
+                        """
+                        Launched a **4-agent Swarm** on the shared coordination board:
+
+                        - **`@backend` (GPT-6 Astra)**: Added optimistic `version` CAS checks returning `409 Conflict` snapshots.
+                        - **`@ios-ui` (Claude Opus 5.5)**: Implemented 3-way draft merge prompts in `DraftStore` preserving unsent edits.
+                        - **`@reviewer` (Gemini 4 Carbon)**: Verified all 3 modified files with zero race or overwrite risks.
+
+                        Tap **Swarm** in the toolbar to explore Summary, Members, Message Board, and live Feedback.
+                        """
+                    ),
                     timestamp: isoAgo(minutes: 40)
                 )
             ],
@@ -1026,26 +1088,26 @@ extension DemoGateway {
             chapters: []
         )
 
-        // 5. Classic Error & Retry Recovery (风控引擎)
+        // 5. Classic Error & Retry Recovery
         let c02Login500 = Conversation(
             id: "demo-0002-login-500",
-            title: "登录接口 500 错误排查",
-            workspaceName: "风控引擎",
+            title: Self.t("登录接口 500 错误排查", "Auth Login 500 Incident Triage"),
+            workspaceName: Self.t("风控引擎", "Risk Engine"),
             workspaceUri: "file:///Users/demo/Projects/risk-engine",
             status: "CASCADE_RUN_STATUS_ERROR",
-            duration: "7秒",
+            duration: Self.t("7秒", "7s"),
             messages: [
                 Self.userMsg(
                     id: "c02-u0",
                     step: 0,
-                    text: "线上 `/api/v2/auth/login` 在高峰期偶发 HTTP 500，日志里报错 `context deadline exceeded` 和 `pq: sorry, too many clients already`，帮我查下连接池配置。",
+                    text: Self.t("线上 `/api/v2/auth/login` 在高峰期偶发 HTTP 500，日志里报错 `context deadline exceeded` 和 `pq: sorry, too many clients already`，帮我查下连接池配置。", "Production `/api/v2/auth/login` intermittently returns HTTP 500 with `context deadline exceeded` and `pq: sorry, too many clients already`. Check pool config."),
                     timestamp: isoAgo(minutes: 28)
                 ),
                 Self.toolMsg(id: "c02-t1", step: 1, tools: ["GrepSearch", "ReadFile", "RunPostgresExplain"]),
                 Self.errorMsg(
                     id: "c02-e2",
                     step: 2,
-                    text: "连接远程风控测试库执行 `SHOW max_connections` 超时（已重试 3/3 次）：Postgres 连接池瞬时占满导致探针握手失败，你可以点击下方 **继续 (Continue)** 让我按本地代码分析完成修复补丁。",
+                    text: Self.t("连接远程风控测试库执行 `SHOW max_connections` 超时（已重试 3/3 次）：Postgres 连接池瞬时占满导致探针握手失败，你可以点击下方 **继续 (Continue)** 让我按本地代码分析完成修复补丁。", "Timed out connecting to remote staging DB for `SHOW max_connections` (3/3 retries): pool saturation blocked health probes. Tap **Continue** below to apply the local pool fix."),
                     attempts: 3,
                     max: 3,
                     errorKind: "network_timeout",
@@ -1073,19 +1135,19 @@ extension DemoGateway {
             chapters: []
         )
 
-        // 6. Classic Interactive Multi-Question ask_question (风控引擎)
+        // 6. Classic Interactive Multi-Question ask_question
         let c03Migration = Conversation(
             id: "demo-0003-migration",
-            title: "数据库迁移方案评审",
-            workspaceName: "风控引擎",
+            title: Self.t("数据库迁移方案评审", "Zero-Downtime DB Migration Review"),
+            workspaceName: Self.t("风控引擎", "Risk Engine"),
             workspaceUri: "file:///Users/demo/Projects/risk-engine",
             status: "CASCADE_RUN_STATUS_RUNNING",
-            duration: "等待确认",
+            duration: Self.t("等待确认", "Needs Input"),
             messages: [
                 Self.userMsg(
                     id: "c03-u0",
                     step: 0,
-                    text: "`orders` 表目前有 1.8 亿行，要在生产环境加上 `(created_at DESC, status)` 复合索引并迁移历史状态，帮我评估停机窗口和回滚方案。",
+                    text: Self.t("`orders` 表目前有 1.8 亿行，要在生产环境加上 `(created_at DESC, status)` 复合索引并迁移历史状态，帮我评估停机窗口和回滚方案。", "The `orders` table has 180M rows. Plan a zero-downtime migration adding `(created_at DESC, status)` plus rollback safeguards."),
                     timestamp: isoAgo(minutes: 33)
                 ),
                 Self.toolMsg(id: "c03-t1", step: 1, tools: ["ReadFile", "InspectMigrations"]),
@@ -1094,7 +1156,7 @@ extension DemoGateway {
                     step: 2,
                     model: "gemini-4-carbon-high",
                     modelName: "Gemini 4 Carbon (High)",
-                    text: "我已梳理好建索引与状态回填方案，在生成最终生产 SQL 之前，需要你确认 3 个上线策略（支持多选和底部补充说明）：",
+                    text: Self.t("我已梳理好建索引与状态回填方案，在生成最终生产 SQL 之前，需要你确认 3 个上线策略（支持多选和底部补充说明）：", "I prepared the indexing and backfill strategy. Please confirm 3 rollout choices below before I generate the final production SQL:"),
                     timestamp: isoAgo(minutes: 31)
                 )
             ],
@@ -1102,38 +1164,38 @@ extension DemoGateway {
                 "type": "ask_question",
                 "trajectoryId": "demo-0003-migration",
                 "stepIndex": 2,
-                "title": "确认生产数据库迁移策略",
-                "description": "请逐项选择线上执行的并发控制与回滚方式",
+                "title": Self.t("确认生产数据库迁移策略", "Confirm Production Migration Strategy"),
+                "description": Self.t("请逐项选择线上执行的并发控制与回滚方式", "Select concurrency limits and rollback safeguards"),
                 "questions": [
                     [
-                        "question": "第 1 题（单选）：主表 1.8 亿行建议采用哪种方式创建索引？",
+                        "question": Self.t("第 1 题（单选）：主表 1.8 亿行建议采用哪种方式创建索引？", "Question 1 (Single): How should we create the index on 180M rows?"),
                         "isMultiSelect": false,
                         "defaultOptionId": "q1-concurrent",
                         "hasWriteIn": true,
-                        "writeInLabel": "其他指定窗口时间",
-                        "writeInPlaceholder": "例如：凌晨 03:00 执行并限流...",
+                        "writeInLabel": Self.t("其他指定窗口时间", "Custom maintenance window"),
+                        "writeInPlaceholder": Self.t("例如：凌晨 03:00 执行并限流...", "e.g. Run at 03:00 UTC with rate limit..."),
                         "options": [
-                            ["id": "q1-concurrent", "text": "CREATE INDEX CONCURRENTLY 无锁并发建索引（推荐）"],
-                            ["id": "q1-shadow", "text": "gh-ost 影子表双写切换"],
-                            ["id": "q1-window", "text": "申请凌晨低峰期只读窗口快速构建"]
+                            ["id": "q1-concurrent", "text": Self.t("CREATE INDEX CONCURRENTLY 无锁并发建索引（推荐）", "CREATE INDEX CONCURRENTLY (Recommended)")],
+                            ["id": "q1-shadow", "text": Self.t("gh-ost 影子表双写切换", "Shadow-table swap via gh-ost")],
+                            ["id": "q1-window", "text": Self.t("申请凌晨低峰期只读窗口快速构建", "Schedule off-peak read-only window")]
                         ]
                     ],
                     [
-                        "question": "第 2 题（多选）：回滚与发布前检查需要包含哪些安全守卫？",
+                        "question": Self.t("第 2 题（多选）：回滚与发布前检查需要包含哪些安全守卫？", "Question 2 (Multi): Which pre-flight & rollback safeguards should be included?"),
                         "isMultiSelect": true,
                         "options": [
-                            ["id": "q2-snapshot", "text": "迁移前自动创建 RDS 只读快照"],
-                            ["id": "q2-rollback-sql", "text": "随发布单附带 DROP INDEX 回滚脚本"],
-                            ["id": "q2-dryrun", "text": "先在灰度库回放近 24 小时慢 SQL"]
+                            ["id": "q2-snapshot", "text": Self.t("迁移前自动创建 RDS 只读快照", "Take RDS snapshot before migration")],
+                            ["id": "q2-rollback-sql", "text": Self.t("随发布单附带 DROP INDEX 回滚脚本", "Bundle reversible DROP INDEX rollback SQL")],
+                            ["id": "q2-dryrun", "text": Self.t("先在灰度库回放近 24 小时慢 SQL", "Replay last 24h slow queries on staging")]
                         ]
                     ],
                     [
-                        "question": "第 3 题（单选）：历史 status 空值回填批次大小设为多少？",
+                        "question": Self.t("第 3 题（单选）：历史 status 空值回填批次大小设为多少？", "Question 3 (Single): Backfill batch size for legacy null status rows?"),
                         "isMultiSelect": false,
                         "defaultOptionId": "q3-5k",
                         "options": [
-                            ["id": "q3-5k", "text": "每批 5,000 行，批间休眠 100ms（平滑 IO）"],
-                            ["id": "q3-20k", "text": "每批 20,000 行，限速主从延迟 < 500ms"]
+                            ["id": "q3-5k", "text": Self.t("每批 5,000 行，批间休眠 100ms（平滑 IO）", "5,000 rows/batch with 100ms sleep (smooth I/O)")],
+                            ["id": "q3-20k", "text": Self.t("每批 20,000 行，限速主从延迟 < 500ms", "20,000 rows/batch capped at <500ms replica lag")]
                         ]
                     ]
                 ]
@@ -1162,22 +1224,31 @@ extension DemoGateway {
         let chartBase64 = chartData.base64EncodedString()
         let c04Sales = Conversation(
             id: "demo-0004-sales",
-            title: "整理季度销售报告（4页 PDF）",
-            workspaceName: "数据分析台",
+            title: Self.t("整理季度销售报告（4页 PDF）", "Q3 Sales Report & Charts (4-Page PDF)"),
+            workspaceName: Self.t("数据分析台", "Analytics Hub"),
             workspaceUri: "file:///Users/demo/Projects/data-analytics",
             status: "CASCADE_RUN_STATUS_IDLE",
-            duration: "19秒",
+            duration: Self.t("19秒", "19s"),
             messages: [
                 Self.userMsg(
                     id: "c04-u0",
                     step: 0,
-                    text: """
-                    📎 附件（已上传到本机，可直接读取）：
-                    - [销售数据.csv](file:///Users/demo/Documents/销售数据.csv) (512 B)
-                    - [会议纪要.md](file:///Users/demo/Documents/会议纪要.md) (1.1 KB)
+                    text: Self.t(
+                        """
+                        📎 附件（已上传到本机，可直接读取）：
+                        - [销售数据.csv](file:///Users/demo/Documents/销售数据.csv) (512 B)
+                        - [会议纪要.md](file:///Users/demo/Documents/会议纪要.md) (1.1 KB)
 
-                    请基于这两份原始数据，对比 Q1-Q3 华东/华南/华北收入趋势，配一张可视化柱状图，并输出一份可直接给管理层汇报的 4 页 PDF 报告。
-                    """,
+                        请基于这两份原始数据，对比 Q1-Q3 华东/华南/华北收入趋势，配一张可视化柱状图，并输出一份可直接给管理层汇报的 4 页 PDF 报告。
+                        """,
+                        """
+                        📎 Attachments (uploaded locally):
+                        - [sales_q3.csv](file:///Users/demo/Documents/sales_q3.csv) (512 B)
+                        - [meeting_notes.md](file:///Users/demo/Documents/meeting_notes.md) (1.1 KB)
+
+                        Compare Q1–Q3 regional revenue trends across West/East/Central, generate a bar chart, and export a 4-page executive PDF report.
+                        """
+                    ),
                     timestamp: isoAgo(minutes: 62)
                 ),
                 Self.toolMsg(id: "c04-t1", step: 1, tools: ["ReadCSV", "GenerateChart", "BuildPDF"]),
@@ -1186,26 +1257,44 @@ extension DemoGateway {
                     step: 2,
                     model: "gemini-4-carbon-high",
                     modelName: "Gemini 4 Carbon (High)",
-                    text: """
-                    已完成 Q1–Q3 销售归因分析并打包了 **4 页高管汇报 PDF**（点击下方文件名或图表即可全屏预览与分享导出）：
+                    text: Self.t(
+                        """
+                        已完成 Q1–Q3 销售归因分析并打包了 **4 页高管汇报 PDF**（点击下方文件名或图表即可全屏预览与分享导出）：
 
-                    | 区域 | Q1 (万) | Q2 (万) | Q3 (万) | 环比增速 |
-                    | --- | ---: | ---: | ---: | ---: |
-                    | 华东区 | 240 | 288 | 356 | **+23.6%** |
-                    | 华南区 | 195 | 224 | 271 | +21.0% |
-                    | 华北区 | 162 | 175 | 209 | +19.4% |
+                        | 区域 | Q1 (万) | Q2 (万) | Q3 (万) | 环比增速 |
+                        | --- | ---: | ---: | ---: | ---: |
+                        | 华东区 | 240 | 288 | 356 | **+23.6%** |
+                        | 华南区 | 195 | 224 | 271 | +21.0% |
+                        | 华北区 | 162 | 175 | 209 | +19.4% |
 
-                    ![Q1-Q3 分区销售增长趋势图](data:image/png;base64,\(chartBase64))
+                        ![Q1-Q3 分区销售增长趋势图](data:image/png;base64,\(chartBase64))
 
-                    ### 生成产物与原始文档（点击预览）
-                    - 📄 [三季度销售报告.pdf](file:///Users/demo/Documents/三季度销售报告.pdf)（共 4 页：封面概览 / 核心趋势图表 / 区域拆解 / Q4 行动建议）
-                    - 📊 [sales_chart.png](file:///Users/demo/Documents/sales_chart.png)
-                    - 📑 [销售数据.csv](file:///Users/demo/Documents/销售数据.csv) · [会议纪要.md](file:///Users/demo/Documents/会议纪要.md)
-                    """,
+                        ### 生成产物与原始文档（点击预览）
+                        - 📄 [三季度销售报告.pdf](file:///Users/demo/Documents/三季度销售报告.pdf)（共 4 页：封面概览 / 核心趋势图表 / 区域拆解 / Q4 行动建议）
+                        - 📊 [sales_chart.png](file:///Users/demo/Documents/sales_chart.png)
+                        - 📑 [销售数据.csv](file:///Users/demo/Documents/销售数据.csv) · [会议纪要.md](file:///Users/demo/Documents/会议纪要.md)
+                        """,
+                        """
+                        Completed Q1–Q3 revenue attribution and packaged a **4-page executive PDF report** (tap any file or chart below for full-screen Quick Look):
+
+                        | Region | Q1 ($K) | Q2 ($K) | Q3 ($K) | QoQ Growth |
+                        | --- | ---: | ---: | ---: | ---: |
+                        | West Coast | 240 | 288 | 356 | **+23.6%** |
+                        | East Coast | 195 | 224 | 271 | +21.0% |
+                        | Central | 162 | 175 | 209 | +19.4% |
+
+                        ![Q1-Q3 Regional Sales Trend](data:image/png;base64,\(chartBase64))
+
+                        ### Deliverables & Source Files
+                        - 📄 [q3_sales_report.pdf](file:///Users/demo/Documents/q3_sales_report.pdf) (4 pages: Cover, Charts, Regional Breakdown, Q4 Plan)
+                        - 📊 [sales_chart.png](file:///Users/demo/Documents/sales_chart.png)
+                        - 📑 [sales_q3.csv](file:///Users/demo/Documents/sales_q3.csv) · [meeting_notes.md](file:///Users/demo/Documents/meeting_notes.md)
+                        """
+                    ),
                     artifacts: [
                         [
-                            "uri": "file:///Users/demo/Documents/三季度销售报告.pdf",
-                            "title": "三季度销售报告.pdf"
+                            "uri": Self.t("file:///Users/demo/Documents/三季度销售报告.pdf", "file:///Users/demo/Documents/q3_sales_report.pdf"),
+                            "title": Self.t("三季度销售报告.pdf", "q3_sales_report.pdf")
                         ]
                     ],
                     timestamp: isoAgo(minutes: 58)
@@ -1235,16 +1324,16 @@ extension DemoGateway {
         // 8. Classic Implementation Plan with Mermaid + Proceed Approval Card (Multigravity)
         let c05Redesign = Conversation(
             id: "demo-0005-redesign",
-            title: "官网首页改版方案（Proceed 审批）",
+            title: Self.t("官网首页改版方案（Proceed 审批）", "Homepage Redesign Plan (Proceed)"),
             workspaceName: "Multigravity",
             workspaceUri: "file:///Users/demo/Projects/antigravity-mobile",
             status: "CASCADE_RUN_STATUS_IDLE",
-            duration: "14秒",
+            duration: Self.t("14秒", "14s"),
             messages: [
                 Self.userMsg(
                     id: "c05-u0",
                     step: 0,
-                    text: "帮我先写一份官网首页改版的架构与迁移 `implementation_plan.md`，支持渐进发布与性能指标观测，我审批后再动手改代码。",
+                    text: Self.t("帮我先写一份官网首页改版的架构与迁移 `implementation_plan.md`，支持渐进发布与性能指标观测，我审批后再动手改代码。", "Draft an `implementation_plan.md` for our homepage redesign with progressive canary rollout and telemetry before editing code."),
                     timestamp: isoAgo(minutes: 75)
                 ),
                 Self.toolMsg(id: "c05-t1", step: 1, tools: ["ReadWorkspace", "WriteArtifact"]),
@@ -1253,19 +1342,34 @@ extension DemoGateway {
                     step: 2,
                     model: "claude-opus-5-5-thinking",
                     modelName: "Claude Opus 5.5 (Thinking)",
-                    text: """
-                    已起草新版首页架构与发布方案，核心流量切换链路如下：
+                    text: Self.t(
+                        """
+                        已起草新版首页架构与发布方案，核心流量切换链路如下：
 
-                    ```mermaid
-                    flowchart LR
-                        U["访客流量"] --> EDGE["CDN Edge Worker"]
-                        EDGE -->|"10% 灰度"| NEW["Next.js 16 SSR 首页"]
-                        EDGE -->|"90% 保底"| OLD["旧版静态页面"]
-                        NEW -->|"LCP < 1.2s"| PROMOTE["全量放量 100%"]
-                    ```
+                        ```mermaid
+                        flowchart LR
+                            U["访客流量"] --> EDGE["CDN Edge Worker"]
+                            EDGE -->|"10% 灰度"| NEW["Next.js 16 SSR 首页"]
+                            EDGE -->|"90% 保底"| OLD["旧版静态页面"]
+                            NEW -->|"LCP < 1.2s"| PROMOTE["全量放量 100%"]
+                        ```
 
-                    完整实施清单见 Artifact：[implementation_plan.md](file:///Users/demo/.gemini/antigravity/brain/demo-0005/implementation_plan.md)。你可以点击文档查看全文，或直接点击下方 **Proceed** 审批通过并启动编码。
-                    """,
+                        完整实施清单见 Artifact：[implementation_plan.md](file:///Users/demo/.gemini/antigravity/brain/demo-0005/implementation_plan.md)。你可以点击文档查看全文，或直接点击下方 **Proceed** 审批通过并启动编码。
+                        """,
+                        """
+                        Drafted the homepage architecture & canary rollout pipeline:
+
+                        ```mermaid
+                        flowchart LR
+                            U["Visitor Traffic"] --> EDGE["CDN Edge Worker"]
+                            EDGE -->|"10% Canary"| NEW["Next.js 16 SSR Home"]
+                            EDGE -->|"90% Baseline"| OLD["Legacy Static Bundle"]
+                            NEW -->|"LCP < 1.2s"| PROMOTE["Promote 100%"]
+                        ```
+
+                        Full spec artifact: [implementation_plan.md](file:///Users/demo/.gemini/antigravity/brain/demo-0005/implementation_plan.md). Open the document or tap **Proceed** below to start implementation.
+                        """
+                    ),
                     artifacts: [
                         [
                             "uri": "file:///Users/demo/.gemini/antigravity/brain/demo-0005/implementation_plan.md",
@@ -1297,19 +1401,19 @@ extension DemoGateway {
             chapters: []
         )
 
-        // 9. Classic Invoice OCR with 2 Image Previews & Reconciliation Table (数据分析台)
+        // 9. Classic Receipt OCR with 2 Image Previews & Reconciliation Table
         let c06Invoice = Conversation(
             id: "demo-0006-invoice",
-            title: "发票识别与整理（多图识别）",
-            workspaceName: "数据分析台",
+            title: Self.t("发票识别与整理（多图识别）", "Receipt OCR & Expense Table"),
+            workspaceName: Self.t("数据分析台", "Analytics Hub"),
             workspaceUri: "file:///Users/demo/Projects/data-analytics",
             status: "CASCADE_RUN_STATUS_IDLE",
-            duration: "9秒",
+            duration: Self.t("9秒", "9s"),
             messages: [
                 Self.userMsg(
                     id: "c06-u0",
                     step: 0,
-                    text: "帮我识别这两张出差报销发票图片，提取开票商户、发票号和含税金额，做成报销对账表。",
+                    text: Self.t("帮我识别这两张出差报销发票图片，提取开票商户、发票号和含税金额，做成报销对账表。", "Extract merchants, receipt numbers, and totals from these two travel receipts into a clean expense table."),
                     imageUrls: [
                         "file:///Users/demo/Documents/invoice_coffee.jpg",
                         "file:///Users/demo/Documents/invoice_taxi.jpg"
@@ -1322,16 +1426,28 @@ extension DemoGateway {
                     step: 2,
                     model: "gemini-4-carbon-high",
                     modelName: "Gemini 4 Carbon (High)",
-                    text: """
-                    已完成 **2 张报销发票** OCR 提取与验真（点上方图片可双指缩放查看原票细节）：
+                    text: Self.t(
+                        """
+                        已完成 **2 张报销发票** OCR 提取与验真（点上方图片可双指缩放查看原票细节）：
 
-                    | 序号 | 报销类别 | 开票商户 / 行程 | 发票号码 | 含税金额 | 验真状态 |
-                    | :---: | --- | --- | --- | ---: | :---: |
-                    | 1 | 业务招待 / 餐饮 | 星河精品咖啡（北京国贸店） | `NO.20261108-88412` | **¥158.00** | ✅ 已验真 |
-                    | 2 | 市内交通 / 出租 | 京B·82716 首都机场 → 国贸CBD | `NO.20261108-51904` | **¥116.00** | ✅ 已验真 |
+                        | 序号 | 报销类别 | 开票商户 / 行程 | 发票号码 | 含税金额 | 验真状态 |
+                        | :---: | --- | --- | --- | ---: | :---: |
+                        | 1 | 业务招待 / 餐饮 | 星河精品咖啡（北京国贸店） | `NO.20261108-88412` | **¥158.00** | ✅ 已验真 |
+                        | 2 | 市内交通 / 出租 | 京B·82716 首都机场 → 国贸CBD | `NO.20261108-51904` | **¥116.00** | ✅ 已验真 |
 
-                    **合计报销金额：¥274.00**。如需自动导出报销汇总 CSV，直接回复「导出 CSV」即可。
-                    """,
+                        **合计报销金额：¥274.00**。如需自动导出报销汇总 CSV，直接回复「导出 CSV」即可。
+                        """,
+                        """
+                        Extracted & verified **2 travel receipts** (tap images above to zoom in):
+
+                        | # | Category | Merchant / Route | Receipt No. | Total | Status |
+                        | :---: | --- | --- | --- | ---: | :---: |
+                        | 1 | Team Coffee | Starburst Specialty Coffee · Downtown | `NO.20261108-88412` | **$23.00** | ✅ Verified |
+                        | 2 | Airport Transit | Cab #82716 · SFO Terminal 2 → SoMa | `NO.20261108-51904` | **$51.00** | ✅ Verified |
+
+                        **Reimbursable Total: $74.00**. Reply "Export CSV" to package for finance.
+                        """
+                    ),
                     timestamp: isoAgo(minutes: 92)
                 )
             ],
@@ -1356,19 +1472,19 @@ extension DemoGateway {
             chapters: []
         )
 
-        // 10. Pending Workflow Approval Interaction (部署脚本)
+        // 10. Pending Workflow Approval Interaction
         let c13WorkflowApproval = Conversation(
             id: "demo-0013-wf-approval",
-            title: "高危发布脚本审批（Workflow Approval）",
-            workspaceName: "部署脚本",
+            title: Self.t("高危发布脚本审批（Workflow Approval）", "Production Script Approval Gate"),
+            workspaceName: Self.t("部署脚本", "Deploy Scripts"),
             workspaceUri: "file:///Users/demo/Projects/deploy-scripts",
             status: "CASCADE_RUN_STATUS_WAITING_FOR_USER",
-            duration: "等待审批",
+            duration: Self.t("等待审批", "Awaiting Approval"),
             messages: [
                 Self.userMsg(
                     id: "c13-u0",
                     step: 0,
-                    text: "执行生产 Redis 缓存前缀清理并重载 Gateway 配置，先跑一次预检查然后向我申请执行确认。",
+                    text: Self.t("执行生产 Redis 缓存前缀清理并重载 Gateway 配置，先跑一次预检查然后向我申请执行确认。", "Run a preflight dry-run for cleaning expired Redis session keys and reloading the gateway config, then request my approval."),
                     timestamp: isoAgo(minutes: 105)
                 ),
                 Self.toolMsg(id: "c13-t1", step: 1, tools: ["InspectDeployScript", "DryRunRedisCleanup"]),
@@ -1377,7 +1493,7 @@ extension DemoGateway {
                     step: 2,
                     model: "claude-opus-5-5-thinking",
                     modelName: "Claude Opus 5.5 (Thinking)",
-                    text: "预检查完成：将扫描并删除 `v1:session:tmp:*` 下约 14,200 个过期键，随后向本机集群发送 `SIGHUP` 热重载。请在下方授权卡片中批准或拒绝本次命令执行。",
+                    text: Self.t("预检查完成：将扫描并删除 `v1:session:tmp:*` 下约 14,200 个过期键，随后向本机集群发送 `SIGHUP` 热重载。请在下方授权卡片中批准或拒绝本次命令执行。", "Dry-run complete: ~14,200 expired `v1:session:tmp:*` keys matched, followed by zero-downtime `SIGHUP` config reload. Approve or deny below."),
                     timestamp: isoAgo(minutes: 103)
                 )
             ],
@@ -1385,20 +1501,20 @@ extension DemoGateway {
                 "type": "workflow_approval",
                 "trajectoryId": "demo-0013-wf-approval",
                 "stepIndex": 2,
-                "title": "高危环境变更 · 请求执行工作流命令",
-                "description": "该脚本将清理过期会话缓存前缀并触发生产网关配置重载。",
+                "title": Self.t("高危环境变更 · 请求执行工作流命令", "Production Change · Command Approval Requested"),
+                "description": Self.t("该脚本将清理过期会话缓存前缀并触发生产网关配置重载。", "Cleans expired Redis session prefixes and hot-reloads production gateway."),
                 "commandLine": "bash scripts/prod_cleanup.sh --prefix 'v1:session:tmp:*' --reload-gateway",
                 "workflowApproval": [
-                    "workflowTitle": "生产网关滚动重载与前缀清理",
-                    "description": "预计影响 14,200 个临时键，网关配置平滑重载不中断活跃 SSE 连接。",
+                    "workflowTitle": Self.t("生产网关滚动重载与前缀清理", "Canary Cache Cleanup & Gateway Reload"),
+                    "description": Self.t("预计影响 14,200 个临时键，网关配置平滑重载不中断活跃 SSE 连接。", "Affects ~14,200 TTL keys; active SSE streams stay connected."),
                     "allowOnceOptionId": "1",
                     "allowAlwaysOptionId": "2",
                     "denyOptionId": "5"
                 ],
                 "options": [
-                    ["id": "1", "text": "允许本次执行"],
-                    ["id": "2", "text": "始终信任本工作流"],
-                    ["id": "5", "text": "拒绝并中止", "isDeny": true]
+                    ["id": "1", "text": Self.t("允许本次执行", "Allow Once")],
+                    ["id": "2", "text": Self.t("始终信任本工作流", "Always Trust Workflow")],
+                    ["id": "5", "text": Self.t("拒绝并中止", "Deny & Abort"), "isDeny": true]
                 ]
             ],
             canProceed: false,
@@ -1421,19 +1537,19 @@ extension DemoGateway {
             chapters: []
         )
 
-        // 11. Running Background Tasks + Daemon Logs (部署脚本)
+        // 11. Running Background Tasks + Daemon Logs
         let c14Running = Conversation(
             id: "demo-0014-running",
-            title: "实时联调与守护进程监控（Daemon Logs）",
-            workspaceName: "部署脚本",
+            title: Self.t("实时联调与守护进程监控（Daemon Logs）", "Live Dev Server & Daemon Logs"),
+            workspaceName: Self.t("部署脚本", "Deploy Scripts"),
             workspaceUri: "file:///Users/demo/Projects/deploy-scripts",
             status: "CASCADE_RUN_STATUS_RUNNING",
-            duration: "运行中",
+            duration: Self.t("运行中", "Running"),
             messages: [
                 Self.userMsg(
                     id: "c14-u0",
                     step: 0,
-                    text: "同时把 Vite 热更新前端守护进程和 Go `-race` 并发回归测试跑起来，方便我在手机上实时看日志和按需中止。",
+                    text: Self.t("同时把 Vite 热更新前端守护进程和 Go `-race` 并发回归测试跑起来，方便我在手机上实时看日志和按需中止。", "Start the Vite HMR dev server daemon and the Go `-race` test suite so I can tail logs and manage tasks from mobile."),
                     timestamp: isoAgo(minutes: 112)
                 ),
                 Self.toolMsg(id: "c14-t1", step: 1, tools: ["StartDaemon", "RunCommand"]),
@@ -1442,14 +1558,24 @@ extension DemoGateway {
                     step: 2,
                     model: "gpt-6-astra",
                     modelName: "GPT-6 Astra",
-                    text: """
-                    已同时启动 2 个后台进程：
+                    text: Self.t(
+                        """
+                        已同时启动 2 个后台进程：
 
-                    1. **守护进程 `task-vite-daemon`**：监听 `0.0.0.0:5173`，供局域网浏览器实时预览。
-                    2. **阻塞任务 `task-go-race`**：正在执行 `./internal/cockpit/...` 并发竞态测试。
+                        1. **守护进程 `task-vite-daemon`**：监听 `0.0.0.0:5173`，供局域网浏览器实时预览。
+                        2. **阻塞任务 `task-go-race`**：正在执行 `./internal/cockpit/...` 并发竞态测试。
 
-                    点击对话顶部的**后台任务栏**（或左下角运行指示器）可展开实时输出日志，或单独停止其中某个任务。
-                    """,
+                        点击对话顶部的**后台任务栏**（或左下角运行指示器）可展开实时输出日志，或单独停止其中某个任务。
+                        """,
+                        """
+                        Started 2 background tasks:
+
+                        1. **Daemon `task-vite-daemon`**: Listening on `0.0.0.0:5173` for LAN live preview.
+                        2. **Blocking Task `task-go-race`**: Running `-race` tests across `./internal/cockpit/...`.
+
+                        Tap the **Live Tasks** bar above (or the status pill) to tail live logs or stop either process individually.
+                        """
+                    ),
                     timestamp: isoAgo(minutes: 110)
                 )
             ],
@@ -1462,7 +1588,7 @@ extension DemoGateway {
                     "stepIndex": 1,
                     "commandLine": "npm run dev -- --host 0.0.0.0 --port 5173",
                     "toolName": "RunCommand",
-                    "toolSummary": "Web 控制台 HMR 守护进程",
+                    "toolSummary": Self.t("Web 控制台 HMR 守护进程", "Web Console HMR Daemon"),
                     "toolAction": "running",
                     "startedAt": isoAgo(minutes: 6),
                     "isDaemon": true
@@ -1472,7 +1598,7 @@ extension DemoGateway {
                     "stepIndex": 1,
                     "commandLine": "go test -race -count=1 ./internal/cockpit/...",
                     "toolName": "RunCommand",
-                    "toolSummary": "Go 并发竞态测试",
+                    "toolSummary": Self.t("Go 并发竞态测试", "Go Race-Detector Suite"),
                     "toolAction": "running",
                     "startedAt": isoAgo(minutes: 1.5),
                     "isDaemon": false
@@ -1495,26 +1621,26 @@ extension DemoGateway {
             chapters: []
         )
 
-        // 12. Context Overflow + /compact rescue (风控引擎)
+        // 12. Context Overflow + /compact rescue
         let c15Overflow = Conversation(
             id: "demo-0015-overflow",
-            title: "上下文超限自救演示（Context Overflow · /compact）",
-            workspaceName: "风控引擎",
+            title: Self.t("上下文超限自救演示（Context Overflow · /compact）", "Context Overflow Recovery (/compact)"),
+            workspaceName: Self.t("风控引擎", "Risk Engine"),
             workspaceUri: "file:///Users/demo/Projects/risk-engine",
             status: "CASCADE_RUN_STATUS_ERROR",
-            duration: "上下文已满",
+            duration: Self.t("上下文已满", "Context Full"),
             messages: [
                 Self.userMsg(
                     id: "c15-u0",
                     step: 0,
-                    text: "把 `internal/rules/` 目录下 42 个反欺诈规则脚本和最近一周的压测 JSONL 全量读进来对比字段差异。",
+                    text: Self.t("把 `internal/rules/` 目录下 42 个反欺诈规则脚本和最近一周的压测 JSONL 全量读进来对比字段差异。", "Load all 42 fraud-rule scripts in `internal/rules/` alongside last week's load-test JSONL logs and compare schema drift."),
                     timestamp: isoAgo(minutes: 130)
                 ),
                 Self.toolMsg(id: "c15-t1", step: 1, tools: ["ReadFileBatch", "DiffJSONL"]),
                 Self.errorMsg(
                     id: "c15-e2",
                     step: 2,
-                    text: "当前上下文已占用 **96.2% (192,400 / 200,000 tokens)**，触发 `context_overflow` 保护。建议发送 **`/compact`** 压缩早期工具调用日志，即可立刻释放约 70% 上下文继续分析。",
+                    text: Self.t("当前上下文已占用 **96.2% (192,400 / 200,000 tokens)**，触发 `context_overflow` 保护。建议发送 **`/compact`** 压缩早期工具调用日志，即可立刻释放约 70% 上下文继续分析。", "Context usage reached **96.2% (192,400 / 200,000 tokens)** (`context_overflow`). Send **`/compact`** below to compress verbose tool output and reclaim ~70% context immediately."),
                     attempts: 1,
                     max: 1,
                     errorKind: "context_overflow",
@@ -1542,19 +1668,19 @@ extension DemoGateway {
             chapters: []
         )
 
-        // 13. Classic Code Blocks (diff / SQL / bash) + Pre-populated Local Draft (风控引擎)
+        // 13. Classic Code Blocks (diff / SQL / bash) + Pre-populated Local Draft
         let c07Python = Conversation(
             id: "demo-0007-python",
-            title: "Python 脚本性能优化（带草稿）",
-            workspaceName: "风控引擎",
+            title: Self.t("Python 脚本性能优化（带草稿）", "Python Feature Pipeline Optimization"),
+            workspaceName: Self.t("风控引擎", "Risk Engine"),
             workspaceUri: "file:///Users/demo/Projects/risk-engine",
             status: "CASCADE_RUN_STATUS_IDLE",
-            duration: "11秒",
+            duration: Self.t("11秒", "11s"),
             messages: [
                 Self.userMsg(
                     id: "c07-u0",
                     step: 0,
-                    text: "我们的特征清洗脚本跑 200 万条流水要 18 分钟，帮我用批量 SQL 聚合 + NumPy 向量化改写一下。",
+                    text: Self.t("我们的特征清洗脚本跑 200 万条流水要 18 分钟，帮我用批量 SQL 聚合 + NumPy 向量化改写一下。", "Our feature-prep script takes 18 minutes for 2M ledger rows. Rewrite it with set-based SQL + vectorized NumPy."),
                     timestamp: isoAgo(minutes: 165)
                 ),
                 Self.toolMsg(id: "c07-t1", step: 1, tools: ["ReadFile", "RunProfiler"]),
@@ -1563,30 +1689,56 @@ extension DemoGateway {
                     step: 2,
                     model: "gpt-6-astra",
                     modelName: "GPT-6 Astra",
-                    text: """
-                    已定位瓶颈在逐行 Python `for` 循环查库（200 万次往返），改造后端到端耗时由 **18 分钟降至 42 秒**：
+                    text: Self.t(
+                        """
+                        已定位瓶颈在逐行 Python `for` 循环查库（200 万次往返），改造后端到端耗时由 **18 分钟降至 42 秒**：
 
-                    ```sql
-                    -- 1. 下推到数据库做窗口预聚合
-                    SELECT user_id,
-                           COUNT(*) FILTER (WHERE amount > 5000) AS high_amt_cnt,
-                           AVG(amount) OVER (PARTITION BY user_id ORDER BY ts ROWS BETWEEN 20 PRECEDING AND CURRENT ROW) AS rolling_avg
-                    FROM txn_ledger
-                    WHERE ts >= NOW() - INTERVAL '30 days';
-                    ```
+                        ```sql
+                        -- 1. 下推到数据库做窗口预聚合
+                        SELECT user_id,
+                               COUNT(*) FILTER (WHERE amount > 5000) AS high_amt_cnt,
+                               AVG(amount) OVER (PARTITION BY user_id ORDER BY ts ROWS BETWEEN 20 PRECEDING AND CURRENT ROW) AS rolling_avg
+                        FROM txn_ledger
+                        WHERE ts >= NOW() - INTERVAL '30 days';
+                        ```
 
-                    ```diff
-                    - for row in rows:
-                    -     score += slow_python_decay(row.amount, row.days)
-                    + scores = np.exp(-0.08 * days_arr) * np.log1p(amounts_arr)
-                    ```
+                        ```diff
+                        - for row in rows:
+                        -     score += slow_python_decay(row.amount, row.days)
+                        + scores = np.exp(-0.08 * days_arr) * np.log1p(amounts_arr)
+                        ```
 
-                    ```bash
-                    pytest tests/test_feature_vectorized.py -v --benchmark-min-rounds=5
-                    ```
+                        ```bash
+                        pytest tests/test_feature_vectorized.py -v --benchmark-min-rounds=5
+                        ```
 
-                    （底部输入框已预置一条“追问草稿”，可以直接体验局部草稿持久化与继续编辑。）
-                    """,
+                        （底部输入框已预置一条“追问草稿”，可以直接体验局部草稿持久化与继续编辑。）
+                        """,
+                        """
+                        Eliminated the row-by-row Python loop (2M DB round-trips), cutting runtime from **18m down to 42s**:
+
+                        ```sql
+                        -- 1. Push window aggregations into Postgres
+                        SELECT user_id,
+                               COUNT(*) FILTER (WHERE amount > 5000) AS high_amt_cnt,
+                               AVG(amount) OVER (PARTITION BY user_id ORDER BY ts ROWS BETWEEN 20 PRECEDING AND CURRENT ROW) AS rolling_avg
+                        FROM txn_ledger
+                        WHERE ts >= NOW() - INTERVAL '30 days';
+                        ```
+
+                        ```diff
+                        - for row in rows:
+                        -     score += slow_python_decay(row.amount, row.days)
+                        + scores = np.exp(-0.08 * days_arr) * np.log1p(amounts_arr)
+                        ```
+
+                        ```bash
+                        pytest tests/test_feature_vectorized.py -v --benchmark-min-rounds=5
+                        ```
+
+                        *(A follow-up draft is pre-filled in the composer below to preview persistent per-thread drafts.)*
+                        """
+                    ),
                     timestamp: isoAgo(minutes: 160)
                 )
             ],
@@ -1614,16 +1766,16 @@ extension DemoGateway {
         // 14. Rich Rendering Showcase: Unread + Jupyter Notebook + LaTeX + Table (Pure Chat)
         let c16Notebook = Conversation(
             id: "demo-0016-notebook",
-            title: "量化策略笔记本与 LaTeX 推导（Notebook）",
+            title: Self.t("量化策略笔记本与 LaTeX 推导（Notebook）", "Kelly Allocation & Jupyter Notebook"),
             workspaceName: "Chat",
             workspaceUri: "",
             status: "CASCADE_RUN_STATUS_IDLE",
-            duration: "12秒",
+            duration: Self.t("12秒", "12s"),
             messages: [
                 Self.userMsg(
                     id: "c16-u0",
                     step: 0,
-                    text: "帮我推导一下带交易成本的凯利公式（Kelly Criterion）多资产扩展形式，并整理成一份可直接打开预览的 Jupyter Notebook。",
+                    text: Self.t("帮我推导一下带交易成本的凯利公式（Kelly Criterion）多资产扩展形式，并整理成一份可直接打开预览的 Jupyter Notebook。", "Derive the multi-asset Kelly Criterion with transaction costs and package it into a previewable Jupyter Notebook."),
                     timestamp: isoAgo(minutes: 210)
                 ),
                 Self.agentMsg(
@@ -1631,28 +1783,52 @@ extension DemoGateway {
                     step: 1,
                     model: "gemini-4-carbon-high",
                     modelName: "Gemini 4 Carbon (High)",
-                    text: """
-                    在存在滑点与单边手续费率 $c$ 时，单资产最优杠杆率 $f^*$ 满足期望对数收益最大化：
+                    text: Self.t(
+                        """
+                        在存在滑点与单边手续费率 $c$ 时，单资产最优杠杆率 $f^*$ 满足期望对数收益最大化：
 
-                    $$
-                    f^* = \\frac{\\mu - r_f - c \\cdot \\tau}{\\sigma^2}
-                    $$
+                        $$
+                        f^* = \\frac{\\mu - r_f - c \\cdot \\tau}{\\sigma^2}
+                        $$
 
-                    拓展到相关性矩阵为 $\\Sigma$ 的多资产组合，向量解为：
+                        拓展到相关性矩阵为 $\\Sigma$ 的多资产组合，向量解为：
 
-                    $$
-                    \\mathbf{f}^* = \\gamma \\cdot \\Sigma^{-1}(\\boldsymbol{\\mu} - r_f \\mathbf{1} - \\mathbf{c})
-                    $$
+                        $$
+                        \\mathbf{f}^* = \\gamma \\cdot \\Sigma^{-1}(\\boldsymbol{\\mu} - r_f \\mathbf{1} - \\mathbf{c})
+                        $$
 
-                    | 参数档位 | 年化期望收益 | 最大回撤估计 | 建议系数 |
-                    | --- | ---: | ---: | :---: |
-                    | Full Kelly | 24.8% | -34.2% | $\\gamma = 1.0$ |
-                    | Half Kelly（推荐） | 18.6% | -15.9% | $\\gamma = 0.5$ |
-                    | Quarter Kelly | 11.2% | -7.4% | $\\gamma = 0.25$ |
+                        | 参数档位 | 年化期望收益 | 最大回撤估计 | 建议系数 |
+                        | --- | ---: | ---: | :---: |
+                        | Full Kelly | 24.8% | -34.2% | $\\gamma = 1.0$ |
+                        | Half Kelly（推荐） | 18.6% | -15.9% | $\\gamma = 0.5$ |
+                        | Quarter Kelly | 11.2% | -7.4% | $\\gamma = 0.25$ |
 
-                    点击下方链接可直接在 iOS 原生预览器中查看完整分 Cell 渲染效果：
-                    📓 [analytics.ipynb](file:///Users/demo/Documents/analytics.ipynb)
-                    """,
+                        点击下方链接可直接在 iOS 原生预览器中查看完整分 Cell 渲染效果：
+                        📓 [analytics.ipynb](file:///Users/demo/Documents/analytics.ipynb)
+                        """,
+                        """
+                        Accounting for slippage and turnover fee $c$, single-asset optimal leverage $f^*$ maximizes expected log growth:
+
+                        $$
+                        f^* = \\frac{\\mu - r_f - c \\cdot \\tau}{\\sigma^2}
+                        $$
+
+                        Extending to a correlated multi-asset universe with covariance $\\Sigma$:
+
+                        $$
+                        \\mathbf{f}^* = \\gamma \\cdot \\Sigma^{-1}(\\boldsymbol{\\mu} - r_f \\mathbf{1} - \\mathbf{c})
+                        $$
+
+                        | Regime | Expected CAGR | Est. Max Drawdown | Scalar |
+                        | --- | ---: | ---: | :---: |
+                        | Full Kelly | 24.8% | -34.2% | $\\gamma = 1.0$ |
+                        | Half Kelly (Rec.) | 18.6% | -15.9% | $\\gamma = 0.5$ |
+                        | Quarter Kelly | 11.2% | -7.4% | $\\gamma = 0.25$ |
+
+                        Tap below to inspect rendered Markdown & code cells natively:
+                        📓 [analytics.ipynb](file:///Users/demo/Documents/analytics.ipynb)
+                        """
+                    ),
                     artifacts: [
                         [
                             "uri": "file:///Users/demo/Documents/analytics.ipynb",
@@ -1686,16 +1862,16 @@ extension DemoGateway {
         // 15. Classic CSS Bug Fix + Code Diff (Multigravity)
         let c08LoginStyle = Conversation(
             id: "demo-0008-login-style",
-            title: "修复登录页样式问题",
+            title: Self.t("修复登录页样式问题", "Fix Mobile Safe-Area & Dark CSS"),
             workspaceName: "Multigravity",
             workspaceUri: "file:///Users/demo/Projects/antigravity-mobile",
             status: "CASCADE_RUN_STATUS_IDLE",
-            duration: "6秒",
+            duration: Self.t("6秒", "6s"),
             messages: [
                 Self.userMsg(
                     id: "c08-u0",
                     step: 0,
-                    text: "iPhone 刘海屏 / 灵动岛机型打开 Web 登录页时，底部提交按钮被安全区遮挡，深色模式下输入框边框也太淡，帮忙修一下。",
+                    text: Self.t("iPhone 刘海屏 / 灵动岛机型打开 Web 登录页时，底部提交按钮被安全区遮挡，深色模式下输入框边框也太淡，帮忙修一下。", "On Dynamic Island iPhones, the web login CTA overlaps the home indicator and input borders fade out in Dark Mode."),
                     timestamp: isoAgo(minutes: 280)
                 ),
                 Self.toolMsg(id: "c08-t1", step: 1, tools: ["ReadFile", "EditFile"]),
@@ -1704,12 +1880,20 @@ extension DemoGateway {
                     step: 2,
                     model: "gemini-3.8-flash",
                     modelName: "Gemini 3.8 Flash",
-                    text: """
-                    已修复 `web/src/styles/login.css` 两处样式兼容性问题：
+                    text: Self.t(
+                        """
+                        已修复 `web/src/styles/login.css` 两处样式兼容性问题：
 
-                    - **安全区适配**：底部操作栏改为 `padding-bottom: calc(20px + env(safe-area-inset-bottom))`，并开启 `100dvh` 视口高度避免软键盘顶起错位。
-                    - **深色模式对比度**：增加 `@media (prefers-color-scheme: dark)` 输入框边框 `rgba(255, 255, 255, 0.22)`，聚焦态使用品牌蓝高光环。
-                    """,
+                        - **安全区适配**：底部操作栏改为 `padding-bottom: calc(20px + env(safe-area-inset-bottom))`，并开启 `100dvh` 视口高度避免软键盘顶起错位。
+                        - **深色模式对比度**：增加 `@media (prefers-color-scheme: dark)` 输入框边框 `rgba(255, 255, 255, 0.22)`，聚焦态使用品牌蓝高光环。
+                        """,
+                        """
+                        Updated `web/src/styles/login.css` to fix both issues:
+
+                        - **Safe-Area Padding**: Applied `padding-bottom: calc(20px + env(safe-area-inset-bottom))` and `min-height: 100dvh` for keyboard resize stability.
+                        - **Dark Mode Contrast**: Bumped `@media (prefers-color-scheme: dark)` input border alpha to `0.22` with a crisp focus ring.
+                        """
+                    ),
                     timestamp: isoAgo(minutes: 277)
                 )
             ],
@@ -1749,19 +1933,19 @@ extension DemoGateway {
             chapters: []
         )
 
-        // 16. Classic Pure Chat: Hangzhou 3-Day Trip
+        // 16. Classic Pure Chat: Weekend Travel Itinerary
         let c09Chat = Conversation(
             id: "demo-0009-chat",
-            title: "杭州三日游行程",
+            title: Self.t("杭州三日游行程", "3-Day Kyoto & Lake Itinerary"),
             workspaceName: "Chat",
             workspaceUri: "",
             status: "CASCADE_RUN_STATUS_IDLE",
-            duration: "4秒",
+            duration: Self.t("4秒", "4s"),
             messages: [
                 Self.userMsg(
                     id: "c09-u0",
                     step: 0,
-                    text: "下周末带爸妈去杭州玩三天两晚，不想太赶，想吃点地道的杭帮菜、逛逛西湖与茶园，帮我排一份舒适行程。",
+                    text: Self.t("下周末带爸妈去杭州玩三天两晚，不想太赶，想吃点地道的杭帮菜、逛逛西湖与茶园，帮我排一份舒适行程。", "Plan a relaxed 3-day weekend trip with parents: scenic lake walks, local cuisine, and tea gardens without rushing."),
                     timestamp: isoAgo(minutes: 420)
                 ),
                 Self.agentMsg(
@@ -1769,25 +1953,45 @@ extension DemoGateway {
                     step: 1,
                     model: "gemini-3.8-flash",
                     modelName: "Gemini 3.8 Flash",
-                    text: """
-                    为你规划了一份节奏舒缓、兼顾西湖人文与茶山清净的 **杭州 3 天 2 晚舒适版行程**：
+                    text: Self.t(
+                        """
+                        为你规划了一份节奏舒缓、兼顾西湖人文与茶山清净的 **杭州 3 天 2 晚舒适版行程**：
 
-                    ### Day 1 · 西湖北线漫步（住湖滨 / 曲院风荷附近）
-                    - **上午**：曲院风荷 → 苏堤北段慢慢走，避开中午晒段（可随时搭景区观光车）。
-                    - **午餐**：楼外楼或知味观总店（东坡肉、西湖醋鱼、龙井虾仁，建议 11:15 前拿号）。
-                    - **下午**：孤山公园 + 西泠印社小坐喝茶，傍晚在断桥看夕阳。
+                        ### Day 1 · 西湖北线漫步（住湖滨 / 曲院风荷附近）
+                        - **上午**：曲院风荷 → 苏堤北段慢慢走，避开中午晒段（可随时搭景区观光车）。
+                        - **午餐**：楼外楼或知味观总店（东坡肉、西湖醋鱼、龙井虾仁，建议 11:15 前拿号）。
+                        - **下午**：孤山公园 + 西泠印社小坐喝茶，傍晚在断桥看夕阳。
 
-                    ### Day 2 · 灵隐禅意与龙井茶香
-                    - **08:30**：趁人少游览飞来峰与灵隐寺，平缓步行 2 小时即可。
-                    - **下午**：打车去**梅家坞 / 龙井村**，挑一家茶农小院泡一壶明前狮峰龙井、吃农家竹林土鸡煲。
-                    - **晚上**：城隍阁或河坊街走走消化食，不必硬挤网红点。
+                        ### Day 2 · 灵隐禅意与龙井茶香
+                        - **08:30**：趁人少游览飞来峰与灵隐寺，平缓步行 2 小时即可。
+                        - **下午**：打车去**梅家坞 / 龙井村**，挑一家茶农小院泡一壶明前狮峰龙井、吃农家竹林土鸡煲。
+                        - **晚上**：城隍阁或河坊街走走消化食，不必硬挤网红点。
 
-                    ### Day 3 · 运河慢生活与返程
-                    - **上午**：小河直街 / 桥西历史街区喝咖啡散步，逛刀剪剑博物馆。
-                    - **伴手礼**：知味观现烤鲜肉月饼、狮峰龙井散茶（按克买更鲜）。
+                        ### Day 3 · 运河慢生活与返程
+                        - **上午**：小河直街 / 桥西历史街区喝咖啡散步，逛刀剪剑博物馆。
+                        - **伴手礼**：知味观现烤鲜肉月饼、狮峰龙井散茶（按克买更鲜）。
 
-                    **出行贴士**：带一把晴雨两用伞和防滑平底鞋；苏堤、灵隐景区步行石板路偏多，景区观光车按段招手即停，带长辈非常省力。
-                    """,
+                        **出行贴士**：带一把晴雨两用伞和防滑平底鞋；苏堤、灵隐景区步行石板路偏多，景区观光车按段招手即停，带长辈非常省力。
+                        """,
+                        """
+                        Here is a unhurried **3-Day Scenic & Tea Garden Itinerary** designed with gentle walking paces:
+
+                        ### Day 1 · Waterfront Promenade & Old Quarter
+                        - **Morning**: Stroll along the shaded lakeside path and botanical gardens (hop on park shuttles anytime).
+                        - **Lunch**: Book an early 11:15 AM table for seasonal local specialties and braised delicacies.
+                        - **Sunset**: Relax at an overlook teahouse along the western causeway.
+
+                        ### Day 2 · Morning Temple Walk & Highland Tea Fields
+                        - **08:30 AM**: Beat the crowds with an easy 2-hour flat walk through ancient cedar groves.
+                        - **Afternoon**: Head up to the hillside tea terraces for freshly roasted green tea tasting and farm-to-table lunch.
+                        - **Evening**: Casual dusk stroll through the lantern-lit historic lanes.
+
+                        ### Day 3 · Canal Cafe & Departure
+                        - **Morning**: Grab pour-over coffee by the canal, browse artisan craft shops, and pick up fresh leaf tea gifts.
+
+                        **Travel Tip**: Pack cushioned walking shoes and a compact travel umbrella; point-to-point park shuttles save knees on stone walkways.
+                        """
+                    ),
                     timestamp: isoAgo(minutes: 416)
                 )
             ],
@@ -1838,7 +2042,7 @@ extension DemoGateway {
     static func seedDrafts() {
         CacheManager.shared.saveDraft(
             key: "demo-0007-python",
-            text: "另外如果把 pandas 预处理也换成 polars，内存峰值还能压低多少？"
+            text: Self.t("另外如果把 pandas 预处理也换成 polars，内存峰值还能压低多少？", "How much lower would peak memory go if we also switch pandas preprocessing to Polars?")
         )
         CacheManager.shared.setPinned(cascadeId: "demo-0001-upload", pinned: true)
     }
@@ -1918,33 +2122,33 @@ extension DemoGateway {
         let t = iso(Date().addingTimeInterval(-m * 60))
         return [
             "swarmId": "swarm-demo-draft-merge",
-            "title": "离线草稿冲突合并小队",
+            "title": Self.t("离线草稿冲突合并小队", "Offline Draft Merge Squad"),
             "active": true,
             "members": [
                 [
                     "name": "coordinator",
-                    "role": "主控协调者",
+                    "role": Self.t("主控协调者", "Coordinator"),
                     "model": "claude-opus-5-5-thinking",
                     "state": "waiting",
                     "isCoordinator": true
                 ],
                 [
                     "name": "backend",
-                    "role": "Go 协议开发",
+                    "role": Self.t("Go 协议开发", "Go Backend Engineer"),
                     "model": "gpt-6-astra",
                     "state": "waiting",
                     "workspace": "share"
                 ],
                 [
                     "name": "ios-ui",
-                    "role": "iOS 客户端开发",
+                    "role": Self.t("iOS 客户端开发", "iOS UI Engineer"),
                     "model": "claude-opus-5-5-thinking",
                     "state": "waiting",
                     "workspace": "share"
                 ],
                 [
                     "name": "reviewer",
-                    "role": "交叉代码评审",
+                    "role": Self.t("交叉代码评审", "Code Reviewer"),
                     "model": "gemini-4-carbon-high",
                     "state": "waiting",
                     "workspace": "inherit"
@@ -1955,120 +2159,181 @@ extension DemoGateway {
                     "seq": 1,
                     "sender": "coordinator",
                     "mentions": ["backend", "ios-ui"],
-                    "body": "@backend 负责在 `/api/v1/drafts` 加入 `version` 乐观锁；@ios-ui 负责客户端冲突三路合并 UI。",
+                    "body": Self.t("@backend 负责在 `/api/v1/drafts` 加入 `version` 乐观锁；@ios-ui 负责客户端冲突三路合并 UI。", "@backend please add optimistic `version` locking to `/api/v1/drafts`; @ios-ui build the 3-way conflict banner."),
                     "timestamp": iso(Date().addingTimeInterval(-(m + 8) * 60))
                 ],
                 [
                     "seq": 2,
                     "sender": "backend",
                     "mentions": ["coordinator", "reviewer"],
-                    "body": "服务端已完成 `version` 自增校验与 `409 Conflict` 快照响应，所有 Go 单元测试通过，请 @reviewer 核验。",
+                    "body": Self.t("服务端已完成 `version` 自增校验与 `409 Conflict` 快照响应，所有 Go 单元测试通过，请 @reviewer 核验。", "Server `version` CAS check and `409 Conflict` snapshot payload are ready; Go unit tests green. Over to @reviewer."),
                     "timestamp": iso(Date().addingTimeInterval(-(m + 5) * 60))
                 ],
                 [
                     "seq": 3,
                     "sender": "ios-ui",
                     "mentions": ["coordinator", "reviewer"],
-                    "body": "客户端 `DraftStore.mergeRemote` 与底部合并提示横幅已接入，本地保留未发送草稿不会丢字。",
+                    "body": Self.t("客户端 `DraftStore.mergeRemote` 与底部合并提示横幅已接入，本地保留未发送草稿不会丢字。", "`DraftStore.mergeRemote` and the conflict banner are wired up; unsent local text is preserved."),
                     "timestamp": iso(Date().addingTimeInterval(-(m + 3) * 60))
                 ],
                 [
                     "seq": 4,
                     "sender": "reviewer",
                     "mentions": ["coordinator"],
-                    "body": "已完成两端交叉审校 ✅ 边界条件与并发读写均无问题，PR #418 已就绪。",
+                    "body": Self.t("已完成两端交叉审校 ✅ 边界条件与并发读写均无问题，PR #418 已就绪。", "Cross-reviewed both patches ✅ Edge cases and concurrent mutations look solid. PR #418 is ready."),
                     "timestamp": t
                 ]
             ]
         ]
     }
 
-    private static let salesCSV = """
-    quarter,region,revenue_wan,orders,avg_ticket_yuan,yoy_growth
-    2026-Q1,华东区,240,1820,1318,+14.2%
-    2026-Q1,华南区,195,1510,1291,+11.8%
-    2026-Q1,华北区,162,1290,1255,+9.4%
-    2026-Q2,华东区,288,2140,1345,+20.0%
-    2026-Q2,华南区,224,1705,1313,+14.9%
-    2026-Q2,华北区,175,1380,1268,+8.0%
-    2026-Q3,华东区,356,2590,1374,+23.6%
-    2026-Q3,华南区,271,2030,1334,+21.0%
-    2026-Q3,华北区,209,1610,1298,+19.4%
-    """
+    private static var salesCSV: String {
+        Self.t(
+            """
+            quarter,region,revenue_wan,orders,avg_ticket_yuan,yoy_growth
+            2026-Q1,华东区,240,1820,1318,+14.2%
+            2026-Q1,华南区,195,1510,1291,+11.8%
+            2026-Q1,华北区,162,1290,1255,+9.4%
+            2026-Q2,华东区,288,2140,1345,+20.0%
+            2026-Q2,华南区,224,1705,1313,+14.9%
+            2026-Q2,华北区,175,1380,1268,+8.0%
+            2026-Q3,华东区,356,2590,1374,+23.6%
+            2026-Q3,华南区,271,2030,1334,+21.0%
+            2026-Q3,华北区,209,1610,1298,+19.4%
+            """,
+            """
+            quarter,region,revenue_k_usd,orders,avg_order_usd,yoy_growth
+            2026-Q1,West Coast,240,1820,1318,+14.2%
+            2026-Q1,East Coast,195,1510,1291,+11.8%
+            2026-Q1,Central,162,1290,1255,+9.4%
+            2026-Q2,West Coast,288,2140,1345,+20.0%
+            2026-Q2,East Coast,224,1705,1313,+14.9%
+            2026-Q2,Central,175,1380,1268,+8.0%
+            2026-Q3,West Coast,356,2590,1374,+23.6%
+            2026-Q3,East Coast,271,2030,1334,+21.0%
+            2026-Q3,Central,209,1610,1298,+19.4%
+            """
+        )
+    }
 
-    private static let meetingNotes = """
-    # Q3 经营分析闭门会纪要
+    private static var meetingNotes: String {
+        Self.t(
+            """
+            # Q3 经营分析闭门会纪要
 
-    - **日期**：2026-10-12 14:00 - 15:30
-    - **参会人**：张总（华东）、李总（华南）、陈敏（华北）、周敏（财务）
+            - **日期**：2026-10-12 14:00 - 15:30
+            - **参会人**：张总（华东）、李总（华南）、陈敏（华北）、周敏（财务）
 
-    ## 核心结论
-    1. **华东大客户续约率突破 94%**，政企定制版套餐拉升客单价 4.2%。
-    2. **华南渠道合作伙伴贡献占比提升至 38%**，但交付实施人力出现阶段性排期紧张。
-    3. **华北 Q3 末集中落地 2 家能源集团项目**，带动 Q3 同比反超预期。
+            ## 核心结论
+            1. **华东大客户续约率突破 94%**，政企定制版套餐拉升客单价 4.2%。
+            2. **华南渠道合作伙伴贡献占比提升至 38%**，但交付实施人力出现阶段性排期紧张。
+            3. **华北 Q3 末集中落地 2 家能源集团项目**，带动 Q3 同比反超预期。
 
-    ## Q4 重点动作
-    - 启动华南区域实施团队扩编与自动化部署模板下沉。
-    - 11 月底前输出年度续费分层折扣手册。
-    """
+            ## Q4 重点动作
+            - 启动华南区域实施团队扩编与自动化部署模板下沉。
+            - 11 月底前输出年度续费分层折扣手册。
+            """,
+            """
+            # Q3 Business Review Notes
 
-    private static let planMarkdown = """
-    # 官网首页改版技术实施方案
+            - **Date**: 2026-10-12 14:00 - 15:30
+            - **Attendees**: Alex (West), Maya (East), Sam (Central), Jordan (Finance)
 
-    ## 1. 目标与关键指标
-    - 将桌面端与移动端首页 **LCP（最大内容绘制）** 从 2.6s 压降至 **< 1.2s**。
-    - 首屏核心包体控制在 95KB gzip 以内，支持零停机灰度切流与一键回滚。
+            ## Key Takeaways
+            1. **West Coast enterprise net renewal reached 94%**, lifting average contract value by +4.2%.
+            2. **East Coast partner channel share grew to 38%**, creating near-term onboarding bandwidth pressure.
+            3. **Central closed two energy enterprise deals late in Q3**, pushing YoY growth ahead of forecast.
 
-    ## 2. 架构拆分
-    - **Edge Worker 层**：负责基于 Cookie / 地理区域做 10% → 50% → 100% 金丝雀分流。
-    - **Next.js 16 App Router**：关键 Hero 区采用流式 SSR + 边缘静态缓存（ISR 60s）。
-    - **Web Vitals 监控**：实时上报 LCP、INP、CLS 至 Prometheus。
+            ## Q4 Action Items
+            - Expand East Coast solutions engineering capacity with automated deployment templates.
+            - Publish tiered annual renewal guidelines before November 30.
+            """
+        )
+    }
 
-    ## 3. 回滚预案
-    - 任意时刻若 LCP P95 > 1.8s 或 5xx > 0.2%，Edge 开关 5 秒内自动切回旧版静态资源包。
-    """
+    private static var planMarkdown: String {
+        Self.t(
+            """
+            # 官网首页改版技术实施方案
 
-    private static let notebookJSON = """
-    {
-      "nbformat": 4,
-      "nbformat_minor": 5,
-      "metadata": {
-        "kernelspec": { "display_name": "Python 3.12 (quant)", "language": "python", "name": "python3" },
-        "language_info": { "name": "python", "version": "3.12.4" }
-      },
-      "cells": [
+            ## 1. 目标与关键指标
+            - 将桌面端与移动端首页 **LCP（最大内容绘制）** 从 2.6s 压降至 **< 1.2s**。
+            - 首屏核心包体控制在 95KB gzip 以内，支持零停机灰度切流与一键回滚。
+
+            ## 2. 架构拆分
+            - **Edge Worker 层**：负责基于 Cookie / 地理区域做 10% → 50% → 100% 金丝雀分流。
+            - **Next.js 16 App Router**：关键 Hero 区采用流式 SSR + 边缘静态缓存（ISR 60s）。
+            - **Web Vitals 监控**：实时上报 LCP、INP、CLS 至 Prometheus。
+
+            ## 3. 回滚预案
+            - 任意时刻若 LCP P95 > 1.8s 或 5xx > 0.2%，Edge 开关 5 秒内自动切回旧版静态资源包。
+            """,
+            """
+            # Homepage Redesign Implementation Plan
+
+            ## 1. Goals & Core Metrics
+            - Reduce desktop & mobile homepage **LCP** from 2.6s to **< 1.2s**.
+            - Keep critical above-the-fold JS under 95KB gzipped with zero-downtime canary routing.
+
+            ## 2. Architecture Breakdown
+            - **Edge Worker Layer**: Deterministic 10% -> 50% -> 100% canary traffic splitting by cookie/region.
+            - **Next.js 16 App Router**: Streaming SSR for the Hero section paired with 60s edge ISR cache.
+            - **Web Vitals Telemetry**: Export real-time LCP, INP, and CLS metrics to Prometheus.
+
+            ## 3. Rollback Plan
+            - If LCP P95 exceeds 1.8s or 5xx > 0.2%, the edge flag reverts to the static bundle within 5 seconds.
+            """
+        )
+    }
+
+    private static var notebookJSON: String {
+        let heading = Self.t("# 带交易成本的多资产 Kelly 仓位模拟", "# Multi-Asset Kelly Allocation with Transaction Costs")
+        let desc = Self.t(
+            "测试不同缩放因子 $\\\\gamma \\\\in \\\\{0.25, 0.5, 1.0\\\\}$ 下的净值曲线与最大回撤。",
+            "Simulate equity curves and max drawdown across fractional Kelly scalars $\\\\gamma \\\\in \\\\{0.25, 0.5, 1.0\\\\}$."
+        )
+        return """
         {
-          "cell_type": "markdown",
-          "metadata": {},
-          "source": [
-            "# 带交易成本的多资产 Kelly 仓位模拟\\n",
-            "测试不同缩放因子 $\\\\gamma \\\\in \\\\{0.25, 0.5, 1.0\\\\}$ 下的净值曲线与最大回撤。"
-          ]
-        },
-        {
-          "cell_type": "code",
-          "execution_count": 1,
-          "metadata": {},
-          "outputs": [
+          "nbformat": 4,
+          "nbformat_minor": 5,
+          "metadata": {
+            "kernelspec": { "display_name": "Python 3.12 (quant)", "language": "python", "name": "python3" },
+            "language_info": { "name": "python", "version": "3.12.4" }
+          },
+          "cells": [
             {
-              "name": "stdout",
-              "output_type": "stream",
-              "text": [
-                "gamma=0.25 -> CAGR: 11.2% | MaxDD: -7.4% | Sharpe: 1.62\\n",
-                "gamma=0.50 -> CAGR: 18.6% | MaxDD: -15.9% | Sharpe: 1.61\\n",
-                "gamma=1.00 -> CAGR: 24.8% | MaxDD: -34.2% | Sharpe: 1.48\\n"
+              "cell_type": "markdown",
+              "metadata": {},
+              "source": [
+                "\(heading)\\n",
+                "\(desc)"
+              ]
+            },
+            {
+              "cell_type": "code",
+              "execution_count": 1,
+              "metadata": {},
+              "outputs": [
+                {
+                  "name": "stdout",
+                  "output_type": "stream",
+                  "text": [
+                    "gamma=0.25 -> CAGR: 11.2% | MaxDD: -7.4% | Sharpe: 1.62\\n",
+                    "gamma=0.50 -> CAGR: 18.6% | MaxDD: -15.9% | Sharpe: 1.61\\n",
+                    "gamma=1.00 -> CAGR: 24.8% | MaxDD: -34.2% | Sharpe: 1.48\\n"
+                  ]
+                }
+              ],
+              "source": [
+                "import numpy as np\\n",
+                "for gamma in [0.25, 0.5, 1.0]:\\n",
+                "    print(f'gamma={gamma:.2f} evaluated')"
               ]
             }
-          ],
-          "source": [
-            "import numpy as np\\n",
-            "for gamma in [0.25, 0.5, 1.0]:\\n",
-            "    print(f'gamma={gamma:.2f} evaluated')"
           ]
         }
-      ]
+        """
     }
-    """
 
     private static func salesChartPNG() -> Data {
         let size = CGSize(width: 960, height: 540)
@@ -2084,7 +2349,7 @@ extension DemoGateway {
                 .font: UIFont.boldSystemFont(ofSize: 28),
                 .foregroundColor: UIColor(white: 0.12, alpha: 1)
             ]
-            "2026 Q1 - Q3 各区域销售额趋势（万元）".draw(at: CGPoint(x: 48, y: 34), withAttributes: titleAttrs)
+            Self.t("2026 Q1 - Q3 各区域销售额趋势（万元）", "2026 Q1 - Q3 Regional Revenue ($K USD)").draw(at: CGPoint(x: 48, y: 34), withAttributes: titleAttrs)
 
             let quarters = ["Q1", "Q2", "Q3"]
             let east: [CGFloat] = [240, 288, 356]
@@ -2132,7 +2397,7 @@ extension DemoGateway {
                 )
             }
 
-            let legends = ["华东区", "华南区", "华北区"]
+            let legends = [Self.t("华东区", "West"), Self.t("华南区", "East"), Self.t("华北区", "Central")]
             for (idx, title) in legends.enumerated() {
                 let lx = 600 + CGFloat(idx) * 105
                 colors[idx].setFill()
@@ -2173,7 +2438,7 @@ extension DemoGateway {
                 at: CGPoint(x: 470, y: 54),
                 withAttributes: [.font: UIFont.monospacedSystemFont(ofSize: 16, weight: .semibold), .foregroundColor: UIColor.darkGray]
             )
-            "销方：\(shop)".draw(
+            Self.t("销方：\(shop)", "Merchant: \(shop)").draw(
                 at: CGPoint(x: 48, y: 102),
                 withAttributes: [.font: UIFont.systemFont(ofSize: 20), .foregroundColor: UIColor.black]
             )
@@ -2193,18 +2458,18 @@ extension DemoGateway {
             cg.addLine(to: CGPoint(x: size.width - 48, y: 344))
             cg.strokePath()
 
-            "价税合计：\(total)".draw(
+            Self.t("价税合计：\(total)", "Total (incl. tax): \(total)").draw(
                 at: CGPoint(x: 48, y: 372),
                 withAttributes: [.font: UIFont.boldSystemFont(ofSize: 26), .foregroundColor: UIColor(red: 0.72, green: 0.2, blue: 0.18, alpha: 1)]
             )
 
-            // 发票专用章
+            // Receipt verification stamp
             let stampRect = CGRect(x: 520, y: 332, width: 120, height: 84)
             UIColor(red: 0.82, green: 0.18, blue: 0.18, alpha: 0.7).setStroke()
             let oval = UIBezierPath(ovalIn: stampRect)
             oval.lineWidth = 3
             oval.stroke()
-            "发票专用章".draw(
+            Self.t("发票专用章", "VERIFIED").draw(
                 at: CGPoint(x: 536, y: 363),
                 withAttributes: [.font: UIFont.boldSystemFont(ofSize: 16), .foregroundColor: UIColor(red: 0.82, green: 0.18, blue: 0.18, alpha: 0.8)]
             )
@@ -2222,66 +2487,93 @@ extension DemoGateway {
             ctx.beginPage()
             UIColor(red: 0.10, green: 0.16, blue: 0.30, alpha: 1).setFill()
             ctx.cgContext.fill(CGRect(x: 0, y: 0, width: 612, height: 220))
-            "2026 Q3 季度销售经营分析报告".draw(
+            Self.t("2026 Q3 季度销售经营分析报告", "2026 Q3 Sales Performance Report").draw(
                 at: CGPoint(x: 48, y: 78),
                 withAttributes: [.font: UIFont.boldSystemFont(ofSize: 28), .foregroundColor: UIColor.white]
             )
-            "编制部门：数据分析台  |  报告周期：2026.07 - 2026.09".draw(
+            Self.t("编制部门：数据分析台  |  报告周期：2026.07 - 2026.09", "Prepared by Analytics Hub  |  Period: Jul – Sep 2026").draw(
                 at: CGPoint(x: 48, y: 126),
                 withAttributes: [.font: UIFont.systemFont(ofSize: 15), .foregroundColor: UIColor(white: 0.86, alpha: 1)]
             )
-            """
-            执行摘要：
+            Self.t(
+                """
+                执行摘要：
 
-            • 全公司 Q3 总体营收 836 万元，环比 Q2（687 万）增长 +21.7%。
-            • 华东大区大客户续约率达到 94%，拉动综合客单价提升 4.2%。
-            • 华南渠道合作伙伴贡献占比达到 38%，需于 Q4 扩充交付实施力量。
-            • 华北受能源集团项目集中验收带动，Q3 同比增长实现反超。
-            """.draw(
+                • 全公司 Q3 总体营收 836 万元，环比 Q2（687 万）增长 +21.7%。
+                • 华东大区大客户续约率达到 94%，拉动综合客单价提升 4.2%。
+                • 华南渠道合作伙伴贡献占比达到 38%，需于 Q4 扩充交付实施力量。
+                • 华北受能源集团项目集中验收带动，Q3 同比增长实现反超。
+                """,
+                """
+                Executive Summary:
+
+                • Total Q3 revenue reached $836K, up +21.7% QoQ vs. Q2 ($687K).
+                • West Coast enterprise renewal hit 94%, lifting ACV by +4.2%.
+                • East Coast partner channel share reached 38%, motivating Q4 onboarding hires.
+                • Central exceeded forecast following two late-quarter energy rollouts.
+                """
+            ).draw(
                 in: CGRect(x: 48, y: 268, width: 516, height: 420),
                 withAttributes: [.font: UIFont.systemFont(ofSize: 16), .foregroundColor: UIColor.darkGray]
             )
 
             // Page 2: Visual Chart
             ctx.beginPage()
-            "第二部分 · 区域业绩增长趋势图".draw(
+            Self.t("第二部分 · 区域业绩增长趋势图", "Section 2 · Regional Revenue Trend").draw(
                 at: CGPoint(x: 48, y: 54),
                 withAttributes: [.font: UIFont.boldSystemFont(ofSize: 22), .foregroundColor: UIColor.black]
             )
             if let chartImg {
                 chartImg.draw(in: CGRect(x: 48, y: 112, width: 516, height: 290))
             }
-            "图表解读：三个大区均保持连续两个季度环比正增长，其中华东 Q3 单季营收达 356 万元，创历史新高；华南渠道放量显著。".draw(
+            Self.t(
+                "图表解读：三个大区均保持连续两个季度环比正增长，其中华东 Q3 单季营收达 356 万元，创历史新高；华南渠道放量显著。",
+                "Takeaway: All three regions grew sequentially for two straight quarters, led by West Coast ($356K) at a new quarterly record."
+            ).draw(
                 in: CGRect(x: 48, y: 428, width: 516, height: 180),
                 withAttributes: [.font: UIFont.systemFont(ofSize: 15), .foregroundColor: UIColor.darkGray]
             )
 
             // Page 3: Regional Breakdown
             ctx.beginPage()
-            "第三部分 · 各区域关键经营指标明细".draw(
+            Self.t("第三部分 · 各区域关键经营指标明细", "Section 3 · Regional KPI Breakdown").draw(
                 at: CGPoint(x: 48, y: 54),
                 withAttributes: [.font: UIFont.boldSystemFont(ofSize: 22), .foregroundColor: UIColor.black]
             )
-            """
-            1. 华东区：Q3 营收 356 万，订单数 2,590 单，客单价 ¥1,374（最高）。
-            2. 华南区：Q3 营收 271 万，订单数 2,030 单，渠道贡献占比 38%。
-            3. 华北区：Q3 营收 209 万，订单数 1,610 单，同比增速回升至 +19.4%。
-            """.draw(
+            Self.t(
+                """
+                1. 华东区：Q3 营收 356 万，订单数 2,590 单，客单价 ¥1,374（最高）。
+                2. 华南区：Q3 营收 271 万，订单数 2,030 单，渠道贡献占比 38%。
+                3. 华北区：Q3 营收 209 万，订单数 1,610 单，同比增速回升至 +19.4%。
+                """,
+                """
+                1. West Coast: $356K Q3 revenue, 2,590 orders, $1,374 ACV (highest).
+                2. East Coast: $271K Q3 revenue, 2,030 orders, 38% partner contribution.
+                3. Central: $209K Q3 revenue, 1,610 orders, YoY growth accelerating to +19.4%.
+                """
+            ).draw(
                 in: CGRect(x: 48, y: 112, width: 516, height: 320),
                 withAttributes: [.font: UIFont.systemFont(ofSize: 16), .foregroundColor: UIColor.darkGray]
             )
 
             // Page 4: Q4 Action Plan
             ctx.beginPage()
-            "第四部分 · Q4 行动建议与资源排期".draw(
+            Self.t("第四部分 · Q4 行动建议与资源排期", "Section 4 · Q4 Action Plan").draw(
                 at: CGPoint(x: 48, y: 54),
                 withAttributes: [.font: UIFont.boldSystemFont(ofSize: 22), .foregroundColor: UIColor.black]
             )
-            """
-            • 11 月 15 日前完成华南 4 名专职交付工程师补充，缓解伙伴排期压力。
-            • 11 月 30 日前发布《2027 年度大客户分层续约政策手册》。
-            • 引入自动化对账仪表盘，压缩月结数据分析耗时 50%。
-            """.draw(
+            Self.t(
+                """
+                • 11 月 15 日前完成华南 4 名专职交付工程师补充，缓解伙伴排期压力。
+                • 11 月 30 日前发布《2027 年度大客户分层续约政策手册》。
+                • 引入自动化对账仪表盘，压缩月结数据分析耗时 50%。
+                """,
+                """
+                • Hire 4 dedicated solutions engineers in the East region by November 15.
+                • Finalize the 2027 tiered enterprise renewal playbook by November 30.
+                • Roll out automated reconciliation dashboards to cut month-end reporting time by 50%.
+                """
+            ).draw(
                 in: CGRect(x: 48, y: 112, width: 516, height: 320),
                 withAttributes: [.font: UIFont.systemFont(ofSize: 16), .foregroundColor: UIColor.darkGray]
             )

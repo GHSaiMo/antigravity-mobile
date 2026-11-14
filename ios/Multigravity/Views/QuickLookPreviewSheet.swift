@@ -151,7 +151,7 @@ public struct QuickLookPreviewSheet: View {
             .sheet(isPresented: $isShowingDocumentPicker) {
                 DocumentExporterRepresentable(url: url) { _ in
                     UINotificationFeedbackGenerator().notificationOccurred(.success)
-                    showSuccessToast("已保存至“文件”")
+                    showSuccessToast(String(localized: "已保存至“文件”"))
                 }
             }
             .presentationDragIndicator(.visible)
@@ -290,7 +290,7 @@ public struct QuickLookPreviewSheet: View {
             guard status == .authorized || status == .limited else {
                 DispatchQueue.main.async {
                     self.isSavingPhoto = false
-                    self.showErrorToast("未获得相册权限，请在系统设置中开启")
+                    self.showErrorToast(String(localized: "未获得相册权限，请在系统设置中开启"))
                 }
                 return
             }
@@ -304,10 +304,10 @@ public struct QuickLookPreviewSheet: View {
                         self.isSavingPhoto = false
                         if success {
                             UINotificationFeedbackGenerator().notificationOccurred(.success)
-                            self.showSuccessToast("视频已保存至相册")
+                            self.showSuccessToast(String(localized: "视频已保存至相册"))
                         } else {
                             UINotificationFeedbackGenerator().notificationOccurred(.error)
-                            self.showErrorToast("保存失败: \(error?.localizedDescription ?? "未知错误")")
+                            self.showErrorToast(String(localized: "保存失败: \(error?.localizedDescription ?? String(localized: "未知错误"))"))
                         }
                     }
                 }
@@ -329,7 +329,7 @@ public struct QuickLookPreviewSheet: View {
                     } catch {
                         DispatchQueue.main.async {
                             self.isSavingPhoto = false
-                            self.showErrorToast("下载视频失败: \(error.localizedDescription)")
+                            self.showErrorToast(String(localized: "下载视频失败: \(error.localizedDescription)"))
                         }
                     }
                 }
@@ -345,7 +345,7 @@ public struct QuickLookPreviewSheet: View {
             guard status == .authorized || status == .limited else {
                 DispatchQueue.main.async {
                     self.isSavingPhoto = false
-                    self.showErrorToast("未获得相册权限，请在系统设置中开启")
+                    self.showErrorToast(String(localized: "未获得相册权限，请在系统设置中开启"))
                 }
                 return
             }
@@ -358,10 +358,10 @@ public struct QuickLookPreviewSheet: View {
                     self.isSavingPhoto = false
                     if success {
                         UINotificationFeedbackGenerator().notificationOccurred(.success)
-                        self.showSuccessToast("已保存至相册，可在微信中直接发原图")
+                        self.showSuccessToast(String(localized: "已保存至系统相册"))
                     } else {
                         UINotificationFeedbackGenerator().notificationOccurred(.error)
-                        self.showErrorToast("保存失败: \(error?.localizedDescription ?? "未知错误")")
+                        self.showErrorToast(String(localized: "保存失败: \(error?.localizedDescription ?? String(localized: "未知错误"))"))
                     }
                 }
             }
@@ -395,7 +395,7 @@ public struct QuickLookPreviewSheet: View {
             guard status == .authorized || status == .limited else {
                 DispatchQueue.main.async {
                     self.isSavingPhoto = false
-                    self.showErrorToast("未获得相册权限，请在系统设置中开启")
+                    self.showErrorToast(String(localized: "未获得相册权限，请在系统设置中开启"))
                 }
                 return
             }
@@ -410,10 +410,10 @@ public struct QuickLookPreviewSheet: View {
                     self.isSavingPhoto = false
                     if success {
                         UINotificationFeedbackGenerator().notificationOccurred(.success)
-                        self.showSuccessToast("已保存至相册，可在微信中直接发原图")
+                        self.showSuccessToast(String(localized: "已保存至系统相册"))
                     } else {
                         UINotificationFeedbackGenerator().notificationOccurred(.error)
-                        self.showErrorToast("保存失败: \(error?.localizedDescription ?? "未知错误")")
+                        self.showErrorToast(String(localized: "保存失败: \(error?.localizedDescription ?? String(localized: "未知错误"))"))
                     }
                 }
             }
