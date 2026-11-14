@@ -31,6 +31,19 @@ import com.antigravity.mobile.data.model.ModelsResponse
 import com.antigravity.mobile.data.model.SlashCommandOption
 import com.antigravity.mobile.ui.theme.AntigravityTheme
 
+/**
+ * 精简模型菜单中的前缀（去掉开头的 "Gemini " / "Claude "，完整保留 "Orchestrator" 等其余名称）。
+ */
+private fun displayModelMenuTitle(rawTitle: String): String {
+    val trimmed = rawTitle.trim()
+    for (prefix in listOf("Gemini ", "Claude ")) {
+        if (trimmed.length > prefix.length && trimmed.startsWith(prefix, ignoreCase = true)) {
+            return trimmed.substring(prefix.length)
+        }
+    }
+    return trimmed
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun QuickActionChips(
@@ -155,7 +168,7 @@ fun QuickActionChips(
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Text(
-                                        text = family.name,
+                                        text = displayModelMenuTitle(family.name),
                                         fontWeight = FontWeight.Medium
                                     )
                                     if (family.variants.size > 1) {
@@ -181,7 +194,7 @@ fun QuickActionChips(
                     DropdownMenuItem(
                         text = {
                             Text(
-                                text = "← ${currentFamily.name}",
+                                text = "← ${displayModelMenuTitle(currentFamily.name)}",
                                 color = colors.accentBlue,
                                 fontWeight = FontWeight.SemiBold
                             )

@@ -122,6 +122,8 @@ public final class ChatViewModel {
     /// One-shot message about rejected / failed attachments, shown as an alert by the view.
     public var attachmentNotice: String?
     @ObservationIgnored var fileUploadTasks: [String: Task<Void, Never>] = [:]
+    /// One-shot flag to select the first `[placeholder]` after inserting a workflow template.
+    public var pendingSelectFirstPlaceholder: Bool = false
     public var inputText: String = "" {
         didSet {
             guard !isInitializing else { return }

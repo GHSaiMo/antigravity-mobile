@@ -31,9 +31,9 @@ public final class ModelSlidePickerState {
         static let rowHeight: CGFloat = 36
         static let rowSpacing: CGFloat = 4
         static let cardPadding: CGFloat = 5
-        static let leftCardMinWidth: CGFloat = 186
+        static let leftCardMinWidth: CGFloat = 176
         static let leftCardMaxWidth: CGFloat = 220
-        static let rightCardWidth: CGFloat = 94
+        static let rightCardWidth: CGFloat = 112
         static let gapBetweenButtonAndMenu: CGFloat = 8
         static let gapBetweenColumns: CGFloat = 8
         static let horizontalMargin: CGFloat = 12
@@ -42,6 +42,17 @@ public final class ModelSlidePickerState {
     }
 
     public init() {}
+
+    private static func displayMenuTitle(for rawTitle: String) -> String {
+        let trimmed = rawTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        for prefix in ["Gemini ", "Claude "] {
+            if trimmed.count > prefix.count,
+               trimmed.lowercased().hasPrefix(prefix.lowercased()) {
+                return String(trimmed.dropFirst(prefix.count))
+            }
+        }
+        return trimmed
+    }
 
     public func open(provider: ModelProviderKind, activeModel: String) {
         let families = ModelCatalogStore.shared.modelFamilies(for: provider.rawValue)
@@ -54,7 +65,7 @@ public final class ModelSlidePickerState {
             builtRows = only.variants.map { variant in
                 ModelPickerRow(
                     id: variant.id,
-                    title: variant.rawName,
+                    title: Self.displayMenuTitle(for: variant.rawName),
                     variantsTopToBottom: [variant],
                     defaultVariantIndex: 0,
                     hasSubmenu: false,
@@ -66,7 +77,7 @@ public final class ModelSlidePickerState {
                 let ordered = family.variantsTopToBottom
                 return ModelPickerRow(
                     id: family.id,
-                    title: family.name,
+                    title: Self.displayMenuTitle(for: family.name),
                     variantsTopToBottom: ordered,
                     defaultVariantIndex: family.defaultVariantIndexTopToBottom,
                     hasSubmenu: ordered.count > 1,

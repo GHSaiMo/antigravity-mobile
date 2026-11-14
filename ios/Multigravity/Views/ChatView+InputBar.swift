@@ -380,15 +380,17 @@ private struct ChatInputTextAndSendRow: View {
 
     var body: some View {
         HStack(alignment: .bottom, spacing: 10) {
-            TextField("", text: $viewModel.inputText, prompt: Text(viewModel.isActivelyRunning ? "向队列添加指令..." : "发送对 Agent 的指令..."), axis: .vertical)
-                .font(.system(size: 16))
-                .padding(.horizontal, 16)
-                .padding(.vertical, 11)
-                .frame(minHeight: 44)
-                .background(Color(uiColor: .secondarySystemBackground))
-                .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-                .lineLimit(1...5)
-                .focused(isInputFocused)
+            BracketPlaceholderTextInput(
+                text: $viewModel.inputText,
+                placeholder: viewModel.isActivelyRunning ? "向队列添加指令..." : "发送对 Agent 的指令...",
+                isFocused: isInputFocused,
+                pendingSelectFirstPlaceholder: $viewModel.pendingSelectFirstPlaceholder
+            )
+            .padding(.horizontal, 16)
+            .padding(.vertical, 11)
+            .frame(minHeight: 44)
+            .background(Color(uiColor: .secondarySystemBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
             
             if voiceCall.isInCall && !hasSendableDraft {
                 Button {
@@ -542,5 +544,203 @@ struct AntigravityVoiceShape: Shape {
         path.closeSubpath()
         
         return path
+    }
+}
+
+private struct BracketPlaceholderTextInput: View {
+    @Binding var text: String
+    let placeholder: String
+    var isFocused: FocusState<Bool>.Binding
+    @Binding var pendingSelectFirstPlaceholder: Bool
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            if text.isEmpty {
+                Text(placeholder)
+                    .font(.system(size: 16))
+                    .foregroundColor(Color(uiColor: .placeholderText))
+                    .allowsHitTesting(false)
+            }
+            BracketPlaceholderUITextView(
+                text: $text,
+                isFocused: isFocused,
+                pendingSelectFirstPlaceholder: $pendingSelectFirstPlaceholder
+            )
+        }
+    }
+}
+
+private struct BracketPlaceholderUITextView: UIViewRepresentable {
+    @Binding var text: String
+    var isFocused: FocusState<Bool>.Binding
+    @Binding var pendingSelectFirstPlaceholder: Bool
+
+    private static let placeholderRegex = try? NSRegularExpression(pattern: "\\[[^\\[\\]\\n]+\\]")
+
+    static func bracketPlaceholderRanges(in text: String) -> [NSRange] {
+        guard let regex = placeholderRegex, !text.isEmpty else { return [] }
+        let fullRange = NSRange(location: 0, length: (text as NSString).length)
+        return regex.matches(in: text, options: [], range: fullRange).map(\.range)
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(parent: self)
+    }
+
+    func makeUIView(context: Context) -> UITextView {
+        let textView = UITextView()
+        textView.delegate = context.coordinator
+        textView.font = .systemFont(ofSize: 16)
+        textView.textColor = .label
+        textView.backgroundColor = .clear
+        textView.textContainerInset = .zero
+        textView.textContainer.lineFragmentPadding = 0
+        textView.isScrollEnabled = false
+        textView.showsVerticalScrollIndicator = true
+        textView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        let tapGesture = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleTap(_:)))
+        tapGesture.numberOfTapsRequired = 1
+        tapGesture.cancelsTouchesInView = false
+        tapGesture.delegate = context.coordinator
+        textView.addGestureRecognizer(tapGesture)
+        return textView
+    }
+
+    func updateUIView(_ uiView: UITextView, context: Context) {
+        context.coordinator.parent = self
+
+        if uiView.markedTextRange == nil && uiView.text != text {
+            uiView.text = text
+            uiView.invalidateIntrinsicContentSize()
+        }
+
+        if pendingSelectFirstPlaceholder {
+            let currentText = uiView.text ?? text
+            let firstRange = Self.bracketPlaceholderRanges(in: currentText).first
+            DispatchQueue.main.async {
+                self.pendingSelectFirstPlaceholder = false
+            }
+            if let firstRange {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                    if !uiView.isFirstResponder {
+                        uiView.becomeFirstResponder()
+                    }
+                    uiView.selectedRange = firstRange
+                    uiView.scrollRangeToVisible(firstRange)
+                }
+                return
+            }
+        }
+
+        if isFocused.wrappedValue && !uiView.isFirstResponder {
+            DispatchQueue.main.async {
+                if self.isFocused.wrappedValue && !uiView.isFirstResponder {
+                    uiView.becomeFirstResponder()
+                }
+            }
+        } else if !isFocused.wrappedValue && uiView.isFirstResponder {
+            DispatchQueue.main.async {
+                if !self.isFocused.wrappedValue && uiView.isFirstResponder {
+                    uiView.resignFirstResponder()
+                }
+            }
+        }
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: UITextView, context: Context) -> CGSize? {
+        let targetWidth = proposal.width ?? uiView.bounds.width
+        guard targetWidth > 0 else { return nil }
+        let lineHeight = uiView.font?.lineHeight ?? 20
+        let maxHeight = ceil(lineHeight * 5)
+        let fittingSize = uiView.sizeThatFits(CGSize(width: targetWidth, height: .greatestFiniteMagnitude))
+        let clampedHeight = min(max(ceil(lineHeight), ceil(fittingSize.height)), maxHeight)
+        let needsScroll = ceil(fittingSize.height) > maxHeight
+        if uiView.isScrollEnabled != needsScroll {
+            uiView.isScrollEnabled = needsScroll
+        }
+        return CGSize(width: targetWidth, height: clampedHeight)
+    }
+
+    final class Coordinator: NSObject, UITextViewDelegate, UIGestureRecognizerDelegate {
+        var parent: BracketPlaceholderUITextView
+
+        init(parent: BracketPlaceholderUITextView) {
+            self.parent = parent
+        }
+
+        func textViewDidChange(_ textView: UITextView) {
+            let newText = textView.text ?? ""
+            if parent.text != newText {
+                parent.text = newText
+            }
+            textView.invalidateIntrinsicContentSize()
+        }
+
+        func textViewDidBeginEditing(_ textView: UITextView) {
+            DispatchQueue.main.async {
+                if !self.parent.isFocused.wrappedValue {
+                    self.parent.isFocused.wrappedValue = true
+                }
+            }
+        }
+
+        func textViewDidEndEditing(_ textView: UITextView) {
+            DispatchQueue.main.async {
+                if self.parent.isFocused.wrappedValue {
+                    self.parent.isFocused.wrappedValue = false
+                }
+            }
+        }
+
+        func gestureRecognizer(
+            _ gestureRecognizer: UIGestureRecognizer,
+            shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+        ) -> Bool {
+            true
+        }
+
+        @objc func handleTap(_ recognizer: UITapGestureRecognizer) {
+            guard let textView = recognizer.view as? UITextView,
+                  let text = textView.text, !text.isEmpty else { return }
+            let ranges = BracketPlaceholderUITextView.bracketPlaceholderRanges(in: text)
+            guard !ranges.isEmpty else { return }
+
+            var location = recognizer.location(in: textView)
+            location.x -= textView.textContainerInset.left
+            location.y -= textView.textContainerInset.top
+
+            let layoutManager = textView.layoutManager
+            let textContainer = textView.textContainer
+            var fraction: CGFloat = 0
+            let charIndex = layoutManager.characterIndex(
+                for: location,
+                in: textContainer,
+                fractionOfDistanceBetweenInsertionPoints: &fraction
+            )
+
+            let matchedRange = ranges.first { range in
+                if NSLocationInRange(charIndex, range) {
+                    return true
+                }
+                if charIndex > 0 && fraction < 0.2 && NSLocationInRange(charIndex - 1, range) {
+                    return true
+                }
+                return false
+            }
+            guard let targetRange = matchedRange else { return }
+
+            let glyphRange = layoutManager.glyphRange(forCharacterRange: targetRange, actualCharacterRange: nil)
+            var boundingRect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
+            boundingRect = boundingRect.insetBy(dx: -6, dy: -6)
+            guard boundingRect.contains(location) else { return }
+
+            DispatchQueue.main.async {
+                if !textView.isFirstResponder {
+                    textView.becomeFirstResponder()
+                }
+                textView.selectedRange = targetRange
+            }
+        }
     }
 }
