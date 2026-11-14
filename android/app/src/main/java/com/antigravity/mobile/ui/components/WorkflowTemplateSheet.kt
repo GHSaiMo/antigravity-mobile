@@ -165,10 +165,64 @@ fun WorkflowTemplateSheet(
     var showResetDialog by remember { mutableStateOf(false) }
     var swipedId by remember { mutableStateOf<String?>(null) }
 
-    // Drag-and-drop state in edit mode
+    // Visual-only drag-and-drop state in edit mode (list commits once on drop to prevent flicker)
+    val density = LocalDensity.current
+    val rowSpacingPx = with(density) { 10.dp.toPx() }
     var draggedId by remember { mutableStateOf<String?>(null) }
+    var dragStartIndex by remember { mutableStateOf<Int?>(null) }
+    var dragTargetIndex by remember { mutableStateOf<Int?>(null) }
     var dragOffsetY by remember { mutableStateOf(0f) }
     val itemHeights = remember { mutableStateMapOf<String, Int>() }
+
+    fun resetDragState() {
+        draggedId = null
+        dragStartIndex = null
+        dragTargetIndex = null
+        dragOffsetY = 0f
+    }
+
+    fun targetIndexForOffset(startIdx: Int, offsetY: Float): Int {
+        if (templates.isEmpty() || startIdx !in templates.indices) return startIdx
+        var remaining = offsetY
+        var target = startIdx
+        if (offsetY > 0f) {
+            while (target < templates.lastIndex) {
+                val nextH = (itemHeights[templates[target + 1].id] ?: 160).toFloat()
+                val step = (nextH + rowSpacingPx) * 0.55f
+                if (remaining >= step) {
+                    remaining -= (nextH + rowSpacingPx)
+                    target += 1
+                } else {
+                    break
+                }
+            }
+        } else if (offsetY < 0f) {
+            while (target > 0) {
+                val prevH = (itemHeights[templates[target - 1].id] ?: 160).toFloat()
+                val step = (prevH + rowSpacingPx) * 0.55f
+                if (-remaining >= step) {
+                    remaining += (prevH + rowSpacingPx)
+                    target -= 1
+                } else {
+                    break
+                }
+            }
+        }
+        return target
+    }
+
+    fun siblingDisplacementY(index: Int): Float {
+        val activeId = draggedId ?: return 0f
+        val start = dragStartIndex ?: return 0f
+        val target = dragTargetIndex ?: return 0f
+        if (index == start) return 0f
+        val draggedStep = ((itemHeights[activeId] ?: 160).toFloat()) + rowSpacingPx
+        return when {
+            start < target && index in (start + 1)..target -> -draggedStep
+            start > target && index in target until start -> draggedStep
+            else -> 0f
+        }
+    }
 
     fun persistAndSync(nextList: List<WorkflowTemplateRecord>) {
         templates = nextList
@@ -177,8 +231,10 @@ fun WorkflowTemplateSheet(
         scope.launch {
             apiClient.saveWorkflowTemplates(nextList)
                 .onSuccess { resp ->
-                    templates = resp.templates
-                    WorkflowTemplateLocalCache.save(context, resp.templates)
+                    if (resp.templates != templates) {
+                        templates = resp.templates
+                        WorkflowTemplateLocalCache.save(context, resp.templates)
+                    }
                 }
                 .onFailure { err ->
                     syncError = "已保存本机缓存，网关同步失败：${err.message ?: "未知错误"}"
@@ -189,8 +245,10 @@ fun WorkflowTemplateSheet(
     LaunchedEffect(Unit) {
         apiClient.fetchWorkflowTemplates()
             .onSuccess { resp ->
-                templates = resp.templates
-                WorkflowTemplateLocalCache.save(context, resp.templates)
+                if (resp.templates != templates) {
+                    templates = resp.templates
+                    WorkflowTemplateLocalCache.save(context, resp.templates)
+                }
                 syncError = null
             }
     }
@@ -367,14 +425,18 @@ fun WorkflowTemplateSheet(
                     }
                 } else {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        templates.forEach { item ->
+                        templates.forEachIndexed { index, item ->
                             key(item.id) {
                                 val isDragging = draggedId == item.id
+                                val isAnyDragging = draggedId != null
+                                val displacementTarget = siblingDisplacementY(index)
                                 WorkflowSwipeableCard(
                                     item = item,
                                     isEditing = isEditing,
                                     isDragging = isDragging,
+                                    isAnyDragging = isAnyDragging,
                                     dragOffsetY = if (isDragging) dragOffsetY else 0f,
+                                    siblingDisplacementY = displacementTarget,
                                     isSwiped = swipedId == item.id,
                                     colors = colors,
                                     onSwipeOpen = { swipedId = item.id },
@@ -399,40 +461,44 @@ fun WorkflowTemplateSheet(
                                         detectDragGestures(
                                             onDragStart = {
                                                 swipedId = null
-                                                draggedId = item.id
-                                                dragOffsetY = 0f
-                                                haptic.light()
+                                                val idx = templates.indexOfFirst { it.id == item.id }
+                                                if (idx >= 0) {
+                                                    draggedId = item.id
+                                                    dragStartIndex = idx
+                                                    dragTargetIndex = idx
+                                                    dragOffsetY = 0f
+                                                    haptic.light()
+                                                }
                                             },
                                             onDragEnd = {
-                                                draggedId = null
-                                                dragOffsetY = 0f
-                                                persistAndSync(templates)
+                                                val start = dragStartIndex
+                                                val target = dragTargetIndex
+                                                val moved = if (start != null && target != null && start != target &&
+                                                    start in templates.indices && target in templates.indices
+                                                ) {
+                                                    val mutable = templates.toMutableList()
+                                                    val itemToMove = mutable.removeAt(start)
+                                                    mutable.add(target, itemToMove)
+                                                    mutable
+                                                } else {
+                                                    null
+                                                }
+                                                resetDragState()
+                                                if (moved != null) {
+                                                    persistAndSync(moved)
+                                                }
                                             },
                                             onDragCancel = {
-                                                draggedId = null
-                                                dragOffsetY = 0f
+                                                resetDragState()
                                             },
                                             onDrag = { change, dragAmount ->
                                                 change.consume()
+                                                val start = dragStartIndex ?: return@detectDragGestures
                                                 dragOffsetY += dragAmount.y
-                                                val currentIdx = templates.indexOfFirst { it.id == item.id }
-                                                if (currentIdx >= 0) {
-                                                    val threshold = ((itemHeights[item.id] ?: 160) * 0.6f).coerceAtLeast(48f)
-                                                    if (dragOffsetY > threshold && currentIdx < templates.lastIndex) {
-                                                        val mutable = templates.toMutableList()
-                                                        val moving = mutable.removeAt(currentIdx)
-                                                        mutable.add(currentIdx + 1, moving)
-                                                        templates = mutable
-                                                        dragOffsetY -= threshold
-                                                        haptic.light()
-                                                    } else if (dragOffsetY < -threshold && currentIdx > 0) {
-                                                        val mutable = templates.toMutableList()
-                                                        val moving = mutable.removeAt(currentIdx)
-                                                        mutable.add(currentIdx - 1, moving)
-                                                        templates = mutable
-                                                        dragOffsetY += threshold
-                                                        haptic.light()
-                                                    }
+                                                val nextTarget = targetIndexForOffset(start, dragOffsetY)
+                                                if (nextTarget != dragTargetIndex) {
+                                                    dragTargetIndex = nextTarget
+                                                    haptic.light()
                                                 }
                                             }
                                         )
@@ -502,7 +568,9 @@ private fun WorkflowSwipeableCard(
     item: WorkflowTemplateRecord,
     isEditing: Boolean,
     isDragging: Boolean,
+    isAnyDragging: Boolean,
     dragOffsetY: Float,
+    siblingDisplacementY: Float,
     isSwiped: Boolean,
     colors: AntigravityColors,
     onSwipeOpen: () -> Unit,
@@ -517,11 +585,23 @@ private fun WorkflowSwipeableCard(
     val scope = rememberCoroutineScope()
     val maxRevealPx = with(density) { 68.dp.toPx() }
     val offsetX = remember { Animatable(0f) }
+    val animatedDisplacementY = remember { Animatable(0f) }
     val haptic = rememberHaptic()
 
     LaunchedEffect(isSwiped) {
         if (!isSwiped && offsetX.value != 0f) {
             offsetX.animateTo(0f, spring(stiffness = Spring.StiffnessMediumLow))
+        }
+    }
+
+    LaunchedEffect(isAnyDragging, siblingDisplacementY) {
+        if (!isAnyDragging) {
+            animatedDisplacementY.snapTo(0f)
+        } else {
+            animatedDisplacementY.animateTo(
+                siblingDisplacementY,
+                spring(stiffness = Spring.StiffnessMedium)
+            )
         }
     }
 
@@ -532,9 +612,17 @@ private fun WorkflowSwipeableCard(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .zIndex(if (isDragging) 1f else 0f)
+            .zIndex(if (isDragging) 2f else 0f)
             .graphicsLayer {
-                translationY = dragOffsetY
+                translationY = if (isDragging) {
+                    dragOffsetY
+                } else if (isAnyDragging) {
+                    animatedDisplacementY.value
+                } else {
+                    0f
+                }
+                scaleX = if (isDragging) 1.015f else 1f
+                scaleY = if (isDragging) 1.015f else 1f
             }
             .onSizeChanged { onSized(it.height) }
             .clip(RoundedCornerShape(12.dp)),
