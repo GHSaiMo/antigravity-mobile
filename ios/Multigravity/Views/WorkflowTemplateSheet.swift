@@ -174,6 +174,7 @@ public struct WorkflowTemplateSheet: View {
     @State private var editorDraft: EditorDraft?
     @State private var showResetConfirm = false
     @State private var swipedId: String?
+    @State private var horizontalSwipingId: String?
 
     // Zero-flicker drag state: visual-only offsets during drag, single commit on end
     @State private var draggingId: String?
@@ -266,6 +267,13 @@ public struct WorkflowTemplateSheet: View {
                                             }
                                         }
                                     ),
+                                    onHorizontalSwipeChanged: { active in
+                                        if active {
+                                            horizontalSwipingId = item.id
+                                        } else if horizontalSwipingId == item.id {
+                                            horizontalSwipingId = nil
+                                        }
+                                    },
                                     onSelect: {
                                         swipedId = nil
                                         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
@@ -277,10 +285,13 @@ public struct WorkflowTemplateSheet: View {
                                         editorDraft = EditorDraft(id: item.id, isNew: false, record: item)
                                     },
                                     onDelete: {
-                                        swipedId = nil
                                         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                                        withAnimation(.easeInOut(duration: 0.2)) {
+                                        withAnimation(.snappy(duration: 0.2)) {
                                             store.delete(id: item.id)
+                                        }
+                                        swipedId = nil
+                                        if horizontalSwipingId == item.id {
+                                            horizontalSwipingId = nil
                                         }
                                     },
                                     dragHandleGesture: dragGesture(for: item, index: index)
@@ -318,7 +329,7 @@ public struct WorkflowTemplateSheet: View {
                 }
                 .padding(16)
             }
-            .scrollDisabled(draggingId != nil)
+            .scrollDisabled(draggingId != nil || horizontalSwipingId != nil)
             .navigationTitle("Workflow 模板")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -332,7 +343,6 @@ public struct WorkflowTemplateSheet: View {
                     } label: {
                         Image(systemName: isEditing ? "checkmark" : "pencil")
                             .font(.system(size: 15, weight: .semibold))
-                            .foregroundColor(isEditing ? .indigo : .primary)
                     }
                     .accessibilityLabel(isEditing ? "完成" : "编辑")
                 }
@@ -476,18 +486,20 @@ public struct WorkflowTemplateSheet: View {
     }
 }
 
-/// 支持仿照会话列表左滑删除的单行卡片（独立状态避免整表重绘）。
+/// 支持仿照会话列表左滑删除的单行卡片（独立状态 + 全局手势坐标消除闪烁）。
 private struct WorkflowSwipeableRow<DragHandleGesture: Gesture>: View {
     let item: WorkflowTemplateRecord
     let isEditing: Bool
     let isDragging: Bool
     @Binding var isSwiped: Bool
+    let onHorizontalSwipeChanged: (Bool) -> Void
     let onSelect: () -> Void
     let onEdit: () -> Void
     let onDelete: () -> Void
     let dragHandleGesture: DragHandleGesture
 
     @State private var swipeDragX: CGFloat = 0
+    @State private var swipeActivationDx: CGFloat = 0
     @State private var isHorizontalSwiping = false
 
     private let maxRevealWidth: CGFloat = 68
@@ -497,28 +509,33 @@ private struct WorkflowSwipeableRow<DragHandleGesture: Gesture>: View {
         return min(0, max(-maxRevealWidth, base + swipeDragX))
     }
 
+    private var deleteRevealProgress: CGFloat {
+        min(1, max(0, (-currentOffsetX - 6) / 36))
+    }
+
     var body: some View {
         let iconColor = WorkflowTemplateStyle.color(for: item.color)
         let systemImage = WorkflowTemplateStyle.systemImage(for: item.icon)
         let displaySubtitle = item.subtitle.isEmpty ? item.templatePrompt : item.subtitle
 
         ZStack(alignment: .trailing) {
-            if currentOffsetX < -1 || isSwiped {
-                Button(action: onDelete) {
-                    ZStack {
-                        Circle()
-                            .fill(Color.red)
-                            .frame(width: 38, height: 38)
-                        Image(systemName: "trash")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundColor(.white)
-                    }
-                    .frame(width: maxRevealWidth)
-                    .contentShape(Rectangle())
+            Button(action: onDelete) {
+                ZStack {
+                    Circle()
+                        .fill(Color.red)
+                        .frame(width: 38, height: 38)
+                    Image(systemName: "trash")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.white)
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("删除 \(item.title)")
+                .frame(width: maxRevealWidth)
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            .opacity(deleteRevealProgress)
+            .scaleEffect(0.72 + 0.28 * deleteRevealProgress)
+            .allowsHitTesting(isSwiped)
+            .accessibilityLabel("删除 \(item.title)")
 
             HStack(spacing: 12) {
                 if isEditing {
@@ -588,31 +605,35 @@ private struct WorkflowSwipeableRow<DragHandleGesture: Gesture>: View {
                     onSelect()
                 }
             }
-            .simultaneousGesture(
-                DragGesture(minimumDistance: 14)
-                    .onChanged { value in
-                        let dx = value.translation.width
-                        let dy = value.translation.height
-                        if !isHorizontalSwiping {
-                            // 仅在明显横向滑动时接管，避免干扰垂直滚动
-                            guard abs(dx) > 14, abs(dx) > abs(dy) * 1.6 else { return }
-                            isHorizontalSwiping = true
-                        }
-                        swipeDragX = dx
-                    }
-                    .onEnded { value in
-                        defer {
-                            swipeDragX = 0
-                            isHorizontalSwiping = false
-                        }
-                        guard isHorizontalSwiping else { return }
-                        let projected = (isSwiped ? -maxRevealWidth : 0) + value.translation.width
-                        withAnimation(.snappy(duration: 0.2)) {
-                            isSwiped = projected < -maxRevealWidth * 0.45
-                        }
-                    }
-            )
         }
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 12, coordinateSpace: .global)
+                .onChanged { value in
+                    guard !isDragging else { return }
+                    let dx = value.translation.width
+                    let dy = value.translation.height
+                    if !isHorizontalSwiping {
+                        guard abs(dx) > 12, abs(dx) > abs(dy) * 1.4 else { return }
+                        isHorizontalSwiping = true
+                        swipeActivationDx = dx
+                        onHorizontalSwipeChanged(true)
+                    }
+                    swipeDragX = dx - swipeActivationDx
+                }
+                .onEnded { _ in
+                    let finalDelta = swipeDragX
+                    let wasSwiping = isHorizontalSwiping
+                    swipeDragX = 0
+                    swipeActivationDx = 0
+                    isHorizontalSwiping = false
+                    onHorizontalSwipeChanged(false)
+                    guard wasSwiping else { return }
+                    let projected = (isSwiped ? -maxRevealWidth : 0) + finalDelta
+                    withAnimation(.snappy(duration: 0.2)) {
+                        isSwiped = projected < -maxRevealWidth * 0.45
+                    }
+                }
+        )
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .scaleEffect(isDragging ? 1.015 : 1.0)
         .shadow(color: isDragging ? Color.black.opacity(0.12) : .clear, radius: 8, y: 4)
