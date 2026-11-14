@@ -150,6 +150,22 @@ data class ModelOption(
 )
 
 @Serializable
+data class ModelVariant(
+    val id: String,
+    val label: String,
+    val rawName: String,
+    val tag: String? = null
+)
+
+@Serializable
+data class ModelFamily(
+    val id: String,
+    val name: String,
+    val provider: String,
+    val variants: List<ModelVariant>
+)
+
+@Serializable
 data class ModelsResponse(
     val models: List<ModelOption> = emptyList(),
     /** 网关建议的各厂商默认模型（provider -> model id）。 */
@@ -193,7 +209,44 @@ object ModelDefaults {
         "claude-sonnet-5-5-low" to "Claude Sonnet 5.5 (Low)",
         "claude-opus-4-6-thinking" to "Claude Opus 4.6 (Thinking)",
         "claude-sonnet-4-6" to "Claude Sonnet 4.6 (Thinking)",
+        "gemini-4-hydrogen-high" to "Gemini 4 Hydrogen (High)",
+        "gemini-4-hydrogen-xhigh" to "Gemini 4 Hydrogen (XHigh)",
+        "gemini-4-hydrogen-medium" to "Gemini 4 Hydrogen (Medium)",
+        "gemini-4-hydrogen-low" to "Gemini 4 Hydrogen (Low)",
+        "orchestrator-carbon" to "Orchestrator (Carbon)",
+        "orchestrator-argon" to "Orchestrator (Argon)",
         "gpt-oss-120b-medium" to "GPT-OSS 120B (Medium)"
+    )
+
+    /** 顶栏芯片紧凑展示名映射（如 `Gemini 4 Carbon (High)` → `Carbon · High`）。 */
+    val STATIC_COMPACT_DISPLAY_NAME_BY_ID: Map<String, String> = mapOf(
+        "gemini-4-carbon-high" to "Carbon · High",
+        "gemini-4-carbon-medium" to "Carbon · Med",
+        "gemini-4-carbon-low" to "Carbon · Low",
+        "gemini-4-carbon" to "Carbon",
+        "gemini-4-argon-high" to "Argon · High",
+        "gemini-4-argon-medium" to "Argon · Med",
+        "gemini-4-argon-low" to "Argon · Low",
+        "gemini-4-hydrogen-xhigh" to "Hydrogen · XH",
+        "gemini-4-hydrogen-high" to "Hydrogen · High",
+        "gemini-4-hydrogen-medium" to "Hydrogen · Med",
+        "gemini-4-hydrogen-low" to "Hydrogen · Low",
+        "gemini-3.8-flash-high" to "Flash 3.8 · High",
+        "gemini-3.8-flash-medium" to "Flash 3.8 · Med",
+        "gemini-3.8-flash-low" to "Flash 3.8 · Low",
+        "gemini-3.1-pro-high" to "Pro 3.1 · High",
+        "gemini-3.1-pro-low" to "Pro 3.1 · Low",
+        "claude-opus-5-5-high" to "Opus 5.5 · High",
+        "claude-opus-5-5-medium" to "Opus 5.5 · Med",
+        "claude-opus-5-5-low" to "Opus 5.5 · Low",
+        "claude-sonnet-5-5-high" to "Sonnet 5.5 · High",
+        "claude-sonnet-5-5-medium" to "Sonnet 5.5 · Med",
+        "claude-sonnet-5-5-low" to "Sonnet 5.5 · Low",
+        "claude-opus-4-6-thinking" to "Opus 4.6 · Think",
+        "claude-sonnet-4-6" to "Sonnet 4.6 · Think",
+        "orchestrator-carbon" to "Orch · Carbon",
+        "orchestrator-argon" to "Orch · Argon",
+        "gpt-oss-120b-medium" to "GPT-OSS · Med"
     )
 
     /** 将未知模型 ID 转为统一规范的展示名（如 `claude-sonnet-5-5-high` → `Claude Sonnet 5.5 (High)`）。 */
@@ -244,6 +297,113 @@ object ModelDefaults {
         } else {
             name
         }
+    }
+
+    /** 顶栏芯片紧凑展示名（优先查预设表，再对全名进行自然紧凑格式化）。 */
+    fun compactDisplayName(id: String, options: List<ModelOption> = emptyList()): String {
+        val key = id.trim()
+        if (key.isEmpty()) return ""
+        STATIC_COMPACT_DISPLAY_NAME_BY_ID[key.lowercase()]?.let { return it }
+        val full = displayName(key, options)
+        return formatFullNameToCompact(full)
+    }
+
+    fun formatFullNameToCompact(full: String): String {
+        val trimmed = full.trim()
+        if (trimmed.isEmpty()) return ""
+        val openParen = trimmed.lastIndexOf('(')
+        if (openParen > 0 && trimmed.endsWith(')')) {
+            var base = trimmed.substring(0, openParen).trim()
+            var variant = trimmed.substring(openParen + 1, trimmed.length - 1).trim()
+            val baseLower = base.lowercase()
+            when {
+                baseLower.startsWith("gemini 4 ") -> base = base.drop("gemini 4 ".length)
+                baseLower.startsWith("gemini ") -> base = base.drop("gemini ".length)
+                baseLower.startsWith("claude ") -> base = base.drop("claude ".length)
+                baseLower.startsWith("orchestrator") -> base = "Orch"
+            }
+            when (variant.lowercase()) {
+                "medium" -> variant = "Med"
+                "thinking" -> variant = "Think"
+                "xhigh" -> variant = "XH"
+            }
+            return "$base · $variant"
+        }
+        var base = trimmed
+        val baseLower = base.lowercase()
+        when {
+            baseLower.startsWith("gemini 4 ") -> base = base.drop("gemini 4 ".length)
+            baseLower.startsWith("gemini ") -> base = base.drop("gemini ".length)
+            baseLower.startsWith("claude ") -> base = base.drop("claude ".length)
+            baseLower.startsWith("orchestrator") -> base = "Orch"
+        }
+        return base
+    }
+
+    fun providerKind(modelId: String): String {
+        val lower = modelId.lowercase()
+        return when {
+            isClaude(lower) -> "claude"
+            lower.contains("orch") -> "orchestrator"
+            lower.contains("gpt") -> "other"
+            else -> "gemini"
+        }
+    }
+
+    fun modelFamilies(options: List<ModelOption> = emptyList(), provider: String? = null): List<ModelFamily> {
+        val effective = if (options.isEmpty()) {
+            STATIC_DISPLAY_NAME_BY_ID.keys.sorted().map { key ->
+                ModelOption(
+                    id = key,
+                    name = STATIC_DISPLAY_NAME_BY_ID[key] ?: key,
+                    provider = if (isClaude(key)) "claude" else if (key.contains("orch")) "other" else "gemini"
+                )
+            }
+        } else {
+            options
+        }
+        val familyMap = mutableMapOf<String, Triple<String, String, MutableList<ModelVariant>>>()
+        val familyOrder = mutableListOf<String>()
+
+        for (opt in effective) {
+            val fullName = if (opt.name.isBlank()) displayName(opt.id, options) else opt.name
+            var familyName = fullName
+            var variantLabel = "默认"
+            val openParen = fullName.lastIndexOf('(')
+            if (openParen > 0 && fullName.endsWith(')')) {
+                familyName = fullName.substring(0, openParen).trim()
+                variantLabel = fullName.substring(openParen + 1, fullName.length - 1).trim()
+            }
+            val p = opt.provider.lowercase()
+            val familyProvider = when {
+                isClaude(opt.id) || p == "claude" -> "claude"
+                opt.id.contains("orch", ignoreCase = true) || familyName.contains("orch", ignoreCase = true) -> "orchestrator"
+                p == "gemini" || opt.id.contains("gemini", ignoreCase = true) -> "gemini"
+                else -> "other"
+            }
+            val variant = ModelVariant(
+                id = opt.id,
+                label = variantLabel,
+                rawName = fullName,
+                tag = opt.tag
+            )
+            if (!familyMap.containsKey(familyName)) {
+                familyOrder.add(familyName)
+                familyMap[familyName] = Triple(familyName, familyProvider, mutableListOf(variant))
+            } else {
+                familyMap[familyName]?.third?.add(variant)
+            }
+        }
+
+        val all = familyOrder.mapNotNull { key ->
+            familyMap[key]?.let { (name, prov, variants) ->
+                ModelFamily(id = key, name = name, provider = prov, variants = variants)
+            }
+        }
+        val target = provider?.lowercase()?.trim().orEmpty()
+        if (target.isEmpty()) return all
+        val filtered = all.filter { it.provider.lowercase() == target }
+        return if (filtered.isEmpty()) all else filtered
     }
 
     /** 输入框上方胶囊的文字：只有厂商名，保持简洁。 */

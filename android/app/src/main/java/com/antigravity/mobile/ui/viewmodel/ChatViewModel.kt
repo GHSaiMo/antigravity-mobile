@@ -152,8 +152,9 @@ class ChatViewModel(
     val uiState: StateFlow<ChatUiState> = _uiState.asStateFlow()
 
     init {
-        // 新会话默认走「设置 › 默认模型」里选定的 Gemini 模型
-        _uiState.value = _uiState.value.copy(activeModel = geminiDefaultModel)
+        // 新会话默认走「设置 › 新建会话默认」选定的模型
+        val defaultModel = prefs?.defaultNewSessionModel ?: geminiDefaultModel
+        _uiState.value = _uiState.value.copy(activeModel = defaultModel)
     }
 
     internal val _inputText = MutableStateFlow("")
@@ -236,8 +237,12 @@ class ChatViewModel(
         }
     }
 
+    var hasUserManuallySelectedModel: Boolean = false
+        private set
+
     /** 胶囊切换：Gemini ⇄ Claude，落到「设置 › 默认模型」里为各自选定的具体模型。 */
     fun toggleModel() {
+        hasUserManuallySelectedModel = true
         val nextModel = ModelDefaults.toggleTarget(
             current = _uiState.value.activeModel,
             geminiDefault = geminiDefaultModel,
@@ -246,7 +251,15 @@ class ChatViewModel(
         _uiState.value = _uiState.value.copy(activeModel = nextModel, activeModelName = null)
     }
 
+    /** 手动选择具体模型（如长按选择二级菜单中的大类或思考强度）。 */
+    fun selectModel(modelId: String) {
+        if (_uiState.value.activeModel == modelId) return
+        hasUserManuallySelectedModel = true
+        _uiState.value = _uiState.value.copy(activeModel = modelId, activeModelName = null)
+    }
+
     fun syncModel(model: String) {
+        if (hasUserManuallySelectedModel) return
         _uiState.value = _uiState.value.copy(
             activeModel = ModelDefaults.resolveActive(model, _uiState.value.activeModel, geminiDefaultModel, claudeDefaultModel)
         )

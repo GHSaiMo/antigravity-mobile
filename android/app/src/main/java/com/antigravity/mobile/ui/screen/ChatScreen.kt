@@ -471,6 +471,7 @@ fun ChatScreen(
     val enableVoiceMode by voicePrefs.enableVoiceModeFlow.collectAsState()
     val fontSizeScaleSetting by voicePrefs.fontSizeScaleFlow.collectAsState()
     val isKnowledgeModeEnabled by voicePrefs.knowledgeModeFlow.collectAsState()
+    val modelCatalog by voicePrefs.modelCatalogFlow.collectAsState()
 
     LaunchedEffect(enableVoiceMode) {
         if (!enableVoiceMode && isInVoiceCall) {
@@ -1202,6 +1203,84 @@ fun ChatScreen(
                             .align(Alignment.BottomCenter)
                             .padding(top = 8.dp, bottom = 8.dp)
                     )
+
+                    // 浮动跳跃双钮导航条 (Prompt Jump Stepper)
+                    val shouldShowJumpStepper = turns.size >= 2 && !isNearBottom && !isInputFocused
+                    if (shouldShowJumpStepper) {
+                        com.antigravity.mobile.ui.components.PromptJumpStepper(
+                            currentTurn = currentTurnIndex,
+                            totalTurns = turns.size,
+                            isAtTop = currentTurnIndex <= 1,
+                            isAtLastTurn = currentTurnIndex >= turns.size,
+                            isUserDragging = listState.isScrollInProgress,
+                            onJumpPrevious = {
+                                val targetTurn = (currentTurnIndex - 1).coerceAtLeast(1)
+                                lockedTurnIndex = targetTurn
+                                val matchTurn = turns.firstOrNull { it.turnIndex == targetTurn }
+                                if (matchTurn != null) {
+                                    val targetIndex = uiState.messages.indexOfFirst { it.id == matchTurn.firstMessageId }
+                                    if (targetIndex >= 0) {
+                                        coroutineScope.launch {
+                                            isProgrammaticScrolling = true
+                                            try {
+                                                listState.animateScrollToItem(targetIndex)
+                                            } finally {
+                                                isProgrammaticScrolling = false
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                            onJumpNextOrBottom = {
+                                if (currentTurnIndex < turns.size) {
+                                    val targetTurn = currentTurnIndex + 1
+                                    lockedTurnIndex = targetTurn
+                                    val matchTurn = turns.firstOrNull { it.turnIndex == targetTurn }
+                                    if (matchTurn != null) {
+                                        val targetIndex = uiState.messages.indexOfFirst { it.id == matchTurn.firstMessageId }
+                                        if (targetIndex >= 0) {
+                                            coroutineScope.launch {
+                                                isProgrammaticScrolling = true
+                                                try {
+                                                    listState.animateScrollToItem(targetIndex)
+                                                } finally {
+                                                    isProgrammaticScrolling = false
+                                                }
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    lockedTurnIndex = null
+                                    coroutineScope.launch {
+                                        if (uiState.messages.isNotEmpty()) {
+                                            isProgrammaticScrolling = true
+                                            try {
+                                                listState.animateScrollToItem(uiState.messages.size - 1)
+                                            } finally {
+                                                isProgrammaticScrolling = false
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                            onForceJumpBottom = {
+                                lockedTurnIndex = null
+                                coroutineScope.launch {
+                                    if (uiState.messages.isNotEmpty()) {
+                                        isProgrammaticScrolling = true
+                                        try {
+                                            listState.animateScrollToItem(uiState.messages.size - 1)
+                                        } finally {
+                                            isProgrammaticScrolling = false
+                                        }
+                                    }
+                                }
+                            },
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(end = 14.dp, bottom = 12.dp)
+                        )
+                    }
                 }
             }
 
@@ -1373,6 +1452,8 @@ fun ChatScreen(
                             QuickActionChips(
                                 activeModel = uiState.activeModel,
                                 onToggleModel = { viewModel.toggleModel() },
+                                onSelectModel = { viewModel.selectModel(it) },
+                                modelCatalog = modelCatalog,
                                 onAddImage = {
                                     dismissKeyboard()
                                     showAttachmentSheet = true

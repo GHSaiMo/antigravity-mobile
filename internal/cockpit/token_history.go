@@ -105,6 +105,56 @@ func CalculateCostUSD(model string, input, cacheRead, output int64) float64 {
 	return cost
 }
 
+// parseModelFromUserSettings extracts the model display name from <USER_SETTINGS_CHANGE> in USER_INPUT steps.
+func parseModelFromUserSettings(raw map[string]interface{}) string {
+	rawType, _ := raw["type"].(string)
+	if rawType != "USER_INPUT" {
+		return ""
+	}
+	content, ok := raw["content"].(string)
+	if !ok || !strings.Contains(content, "`Model Selection`") {
+		return ""
+	}
+
+	startTag := "<USER_SETTINGS_CHANGE>"
+	endTag := "</USER_SETTINGS_CHANGE>"
+	sIdx := strings.Index(content, startTag)
+	if sIdx == -1 {
+		return ""
+	}
+	block := content[sIdx+len(startTag):]
+	if eIdx := strings.Index(block, endTag); eIdx != -1 {
+		block = block[:eIdx]
+	}
+
+	needle := "`Model Selection`"
+	mIdx := strings.Index(block, needle)
+	if mIdx == -1 {
+		return ""
+	}
+	block = block[mIdx+len(needle):]
+
+	toIdx := strings.Index(block, " to ")
+	if toIdx == -1 {
+		return ""
+	}
+	rem := strings.TrimSpace(block[toIdx+len(" to "):])
+
+	for _, delim := range []string{". No need", ".\n", ".\r", "\n", "</"} {
+		if idx := strings.Index(rem, delim); idx != -1 {
+			rem = rem[:idx]
+		}
+	}
+	rem = strings.TrimSuffix(rem, ".")
+	model := strings.TrimSpace(rem)
+
+	// Guard against code injection, excessive length, or malformed strings
+	if len(model) == 0 || len(model) > 60 || strings.ContainsAny(model, "{};\"\n\r") {
+		return ""
+	}
+	return model
+}
+
 func parseTranscriptFile(filePath, source string) []parsedTranscriptRecord {
 	f, err := os.Open(filePath)
 	if err != nil {
@@ -149,20 +199,23 @@ func parseTranscriptFile(filePath, source string) []parsedTranscriptRecord {
 		}
 
 		// Check for model selection setting
-		if content, ok := raw["content"].(string); ok && strings.Contains(content, "Model Selection") {
-			if idx := strings.Index(content, "Model Selection` from None to "); idx != -1 {
-				rem := content[idx+len("Model Selection` from None to "):]
-				if endIdx := strings.Index(rem, "."); endIdx != -1 {
-					currentModel = strings.TrimSpace(rem[:endIdx])
-				}
-			}
+		if m := parseModelFromUserSettings(raw); m != "" {
+			currentModel = m
 		}
 
 		var inp, outp, capTokens, thinking int64
 		var callID, dateKey string
 
 		if createdAt, ok := raw["created_at"].(string); ok && len(createdAt) >= 10 {
-			if t, err := time.Parse(time.RFC3339, createdAt); err == nil {
+			var t time.Time
+			var err error
+			if t, err = time.Parse(time.RFC3339Nano, createdAt); err == nil {
+				dateKey = t.Local().Format("2006-01-02")
+			} else if t, err = time.Parse(time.RFC3339, createdAt); err == nil {
+				dateKey = t.Local().Format("2006-01-02")
+			} else if t, err = time.Parse("2006-01-02T15:04:05Z07:00", createdAt); err == nil {
+				dateKey = t.Local().Format("2006-01-02")
+			} else if t, err = time.ParseInLocation("2006-01-02T15:04:05", createdAt, time.Local); err == nil {
 				dateKey = t.Format("2006-01-02")
 			} else {
 				dateKey = createdAt[:10]
@@ -310,6 +363,10 @@ func GetTokenHistory(forceRefresh bool) (*TokenHistoryResponse, error) {
 
 	transcriptFileMu.Lock()
 	defer transcriptFileMu.Unlock()
+
+	if forceRefresh {
+		transcriptFileMap = make(map[string]fileCacheItem)
+	}
 
 	dailyMap := make(map[string]*DailyTokenRecord)
 	seenCalls := make(map[string]bool)

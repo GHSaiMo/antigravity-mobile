@@ -33,6 +33,7 @@ public final class AppSettings {
     private let activeModelKey = "antigravity.active_model"
     private let defaultGeminiModelKey = "antigravity.default_gemini_model"
     private let defaultClaudeModelKey = "antigravity.default_claude_model"
+    private let defaultNewSessionProviderKey = "antigravity.default_new_session_provider"
     private let autoApprovePermissionsKey = "antigravity.auto_approve_permissions"
     private let enableVoiceModeKey = "antigravity.enable_voice_mode"
     private let weeklyPaceCursorKey = "antigravity.weekly_pace_cursor"
@@ -275,13 +276,27 @@ public final class AppSettings {
         didSet { UserDefaults.standard.set(defaultClaudeModel, forKey: defaultClaudeModelKey) }
     }
 
+    /// 新建会话默认使用的模型厂商（"gemini" | "claude"）
+    public var defaultNewSessionProvider: String {
+        didSet { UserDefaults.standard.set(defaultNewSessionProvider, forKey: defaultNewSessionProviderKey) }
+    }
+
+    /// 新建会话默认选用的具体模型（跟随对应厂商的默认设置）
+    public var defaultNewSessionModel: String {
+        defaultNewSessionProvider == "claude" ? defaultClaudeModel : defaultGeminiModel
+    }
+
     public var activeModelEnum: String {
         if let known = ModelCatalogStore.shared.modelEnum(forID: activeModel) { return known }
         return isClaudeActive ? "MODEL_PLACEHOLDER_M26" : "MODEL_PLACEHOLDER_M318"
     }
 
     public var activeModelDisplayName: String {
-        ModelDefaultsLogic.providerLabel(activeModel)
+        ModelDefaultsLogic.compactDisplayName(forID: activeModel)
+    }
+
+    public var activeModelProviderKind: ModelProviderKind {
+        ModelDefaultsLogic.providerKind(forID: activeModel)
     }
 
     public var isClaudeActive: Bool {
@@ -597,6 +612,7 @@ public final class AppSettings {
         self.activeModel = savedModel
         self.defaultGeminiModel = UserDefaults.standard.string(forKey: defaultGeminiModelKey).flatMap { $0.isEmpty ? nil : $0 } ?? ModelDefaultsLogic.fallbackGemini
         self.defaultClaudeModel = UserDefaults.standard.string(forKey: defaultClaudeModelKey).flatMap { $0.isEmpty ? nil : $0 } ?? ModelDefaultsLogic.fallbackClaude
+        self.defaultNewSessionProvider = UserDefaults.standard.string(forKey: defaultNewSessionProviderKey).flatMap { $0.isEmpty ? nil : $0 } ?? "gemini"
         
         let savedAutoApprove = UserDefaults.standard.bool(forKey: autoApprovePermissionsKey)
         self.autoApprovePermissions = savedAutoApprove
