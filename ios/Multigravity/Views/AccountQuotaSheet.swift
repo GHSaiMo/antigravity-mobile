@@ -3,11 +3,13 @@ import SwiftUI
 public struct AccountQuotaSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.displayScale) private var displayScale
     @AppStorage("cockpit_email_masked") private var isMasked: Bool = false
     @State private var switchingAccountId: String? = nil
     @State private var pendingSwitch: CockpitAccountQuota? = nil
     @State private var showSwitchConfirm: Bool = false
     @State private var isRefreshing: Bool = false
+    @State private var isSharingTokenHistory: Bool = false
     @State private var errorMessage: String? = nil
     @State private var alertTitle: String = "操作失败"
     @State private var paceDetailItem: WeeklyPaceDetailItem? = nil
@@ -199,33 +201,43 @@ public struct AccountQuotaSheet: View {
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button(action: {
-                        Task {
-                            if selectedTab == 0 {
+                    if selectedTab == 0 {
+                        Button(action: {
+                            Task {
                                 await performRefresh()
+                            }
+                        }) {
+                            if #available(iOS 18.0, *) {
+                                Image(systemName: "arrow.clockwise")
+                                    .font(.system(size: 15, weight: .semibold))
+                                    .symbolEffect(.rotate.clockwise, isActive: isRefreshing)
                             } else {
-                                await onLoadTokenHistory?(true)
+                                Image(systemName: "arrow.clockwise")
+                                    .font(.system(size: 15, weight: .semibold))
+                                    .rotationEffect(.degrees(isRefreshing ? 360 : 0))
+                                    .animation(
+                                        isRefreshing
+                                            ? .linear(duration: 1).repeatForever(autoreverses: false)
+                                            : .default,
+                                        value: isRefreshing
+                                    )
                             }
                         }
-                    }) {
-                        let spinning = selectedTab == 0 ? isRefreshing : isLoadingTokenHistory
-                        if #available(iOS 18.0, *) {
-                            Image(systemName: "arrow.clockwise")
-                                .font(.system(size: 15, weight: .semibold))
-                                .symbolEffect(.rotate.clockwise, isActive: spinning)
-                        } else {
-                            Image(systemName: "arrow.clockwise")
-                                .font(.system(size: 15, weight: .semibold))
-                                .rotationEffect(.degrees(spinning ? 360 : 0))
-                                .animation(
-                                    spinning
-                                        ? .linear(duration: 1).repeatForever(autoreverses: false)
-                                        : .default,
-                                    value: spinning
-                                )
+                        .disabled(isRefreshing || switchingAccountId != nil)
+                    } else {
+                        Button(action: {
+                            shareTokenHistory()
+                        }) {
+                            if isLoadingTokenHistory || isSharingTokenHistory {
+                                ProgressView()
+                                    .controlSize(.small)
+                            } else {
+                                Image(systemName: "square.and.arrow.up")
+                                    .font(.system(size: 15, weight: .semibold))
+                            }
                         }
+                        .disabled(tokenHistory == nil || isLoadingTokenHistory || isSharingTokenHistory)
                     }
-                    .disabled((selectedTab == 0 ? isRefreshing : isLoadingTokenHistory) || switchingAccountId != nil)
                 }
             }
             .presentationDragIndicator(.visible)
@@ -1079,5 +1091,37 @@ extension AccountQuotaSheet {
         if tokens >= 1_000_000 { return String(format: "%.2fM", Double(tokens) / 1_000_000.0) }
         if tokens >= 1_000 { return String(format: "%.1fK", Double(tokens) / 1_000.0) }
         return "\(tokens)"
+    }
+
+    @MainActor
+    private func shareTokenHistory() {
+        guard let history = tokenHistory else { return }
+        isSharingTokenHistory = true
+        defer { isSharingTokenHistory = false }
+
+        let matrix = history.dailyMatrix
+        let activeDate = selectedHeatmapDate
+            ?? matrix.last(where: { $0.total > 0 })?.date
+            ?? matrix.last?.date
+        let selectedRec = matrix.first(where: { $0.date == activeDate })
+
+        let card = TokenHistoryShareCardView(
+            history: history,
+            selectedRecord: selectedRec,
+            colorScheme: colorScheme,
+            exportDate: Date()
+        )
+
+        let renderer = ImageRenderer(content: card)
+        renderer.isOpaque = true
+        renderer.scale = max(displayScale, 2.0)
+
+        guard let image = renderer.uiImage else {
+            alertTitle = "分享失败"
+            errorMessage = "长图生成失败，请稍后重试"
+            return
+        }
+
+        ImageActions.share(image)
     }
 }

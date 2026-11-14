@@ -5580,19 +5580,19 @@ html[data-unavail~="models"] [data-feature="models"] {
   display: none !important;
 }
 
-.prompt-jump-stepper.is-scrolling {
-  opacity: 0.45;
+.prompt-jump-stepper.dimmed {
+  opacity: 0.3 !important;
 }
 
 .pjs-btn {
-  width: 36px;
-  height: 36px;
+  width: 44px;
+  height: 44px;
   border-radius: 50%;
   background: var(--glass-bg-strong, rgba(255, 255, 255, 0.85));
   backdrop-filter: var(--glass-filter, blur(16px));
   -webkit-backdrop-filter: var(--glass-filter, blur(16px));
   border: 0.5px solid var(--glass-border, rgba(0, 0, 0, 0.12));
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.14);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -5600,7 +5600,7 @@ html[data-unavail~="models"] [data-feature="models"] {
   cursor: pointer;
   padding: 0;
   outline: none;
-  transition: transform 0.12s ease, opacity 0.15s ease;
+  transition: transform 0.12s ease, opacity 0.25s ease;
   user-select: none;
   -webkit-user-select: none;
 }

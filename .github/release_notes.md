@@ -12,3 +12,9 @@
 - 🛟 **上下文溢出智能诊断与救援气泡（Smart Overflow Rescue）**：
   - 网关侧 `ClassifyErrorKind` 自动识别 `context_overflow`、`rate_limited`、`network_error` 并注入结构化 `errorKind` / `isOverflow` 标记；
   - 三端消息流遇上下文窗口超限错误时，自动将原始报错卡片替换为友好的橙色救援卡片，内嵌 **`一键压缩 /compact`** 与 **`开启新会话`** 动作按钮，支持原地延续当前工作区快速开启新草稿会话。
+- 🖼️ **Token 历史长图海报一键导出与分享（iOS + Android 原生）**：
+  - 「账户与配额」Token 历史面板顶栏新增海报分享入口，一键将当前 52 周热力图、今日 / 近 7 日 / 累计 Token KPI、IDE 与 CLI 占比及选定日期明细合成高保真长图海报，直通系统原生分享与微信；
+- 🕹️ **会话轮次跳跃浮钮体验升级（Prompt Jump Stepper - iOS + Android + Web）**：
+  - 扩大为 44px 舒适触控尺寸，引入智能透明度呼吸逻辑（上滑 100% 唤醒、下滑 30% 半透避让、静止 10s 平滑隐匿、触底与聚焦输入即刻消失）；
+- 🌐 **iOS 代理自适应 WebSocket 心跳增强**：
+  - `ConversationEventsClient` 引入 `URLSessionWebSocketTask` 作为主力自适应传输，根治 Wi-Fi 代理环境下心跳状态灯误报红色的问题，保留 Tailscale 局域网直连 NWConnection 回退。

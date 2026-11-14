@@ -18,6 +18,10 @@ public struct ChatView: View {
     @State var currentViewportHeight: CGFloat = 0
     @State var cardToggleTrigger = 0
     @State var isUserDragging = false
+    @State var stepperOpacity: Double = 0.0
+    @State var lastAnchorMaxY: CGFloat = 0
+    @State var stepperDimTask: Task<Void, Never>? = nil
+    @State var stepperHideTask: Task<Void, Never>? = nil
     @State var blankHealTask: Task<Void, Never>? = nil
     /// 最后一条消息的行当前是否已被创建（LazyVStack 懒加载时可能迟迟不创建）。
     @State var lastRowMaterialized = false

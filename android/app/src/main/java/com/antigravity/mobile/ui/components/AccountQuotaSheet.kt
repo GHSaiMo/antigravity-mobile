@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.components
 
+import android.widget.Toast
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -13,6 +14,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.*
@@ -20,11 +22,20 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.layer.drawLayer
+import androidx.compose.ui.graphics.rememberGraphicsLayer
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
@@ -34,17 +45,21 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
-import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.antigravity.mobile.data.model.CockpitAccountQuota
 import com.antigravity.mobile.data.model.CockpitQuotaBucket
 import com.antigravity.mobile.data.model.CockpitQuotaResponse
+import com.antigravity.mobile.data.model.DailyTokenRecord
 import com.antigravity.mobile.data.model.TokenHistoryResponse
 import com.antigravity.mobile.ui.theme.AntigravityTheme
+import com.antigravity.mobile.ui.util.ShareImageUtils
 import java.text.SimpleDateFormat
 import java.util.*
+import kotlin.math.roundToInt
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -62,8 +77,16 @@ fun AccountQuotaSheet(
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
     var isMasked by remember { mutableStateOf(false) }
+    var isSharingTokenHistory by remember { mutableStateOf(false) }
+    var selectedHeatmapDate by remember { mutableStateOf<String?>(null) }
     var pendingSwitchAccount by remember { mutableStateOf<CockpitAccountQuota?>(null) }
     var paceDetailTitleAndInfo by remember { mutableStateOf<Pair<String, com.antigravity.mobile.data.model.WeeklyPaceInfo>?>(null) }
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val density = LocalDensity.current
+    val cardGraphicsLayer = rememberGraphicsLayer()
+    val scaledCardLayer = rememberGraphicsLayer()
+
     val current = quotaData?.currentAccount
     val otherAccounts = remember(quotaData, current) {
         val all = quotaData?.accounts ?: emptyList()
@@ -72,6 +95,13 @@ fun AccountQuotaSheet(
         } else {
             all
         }
+    }
+    val selectedRecord = remember(tokenHistory?.dailyMatrix, selectedHeatmapDate) {
+        val matrix = tokenHistory?.dailyMatrix ?: emptyList()
+        val activeDate = selectedHeatmapDate
+            ?: matrix.lastOrNull { it.total > 0 }?.date
+            ?: matrix.lastOrNull()?.date
+        matrix.firstOrNull { it.date == activeDate }
     }
     val colors = AntigravityTheme.colors
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -144,30 +174,86 @@ fun AccountQuotaSheet(
                         .align(Alignment.Center)
                 )
 
-                IconButton(
-                    onClick = {
-                        if (selectedTab == 0) onRefresh() else onLoadTokenHistory(true)
-                    },
-                    enabled = if (selectedTab == 0) !isRefreshing else !isLoadingTokenHistory,
-                    modifier = Modifier
-                        .align(Alignment.CenterEnd)
-                        .padding(end = 8.dp)
-                        .size(34.dp)
-                ) {
-                    val spin = if (selectedTab == 0) isRefreshing else isLoadingTokenHistory
-                    if (spin) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(18.dp),
-                            strokeWidth = 2.dp,
-                            color = colors.accentBlue
-                        )
-                    } else {
-                        Icon(
-                            imageVector = Icons.Default.Refresh,
-                            contentDescription = "Refresh",
-                            tint = colors.accentBlue,
-                            modifier = Modifier.size(19.dp)
-                        )
+                if (selectedTab == 0) {
+                    IconButton(
+                        onClick = onRefresh,
+                        enabled = !isRefreshing,
+                        modifier = Modifier
+                            .align(Alignment.CenterEnd)
+                            .padding(end = 8.dp)
+                            .size(34.dp)
+                    ) {
+                        if (isRefreshing) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                strokeWidth = 2.dp,
+                                color = colors.accentBlue
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = "Refresh",
+                                tint = colors.accentBlue,
+                                modifier = Modifier.size(19.dp)
+                            )
+                        }
+                    }
+                } else {
+                    IconButton(
+                        onClick = {
+                            if (tokenHistory == null || isSharingTokenHistory) return@IconButton
+                            scope.launch {
+                                isSharingTokenHistory = true
+                                try {
+                                    if (cardGraphicsLayer.size.width <= 0 || cardGraphicsLayer.size.height <= 0) {
+                                        kotlinx.coroutines.delay(120)
+                                    }
+                                    val size = cardGraphicsLayer.size
+                                    val maxPixelHeight = 8192
+                                    val bitmap = if (size.height > maxPixelHeight) {
+                                        val ratio = maxPixelHeight.toFloat() / size.height
+                                        val target = androidx.compose.ui.unit.IntSize(
+                                            (size.width * ratio).roundToInt().coerceAtLeast(1),
+                                            maxPixelHeight
+                                        )
+                                        scaledCardLayer.record(density, androidx.compose.ui.unit.LayoutDirection.Ltr, target) {
+                                            scale(ratio, pivot = Offset.Zero) {
+                                                drawLayer(cardGraphicsLayer)
+                                            }
+                                        }
+                                        scaledCardLayer.toImageBitmap().asAndroidBitmap()
+                                    } else {
+                                        cardGraphicsLayer.toImageBitmap().asAndroidBitmap()
+                                    }
+                                    ShareImageUtils.shareBitmap(context, bitmap)
+                                } catch (e: Throwable) {
+                                    android.util.Log.e("AccountQuotaSheet", "Share token history failed", e)
+                                    Toast.makeText(context, "长图生成失败: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                                } finally {
+                                    isSharingTokenHistory = false
+                                }
+                            }
+                        },
+                        enabled = tokenHistory != null && !isLoadingTokenHistory && !isSharingTokenHistory,
+                        modifier = Modifier
+                            .align(Alignment.CenterEnd)
+                            .padding(end = 8.dp)
+                            .size(34.dp)
+                    ) {
+                        if (isLoadingTokenHistory || isSharingTokenHistory) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                strokeWidth = 2.dp,
+                                color = colors.accentBlue
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.Share,
+                                contentDescription = "Share",
+                                tint = if (tokenHistory == null) colors.textMuted else colors.accentBlue,
+                                modifier = Modifier.size(19.dp)
+                            )
+                        }
                     }
                 }
             }
@@ -225,7 +311,9 @@ fun AccountQuotaSheet(
                     TokenHistoryTabContent(
                         tokenHistory = tokenHistory,
                         isLoading = isLoadingTokenHistory,
-                        onRetry = { onLoadTokenHistory(true) }
+                        onRetry = { onLoadTokenHistory(true) },
+                        selectedDate = selectedHeatmapDate,
+                        onSelectDate = { selectedHeatmapDate = it }
                     )
                 } else {
                 // Section 1: 当前使用账号
@@ -367,6 +455,37 @@ fun AccountQuotaSheet(
                             .padding(top = 2.dp, bottom = 20.dp)
                     )
                 }
+                }
+            }
+
+            // 离屏高清长图海报录制容器（0 尺寸占位，屏幕外布局，完整测量并绘制到 GraphicsLayer）
+            if (tokenHistory != null) {
+                Box(
+                    modifier = Modifier
+                        .layout { measurable, _ ->
+                            val widthPx = (TOKEN_HISTORY_SHARE_CARD_WIDTH.toPx()).roundToInt()
+                            val placeable = measurable.measure(
+                                Constraints(
+                                    minWidth = widthPx,
+                                    maxWidth = widthPx,
+                                    minHeight = 0,
+                                    maxHeight = Constraints.Infinity
+                                )
+                            )
+                            layout(0, 0) {
+                                placeable.place(-10000, -10000)
+                            }
+                        }
+                        .drawWithContent {
+                            cardGraphicsLayer.record {
+                                this@drawWithContent.drawContent()
+                            }
+                        }
+                ) {
+                    TokenHistoryShareCard(
+                        tokenHistory = tokenHistory,
+                        selectedRecord = selectedRecord
+                    )
                 }
             }
         }

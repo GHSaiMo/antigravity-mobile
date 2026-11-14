@@ -55,6 +55,7 @@ import com.antigravity.mobile.ui.util.DocumentScannerHelper
 import com.google.mlkit.vision.documentscanner.GmsDocumentScannerOptions
 import com.google.mlkit.vision.documentscanner.GmsDocumentScanning
 import com.google.mlkit.vision.documentscanner.GmsDocumentScanningResult
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
@@ -242,6 +243,57 @@ fun ChatScreen(
     LaunchedEffect(listState.isScrollInProgress, isProgrammaticScrolling) {
         if (listState.isScrollInProgress && !isProgrammaticScrolling && lockedTurnIndex != null) {
             lockedTurnIndex = null
+        }
+    }
+
+    var stepperAlphaTarget by remember { mutableFloatStateOf(0f) }
+    val animatedStepperAlpha by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = stepperAlphaTarget,
+        animationSpec = androidx.compose.animation.core.tween(durationMillis = 250),
+        label = "stepperAlpha"
+    )
+    var lastFirstVisibleItemIndex by remember { mutableIntStateOf(0) }
+    var lastFirstVisibleItemScrollOffset by remember { mutableIntStateOf(0) }
+
+    LaunchedEffect(
+        listState.firstVisibleItemIndex,
+        listState.firstVisibleItemScrollOffset,
+        isNearBottom,
+        isInputFocused,
+        turns.size
+    ) {
+        if (isNearBottom || isInputFocused || turns.size < 2) {
+            stepperAlphaTarget = 0f
+            return@LaunchedEffect
+        }
+
+        val currentIndex = listState.firstVisibleItemIndex
+        val currentOffset = listState.firstVisibleItemScrollOffset
+
+        val isScrollingDown = when {
+            currentIndex > lastFirstVisibleItemIndex -> true
+            currentIndex < lastFirstVisibleItemIndex -> false
+            else -> currentOffset > lastFirstVisibleItemScrollOffset + 4
+        }
+        val isScrollingUp = when {
+            currentIndex < lastFirstVisibleItemIndex -> true
+            currentIndex > lastFirstVisibleItemIndex -> false
+            else -> currentOffset < lastFirstVisibleItemScrollOffset - 4
+        }
+
+        lastFirstVisibleItemIndex = currentIndex
+        lastFirstVisibleItemScrollOffset = currentOffset
+
+        if (isScrollingUp) {
+            stepperAlphaTarget = 1.0f
+            kotlinx.coroutines.delay(3000L)
+            stepperAlphaTarget = 0.3f
+            kotlinx.coroutines.delay(7000L)
+            stepperAlphaTarget = 0f
+        } else if (isScrollingDown) {
+            stepperAlphaTarget = 0.3f
+            kotlinx.coroutines.delay(10000L)
+            stepperAlphaTarget = 0f
         }
     }
 
@@ -1205,15 +1257,14 @@ fun ChatScreen(
                     )
 
                     // 浮动跳跃双钮导航条 (Prompt Jump Stepper)
-                    val shouldShowJumpStepper = turns.size >= 2 && !isNearBottom && !isInputFocused
-                    if (shouldShowJumpStepper) {
+                    if (animatedStepperAlpha > 0.01f) {
                         com.antigravity.mobile.ui.components.PromptJumpStepper(
                             currentTurn = currentTurnIndex,
                             totalTurns = turns.size,
                             isAtTop = currentTurnIndex <= 1,
                             isAtLastTurn = currentTurnIndex >= turns.size,
-                            isUserDragging = listState.isScrollInProgress,
                             onJumpPrevious = {
+                                stepperAlphaTarget = 1.0f
                                 val targetTurn = (currentTurnIndex - 1).coerceAtLeast(1)
                                 lockedTurnIndex = targetTurn
                                 val matchTurn = turns.firstOrNull { it.turnIndex == targetTurn }
@@ -1232,6 +1283,7 @@ fun ChatScreen(
                                 }
                             },
                             onJumpNextOrBottom = {
+                                stepperAlphaTarget = 1.0f
                                 if (currentTurnIndex < turns.size) {
                                     val targetTurn = currentTurnIndex + 1
                                     lockedTurnIndex = targetTurn
@@ -1264,6 +1316,7 @@ fun ChatScreen(
                                 }
                             },
                             onForceJumpBottom = {
+                                stepperAlphaTarget = 1.0f
                                 lockedTurnIndex = null
                                 coroutineScope.launch {
                                     if (uiState.messages.isNotEmpty()) {
@@ -1279,6 +1332,7 @@ fun ChatScreen(
                             modifier = Modifier
                                 .align(Alignment.BottomEnd)
                                 .padding(end = 14.dp, bottom = 12.dp)
+                                .alpha(animatedStepperAlpha)
                         )
                     }
                 }
