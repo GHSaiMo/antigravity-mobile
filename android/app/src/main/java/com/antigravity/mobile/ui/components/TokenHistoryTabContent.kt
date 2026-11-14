@@ -32,7 +32,9 @@ fun TokenHistoryTabContent(
     tokenHistory: TokenHistoryResponse?,
     isLoading: Boolean,
     onRetry: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    selectedDate: String? = null,
+    onSelectDate: ((String) -> Unit)? = null
 ) {
     val colors = AntigravityTheme.colors
     if (tokenHistory == null && isLoading) {
@@ -96,13 +98,21 @@ fun TokenHistoryTabContent(
 
     val summary = tokenHistory.summary
     val matrix = tokenHistory.dailyMatrix
-    var selectedDate by remember(matrix) {
+    var internalSelectedDate by remember(matrix) {
         mutableStateOf(
             matrix.lastOrNull { it.total > 0 }?.date ?: matrix.lastOrNull()?.date
         )
     }
-    val selectedRecord = remember(matrix, selectedDate) {
-        matrix.firstOrNull { it.date == selectedDate }
+    val effectiveSelectedDate = selectedDate ?: internalSelectedDate
+    val handleSelectDate: (String) -> Unit = { date ->
+        if (onSelectDate != null) {
+            onSelectDate(date)
+        } else {
+            internalSelectedDate = date
+        }
+    }
+    val selectedRecord = remember(matrix, effectiveSelectedDate) {
+        matrix.firstOrNull { it.date == effectiveSelectedDate }
     }
 
     Column(
@@ -177,8 +187,8 @@ fun TokenHistoryTabContent(
         // 52-week horizontally scrollable heatmap
         TokenHeatmapSection(
             dailyMatrix = matrix,
-            selectedDate = selectedDate,
-            onSelectDate = { selectedDate = it }
+            selectedDate = effectiveSelectedDate,
+            onSelectDate = handleSelectDate
         )
 
         // Inline inspector card

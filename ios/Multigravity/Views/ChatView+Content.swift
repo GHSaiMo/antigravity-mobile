@@ -17,29 +17,30 @@ extension ChatView {
                             messagesScrollView(proxy: proxy, viewportWidth: geometry.size.width, viewportHeight: geometry.size.height)
                             
                             // 浮动跳跃双钮导航条 (Prompt Jump Stepper)
-                            if shouldShowJumpStepper {
+                            if stepperOpacity > 0.01 {
                                 PromptJumpStepperView(
                                     currentTurn: currentVisibleTurnIndex,
                                     totalTurns: viewModel.turns.count,
                                     isAtTop: currentVisibleTurnIndex <= 1,
                                     isAtLastTurn: currentVisibleTurnIndex >= viewModel.turns.count,
-                                    isUserDragging: isUserDragging,
                                     onJumpPrevious: {
+                                        wakeStepper()
                                         jumpToPreviousTurn()
                                     },
                                     onJumpNextOrBottom: {
+                                        wakeStepper()
                                         jumpToNextTurnOrBottom()
                                     },
                                     onForceJumpBottom: {
+                                        wakeStepper()
                                         forceJumpToBottom()
                                     }
                                 )
+                                .opacity(stepperOpacity)
+                                .allowsHitTesting(stepperOpacity > 0.05)
                                 .padding(.trailing, 14)
                                 .padding(.bottom, 12)
-                                .transition(.asymmetric(
-                                    insertion: .scale(scale: 0.85).combined(with: .opacity).combined(with: .move(edge: .trailing)),
-                                    removal: .scale(scale: 0.85).combined(with: .opacity)
-                                ))
+                                .transition(.opacity)
                             }
                         }
                         .onAppear {
@@ -149,6 +150,7 @@ extension ChatView {
                 updateCurrentVisibleTurn(viewportHeight: viewportHeight)
             }
             scheduleBlankSpaceHeal(anchorMaxY: anchorMaxY, viewportHeight: viewportHeight, proxy: proxy)
+            handleStepperScrollProgress(anchorMaxY: anchorMaxY, isNear: near)
         }
         .onPreferenceChange(ChatVisibleMessagesPreferenceKey.self) { visibleGeometries in
             lastVisibleMessageGeometries = visibleGeometries
@@ -275,6 +277,11 @@ extension ChatView {
             Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 100_000_000)
                 isInputFocused = true
+            }
+        }
+        .onChange(of: isInputFocused) { _, focused in
+            if focused {
+                hideStepperImmediately()
             }
         }
         .onChange(of: targetScrollTurnId) { _, targetId in
@@ -614,8 +621,87 @@ extension ChatView {
     
     // MARK: - Prompt Jump Stepper Helpers
     
-    private var shouldShowJumpStepper: Bool {
-        viewModel.turns.count >= 2 && !isNearBottom && !isInputFocused
+    func handleStepperScrollProgress(anchorMaxY: CGFloat, isNear: Bool) {
+        if isNear || isInputFocused || viewModel.turns.count < 2 {
+            hideStepperImmediately()
+            lastAnchorMaxY = anchorMaxY
+            return
+        }
+        
+        let delta = anchorMaxY - lastAnchorMaxY
+        lastAnchorMaxY = anchorMaxY
+        
+        // 初始或极端跳变防护
+        guard abs(delta) < 500, abs(delta) > 2 else { return }
+        
+        if delta > 0 {
+            // 上滑（翻看旧历史 / 内容向下，anchorMaxY 增加）-> 唤醒完全可见 (1.0)，重置 3s 渐隐与 10s 全隐定时器
+            wakeStepper()
+        } else {
+            // 下滑（滑向底部新消息 / 内容向上，anchorMaxY 减小）-> 立即渐隐至 30% 半隐藏，重置 10s 全隐定时器
+            dimStepperOnScrollDown()
+        }
+    }
+    
+    func wakeStepper() {
+        guard viewModel.turns.count >= 2, !isNearBottom, !isInputFocused else { return }
+        if stepperOpacity < 0.99 {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                stepperOpacity = 1.0
+            }
+        }
+        scheduleStepperTimers()
+    }
+    
+    func dimStepperOnScrollDown() {
+        guard viewModel.turns.count >= 2, !isNearBottom, !isInputFocused else { return }
+        if stepperOpacity > 0.3 {
+            withAnimation(.easeInOut(duration: 0.25)) {
+                stepperOpacity = 0.3
+            }
+        }
+        stepperDimTask?.cancel()
+        stepperHideTask?.cancel()
+        stepperHideTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 10_000_000_000)
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeInOut(duration: 0.35)) {
+                stepperOpacity = 0.0
+            }
+        }
+    }
+    
+    func scheduleStepperTimers() {
+        stepperDimTask?.cancel()
+        stepperHideTask?.cancel()
+        
+        // 停止滑动 3s 后，渐隐至 30% 半隐藏
+        stepperDimTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeInOut(duration: 0.35)) {
+                stepperOpacity = 0.3
+            }
+        }
+        
+        // 停止滑动 10s 后，完全隐藏 (0.0)
+        stepperHideTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 10_000_000_000)
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeInOut(duration: 0.35)) {
+                stepperOpacity = 0.0
+            }
+        }
+    }
+    
+    func hideStepperImmediately() {
+        stepperDimTask?.cancel()
+        stepperHideTask?.cancel()
+        if stepperOpacity > 0 {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                stepperOpacity = 0.0
+            }
+        }
     }
     
     private func jumpToPreviousTurn() {

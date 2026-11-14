@@ -29,7 +29,7 @@ import com.antigravity.mobile.ui.theme.AntigravityTheme
 
 /**
  * 垂直纵向双钮跳跃导航条 (Prompt Jump Stepper)
- * 36×36dp 质感双圆钮堆叠，专用于在长篇会话中快速切轮跳转与直达最新。
+ * 44×44dp 质感双圆钮堆叠，专用于在长篇会话中快速切轮跳转与直达最新。
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -38,7 +38,6 @@ fun PromptJumpStepper(
     totalTurns: Int,
     isAtTop: Boolean,
     isAtLastTurn: Boolean,
-    isUserDragging: Boolean,
     onJumpPrevious: () -> Unit,
     onJumpNextOrBottom: () -> Unit,
     onForceJumpBottom: () -> Unit,
@@ -47,17 +46,15 @@ fun PromptJumpStepper(
     val haptic = LocalHapticFeedback.current
     val colors = AntigravityTheme.colors
 
-    val containerAlpha = if (isUserDragging) 0.45f else 1.0f
-
     Column(
-        modifier = modifier.alpha(containerAlpha),
+        modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(8.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         // 上方圆钮：上一轮提问 (▲)
         Box(
             modifier = Modifier
-                .size(36.dp)
+                .size(44.dp)
                 .shadow(elevation = 4.dp, shape = CircleShape)
                 .clip(CircleShape)
                 .background(colors.surfaceVariant.copy(alpha = 0.88f))
@@ -77,7 +74,7 @@ fun PromptJumpStepper(
                 imageVector = Icons.Default.KeyboardArrowUp,
                 contentDescription = "上一轮提问",
                 modifier = Modifier
-                    .size(18.dp)
+                    .size(20.dp)
                     .alpha(if (isAtTop) 0.25f else 1.0f),
                 tint = colors.textPrimary
             )
@@ -86,7 +83,7 @@ fun PromptJumpStepper(
         // 下方圆钮：自适应 下一轮提问 / ⏬ 直达最新
         Box(
             modifier = Modifier
-                .size(36.dp)
+                .size(44.dp)
                 .shadow(elevation = 4.dp, shape = CircleShape)
                 .clip(CircleShape)
                 .background(colors.surfaceVariant.copy(alpha = 0.88f))
@@ -108,7 +105,7 @@ fun PromptJumpStepper(
             Icon(
                 imageVector = if (isAtLastTurn) Icons.Default.KeyboardDoubleArrowDown else Icons.Default.KeyboardArrowDown,
                 contentDescription = if (isAtLastTurn) "直达最新消息" else "下一轮提问",
-                modifier = Modifier.size(if (isAtLastTurn) 17.dp else 18.dp),
+                modifier = Modifier.size(if (isAtLastTurn) 19.dp else 20.dp),
                 tint = colors.textPrimary
             )
         }

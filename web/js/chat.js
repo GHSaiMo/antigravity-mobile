@@ -456,6 +456,51 @@ async function handleInteractionSubmit(isSkip) {
   }
 }
 
+let pjsDimTimer = null;
+let pjsHideTimer = null;
+let pjsLastScrollTop = 0;
+
+function wakePromptJumpStepper() {
+  const stepperEl = document.getElementById("prompt-jump-stepper");
+  if (!stepperEl) return;
+  stepperEl.classList.remove("hidden");
+  stepperEl.classList.remove("dimmed");
+
+  if (pjsDimTimer) clearTimeout(pjsDimTimer);
+  if (pjsHideTimer) clearTimeout(pjsHideTimer);
+
+  // 停止滑动 3s 后，渐隐至 30%
+  pjsDimTimer = setTimeout(() => {
+    stepperEl.classList.add("dimmed");
+  }, 3000);
+
+  // 停止滑动 10s 后，完全隐藏
+  pjsHideTimer = setTimeout(() => {
+    stepperEl.classList.add("hidden");
+  }, 10000);
+}
+
+function dimPromptJumpStepperOnScrollDown() {
+  const stepperEl = document.getElementById("prompt-jump-stepper");
+  if (!stepperEl) return;
+  stepperEl.classList.add("dimmed");
+
+  if (pjsDimTimer) clearTimeout(pjsDimTimer);
+  if (pjsHideTimer) clearTimeout(pjsHideTimer);
+
+  pjsHideTimer = setTimeout(() => {
+    stepperEl.classList.add("hidden");
+  }, 10000);
+}
+
+function hidePromptJumpStepperImmediately() {
+  const stepperEl = document.getElementById("prompt-jump-stepper");
+  if (!stepperEl) return;
+  if (pjsDimTimer) clearTimeout(pjsDimTimer);
+  if (pjsHideTimer) clearTimeout(pjsHideTimer);
+  stepperEl.classList.add("hidden");
+}
+
 function initPromptJumpStepper() {
   const stepperEl = document.getElementById("prompt-jump-stepper");
   if (!stepperEl || stepperEl.dataset.inited) return;
@@ -467,12 +512,13 @@ function initPromptJumpStepper() {
 
   if (btnUp) {
     btnUp.addEventListener("click", () => {
+      wakePromptJumpStepper();
       const userRows = Array.from(streamEl.querySelectorAll(".message-row.user"));
       if (userRows.length < 2) return;
       const currentIdx = getVisibleTurnIndex(userRows, streamEl);
       const targetIdx = Math.max(0, currentIdx - 1);
       userRows[targetIdx]?.scrollIntoView({ behavior: "smooth", block: "start" });
-      setTimeout(() => updatePromptJumpStepper(), 350);
+      setTimeout(() => updatePromptJumpStepperStateOnly(), 350);
     });
   }
 
@@ -481,6 +527,7 @@ function initPromptJumpStepper() {
     let isLongPress = false;
 
     const handleDownAction = () => {
+      wakePromptJumpStepper();
       const userRows = Array.from(streamEl.querySelectorAll(".message-row.user"));
       if (userRows.length < 2) return;
       const currentIdx = getVisibleTurnIndex(userRows, streamEl);
@@ -490,7 +537,7 @@ function initPromptJumpStepper() {
       } else {
         streamEl.scrollTo({ top: streamEl.scrollHeight, behavior: "smooth" });
       }
-      setTimeout(() => updatePromptJumpStepper(), 350);
+      setTimeout(() => updatePromptJumpStepperStateOnly(), 350);
     };
 
     btnDown.addEventListener("click", () => {
@@ -502,8 +549,9 @@ function initPromptJumpStepper() {
       isLongPress = false;
       longPressTimer = setTimeout(() => {
         isLongPress = true;
+        wakePromptJumpStepper();
         streamEl.scrollTo({ top: streamEl.scrollHeight, behavior: "smooth" });
-        setTimeout(() => updatePromptJumpStepper(), 350);
+        setTimeout(() => updatePromptJumpStepperStateOnly(), 350);
       }, 450);
     };
 
@@ -538,27 +586,14 @@ function getVisibleTurnIndex(userRows, streamEl) {
   return bestIdx;
 }
 
-function updatePromptJumpStepper() {
+function updatePromptJumpStepperStateOnly() {
   const stepperEl = document.getElementById("prompt-jump-stepper");
   const streamEl = document.getElementById("messages-stream");
-  const chatInput = document.getElementById("chat-input");
   if (!stepperEl || !streamEl) return;
-
-  initPromptJumpStepper();
 
   const userRows = Array.from(streamEl.querySelectorAll(".message-row.user"));
   const totalTurns = userRows.length;
-
-  const isInputFocused = chatInput && document.activeElement === chatInput;
-  const dist = streamEl.scrollHeight - streamEl.scrollTop - streamEl.clientHeight;
-  const isNearBottom = dist <= 120;
-
-  if (totalTurns < 2 || isNearBottom || isInputFocused) {
-    stepperEl.classList.add("hidden");
-    return;
-  }
-
-  stepperEl.classList.remove("hidden");
+  if (totalTurns < 2) return;
 
   const currentIdx = getVisibleTurnIndex(userRows, streamEl);
   const isAtTop = currentIdx <= 0;
@@ -584,6 +619,29 @@ function updatePromptJumpStepper() {
   }
 }
 
+function updatePromptJumpStepper() {
+  const stepperEl = document.getElementById("prompt-jump-stepper");
+  const streamEl = document.getElementById("messages-stream");
+  const chatInput = document.getElementById("chat-input");
+  if (!stepperEl || !streamEl) return;
+
+  initPromptJumpStepper();
+
+  const userRows = Array.from(streamEl.querySelectorAll(".message-row.user"));
+  const totalTurns = userRows.length;
+
+  const isInputFocused = chatInput && document.activeElement === chatInput;
+  const dist = streamEl.scrollHeight - streamEl.scrollTop - streamEl.clientHeight;
+  const isNearBottom = dist <= 120;
+
+  if (totalTurns < 2 || isNearBottom || isInputFocused) {
+    hidePromptJumpStepperImmediately();
+    return;
+  }
+
+  updatePromptJumpStepperStateOnly();
+}
+
 function initScrollListener() {
   const streamEl = document.getElementById("messages-stream");
   if (!streamEl || streamEl.dataset.hasScrollListener) return;
@@ -591,23 +649,34 @@ function initScrollListener() {
 
   initPromptJumpStepper();
 
-  let scrollFadeTimer = null;
   const updateNearBottom = () => {
     const dist = streamEl.scrollHeight - streamEl.scrollTop - streamEl.clientHeight;
     userIsNearBottom = dist <= 80;
-    updatePromptJumpStepper();
+    if (userIsNearBottom) {
+      hidePromptJumpStepperImmediately();
+    }
   };
 
   streamEl.addEventListener("scroll", () => {
     updateNearBottom();
-    const stepperEl = document.getElementById("prompt-jump-stepper");
-    if (stepperEl && !stepperEl.classList.contains("hidden")) {
-      stepperEl.classList.add("is-scrolling");
-      if (scrollFadeTimer) clearTimeout(scrollFadeTimer);
-      scrollFadeTimer = setTimeout(() => {
-        stepperEl.classList.remove("is-scrolling");
-      }, 150);
+    const currentScrollTop = streamEl.scrollTop;
+    const deltaY = currentScrollTop - pjsLastScrollTop;
+    pjsLastScrollTop = currentScrollTop;
+
+    const userRows = streamEl.querySelectorAll(".message-row.user");
+    if (userRows.length < 2 || userIsNearBottom) {
+      hidePromptJumpStepperImmediately();
+      return;
     }
+
+    if (deltaY < -4) {
+      // 往上滑（查看旧历史）-> 唤醒 100%，重置 3s 渐隐与 10s 全隐
+      wakePromptJumpStepper();
+    } else if (deltaY > 4) {
+      // 往下滑（看新消息）-> 立即渐隐至 30%，重置 10s 全隐
+      dimPromptJumpStepperOnScrollDown();
+    }
+    updatePromptJumpStepperStateOnly();
   }, { passive: true });
 
   streamEl.addEventListener("touchstart", () => { isUserTouching = true; }, { passive: true });
@@ -623,7 +692,7 @@ function initScrollListener() {
   const chatInput = document.getElementById("chat-input");
   if (chatInput && !chatInput.dataset.hasStepperFocusListener) {
     chatInput.dataset.hasStepperFocusListener = "true";
-    chatInput.addEventListener("focus", () => updatePromptJumpStepper());
+    chatInput.addEventListener("focus", () => hidePromptJumpStepperImmediately());
     chatInput.addEventListener("blur", () => updatePromptJumpStepper());
   }
 }
