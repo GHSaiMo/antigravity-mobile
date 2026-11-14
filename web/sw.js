@@ -1,4 +1,4 @@
-const CACHE_NAME = "antigravity-mobile-v59";
+const CACHE_NAME = "antigravity-mobile-v60";
 const ASSETS = [
   "/",
   "/index.html",

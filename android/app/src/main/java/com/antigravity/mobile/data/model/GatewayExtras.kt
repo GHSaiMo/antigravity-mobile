@@ -1105,7 +1105,8 @@ data class WorkflowTemplateRecord(
     val subtitle: String = "",
     val icon: String = "workflow",
     val color: String = "indigo",
-    val templatePrompt: String = ""
+    val templatePrompt: String = "",
+    val inQuickMenu: Boolean = false
 )
 
 @Serializable
@@ -1120,6 +1121,14 @@ data class WorkflowTemplatesUpdateRequest(
 )
 
 object WorkflowTemplateDefaults {
+    fun normalizeIconKey(key: String): String =
+        if (key == "star") "build" else key.ifBlank { "workflow" }
+
+    fun partition(list: List<WorkflowTemplateRecord>): List<WorkflowTemplateRecord> {
+        val quick = list.filter { it.inQuickMenu }
+        val more = list.filter { !it.inQuickMenu }
+        return quick + more
+    }
     val all: List<WorkflowTemplateRecord> = listOf(
         WorkflowTemplateRecord(
             id = "code_review",

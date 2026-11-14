@@ -204,8 +204,33 @@ fun ChatScreen(
     var showSendQueuedNowConfirmDialog by remember { mutableStateOf(false) }
     var queuedItemToSendNow by remember { mutableStateOf<com.antigravity.mobile.data.model.QueuedMessageItem?>(null) }
     var showWorkflowTemplateSheet by remember { mutableStateOf(false) }
+    var workflowSheetStartEditing by remember { mutableStateOf(false) }
     var pendingSelectFirstPlaceholder by remember { mutableStateOf(false) }
     val modelSlidePickerState = remember { com.antigravity.mobile.ui.components.ModelSlidePickerState() }
+    val workflowSlidePickerState = remember { com.antigravity.mobile.ui.components.WorkflowSlidePickerState() }
+    var workflowTemplates by remember { mutableStateOf(com.antigravity.mobile.ui.components.WorkflowTemplateLocalCache.load(context)) }
+    LaunchedEffect(Unit) {
+        val apiClient = com.antigravity.mobile.data.service.ApiClient.defaultInstance
+            ?: com.antigravity.mobile.data.service.ApiClient(
+                context.applicationContext,
+                com.antigravity.mobile.data.service.PreferencesManager(context.applicationContext)
+            )
+        apiClient.fetchWorkflowTemplates().onSuccess { resp ->
+            val partitioned = com.antigravity.mobile.data.model.WorkflowTemplateDefaults.partition(resp.templates)
+            workflowTemplates = partitioned
+            com.antigravity.mobile.ui.components.WorkflowTemplateLocalCache.save(context, partitioned)
+        }
+    }
+    LaunchedEffect(modelSlidePickerState.isPresented) {
+        if (modelSlidePickerState.isPresented && workflowSlidePickerState.isPresented) {
+            workflowSlidePickerState.dismiss()
+        }
+    }
+    LaunchedEffect(workflowSlidePickerState.isPresented) {
+        if (workflowSlidePickerState.isPresented && modelSlidePickerState.isPresented) {
+            modelSlidePickerState.dismiss()
+        }
+    }
     var inputFieldValue by remember { mutableStateOf(TextFieldValue(inputText)) }
     LaunchedEffect(inputText) {
         if (inputFieldValue.text != inputText) {
@@ -956,7 +981,10 @@ fun ChatScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .onGloballyPositioned { modelSlidePickerState.containerSize = it.size }
+            .onGloballyPositioned {
+                modelSlidePickerState.containerSize = it.size
+                workflowSlidePickerState.containerSize = it.size
+            }
     ) {
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -1584,7 +1612,10 @@ fun ChatScreen(
                         Box(modifier = Modifier.padding(horizontal = 16.dp)) {
                             QuickActionChips(
                                 activeModel = uiState.activeModel,
-                                onToggleModel = { viewModel.toggleModel() },
+                                onToggleModel = {
+                                    workflowSlidePickerState.dismiss()
+                                    viewModel.toggleModel()
+                                },
                                 onSelectModel = { viewModel.selectModel(it) },
                                 modelCatalog = modelCatalog,
                                 modelSlidePickerState = modelSlidePickerState,
@@ -1605,6 +1636,22 @@ fun ChatScreen(
                                 },
                                 onShowWorkflowTemplates = {
                                     dismissKeyboard()
+                                    modelSlidePickerState.dismiss()
+                                    workflowSlidePickerState.dismiss()
+                                    workflowSheetStartEditing = false
+                                    showWorkflowTemplateSheet = true
+                                },
+                                workflowSlidePickerState = workflowSlidePickerState,
+                                workflowTemplates = workflowTemplates,
+                                onSelectWorkflowPrompt = { prompt ->
+                                    viewModel.onInputTextChanged(prompt)
+                                    pendingSelectFirstPlaceholder = true
+                                },
+                                onOpenWorkflowSetup = {
+                                    dismissKeyboard()
+                                    modelSlidePickerState.dismiss()
+                                    workflowSlidePickerState.dismiss()
+                                    workflowSheetStartEditing = true
                                     showWorkflowTemplateSheet = true
                                 },
                                 showCommit = uiState.hasGitChanges,
@@ -2229,12 +2276,18 @@ fun ChatScreen(
     // 动态多智能体工作流预设模板选择抽屉 (WorkflowTemplateSheet)
     if (showWorkflowTemplateSheet) {
         WorkflowTemplateSheet(
-            onDismissRequest = { showWorkflowTemplateSheet = false },
+            onDismissRequest = {
+                showWorkflowTemplateSheet = false
+                workflowSheetStartEditing = false
+            },
             onSelectTemplate = { prompt ->
                 showWorkflowTemplateSheet = false
+                workflowSheetStartEditing = false
                 viewModel.onInputTextChanged(prompt)
                 pendingSelectFirstPlaceholder = true
-            }
+            },
+            initialEditing = workflowSheetStartEditing,
+            onTemplatesChanged = { workflowTemplates = it }
         )
     }
 
@@ -2253,6 +2306,20 @@ fun ChatScreen(
     com.antigravity.mobile.ui.components.ModelSlidePickerOverlay(
         state = modelSlidePickerState,
         onSelectModel = { viewModel.selectModel(it) }
+    )
+
+    // Workflow 长按上滑快捷模板菜单
+    com.antigravity.mobile.ui.components.WorkflowSlidePickerOverlay(
+        state = workflowSlidePickerState,
+        onSelectTemplate = { prompt ->
+            viewModel.onInputTextChanged(prompt)
+            pendingSelectFirstPlaceholder = true
+        },
+        onOpenSetup = {
+            dismissKeyboard()
+            workflowSheetStartEditing = true
+            showWorkflowTemplateSheet = true
+        }
     )
     }
     }

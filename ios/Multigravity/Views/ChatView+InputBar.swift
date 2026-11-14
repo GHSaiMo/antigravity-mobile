@@ -61,30 +61,30 @@ extension ChatView {
                         }
                     )
 
-                    // 2b. Workflow: 打开动态工作流模板抽屉（固定放到模型按钮右边）
-                    Button {
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                        isInputFocused = false
-                        showWorkflowTemplateSheet = true
-                    } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "point.3.connected.trianglepath.dotted")
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundColor(.indigo)
-                            Text("Workflow")
-                                .font(.system(size: 13, weight: .medium))
-                                .foregroundColor(.primary)
+                    // 2b. Workflow: 单击打开满屏模板页，长按上滑快捷输入（纯文字无 logo，视觉与 Commit/Changes 对齐）
+                    WorkflowChipButton(
+                        pickerState: workflowPickerState,
+                        onOpenSheet: {
+                            isInputFocused = false
+                            workflowSheetStartInEditMode = false
+                            showWorkflowTemplateSheet = true
+                        },
+                        onSelectTemplate: { templatePrompt in
+                            viewModel.inputText = templatePrompt
+                            viewModel.pendingSelectFirstPlaceholder = true
+                            isInputFocused = true
+                        },
+                        onOpenSetup: {
+                            isInputFocused = false
+                            workflowSheetStartInEditMode = true
+                            showWorkflowTemplateSheet = true
+                        },
+                        onWillOpen: {
+                            if modelPickerState.isPresented {
+                                modelPickerState.dismiss()
+                            }
                         }
-                        .padding(.horizontal, 12)
-                        .frame(height: 32)
-                        .background(Color(uiColor: .secondarySystemBackground))
-                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
-                        )
-                    }
-                    .buttonStyle(.plain)
+                    )
 
                     // 2c. 已选中的斜杠命令按钮（紧跟右侧，样式同高对齐，右上角带小叉）
                     if let command = viewModel.selectedSlashCommand {

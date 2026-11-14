@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AccountTree
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Icon
@@ -32,6 +31,7 @@ import androidx.compose.ui.unit.sp
 import com.antigravity.mobile.data.model.ModelDefaults
 import com.antigravity.mobile.data.model.ModelsResponse
 import com.antigravity.mobile.data.model.SlashCommandOption
+import com.antigravity.mobile.data.model.WorkflowTemplateRecord
 import com.antigravity.mobile.ui.theme.AntigravityTheme
 
 @Composable
@@ -50,6 +50,10 @@ fun QuickActionChips(
     onShowChanges: () -> Unit,
     showChanges: Boolean = true,
     onShowWorkflowTemplates: (() -> Unit)? = null,
+    workflowSlidePickerState: WorkflowSlidePickerState? = null,
+    workflowTemplates: List<WorkflowTemplateRecord> = emptyList(),
+    onSelectWorkflowPrompt: (String) -> Unit = {},
+    onOpenWorkflowSetup: () -> Unit = {},
     showContinue: Boolean,
     onContinue: () -> Unit,
     showProceed: Boolean,
@@ -73,6 +77,8 @@ fun QuickActionChips(
     val hapticFeedback = LocalHapticFeedback.current
     val density = LocalDensity.current
     var chipBoundsInRoot by remember { mutableStateOf(Rect.Zero) }
+    var workflowChipBoundsInRoot by remember { mutableStateOf(Rect.Zero) }
+    val latestWorkflowTemplates by rememberUpdatedState(workflowTemplates)
 
     Row(
         modifier = modifier
@@ -133,6 +139,7 @@ fun QuickActionChips(
                     detectDragGesturesAfterLongPress(
                         onDragStart = {
                             haptic.medium()
+                            workflowSlidePickerState?.dismiss()
                             modelSlidePickerState.open(
                                 activeModel = activeModel,
                                 options = modelCatalog?.models.orEmpty()
@@ -165,42 +172,67 @@ fun QuickActionChips(
             )
         }
 
-        // 2b. Workflow: 动态多智能体工作流预设面板（固定放到模型按钮右边）
+        // 2b. Workflow: 单击打开满屏模板页，长按上滑快捷输入（纯文字无 logo，视觉与 Commit/Changes 对齐）
         if (onShowWorkflowTemplates != null) {
             Box(
                 modifier = Modifier
                     .height(32.dp)
+                    .onGloballyPositioned { coords ->
+                        val rect = coords.boundsInRoot()
+                        workflowChipBoundsInRoot = rect
+                        workflowSlidePickerState?.anchorRect = rect
+                    }
                     .clip(RoundedCornerShape(10.dp))
-                    .background(colors.accentPurple.copy(alpha = 0.12f))
+                    .background(colors.surface)
                     .border(
                         1.dp,
-                        colors.accentPurple.copy(alpha = 0.35f),
+                        colors.border,
                         RoundedCornerShape(10.dp)
                     )
                     .clickable {
                         haptic.light()
-                        onShowWorkflowTemplates()
+                        if (workflowSlidePickerState?.isPresented == true) {
+                            workflowSlidePickerState.dismiss()
+                        } else {
+                            onShowWorkflowTemplates()
+                        }
                     }
-                    .padding(horizontal = 12.dp),
+                    .pointerInput(workflowSlidePickerState) {
+                        if (workflowSlidePickerState == null) return@pointerInput
+                        detectDragGesturesAfterLongPress(
+                            onDragStart = {
+                                haptic.medium()
+                                modelSlidePickerState?.dismiss()
+                                workflowSlidePickerState.open(latestWorkflowTemplates)
+                            },
+                            onDrag = { change, _ ->
+                                change.consume()
+                                val rootPoint = Offset(
+                                    x = workflowChipBoundsInRoot.left + change.position.x,
+                                    y = workflowChipBoundsInRoot.top + change.position.y
+                                )
+                                workflowSlidePickerState.updateDrag(rootPoint, density, hapticFeedback)
+                            },
+                            onDragEnd = {
+                                workflowSlidePickerState.endDrag(
+                                    onSelectTemplate = onSelectWorkflowPrompt,
+                                    onOpenSetup = onOpenWorkflowSetup
+                                )
+                            },
+                            onDragCancel = {
+                                workflowSlidePickerState.dismiss()
+                            }
+                        )
+                    }
+                    .padding(horizontal = 14.dp),
                 contentAlignment = Alignment.Center
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.AccountTree,
-                        contentDescription = "Workflow",
-                        tint = colors.accentPurple,
-                        modifier = Modifier.size(14.dp)
-                    )
-                    Text(
-                        text = "Workflow",
-                        color = colors.accentPurple,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium
-                    )
-                }
+                Text(
+                    text = "Workflow",
+                    color = colors.textPrimary,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium
+                )
             }
         }
 

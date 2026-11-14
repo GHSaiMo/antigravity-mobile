@@ -21,6 +21,7 @@ type WorkflowTemplate struct {
 	Icon           string `json:"icon,omitempty"`
 	Color          string `json:"color,omitempty"`
 	TemplatePrompt string `json:"templatePrompt"`
+	InQuickMenu    bool   `json:"inQuickMenu,omitempty"`
 }
 
 // WorkflowTemplatesStore is the persisted JSON structure in workflow_templates.json.
@@ -133,6 +134,9 @@ func normalizeAndValidateWorkflowTemplates(raw []WorkflowTemplate) ([]WorkflowTe
 		icon := strings.TrimSpace(item.Icon)
 		if icon == "" {
 			icon = "workflow"
+		} else if icon == "star" {
+			// Migrate deprecated star icon to Xcode build hammer icon.
+			icon = "build"
 		}
 		color := strings.TrimSpace(item.Color)
 		if color == "" {
@@ -146,9 +150,21 @@ func normalizeAndValidateWorkflowTemplates(raw []WorkflowTemplate) ([]WorkflowTe
 			Icon:           icon,
 			Color:          color,
 			TemplatePrompt: prompt,
+			InQuickMenu:    item.InQuickMenu,
 		})
 	}
-	return out, nil
+
+	// Stable partition: keep quick-menu templates first, then other templates, preserving relative order.
+	quick := make([]WorkflowTemplate, 0, len(out))
+	rest := make([]WorkflowTemplate, 0, len(out))
+	for _, tpl := range out {
+		if tpl.InQuickMenu {
+			quick = append(quick, tpl)
+		} else {
+			rest = append(rest, tpl)
+		}
+	}
+	return append(quick, rest...), nil
 }
 
 func saveWorkflowTemplates(raw []WorkflowTemplate) (WorkflowTemplatesResponse, error) {

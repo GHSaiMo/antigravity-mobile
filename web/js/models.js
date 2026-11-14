@@ -436,6 +436,7 @@ function dismissWebModelPicker() {
 }
 
 function openWebModelPicker(anchorEl) {
+  if (typeof dismissWebWorkflowPicker === "function") dismissWebWorkflowPicker();
   const overlay = document.getElementById("model-picker-overlay");
   if (!overlay || !anchorEl) return;
   const families = buildModelFamilies();
