@@ -14,7 +14,7 @@
   <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png?v=4" />
   <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png?v=4" />
   <link rel="manifest" href="/manifest.json" />
-  <link rel="stylesheet" href="/style.css?v=50" />
+  <link rel="stylesheet" href="/style.css?v=51" />
 </head>
 <body>
   <div id="app">
@@ -300,6 +300,18 @@
               <span id="model-switch-text" class="model-switch-text">Gemini</span>
             </button>
 
+            <button id="btn-workflow-templates" class="chip-pill" type="button" title="Workflow 模板">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="6" cy="6" r="3"></circle>
+                <circle cx="18" cy="6" r="3"></circle>
+                <circle cx="12" cy="18" r="3"></circle>
+                <path d="M8.5 7.5 11 15.5"></path>
+                <path d="M15.5 7.5 13 15.5"></path>
+                <line x1="9" y1="6" x2="15" y2="6"></line>
+              </svg>
+              <span>Workflow</span>
+            </button>
+
             <div id="slash-chip" class="slash-chip hidden" data-feature="slash"></div>
 
             <button id="btn-changes" class="chip-pill hidden" type="button" data-feature="changes" title="本会话改动">
@@ -530,6 +542,22 @@
           <button id="btn-changes-close" class="sheet-header-btn primary" type="button">完成</button>
         </div>
         <div id="changes-body" class="sheet-body"></div>
+      </div>
+    </div>
+
+    <!-- iOS Bottom Sheet: Workflow 模板（js/workflows.js） -->
+    <div id="sheet-workflows" class="ios-sheet-overlay hidden">
+      <div class="ios-sheet-card tall-sheet-card">
+        <div class="sheet-grabber"></div>
+        <div class="sheet-header">
+          <button id="btn-workflows-left" class="sheet-header-btn" type="button">编辑</button>
+          <h2 id="workflows-title" class="sheet-title">Workflow 模板</h2>
+          <div class="sheet-header-right-group">
+            <button id="btn-workflows-add" class="sheet-header-btn primary" type="button">+ 新增</button>
+            <button id="btn-workflows-close" class="sheet-header-btn primary" type="button">关闭</button>
+          </div>
+        </div>
+        <div id="workflows-body" class="sheet-body"></div>
       </div>
     </div>
 
@@ -874,6 +902,7 @@
   <script defer src="/js/scan.js?v=2"></script>
   <script defer src="/js/msgmenu.js?v=3"></script>
   <script defer src="/js/slash.js?v=2"></script>
+  <script defer src="/js/workflows.js?v=1"></script>
   <script defer src="/js/changes.js?v=1"></script>
   <script defer src="/js/git.js?v=2"></script>
   <script defer src="/js/models.js?v=1"></script>
@@ -881,6 +910,6 @@
   <script defer src="/js/swarm.js?v=1"></script>
   <script defer src="/js/egg.js?v=1"></script>
   <!-- init.js 必须最后加载：它在执行时就会调用 initApp()，依赖前面所有脚本里的函数 -->
-  <script defer src="/js/init.js?v=40"></script>
+  <script defer src="/js/init.js?v=41"></script>
 </body>
 </html>

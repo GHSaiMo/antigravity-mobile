@@ -790,6 +790,8 @@ func modelDisplayNameFor(activeModel string) string {
 		lower := strings.ToLower(activeModel)
 		if isClaudeModelOrEnum(activeModel) {
 			modelDisplayName = "Claude"
+		} else if strings.Contains(lower, "orch") {
+			modelDisplayName = "Orchestrator"
 		} else if strings.Contains(lower, "gemini") {
 			modelDisplayName = "Gemini"
 		} else if strings.Contains(lower, "gpt") {

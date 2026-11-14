@@ -556,3 +556,35 @@ func TestRefreshLiveModelsAfterSwitch_ReplacesOldAccountCache(t *testing.T) {
 		t.Fatalf("expected account B models after switch refresh, got live=%v models=%+v", live, res.Models)
 	}
 }
+
+func TestBuildModelTables_OrchestratorProviderAndDefaults(t *testing.T) {
+	resetLiveModels(t)
+	g := "MODEL_PROVIDER_GOOGLE"
+	raw := map[string]upstreamModel{
+		"gemini-4-carbon-medium":        {DisplayName: "Gemini 4 Carbon (Medium)", Model: "MODEL_PLACEHOLDER_M437", ModelProvider: g, Recommended: true},
+		"gemini-pro-orchestrator":       {DisplayName: "Orchestrator (Carbon)", Model: "MODEL_PLACEHOLDER_M667", ModelProvider: g, Recommended: true, TagTitle: "New"},
+		"gemini-pro-orchestrator-argon": {DisplayName: "Orchestrator (Argon)", Model: "MODEL_PLACEHOLDER_M681", ModelProvider: g, Recommended: true, TagTitle: "New"},
+		"claude-opus-5-5-high":          {DisplayName: "Claude Opus 5.5 (High)", Model: "MODEL_PLACEHOLDER_M402", ModelProvider: "MODEL_PROVIDER_ANTHROPIC", Recommended: true},
+	}
+	curated := []string{"gemini-4-carbon-medium", "gemini-pro-orchestrator", "gemini-pro-orchestrator-argon", "claude-opus-5-5-high"}
+	o, bi, be := buildModelTables(raw, curated)
+	liveModels.set(o, bi, be, "gemini-4-carbon-medium")
+
+	res, live := liveModels.snapshot()
+	if !live {
+		t.Fatal("expected live models")
+	}
+	if res.Defaults["orchestrator"] != "gemini-pro-orchestrator" {
+		t.Fatalf("expected orchestrator default gemini-pro-orchestrator, got %v", res.Defaults)
+	}
+	orch := idsOf(res.Models, "orchestrator")
+	if strings.Join(orch, ",") != "gemini-pro-orchestrator,gemini-pro-orchestrator-argon" {
+		t.Fatalf("expected orchestrator models separated from gemini, got %v", orch)
+	}
+	if canonicalModelName("MODEL_PLACEHOLDER_M667") != "gemini-pro-orchestrator" {
+		t.Errorf("M667 canonical = %q", canonicalModelName("MODEL_PLACEHOLDER_M667"))
+	}
+	if canonicalModelName("MODEL_PLACEHOLDER_M681") != "gemini-pro-orchestrator-argon" {
+		t.Errorf("M681 canonical = %q", canonicalModelName("MODEL_PLACEHOLDER_M681"))
+	}
+}
