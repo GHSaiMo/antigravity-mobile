@@ -728,21 +728,32 @@ function buildImageThumbnailCard(originalPath, thumbPath, altText) {
   `;
 }
 
+let agentEmbedSeq = 0;
+const agentEmbedContentCache = new Map();
+const AGENT_EMBED_CACHE_TTL_MS = 30000;
+
+function resolveAgentEmbedCard(cardOrTrigger) {
+  if (!cardOrTrigger) return null;
+  if (typeof cardOrTrigger === "string") {
+    return document.getElementById(cardOrTrigger);
+  }
+  if (cardOrTrigger.classList && cardOrTrigger.classList.contains("agent-embed-card")) {
+    return cardOrTrigger;
+  }
+  if (typeof cardOrTrigger.closest === "function") {
+    return cardOrTrigger.closest(".agent-embed-card");
+  }
+  return null;
+}
+
 function buildAgentEmbedCard(src) {
   if (!src) return "";
   let clean = String(src).trim().replace(/^[`"'<(\[]+|[`>"')\]]+$/g, "");
   const fileName = extractImageFileName(clean);
-  const cardId = "agent_embed_" + Math.random().toString(36).substring(2, 9);
   const title = (fileName && fileName !== "interactive_preview.html" && fileName !== "widget.html") ? fileName : "交互预览";
 
-  setTimeout(() => {
-    if (window.loadAgentEmbedContent) {
-      window.loadAgentEmbedContent(cardId, clean);
-    }
-  }, 10);
-
   return `
-    <div class="agent-embed-card" id="${cardId}" data-src="${escapeHtml(clean)}">
+    <div class="agent-embed-card" data-src="${escapeHtml(clean)}" data-hydrated="false">
       <div class="agent-embed-header">
         <div class="agent-embed-title-wrap">
           <svg class="agent-embed-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
@@ -760,13 +771,13 @@ function buildAgentEmbedCard(src) {
           <span class="agent-embed-badge">INTERACTIVE</span>
         </div>
         <div class="agent-embed-actions">
-          <button class="agent-embed-action-btn" onclick="refreshAgentEmbedCard('${escapeHtml(cardId)}')" title="刷新交互组件" type="button">
+          <button class="agent-embed-action-btn" onclick="refreshAgentEmbedCard(this)" title="刷新交互组件" type="button">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M23 4v6h-6"></path>
               <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
             </svg>
           </button>
-          <button class="agent-embed-action-btn" onclick="toggleFullscreenAgentEmbed('${escapeHtml(cardId)}')" title="全屏查看" type="button">
+          <button class="agent-embed-action-btn" onclick="toggleFullscreenAgentEmbed(this)" title="全屏查看" type="button">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path>
             </svg>
@@ -780,11 +791,83 @@ function buildAgentEmbedCard(src) {
   `;
 }
 
-window.loadAgentEmbedContent = function(cardId, src) {
-  const card = document.getElementById(cardId);
+function hydrateAllAgentEmbeds(root = document) {
+  if (!root || typeof root.querySelectorAll !== "function") return;
+  const cards = root.querySelectorAll('.agent-embed-card[data-hydrated="false"]');
+  if (!cards || cards.length === 0) return;
+  cards.forEach(card => {
+    card.setAttribute("data-hydrated", "true");
+    if (!card.id) {
+      card.id = `agent_embed_${++agentEmbedSeq}`;
+    }
+    const src = card.getAttribute("data-src");
+    if (src && typeof window.loadAgentEmbedContent === "function") {
+      window.loadAgentEmbedContent(card, src, false);
+    }
+  });
+}
+window.hydrateAllAgentEmbeds = hydrateAllAgentEmbeds;
+
+window.loadAgentEmbedContent = function(cardOrId, src, forceRefresh = false) {
+  const card = resolveAgentEmbedCard(cardOrId);
   if (!card) return;
   const frame = card.querySelector(".agent-embed-frame");
   if (!frame) return;
+
+  const applyRawHtml = (rawContent) => {
+    let rawHtml = rawContent || "";
+    rawHtml = rawHtml.replace(/<meta\s+[^>]*?name=["']viewport["'][^>]*>/gi, "");
+    const isDark = document.documentElement.classList.contains("dark") || window.matchMedia("(prefers-color-scheme: dark)").matches;
+    const themeCss = `
+      <style>
+        :root {
+          --background: ${isDark ? "#18181b" : "#ffffff"};
+          --foreground: ${isDark ? "#f4f4f5" : "#18181b"};
+          --muted-foreground: ${isDark ? "#a1a1aa" : "#71717a"};
+          --card: ${isDark ? "#27272a" : "#f4f4f5"};
+          --sidebar: ${isDark ? "#18181b" : "#fafafa"};
+          --border: ${isDark ? "rgba(255, 255, 255, 0.12)" : "rgba(0, 0, 0, 0.10)"};
+          --primary: ${isDark ? "#6366f1" : "#4f46e5"};
+          --primary-foreground: #ffffff;
+          --secondary: ${isDark ? "#27272a" : "#e4e4e7"};
+          --secondary-foreground: ${isDark ? "#f4f4f5" : "#18181b"};
+          --accent: ${isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(0, 0, 0, 0.05)"};
+          color-scheme: ${isDark ? "dark" : "light"};
+        }
+        * { box-sizing: border-box; }
+        html, body {
+          margin: 0; padding: 8px; background: transparent !important;
+          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+          -webkit-text-size-adjust: 100%;
+          touch-action: pan-x pan-y;
+          overscroll-behavior: none;
+        }
+        img, svg, video { max-width: 100% !important; }
+      </style>
+    `;
+    const meta = `<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover">`;
+    const gestureScript = `<script>
+      document.addEventListener('gesturestart', function(e) { e.preventDefault(); }, { passive: false });
+      document.addEventListener('gesturechange', function(e) { e.preventDefault(); }, { passive: false });
+      document.addEventListener('gestureend', function(e) { e.preventDefault(); });
+    </script>`;
+    let finalHtml = rawHtml;
+    if (finalHtml.includes("<head>")) {
+      finalHtml = finalHtml.replace("<head>", "<head>" + meta + themeCss + gestureScript);
+    } else {
+      finalHtml = "<!DOCTYPE html><html><head>" + meta + themeCss + gestureScript + "</head><body>" + finalHtml + "</body></html>";
+    }
+    frame.srcdoc = finalHtml;
+  };
+
+  if (!forceRefresh && agentEmbedContentCache.has(src)) {
+    const cached = agentEmbedContentCache.get(src);
+    if (cached && (Date.now() - cached.ts) < AGENT_EMBED_CACHE_TTL_MS) {
+      applyRawHtml(cached.content);
+      return;
+    }
+    agentEmbedContentCache.delete(src);
+  }
 
   const params = new URLSearchParams();
   params.set("uri", src);
@@ -794,66 +877,32 @@ window.loadAgentEmbedContent = function(cardId, src) {
       return res.json();
     })
     .then(data => {
-      let rawHtml = data.content || "";
-      rawHtml = rawHtml.replace(/<meta\s+[^>]*?name=["']viewport["'][^>]*>/gi, "");
-      const isDark = document.documentElement.classList.contains("dark") || window.matchMedia("(prefers-color-scheme: dark)").matches;
-      const themeCss = `
-        <style>
-          :root {
-            --background: ${isDark ? "#18181b" : "#ffffff"};
-            --foreground: ${isDark ? "#f4f4f5" : "#18181b"};
-            --muted-foreground: ${isDark ? "#a1a1aa" : "#71717a"};
-            --card: ${isDark ? "#27272a" : "#f4f4f5"};
-            --sidebar: ${isDark ? "#18181b" : "#fafafa"};
-            --border: ${isDark ? "rgba(255, 255, 255, 0.12)" : "rgba(0, 0, 0, 0.10)"};
-            --primary: ${isDark ? "#6366f1" : "#4f46e5"};
-            --primary-foreground: #ffffff;
-            --secondary: ${isDark ? "#27272a" : "#e4e4e7"};
-            --secondary-foreground: ${isDark ? "#f4f4f5" : "#18181b"};
-            --accent: ${isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(0, 0, 0, 0.05)"};
-            color-scheme: ${isDark ? "dark" : "light"};
-          }
-          * { box-sizing: border-box; }
-          html, body {
-            margin: 0; padding: 8px; background: transparent !important;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            -webkit-text-size-adjust: 100%;
-            touch-action: pan-x pan-y;
-            overscroll-behavior: none;
-          }
-          img, svg, video { max-width: 100% !important; }
-        </style>
-      `;
-      const meta = `<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover">`;
-      const gestureScript = `<script>
-        document.addEventListener('gesturestart', function(e) { e.preventDefault(); }, { passive: false });
-        document.addEventListener('gesturechange', function(e) { e.preventDefault(); }, { passive: false });
-        document.addEventListener('gestureend', function(e) { e.preventDefault(); });
-      </script>`;
-      let finalHtml = rawHtml;
-      if (finalHtml.includes("<head>")) {
-        finalHtml = finalHtml.replace("<head>", "<head>" + meta + themeCss + gestureScript);
-      } else {
-        finalHtml = "<!DOCTYPE html><html><head>" + meta + themeCss + gestureScript + "</head><body>" + finalHtml + "</body></html>";
+      const content = data.content || "";
+      if (agentEmbedContentCache.size >= 32) {
+        const oldestKey = agentEmbedContentCache.keys().next().value;
+        if (oldestKey !== undefined) agentEmbedContentCache.delete(oldestKey);
       }
-      frame.srcdoc = finalHtml;
+      agentEmbedContentCache.set(src, { content, ts: Date.now() });
+      if (!card.isConnected) return;
+      applyRawHtml(content);
     })
     .catch(err => {
+      if (!card.isConnected) return;
       frame.srcdoc = `<div style="padding:20px;color:#ef4444;font-family:sans-serif;font-size:12px;">加载交互组件失败: ${escapeHtml(err.message)}</div>`;
     });
 };
 
-window.refreshAgentEmbedCard = function(cardId) {
-  const card = document.getElementById(cardId);
+window.refreshAgentEmbedCard = function(cardOrTrigger) {
+  const card = resolveAgentEmbedCard(cardOrTrigger);
   if (!card) return;
   const src = card.dataset.src;
   if (src && window.loadAgentEmbedContent) {
-    window.loadAgentEmbedContent(cardId, src);
+    window.loadAgentEmbedContent(card, src, true);
   }
 };
 
-window.toggleFullscreenAgentEmbed = function(cardId) {
-  const card = document.getElementById(cardId);
+window.toggleFullscreenAgentEmbed = function(cardOrTrigger) {
+  const card = resolveAgentEmbedCard(cardOrTrigger);
   if (!card) return;
   card.classList.toggle("fullscreen");
 };

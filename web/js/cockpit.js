@@ -598,7 +598,7 @@ async function fetchGlobalBackgroundTasksBar() {
   const label = document.getElementById("global-tasks-label");
   if (!bar || !label) return;
   try {
-    const res = await gwFetch("/gateway/tasks/background");
+    const res = await fetch("/gateway/tasks/background");
     if (!res.ok) return;
     const data = await res.json();
     const tasks = Array.isArray(data.tasks) ? data.tasks : [];
@@ -614,8 +614,15 @@ async function fetchGlobalBackgroundTasksBar() {
     bar.style.display = "";
     bar.onclick = () => {
       const first = tasks[0];
-      if (first && first.conversationId && typeof openConversation === "function") {
-        openConversation(first.conversationId, first.conversationTitle || "会话详情", first.workspaceName || "");
+      if (first && first.conversationId && typeof navigateTo === "function") {
+        if (typeof currentTrajectories === "object" && currentTrajectories && !currentTrajectories[first.conversationId]) {
+          currentTrajectories[first.conversationId] = {
+            id: first.conversationId,
+            annotations: first.conversationTitle ? { title: first.conversationTitle } : {},
+            workspaceName: first.workspaceName || ""
+          };
+        }
+        navigateTo("#c=" + first.conversationId);
       }
     };
   } catch { /* ignore */ }

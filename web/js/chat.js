@@ -103,9 +103,9 @@ function updatePendingInteraction(interaction, isRunning) {
     const isPermissionType = interaction.type === "permission" || interaction.type === "file_permission";
     if (autoApprovePermissions && isPermissionType) {
       const opt4 = interaction.options.find(o => o.scope === 4 || o.id === "4" || (o.text && o.text.toLowerCase().includes("always allow")));
-      selectedInteractionOptionId = opt4 ? opt4.id : (interaction.options[0]?.id || "");
+      selectedInteractionOptionId = opt4 ? opt4.id : (interaction.defaultOptionId || interaction.options?.[0]?.id || "");
     } else {
-      selectedInteractionOptionId = interaction.options[0]?.id || "";
+      selectedInteractionOptionId = interaction.defaultOptionId || interaction.options?.[0]?.id || (interaction.hasWriteIn ? "__write_in__" : "");
     }
   }
 
@@ -229,12 +229,18 @@ function renderInteractionCard() {
 
   const isPermission = interaction.type === "permission" || interaction.type === "file_permission";
   const isDownload = interaction.type === "browser_download";
-  const isApproval = interaction.type === "approval" || isDownload;
+  const isMcp = interaction.type === "mcp";
+  const isElicitation = interaction.type === "elicitation";
+  const isApproval = interaction.type === "approval" || isDownload || isMcp;
   const hasMultiQuestions = interaction.questions && interaction.questions.length > 1;
 
   let iconSvg = '';
   if (isDownload) {
     iconSvg = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>`;
+  } else if (isMcp) {
+    iconSvg = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#8b5cf6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22v-5"></path><path d="M9 8V2"></path><path d="M15 8V2"></path><path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"></path></svg>`;
+  } else if (isElicitation) {
+    iconSvg = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#06b6d4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>`;
   } else if (isPermission) {
     iconSvg = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>`;
   } else {
@@ -482,7 +488,8 @@ async function handleInteractionSubmit(isSkip) {
     }
 
     const selectedOpt = interaction.options?.find(o => o.id === selectedOptionId);
-    const isDeny = selectedOpt?.isDeny || selectedOptionId === "5" || selectedOptionId === "__write_in__";
+    const isPermissionInteraction = interaction.type === "permission" || interaction.type === "file_permission";
+    const isDeny = selectedOpt?.isDeny || selectedOptionId === "5" || (isPermissionInteraction && selectedOptionId === "__write_in__");
 
     const payload = {
       cascadeId: activeCascadeId,
@@ -1796,6 +1803,61 @@ function generateItemHtml(item, isRunning, isLastItem) {
   return "";
 }
 
+function patchAgentBodyHtml(bodyEl, bodyHtml) {
+  const existingHydrated = bodyEl.querySelectorAll('.agent-embed-card[data-hydrated="true"]');
+  if (!existingHydrated || existingHydrated.length === 0) {
+    bodyEl.innerHTML = bodyHtml;
+    return;
+  }
+
+  // Preserve live hydrated <agent-embed> cards in place so streaming token updates
+  // never detach or reload mounted iframes.
+  const temp = document.createElement("div");
+  temp.innerHTML = bodyHtml;
+  const incomingCards = Array.from(temp.querySelectorAll(".agent-embed-card"));
+  if (incomingCards.length !== existingHydrated.length) {
+    bodyEl.innerHTML = bodyHtml;
+    return;
+  }
+  for (let i = 0; i < incomingCards.length; i++) {
+    if (incomingCards[i].getAttribute("data-src") !== existingHydrated[i].getAttribute("data-src")) {
+      bodyEl.innerHTML = bodyHtml;
+      return;
+    }
+    // Only support non-destructive top-level preservation; fall back if nested cleanly via cache
+    if (incomingCards[i].parentElement !== temp || existingHydrated[i].parentElement !== bodyEl) {
+      bodyEl.innerHTML = bodyHtml;
+      return;
+    }
+  }
+
+  // Reconcile segments before/between/after each surviving hydrated card without detaching the card
+  const tempNodes = Array.from(temp.childNodes);
+  let cursor = bodyEl.firstChild;
+  let cardIdx = 0;
+
+  for (const node of tempNodes) {
+    if (node.nodeType === 1 && node.classList.contains("agent-embed-card")) {
+      const liveCard = existingHydrated[cardIdx++];
+      while (cursor && cursor !== liveCard) {
+        const next = cursor.nextSibling;
+        bodyEl.removeChild(cursor);
+        cursor = next;
+      }
+      if (cursor === liveCard) {
+        cursor = liveCard.nextSibling;
+      }
+    } else {
+      bodyEl.insertBefore(node, cursor);
+    }
+  }
+  while (cursor) {
+    const next = cursor.nextSibling;
+    bodyEl.removeChild(cursor);
+    cursor = next;
+  }
+}
+
 function scheduleRenderMessages(steps, isRunning = false) {
   pendingRenderData = { steps, isRunning };
   if (!pendingRenderRaf) {
@@ -1968,7 +2030,7 @@ function renderMessages(steps, isRunning = false) {
             }
 
             const bodyHtml = item.text ? getCachedMarkdown(item.text) : '<span style="color:var(--text-muted);">执行中...</span>';
-            bodyEl.innerHTML = bodyHtml;
+            patchAgentBodyHtml(bodyEl, bodyHtml);
           } else {
             const wasOpen = existingEl.querySelector("details")?.open;
             existingEl.innerHTML = generateItemHtml(item, isRunning, isLastItem);
@@ -2028,9 +2090,12 @@ function renderMessages(steps, isRunning = false) {
     }
   }
 
-  // Render any new mermaid diagram blocks in messages stream before bottom alignment
+  // Render any new mermaid diagram blocks & interactive embeds in messages stream before bottom alignment
   if (hasDOMChanges) {
     renderAllMermaidDiagrams(streamEl);
+    if (typeof hydrateAllAgentEmbeds === "function") {
+      hydrateAllAgentEmbeds(streamEl);
+    }
   }
 
   // 1. First-time render on entering a conversation: align cleanly to bottom without whole-page jump
