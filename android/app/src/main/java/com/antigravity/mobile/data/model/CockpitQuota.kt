@@ -110,6 +110,19 @@ data class WeeklyPaceInfo(
         get() = if (windowHours <= 5.0) "5小时" else "7天"
 }
 
+enum class QuotaBucketKind(val key: String, val displayTitle: String) {
+    GEMINI_5H("gemini_5h", "Gemini · 5h"),
+    GEMINI_WEEKLY("gemini_weekly", "Gemini · Weekly"),
+    CLAUDE_5H("claude_5h", "Claude · 5h"),
+    CLAUDE_WEEKLY("claude_weekly", "Claude · Weekly");
+
+    companion object {
+        fun fromKey(key: String?): QuotaBucketKind {
+            return entries.firstOrNull { it.key == key } ?: GEMINI_5H
+        }
+    }
+}
+
 @Serializable
 data class CockpitAccountQuota(
     val id: String,
@@ -135,6 +148,35 @@ data class CockpitAccountQuota(
             val domain = email.substring(atIdx)
             return "$prefix***$domain"
         }
+
+    val isFreeTier: Boolean
+        get() = subscriptionTier?.trim()?.equals("FREE", ignoreCase = true) == true ||
+            (gemini5h == null && claude5h == null)
+
+    fun bucket(kind: QuotaBucketKind): CockpitQuotaBucket? = when (kind) {
+        QuotaBucketKind.GEMINI_5H -> gemini5h
+        QuotaBucketKind.GEMINI_WEEKLY -> geminiWeekly
+        QuotaBucketKind.CLAUDE_5H -> claude5h
+        QuotaBucketKind.CLAUDE_WEEKLY -> claudeWeekly
+    }
+
+    fun resolvedQuotaDisplay(preferred: QuotaBucketKind): Pair<QuotaBucketKind, CockpitQuotaBucket>? {
+        bucket(preferred)?.let { return preferred to it }
+        val fallbackOrder = if (isFreeTier) {
+            listOf(QuotaBucketKind.GEMINI_WEEKLY, QuotaBucketKind.CLAUDE_WEEKLY)
+        } else {
+            listOf(
+                QuotaBucketKind.GEMINI_5H,
+                QuotaBucketKind.GEMINI_WEEKLY,
+                QuotaBucketKind.CLAUDE_5H,
+                QuotaBucketKind.CLAUDE_WEEKLY
+            )
+        }
+        for (kind in fallbackOrder) {
+            bucket(kind)?.let { return kind to it }
+        }
+        return null
+    }
 }
 
 @Serializable

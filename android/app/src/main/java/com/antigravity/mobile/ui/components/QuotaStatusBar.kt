@@ -23,6 +23,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.antigravity.mobile.data.model.CockpitAccountQuota
+import com.antigravity.mobile.data.model.QuotaBucketKind
 import com.antigravity.mobile.ui.theme.AntigravityTheme
 
 private val StatusBarCompactTextStyle = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false))
@@ -31,22 +32,14 @@ private val StatusBarCompactTextStyle = TextStyle(platformStyle = PlatformTextSt
 fun QuotaStatusBar(
     account: CockpitAccountQuota?,
     onTap: () -> Unit,
+    selectedBucket: QuotaBucketKind = QuotaBucketKind.GEMINI_5H,
     showPaceCursor: Boolean = true,
     linkSnapshot: com.antigravity.mobile.data.service.LinkSnapshot? = null,
     modifier: Modifier = Modifier
 ) {
-    val isFree = account?.subscriptionTier?.trim()?.equals("FREE", ignoreCase = true) == true ||
-        (account?.gemini5h == null && account?.claude5h == null)
-    val bucket = if (isFree) {
-        account?.geminiWeekly ?: account?.claudeWeekly ?: return
-    } else {
-        account?.gemini5h ?: account?.geminiWeekly ?: return
-    }
-    val titleText = if (isFree) {
-        if (account?.geminiWeekly != null) "Gemini · Weekly" else "Claude · Weekly"
-    } else {
-        if (account?.gemini5h != null) "Gemini · 5h" else "Gemini · Weekly"
-    }
+    val resolved = account?.resolvedQuotaDisplay(selectedBucket) ?: return
+    val bucket = resolved.second
+    val titleText = resolved.first.displayTitle
     val percent = bucket.remainingPercent.coerceIn(0.0, 100.0)
     val paceInfo = androidx.compose.runtime.remember(bucket, titleText, account?.subscriptionTier) {
         bucket.calculatePaceForTitle(titleText, account?.subscriptionTier)

@@ -12,23 +12,16 @@ public struct QuotaStatusBarView: View {
         self.onTap = onTap
     }
     
-    private var isFree: Bool {
-        account?.subscriptionTier?.trimmingCharacters(in: .whitespacesAndNewlines).uppercased() == "FREE" ||
-            (account?.gemini5h == nil && account?.claude5h == nil)
+    private var resolvedDisplay: (kind: QuotaBucketKind, bucket: CockpitQuotaBucket)? {
+        account?.resolvedQuotaDisplay(preferred: AppSettings.shared.selectedQuotaBucket)
     }
     
     private var bucket: CockpitQuotaBucket? {
-        if isFree {
-            return account?.geminiWeekly ?? account?.claudeWeekly
-        }
-        return account?.gemini5h ?? account?.geminiWeekly
+        resolvedDisplay?.bucket
     }
     
     private var titleText: String {
-        if isFree {
-            return account?.geminiWeekly != nil ? "Gemini · Weekly" : "Claude · Weekly"
-        }
-        return account?.gemini5h != nil ? "Gemini · 5h" : "Gemini · Weekly"
+        resolvedDisplay?.kind.displayTitle ?? "Gemini · 5h"
     }
     
     private var percent: Double {

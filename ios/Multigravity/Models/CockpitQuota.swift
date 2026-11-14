@@ -23,6 +23,22 @@ public struct CockpitQuotaResponse: Codable, Sendable {
     }
 }
 
+public enum QuotaBucketKind: String, CaseIterable, Codable, Sendable {
+    case gemini5h = "gemini_5h"
+    case geminiWeekly = "gemini_weekly"
+    case claude5h = "claude_5h"
+    case claudeWeekly = "claude_weekly"
+
+    public var displayTitle: String {
+        switch self {
+        case .gemini5h: return "Gemini · 5h"
+        case .geminiWeekly: return "Gemini · Weekly"
+        case .claude5h: return "Claude · 5h"
+        case .claudeWeekly: return "Claude · Weekly"
+        }
+    }
+}
+
 public struct CockpitAccountQuota: Codable, Identifiable, Sendable {
     public let id: String
     public let email: String
@@ -53,6 +69,37 @@ public struct CockpitAccountQuota: Codable, Identifiable, Sendable {
             return "\(name) (\(email))"
         }
         return email
+    }
+
+    public var isFreeTier: Bool {
+        subscriptionTier?.trimmingCharacters(in: .whitespacesAndNewlines).uppercased() == "FREE" ||
+            (gemini5h == nil && claude5h == nil)
+    }
+
+    public func bucket(for kind: QuotaBucketKind) -> CockpitQuotaBucket? {
+        switch kind {
+        case .gemini5h: return gemini5h
+        case .geminiWeekly: return geminiWeekly
+        case .claude5h: return claude5h
+        case .claudeWeekly: return claudeWeekly
+        }
+    }
+
+    /// Resolves the effective quota kind and bucket to display on the home quota bar,
+    /// falling back gracefully when the preferred bucket is unavailable (e.g. FREE accounts).
+    public func resolvedQuotaDisplay(preferred: QuotaBucketKind) -> (kind: QuotaBucketKind, bucket: CockpitQuotaBucket)? {
+        if let selected = bucket(for: preferred) {
+            return (preferred, selected)
+        }
+        let fallbackOrder: [QuotaBucketKind] = isFreeTier
+            ? [.geminiWeekly, .claudeWeekly]
+            : [.gemini5h, .geminiWeekly, .claude5h, .claudeWeekly]
+        for kind in fallbackOrder {
+            if let fallback = bucket(for: kind) {
+                return (kind, fallback)
+            }
+        }
+        return nil
     }
 }
 

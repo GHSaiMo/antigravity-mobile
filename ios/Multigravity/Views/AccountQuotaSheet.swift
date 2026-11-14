@@ -361,8 +361,10 @@ public struct AccountQuotaSheet: View {
             Divider()
                 .opacity(0.6)
             
-            let isFree = (acc.subscriptionTier?.trimmingCharacters(in: .whitespacesAndNewlines).uppercased() == "FREE") ||
-                (acc.claude5h == nil && acc.gemini5h == nil)
+            let isFree = acc.isFreeTier
+            let resolvedSelectedKind = isCurrent
+                ? acc.resolvedQuotaDisplay(preferred: AppSettings.shared.selectedQuotaBucket)?.kind
+                : nil
             
             VStack(spacing: 10) {
                 if isFree {
@@ -371,8 +373,22 @@ public struct AccountQuotaSheet: View {
                         GridItem(.flexible(), spacing: 10),
                         GridItem(.flexible(), spacing: 10)
                     ], spacing: 10) {
-                        metricCell(title: "Gemini · Weekly", bucket: acc.geminiWeekly, tier: acc.subscriptionTier)
-                        metricCell(title: "Claude · Weekly", bucket: acc.claudeWeekly, tier: acc.subscriptionTier)
+                        metricCell(
+                            title: "Gemini · Weekly",
+                            bucket: acc.geminiWeekly,
+                            tier: acc.subscriptionTier,
+                            kind: .geminiWeekly,
+                            isCurrentAccount: isCurrent,
+                            isSelected: isCurrent && resolvedSelectedKind == .geminiWeekly
+                        )
+                        metricCell(
+                            title: "Claude · Weekly",
+                            bucket: acc.claudeWeekly,
+                            tier: acc.subscriptionTier,
+                            kind: .claudeWeekly,
+                            isCurrentAccount: isCurrent,
+                            isSelected: isCurrent && resolvedSelectedKind == .claudeWeekly
+                        )
                     }
                 } else {
                     // 4 Metrics Grid: 5h in left, Weekly in right, Gemini on top, Claude on bottom
@@ -381,12 +397,40 @@ public struct AccountQuotaSheet: View {
                         GridItem(.flexible(), spacing: 10)
                     ], spacing: 10) {
                         // Row 1: Left Gemini · 5h, Right Gemini · Weekly
-                        metricCell(title: "Gemini · 5h", bucket: acc.gemini5h, tier: acc.subscriptionTier)
-                        metricCell(title: "Gemini · Weekly", bucket: acc.geminiWeekly, tier: acc.subscriptionTier)
+                        metricCell(
+                            title: "Gemini · 5h",
+                            bucket: acc.gemini5h,
+                            tier: acc.subscriptionTier,
+                            kind: .gemini5h,
+                            isCurrentAccount: isCurrent,
+                            isSelected: isCurrent && resolvedSelectedKind == .gemini5h
+                        )
+                        metricCell(
+                            title: "Gemini · Weekly",
+                            bucket: acc.geminiWeekly,
+                            tier: acc.subscriptionTier,
+                            kind: .geminiWeekly,
+                            isCurrentAccount: isCurrent,
+                            isSelected: isCurrent && resolvedSelectedKind == .geminiWeekly
+                        )
                         
                         // Row 2: Left Claude · 5h, Right Claude · Weekly
-                        metricCell(title: "Claude · 5h", bucket: acc.claude5h, tier: acc.subscriptionTier)
-                        metricCell(title: "Claude · Weekly", bucket: acc.claudeWeekly, tier: acc.subscriptionTier)
+                        metricCell(
+                            title: "Claude · 5h",
+                            bucket: acc.claude5h,
+                            tier: acc.subscriptionTier,
+                            kind: .claude5h,
+                            isCurrentAccount: isCurrent,
+                            isSelected: isCurrent && resolvedSelectedKind == .claude5h
+                        )
+                        metricCell(
+                            title: "Claude · Weekly",
+                            bucket: acc.claudeWeekly,
+                            tier: acc.subscriptionTier,
+                            kind: .claudeWeekly,
+                            isCurrentAccount: isCurrent,
+                            isSelected: isCurrent && resolvedSelectedKind == .claudeWeekly
+                        )
                     }
                 }
             }
@@ -475,7 +519,16 @@ public struct AccountQuotaSheet: View {
     }
     
     @ViewBuilder
-    private func metricCell(title: String, bucket: CockpitQuotaBucket?, isArgon: Bool = false, isCarbon: Bool = false, tier: String? = nil) -> some View {
+    private func metricCell(
+        title: String,
+        bucket: CockpitQuotaBucket?,
+        isArgon: Bool = false,
+        isCarbon: Bool = false,
+        tier: String? = nil,
+        kind: QuotaBucketKind? = nil,
+        isCurrentAccount: Bool = false,
+        isSelected: Bool = false
+    ) -> some View {
         let percent = bucket?.remainingPercent ?? 0.0
         let isDark = colorScheme == .dark
         let argonAccent = isDark
@@ -531,9 +584,15 @@ public struct AccountQuotaSheet: View {
                         .lineLimit(1)
                 } else {
                     Text(title)
-                        .font(.system(size: isSpecial ? 11.5 : 11, weight: isSpecial ? .semibold : .medium))
-                        .foregroundColor(isArgon ? argonAccent : .secondary)
+                        .font(.system(size: isSpecial ? 11.5 : 11, weight: isSelected ? .semibold : (isSpecial ? .semibold : .medium)))
+                        .foregroundColor(isArgon ? argonAccent : (isSelected ? .primary : .secondary))
                         .lineLimit(1)
+                }
+
+                if isSelected {
+                    Circle()
+                        .fill(Color.blue)
+                        .frame(width: 5, height: 5)
                 }
                 
                 Spacer()
@@ -637,6 +696,13 @@ public struct AccountQuotaSheet: View {
                                 endPoint: .bottomTrailing
                             )
                         )
+                } else if isSelected {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(Color(uiColor: .tertiarySystemGroupedBackground))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .fill(Color.blue.opacity(isDark ? 0.14 : 0.08))
+                        )
                 } else {
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .fill(Color(uiColor: .tertiarySystemGroupedBackground))
@@ -672,11 +738,21 @@ public struct AccountQuotaSheet: View {
                             ),
                             lineWidth: 1
                         )
+                } else if isSelected {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(Color.blue.opacity(isDark ? 0.85 : 0.75), lineWidth: 1.5)
                 }
             }
         )
         .contentShape(Rectangle())
         .onTapGesture {
+            if isCurrentAccount, let kind, !isSelected {
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    AppSettings.shared.selectedQuotaBucket = kind
+                }
+                return
+            }
             if isPaceSupported, let info = paceInfo {
                 UIImpactFeedbackGenerator(style: .light).impactOccurred()
                 paceDetailItem = WeeklyPaceDetailItem(title: title, info: info)

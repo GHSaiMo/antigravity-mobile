@@ -14,6 +14,48 @@ function isCockpitSwitchEnabled() {
 
 let currentCockpitQuotas = null;
 
+const QUOTA_BUCKET_KEY = "cockpit_selected_quota_bucket";
+const QUOTA_BUCKET_TITLES = {
+  gemini_5h: "Gemini · 5h",
+  gemini_weekly: "Gemini · Weekly",
+  claude_5h: "Claude · 5h",
+  claude_weekly: "Claude · Weekly"
+};
+let selectedQuotaBucket = localStorage.getItem(QUOTA_BUCKET_KEY) || "gemini_5h";
+if (!QUOTA_BUCKET_TITLES[selectedQuotaBucket]) {
+  selectedQuotaBucket = "gemini_5h";
+}
+
+function isFreeAccount(acc) {
+  if (!acc) return true;
+  return (acc.subscription_tier && acc.subscription_tier.toUpperCase() === "FREE") ||
+    (!acc.gemini_5h && !acc.claude_5h);
+}
+
+function resolveAccountQuotaDisplay(acc, preferredKey) {
+  if (!acc) return null;
+  if (preferredKey && QUOTA_BUCKET_TITLES[preferredKey] && acc[preferredKey]) {
+    return {
+      key: preferredKey,
+      title: QUOTA_BUCKET_TITLES[preferredKey],
+      bucket: acc[preferredKey]
+    };
+  }
+  const fallbackOrder = isFreeAccount(acc)
+    ? ["gemini_weekly", "claude_weekly"]
+    : ["gemini_5h", "gemini_weekly", "claude_5h", "claude_weekly"];
+  for (const key of fallbackOrder) {
+    if (acc[key]) {
+      return {
+        key,
+        title: QUOTA_BUCKET_TITLES[key],
+        bucket: acc[key]
+      };
+    }
+  }
+  return null;
+}
+
 async function fetchCockpitQuotas(isManual = false) {
   const refreshBtn = document.getElementById("btn-quota-refresh");
   const refreshIcon = refreshBtn ? refreshBtn.querySelector(".refresh-icon") : null;
@@ -125,18 +167,14 @@ function renderQuotaStatusBar(data) {
     return;
   }
 
-  const isFree = (current.subscription_tier && current.subscription_tier.toUpperCase() === "FREE") ||
-    (!current.gemini_5h && !current.claude_5h);
-  const metric = isFree ? (current.gemini_weekly || current.claude_weekly) : (current.gemini_5h || current.gemini_weekly);
-  if (!metric) {
+  const resolved = resolveAccountQuotaDisplay(current, selectedQuotaBucket);
+  if (!resolved) {
     if (statusBar) statusBar.style.display = "none";
     return;
   }
+  const metric = resolved.bucket;
+  const titleText = resolved.title;
   if (statusBar) statusBar.style.display = "";
-
-  const titleText = isFree
-    ? (current.gemini_weekly ? "Gemini · Weekly" : "Claude · Weekly")
-    : (current.gemini_5h ? "Gemini · 5h" : "Gemini · Weekly");
 
   const nameEl = statusBar.querySelector(".quota-metric-name");
   if (nameEl) nameEl.textContent = titleText;
@@ -247,7 +285,8 @@ function calculateQuotaPace(title, bucket, tier) {
   };
 }
 
-function renderPacedMetricBox(title, titleClass, bucket, tier) {
+function renderPacedMetricBox(title, titleClass, bucket, tier, options = {}) {
+  const { bucketKey = "", isSelectable = false, isSelected = false } = options;
   const pace = calculateQuotaPace(title, bucket, tier);
   const remaining = bucket.remaining_percent || 0;
   const width = Math.min(100, Math.max(0, remaining));
@@ -260,11 +299,20 @@ function renderPacedMetricBox(title, titleClass, bucket, tier) {
   }
   const resetText = getQuotaResetDisplayText(bucket);
   const fullTitle = `${resetText}${paceTooltip}`;
+  const extraClasses = [
+    isSelectable ? "is-selectable" : "",
+    isSelected ? "is-selected" : ""
+  ].filter(Boolean).join(" ");
+  const keyAttr = bucketKey ? ` data-bucket-key="${escapeHtml(bucketKey)}"` : "";
+  const selectedDotHtml = isSelected ? `<span class="metric-selected-dot"></span>` : "";
 
   return `
-    <div class="metric-box metric-box-weekly" title="${escapeHtml(fullTitle)}">
+    <div class="metric-box metric-box-weekly ${extraClasses}"${keyAttr} title="${escapeHtml(fullTitle)}">
       <div class="metric-box-header">
-        <span class="metric-box-title ${titleClass}">${escapeHtml(title)}</span>
+        <span class="metric-box-title-wrap">
+          <span class="metric-box-title ${titleClass}">${escapeHtml(title)}</span>
+          ${selectedDotHtml}
+        </span>
         <span class="metric-box-value ${statusClass}">${remaining.toFixed(1)}%</span>
       </div>
       <div class="metric-mini-track weekly-track">
@@ -291,23 +339,30 @@ function buildAccountQuotaCard(acc, isCurrent) {
     ? `<button class="quota-switch-btn" data-id="${escapeHtml(acc.id)}" data-email="${escapeHtml(acc.email)}">切换</button>`
     : "";
 
-  const isFree = (acc.subscription_tier && acc.subscription_tier.toUpperCase() === "FREE") ||
-    (!acc.claude_5h && !acc.gemini_5h);
+  const isFree = isFreeAccount(acc);
+  const resolvedSelected = isCurrent ? resolveAccountQuotaDisplay(acc, selectedQuotaBucket) : null;
+  const selectedKey = resolvedSelected ? resolvedSelected.key : null;
+
+  const boxOptions = (bucketKey) => ({
+    bucketKey,
+    isSelectable: isCurrent,
+    isSelected: isCurrent && selectedKey === bucketKey
+  });
 
   const metricsHtml = isFree ? `
       <!-- 1. Left: Gemini · Weekly -->
-      ${renderPacedMetricBox("Gemini · Weekly", "gemini", gWk, acc.subscription_tier)}
+      ${renderPacedMetricBox("Gemini · Weekly", "gemini", gWk, acc.subscription_tier, boxOptions("gemini_weekly"))}
 
       <!-- 2. Right: Claude · Weekly -->
-      ${renderPacedMetricBox("Claude · Weekly", "claude", cWk, acc.subscription_tier)}
+      ${renderPacedMetricBox("Claude · Weekly", "claude", cWk, acc.subscription_tier, boxOptions("claude_weekly"))}
   ` : `
       <!-- Row 1: Gemini (5h in left, Weekly in right) -->
-      ${renderPacedMetricBox("Gemini · 5h", "gemini", g5h, acc.subscription_tier)}
-      ${renderPacedMetricBox("Gemini · Weekly", "gemini", gWk, acc.subscription_tier)}
+      ${renderPacedMetricBox("Gemini · 5h", "gemini", g5h, acc.subscription_tier, boxOptions("gemini_5h"))}
+      ${renderPacedMetricBox("Gemini · Weekly", "gemini", gWk, acc.subscription_tier, boxOptions("gemini_weekly"))}
 
       <!-- Row 2: Claude (5h in left, Weekly in right) -->
-      ${renderPacedMetricBox("Claude · 5h", "claude", c5h, acc.subscription_tier)}
-      ${renderPacedMetricBox("Claude · Weekly", "claude", cWk, acc.subscription_tier)}
+      ${renderPacedMetricBox("Claude · 5h", "claude", c5h, acc.subscription_tier, boxOptions("claude_5h"))}
+      ${renderPacedMetricBox("Claude · Weekly", "claude", cWk, acc.subscription_tier, boxOptions("claude_weekly"))}
   `;
 
   card.innerHTML = `
@@ -323,6 +378,21 @@ function buildAccountQuotaCard(acc, isCurrent) {
       ${metricsHtml}
     </div>
   `;
+
+  if (isCurrent) {
+    card.querySelectorAll(".metric-box.is-selectable").forEach((boxEl) => {
+      boxEl.addEventListener("click", () => {
+        const key = boxEl.getAttribute("data-bucket-key");
+        if (!key || !QUOTA_BUCKET_TITLES[key] || selectedQuotaBucket === key) return;
+        selectedQuotaBucket = key;
+        localStorage.setItem(QUOTA_BUCKET_KEY, key);
+        if (currentCockpitQuotas) {
+          renderQuotaStatusBar(currentCockpitQuotas);
+          renderQuotaSheet(currentCockpitQuotas);
+        }
+      });
+    });
+  }
 
   if (!isCurrent && isCockpitSwitchEnabled()) {
     const switchBtn = card.querySelector(".quota-switch-btn");

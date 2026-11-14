@@ -85,6 +85,7 @@ fun ConversationListScreen(
     val isLoadingProjects by viewModel.isLoadingProjects.collectAsStateWithLifecycle()
     val projectsError by viewModel.projectsError.collectAsStateWithLifecycle()
     val showWeeklyPaceCursor by viewModel.prefs.weeklyPaceCursorFlow.collectAsStateWithLifecycle()
+    val selectedQuotaBucket by viewModel.prefs.selectedQuotaBucketFlow.collectAsStateWithLifecycle()
     val textToolbar = LocalTextToolbar.current
     LaunchedEffect(Unit) {
         textToolbar.hide()
@@ -344,6 +345,7 @@ fun ConversationListScreen(
                             },
                             swipedConversationId = swipedConversationId,
                             showWeeklyPaceCursor = showWeeklyPaceCursor,
+                            selectedQuotaBucket = selectedQuotaBucket,
                             onSwipedConversationIdChange = { swipedConversationId = it }
                         )
                     }
@@ -536,6 +538,8 @@ fun ConversationListScreen(
             quotaData = quotaData,
             isRefreshing = isRefreshingQuota,
             showWeeklyPaceCursor = showWeeklyPaceCursor,
+            selectedQuotaBucket = selectedQuotaBucket,
+            onSelectQuotaBucket = { viewModel.prefs.selectedQuotaBucket = it },
             tokenHistory = tokenHistory,
             isLoadingTokenHistory = isLoadingTokenHistory,
             onLoadTokenHistory = { force -> viewModel.loadTokenHistory(force) },
@@ -805,6 +809,7 @@ private fun ConversationListContent(
     onPin: (ConversationItem) -> Unit,
     swipedConversationId: String?,
     showWeeklyPaceCursor: Boolean = true,
+    selectedQuotaBucket: com.antigravity.mobile.data.model.QuotaBucketKind = com.antigravity.mobile.data.model.QuotaBucketKind.GEMINI_5H,
     onSwipedConversationIdChange: (String?) -> Unit
 ) {
     val colors = AntigravityTheme.colors
@@ -861,11 +866,12 @@ private fun ConversationListContent(
 
         // Quota Status Bar (matches iOS QuotaStatusBarView directly below large title)
         quotaData?.currentAccount?.let { acc ->
-            if (acc.gemini5h != null) {
+            if (acc.resolvedQuotaDisplay(selectedQuotaBucket) != null) {
                 item(key = "header_quota") {
                     QuotaStatusBar(
                         account = acc,
                         onTap = onQuotaTap,
+                        selectedBucket = selectedQuotaBucket,
                         showPaceCursor = showWeeklyPaceCursor,
                         linkSnapshot = linkSnapshot,
                         modifier = Modifier.fillMaxWidth()

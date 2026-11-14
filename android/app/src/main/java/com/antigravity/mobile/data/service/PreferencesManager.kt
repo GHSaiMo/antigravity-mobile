@@ -12,6 +12,7 @@ import com.antigravity.mobile.data.model.McpServerState
 import com.antigravity.mobile.data.model.ModelsResponse
 import com.antigravity.mobile.data.model.ProjectItem
 import com.antigravity.mobile.data.model.SkillInfo
+import com.antigravity.mobile.data.model.QuotaBucketKind
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -57,6 +58,16 @@ class PreferencesManager(context: Context) {
 
     private val _weeklyPaceCursorFlow = MutableStateFlow(weeklyPaceCursorEnabled)
     val weeklyPaceCursorFlow: StateFlow<Boolean> = _weeklyPaceCursorFlow.asStateFlow()
+
+    var selectedQuotaBucket: QuotaBucketKind
+        get() = QuotaBucketKind.fromKey(prefs.getString(KEY_SELECTED_QUOTA_BUCKET, QuotaBucketKind.GEMINI_5H.key))
+        set(value) {
+            prefs.edit().putString(KEY_SELECTED_QUOTA_BUCKET, value.key).apply()
+            _selectedQuotaBucketFlow.value = value
+        }
+
+    private val _selectedQuotaBucketFlow = MutableStateFlow(selectedQuotaBucket)
+    val selectedQuotaBucketFlow: StateFlow<QuotaBucketKind> = _selectedQuotaBucketFlow.asStateFlow()
 
     init {
         // H-2: If legacy plaintext preferences held credentials, migrate to securePrefs and purge from plaintext
@@ -837,6 +848,7 @@ class PreferencesManager(context: Context) {
         private const val KEY_LIVE_NOTIFICATIONS = "live_notifications"
         private const val KEY_ENABLE_VOICE_MODE = "enable_voice_mode"
         private const val KEY_WEEKLY_PACE_CURSOR = "weekly_pace_cursor"
+        private const val KEY_SELECTED_QUOTA_BUCKET = "selected_quota_bucket"
         private const val KEY_FCM_PUSH_TOKEN = "fcm_push_token"
         private const val KEY_LAN_URL = "lan_server_url"
         private const val KEY_RELAY_URL = "relay_server_url"

@@ -50,6 +50,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.antigravity.mobile.data.model.CockpitAccountQuota
+import com.antigravity.mobile.data.model.QuotaBucketKind
 import com.antigravity.mobile.data.model.CockpitQuotaBucket
 import com.antigravity.mobile.data.model.CockpitQuotaResponse
 import com.antigravity.mobile.data.model.DailyTokenRecord
@@ -67,6 +68,8 @@ fun AccountQuotaSheet(
     quotaData: CockpitQuotaResponse?,
     isRefreshing: Boolean,
     showWeeklyPaceCursor: Boolean = true,
+    selectedQuotaBucket: QuotaBucketKind = QuotaBucketKind.GEMINI_5H,
+    onSelectQuotaBucket: ((QuotaBucketKind) -> Unit)? = null,
     tokenHistory: TokenHistoryResponse? = null,
     isLoadingTokenHistory: Boolean = false,
     onLoadTokenHistory: (Boolean) -> Unit = {},
@@ -364,6 +367,8 @@ fun AccountQuotaSheet(
                             isCurrent = true,
                             isMasked = isMasked,
                             showWeeklyPaceCursor = showWeeklyPaceCursor,
+                            selectedQuotaBucket = selectedQuotaBucket,
+                            onSelectQuotaBucket = onSelectQuotaBucket,
                             onWeeklyClick = { title, info -> paceDetailTitleAndInfo = Pair(title, info) },
                             onSwitch = null
                         )
@@ -550,6 +555,8 @@ private fun AccountQuotaCard(
     isCurrent: Boolean,
     isMasked: Boolean,
     showWeeklyPaceCursor: Boolean = true,
+    selectedQuotaBucket: QuotaBucketKind = QuotaBucketKind.GEMINI_5H,
+    onSelectQuotaBucket: ((QuotaBucketKind) -> Unit)? = null,
     onWeeklyClick: ((String, com.antigravity.mobile.data.model.WeeklyPaceInfo) -> Unit)? = null,
     onSwitch: (() -> Unit)?
 ) {
@@ -601,8 +608,12 @@ private fun AccountQuotaCard(
 
         HorizontalDivider(color = colors.separator.copy(alpha = 0.25f), thickness = 0.5.dp)
 
-        val isFree = account.subscriptionTier?.trim()?.equals("FREE", ignoreCase = true) == true ||
-            (account.claude5h == null && account.gemini5h == null)
+        val isFree = account.isFreeTier
+        val resolvedSelectedKind = if (isCurrent) {
+            account.resolvedQuotaDisplay(selectedQuotaBucket)?.first
+        } else {
+            null
+        }
 
         // Metrics Grid: Free accounts show 2 weekly quotas; others show 4 metrics (5h + weekly)
         Column(
@@ -620,6 +631,9 @@ private fun AccountQuotaCard(
                         bucket = account.geminiWeekly,
                         tier = account.subscriptionTier,
                         showPaceCursor = showWeeklyPaceCursor,
+                        isCurrentAccount = isCurrent,
+                        isSelected = isCurrent && resolvedSelectedKind == QuotaBucketKind.GEMINI_WEEKLY,
+                        onSelect = onSelectQuotaBucket?.let { cb -> { cb(QuotaBucketKind.GEMINI_WEEKLY) } },
                         onWeeklyClick = onWeeklyClick?.let { cb -> { cb("Gemini · Weekly", it) } },
                         modifier = Modifier.weight(1f)
                     )
@@ -628,6 +642,9 @@ private fun AccountQuotaCard(
                         bucket = account.claudeWeekly,
                         tier = account.subscriptionTier,
                         showPaceCursor = showWeeklyPaceCursor,
+                        isCurrentAccount = isCurrent,
+                        isSelected = isCurrent && resolvedSelectedKind == QuotaBucketKind.CLAUDE_WEEKLY,
+                        onSelect = onSelectQuotaBucket?.let { cb -> { cb(QuotaBucketKind.CLAUDE_WEEKLY) } },
                         onWeeklyClick = onWeeklyClick?.let { cb -> { cb("Claude · Weekly", it) } },
                         modifier = Modifier.weight(1f)
                     )
@@ -643,6 +660,9 @@ private fun AccountQuotaCard(
                         bucket = account.gemini5h,
                         tier = account.subscriptionTier,
                         showPaceCursor = showWeeklyPaceCursor,
+                        isCurrentAccount = isCurrent,
+                        isSelected = isCurrent && resolvedSelectedKind == QuotaBucketKind.GEMINI_5H,
+                        onSelect = onSelectQuotaBucket?.let { cb -> { cb(QuotaBucketKind.GEMINI_5H) } },
                         onWeeklyClick = onWeeklyClick?.let { cb -> { cb("Gemini · 5h", it) } },
                         modifier = Modifier.weight(1f)
                     )
@@ -651,6 +671,9 @@ private fun AccountQuotaCard(
                         bucket = account.geminiWeekly,
                         tier = account.subscriptionTier,
                         showPaceCursor = showWeeklyPaceCursor,
+                        isCurrentAccount = isCurrent,
+                        isSelected = isCurrent && resolvedSelectedKind == QuotaBucketKind.GEMINI_WEEKLY,
+                        onSelect = onSelectQuotaBucket?.let { cb -> { cb(QuotaBucketKind.GEMINI_WEEKLY) } },
                         onWeeklyClick = onWeeklyClick?.let { cb -> { cb("Gemini · Weekly", it) } },
                         modifier = Modifier.weight(1f)
                     )
@@ -666,6 +689,9 @@ private fun AccountQuotaCard(
                         bucket = account.claude5h,
                         tier = account.subscriptionTier,
                         showPaceCursor = showWeeklyPaceCursor,
+                        isCurrentAccount = isCurrent,
+                        isSelected = isCurrent && resolvedSelectedKind == QuotaBucketKind.CLAUDE_5H,
+                        onSelect = onSelectQuotaBucket?.let { cb -> { cb(QuotaBucketKind.CLAUDE_5H) } },
                         onWeeklyClick = onWeeklyClick?.let { cb -> { cb("Claude · 5h", it) } },
                         modifier = Modifier.weight(1f)
                     )
@@ -674,6 +700,9 @@ private fun AccountQuotaCard(
                         bucket = account.claudeWeekly,
                         tier = account.subscriptionTier,
                         showPaceCursor = showWeeklyPaceCursor,
+                        isCurrentAccount = isCurrent,
+                        isSelected = isCurrent && resolvedSelectedKind == QuotaBucketKind.CLAUDE_WEEKLY,
+                        onSelect = onSelectQuotaBucket?.let { cb -> { cb(QuotaBucketKind.CLAUDE_WEEKLY) } },
                         onWeeklyClick = onWeeklyClick?.let { cb -> { cb("Claude · Weekly", it) } },
                         modifier = Modifier.weight(1f)
                     )
@@ -785,6 +814,9 @@ private fun QuotaMetricCell(
     isCarbon: Boolean = false,
     tier: String? = null,
     showPaceCursor: Boolean = true,
+    isCurrentAccount: Boolean = false,
+    isSelected: Boolean = false,
+    onSelect: (() -> Unit)? = null,
     onWeeklyClick: ((com.antigravity.mobile.data.model.WeeklyPaceInfo) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
@@ -867,14 +899,25 @@ private fun QuotaMetricCell(
                 .padding(horizontal = 11.dp, vertical = 10.dp)
         }
         else -> {
-            modifier
+            val cellMod = modifier
                 .clip(cellShape)
                 .background(colors.surfaceVariant.copy(alpha = if (colors.isDark) 0.85f else 0.55f))
-                .padding(horizontal = 9.dp, vertical = 9.5.dp)
+                .let { mod ->
+                    if (isSelected) {
+                        mod
+                            .background(colors.accentBlue.copy(alpha = if (colors.isDark) 0.14f else 0.08f))
+                            .border(1.5.dp, colors.accentBlue.copy(alpha = if (colors.isDark) 0.85f else 0.75f), cellShape)
+                    } else {
+                        mod
+                    }
+                }
+            cellMod.padding(horizontal = 9.dp, vertical = 9.5.dp)
         }
     }
 
-    if (isPaceSupported && paceInfo != null && onWeeklyClick != null) {
+    if (isCurrentAccount && !isSelected && onSelect != null) {
+        baseModifier = baseModifier.clickable { onSelect() }
+    } else if (isPaceSupported && paceInfo != null && onWeeklyClick != null) {
         baseModifier = baseModifier.clickable { onWeeklyClick(paceInfo) }
     }
 
@@ -909,14 +952,22 @@ private fun QuotaMetricCell(
                 } else {
                     Text(
                         text = title,
-                        color = if (isArgon) argonAccent else colors.textSecondary,
+                        color = if (isArgon) argonAccent else if (isSelected) colors.textPrimary else colors.textSecondary,
                         fontSize = if (isSpecial) 11.5.sp else 11.sp,
                         lineHeight = 13.sp,
-                        fontWeight = if (isSpecial) FontWeight.SemiBold else FontWeight.Medium,
+                        fontWeight = if (isSelected || isSpecial) FontWeight.SemiBold else FontWeight.Medium,
                         style = CompactTextStyle,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
+                    if (isSelected) {
+                        Box(
+                            modifier = Modifier
+                                .size(5.dp)
+                                .clip(CircleShape)
+                                .background(colors.accentBlue)
+                        )
+                    }
                 }
             }
             Spacer(modifier = Modifier.width(6.dp))
