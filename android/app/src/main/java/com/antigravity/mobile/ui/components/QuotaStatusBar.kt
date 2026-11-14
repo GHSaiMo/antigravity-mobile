@@ -43,9 +43,9 @@ fun QuotaStatusBar(
         account?.gemini5h ?: account?.geminiWeekly ?: return
     }
     val titleText = if (isFree) {
-        if (account?.geminiWeekly != null) "Gemini Weekly" else "Claude Weekly"
+        if (account?.geminiWeekly != null) "Gemini · Weekly" else "Claude · Weekly"
     } else {
-        if (account?.gemini5h != null) "Gemini 5h" else "Gemini Weekly"
+        if (account?.gemini5h != null) "Gemini · 5h" else "Gemini · Weekly"
     }
     val percent = bucket.remainingPercent.coerceIn(0.0, 100.0)
     val paceInfo = androidx.compose.runtime.remember(bucket, titleText, account?.subscriptionTier) {

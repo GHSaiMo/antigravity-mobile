@@ -135,8 +135,8 @@ function renderQuotaStatusBar(data) {
   if (statusBar) statusBar.style.display = "";
 
   const titleText = isFree
-    ? (current.gemini_weekly ? "Gemini Weekly" : "Claude Weekly")
-    : (current.gemini_5h ? "Gemini 5h" : "Gemini Weekly");
+    ? (current.gemini_weekly ? "Gemini · Weekly" : "Claude · Weekly")
+    : (current.gemini_5h ? "Gemini · 5h" : "Gemini · Weekly");
 
   const nameEl = statusBar.querySelector(".quota-metric-name");
   if (nameEl) nameEl.textContent = titleText;
@@ -319,57 +319,25 @@ function buildAccountQuotaCard(acc, isCurrent) {
         <span class="metric-box-reset" title="${escapeHtml(carbonFullTitle)}">${escapeHtml(carbonResetText)}</span>
       </div>`;
     }
-  } else {
-    const argon = acc.gemini_4_argon || null;
-    if (argon && typeof argon.remaining_percent === "number") {
-      const argonStatusClass = argon.remaining_percent < 20 ? "danger" : "argon";
-      const argonPace = calculateQuotaPace("Gemini 4 Argon Weekly", argon, acc.subscription_tier);
-      let argonCursorHtml = "";
-      let argonPaceTooltip = "";
-      if (argonPace) {
-        argonPaceTooltip = `\n• 消耗节奏：${argonPace.status}\n• 已使用：${argonPace.used.toFixed(1)}% (${argonPace.windowLabel}匀速应耗 ${argonPace.expectedUsed.toFixed(1)}%)\n• 理论应剩：${argonPace.expectedRemaining.toFixed(1)}% (白色游标位置)`;
-        argonCursorHtml = `<div class="weekly-pace-cursor ${argonPace.isOver ? "over-pacing" : ""}" style="left: ${argonPace.expectedRemaining.toFixed(1)}%;" title="${argonPace.windowLabel}匀速基准线: ${argonPace.expectedRemaining.toFixed(1)}%"></div>`;
-      }
-      const argonResetText = getQuotaResetDisplayText(argon);
-      const argonFullTitle = `${argonResetText}${argonPaceTooltip}`;
-      bottomBarHtml = `
-      <!-- 5. Bottom Full Width: Gemini 4 Argon Weekly (dynamically shown only when available) -->
-      <div class="metric-box metric-box-full metric-box-argon" title="${escapeHtml(argonFullTitle)}">
-        <div class="metric-box-header">
-          <span class="metric-box-title argon">Gemini 4 Argon Weekly</span>
-          <span class="metric-box-value ${argonStatusClass}">${argon.remaining_percent.toFixed(1)}%</span>
-        </div>
-        <div class="metric-mini-track argon-track">
-          <div class="metric-mini-fill ${argonStatusClass}" style="width: ${Math.min(100, Math.max(0, argon.remaining_percent))}%;"></div>
-          ${argonCursorHtml}
-        </div>
-        <span class="metric-box-reset" title="${escapeHtml(argonFullTitle)}">${escapeHtml(argonResetText)}</span>
-      </div>`;
-    }
   }
 
   const isFree = (acc.subscription_tier && acc.subscription_tier.toUpperCase() === "FREE") ||
     (!acc.claude_5h && !acc.gemini_5h);
 
   const metricsHtml = isFree ? `
-      <!-- 1. Left: Claude Weekly -->
-      ${renderPacedMetricBox("Claude Weekly", "claude", cWk, acc.subscription_tier)}
+      <!-- 1. Left: Gemini · Weekly -->
+      ${renderPacedMetricBox("Gemini · Weekly", "gemini", gWk, acc.subscription_tier)}
 
-      <!-- 2. Right: Gemini Weekly -->
-      ${renderPacedMetricBox("Gemini Weekly", "gemini", gWk, acc.subscription_tier)}
-      ${bottomBarHtml}
+      <!-- 2. Right: Claude · Weekly -->
+      ${renderPacedMetricBox("Claude · Weekly", "claude", cWk, acc.subscription_tier)}
   ` : `
-      <!-- 1. Left Top: Claude 5h -->
-      ${renderPacedMetricBox("Claude 5h", "claude", c5h, acc.subscription_tier)}
+      <!-- Row 1: Gemini (5h in left, Weekly in right) -->
+      ${renderPacedMetricBox("Gemini · 5h", "gemini", g5h, acc.subscription_tier)}
+      ${renderPacedMetricBox("Gemini · Weekly", "gemini", gWk, acc.subscription_tier)}
 
-      <!-- 2. Right Top: Gemini 5h -->
-      ${renderPacedMetricBox("Gemini 5h", "gemini", g5h, acc.subscription_tier)}
-
-      <!-- 3. Left Bottom: Claude Weekly -->
-      ${renderPacedMetricBox("Claude Weekly", "claude", cWk, acc.subscription_tier)}
-
-      <!-- 4. Right Bottom: Gemini Weekly -->
-      ${renderPacedMetricBox("Gemini Weekly", "gemini", gWk, acc.subscription_tier)}
+      <!-- Row 2: Claude (5h in left, Weekly in right) -->
+      ${renderPacedMetricBox("Claude · 5h", "claude", c5h, acc.subscription_tier)}
+      ${renderPacedMetricBox("Claude · Weekly", "claude", cWk, acc.subscription_tier)}
       ${bottomBarHtml}
   `;
 
