@@ -20,6 +20,13 @@ async function sendMessage() {
     pendingImages = [];
     renderImagePreviews();
 
+    const sentSlash = slashSelected;
+    const needsSeparateMessage = imagesToSend.length > 0 || !!sentSlash;
+    const items = needsSeparateMessage ? buildSendItems(text) : null;
+    if (sentSlash) {
+      clearSelectedSlash();
+    }
+
     inputEl.value = "";
     clearTimeout(draftDebounceTimer);
     inputEl.style.height = "auto";
@@ -42,7 +49,7 @@ async function sendMessage() {
         body: JSON.stringify({
           workspaceUri: isPure ? "" : sessionToCreate.uri,
           projectId: isPure ? "outside-of-project" : (sessionToCreate.rawId || undefined),
-          prompt: text,
+          prompt: needsSeparateMessage ? "" : text,
           model: activeModel || undefined
         })
       });
@@ -53,6 +60,22 @@ async function sendMessage() {
       }
 
       const newCascadeId = data.cascadeId;
+      if (needsSeparateMessage) {
+        const mediaPayload = imagesToSend.map(img => ({
+          inlineData: img.base64Data,
+          mimeType: img.mimeType || "image/jpeg"
+        }));
+        const sendPayload = {
+          cascadeId: newCascadeId,
+          model: activeModel || undefined,
+          items: items || []
+        };
+        if (mediaPayload.length > 0) {
+          sendPayload.media = mediaPayload;
+        }
+        await rpc("SendUserCascadeMessage", sendPayload);
+      }
+
       currentTrajectories[newCascadeId] = {
         id: newCascadeId,
         annotations: { title: isPure ? "新对话" : sessionToCreate.name },
@@ -65,6 +88,15 @@ async function sendMessage() {
       navigateTo("#c=" + newCascadeId);
       loadConversations();
     } catch (err) {
+      activeDraftSession = sessionToCreate;
+      inputEl.value = text;
+      pendingImages = imagesToSend;
+      renderImagePreviews();
+      if (sentSlash && typeof slashState !== "undefined") {
+        slashState.selected = sentSlash;
+        slashState.cascadeId = null;
+        if (typeof renderSlashChip === "function") renderSlashChip();
+      }
       alert("创建会话失败: " + err.message);
       if (streamEl) {
         streamEl.innerHTML = `
@@ -386,6 +418,7 @@ async function openMarkdownViewer(uri, title) {
     if (contentEl) {
       contentEl.innerHTML = renderMarkdown(cached.content || "");
       renderAllMermaidDiagrams(contentEl);
+      if (typeof hydrateAllAgentEmbeds === "function") hydrateAllAgentEmbeds(contentEl);
     }
     if (cached.filename) {
       if (subtitleEl) subtitleEl.textContent = cached.filename;
@@ -440,6 +473,7 @@ async function openMarkdownViewer(uri, title) {
     if (contentEl) {
       contentEl.innerHTML = renderMarkdown(data.content || "");
       renderAllMermaidDiagrams(contentEl);
+      if (typeof hydrateAllAgentEmbeds === "function") hydrateAllAgentEmbeds(contentEl);
     }
 
     // Check proceed capability

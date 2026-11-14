@@ -16,6 +16,11 @@ function navigateTo(hash) {
   window.location.hash = hash;
   renderRoute();
 }
+window.selectCascadeConversation = function (cascadeId) {
+  if (cascadeId) {
+    navigateTo("#c=" + cascadeId);
+  }
+};
 
 function renderRoute() {
   const hash = window.location.hash || "#";

@@ -374,9 +374,13 @@ const SwarmManager = (() => {
     container.querySelectorAll(".swarm-jump-btn").forEach(btn => {
       btn.onclick = () => {
         const cid = btn.getAttribute("data-conv");
-        if (cid && typeof window.selectCascadeConversation === "function") {
+        if (cid) {
           toggleSwarmModal(false);
-          window.selectCascadeConversation(cid);
+          if (typeof navigateTo === "function") {
+            navigateTo("#c=" + cid);
+          } else if (typeof window.selectCascadeConversation === "function") {
+            window.selectCascadeConversation(cid);
+          }
         }
       };
     });
