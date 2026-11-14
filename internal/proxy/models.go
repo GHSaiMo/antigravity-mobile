@@ -58,6 +58,10 @@ var preferredDefaults = map[string][]string{
 
 // fallbackModels is used until the first successful query, or when language_server is unreachable.
 var fallbackModels = []ModelOption{
+	{ID: "gemini-4-hydrogen-xhigh", Name: "Gemini 4 Hydrogen (Extra)", Provider: "gemini", Enum: "MODEL_PLACEHOLDER_M528", SupportsImages: true, Thinking: true, Tag: "New"},
+	{ID: "gemini-4-hydrogen-high", Name: "Gemini 4 Hydrogen (High)", Provider: "gemini", Enum: "MODEL_PLACEHOLDER_M525", SupportsImages: true, Thinking: true, Tag: "New"},
+	{ID: "gemini-4-hydrogen-medium", Name: "Gemini 4 Hydrogen (Medium)", Provider: "gemini", Enum: "MODEL_PLACEHOLDER_M526", SupportsImages: true, Thinking: true, Tag: "New"},
+	{ID: "gemini-4-hydrogen-low", Name: "Gemini 4 Hydrogen (Low)", Provider: "gemini", Enum: "MODEL_PLACEHOLDER_M527", SupportsImages: true, Thinking: true, Tag: "New"},
 	{ID: "gemini-4-carbon-high", Name: "Gemini 4 Carbon (High)", Provider: "gemini", Enum: "MODEL_PLACEHOLDER_M420", SupportsImages: true, Thinking: true, Tag: "New"},
 	{ID: "gemini-4-carbon-medium", Name: "Gemini 4 Carbon (Medium)", Provider: "gemini", Enum: "MODEL_PLACEHOLDER_M421", SupportsImages: true, Thinking: true, Tag: "New"},
 	{ID: "gemini-4-carbon-low", Name: "Gemini 4 Carbon (Low)", Provider: "gemini", Enum: "MODEL_PLACEHOLDER_M422", SupportsImages: true, Thinking: true, Tag: "New"},
