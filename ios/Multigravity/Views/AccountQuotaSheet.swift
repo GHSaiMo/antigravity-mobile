@@ -388,14 +388,6 @@ public struct AccountQuotaSheet: View {
                         metricCell(title: "Claude · 5h", bucket: acc.claude5h, tier: acc.subscriptionTier)
                         metricCell(title: "Claude · Weekly", bucket: acc.claudeWeekly, tier: acc.subscriptionTier)
                     }
-                    
-                    let isUltra = (acc.subscriptionTier?.trimmingCharacters(in: .whitespacesAndNewlines).uppercased() == "ULTRA")
-                    if isUltra {
-                        // Ultra 专属通栏：展示 Gemini 4 Carbon Weekly，数据对齐 geminiWeekly
-                        if let carbon = acc.geminiWeekly ?? acc.gemini4Argon {
-                            metricCell(title: "Gemini 4 Carbon Weekly", bucket: carbon, isCarbon: true, tier: acc.subscriptionTier)
-                        }
-                    }
                 }
             }
         }
@@ -433,14 +425,18 @@ public struct AccountQuotaSheet: View {
                 .font(.system(size: 9.5, weight: .heavy))
                 .tracking(0.5)
                 .foregroundColor(.white)
-                .shadow(color: Color(red: 76.0 / 255.0, green: 29.0 / 255.0, blue: 149.0 / 255.0).opacity(0.35), radius: 1, x: 0, y: 0.8)
+                .shadow(color: Color(red: 124.0 / 255.0, green: 45.0 / 255.0, blue: 18.0 / 255.0).opacity(0.35), radius: 1, x: 0, y: 0.8)
                 .padding(.horizontal, 6)
                 .padding(.vertical, 2.5)
                 .background(
                     LinearGradient(
-                        colors: carbonAuroraGradientColors(isDark: colorScheme == .dark),
-                        startPoint: .leading,
-                        endPoint: .trailing
+                        colors: [
+                            Color(red: 217.0 / 255.0, green: 119.0 / 255.0, blue: 6.0 / 255.0),
+                            Color(red: 245.0 / 255.0, green: 158.0 / 255.0, blue: 11.0 / 255.0),
+                            Color(red: 234.0 / 255.0, green: 88.0 / 255.0, blue: 12.0 / 255.0)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
                     )
                 )
                 .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
