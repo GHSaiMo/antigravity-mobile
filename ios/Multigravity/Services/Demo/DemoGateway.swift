@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import UniformTypeIdentifiers
 
 /// In-memory simulated gateway backing Demo Mode. All requests addressed
@@ -159,9 +160,13 @@ final class DemoGateway: @unchecked Sendable {
     }
 
     struct StoredFile {
+        let id: String
         let name: String
         let data: Data
+        let path: String
     }
+
+    static let inboxPath = "/Users/demo/Multigravity/Inbox/2026-11"
 
     struct QuotaAccount {
         let id: String
@@ -231,6 +236,7 @@ final class DemoGateway: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         var summaries: [String: Any] = [:]
+        let nowIso = Self.iso(Date())
         for c in conversations where !c.isSubagent {
             var annotations: [String: Any] = [
                 "title": c.title,
@@ -239,17 +245,47 @@ final class DemoGateway: @unchecked Sendable {
             if c.pinned {
                 annotations["pinned"] = true
             }
-            summaries[c.id] = [
+            if !c.unread {
+                annotations["lastUserViewTime"] = nowIso
+            }
+
+            let isPureChat = c.workspaceUri.isEmpty || c.workspaceUri == "chat"
+            var meta: [String: Any] = ["createdAt": c.startedAt]
+            var workspaces: [[String: Any]] = []
+            if !isPureChat {
+                meta["workspaceUris"] = [c.workspaceUri]
+                workspaces = [["workspaceFolderAbsoluteUri": c.workspaceUri]]
+            }
+
+            let blockingTasksCount = c.runningTasks.filter { ($0["isDaemon"] as? Bool) != true }.count
+            let hasRunningSubagents = c.subagents.contains { ($0["status"] as? String) == "running" }
+            let isErr = c.status == "CASCADE_RUN_STATUS_ERROR"
+
+            var entry: [String: Any] = [
+                "trajectoryId": c.id,
+                "trajectoryType": "CORTEX_TRAJECTORY_TYPE_CASCADE",
                 "summary": c.title,
                 "status": c.status,
                 "stepCount": c.messages.count,
+                "createdTime": c.startedAt,
                 "lastModifiedTime": Self.iso(c.lastModified),
+                "workspaceName": isPureChat ? "Chat" : c.workspaceName,
                 "annotations": annotations,
-                "trajectoryMetadata": [
-                    "createdAt": c.startedAt,
-                    "workspaces": [["workspaceFolderAbsoluteUri": c.workspaceUri]]
-                ]
+                "trajectoryMetadata": meta,
+                "needsInput": c.pendingInteraction != nil,
+                "hasError": isErr,
+                "hasRunningTasks": blockingTasksCount > 0,
+                "runningTaskCount": blockingTasksCount,
+                "backgroundTaskCount": c.runningTasks.count,
+                "hasRunningSubagents": hasRunningSubagents
             ]
+            if !workspaces.isEmpty {
+                entry["workspaces"] = workspaces
+            }
+            if isErr, let lastErr = c.messages.last(where: { $0.type == "error" }) {
+                entry["errorMessage"] = lastErr.text
+            }
+            summaries[c.id] = entry
         }
         return ["trajectorySummaries": summaries]
     }
@@ -258,11 +294,16 @@ final class DemoGateway: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return projects.map { p in
-            let count = conversations.filter { $0.workspaceUri == p.workspaceUri && !$0.isSubagent }.count
-            let latest = conversations
-                .filter { $0.workspaceUri == p.workspaceUri && !$0.isSubagent }
-                .map(\.lastModified)
-                .max() ?? Date().addingTimeInterval(-3600)
+            let matches: (Conversation) -> Bool = { c in
+                guard !c.isSubagent else { return false }
+                if !p.isWorkspace {
+                    return c.workspaceUri.isEmpty || c.workspaceUri == "chat"
+                }
+                return c.workspaceUri == p.workspaceUri
+            }
+            let matching = conversations.filter(matches)
+            let count = matching.count
+            let latest = matching.map(\.lastModified).max() ?? Date().addingTimeInterval(-3600)
             var dict: [String: Any] = [
                 "id": p.id,
                 "name": p.name,
@@ -433,8 +474,16 @@ final class DemoGateway: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         let now = Date()
+        let updatedMs = Int64(now.timeIntervalSince1970 * 1000)
+        func bucket(_ pct: Int, _ reset: Date) -> [String: Any] {
+            [
+                "remaining_fraction": Double(pct) / 100.0,
+                "remaining_percent": Double(pct),
+                "reset_time": Self.iso(reset),
+                "reset_friendly": friendlyCountdown(from: now, to: reset)
+            ]
+        }
         func accountDict(_ acc: QuotaAccount) -> [String: Any] {
-            let fmt = ISO8601DateFormatter()
             let claude5hReset = now.addingTimeInterval(acc.claude5hOffsetHours * 3600)
             let claudeWeeklyReset = now.addingTimeInterval(acc.claudeWeeklyOffsetDays * 86400)
             let gemini5hReset = now.addingTimeInterval(acc.gemini5hOffsetHours * 3600)
@@ -445,35 +494,17 @@ final class DemoGateway: @unchecked Sendable {
                 "email": acc.email,
                 "name": acc.name,
                 "subscription_tier": acc.tier,
-                "claude_weekly": [
-                    "remaining_percent": acc.claudeWeekly,
-                    "reset_time": fmt.string(from: claudeWeeklyReset),
-                    "reset_friendly": friendlyCountdown(from: now, to: claudeWeeklyReset)
-                ],
-                "gemini_weekly": [
-                    "remaining_percent": acc.geminiWeekly,
-                    "reset_time": fmt.string(from: geminiWeeklyReset),
-                    "reset_friendly": friendlyCountdown(from: now, to: geminiWeeklyReset)
-                ]
+                "is_current": acc.id == activeAccountId,
+                "updated_at": updatedMs,
+                "claude_weekly": bucket(acc.claudeWeekly, claudeWeeklyReset),
+                "gemini_weekly": bucket(acc.geminiWeekly, geminiWeeklyReset)
             ]
             if acc.tier.uppercased() != "FREE" {
-                d["claude_5h"] = [
-                    "remaining_percent": acc.claude5h,
-                    "reset_time": fmt.string(from: claude5hReset),
-                    "reset_friendly": friendlyCountdown(from: now, to: claude5hReset)
-                ]
-                d["gemini_5h"] = [
-                    "remaining_percent": acc.gemini5h,
-                    "reset_time": fmt.string(from: gemini5hReset),
-                    "reset_friendly": friendlyCountdown(from: now, to: gemini5hReset)
-                ]
+                d["claude_5h"] = bucket(acc.claude5h, claude5hReset)
+                d["gemini_5h"] = bucket(acc.gemini5h, gemini5hReset)
             }
             if let argon = acc.argon {
-                d["gemini_4_argon"] = [
-                    "remaining_percent": argon,
-                    "reset_time": fmt.string(from: gemini5hReset),
-                    "reset_friendly": friendlyCountdown(from: now, to: gemini5hReset)
-                ]
+                d["gemini_4_argon"] = bucket(argon, gemini5hReset)
             }
             return d
         }
@@ -483,7 +514,7 @@ final class DemoGateway: @unchecked Sendable {
             "cockpit_installed": true,
             "current_account": current.map(accountDict) as Any,
             "accounts": accounts.map(accountDict),
-            "updated_at": Int64(Date().timeIntervalSince1970 * 1000)
+            "updated_at": updatedMs
         ]
     }
 
@@ -686,21 +717,37 @@ final class DemoGateway: @unchecked Sendable {
         }
     }
 
+    @discardableResult
     func send(
         cascadeId: String,
         text: String,
         clientMessageId: String? = nil,
         media: [String]? = nil,
+        attachmentIds: [String] = [],
+        deliveryStrategy: Int? = nil,
         slashCommands: [[String: Any]]? = nil,
         isArtifactApproval: Bool = false
-    ) {
+    ) -> String? {
         lock.lock()
         guard let idx = conversations.firstIndex(where: { $0.id == cascadeId }) else {
             lock.unlock()
-            return
+            return nil
+        }
+
+        // Resolve uploaded attachment IDs to file lines
+        var attachmentLines: [String] = []
+        var attachmentNames: [String] = []
+        for aid in attachmentIds {
+            guard let f = files.values.first(where: { $0.id == aid }) else {
+                lock.unlock()
+                return "附件不存在或已过期"
+            }
+            attachmentLines.append(Self.attachmentLine(path: f.path, name: f.name, size: Int64(f.data.count)))
+            attachmentNames.append(f.name)
         }
 
         if isArtifactApproval {
+            let isRedesign = cascadeId == "demo-0005-redesign"
             conversations[idx].canProceed = false
             conversations[idx].proceedArtifactUri = nil
             conversations[idx].status = "CASCADE_RUN_STATUS_RUNNING"
@@ -714,19 +761,22 @@ final class DemoGateway: @unchecked Sendable {
                 let s1 = self.conversations[i].messages.count
                 self.conversations[i].messages.append(Self.toolMsg(id: "\(cascadeId)-tool-\(s1)", step: s1, tools: ["write_to_file", "run_command", "read_file"]))
                 let s2 = self.conversations[i].messages.count
+                let replyText = isRedesign
+                    ? "已按方案完成首页改版：\n\n- ✅ 抽出 `Hero`、`CaseStudies`、`Pricing` 三个组件\n- ✅ 首屏只保留「免费试用」主按钮\n- ✅ 客户案例上移到第二屏\n- ✅ 价格区块改为三档对比卡片\n- ✅ 接入转化埋点（`home_cta_click`）\n\n测试全部通过，改动已提交到 `feat/home-redesign` 分支。"
+                    : "已按审批通过的方案完成实施与本地验证：\n\n1. 更新核心模块化边界，保留旧接口向后兼容。\n2. 全部单元测试与编译校验均已通过 ✅。\n\n如需查看本次修改的增量 Diff 或直接 Commit，可点击顶部栏的 **Changes** / **Commit**。"
                 self.conversations[i].messages.append(Self.agentMsg(
                     id: "\(cascadeId)-agent-\(s2)",
                     step: s2,
                     model: self.conversations[i].modelId,
                     modelName: self.conversations[i].modelName,
-                    text: "已按审批通过的方案完成实施与本地验证：\n\n1. 更新核心模块化边界，保留旧接口向后兼容。\n2. 全部单元测试与编译校验均已通过 ✅。\n\n如需查看本次修改的增量 Diff 或直接 Commit，可点击顶部栏的 **Changes** / **Commit**。"
+                    text: replyText
                 ))
                 self.conversations[i].status = "CASCADE_RUN_STATUS_IDLE"
                 self.conversations[i].duration = "4秒"
                 self.conversations[i].lastModified = Date()
                 self.bumpContextMeter(at: i, addInput: 3_200, addOutput: 410, speed: 54.6, ttft: 0.61)
             }
-            return
+            return nil
         }
 
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -737,24 +787,27 @@ final class DemoGateway: @unchecked Sendable {
             conversations[idx].queuedMessages.append([
                 "id": qid,
                 "text": trimmed,
-                "status": "QUEUED",
+                "createdAt": Self.iso(Date()),
                 "clientMessageId": clientMessageId ?? ""
             ])
             conversations[idx].lastModified = Date()
+            let shouldAutoDrain = deliveryStrategy != 2
             lock.unlock()
 
-            DispatchQueue.global().asyncAfter(deadline: .now() + 1.1) {
-                self.lock.lock()
-                guard let i = self.conversations.firstIndex(where: { $0.id == cascadeId }) else {
+            if shouldAutoDrain {
+                DispatchQueue.global().asyncAfter(deadline: .now() + 1.1) {
+                    self.lock.lock()
+                    guard let i = self.conversations.firstIndex(where: { $0.id == cascadeId }) else {
+                        self.lock.unlock()
+                        return
+                    }
+                    self.conversations[i].queuedMessages.removeAll { ($0["id"] as? String) == qid }
+                    self.conversations[i].status = "CASCADE_RUN_STATUS_IDLE"
                     self.lock.unlock()
-                    return
+                    self.send(cascadeId: cascadeId, text: trimmed, clientMessageId: clientMessageId, media: media, attachmentIds: attachmentIds, slashCommands: slashCommands)
                 }
-                self.conversations[i].queuedMessages.removeAll { ($0["id"] as? String) == qid }
-                self.conversations[i].status = "CASCADE_RUN_STATUS_IDLE"
-                self.lock.unlock()
-                self.send(cascadeId: cascadeId, text: trimmed, clientMessageId: clientMessageId, media: media, slashCommands: slashCommands)
             }
-            return
+            return nil
         }
 
         if conversations[idx].title == "新对话", !trimmed.isEmpty {
@@ -762,23 +815,34 @@ final class DemoGateway: @unchecked Sendable {
         }
 
         let imageUrls: [String]? = media?.enumerated().map { offset, b64 in
-            let name = "photo-\(offset + 1).jpg"
-            let data = Data(base64Encoded: b64) ?? Data()
-            files[name] = StoredFile(name: name, data: data)
-            return "/api/v1/files/raw?path=\(name)"
+            let name = "photo-\(UUID().uuidString.prefix(6))-\(offset + 1).jpg"
+            let cleanB64 = b64.components(separatedBy: ",").last ?? b64
+            let data = Data(base64Encoded: cleanB64) ?? Data()
+            let path = "\(Self.inboxPath)/\(name)"
+            files[path] = StoredFile(id: Self.fileID(for: data), name: name, data: data, path: path)
+            return "file://\(path)"
+        }
+
+        // Clear any trailing error steps when continuing
+        if trimmed == "Continue" || conversations[idx].status == "CASCADE_RUN_STATUS_ERROR" {
+            conversations[idx].messages.removeAll { $0.type == "error" }
         }
 
         let step = conversations[idx].messages.count
-        let promptText = trimmed.isEmpty ? "Continue" : trimmed
+        var displayUserText = trimmed.isEmpty ? "Continue" : trimmed
+        if !attachmentLines.isEmpty {
+            let block = AttachmentRules.blockHeader + "\n" + attachmentLines.joined(separator: "\n")
+            displayUserText = displayUserText == "Continue" ? block : "\(displayUserText)\n\n\(block)"
+        }
         var userM = Self.userMsg(
             id: "\(cascadeId)-u-\(step)",
             step: step,
-            text: promptText,
+            text: displayUserText,
             imageUrls: imageUrls,
             slashCommands: slashCommands
         )
         userM.clientMessageId = clientMessageId
-        if trimmed != "Continue" {
+        if trimmed != "Continue" || !attachmentLines.isEmpty {
             conversations[idx].messages.append(userM)
         }
         conversations[idx].canProceed = false
@@ -787,6 +851,7 @@ final class DemoGateway: @unchecked Sendable {
         conversations[idx].lastModified = Date()
         let activeModelId = conversations[idx].modelId
         let activeModelName = conversations[idx].modelName
+        let isLogin500 = cascadeId == "demo-0002-login-500"
         lock.unlock()
 
         DispatchQueue.global().asyncAfter(deadline: .now() + 0.85) {
@@ -795,6 +860,7 @@ final class DemoGateway: @unchecked Sendable {
             guard let i = self.conversations.firstIndex(where: { $0.id == cascadeId }),
                   self.conversations[i].status == "CASCADE_RUN_STATUS_RUNNING" else { return }
 
+            let promptText = trimmed.isEmpty ? "Continue" : trimmed
             let lower = promptText.lowercased()
             if lower.hasPrefix("/compact") {
                 let s = self.conversations[i].messages.count
@@ -823,6 +889,27 @@ final class DemoGateway: @unchecked Sendable {
                     modelName: activeModelName,
                     text: String(format: "已完成上下文压缩 **`/compact`** ✅\n\n- 上下文占用从 **%.1f%%** 降至 **%.1f%%**（48.6K / 200K tokens）\n- 保留了核心需求、文件路径、改动 Diff 与验收约束，移除了冗余中间工具输出\n\n现在可以继续畅通对话了。", prevPct, newPct)
                 ))
+            } else if trimmed == "Continue" && isLogin500 {
+                let s1 = self.conversations[i].messages.count
+                self.conversations[i].messages.append(Self.toolMsg(id: "\(cascadeId)-t-\(s1)", step: s1, tools: ["read_file", "write_to_file"]))
+                let s2 = self.conversations[i].messages.count
+                self.conversations[i].messages.append(Self.agentMsg(
+                    id: "\(cascadeId)-a-\(s2)",
+                    step: s2,
+                    model: activeModelId,
+                    modelName: activeModelName,
+                    text: """
+                    已恢复。根据日志，500 来自 `session_store` 的连接池耗尽：高峰期登录请求并发超过了连接池上限（20）。
+
+                    ```diff
+                    - pool = create_pool(max_size=20)
+                    + pool = create_pool(max_size=100, acquire_timeout=3)
+                    ```
+
+                    我已调大连接池并加上获取超时，超时会返回 503 而不是挂起。建议上线后观察 `pool_wait_ms` 指标。
+                    """
+                ))
+                self.bumpContextMeter(at: i, addInput: 2_100, addOutput: 310, speed: 52.4, ttft: 0.58)
             } else if lower.hasPrefix("/workflow") || lower.contains("run_workflow") || lower.contains("工作流") {
                 let wfSubId = "demo-subagent-live-wf-\(self.nextIdCounter)"
                 self.nextIdCounter += 1
@@ -898,7 +985,7 @@ final class DemoGateway: @unchecked Sendable {
                 let s1 = self.conversations[i].messages.count
                 self.conversations[i].messages.append(Self.toolMsg(id: "\(cascadeId)-t-\(s1)", step: s1, tools: ["read_file", "grep_search"]))
                 let s2 = self.conversations[i].messages.count
-                let reply = self.demoReply(for: promptText, hasMedia: !(imageUrls?.isEmpty ?? true))
+                let reply = self.demoReply(for: promptText, attachmentNames: attachmentNames, hasMedia: !(imageUrls?.isEmpty ?? true))
                 self.conversations[i].messages.append(Self.agentMsg(
                     id: "\(cascadeId)-a-\(s2)",
                     step: s2,
@@ -913,6 +1000,7 @@ final class DemoGateway: @unchecked Sendable {
             self.conversations[i].duration = "2秒"
             self.conversations[i].lastModified = Date()
         }
+        return nil
     }
 
     private func bumpContextMeter(at index: Int, addInput: Int64, addOutput: Int64, speed: Double, ttft: Double) {
@@ -936,13 +1024,23 @@ final class DemoGateway: @unchecked Sendable {
         )
     }
 
-    func respond(cascadeId: String, stepIndex: Int, allow: Bool?, optionId: String?, answers: [[String: Any]]?) {
+    func respond(
+        cascadeId: String,
+        stepIndex: Int,
+        allow: Bool?,
+        optionId: String?,
+        writeInResponse: String? = nil,
+        skipped: Bool = false,
+        answers: [[String: Any]]?
+    ) {
         lock.lock()
         guard let idx = conversations.firstIndex(where: { $0.id == cascadeId }) else {
             lock.unlock()
             return
         }
         let interactionType = conversations[idx].pendingInteraction?["type"] as? String ?? ""
+        let pendingQuestions = conversations[idx].pendingInteraction?["questions"] as? [[String: Any]]
+        let pendingOptions = conversations[idx].pendingInteraction?["options"] as? [[String: Any]]
         conversations[idx].pendingInteraction = nil
         conversations[idx].status = "CASCADE_RUN_STATUS_RUNNING"
         conversations[idx].lastModified = Date()
@@ -954,14 +1052,18 @@ final class DemoGateway: @unchecked Sendable {
             self.lock.lock()
             defer { self.lock.unlock() }
             guard let i = self.conversations.firstIndex(where: { $0.id == cascadeId }) else { return }
-            if allow == false {
+            let trimmedWriteIn = writeInResponse?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if skipped || allow == false {
                 let s = self.conversations[i].messages.count
+                let note = trimmedWriteIn.isEmpty
+                    ? "好的，已按你的选择取消/跳过该操作，工作区保持原状。"
+                    : "已收到你的说明「\(trimmedWriteIn)」，暂不执行该操作，等待你的进一步指示。"
                 self.conversations[i].messages.append(Self.agentMsg(
                     id: "\(cascadeId)-a-\(s)",
                     step: s,
                     model: activeModelId,
                     modelName: activeModelName,
-                    text: "好的，已按你的选择取消执行该操作，工作区保持原状。"
+                    text: note
                 ))
             } else if interactionType == "workflow_approval" {
                 let s1 = self.conversations[i].messages.count
@@ -1013,10 +1115,53 @@ final class DemoGateway: @unchecked Sendable {
             } else {
                 let summary: String
                 if let answers, !answers.isEmpty {
-                    let chosen = answers.compactMap { $0["selectedOptionIds"] as? [String] }.flatMap { $0 }
-                    summary = "已收到你的确认（\(chosen.joined(separator: ", "))），继续完成剩余步骤：\n\n1. 已更新配置并生成变更摘要。\n2. 全部检查通过，随时可继续下一轮对话。"
+                    var parts: [String] = []
+                    for ans in answers {
+                        let qIdx = ans["questionIndex"] as? Int ?? parts.count
+                        let ids = ans["selectedOptionIds"] as? [String] ?? []
+                        let qWriteIn = (ans["writeInResponse"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                        let qSkipped = ans["skipped"] as? Bool ?? false
+                        if qSkipped {
+                            parts.append("- 第 \(qIdx + 1) 题：已跳过")
+                            continue
+                        }
+                        var chosenTexts: [String] = []
+                        if let qList = pendingQuestions, qIdx >= 0, qIdx < qList.count,
+                           let opts = qList[qIdx]["options"] as? [[String: Any]] {
+                            chosenTexts = ids.map { id in
+                                opts.first(where: { ($0["id"] as? String) == id })?["text"] as? String ?? id
+                            }
+                        } else {
+                            chosenTexts = ids
+                        }
+                        if !qWriteIn.isEmpty { chosenTexts.append("补充：\(qWriteIn)") }
+                        parts.append("- 第 \(qIdx + 1) 题：\(chosenTexts.isEmpty ? "已确认" : chosenTexts.joined(separator: "、"))")
+                    }
+                    if cascadeId == "demo-0003-migration" {
+                        summary = """
+                        已按你的确认方案生成最终迁移脚本与回滚预案：
+
+                        \(parts.joined(separator: "\n"))
+
+                        ```sql
+                        -- 0019_orders_created_idx.sql（无锁并发创建 + 状态回填）
+                        CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_orders_created_status
+                        ON orders (created_at DESC, status)
+                        WHERE deleted_at IS NULL;
+
+                        -- 回滚脚本：DROP INDEX CONCURRENTLY IF EXISTS idx_orders_created_status;
+                        ```
+
+                        ✅ 预估锁表时间 `< 10ms`，对线上订单写入零阻塞，可直接并入本次发布单。
+                        """
+                    } else {
+                        summary = "已收到你的确认选择：\n\n\(parts.joined(separator: "\n"))\n\n1. 已更新配置并生成变更摘要。\n2. 全部检查通过，随时可继续下一轮对话。"
+                    }
+                } else if !trimmedWriteIn.isEmpty {
+                    summary = "已收到你的自定义回复「\(trimmedWriteIn)」，并按新要求继续执行完成 ✅。"
                 } else if let optionId, !optionId.isEmpty {
-                    summary = "已按所选方案（`\(optionId)`）执行完毕 ✅。"
+                    let chosenText = pendingOptions?.first(where: { ($0["id"] as? String) == optionId })?["text"] as? String ?? optionId
+                    summary = "已按所选方案（\(chosenText)）执行完毕 ✅。"
                 } else {
                     summary = "已获得执行权限并顺利完成命令运行 ✅。"
                 }
@@ -1052,12 +1197,16 @@ final class DemoGateway: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         if let idx = conversations.firstIndex(where: { $0.id == cascadeId }) {
-            conversations[idx].runningTasks.removeAll { ($0["taskId"] as? String) == taskId }
+            conversations[idx].runningTasks.removeAll {
+                ($0["id"] as? String) == taskId || ($0["taskId"] as? String) == taskId
+            }
             if conversations[idx].runningTasks.isEmpty && conversations[idx].status == "CASCADE_RUN_STATUS_RUNNING" {
                 conversations[idx].status = "CASCADE_RUN_STATUS_IDLE"
             }
         }
-        globalDaemonTasks.removeAll { ($0["taskId"] as? String) == taskId }
+        globalDaemonTasks.removeAll {
+            ($0["taskId"] as? String) == taskId || ($0["id"] as? String) == taskId
+        }
     }
 
     func stopSubagent(conversationId: String) {
@@ -1566,36 +1715,102 @@ final class DemoGateway: @unchecked Sendable {
         }
     }
 
-    func switchAccount(to email: String) {
+    func switchAccount(to target: String) {
         lock.lock()
         defer { lock.unlock() }
-        if let acc = accounts.first(where: { $0.email == email }) {
+        if let acc = accounts.first(where: { $0.id == target || $0.email == target }) {
             activeAccountId = acc.id
         }
     }
 
-    func storeFile(name: String, data: Data) -> String {
+    func storeUpload(name: String, data: Data) -> (status: Int, json: [String: Any]) {
         lock.lock()
         defer { lock.unlock() }
         let safe = (name as NSString).lastPathComponent
-        let key = safe.isEmpty ? "file-\(UUID().uuidString.prefix(6))" : safe
-        files[key] = StoredFile(name: key, data: data)
-        return "/api/v1/files/raw?path=\(key)"
+        let cleanName = safe.isEmpty ? "upload-\(UUID().uuidString.prefix(6)).bin" : safe
+        let id = Self.fileID(for: data)
+        let path = "\(Self.inboxPath)/\(id)-\(cleanName)"
+        let stored = StoredFile(id: id, name: cleanName, data: data, path: path)
+        files[path] = stored
+        let ext = (cleanName as NSString).pathExtension.lowercased()
+        let isImage = ["png", "jpg", "jpeg", "webp", "gif", "heic"].contains(ext)
+        let mime: String = {
+            switch ext {
+            case "png": return "image/png"
+            case "jpg", "jpeg": return "image/jpeg"
+            case "webp": return "image/webp"
+            case "gif": return "image/gif"
+            case "pdf": return "application/pdf"
+            case "csv": return "text/csv"
+            case "md": return "text/markdown"
+            case "json", "ipynb": return "application/json"
+            default: return "application/octet-stream"
+            }
+        }()
+        let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        let line = Self.attachmentLine(path: path, name: cleanName, size: Int64(data.count))
+        return (200, [
+            "id": id,
+            "path": path,
+            "name": cleanName,
+            "size": data.count,
+            "mime": mime,
+            "sha256": digest,
+            "kind": isImage ? "image" : "file",
+            "line": line
+        ])
     }
 
-    func fileData(forPath path: String) -> (data: Data, name: String)? {
+    static func fileID(for data: Data) -> String {
+        let digest = SHA256.hash(data: data)
+        return digest.prefix(4).map { String(format: "%02x", $0) }.joined()
+    }
+
+    static func humanSize(_ n: Int64) -> String {
+        if n < 1024 { return "\(n) B" }
+        let kb = Double(n) / 1024.0
+        if kb < 1024 { return String(format: "%.1f KB", kb) }
+        return String(format: "%.2f MB", kb / 1024.0)
+    }
+
+    static func attachmentLine(path: String, name: String, size: Int64) -> String {
+        "- [\(name)](\(path)) (\(humanSize(size)))"
+    }
+
+    func fileData(forPath rawPath: String) -> (data: Data, name: String)? {
         lock.lock()
         defer { lock.unlock() }
-        let key = path.split(separator: "/").last.map(String.init) ?? path
-        if let f = files[path] ?? files[key] { return (f.data, f.name) }
+        var normalized = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let comps = URLComponents(string: normalized),
+           let q = comps.queryItems?.first(where: { $0.name == "uri" || $0.name == "path" })?.value {
+            normalized = q
+        }
+        if normalized.hasPrefix("file://") {
+            if let url = URL(string: normalized) {
+                normalized = url.path
+            } else {
+                normalized = String(normalized.dropFirst("file://".count))
+            }
+        }
+        normalized = normalized.removingPercentEncoding ?? normalized
+        let key = normalized.split(separator: "/").last.map(String.init) ?? normalized
+        if let f = files[normalized] ?? files[rawPath] {
+            return (f.data, f.name)
+        }
+        if let match = files.values.first(where: { $0.id == key || $0.name == key || $0.path == normalized }) {
+            return (match.data, match.name)
+        }
         return nil
     }
 
     // MARK: - Replies & Message Builders
 
-    private func demoReply(for prompt: String, hasMedia: Bool) -> String {
-        if hasMedia {
-            return "已收到你上传的文件 / 图片（演示模式模拟分析）：\n\n- 已完成格式解析与结构提取\n- 如需进一步导出报告或验证 Diff，可点击工具栏功能继续体验"
+    private func demoReply(for prompt: String, attachmentNames: [String], hasMedia: Bool) -> String {
+        if hasMedia || !attachmentNames.isEmpty {
+            let fileSummary = attachmentNames.isEmpty
+                ? "随消息发送的图片 / 文件"
+                : attachmentNames.map { "`\($0)`" }.joined(separator: "、")
+            return "已收到你上传的附件（\(fileSummary)，演示模式模拟分析）：\n\n- 已完成格式解析、字节校验与内容结构提取\n- 如需继续分析或导出报告，可直接追问下一步要求"
         }
         return "这是**演示模式**下的本地模拟回复（未连接真实电脑网关）：\n\n已收到你的消息：「\(String(prompt.prefix(60)))」。\n\n你可以继续体验：\n- 左滑或长按消息触发 **撤回 / 导出 Markdown**\n- 在输入框键入 **`/`** 呼出斜杠命令与技能，或长按 **Workflow** 胶囊体验快捷模板\n- 点击右上角导轨切换 **章节 TOC / 轮次跳转**，或点顶部 **Changes / Commit** 查看代码与 PR"
     }
