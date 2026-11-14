@@ -1,4 +1,4 @@
-// Workflow 模板面板（Web 端对齐 iOS/Android WorkflowTemplateSheet，支持自定义增删改、拖拽排序与网关同步）
+// Workflow 模板面板（Web 端对齐 iOS/Android WorkflowTemplateSheet，支持自定义增删改、拖拽排序、左滑删除与网关同步）
 
 const WORKFLOW_CACHE_KEY = "agy_workflow_templates_v1";
 
@@ -135,7 +135,6 @@ async function fetchWorkflowTemplatesFromGateway() {
       renderWorkflowSheet();
     }
   } catch (err) {
-    // Offline fallback: keep localStorage cache, show unobtrusive hint only if user didn't get data
     if (!workflowState.templates.length) {
       workflowState.templates = loadCachedWorkflowTemplates();
     }
@@ -262,43 +261,39 @@ function openWorkflowForm(mode, item) {
   renderWorkflowSheet();
 }
 
-function moveWorkflowTemplate(index, delta) {
-  const target = index + delta;
-  if (target < 0 || target >= workflowState.templates.length) return;
-  const next = workflowState.templates.slice();
-  const [moved] = next.splice(index, 1);
-  next.splice(target, 0, moved);
-  if (typeof triggerHaptic === "function") triggerHaptic("selection");
-  syncWorkflowTemplatesToGateway(next);
-}
-
 function deleteWorkflowTemplate(id) {
   const next = workflowState.templates.filter((t) => t.id !== id);
-  if (typeof triggerHaptic === "function") triggerHaptic("light");
+  if (typeof triggerHaptic === "function") triggerHaptic("medium");
   syncWorkflowTemplatesToGateway(next);
 }
 
 function renderWorkflowHeader() {
   const leftBtn = document.getElementById("btn-workflows-left");
   const titleEl = document.getElementById("workflows-title");
-  const addBtn = document.getElementById("btn-workflows-add");
-  const closeBtn = document.getElementById("btn-workflows-close");
-  if (!leftBtn || !titleEl || !addBtn || !closeBtn) return;
+  const rightBtn = document.getElementById("btn-workflows-right");
+  if (!leftBtn || !titleEl || !rightBtn) return;
+
+  const pencilSvg = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>`;
+  const checkSvg = `<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
+  const backSvg = `<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>`;
+  const plusSvg = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>`;
 
   if (workflowState.formMode) {
-    leftBtn.textContent = "‹ 返回";
+    leftBtn.innerHTML = backSvg;
+    leftBtn.setAttribute("aria-label", "返回");
     leftBtn.classList.remove("primary");
     titleEl.textContent = workflowState.formMode.mode === "add" ? "新增 Workflow" : "编辑 Workflow";
-    addBtn.classList.add("hidden");
-    closeBtn.textContent = "保存";
-    closeBtn.classList.add("primary");
+    rightBtn.textContent = "保存";
+    rightBtn.setAttribute("aria-label", "保存");
+    rightBtn.classList.add("primary");
   } else {
-    leftBtn.textContent = workflowState.editing ? "完成" : "编辑";
+    leftBtn.innerHTML = workflowState.editing ? checkSvg : pencilSvg;
+    leftBtn.setAttribute("aria-label", workflowState.editing ? "完成" : "编辑");
     leftBtn.classList.toggle("primary", workflowState.editing);
     titleEl.textContent = "Workflow 模板";
-    addBtn.classList.toggle("hidden", workflowState.editing);
-    closeBtn.textContent = "关闭";
-    closeBtn.classList.toggle("primary", !workflowState.editing);
+    rightBtn.innerHTML = plusSvg;
+    rightBtn.setAttribute("aria-label", "新增 Workflow 模板");
+    rightBtn.classList.add("primary");
   }
 }
 
@@ -408,21 +403,22 @@ function bindWorkflowDragReorder(listEl) {
   listEl.querySelectorAll(".wf-drag-handle").forEach((handle) => {
     handle.addEventListener("pointerdown", (startEvt) => {
       startEvt.preventDefault();
-      const row = handle.closest(".wf-card");
-      if (!row) return;
+      startEvt.stopPropagation();
+      const wrapper = handle.closest(".wf-card-wrapper");
+      if (!wrapper) return;
 
-      const startIndex = Number(row.dataset.index);
-      const rows = Array.from(listEl.querySelectorAll(".wf-card"));
-      const rects = rows.map((el) => el.getBoundingClientRect());
+      const startIndex = Number(wrapper.dataset.index);
+      const wrappers = Array.from(listEl.querySelectorAll(".wf-card-wrapper"));
+      const rects = wrappers.map((el) => el.getBoundingClientRect());
       let targetIndex = startIndex;
 
-      row.classList.add("dragging");
+      wrapper.classList.add("dragging");
       handle.setPointerCapture(startEvt.pointerId);
 
       const onMove = (moveEvt) => {
         const y = moveEvt.clientY;
         const dy = y - startEvt.clientY;
-        row.style.transform = `translateY(${dy}px)`;
+        wrapper.style.transform = `translateY(${dy}px)`;
 
         let nextTarget = startIndex;
         for (let i = 0; i < rects.length; i++) {
@@ -437,7 +433,7 @@ function bindWorkflowDragReorder(listEl) {
         }
         if (nextTarget !== targetIndex) {
           targetIndex = nextTarget;
-          rows.forEach((el, idx) => {
+          wrappers.forEach((el, idx) => {
             el.classList.remove("drop-above", "drop-below");
             if (idx === targetIndex && idx !== startIndex) {
               el.classList.add(targetIndex < startIndex ? "drop-above" : "drop-below");
@@ -447,9 +443,9 @@ function bindWorkflowDragReorder(listEl) {
       };
 
       const finish = () => {
-        row.classList.remove("dragging");
-        row.style.transform = "";
-        rows.forEach((el) => el.classList.remove("drop-above", "drop-below"));
+        wrapper.classList.remove("dragging");
+        wrapper.style.transform = "";
+        wrappers.forEach((el) => el.classList.remove("drop-above", "drop-below"));
         handle.removeEventListener("pointermove", onMove);
         handle.removeEventListener("pointerup", finish);
         handle.removeEventListener("pointercancel", finish);
@@ -467,6 +463,82 @@ function bindWorkflowDragReorder(listEl) {
       handle.addEventListener("pointerup", finish);
       handle.addEventListener("pointercancel", finish);
     });
+  });
+}
+
+function closeAllSwipedWorkflowCards(listEl, exceptWrapper) {
+  if (!listEl) return;
+  listEl.querySelectorAll(".wf-card-wrapper.swiped").forEach((w) => {
+    if (w !== exceptWrapper) {
+      w.classList.remove("swiped", "swiping");
+      const card = w.querySelector(".wf-card");
+      if (card) card.style.transform = "";
+    }
+  });
+}
+
+function bindWorkflowSwipeDelete(listEl) {
+  if (!listEl) return;
+  const maxReveal = 68;
+
+  listEl.querySelectorAll(".wf-card-wrapper").forEach((wrapper) => {
+    const card = wrapper.querySelector(".wf-card");
+    if (!card) return;
+
+    let startX = 0;
+    let startY = 0;
+    let currentX = 0;
+    let swiping = false;
+    let lockedAxis = null;
+
+    card.addEventListener("pointerdown", (e) => {
+      if (e.target.closest(".wf-drag-handle") || e.target.closest("[data-wf-edit]")) return;
+      startX = e.clientX;
+      startY = e.clientY;
+      currentX = wrapper.classList.contains("swiped") ? -maxReveal : 0;
+      swiping = true;
+      lockedAxis = null;
+      closeAllSwipedWorkflowCards(listEl, wrapper);
+    });
+
+    card.addEventListener("pointermove", (e) => {
+      if (!swiping) return;
+      const dx = e.clientX - startX;
+      const dy = e.clientY - startY;
+
+      if (!lockedAxis) {
+        if (Math.abs(dx) < 6 && Math.abs(dy) < 6) return;
+        lockedAxis = Math.abs(dx) > Math.abs(dy) ? "x" : "y";
+      }
+      if (lockedAxis !== "x") {
+        swiping = false;
+        return;
+      }
+
+      wrapper.classList.add("swiping");
+      const nextX = Math.max(-maxReveal, Math.min(0, currentX + dx));
+      card.style.transform = `translateX(${nextX}px)`;
+    });
+
+    const endSwipe = (e) => {
+      if (!swiping) return;
+      swiping = false;
+      wrapper.classList.remove("swiping");
+      if (lockedAxis !== "x") return;
+
+      const dx = e.clientX - startX;
+      const finalX = Math.max(-maxReveal, Math.min(0, currentX + dx));
+      if (finalX < -maxReveal * 0.45) {
+        wrapper.classList.add("swiped");
+        card.style.transform = `translateX(-${maxReveal}px)`;
+      } else {
+        wrapper.classList.remove("swiped");
+        card.style.transform = "";
+      }
+    };
+
+    card.addEventListener("pointerup", endSwipe);
+    card.addEventListener("pointercancel", endSwipe);
   });
 }
 
@@ -506,44 +578,55 @@ function renderWorkflowSheet() {
             ${workflowIconSvg(item.icon, 18)}
           </div>
         `;
+        const deleteActionHtml = `
+          <div class="wf-card-actions">
+            <button class="wf-card-delete-btn" type="button" aria-label="删除" data-wf-del="${escapeHtml(item.id)}">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="3 6 5 6 21 6"></polyline>
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+              </svg>
+            </button>
+          </div>
+        `;
+
         if (workflowState.editing) {
           return `
-            <div class="wf-card editing" data-id="${escapeHtml(item.id)}" data-index="${idx}">
-              <button type="button" class="wf-drag-handle" aria-label="拖拽排序" title="按住拖拽排序">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
-                  <line x1="5" y1="9" x2="19" y2="9"></line>
-                  <line x1="5" y1="15" x2="19" y2="15"></line>
-                </svg>
-              </button>
-              ${iconHtml}
-              <div class="wf-card-text">
-                <div class="wf-card-title">${escapeHtml(item.title)}</div>
-                <div class="wf-card-subtitle">${escapeHtml(sub)}</div>
-              </div>
-              <div class="wf-card-actions">
-                <button type="button" class="wf-icon-btn" data-wf-up="${idx}" ${idx === 0 ? "disabled" : ""} aria-label="上移" title="上移">↑</button>
-                <button type="button" class="wf-icon-btn" data-wf-down="${idx}" ${idx === list.length - 1 ? "disabled" : ""} aria-label="下移" title="下移">↓</button>
+            <div class="wf-card-wrapper" data-id="${escapeHtml(item.id)}" data-index="${idx}">
+              ${deleteActionHtml}
+              <div class="wf-card editing">
+                <button type="button" class="wf-drag-handle" aria-label="拖拽排序" title="按住拖拽排序">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+                    <line x1="5" y1="8" x2="19" y2="8"></line>
+                    <line x1="5" y1="12" x2="19" y2="12"></line>
+                    <line x1="5" y1="16" x2="19" y2="16"></line>
+                  </svg>
+                </button>
+                ${iconHtml}
+                <div class="wf-card-text">
+                  <div class="wf-card-title">${escapeHtml(item.title)}</div>
+                  <div class="wf-card-subtitle">${escapeHtml(sub)}</div>
+                </div>
                 <button type="button" class="wf-icon-btn" data-wf-edit="${escapeHtml(item.id)}" aria-label="编辑" title="编辑">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
-                </button>
-                <button type="button" class="wf-icon-btn danger" data-wf-del="${escapeHtml(item.id)}" aria-label="删除" title="删除">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
                 </button>
               </div>
             </div>
           `;
         }
         return `
-          <button type="button" class="wf-card" data-wf-pick="${escapeHtml(item.id)}">
-            ${iconHtml}
-            <div class="wf-card-text">
-              <div class="wf-card-title">${escapeHtml(item.title)}</div>
-              <div class="wf-card-subtitle">${escapeHtml(sub)}</div>
+          <div class="wf-card-wrapper" data-id="${escapeHtml(item.id)}" data-index="${idx}">
+            ${deleteActionHtml}
+            <div class="wf-card" data-wf-pick="${escapeHtml(item.id)}">
+              ${iconHtml}
+              <div class="wf-card-text">
+                <div class="wf-card-title">${escapeHtml(item.title)}</div>
+                <div class="wf-card-subtitle">${escapeHtml(sub)}</div>
+              </div>
+              <svg class="wf-card-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="9 18 15 12 9 6"></polyline>
+              </svg>
             </div>
-            <svg class="wf-card-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="9 18 15 12 9 6"></polyline>
-            </svg>
-          </button>
+          </div>
         `;
       })
       .join("");
@@ -575,7 +658,7 @@ function renderWorkflowSheet() {
       <div class="wf-banner-icon">${workflowIconSvg("workflow", 18)}</div>
       <div class="wf-banner-text">
         <div class="wf-banner-title">Antigravity 动态工作流</div>
-        <div class="wf-banner-sub">${workflowState.editing ? "拖拽左侧手柄或点上下箭头排序，支持编辑与删除" : "选择常用模板快速填充，支持自定义新增与排序"}</div>
+        <div class="wf-banner-sub">${workflowState.editing ? "按住最左侧手柄拖拽排序，左滑可删除模板" : "选择常用模板快速填充，左滑可删除"}</div>
       </div>
     </div>
     ${errHtml}
@@ -583,24 +666,24 @@ function renderWorkflowSheet() {
     ${footerHtml}
   `;
 
+  const listEl = body.querySelector("#workflows-list");
+  bindWorkflowSwipeDelete(listEl);
+
+  body.querySelectorAll("[data-wf-del]").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      deleteWorkflowTemplate(btn.dataset.wfDel);
+    });
+  });
+
   if (workflowState.editing) {
-    const listEl = body.querySelector("#workflows-list");
     bindWorkflowDragReorder(listEl);
 
-    body.querySelectorAll("[data-wf-up]").forEach((btn) => {
-      btn.addEventListener("click", () => moveWorkflowTemplate(Number(btn.dataset.wfUp), -1));
-    });
-    body.querySelectorAll("[data-wf-down]").forEach((btn) => {
-      btn.addEventListener("click", () => moveWorkflowTemplate(Number(btn.dataset.wfDown), 1));
-    });
     body.querySelectorAll("[data-wf-edit]").forEach((btn) => {
       btn.addEventListener("click", () => {
         const found = workflowState.templates.find((t) => t.id === btn.dataset.wfEdit);
         if (found) openWorkflowForm("edit", found);
       });
-    });
-    body.querySelectorAll("[data-wf-del]").forEach((btn) => {
-      btn.addEventListener("click", () => deleteWorkflowTemplate(btn.dataset.wfDel));
     });
     body.querySelector("#btn-wf-reset")?.addEventListener("click", () => {
       workflowState.confirmReset = true;
@@ -614,9 +697,15 @@ function renderWorkflowSheet() {
       resetWorkflowTemplatesOnGateway();
     });
   } else {
-    body.querySelectorAll("[data-wf-pick]").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        const found = workflowState.templates.find((t) => t.id === btn.dataset.wfPick);
+    body.querySelectorAll("[data-wf-pick]").forEach((card) => {
+      card.addEventListener("click", () => {
+        const wrapper = card.closest(".wf-card-wrapper");
+        if (wrapper && wrapper.classList.contains("swiped")) {
+          wrapper.classList.remove("swiped");
+          card.style.transform = "";
+          return;
+        }
+        const found = workflowState.templates.find((t) => t.id === card.dataset.wfPick);
         if (found) applyWorkflowTemplate(found.templatePrompt);
       });
     });
@@ -649,15 +738,11 @@ function initWorkflowTemplates() {
     }
   });
 
-  document.getElementById("btn-workflows-add")?.addEventListener("click", () => {
-    openWorkflowForm("add");
-  });
-
-  document.getElementById("btn-workflows-close")?.addEventListener("click", () => {
+  document.getElementById("btn-workflows-right")?.addEventListener("click", () => {
     if (workflowState.formMode) {
       submitWorkflowForm();
     } else {
-      closeWorkflowSheet();
+      openWorkflowForm("add");
     }
   });
 }

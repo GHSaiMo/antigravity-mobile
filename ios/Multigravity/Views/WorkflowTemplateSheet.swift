@@ -87,6 +87,10 @@ public final class WorkflowTemplateStore {
         }
     }
 
+    public func setLocalOrder(_ next: [WorkflowTemplateRecord]) {
+        templates = next
+    }
+
     public func applyAndSync(_ next: [WorkflowTemplateRecord]) {
         templates = next
         Self.saveCache(next)
@@ -113,18 +117,6 @@ public final class WorkflowTemplateStore {
         } else {
             next.append(item)
         }
-        applyAndSync(next)
-    }
-
-    public func move(from source: IndexSet, to destination: Int) {
-        var next = templates
-        next.move(fromOffsets: source, toOffset: destination)
-        applyAndSync(next)
-    }
-
-    public func delete(at offsets: IndexSet) {
-        var next = templates
-        next.remove(atOffsets: offsets)
         applyAndSync(next)
     }
 
@@ -168,11 +160,44 @@ public struct WorkflowTemplateSheet: View {
     @State private var editorDraft: EditorDraft?
     @State private var showResetConfirm = false
 
+    // Drag-to-reorder state (leftmost handle)
+    @State private var draggingId: String?
+    @State private var dragOffsetY: CGFloat = 0
+    @State private var lastDragTranslationY: CGFloat = 0
+
     public let onSelectTemplate: (String) -> Void
 
     public init(onSelectTemplate: @escaping (String) -> Void) {
         self.onSelectTemplate = onSelectTemplate
     }
+
+    /// 仿照 ConversationListView 的 38pt 红色圆形垃圾桶左滑删除按钮
+    private static let trashActionImage: UIImage = {
+        let size: CGFloat = 40
+        let circleDiameter: CGFloat = 38
+        let format = UIGraphicsImageRendererFormat()
+        format.opaque = false
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: size, height: size), format: format)
+        return renderer.image { ctx in
+            let offset = (size - circleDiameter) / 2
+            let rect = CGRect(x: offset, y: offset, width: circleDiameter, height: circleDiameter)
+            UIColor.systemRed.setFill()
+            ctx.cgContext.fillEllipse(in: rect)
+
+            let config = UIImage.SymbolConfiguration(pointSize: 16, weight: .semibold)
+            if let baseSymbol = UIImage(systemName: "trash", withConfiguration: config) {
+                let symbol = baseSymbol.withTintColor(.white, renderingMode: .alwaysOriginal)
+                let symSize = symbol.size
+                let symRect = CGRect(
+                    x: (size - symSize.width) / 2,
+                    y: (size - symSize.height) / 2,
+                    width: symSize.width,
+                    height: symSize.height
+                )
+                symbol.draw(in: symRect)
+            }
+        }
+    }()
 
     public var body: some View {
         NavigationStack {
@@ -193,7 +218,7 @@ public struct WorkflowTemplateSheet: View {
                             Text("Antigravity 动态工作流")
                                 .font(.system(size: 15, weight: .bold))
                                 .foregroundColor(.primary)
-                            Text(isEditing ? "拖拽右侧手柄排序，点击编辑或删除模板" : "选择常用模板快速填充，支持自定义与排序")
+                            Text(isEditing ? "按住最左侧手柄拖拽排序，左滑可删除模板" : "选择常用模板快速填充，左滑可删除")
                                 .font(.system(size: 12))
                                 .foregroundColor(.secondary)
                         }
@@ -246,12 +271,17 @@ public struct WorkflowTemplateSheet: View {
                                 .listRowBackground(Color.clear)
                                 .listRowSeparator(.hidden)
                                 .listRowInsets(EdgeInsets(top: 5, leading: 16, bottom: 5, trailing: 16))
-                        }
-                        .onMove { source, destination in
-                            store.move(from: source, to: destination)
-                        }
-                        .onDelete { offsets in
-                            store.delete(at: offsets)
+                                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                    Button {
+                                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                                        withAnimation(.easeInOut(duration: 0.2)) {
+                                            store.delete(id: item.id)
+                                        }
+                                    } label: {
+                                        Image(uiImage: Self.trashActionImage)
+                                    }
+                                    .tint(.clear)
+                                }
                         }
                     }
                 }
@@ -275,31 +305,32 @@ public struct WorkflowTemplateSheet: View {
             }
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
-            .environment(\.editMode, .constant(isEditing ? .active : .inactive))
+            .coordinateSpace(name: "wfList")
             .navigationTitle("Workflow 模板")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button(isEditing ? "完成" : "编辑") {
+                    Button {
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
                         withAnimation(.easeInOut(duration: 0.2)) {
                             isEditing.toggle()
                         }
+                    } label: {
+                        Image(systemName: isEditing ? "checkmark" : "pencil")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundColor(isEditing ? .indigo : .primary)
                     }
-                    .fontWeight(isEditing ? .semibold : .regular)
+                    .accessibilityLabel(isEditing ? "完成" : "编辑")
                 }
 
-                ToolbarItemGroup(placement: .topBarTrailing) {
+                ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         openNewEditor()
                     } label: {
                         Image(systemName: "plus")
-                            .fontWeight(.semibold)
+                            .font(.system(size: 16, weight: .semibold))
                     }
                     .accessibilityLabel("新增 Workflow 模板")
-
-                    Button("关闭") {
-                        dismiss()
-                    }
                 }
             }
             .sheet(item: $editorDraft) { draft in
@@ -327,11 +358,62 @@ public struct WorkflowTemplateSheet: View {
 
     @ViewBuilder
     private func rowView(for item: WorkflowTemplateRecord) -> some View {
+        let isDragging = draggingId == item.id
         let iconColor = WorkflowTemplateStyle.color(for: item.color)
         let systemImage = WorkflowTemplateStyle.systemImage(for: item.icon)
         let displaySubtitle = item.subtitle.isEmpty ? item.templatePrompt : item.subtitle
 
         let cardContent = HStack(spacing: 12) {
+            if isEditing {
+                Image(systemName: "line.3.horizontal")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(isDragging ? .indigo : .secondary)
+                    .frame(width: 28, height: 36)
+                    .contentShape(Rectangle())
+                    .highPriorityGesture(
+                        DragGesture(minimumDistance: 2, coordinateSpace: .named("wfList"))
+                            .onChanged { value in
+                                if draggingId == nil {
+                                    draggingId = item.id
+                                    lastDragTranslationY = 0
+                                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                }
+                                let deltaY = value.translation.height - lastDragTranslationY
+                                lastDragTranslationY = value.translation.height
+                                dragOffsetY += deltaY
+
+                                let stepThreshold: CGFloat = 56
+                                guard let currentIdx = store.templates.firstIndex(where: { $0.id == item.id }) else { return }
+
+                                if dragOffsetY > stepThreshold && currentIdx < store.templates.count - 1 {
+                                    var next = store.templates
+                                    let moved = next.remove(at: currentIdx)
+                                    next.insert(moved, at: currentIdx + 1)
+                                    withAnimation(.easeInOut(duration: 0.15)) {
+                                        store.setLocalOrder(next)
+                                    }
+                                    dragOffsetY -= stepThreshold
+                                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                } else if dragOffsetY < -stepThreshold && currentIdx > 0 {
+                                    var next = store.templates
+                                    let moved = next.remove(at: currentIdx)
+                                    next.insert(moved, at: currentIdx - 1)
+                                    withAnimation(.easeInOut(duration: 0.15)) {
+                                        store.setLocalOrder(next)
+                                    }
+                                    dragOffsetY += stepThreshold
+                                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                }
+                            }
+                            .onEnded { _ in
+                                draggingId = nil
+                                dragOffsetY = 0
+                                lastDragTranslationY = 0
+                                store.applyAndSync(store.templates)
+                            }
+                    )
+            }
+
             ZStack {
                 RoundedRectangle(cornerRadius: 10)
                     .fill(iconColor.opacity(0.15))
@@ -376,8 +458,11 @@ public struct WorkflowTemplateSheet: View {
         .cornerRadius(12)
         .overlay(
             RoundedRectangle(cornerRadius: 12)
-                .stroke(Color(uiColor: .separator).opacity(0.4), lineWidth: 0.5)
+                .stroke(isDragging ? Color.indigo.opacity(0.75) : Color(uiColor: .separator).opacity(0.4), lineWidth: isDragging ? 1.2 : 0.5)
         )
+        .offset(y: isDragging ? dragOffsetY : 0)
+        .zIndex(isDragging ? 10 : 0)
+        .shadow(color: isDragging ? Color.black.opacity(0.16) : .clear, radius: 8, y: 4)
 
         if isEditing {
             cardContent
