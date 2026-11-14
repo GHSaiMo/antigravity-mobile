@@ -4,10 +4,15 @@ import SwiftUI
 
 public enum MarkdownParser {
     public static func parse(_ text: String) -> [MarkdownBlock] {
+        parse(text, startBlockIdx: 0)
+    }
+
+    public static func parse(_ text: String, startBlockIdx: Int) -> [MarkdownBlock] {
+        if text.isEmpty { return [] }
         var blocks: [MarkdownBlock] = []
         let lines = text.components(separatedBy: "\n")
         var i = 0
-        var blockIdx = 0
+        var blockIdx = startBlockIdx
         
         while i < lines.count {
             let line = lines[i]

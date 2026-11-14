@@ -522,6 +522,8 @@ public final class ChatViewModel {
     let activityManager: ActivityManager
     let cacheManager: CacheManager
     var lastResumeTime: Date = .distantPast
+    @ObservationIgnored var backgroundTaskId: UIBackgroundTaskIdentifier = .invalid
+    @ObservationIgnored var backgroundDisconnectTask: Task<Void, Never>? = nil
     
     public init(
         cascadeId: String,

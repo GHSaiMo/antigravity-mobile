@@ -60,11 +60,27 @@ struct PacedAgentRow<Content: View>: View {
 extension ChatMessage {
     func withContent(_ text: String) -> ChatMessage {
         ChatMessage(
-            id: id, sender: sender, content: text, thinking: thinking,
-            toolCount: toolCount, toolNames: toolNames,
-            imageDataList: imageDataList, imageUrls: imageUrls, artifacts: artifacts,
-            stepIndex: stepIndex, attemptCount: attemptCount, maxAttempts: maxAttempts,
-            model: model, modelName: modelName, subagent: subagent
+            id: id,
+            sender: sender,
+            content: text,
+            thinking: thinking,
+            toolCount: toolCount,
+            toolNames: toolNames,
+            imageDataList: imageDataList,
+            imageUrls: imageUrls,
+            artifacts: artifacts,
+            stepIndex: stepIndex,
+            attemptCount: attemptCount,
+            maxAttempts: maxAttempts,
+            model: model,
+            modelName: modelName,
+            subagent: subagent,
+            workflow: workflow,
+            timestamp: timestamp,
+            slashCommands: slashCommands,
+            clientMessageId: clientMessageId,
+            errorKind: errorKind,
+            isOverflow: isOverflow
         )
     }
 }

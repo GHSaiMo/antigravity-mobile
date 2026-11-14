@@ -25,6 +25,8 @@ public struct ChatView: View {
     @State var blankHealTask: Task<Void, Never>? = nil
     /// 最后一条消息的行当前是否已被创建（LazyVStack 懒加载时可能迟迟不创建）。
     @State var lastRowMaterialized = false
+    /// 锁定当前会话列表容器类型（VStack vs LazyVStack），避免流式跨过第 100 条消息时整棵子树与 WKWebView 被销毁重建。
+    @State var useLazyMessagesStack = false
     @State var lastFollowScrollAt: Date = .distantPast
     @State var showCameraPicker = false
     @State var showDocumentScanner = false
@@ -84,26 +86,30 @@ public struct ChatView: View {
                 _viewModel = State(initialValue: ChatViewModel(draftSession: session))
             } else {
                 let isNewOrEmpty = isNewConversation || conversation.stepCount == 0
-                _viewModel = State(initialValue: ChatViewModel(
+                let vm = ChatViewModel(
                     cascadeId: conversation.id,
                     initialTitle: conversation.title,
                     workspaceName: conversation.workspaceName,
                     isNewConversation: isNewOrEmpty,
                     isUnread: conversation.isUnread,
                     conversationStatus: conversation.status
-                ))
+                )
+                _viewModel = State(initialValue: vm)
+                _useLazyMessagesStack = State(initialValue: vm.messages.count > 100)
             }
         } else {
             let isNewOrEmpty = isNewConversation || conversation.stepCount == 0
             self.shouldAutoFocus = isNewOrEmpty
-            _viewModel = State(initialValue: ChatViewModel(
+            let vm = ChatViewModel(
                 cascadeId: conversation.id,
                 initialTitle: conversation.title,
                 workspaceName: conversation.workspaceName,
                 isNewConversation: isNewOrEmpty,
                 isUnread: conversation.isUnread,
                 conversationStatus: conversation.status
-            ))
+            )
+            _viewModel = State(initialValue: vm)
+            _useLazyMessagesStack = State(initialValue: vm.messages.count > 100)
         }
     }
     

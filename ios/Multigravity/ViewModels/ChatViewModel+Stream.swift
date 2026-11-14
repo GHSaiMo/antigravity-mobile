@@ -342,7 +342,8 @@ extension ChatViewModel {
         
         let selectedOpt = interaction.options.first(where: { $0.id == optionId })
         let scope = selectedOpt?.scope ?? 1
-        let isDeny = selectedOpt?.isDeny ?? (optionId == "5" || optionId == "__write_in__")
+        let isPermission = interaction.type == "permission" || interaction.type == "file_permission"
+        let isDeny = (selectedOpt?.isDeny == true) || (isPermission && (optionId == "5" || optionId == "__write_in__"))
         let allow = !isDeny
         let writeIn = writeInText?.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines) ?? ""
         
@@ -454,14 +455,19 @@ extension ChatViewModel {
     
     @MainActor
     public func resumeActiveSession() async {
+        let hadActiveGraceWindow = (backgroundTaskId != .invalid || backgroundDisconnectTask != nil)
+        endBackgroundGraceTask()
+
         let now = Date()
         guard now.timeIntervalSince(lastResumeTime) > 1.0 else { return }
         lastResumeTime = now
         
         guard !cascadeId.isEmpty else { return }
         
-        // 1. Force reconnect WebSocket stream to discard stale/suspended connection and receive fresh snapshot
-        connectStream(force: true)
+        // 1. If the WebSocket stayed healthy inside our background grace window, keep it open without tearing down;
+        //    otherwise force reconnect to discard stale/suspended socket and receive fresh snapshot.
+        let shouldForceReconnect = !(hadActiveGraceWindow && streamClient.status == .connected)
+        connectStream(force: shouldForceReconnect)
         
         // 2. Concurrently fetch latest trajectory over HTTP for instantaneous UI refresh
         await loadMessages(isBackgroundPoll: true)
@@ -470,7 +476,32 @@ extension ChatViewModel {
     
     @MainActor
     public func handleAppBackground() {
-        disconnectStream()
+        guard !cascadeId.isEmpty else {
+            disconnectStream()
+            return
+        }
+        // Avoid duplicate registration when both scenePhase and UIApplication notification fire together
+        guard backgroundTaskId == .invalid else { return }
+
+        let shouldHoldLongGrace = isActivelyRunning || pendingInteraction != nil || canProceed
+        let graceSeconds: UInt64 = shouldHoldLongGrace ? 25 : 8
+
+        let taskId = UIApplication.shared.beginBackgroundTask(withName: "MultigravityStreamGrace") { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.disconnectStream()
+            }
+        }
+        guard taskId != .invalid else {
+            disconnectStream()
+            return
+        }
+        backgroundTaskId = taskId
+        backgroundDisconnectTask?.cancel()
+        backgroundDisconnectTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: graceSeconds * 1_000_000_000)
+            guard !Task.isCancelled else { return }
+            self?.disconnectStream()
+        }
     }
     
 }

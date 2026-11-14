@@ -26,13 +26,11 @@ public struct ProcessedDiffLine: Identifiable, Sendable {
 public struct DiffViewerSheet: View {
     public let file: RevertPreviewFile
     @Environment(\.dismiss) private var dismiss
+    @State private var processedLines: [ProcessedDiffLine]
     
     public init(file: RevertPreviewFile) {
         self.file = file
-    }
-    
-    private var processedLines: [ProcessedDiffLine] {
-        Self.processDiffLines(file.diffLines)
+        self._processedLines = State(initialValue: Self.processDiffLines(file.diffLines))
     }
     
     public var body: some View {
@@ -81,7 +79,7 @@ public struct DiffViewerSheet: View {
                     }
                 } else {
                     ScrollView([.horizontal, .vertical], showsIndicators: true) {
-                        VStack(alignment: .leading, spacing: 0) {
+                        LazyVStack(alignment: .leading, spacing: 0) {
                             ForEach(processedLines) { item in
                                 diffLineRow(item: item)
                             }
@@ -95,6 +93,9 @@ public struct DiffViewerSheet: View {
             .navigationTitle(file.fileName)
             .navigationBarTitleDisplayMode(.inline)
             .presentationDragIndicator(.visible)
+            .onChange(of: file.diffLines) { _, newLines in
+                processedLines = Self.processDiffLines(newLines)
+            }
         }
     }
     
@@ -198,17 +199,20 @@ public struct DiffViewerSheet: View {
                 
                 if insCount > 0 {
                     let pairCount = min(delCount, insCount)
+                    var pairedSpans: [(oldSpans: [DiffSpan], newSpans: [DiffSpan])] = []
+                    pairedSpans.reserveCapacity(pairCount)
                     for k in 0..<pairCount {
-                        let (delSpans, _) = computeTokenDiff(oldText: lines[i + k].text, newText: lines[delEnd + k].text)
-                        result.append(ProcessedDiffLine(id: i + k, line: lines[i + k], spans: delSpans))
+                        pairedSpans.append(computeTokenDiff(oldText: lines[i + k].text, newText: lines[delEnd + k].text))
+                    }
+                    for k in 0..<pairCount {
+                        result.append(ProcessedDiffLine(id: i + k, line: lines[i + k], spans: pairedSpans[k].oldSpans))
                     }
                     for k in pairCount..<delCount {
                         let text = lines[i + k].text.isEmpty ? " " : lines[i + k].text
                         result.append(ProcessedDiffLine(id: i + k, line: lines[i + k], spans: [DiffSpan(text: text, isChanged: false)]))
                     }
                     for k in 0..<pairCount {
-                        let (_, insSpans) = computeTokenDiff(oldText: lines[i + k].text, newText: lines[delEnd + k].text)
-                        result.append(ProcessedDiffLine(id: delEnd + k, line: lines[delEnd + k], spans: insSpans))
+                        result.append(ProcessedDiffLine(id: delEnd + k, line: lines[delEnd + k], spans: pairedSpans[k].newSpans))
                     }
                     for k in pairCount..<insCount {
                         let text = lines[delEnd + k].text.isEmpty ? " " : lines[delEnd + k].text
