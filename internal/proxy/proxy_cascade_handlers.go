@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"antigravity-mobile/internal/cockpit"
 )
 
 func (p *Proxy) checkAndRecordMessageDedup(key string, ttl time.Duration) bool {
@@ -551,6 +553,7 @@ func (p *Proxy) handleDeleteCascadeTrajectory(w http.ResponseWriter, r *http.Req
 				_ = os.Remove(filepath.Join(convDir, reqData.CascadeID+".db-wal"))
 				_ = os.Remove(filepath.Join(convDir, reqData.CascadeID+".db-shm"))
 
+				cockpit.ArchiveConversationTokens(reqData.CascadeID)
 				brainDir := filepath.Join(home, ".gemini", "antigravity", "brain", reqData.CascadeID)
 				_ = os.RemoveAll(brainDir)
 			}

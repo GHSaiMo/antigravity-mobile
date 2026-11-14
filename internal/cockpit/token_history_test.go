@@ -158,3 +158,97 @@ func TestParseModelFromUserSettings(t *testing.T) {
 		})
 	}
 }
+
+func TestGetTokenHistory_PreservesDeletedSessionsAfterScan(t *testing.T) {
+	tempHome := t.TempDir()
+	t.Setenv("HOME", tempHome)
+	t.Setenv("COCKPIT_TOOLS_DATA_DIR", filepath.Join(tempHome, ".cockpit_tools"))
+	t.Setenv("COCKPIT_DATA_DIR", "")
+
+	conv1Dir := filepath.Join(tempHome, ".gemini", "antigravity", "brain", "conv-1", ".system_generated", "logs")
+	conv2Dir := filepath.Join(tempHome, ".gemini", "antigravity-cli", "brain", "conv-2", ".system_generated", "logs")
+	if err := os.MkdirAll(conv1Dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(conv2Dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	log1 := `{"step_index":1,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"2026-11-14T10:00:00Z","input_tokens":1000,"cache_read_tokens":500,"output_tokens":200,"callId":"c-1"}` + "\n"
+	log2 := `{"step_index":1,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"2026-11-14T10:05:00Z","input_tokens":300,"cache_read_tokens":0,"output_tokens":100,"callId":"c-2"}` + "\n"
+
+	if err := os.WriteFile(filepath.Join(conv1Dir, "transcript.jsonl"), []byte(log1), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(conv2Dir, "transcript.jsonl"), []byte(log2), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	resp, err := GetTokenHistory(true)
+	if err != nil {
+		t.Fatalf("GetTokenHistory() error = %v", err)
+	}
+	if resp.Summary.TotalTokens != 2100 {
+		t.Fatalf("initial TotalTokens = %d, want 2100", resp.Summary.TotalTokens)
+	}
+	if resp.Summary.DesktopTokens != 1700 || resp.Summary.CLITokens != 400 {
+		t.Fatalf("initial breakdown desktop=%d cli=%d, want 1700/400", resp.Summary.DesktopTokens, resp.Summary.CLITokens)
+	}
+
+	// Delete conv-1 from disk completely
+	if err := os.RemoveAll(filepath.Join(tempHome, ".gemini", "antigravity", "brain", "conv-1")); err != nil {
+		t.Fatal(err)
+	}
+
+	// Append a new step to conv-2 to verify live updates don't double-count existing steps
+	log2Updated := log2 + `{"step_index":2,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"2026-11-14T10:10:00Z","input_tokens":200,"cache_read_tokens":0,"output_tokens":50,"callId":"c-3"}` + "\n"
+	if err := os.WriteFile(filepath.Join(conv2Dir, "transcript.jsonl"), []byte(log2Updated), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	respAfter, err := GetTokenHistory(true)
+	if err != nil {
+		t.Fatalf("GetTokenHistory(after delete) error = %v", err)
+	}
+	// 1700 (archived conv-1) + 650 (updated conv-2) = 2350
+	if respAfter.Summary.TotalTokens != 2350 {
+		t.Fatalf("after delete TotalTokens = %d, want 2350", respAfter.Summary.TotalTokens)
+	}
+	if respAfter.Summary.DesktopTokens != 1700 || respAfter.Summary.CLITokens != 650 {
+		t.Fatalf("after delete breakdown desktop=%d cli=%d, want 1700/650", respAfter.Summary.DesktopTokens, respAfter.Summary.CLITokens)
+	}
+}
+
+func TestArchiveConversationTokens_BeforeDelete(t *testing.T) {
+	tempHome := t.TempDir()
+	t.Setenv("HOME", tempHome)
+	t.Setenv("COCKPIT_TOOLS_DATA_DIR", filepath.Join(tempHome, ".cockpit_tools"))
+	t.Setenv("COCKPIT_DATA_DIR", "")
+
+	convDir := filepath.Join(tempHome, ".gemini", "antigravity", "brain", "conv-arch-1", ".system_generated", "logs")
+	if err := os.MkdirAll(convDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	logContent := `{"step_index":1,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"2026-11-14T11:00:00Z","input_tokens":800,"cache_read_tokens":100,"output_tokens":100,"callId":"arch-1"}` + "\n"
+	if err := os.WriteFile(filepath.Join(convDir, "transcript.jsonl"), []byte(logContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Archive directly without prior GetTokenHistory scan, then delete from disk
+	ArchiveConversationTokens("conv-arch-1")
+	if err := os.RemoveAll(filepath.Join(tempHome, ".gemini", "antigravity", "brain", "conv-arch-1")); err != nil {
+		t.Fatal(err)
+	}
+
+	resp, err := GetTokenHistory(false)
+	if err != nil {
+		t.Fatalf("GetTokenHistory() error = %v", err)
+	}
+	if resp.Summary.TotalTokens != 1000 {
+		t.Fatalf("TotalTokens = %d, want 1000", resp.Summary.TotalTokens)
+	}
+	if resp.Summary.DesktopTokens != 1000 {
+		t.Fatalf("DesktopTokens = %d, want 1000", resp.Summary.DesktopTokens)
+	}
+}

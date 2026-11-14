@@ -46,10 +46,22 @@ type TokenHistoryResponse struct {
 	DailyMatrix []DailyTokenRecord `json:"daily_matrix"`
 }
 
-type fileCacheItem struct {
-	size    int64
-	modTime time.Time
-	records []parsedTranscriptRecord
+type ledgerSession struct {
+	Source      string                      `json:"source"`
+	Size        int64                       `json:"size"`
+	ModTimeNano int64                       `json:"mod_time_nano"`
+	Days        map[string]DailyTokenRecord `json:"days"`
+}
+
+type tokenHistoryLedger struct {
+	Version  int                      `json:"version"`
+	Sessions map[string]ledgerSession `json:"sessions"`
+}
+
+type transcriptJob struct {
+	convID string
+	path   string
+	source string
 }
 
 type parsedTranscriptRecord struct {
@@ -65,11 +77,11 @@ type parsedTranscriptRecord struct {
 }
 
 var (
-	historyMu          sync.RWMutex
-	cachedHistoryResp  *TokenHistoryResponse
-	cachedHistoryAt    time.Time
-	transcriptFileMap  = make(map[string]fileCacheItem)
-	transcriptFileMu   sync.Mutex
+	historyMu         sync.RWMutex
+	cachedHistoryResp *TokenHistoryResponse
+	cachedHistoryAt   time.Time
+	cachedLedger      *tokenHistoryLedger
+	cachedLedgerPath  string
 )
 
 // CalculateCostUSD calculates reference pay-as-you-go cost according to standard model rate cards.
@@ -286,11 +298,8 @@ func parseTranscriptFile(filePath, source string) []parsedTranscriptRecord {
 	return records
 }
 
-// CollectTranscriptsJobs scans both desktop and CLI brain directories for transcript.jsonl files.
-func collectTranscriptJobs() []struct {
-	path   string
-	source string
-} {
+// collectTranscriptJobs scans both desktop and CLI brain directories for transcript.jsonl files.
+func collectTranscriptJobs() []transcriptJob {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil
@@ -306,10 +315,7 @@ func collectTranscriptJobs() []struct {
 		{dir: filepath.Join(home, ".gemini", "antigravity-cli", "brain"), source: "cli"},
 	}
 
-	var jobs []struct {
-		path   string
-		source string
-	}
+	var jobs []transcriptJob
 
 	for _, dj := range dirs {
 		if _, err := os.Stat(dj.dir); err != nil {
@@ -325,23 +331,18 @@ func collectTranscriptJobs() []struct {
 			if !entry.IsDir() {
 				continue
 			}
-			convDir := filepath.Join(dj.dir, entry.Name())
+			convID := entry.Name()
+			convDir := filepath.Join(dj.dir, convID)
 			// 1. Direct standard log path: .system_generated/logs/transcript.jsonl
 			stdPath := filepath.Join(convDir, ".system_generated", "logs", "transcript.jsonl")
 			if st, err := os.Stat(stdPath); err == nil && !st.IsDir() {
-				jobs = append(jobs, struct {
-					path   string
-					source string
-				}{path: stdPath, source: dj.source})
+				jobs = append(jobs, transcriptJob{convID: convID, path: stdPath, source: dj.source})
 				continue
 			}
 			// 2. Fallback root transcript.jsonl
 			rootPath := filepath.Join(convDir, "transcript.jsonl")
 			if st, err := os.Stat(rootPath); err == nil && !st.IsDir() {
-				jobs = append(jobs, struct {
-					path   string
-					source string
-				}{path: rootPath, source: dj.source})
+				jobs = append(jobs, transcriptJob{convID: convID, path: rootPath, source: dj.source})
 			}
 		}
 	}
@@ -349,28 +350,198 @@ func collectTranscriptJobs() []struct {
 	return jobs
 }
 
-// GetTokenHistory collects and aggregates token history across all sessions.
+func tokenLedgerFilePath() (string, error) {
+	dataDir, err := GetCockpitDataDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dataDir, "token_history_ledger.json"), nil
+}
+
+func getOrLoadTokenLedgerLocked(ledgerPath string) *tokenHistoryLedger {
+	if cachedLedger != nil && cachedLedgerPath == ledgerPath {
+		return cachedLedger
+	}
+
+	ledger := &tokenHistoryLedger{
+		Version:  1,
+		Sessions: make(map[string]ledgerSession),
+	}
+	if ledgerPath != "" {
+		if data, err := os.ReadFile(ledgerPath); err == nil && len(data) > 0 {
+			var parsed tokenHistoryLedger
+			if err := json.Unmarshal(data, &parsed); err == nil && parsed.Sessions != nil {
+				ledger = &parsed
+				if ledger.Version == 0 {
+					ledger.Version = 1
+				}
+			}
+		}
+	}
+	cachedLedger = ledger
+	cachedLedgerPath = ledgerPath
+	return ledger
+}
+
+func saveTokenHistoryLedger(ledgerPath string, ledger *tokenHistoryLedger) error {
+	if ledgerPath == "" || ledger == nil {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(ledgerPath), 0700); err != nil {
+		return err
+	}
+	data, err := json.Marshal(ledger)
+	if err != nil {
+		return err
+	}
+	tmpPath := ledgerPath + ".tmp"
+	if err := os.WriteFile(tmpPath, data, 0600); err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, ledgerPath)
+}
+
+func aggregateRecordsToDays(records []parsedTranscriptRecord) map[string]DailyTokenRecord {
+	days := make(map[string]DailyTokenRecord)
+	seenCalls := make(map[string]bool)
+
+	for _, rec := range records {
+		if rec.callID != "" {
+			if seenCalls[rec.callID] {
+				continue
+			}
+			seenCalls[rec.callID] = true
+		}
+
+		day, ok := days[rec.dateKey]
+		if !ok {
+			day = DailyTokenRecord{
+				Date:   rec.dateKey,
+				Models: make(map[string]int64),
+			}
+		}
+
+		day.Total += rec.total
+		day.Input += rec.input
+		day.Output += rec.output
+		day.CacheRead += rec.cacheRead
+		day.Thinking += rec.thinking
+		day.Steps++
+		day.CostUSD += CalculateCostUSD(rec.model, rec.input, rec.cacheRead, rec.output)
+
+		modelKey := rec.model
+		if modelKey == "" {
+			modelKey = "default"
+		}
+		day.Models[modelKey] += rec.total
+		days[rec.dateKey] = day
+	}
+
+	return days
+}
+
+func upsertSessionFromFile(ledger *tokenHistoryLedger, job transcriptJob, forceReparse bool) bool {
+	st, err := os.Stat(job.path)
+	if err != nil || st.IsDir() {
+		return false
+	}
+
+	key := job.source + ":" + job.convID
+	modNano := st.ModTime().UnixNano()
+	if !forceReparse {
+		if existing, ok := ledger.Sessions[key]; ok && existing.Size == st.Size() && existing.ModTimeNano == modNano {
+			return false
+		}
+	}
+
+	records := parseTranscriptFile(job.path, job.source)
+	days := aggregateRecordsToDays(records)
+
+	ledger.Sessions[key] = ledgerSession{
+		Source:      job.source,
+		Size:        st.Size(),
+		ModTimeNano: modNano,
+		Days:        days,
+	}
+	return true
+}
+
+// ArchiveConversationTokens persists a conversation's token usage into the local ledger
+// before its brain directory is deleted, so historical stats remain intact.
+func ArchiveConversationTokens(cascadeID string) {
+	if strings.TrimSpace(cascadeID) == "" {
+		return
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return
+	}
+
+	convDir := filepath.Join(home, ".gemini", "antigravity", "brain", cascadeID)
+	candidates := []string{
+		filepath.Join(convDir, ".system_generated", "logs", "transcript.jsonl"),
+		filepath.Join(convDir, "transcript.jsonl"),
+	}
+
+	var targetPath string
+	for _, p := range candidates {
+		if st, err := os.Stat(p); err == nil && !st.IsDir() {
+			targetPath = p
+			break
+		}
+	}
+	if targetPath == "" {
+		return
+	}
+
+	historyMu.Lock()
+	defer historyMu.Unlock()
+
+	ledgerPath, err := tokenLedgerFilePath()
+	if err != nil {
+		return
+	}
+	ledger := getOrLoadTokenLedgerLocked(ledgerPath)
+	if upsertSessionFromFile(ledger, transcriptJob{
+		convID: cascadeID,
+		path:   targetPath,
+		source: "desktop",
+	}, false) {
+		if err := saveTokenHistoryLedger(ledgerPath, ledger); err != nil {
+			slog.Warn("[TokenLedger] failed to save archived session", "cascadeID", cascadeID, "err", err)
+		}
+		cachedHistoryResp = nil
+	}
+}
+
+// GetTokenHistory collects and aggregates token history across all live and archived sessions.
 func GetTokenHistory(forceRefresh bool) (*TokenHistoryResponse, error) {
 	historyMu.Lock()
 	defer historyMu.Unlock()
 
 	now := time.Now()
-	if !forceRefresh && cachedHistoryResp != nil && now.Sub(cachedHistoryAt) < 15*time.Second {
+	ledgerPath, _ := tokenLedgerFilePath()
+	if !forceRefresh && cachedHistoryResp != nil && cachedLedgerPath == ledgerPath && now.Sub(cachedHistoryAt) < 15*time.Second {
 		return cachedHistoryResp, nil
 	}
 
+	ledger := getOrLoadTokenLedgerLocked(ledgerPath)
 	jobs := collectTranscriptJobs()
 
-	transcriptFileMu.Lock()
-	defer transcriptFileMu.Unlock()
+	dirty := false
+	for _, job := range jobs {
+		if upsertSessionFromFile(ledger, job, forceRefresh) {
+			dirty = true
+		}
+	}
 
-	if forceRefresh {
-		transcriptFileMap = make(map[string]fileCacheItem)
+	if dirty && ledgerPath != "" {
+		if err := saveTokenHistoryLedger(ledgerPath, ledger); err != nil {
+			slog.Warn("[TokenLedger] failed to persist token history ledger", "err", err)
+		}
 	}
 
 	dailyMap := make(map[string]*DailyTokenRecord)
-	seenCalls := make(map[string]bool)
-
 	var totalTokens, desktopTokens, cliTokens int64
 	var totalCostUSD float64
 	var totalSteps int
@@ -379,77 +550,47 @@ func GetTokenHistory(forceRefresh bool) (*TokenHistoryResponse, error) {
 	sevenDaysAgo := now.AddDate(0, 0, -7).Format("2006-01-02")
 	var todayTokens, last7dTokens int64
 
-	for _, job := range jobs {
-		st, err := os.Stat(job.path)
-		if err != nil {
-			continue
-		}
-
-		cached, ok := transcriptFileMap[job.path]
-		var records []parsedTranscriptRecord
-		if ok && cached.size == st.Size() && cached.modTime.Equal(st.ModTime()) {
-			records = cached.records
-		} else {
-			records = parseTranscriptFile(job.path, job.source)
-			transcriptFileMap[job.path] = fileCacheItem{
-				size:    st.Size(),
-				modTime: st.ModTime(),
-				records: records,
-			}
-		}
-
-		for _, rec := range records {
-			if rec.callID != "" {
-				if seenCalls[rec.callID] {
-					continue
-				}
-				seenCalls[rec.callID] = true
-			}
-
-			day, ok := dailyMap[rec.dateKey]
+	for _, sess := range ledger.Sessions {
+		for dateKey, dayRec := range sess.Days {
+			day, ok := dailyMap[dateKey]
 			if !ok {
 				day = &DailyTokenRecord{
-					Date:   rec.dateKey,
+					Date:   dateKey,
 					Models: make(map[string]int64),
 				}
-				dailyMap[rec.dateKey] = day
+				dailyMap[dateKey] = day
 			}
 
-			day.Total += rec.total
-			day.Input += rec.input
-			day.Output += rec.output
-			day.CacheRead += rec.cacheRead
-			day.Thinking += rec.thinking
-			day.Steps++
-
-			cost := CalculateCostUSD(rec.model, rec.input, rec.cacheRead, rec.output)
-			day.CostUSD += cost
-			totalCostUSD += cost
-
-			modelKey := rec.model
-			if modelKey == "" {
-				modelKey = "default"
+			day.Total += dayRec.Total
+			day.Input += dayRec.Input
+			day.Output += dayRec.Output
+			day.CacheRead += dayRec.CacheRead
+			day.Thinking += dayRec.Thinking
+			day.Steps += dayRec.Steps
+			day.CostUSD += dayRec.CostUSD
+			for modelKey, cnt := range dayRec.Models {
+				day.Models[modelKey] += cnt
 			}
-			day.Models[modelKey] += rec.total
 
-			totalTokens += rec.total
-			totalSteps++
-			if rec.source == "cli" {
-				cliTokens += rec.total
+			totalTokens += dayRec.Total
+			totalCostUSD += dayRec.CostUSD
+			totalSteps += dayRec.Steps
+			if sess.Source == "cli" {
+				cliTokens += dayRec.Total
 			} else {
-				desktopTokens += rec.total
+				desktopTokens += dayRec.Total
 			}
 
-			if rec.dateKey == todayKey {
-				todayTokens += rec.total
+			if dateKey == todayKey {
+				todayTokens += dayRec.Total
 			}
-			if rec.dateKey >= sevenDaysAgo {
-				last7dTokens += rec.total
+			if dateKey >= sevenDaysAgo {
+				last7dTokens += dayRec.Total
 			}
 		}
 	}
 
-	// Build 52-week (365 days) continuous matrix or sorted active days
+	// Build sorted active days matrix
 	var dates []string
 	for d := range dailyMap {
 		dates = append(dates, d)
