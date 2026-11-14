@@ -303,13 +303,38 @@ class VoiceCallManager(private val context: Context) {
         }
     }
 
+    private fun hasExternalAudioOutput(audioManager: AudioManager): Boolean {
+        val devices = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+        return devices.any { dev ->
+            when (dev.type) {
+                android.media.AudioDeviceInfo.TYPE_WIRED_HEADSET,
+                android.media.AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
+                android.media.AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
+                android.media.AudioDeviceInfo.TYPE_BLUETOOTH_A2DP,
+                android.media.AudioDeviceInfo.TYPE_USB_HEADSET,
+                android.media.AudioDeviceInfo.TYPE_USB_DEVICE -> true
+                else -> {
+                    val isHearingAid = android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P &&
+                        dev.type == android.media.AudioDeviceInfo.TYPE_HEARING_AID
+                    val isBleAudio = android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S && (
+                        dev.type == android.media.AudioDeviceInfo.TYPE_BLE_HEADSET ||
+                            dev.type == android.media.AudioDeviceInfo.TYPE_BLE_SPEAKER ||
+                            dev.type == android.media.AudioDeviceInfo.TYPE_BLE_BROADCAST
+                        )
+                    isHearingAid || isBleAudio
+                }
+            }
+        }
+    }
+
     @SuppressLint("MissingPermission")
     private fun setupAudioPipeline(): Boolean {
         return try {
             val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
             audioManager?.mode = AudioManager.MODE_IN_COMMUNICATION
+            val externalConnected = audioManager?.let { hasExternalAudioOutput(it) } == true
             @Suppress("DEPRECATION")
-            audioManager?.isSpeakerphoneOn = true
+            audioManager?.isSpeakerphoneOn = !externalConnected
 
             val minInBuf = AudioRecord.getMinBufferSize(
                 MIC_SAMPLE_RATE,

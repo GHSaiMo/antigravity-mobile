@@ -21,6 +21,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.HelpOutline
+import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.KeyboardArrowUp
@@ -81,7 +82,11 @@ fun InteractionCard(
 
     // State for single question
     var selectedOptionId by remember(interaction) {
-        mutableStateOf(interaction.defaultOptionId ?: interaction.options.firstOrNull()?.id ?: "1")
+        mutableStateOf(
+            interaction.defaultOptionId
+                ?: interaction.options.firstOrNull()?.id
+                ?: if (interaction.hasWriteIn) "__write_in__" else "1"
+        )
     }
     var singleWriteInText by remember(interaction) { mutableStateOf("") }
 
@@ -89,7 +94,9 @@ fun InteractionCard(
     val multiSelections = remember(interaction) {
         val map = mutableStateMapOf<Int, String>()
         questions?.forEachIndexed { idx, q ->
-            map[idx] = q.defaultOptionId ?: q.options.firstOrNull()?.id ?: "1"
+            map[idx] = q.defaultOptionId
+                ?: q.options.firstOrNull()?.id
+                ?: if (q.hasWriteIn) "__write_in__" else "1"
         }
         map
     }
@@ -102,6 +109,8 @@ fun InteractionCard(
         pg != null -> Icons.Default.Lock
         interaction.type == "browser_download" -> Icons.Default.FileDownload
         interaction.type == "approval" -> Icons.Default.CheckCircle
+        interaction.type == "mcp" -> Icons.Default.Build
+        interaction.type == "elicitation" -> Icons.AutoMirrored.Filled.HelpOutline
         interaction.type == "permission" || interaction.type == "file_permission" -> Icons.Default.Lock
         interaction.type == "ask_question" -> Icons.AutoMirrored.Filled.HelpOutline
         interaction.type == "run_command" -> Icons.Default.Terminal
@@ -112,6 +121,8 @@ fun InteractionCard(
         pg != null -> colors.accentOrange
         interaction.type == "browser_download" -> colors.accentBlue
         interaction.type == "approval" -> colors.accentGreen
+        interaction.type == "mcp" -> colors.accentBlue
+        interaction.type == "elicitation" -> colors.accentBlue
         interaction.type == "permission" || interaction.type == "file_permission" -> colors.accentBlue
         interaction.type == "ask_question" -> colors.accentOrange
         interaction.type == "run_command" -> colors.accentOrange

@@ -439,11 +439,15 @@ private fun MermaidWebViewContainer(
                     "AndroidBridge"
                 )
 
+                tag = htmlContent
                 loadDataWithBaseURL("file:///android_asset/", htmlContent, "text/html", "UTF-8", null)
             }
         },
         update = { webView ->
-            webView.loadDataWithBaseURL("file:///android_asset/", htmlContent, "text/html", "UTF-8", null)
+            if (webView.tag != htmlContent) {
+                webView.tag = htmlContent
+                webView.loadDataWithBaseURL("file:///android_asset/", htmlContent, "text/html", "UTF-8", null)
+            }
         }
     )
 }

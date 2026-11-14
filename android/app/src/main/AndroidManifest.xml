@@ -41,6 +41,7 @@
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTask"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|uiMode|keyboard|keyboardHidden|density"
             android:windowSoftInputMode="adjustResize"
             android:theme="@style/Theme.Antigravity">
             <intent-filter>

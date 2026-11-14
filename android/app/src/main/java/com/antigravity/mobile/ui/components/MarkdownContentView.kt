@@ -36,6 +36,7 @@ fun MarkdownContentView(
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         blocks.forEach { block ->
+            key(block.id) {
             when (block) {
                 is MarkdownBlock.Frontmatter -> {
                     FrontmatterCard(
@@ -189,6 +190,7 @@ fun MarkdownContentView(
                         )
                     }
                 }
+            }
             }
         }
     }

@@ -1,7 +1,9 @@
 package com.antigravity.mobile.data.service
 
+import android.content.ComponentCallbacks2
 import android.content.Context
 import android.util.Log
+import android.util.LruCache
 import com.antigravity.mobile.data.model.CachedChatSession
 import com.antigravity.mobile.data.model.ConversationItem
 import kotlinx.coroutines.CoroutineScope
@@ -30,7 +32,7 @@ class CacheManager(context: Context) {
     private val cacheDir = File(appContext.filesDir, "AntigravityCache").apply { mkdirs() }
     private val sessionsDir = File(cacheDir, "sessions").apply { mkdirs() }
 
-    private val memSessions = ConcurrentHashMap<String, CachedChatSession>()
+    private val memSessions = LruCache<String, CachedChatSession>(MAX_MEM_SESSIONS)
 
     /**
      * Latest not-yet-written snapshot per session. The chat stream saves on every frame (several per
@@ -48,7 +50,7 @@ class CacheManager(context: Context) {
         val cascadeId = session.cascadeId
         if (cascadeId.isBlank() || cascadeId.startsWith("local_draft_")) return
 
-        memSessions[cascadeId] = session
+        memSessions.put(cascadeId, session)
 
         val alreadyScheduled = pendingWrites.put(cascadeId, session) != null
         if (!alreadyScheduled) {
@@ -109,7 +111,7 @@ class CacheManager(context: Context) {
         if (cascadeId.isBlank() || cascadeId.startsWith("local_draft_")) return null
 
         // 1. Memory cache hit
-        memSessions[cascadeId]?.let { return it }
+        memSessions.get(cascadeId)?.let { return it }
 
         // 2. Disk cache lookup
         return try {
@@ -117,7 +119,7 @@ class CacheManager(context: Context) {
             if (file.exists() && file.length() > 0) {
                 val content = file.readText(Charsets.UTF_8)
                 val session = json.decodeFromString<CachedChatSession>(content)
-                memSessions[cascadeId] = session
+                memSessions.put(cascadeId, session)
                 session
             } else {
                 null
@@ -135,16 +137,16 @@ class CacheManager(context: Context) {
     fun prewarmSessions(cascadeIds: List<String>) {
         if (cascadeIds.isEmpty()) return
         ioScope.launch {
-            for (cid in cascadeIds) {
+            for (cid in cascadeIds.take(MAX_MEM_SESSIONS)) {
                 if (cid.isBlank() || cid.startsWith("local_draft_")) continue
-                if (memSessions.containsKey(cid)) continue
+                if (memSessions.get(cid) != null) continue
 
                 try {
                     val file = File(sessionsDir, "$cid.json")
                     if (file.exists() && file.length() > 0) {
                         val content = file.readText(Charsets.UTF_8)
                         val session = json.decodeFromString<CachedChatSession>(content)
-                        memSessions[cid] = session
+                        memSessions.put(cid, session)
                     }
                 } catch (e: Exception) {
                     Log.w(TAG, "Prewarm failed for session $cid: ${e.message}")
@@ -186,7 +188,7 @@ class CacheManager(context: Context) {
         val trimmed = newTitle.trim()
         if (cascadeId.isBlank() || trimmed.isBlank() || trimmed == "未命名会话") return
 
-        val existing = memSessions[cascadeId] ?: loadSession(cascadeId)
+        val existing = memSessions.get(cascadeId) ?: loadSession(cascadeId)
         if (existing != null && existing.title != trimmed) {
             val updated = existing.copy(title = trimmed)
             saveSession(updated)
@@ -220,7 +222,7 @@ class CacheManager(context: Context) {
      * Clear all cached sessions from memory and disk.
      */
     fun clearAllSessions() {
-        memSessions.clear()
+        memSessions.evictAll()
         pendingWrites.clear()
         ioScope.launch {
             fileMutex.withLock {
@@ -233,8 +235,19 @@ class CacheManager(context: Context) {
         }
     }
 
+    fun trimMemory(level: Int) {
+        @Suppress("DEPRECATION")
+        when {
+            level >= ComponentCallbacks2.TRIM_MEMORY_COMPLETE ||
+                level == ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL -> memSessions.evictAll()
+            level >= ComponentCallbacks2.TRIM_MEMORY_BACKGROUND ||
+                level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW -> memSessions.trimToSize(6)
+        }
+    }
+
     companion object {
         private const val TAG = "CacheManager"
+        private const val MAX_MEM_SESSIONS = 24
         private const val MAX_CACHED_SESSIONS = 100
         private const val SESSION_WRITE_INTERVAL_MS = 1500L
     }

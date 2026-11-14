@@ -38,11 +38,13 @@ import com.antigravity.mobile.ui.theme.AntigravityTheme
 @Composable
 fun ShareTargetSheet(
     files: List<SharedFile>,
+    sharedText: String? = null,
     projects: List<ProjectItem>,
     conversations: List<ConversationItem>,
     currentConversationId: String?,
     onRefreshProjects: () -> Unit,
     onRemoveFile: (String) -> Unit,
+    onRemoveText: () -> Unit = {},
     onSelectProject: (ProjectItem) -> Unit,
     onSelectConversation: (ConversationItem) -> Unit,
     onSelectCurrent: () -> Unit,
@@ -54,6 +56,8 @@ fun ShareTargetSheet(
     var tab by remember { mutableIntStateOf(if (currentConversationId != null) 1 else 0) }
     var query by remember { mutableStateOf("") }
     val deliverable = files.count { it.isDeliverable }
+    val hasSharedText = !sharedText.isNullOrBlank()
+    val hasDeliverable = deliverable > 0 || hasSharedText
 
     LaunchedEffect(Unit) { onRefreshProjects() }
 
@@ -65,6 +69,12 @@ fun ShareTargetSheet(
             .filter { q.isEmpty() || it.title.lowercase().contains(q) || it.workspaceName.lowercase().contains(q) }
             .sortedWith(compareByDescending<ConversationItem> { it.status.isRunning }.thenByDescending { it.lastModifiedEpochMs })
             .take(50)
+    }
+
+    val headerLabel = when {
+        deliverable > 0 && hasSharedText -> "投递文本与 $deliverable 个文件到…"
+        hasSharedText -> "投递分享文本到…"
+        else -> "投递 $deliverable 个文件到…"
     }
 
     ModalBottomSheet(
@@ -81,11 +91,38 @@ fun ShareTargetSheet(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    "投递 $deliverable 个文件到…",
+                    headerLabel,
                     fontSize = 18.sp, fontWeight = FontWeight.Bold, color = colors.textPrimary,
                     modifier = Modifier.weight(1f)
                 )
                 TextButton(onClick = onDiscard) { Text("全部丢弃", color = colors.accentRed, fontSize = 13.sp) }
+            }
+
+            if (hasSharedText) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp)
+                        .padding(bottom = 6.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(colors.surfaceVariant)
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Icon(Icons.Default.ChatBubbleOutline, contentDescription = null, tint = colors.accentIndigo, modifier = Modifier.size(18.dp))
+                    Text(
+                        sharedText.orEmpty(),
+                        fontSize = 12.sp,
+                        color = colors.textPrimary,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    IconButton(onClick = onRemoveText, modifier = Modifier.size(28.dp)) {
+                        Icon(Icons.Default.Close, contentDescription = "移除文本", tint = colors.textMuted, modifier = Modifier.size(16.dp))
+                    }
+                }
             }
 
             // Incoming files; unsupported ones stay visible with the reason.
@@ -140,9 +177,9 @@ fun ShareTargetSheet(
                 )
             }
 
-            if (deliverable == 0) {
+            if (!hasDeliverable) {
                 Text(
-                    "没有可投递的文件", color = colors.textSecondary, fontSize = 13.sp,
+                    "没有可投递的内容", color = colors.textSecondary, fontSize = 13.sp,
                     textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(24.dp)
                 )
             } else if (tab == 0) {
