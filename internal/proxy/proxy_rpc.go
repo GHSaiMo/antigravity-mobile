@@ -277,16 +277,19 @@ func (p *Proxy) handleGetCascadeTrajectoryRPC(w http.ResponseWriter, r *http.Req
 	}
 	defer cleanup()
 
+	var rawFields map[string]json.RawMessage
 	var req struct {
 		CascadeID string `json:"cascadeId"`
 	}
 	if len(bodyBytes) > 0 {
+		_ = json.Unmarshal(bodyBytes, &rawFields)
 		_ = json.Unmarshal(bodyBytes, &req)
 	}
 
 	cascadeID := strings.TrimSpace(req.CascadeID)
-	if cascadeID == "" || port == 0 {
-		// Missing cascadeId or no upstream — fall through to raw proxy
+	hasExtraFields := len(rawFields) > 1
+	if cascadeID == "" || port == 0 || hasExtraFields {
+		// Missing cascadeId, extra request options, or no upstream — fall through to raw proxy
 		p.mu.RLock()
 		rp := p.activeProxy
 		p.mu.RUnlock()
@@ -306,6 +309,14 @@ func (p *Proxy) handleGetCascadeTrajectoryRPC(w http.ResponseWriter, r *http.Req
 	// For running cascades use a short 300ms maxAge so the desktop stays responsive;
 	// for idle cascades 15s is fine since the content is static.
 	maxAge := 300 * time.Millisecond
+	defaultTrajCache.trajCacheMu.RLock()
+	if cached, ok := defaultTrajCache.trajCache[cascadeID]; ok && cached != nil && cached.port == port && cached.data != nil {
+		if cached.data.Status != "" && cached.data.Status != "CASCADE_RUN_STATUS_RUNNING" {
+			maxAge = 15 * time.Second
+		}
+	}
+	defaultTrajCache.trajCacheMu.RUnlock()
+
 	rawResp, fetchErr := p.fetchUpstreamTrajectoryWithMaxAge(cascadeID, port, token, maxAge)
 	if fetchErr != nil {
 		// Forward raw to upstream on cache miss / error
@@ -324,11 +335,20 @@ func (p *Proxy) handleGetCascadeTrajectoryRPC(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	// Re-encode as JSON for the client (same wire format as upstream Connect-RPC response)
-	respBytes, encErr := json.Marshal(rawResp)
-	if encErr != nil {
-		writeJSONError(w, "Failed to encode trajectory response", http.StatusInternalServerError)
-		return
+	var respBytes []byte
+	defaultTrajCache.trajCacheMu.RLock()
+	if cached, ok := defaultTrajCache.trajCache[cascadeID]; ok && cached != nil && cached.data == rawResp && len(cached.rawJSON) > 0 {
+		respBytes = cached.rawJSON
+	}
+	defaultTrajCache.trajCacheMu.RUnlock()
+
+	if len(respBytes) == 0 {
+		var encErr error
+		respBytes, encErr = json.Marshal(rawResp)
+		if encErr != nil {
+			writeJSONError(w, "Failed to encode trajectory response", http.StatusInternalServerError)
+			return
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -835,7 +855,7 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 				continue
 			}
 			inspectedFresh[sn.cid] = true
-			details := p.ParseTrajectoryDetails(sn.data)
+			details := p.ParseTrajectoryDetailsCached(sn.data)
 			if details.PendingInteraction != nil || details.CanProceed {
 				s["needsInput"] = true
 			}
@@ -966,7 +986,7 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 				}
 				raw, err := p.fetchUpstreamTrajectoryWithContext(ctx, cascadeID, port, token)
 				if err == nil && raw != nil {
-					details := p.ParseTrajectoryDetails(raw)
+					details := p.ParseTrajectoryDetailsCached(raw)
 					if details.PendingInteraction != nil || details.CanProceed {
 						mu.Lock()
 						actionMap[cascadeID] = true

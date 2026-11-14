@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"compress/flate"
 	"context"
 	"encoding/json"
 	"hash/fnv"
@@ -244,6 +245,7 @@ func (p *Proxy) HandleEvents(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("[Events] WS upgrade failed", "err", err)
 		return
 	}
+	_ = conn.SetCompressionLevel(flate.BestSpeed)
 	defer conn.Close()
 	defer p.trackWSConn(conn)()
 

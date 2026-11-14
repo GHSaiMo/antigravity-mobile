@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"bytes"
+	"compress/flate"
 	"context"
 	"encoding/binary"
 	"encoding/json"
@@ -145,6 +146,7 @@ func (p *Proxy) HandleRPCMux(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("[RPCMux] WebSocket upgrade failed", "err", err)
 		return
 	}
+	_ = conn.SetCompressionLevel(flate.BestSpeed)
 	defer p.trackWSConn(conn)()
 	defer conn.Close()
 	conn.SetReadLimit(muxMaxFrame)

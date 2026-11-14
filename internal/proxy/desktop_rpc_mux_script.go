@@ -12,7 +12,7 @@ const desktopRPCMuxJS = `
   const OPEN = 1, CANCEL = 3, HEAD = 4, CHUNK = 5, END = 6, ERR = 7;
   const enc = new TextEncoder(), dec = new TextDecoder();
   const baseFetch = window.fetch;
-  let sock = null, sockPromise = null, nextId = 1, brokenUntil = 0;
+  let sock = null, sockPromise = null, nextId = 1, brokenUntil = 0, muxBackoff = 1500;
   const streams = new Map();
 
   function frame(type, id, payload) {
@@ -34,7 +34,7 @@ const desktopRPCMuxJS = `
       let opened = false;
       const ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/gateway/rpc-mux");
       ws.binaryType = "arraybuffer";
-      ws.onopen = () => { opened = true; sock = ws; resolve(ws); };
+      ws.onopen = () => { opened = true; sock = ws; muxBackoff = 1500; resolve(ws); };
       ws.onmessage = (ev) => {
         const buf = new Uint8Array(ev.data);
         if (buf.length < 5) return;
@@ -118,7 +118,7 @@ const desktopRPCMuxJS = `
         const hdrs = {};
         new Headers((init && init.headers) || (isReq ? input.headers : undefined)).forEach((v, k) => { hdrs[k] = v; });
         let ws;
-        try { ws = await connect(); } catch (_) { brokenUntil = Date.now() + 60000; ws = null; }
+        try { ws = await connect(); } catch (_) { brokenUntil = Date.now() + muxBackoff; muxBackoff = Math.min(muxBackoff * 2, 15000); ws = null; }
         if (ws) return await muxFetch(ws, url, hdrs, bytes, (init && init.signal) || (isReq ? input.signal : null));
         return baseFetch.call(this, rawUrl, Object.assign({}, init, { method: "POST", headers: hdrs, body: bytes }));
       }

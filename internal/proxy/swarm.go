@@ -5,6 +5,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -14,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 // SwarmBrief is a lightweight snapshot of active swarm state embedded in StreamUpdatePayload.
@@ -76,8 +79,8 @@ type SwarmViewWorkstream struct {
 
 // SwarmView mirrors the structured summary in view.json written by the swarm narrator.
 type SwarmView struct {
-	Version   string `json:"version,omitempty"`
-	AsOfSeq   int    `json:"as_of_seq,omitempty"`
+	Version   flexString `json:"version,omitempty"`
+	AsOfSeq   int        `json:"as_of_seq,omitempty"`
 	UpdatedAt string `json:"updated_at,omitempty"`
 	Headline  string `json:"headline,omitempty"`
 	Phase     *struct {
@@ -109,11 +112,22 @@ type SwarmSnapshot struct {
 	View          *SwarmView          `json:"view,omitempty"`
 }
 
+type swarmBrainTopology struct {
+	brainModTime  int64
+	scannedAt     time.Time
+	knownCoords   map[string]int64  // coordID -> members.json mtime
+	noSwarmDirs   map[string]int64  // non-swarm dirName -> dir mtime
+	memberToCoord map[string]string // memberConvID -> coordID
+}
+
+const swarmTopologyScanTTL = 3 * time.Second
+
 var (
-	mentionRegex = regexp.MustCompile(`@([a-zA-Z0-9_\-]+)`)
-	swarmCoordMu sync.RWMutex
-	// memberToCoordCache maps member conversationId -> coordinator conversationId
-	memberToCoordCache = make(map[string]string)
+	mentionRegex        = regexp.MustCompile(`@([a-zA-Z0-9_\-]+)`)
+	narratorNameRegex   = regexp.MustCompile(`^narrator(-\d+)?$`)
+	swarmCoordMu        sync.RWMutex
+	memberToCoordCache  = make(map[string]string)
+	swarmTopologyByBase = make(map[string]*swarmBrainTopology)
 )
 
 // flexString unmarshals either a JSON string, number, or null into a string.
@@ -139,9 +153,37 @@ func (f *flexString) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+func indexCoordinatorMembersLocked(topo *swarmBrainTopology, brainBase, coordID string, mtime int64) {
+	membersPath := filepath.Join(brainBase, coordID, ".system_generated", "swarm", "members.json")
+	data, err := os.ReadFile(membersPath)
+	if err != nil {
+		delete(topo.knownCoords, coordID)
+		return
+	}
+	var raw struct {
+		Members map[string]struct {
+			ConversationID string `json:"conversation_id"`
+		} `json:"members"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return
+	}
+	topo.knownCoords[coordID] = mtime
+	for _, m := range raw.Members {
+		if m.ConversationID != "" {
+			topo.memberToCoord[m.ConversationID] = coordID
+			if len(memberToCoordCache) > 2048 {
+				memberToCoordCache = make(map[string]string)
+			}
+			memberToCoordCache[m.ConversationID] = coordID
+		}
+	}
+}
+
 // resolveSwarmDir locates the .system_generated/swarm directory for a conversation ID.
 // If the conversation is itself the coordinator, returns its own swarm dir.
-// If it is a worker member, finds the coordinator owning this member.
+// If it is a worker member, finds the coordinator owning this member using a bounded topology cache
+// so non-swarm conversations incur at most two stat syscalls instead of scanning brain/.
 func resolveSwarmDir(cascadeID string) (string, string) {
 	if cascadeID == "" {
 		return "", ""
@@ -158,75 +200,181 @@ func resolveSwarmDir(cascadeID string) (string, string) {
 		return directDir, cascadeID
 	}
 
-	// 2. Cache check
+	// 2. Positive cache check
 	swarmCoordMu.RLock()
-	cachedCoord, ok := memberToCoordCache[cascadeID]
+	topo := swarmTopologyByBase[brainBase]
+	cachedCoord := ""
+	if topo != nil {
+		cachedCoord = topo.memberToCoord[cascadeID]
+	}
+	if cachedCoord == "" {
+		cachedCoord = memberToCoordCache[cascadeID]
+	}
 	swarmCoordMu.RUnlock()
-	if ok && cachedCoord != "" {
+	if cachedCoord != "" {
 		cachedDir := filepath.Join(brainBase, cachedCoord, ".system_generated", "swarm")
 		if fi, err := os.Stat(filepath.Join(cachedDir, "members.json")); err == nil && !fi.IsDir() {
 			return cachedDir, cachedCoord
 		}
 	}
 
-	// 3. Scan brain dirs ordered by modification time descending (newest first),
-	// since os.ReadDir returns entries in UUID alphabetical order.
+	// 3. Topology & negative cache check
+	brainFi, err := os.Stat(brainBase)
+	if err != nil || !brainFi.IsDir() {
+		return "", ""
+	}
+	brainMtime := brainFi.ModTime().UnixNano()
+
+	swarmCoordMu.Lock()
+	defer swarmCoordMu.Unlock()
+
+	if len(swarmTopologyByBase) > 8 {
+		swarmTopologyByBase = make(map[string]*swarmBrainTopology)
+	}
+	topo = swarmTopologyByBase[brainBase]
+	if topo == nil {
+		topo = &swarmBrainTopology{
+			knownCoords:   make(map[string]int64),
+			noSwarmDirs:   make(map[string]int64),
+			memberToCoord: make(map[string]string),
+		}
+		swarmTopologyByBase[brainBase] = topo
+	}
+
+	// Fast negative hit when brain/ mtime and known coordinator members.json mtimes haven't changed within TTL.
+	if !topo.scannedAt.IsZero() && time.Since(topo.scannedAt) < swarmTopologyScanTTL && topo.brainModTime == brainMtime {
+		for coordID, prevMod := range topo.knownCoords {
+			mPath := filepath.Join(brainBase, coordID, ".system_generated", "swarm", "members.json")
+			if fi, sErr := os.Stat(mPath); sErr == nil && !fi.IsDir() {
+				if fi.ModTime().UnixNano() != prevMod {
+					indexCoordinatorMembersLocked(topo, brainBase, coordID, fi.ModTime().UnixNano())
+				}
+			} else {
+				delete(topo.knownCoords, coordID)
+			}
+		}
+		if coordID := topo.memberToCoord[cascadeID]; coordID != "" {
+			return filepath.Join(brainBase, coordID, ".system_generated", "swarm"), coordID
+		}
+		return "", ""
+	}
+
 	entries, err := os.ReadDir(brainBase)
 	if err != nil {
 		return "", ""
 	}
-	type dirMod struct {
-		name  string
-		mtime int64
+	if len(topo.noSwarmDirs) > 4096 {
+		topo.noSwarmDirs = make(map[string]int64)
 	}
-	cands := make([]dirMod, 0, len(entries))
+	if len(topo.memberToCoord) > 2048 {
+		topo.memberToCoord = make(map[string]string)
+	}
+
 	for _, e := range entries {
 		if !e.IsDir() || e.Name() == cascadeID {
 			continue
 		}
-		var mt int64
-		if info, err := e.Info(); err == nil {
-			mt = info.ModTime().UnixNano()
+		dirName := e.Name()
+		var dirMod int64
+		if info, iErr := e.Info(); iErr == nil {
+			dirMod = info.ModTime().UnixNano()
 		}
-		cands = append(cands, dirMod{name: e.Name(), mtime: mt})
-	}
-	sort.Slice(cands, func(i, j int) bool {
-		return cands[i].mtime > cands[j].mtime
-	})
-
-	limit := len(cands)
-	if limit > 100 {
-		limit = 100
-	}
-	for i := 0; i < limit; i++ {
-		candCoord := cands[i].name
-		candDir := filepath.Join(brainBase, candCoord, ".system_generated", "swarm")
-		membersPath := filepath.Join(candDir, "members.json")
-		data, err := os.ReadFile(membersPath)
-		if err != nil {
+		if prevNoMod, isNoSwarm := topo.noSwarmDirs[dirName]; isNoSwarm && prevNoMod == dirMod && dirMod != 0 {
 			continue
 		}
-		var raw struct {
-			Members map[string]struct {
-				ConversationID string `json:"conversation_id"`
-			} `json:"members"`
-		}
-		if err := json.Unmarshal(data, &raw); err != nil {
+		mPath := filepath.Join(brainBase, dirName, ".system_generated", "swarm", "members.json")
+		fi, sErr := os.Stat(mPath)
+		if sErr != nil || fi.IsDir() {
+			topo.noSwarmDirs[dirName] = dirMod
+			delete(topo.knownCoords, dirName)
 			continue
 		}
-		for _, m := range raw.Members {
-			if m.ConversationID != "" {
-				swarmCoordMu.Lock()
-				memberToCoordCache[m.ConversationID] = candCoord
-				swarmCoordMu.Unlock()
-			}
-			if m.ConversationID == cascadeID {
-				return candDir, candCoord
-			}
+		delete(topo.noSwarmDirs, dirName)
+		mMod := fi.ModTime().UnixNano()
+		if prevMod, ok := topo.knownCoords[dirName]; !ok || prevMod != mMod {
+			indexCoordinatorMembersLocked(topo, brainBase, dirName, mMod)
 		}
 	}
 
+	topo.brainModTime = brainMtime
+	topo.scannedAt = time.Now()
+
+	if coordID := topo.memberToCoord[cascadeID]; coordID != "" {
+		return filepath.Join(brainBase, coordID, ".system_generated", "swarm"), coordID
+	}
 	return "", ""
+}
+
+type rawSwarmMemberEntry struct {
+	ConversationID string     `json:"conversation_id"`
+	Model          string     `json:"model"`
+	Role           string     `json:"role"`
+	WakeMode       string     `json:"wake_mode"`
+	WaitSince      flexString `json:"wait_since"`
+	LastReadSeq    int        `json:"last_read_seq"`
+	LastNudgedSeq  int        `json:"last_nudged_seq"`
+	Killed         bool       `json:"killed"`
+}
+
+// resolveSwarmViewPath resolves <swarmDir>/view.json first, falling back to
+// <brainBase>/<narratorConvId>/swarm_view/view.json per Antigravity 2.32.1 swarm_board/main.mjs.
+func resolveSwarmViewPath(brainBase, swarmDir string, members map[string]rawSwarmMemberEntry) (string, int64) {
+	primary := filepath.Join(swarmDir, "view.json")
+	if fi, err := os.Stat(primary); err == nil && !fi.IsDir() {
+		return primary, fi.ModTime().UnixNano()
+	}
+	if brainBase == "" || len(members) == 0 {
+		return primary, 0
+	}
+	names := make([]string, 0, len(members))
+	for name := range members {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		m := members[name]
+		if m.ConversationID == "" {
+			continue
+		}
+		if m.Role == "narrator" || narratorNameRegex.MatchString(name) {
+			fallback := filepath.Join(brainBase, m.ConversationID, "swarm_view", "view.json")
+			if fi, err := os.Stat(fallback); err == nil && !fi.IsDir() {
+				return fallback, fi.ModTime().UnixNano()
+			}
+		}
+	}
+	return primary, 0
+}
+
+// computeMembersTranscriptDigest computes a fast FNV-1a digest of active members' transcript.jsonl
+// mtime and byte size so ETag and stream signatures reflect live worker progress immediately.
+func computeMembersTranscriptDigest(brainBase string, members map[string]rawSwarmMemberEntry) uint64 {
+	if brainBase == "" || len(members) == 0 {
+		return 0
+	}
+	names := make([]string, 0, len(members))
+	for name, m := range members {
+		if !m.Killed && m.ConversationID != "" {
+			names = append(names, name)
+		}
+	}
+	if len(names) == 0 {
+		return 0
+	}
+	sort.Strings(names)
+	h := fnv.New64a()
+	var scratch [16]byte
+	for _, name := range names {
+		m := members[name]
+		tPath := filepath.Join(brainBase, m.ConversationID, ".system_generated", "logs", "transcript.jsonl")
+		if fi, err := os.Stat(tPath); err == nil && !fi.IsDir() {
+			_, _ = h.Write([]byte(name))
+			_, _ = h.Write(strconv.AppendInt(scratch[:0], fi.ModTime().UnixNano(), 16))
+			_, _ = h.Write([]byte{':'})
+			_, _ = h.Write(strconv.AppendInt(scratch[:0], fi.Size(), 16))
+		}
+	}
+	return h.Sum64()
 }
 
 // GetSwarmSignature returns a lightweight mtime+size signature for the conversation's swarm files
@@ -237,7 +385,8 @@ func GetSwarmSignature(cascadeID string) string {
 		return ""
 	}
 	var mMod, mSize, bMod, bSize, vMod int64
-	if fi, err := os.Stat(filepath.Join(swarmDir, "members.json")); err == nil {
+	membersPath := filepath.Join(swarmDir, "members.json")
+	if fi, err := os.Stat(membersPath); err == nil {
 		mMod = fi.ModTime().UnixNano()
 		mSize = fi.Size()
 	}
@@ -245,10 +394,26 @@ func GetSwarmSignature(cascadeID string) string {
 		bMod = fi.ModTime().UnixNano()
 		bSize = fi.Size()
 	}
-	if fi, err := os.Stat(filepath.Join(swarmDir, "view.json")); err == nil {
+
+	home, _ := os.UserHomeDir()
+	brainBase := ""
+	if home != "" {
+		brainBase = filepath.Join(home, ".gemini", "antigravity", "brain")
+	}
+
+	var tDigest uint64
+	if membersData, err := os.ReadFile(membersPath); err == nil {
+		var rawMembers struct {
+			Members map[string]rawSwarmMemberEntry `json:"members"`
+		}
+		if json.Unmarshal(membersData, &rawMembers) == nil {
+			_, vMod = resolveSwarmViewPath(brainBase, swarmDir, rawMembers.Members)
+			tDigest = computeMembersTranscriptDigest(brainBase, rawMembers.Members)
+		}
+	} else if fi, err := os.Stat(filepath.Join(swarmDir, "view.json")); err == nil {
 		vMod = fi.ModTime().UnixNano()
 	}
-	return fmt.Sprintf("%s:%d-%d:%d-%d:%d", coordID, mMod, mSize, bMod, bSize, vMod)
+	return fmt.Sprintf("%s:%d-%d:%d-%d:%d:%x", coordID, mMod, mSize, bMod, bSize, vMod, tDigest)
 }
 
 // GetSwarmBrief extracts a lightweight brief of the swarm for streaming.
@@ -264,20 +429,33 @@ func GetSwarmBrief(cascadeID string) *SwarmBrief {
 	}
 
 	var rawMembers struct {
-		Title   string `json:"title"`
-		Members map[string]struct {
-			Killed bool   `json:"killed"`
-			Role   string `json:"role"`
-		} `json:"members"`
+		Title   string                         `json:"title"`
+		Members map[string]rawSwarmMemberEntry `json:"members"`
 	}
 	if err := json.Unmarshal(membersData, &rawMembers); err != nil {
 		return nil
 	}
 
+	home, _ := os.UserHomeDir()
+	brainBase := ""
+	if home != "" {
+		brainBase = filepath.Join(home, ".gemini", "antigravity", "brain")
+	}
+
 	total := len(rawMembers.Members)
 	working := 0
 	for _, m := range rawMembers.Members {
-		if !m.Killed {
+		if m.Killed {
+			continue
+		}
+		status := "working"
+		if brainBase != "" && m.ConversationID != "" {
+			tPath := filepath.Join(brainBase, m.ConversationID, ".system_generated", "logs", "transcript.jsonl")
+			if st, _ := readMemberTranscriptActivity(tPath); st != "" {
+				status = st
+			}
+		}
+		if status == "working" {
 			working++
 		}
 	}
@@ -293,8 +471,9 @@ func GetSwarmBrief(cascadeID string) *SwarmBrief {
 		brief.Title = "蜂群协作"
 	}
 
-	// Read view.json for headline/phase/attention count
-	if viewData, err := os.ReadFile(filepath.Join(swarmDir, "view.json")); err == nil && len(viewData) > 0 {
+	// Read view.json (primary or narrator fallback) for headline/phase/attention count
+	viewPath, _ := resolveSwarmViewPath(brainBase, swarmDir, rawMembers.Members)
+	if viewData, err := os.ReadFile(viewPath); err == nil && len(viewData) > 0 {
 		var v SwarmView
 		if err := json.Unmarshal(viewData, &v); err == nil {
 			brief.Headline = v.Headline
@@ -338,8 +517,19 @@ func readMemberTranscriptActivity(transcriptPath string) (statusOverride string,
 	}
 	defer tFile.Close()
 
+	const tailWindow = 256 * 1024
+	discardFirstPartialLine := false
+	if fi, sErr := tFile.Stat(); sErr == nil && fi.Size() > tailWindow {
+		if _, seekErr := tFile.Seek(fi.Size()-tailWindow, io.SeekStart); seekErr == nil {
+			discardFirstPartialLine = true
+		}
+	}
+
 	scanner := bufio.NewScanner(tFile)
 	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+	if discardFirstPartialLine {
+		_ = scanner.Scan()
+	}
 	var prevLine, lastLine []byte
 	for scanner.Scan() {
 		b := scanner.Bytes()
@@ -459,7 +649,6 @@ func GetSwarmSnapshot(cascadeID string, afterSeq int, clientETag string) (*Swarm
 
 	membersPath := filepath.Join(swarmDir, "members.json")
 	boardPath := filepath.Join(swarmDir, "board.jsonl")
-	viewPath := filepath.Join(swarmDir, "view.json")
 
 	fiMembers, err := os.Stat(membersPath)
 	if err != nil {
@@ -471,35 +660,31 @@ func GetSwarmSnapshot(cascadeID string, afterSeq int, clientETag string) (*Swarm
 		boardMod = fi.ModTime().UnixNano()
 		boardSize = fi.Size()
 	}
-	var viewMod int64
-	if fi, err := os.Stat(viewPath); err == nil {
-		viewMod = fi.ModTime().UnixNano()
-	}
-
-	currentETag := fmt.Sprintf(`"%d-%d-%d-%d-%d"`, fiMembers.ModTime().UnixNano(), fiMembers.Size(), boardMod, boardSize, viewMod)
-	if clientETag != "" && clientETag == currentETag {
-		return nil, true, nil
-	}
 
 	membersData, err := os.ReadFile(membersPath)
 	if err != nil {
 		return nil, false, err
 	}
 	var rawMembers struct {
-		Title   string `json:"title"`
-		Members map[string]struct {
-			ConversationID string     `json:"conversation_id"`
-			Model          string     `json:"model"`
-			Role           string     `json:"role"`
-			WakeMode       string     `json:"wake_mode"`
-			WaitSince      flexString `json:"wait_since"`
-			LastReadSeq    int        `json:"last_read_seq"`
-			LastNudgedSeq  int        `json:"last_nudged_seq"`
-			Killed         bool       `json:"killed"`
-		} `json:"members"`
+		Title   string                         `json:"title"`
+		Members map[string]rawSwarmMemberEntry `json:"members"`
 	}
 	if err := json.Unmarshal(membersData, &rawMembers); err != nil {
 		return nil, false, err
+	}
+
+	home, _ := os.UserHomeDir()
+	brainBase := ""
+	if home != "" {
+		brainBase = filepath.Join(home, ".gemini", "antigravity", "brain")
+	}
+
+	viewPath, viewMod := resolveSwarmViewPath(brainBase, swarmDir, rawMembers.Members)
+	tDigest := computeMembersTranscriptDigest(brainBase, rawMembers.Members)
+
+	currentETag := fmt.Sprintf(`"%d-%d-%d-%d-%d-%x"`, fiMembers.ModTime().UnixNano(), fiMembers.Size(), boardMod, boardSize, viewMod, tDigest)
+	if clientETag != "" && clientETag == currentETag {
+		return nil, true, nil
 	}
 
 	// Read board.jsonl
@@ -534,9 +719,6 @@ func GetSwarmSnapshot(cascadeID string, afterSeq int, clientETag string) (*Swarm
 			}
 		}
 	}
-
-	home, _ := os.UserHomeDir()
-	brainBase := filepath.Join(home, ".gemini", "antigravity", "brain")
 
 	members := make([]SwarmMemberInfo, 0, len(rawMembers.Members))
 	workingCount := 0

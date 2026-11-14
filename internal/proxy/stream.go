@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"compress/flate"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -200,6 +201,7 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("[Stream] WS upgrade failed", "err", err)
 		return
 	}
+	_ = clientConn.SetCompressionLevel(flate.BestSpeed)
 	defer clientConn.Close()
 	defer p.trackWSConn(clientConn)()
 
@@ -282,7 +284,7 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 			return true
 		}
 
-		maxAge := 300 * time.Millisecond
+		maxAge := 340 * time.Millisecond
 		if firstPush {
 			// Baseline for the idle change detector below, taken before the first full fetch.
 			lastSummarySig, haveSummarySig = p.cascadeSummarySignature(cascadeID, port, token)
@@ -361,15 +363,18 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 				cachedStreamTitle = t
 			}
 		}
+		fetchedLivePending := false
 		if firstPush || details.Status == "CASCADE_RUN_STATUS_RUNNING" || len(details.QueuedMessages) > 0 || prevQueuedCount > 0 {
 			if qm := p.GetCachedOrFetchPendingMessages(cascadeID, port, token); qm != nil {
 				details.QueuedMessages = qm
+				fetchedLivePending = true
 			}
 		}
 		if details.QueuedMessages == nil {
 			details.QueuedMessages = []QueuedMessageItem{}
+		} else if fetchedLivePending && len(details.QueuedMessages) > 0 {
+			details.QueuedMessages = p.FilterQueuedMessagesAgainstTrajectory(cascadeID, details.QueuedMessages, rawResp.Trajectory.Steps, details.AllMessages)
 		}
-		details.QueuedMessages = p.FilterQueuedMessagesAgainstTrajectory(cascadeID, details.QueuedMessages, rawResp.Trajectory.Steps, details.AllMessages)
 		details.ContextMeter = p.fetchUpstreamGeneratorMetadata(cascadeID, port, token)
 		lastDetails = details
 

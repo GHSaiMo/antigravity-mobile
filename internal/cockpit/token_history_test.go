@@ -252,3 +252,36 @@ func TestArchiveConversationTokens_BeforeDelete(t *testing.T) {
 		t.Fatalf("DesktopTokens = %d, want 1000", resp.Summary.DesktopTokens)
 	}
 }
+
+func TestGetTokenHistory_LargeJSONLLineOver64KB(t *testing.T) {
+	tempHome := t.TempDir()
+	t.Setenv("HOME", tempHome)
+	t.Setenv("COCKPIT_TOOLS_DATA_DIR", filepath.Join(tempHome, ".cockpit_tools"))
+	t.Setenv("COCKPIT_DATA_DIR", "")
+
+	convDir := filepath.Join(tempHome, ".gemini", "antigravity", "brain", "conv-huge-line", ".system_generated", "logs")
+	if err := os.MkdirAll(convDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Build a single JSONL line > 120KB (nearly 2x the old 64KB ReadLine limit)
+	padding := make([]byte, 120*1024)
+	for i := range padding {
+		padding[i] = 'a'
+	}
+	hugeLine := `{"step_index":1,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"2026-11-15T01:00:00Z","content":"` +
+		string(padding) +
+		`","input_tokens":5000,"cache_read_tokens":2000,"output_tokens":3000,"callId":"huge-1"}` + "\n"
+
+	if err := os.WriteFile(filepath.Join(convDir, "transcript.jsonl"), []byte(hugeLine), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	resp, err := GetTokenHistory(true)
+	if err != nil {
+		t.Fatalf("GetTokenHistory() error = %v", err)
+	}
+	if resp.Summary.TotalTokens != 10000 {
+		t.Fatalf("TotalTokens for >64KB JSONL line = %d, want 10000", resp.Summary.TotalTokens)
+	}
+}

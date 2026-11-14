@@ -16,6 +16,7 @@ type trajectoryCacheEntry struct {
 	fetchedAt time.Time
 	port      int
 	data      *upstreamTrajectoryResp
+	rawJSON   []byte
 	parsedSig string
 	parsed    *TrajectoryDetails
 }

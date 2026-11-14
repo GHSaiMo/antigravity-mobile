@@ -2,8 +2,8 @@ package cockpit
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
-	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -175,33 +175,23 @@ func parseTranscriptFile(filePath, source string) []parsedTranscriptRecord {
 	defer f.Close()
 
 	var records []parsedTranscriptRecord
-	reader := bufio.NewReaderSize(f, 64*1024)
+	scanner := bufio.NewScanner(f)
+	// Allow JSONL lines up to 16MB so large turns with embedded tool output or thoughts
+	// are never dropped during token history aggregation.
+	scanner.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
 
 	lineIdx := 0
 	currentModel := ""
 
-	for {
-		line, isPrefix, err := reader.ReadLine()
-		if err != nil {
-			if err != io.EOF {
-				slog.Debug("[TokenScanner] ReadLine error", "path", filePath, "err", err)
-			}
-			break
-		}
-		// If line exceeds 64KB, discard rest of line for memory protection
-		if isPrefix {
-			for isPrefix && err == nil {
-				_, isPrefix, err = reader.ReadLine()
-			}
-			continue
-		}
+	for scanner.Scan() {
+		line := scanner.Bytes()
 		lineIdx++
 		if len(line) == 0 {
 			continue
 		}
 
 		// Quick check if line might contain token counts or model before full JSON unmarshal
-		if !strings.Contains(string(line), "token") && !strings.Contains(string(line), "Model") {
+		if !bytes.Contains(line, []byte("token")) && !bytes.Contains(line, []byte("Model")) {
 			continue
 		}
 

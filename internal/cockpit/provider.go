@@ -410,20 +410,59 @@ func makeMetric(fraction *float64, resetTime string) *QuotaMetric {
 type quotaCacheEntry struct {
 	data      *CockpitQuotaResponse
 	expiresAt time.Time
-	emailKey  string
+}
+
+type decryptedQuotaCacheEntry struct {
+	modTime int64
+	quota   *storedAccountQuota
 }
 
 var (
-	quotaCacheMu  sync.RWMutex
-	quotaCache    *quotaCacheEntry
-	quotaCacheTTL = 3 * time.Second
+	quotaCacheMu        sync.RWMutex
+	quotaCacheByEmail   = make(map[string]*quotaCacheEntry)
+	decryptedQuotaCache = make(map[string]decryptedQuotaCacheEntry)
+	quotaCacheTTL       = 3 * time.Second
 )
 
 // InvalidateQuotaCache clears the memory cache of quota information.
 func InvalidateQuotaCache() {
 	quotaCacheMu.Lock()
-	quotaCache = nil
+	quotaCacheByEmail = make(map[string]*quotaCacheEntry)
+	decryptedQuotaCache = make(map[string]decryptedQuotaCacheEntry)
 	quotaCacheMu.Unlock()
+}
+
+func getCachedStoredAccountQuota(dataDir, accountID string) *storedAccountQuota {
+	accountFilePath := filepath.Join(dataDir, "accounts", accountID+".json")
+	fi, err := os.Stat(accountFilePath)
+	if err != nil || fi.IsDir() {
+		return nil
+	}
+	mtime := fi.ModTime().UnixNano()
+
+	quotaCacheMu.RLock()
+	if cached, ok := decryptedQuotaCache[accountID]; ok && cached.modTime == mtime {
+		quotaCacheMu.RUnlock()
+		return cached.quota
+	}
+	quotaCacheMu.RUnlock()
+
+	detail, dErr := DecryptAccountByExactID(accountID)
+	if dErr != nil || detail == nil {
+		return nil
+	}
+	sq := extractStoredAccountQuota(detail.Quota)
+
+	quotaCacheMu.Lock()
+	if len(decryptedQuotaCache) > 64 {
+		decryptedQuotaCache = make(map[string]decryptedQuotaCacheEntry)
+	}
+	decryptedQuotaCache[accountID] = decryptedQuotaCacheEntry{
+		modTime: mtime,
+		quota:   sq,
+	}
+	quotaCacheMu.Unlock()
+	return sq
 }
 
 // GetQuotas reads Cockpit Tools' local storage and cache to construct the full quota snapshot.
@@ -436,8 +475,8 @@ func GetQuotas(activeEmails ...string) (*CockpitQuotaResponse, error) {
 	}
 
 	quotaCacheMu.RLock()
-	if quotaCache != nil && time.Now().Before(quotaCache.expiresAt) && quotaCache.emailKey == emailKey {
-		cached := quotaCache.data
+	if entry := quotaCacheByEmail[emailKey]; entry != nil && time.Now().Before(entry.expiresAt) {
+		cached := entry.data
 		quotaCacheMu.RUnlock()
 		return cached, nil
 	}
@@ -457,9 +496,11 @@ func GetQuotas(activeEmails ...string) (*CockpitQuotaResponse, error) {
 				UpdatedAt: time.Now().Unix(),
 			}
 			quotaCacheMu.Lock()
-			quotaCache = &quotaCacheEntry{
+			if len(quotaCacheByEmail) > 16 {
+				quotaCacheByEmail = make(map[string]*quotaCacheEntry)
+			}
+			quotaCacheByEmail[emailKey] = &quotaCacheEntry{
 				data:      emptyResp,
-				emailKey:  emailKey,
 				expiresAt: time.Now().Add(30 * time.Second),
 			}
 			quotaCacheMu.Unlock()
@@ -538,13 +579,10 @@ func GetQuotas(activeEmails ...string) (*CockpitQuotaResponse, error) {
 		}
 
 		// 1. Read account detail from ~/.cockpit_tools/accounts/<id>.json first
-		// to determine subscription_tier and have model percentage fallback ready.
-		var sq *storedAccountQuota
-		if detail, dErr := DecryptAccountByExactID(acc.ID); dErr == nil && detail != nil {
-			sq = extractStoredAccountQuota(detail.Quota)
-			if sq != nil && sq.SubscriptionTier != "" {
-				item.SubscriptionTier = normalizeSubscriptionTier(sq.SubscriptionTier)
-			}
+		// to determine subscription_tier and have model percentage fallback ready (cached by mtime).
+		sq := getCachedStoredAccountQuota(dataDir, acc.ID)
+		if sq != nil && sq.SubscriptionTier != "" {
+			item.SubscriptionTier = normalizeSubscriptionTier(sq.SubscriptionTier)
 		}
 
 		if cBytes, err := os.ReadFile(cachePath); err == nil {
@@ -718,10 +756,12 @@ func GetQuotas(activeEmails ...string) (*CockpitQuotaResponse, error) {
 	}
 
 	quotaCacheMu.Lock()
-	quotaCache = &quotaCacheEntry{
+	if len(quotaCacheByEmail) > 16 {
+		quotaCacheByEmail = make(map[string]*quotaCacheEntry)
+	}
+	quotaCacheByEmail[emailKey] = &quotaCacheEntry{
 		data:      resp,
 		expiresAt: time.Now().Add(quotaCacheTTL),
-		emailKey:  emailKey,
 	}
 	quotaCacheMu.Unlock()
 
