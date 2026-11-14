@@ -141,8 +141,11 @@ public struct SettingsSheet: View {
                     header: Text("默认模型"),
                     footer: Text(defaultModelFooter)
                 ) {
-                    defaultModelPicker(title: "Gemini 默认", provider: "gemini", selection: $settings.defaultGeminiModel)
-                    defaultModelPicker(title: "Claude 默认", provider: "claude", selection: $settings.defaultClaudeModel)
+                    defaultModelPicker(title: "Gemini", provider: "gemini", selection: $settings.defaultGeminiModel)
+                    defaultModelPicker(title: "Claude", provider: "claude", selection: $settings.defaultClaudeModel)
+                    if !modelCatalog.options(for: "orchestrator").isEmpty {
+                        defaultModelPicker(title: "Orchestrator", provider: "orchestrator", selection: $settings.defaultOrchestratorModel)
+                    }
                 }
                 
                 // MARK: - 4c. MCP 工具与技能看板
@@ -298,7 +301,10 @@ extension SettingsSheet {
     fileprivate var defaultModelFooter: String {
         if modelCatalog.isLoading && modelCatalog.catalog == nil { return "正在读取可用模型..." }
         if modelCatalog.loadFailed && modelCatalog.catalog == nil { return "暂时无法读取可用模型列表，仍会使用当前已保存的默认模型。" }
-        return "输入框上方短按切换 Gemini 与 Claude，长按选择模型及思考强度；已有会话自动跟随桌面当前模型，更改后随消息发送生效。"
+        if modelCatalog.hasOrchestratorModels {
+            return "输入框上方短按在 Gemini / Claude / Orchestrator 间切换，长按上滑并右滑选择模型及思考强度；已有会话自动跟随桌面当前模型，更改后随消息发送生效。"
+        }
+        return "输入框上方短按切换 Gemini 与 Claude，长按上滑并右滑选择模型及思考强度；已有会话自动跟随桌面当前模型，更改后随消息发送生效。"
     }
 
     /// 列表来自网关实时取到的可用模型；已保存的模型不在列表里时显示统一可读名称，避免露出小写裸 ID。

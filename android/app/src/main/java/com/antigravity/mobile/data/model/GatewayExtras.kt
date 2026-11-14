@@ -210,7 +210,7 @@ object ModelDefaults {
         "claude-opus-4-6-thinking" to "Claude Opus 4.6 (Thinking)",
         "claude-sonnet-4-6" to "Claude Sonnet 4.6 (Thinking)",
         "gemini-4-hydrogen-high" to "Gemini 4 Hydrogen (High)",
-        "gemini-4-hydrogen-xhigh" to "Gemini 4 Hydrogen (XHigh)",
+        "gemini-4-hydrogen-xhigh" to "Gemini 4 Hydrogen (Extra)",
         "gemini-4-hydrogen-medium" to "Gemini 4 Hydrogen (Medium)",
         "gemini-4-hydrogen-low" to "Gemini 4 Hydrogen (Low)",
         "orchestrator-carbon" to "Orchestrator (Carbon)",
@@ -227,7 +227,7 @@ object ModelDefaults {
         "gemini-4-argon-high" to "Argon · High",
         "gemini-4-argon-medium" to "Argon · Med",
         "gemini-4-argon-low" to "Argon · Low",
-        "gemini-4-hydrogen-xhigh" to "Hydrogen · XH",
+        "gemini-4-hydrogen-xhigh" to "Hydrogen · Extra",
         "gemini-4-hydrogen-high" to "Hydrogen · High",
         "gemini-4-hydrogen-medium" to "Hydrogen · Med",
         "gemini-4-hydrogen-low" to "Hydrogen · Low",
@@ -257,11 +257,11 @@ object ModelDefaults {
 
         val tokens = trimmed.split("-").filter { it.isNotEmpty() }.toMutableList()
         if (tokens.isEmpty()) return trimmed
-        val qualifiers = setOf("high", "medium", "low", "thinking")
+        val qualifiers = setOf("high", "medium", "low", "xhigh", "extra", "thinking")
         var qualifier: String? = null
         if (tokens.size > 1 && tokens.last().lowercase() in qualifiers) {
             val q = tokens.removeAt(tokens.lastIndex).lowercase()
-            qualifier = q.replaceFirstChar { it.uppercase() }
+            qualifier = if (q == "xhigh" || q == "extra") "Extra" else q.replaceFirstChar { it.uppercase() }
         }
         val parts = mutableListOf<String>()
         for (token in tokens) {
@@ -280,22 +280,31 @@ object ModelDefaults {
         return if (qualifier != null) "$base ($qualifier)" else base
     }
 
+    private fun normalizeDisplayName(name: String): String {
+        return if (name.endsWith("(XHigh)")) {
+            name.removeSuffix("(XHigh)") + "(Extra)"
+        } else {
+            name
+        }
+    }
+
     /** 始终返回人类可读的统一展示名（实时目录 → 静态映射 → 规范格式化），不暴露小写裸 ID。 */
     fun displayName(id: String, options: List<ModelOption> = emptyList()): String {
         val key = id.trim()
         options.firstOrNull { it.id.equals(key, ignoreCase = true) }?.name
             ?.takeIf { it.isNotBlank() }
-            ?.let { return it }
+            ?.let { return normalizeDisplayName(it) }
         return formatIDAsDisplayName(key)
     }
 
     /** 格式化模型选择器选项展示名：过滤掉 "New" / "Fast" / "Notice" 等冗余特性标签及前导的点符号，保持手机端菜单简洁。 */
     fun formatPickerLabel(name: String, tag: String?): String {
+        val normalizedName = normalizeDisplayName(name)
         val cleanTag = tag?.trim()
         return if (!cleanTag.isNullOrBlank() && cleanTag.lowercase() !in IGNORED_PICKER_TAGS) {
-            "$name · $cleanTag"
+            "$normalizedName · $cleanTag"
         } else {
-            name
+            normalizedName
         }
     }
 
@@ -325,7 +334,7 @@ object ModelDefaults {
             when (variant.lowercase()) {
                 "medium" -> variant = "Med"
                 "thinking" -> variant = "Think"
-                "xhigh" -> variant = "XH"
+                "xhigh" -> variant = "Extra"
             }
             return "$base · $variant"
         }

@@ -33,6 +33,7 @@ public final class AppSettings {
     private let activeModelKey = "antigravity.active_model"
     private let defaultGeminiModelKey = "antigravity.default_gemini_model"
     private let defaultClaudeModelKey = "antigravity.default_claude_model"
+    private let defaultOrchestratorModelKey = "antigravity.default_orchestrator_model"
     private let defaultNewSessionProviderKey = "antigravity.default_new_session_provider"
     private let autoApprovePermissionsKey = "antigravity.auto_approve_permissions"
     private let enableVoiceModeKey = "antigravity.enable_voice_mode"
@@ -276,19 +277,31 @@ public final class AppSettings {
         didSet { UserDefaults.standard.set(defaultClaudeModel, forKey: defaultClaudeModelKey) }
     }
 
-    /// 新建会话默认使用的模型厂商（"gemini" | "claude"）
+    public var defaultOrchestratorModel: String {
+        didSet { UserDefaults.standard.set(defaultOrchestratorModel, forKey: defaultOrchestratorModelKey) }
+    }
+
+    /// 新建会话默认使用的模型厂商（"gemini" | "claude" | "orchestrator"）
     public var defaultNewSessionProvider: String {
         didSet { UserDefaults.standard.set(defaultNewSessionProvider, forKey: defaultNewSessionProviderKey) }
     }
 
     /// 新建会话默认选用的具体模型（跟随对应厂商的默认设置）
     public var defaultNewSessionModel: String {
-        defaultNewSessionProvider == "claude" ? defaultClaudeModel : defaultGeminiModel
+        switch defaultNewSessionProvider {
+        case "claude": return defaultClaudeModel
+        case "orchestrator": return defaultOrchestratorModel
+        default: return defaultGeminiModel
+        }
     }
 
     public var activeModelEnum: String {
         if let known = ModelCatalogStore.shared.modelEnum(forID: activeModel) { return known }
-        return isClaudeActive ? "MODEL_PLACEHOLDER_M26" : "MODEL_PLACEHOLDER_M318"
+        switch activeModelProviderKind {
+        case .claude: return "MODEL_PLACEHOLDER_M26"
+        case .orchestrator: return "MODEL_PLACEHOLDER_M667"
+        case .gemini, .other: return "MODEL_PLACEHOLDER_M318"
+        }
     }
 
     public var activeModelDisplayName: String {
@@ -304,11 +317,23 @@ public final class AppSettings {
     }
 
     public func toggleActiveModel() {
-        activeModel = ModelDefaultsLogic.toggleTarget(current: activeModel, geminiDefault: defaultGeminiModel, claudeDefault: defaultClaudeModel)
+        activeModel = ModelDefaultsLogic.toggleTarget(
+            current: activeModel,
+            geminiDefault: defaultGeminiModel,
+            claudeDefault: defaultClaudeModel,
+            orchestratorDefault: defaultOrchestratorModel,
+            hasOrchestrator: ModelCatalogStore.shared.hasOrchestratorModels
+        )
     }
 
     public func syncModel(from raw: String?) {
-        let target = ModelDefaultsLogic.resolveActive(raw: raw, current: activeModel, geminiDefault: defaultGeminiModel, claudeDefault: defaultClaudeModel)
+        let target = ModelDefaultsLogic.resolveActive(
+            raw: raw,
+            current: activeModel,
+            geminiDefault: defaultGeminiModel,
+            claudeDefault: defaultClaudeModel,
+            orchestratorDefault: defaultOrchestratorModel
+        )
         if activeModel != target {
             activeModel = target
         }
@@ -612,6 +637,7 @@ public final class AppSettings {
         self.activeModel = savedModel
         self.defaultGeminiModel = UserDefaults.standard.string(forKey: defaultGeminiModelKey).flatMap { $0.isEmpty ? nil : $0 } ?? ModelDefaultsLogic.fallbackGemini
         self.defaultClaudeModel = UserDefaults.standard.string(forKey: defaultClaudeModelKey).flatMap { $0.isEmpty ? nil : $0 } ?? ModelDefaultsLogic.fallbackClaude
+        self.defaultOrchestratorModel = UserDefaults.standard.string(forKey: defaultOrchestratorModelKey).flatMap { $0.isEmpty ? nil : $0 } ?? ModelDefaultsLogic.fallbackOrchestrator
         self.defaultNewSessionProvider = UserDefaults.standard.string(forKey: defaultNewSessionProviderKey).flatMap { $0.isEmpty ? nil : $0 } ?? "gemini"
         
         let savedAutoApprove = UserDefaults.standard.bool(forKey: autoApprovePermissionsKey)

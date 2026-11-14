@@ -264,11 +264,13 @@ extension ChatViewModel {
     public func toggleModel() {
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         hasUserManuallySelectedModel = true
-        // 切到「设置 › 默认模型」里为另一个厂商选定的具体模型
+        // 切到「设置 › 默认模型」里为下一个厂商选定的具体模型（Ultra 账号支持 Gemini → Claude → Orchestrator 循环）
         activeModel = ModelDefaultsLogic.toggleTarget(
             current: activeModel,
             geminiDefault: settings.defaultGeminiModel,
-            claudeDefault: settings.defaultClaudeModel
+            claudeDefault: settings.defaultClaudeModel,
+            orchestratorDefault: settings.defaultOrchestratorModel,
+            hasOrchestrator: ModelCatalogStore.shared.hasOrchestratorModels
         )
         activeModelName = nil
         updateCascadeConfigRawModel(activeModelEnum, modelName: activeModel)

@@ -45,6 +45,7 @@ public struct ChatView: View {
     @State var showSwarmSheet = false
     @State var showContextAuditSheet = false
     @State var showWorkflowTemplateSheet = false
+    @State var modelPickerState = ModelSlidePickerState()
     @State var selectedSubagentDetail: SubagentItem? = nil
     @State var currentVisibleTurnIndex: Int = 1
     @State var lockedTurnIndex: Int? = nil
@@ -158,6 +159,19 @@ public struct ChatView: View {
                 inputBar
             }
         }
+        .coordinateSpace(name: "chatRoot")
+        .onGeometryChange(for: CGSize.self) { proxy in
+            proxy.size
+        } action: { newSize in
+            modelPickerState.containerSize = newSize
+        }
+        .overlay {
+            ModelSlidePickerOverlay(state: modelPickerState) { modelId in
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    viewModel.selectModel(modelId)
+                }
+            }
+        }
         .navigationTitle(viewModel.currentTitle)
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(true)
@@ -258,6 +272,11 @@ public struct ChatView: View {
             handleViewAppear()
         }
         .task {
+            if let url = AppSettings.shared.serverURL, !AppSettings.shared.isDemoMode {
+                Task {
+                    await ModelCatalogStore.shared.refreshIfNeeded(settings: AppSettings.shared, baseURL: url)
+                }
+            }
             await viewModel.loadMessages()
             viewModel.connectStream()
         }

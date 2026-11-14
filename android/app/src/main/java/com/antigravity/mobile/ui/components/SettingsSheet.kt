@@ -978,14 +978,14 @@ private fun DefaultModelSection(
                 .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
         ) {
             ModelPickerRow(
-                label = "Gemini 默认",
+                label = "Gemini",
                 selectedId = gemini,
                 options = catalog?.models?.filter { it.provider == "gemini" }.orEmpty(),
                 onSelect = { prefs.defaultGeminiModel = it }
             )
             HorizontalDivider(color = colors.separator.copy(alpha = 0.4f), thickness = 0.5.dp)
             ModelPickerRow(
-                label = "Claude 默认",
+                label = "Claude",
                 selectedId = claude,
                 options = catalog?.models?.filter { it.provider == "claude" }.orEmpty(),
                 onSelect = { prefs.defaultClaudeModel = it }
