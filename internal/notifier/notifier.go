@@ -161,6 +161,13 @@ func (n *Notifier) NotifyAction(cascadeID, title string, pi *proxy.PendingIntera
 	var notifBody string
 
 	switch pi.Type {
+	case "workflow_approval":
+		notifTitle = "⚠️ 动态工作流需审批"
+		if pi.WorkflowApproval != nil && pi.WorkflowApproval.Description != "" {
+			notifBody = fmt.Sprintf("编排工作流申请执行：%s", truncateString(pi.WorkflowApproval.Description, 90))
+		} else {
+			notifBody = fmt.Sprintf("动态工作流申请执行：%s", truncateString(pi.Title, 90))
+		}
 	case "permission":
 		actionLower := strings.ToLower(pi.Action)
 		if strings.Contains(actionLower, "command") || strings.Contains(actionLower, "run") {

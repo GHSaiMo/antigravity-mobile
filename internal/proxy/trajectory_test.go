@@ -1703,7 +1703,7 @@ func TestParseWorkflowItem(t *testing.T) {
 		"status": "CORTEX_STEP_STATUS_DONE",
 		"toolCall": {
 			"name": "run_workflow",
-			"argumentsJson": "{\"Description\":\"Security audit across modules\",\"Script\":\"# python script\"}"
+			"argumentsJson": "{\"Description\":\"Security audit across modules\",\"Script\":\"phase('scan')\\nagent(role='security auditor')\\nparallel([1,2], fn)\"}"
 		},
 		"plannerResponse": {
 			"response": "Workflow started.\n[phase: code_review]\nStarting security review subagents...\nLogs: all passed\n{\"audit_status\":\"clean\",\"issues\":0}"
@@ -1727,6 +1727,44 @@ func TestParseWorkflowItem(t *testing.T) {
 	}
 	if wf.ResultJSON == "" {
 		t.Errorf("expected resultJson to be extracted, got empty")
+	}
+
+	// Test PendingInteraction workflow_approval
+	rawJSON := `{
+		"status": "CASCADE_RUN_STATUS_RUNNING",
+		"trajectory": {
+			"trajectoryId": "traj-wf-1",
+			"cascadeId": "casc-wf-1",
+			"steps": [
+				{
+					"status": "CORTEX_STEP_STATUS_WAITING",
+					"toolCall": {
+						"name": "run_workflow",
+						"argumentsJson": "{\"Description\":\"Dynamic Multi-agent Refactor\",\"Script\":\"phase('prepare')\\nphase('parallel_build')\\nagent(role='compiler')\"}"
+					},
+					"requestedInteraction": {
+						"permission": {
+							"resource": {"action": "run_workflow", "target": "workflow.py"},
+							"actionDescription": "Allow running dynamic workflow"
+						}
+					}
+				}
+			]
+		}
+	}`
+	var rawResp upstreamTrajectoryResp
+	if err := json.Unmarshal([]byte(rawJSON), &rawResp); err != nil {
+		t.Fatalf("unmarshal rawResp: %v", err)
+	}
+	pi := buildPendingInteraction(&rawResp, rawResp.Trajectory.Steps)
+	if pi == nil || pi.Type != "workflow_approval" {
+		t.Fatalf("expected workflow_approval PendingInteraction, got: %+v", pi)
+	}
+	if pi.WorkflowApproval == nil {
+		t.Fatalf("expected WorkflowApproval to be non-nil")
+	}
+	if len(pi.WorkflowApproval.EstimatedPhases) != 2 || pi.WorkflowApproval.EstimatedPhases[0] != "prepare" {
+		t.Errorf("unexpected estimated phases: %+v", pi.WorkflowApproval.EstimatedPhases)
 	}
 }
 

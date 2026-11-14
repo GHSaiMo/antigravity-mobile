@@ -10,7 +10,10 @@ extension ChatView {
         ChatFloatingSlashPopupHost(
             viewModel: viewModel,
             isSlashPickerDismissed: $isSlashPickerDismissed,
-            currentViewportHeight: currentViewportHeight
+            currentViewportHeight: currentViewportHeight,
+            onSelectWorkflow: {
+                showWorkflowTemplateSheet = true
+            }
         )
     }
 
@@ -91,7 +94,32 @@ extension ChatView {
                     }
                     .buttonStyle(.plain)
 
-                    // 2b. 已选中的斜杠命令按钮（紧跟 Gemini 右侧，样式同高对齐，右上角带小叉）
+                    // 2b. Workflow: 打开动态工作流模板抽屉（固定放到模型按钮右边）
+                    Button {
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        isInputFocused = false
+                        showWorkflowTemplateSheet = true
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "point.3.connected.trianglepath.dotted")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundColor(.indigo)
+                            Text("Workflow")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundColor(.primary)
+                        }
+                        .padding(.horizontal, 12)
+                        .frame(height: 32)
+                        .background(Color(uiColor: .secondarySystemBackground))
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
+                        )
+                    }
+                    .buttonStyle(.plain)
+
+                    // 2c. 已选中的斜杠命令按钮（紧跟右侧，样式同高对齐，右上角带小叉）
                     if let command = viewModel.selectedSlashCommand {
                         SlashCommandChipView(command: command) {
                             UIImpactFeedbackGenerator(style: .light).impactOccurred()
@@ -318,6 +346,7 @@ private struct ChatFloatingSlashPopupHost: View {
     @Bindable var viewModel: ChatViewModel
     @Binding var isSlashPickerDismissed: Bool
     let currentViewportHeight: CGFloat
+    var onSelectWorkflow: (() -> Void)? = nil
 
     var body: some View {
         if GatewayCompatStore.shared.isAvailable(GatewayFeature.slash),
@@ -331,7 +360,12 @@ private struct ChatFloatingSlashPopupHost: View {
                 maxListHeight: maxList,
                 onSelect: { cmd in
                     isSlashPickerDismissed = false
-                    viewModel.selectSlashCommand(cmd)
+                    if cmd.name == "workflow" {
+                        onSelectWorkflow?()
+                        viewModel.selectSlashCommand(cmd)
+                    } else {
+                        viewModel.selectSlashCommand(cmd)
+                    }
                 },
                 onDismiss: {
                     UIImpactFeedbackGenerator(style: .light).impactOccurred()

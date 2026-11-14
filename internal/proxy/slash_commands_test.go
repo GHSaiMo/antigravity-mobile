@@ -34,7 +34,7 @@ func TestBuildSlashCommandTables(t *testing.T) {
 	for _, o := range options {
 		names = append(names, o.Kind+":"+o.Name)
 	}
-	want := "system:goal,system:plan,skill:alpha-skill,skill:zeta-skill"
+	want := "system:goal,system:plan,system:workflow,skill:alpha-skill,skill:zeta-skill"
 	if strings.Join(names, ",") != want {
 		t.Fatalf("menu = %v, want %s", names, want)
 	}
@@ -106,7 +106,7 @@ func TestSlashCommandsEndpointAndCache(t *testing.T) {
 		return res
 	}
 	res := get("/gateway/slash-commands")
-	if len(res.Commands) != 2 || res.Commands[0].Name != "plan" || res.Commands[1].Name != "bird-twitter" {
+	if len(res.Commands) != 3 || res.Commands[0].Name != "plan" || res.Commands[1].Name != "workflow" || res.Commands[2].Name != "bird-twitter" {
 		t.Fatalf("commands = %+v", res.Commands)
 	}
 	get("/gateway/slash-commands")

@@ -198,6 +198,8 @@ fun ChatScreen(
     var showContextAuditSheet by remember { mutableStateOf(false) }
     var showSendQueuedNowConfirmDialog by remember { mutableStateOf(false) }
     var queuedItemToSendNow by remember { mutableStateOf<com.antigravity.mobile.data.model.QueuedMessageItem?>(null) }
+    var showWorkflowTemplateSheet by remember { mutableStateOf(false) }
+    var selectedWorkflowSubagent by remember { mutableStateOf<com.antigravity.mobile.data.model.SubagentItem?>(null) }
     var lockedTurnIndex by remember { mutableStateOf<Int?>(null) }
     var isSlashPickerDismissed by remember { mutableStateOf(false) }
     var previousInputTextForSlash by remember { mutableStateOf(inputText) }
@@ -1172,6 +1174,8 @@ fun ChatScreen(
                                             viewModel.openImageViewer(items = items, initialIndex = index)
                                         },
                                         onSubagentClick = openSubagent,
+                                        onStopWorkflow = { viewModel.cancelExecution() },
+                                        onSelectWorkflowSubagent = { sa -> selectedWorkflowSubagent = sa },
                                         onCompactClick = { viewModel.sendCompactCommand() },
                                         onStartNewSessionClick = onStartNewSession,
                                         onUndoClick = if (compat.isAvailable(com.antigravity.mobile.data.model.GatewayFeature.REVERT)) {
@@ -1246,7 +1250,12 @@ fun ChatScreen(
                         isLoading = uiState.isLoadingSlashCommands,
                         onSelect = {
                             isSlashPickerDismissed = false
-                            viewModel.selectSlashCommand(it)
+                            if (it.name.equals("workflow", ignoreCase = true)) {
+                                showWorkflowTemplateSheet = true
+                                viewModel.onInputTextChanged("")
+                            } else {
+                                viewModel.selectSlashCommand(it)
+                            }
                         },
                         onDismiss = {
                             isSlashPickerDismissed = true
@@ -1255,17 +1264,38 @@ fun ChatScreen(
                             .align(Alignment.BottomCenter)
                             .padding(top = 8.dp, bottom = 8.dp)
                     )
+                }
 
-                    // 浮动跳跃双钮导航条 (Prompt Jump Stepper)
-                    if (animatedStepperAlpha > 0.01f) {
-                        com.antigravity.mobile.ui.components.PromptJumpStepper(
-                            currentTurn = currentTurnIndex,
-                            totalTurns = turns.size,
-                            isAtTop = currentTurnIndex <= 1,
-                            isAtLastTurn = currentTurnIndex >= turns.size,
-                            onJumpPrevious = {
-                                stepperAlphaTarget = 1.0f
-                                val targetTurn = (currentTurnIndex - 1).coerceAtLeast(1)
+                // 浮动跳跃双钮导航条 (Prompt Jump Stepper)
+                if (animatedStepperAlpha > 0.01f) {
+                    com.antigravity.mobile.ui.components.PromptJumpStepper(
+                        currentTurn = currentTurnIndex,
+                        totalTurns = turns.size,
+                        isAtTop = currentTurnIndex <= 1,
+                        isAtLastTurn = currentTurnIndex >= turns.size,
+                        onJumpPrevious = {
+                            stepperAlphaTarget = 1.0f
+                            val targetTurn = (currentTurnIndex - 1).coerceAtLeast(1)
+                            lockedTurnIndex = targetTurn
+                            val matchTurn = turns.firstOrNull { it.turnIndex == targetTurn }
+                            if (matchTurn != null) {
+                                val targetIndex = uiState.messages.indexOfFirst { it.id == matchTurn.firstMessageId }
+                                if (targetIndex >= 0) {
+                                    coroutineScope.launch {
+                                        isProgrammaticScrolling = true
+                                        try {
+                                            listState.animateScrollToItem(targetIndex)
+                                        } finally {
+                                            isProgrammaticScrolling = false
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        onJumpNextOrBottom = {
+                            stepperAlphaTarget = 1.0f
+                            if (currentTurnIndex < turns.size) {
+                                val targetTurn = currentTurnIndex + 1
                                 lockedTurnIndex = targetTurn
                                 val matchTurn = turns.firstOrNull { it.turnIndex == targetTurn }
                                 if (matchTurn != null) {
@@ -1281,42 +1311,7 @@ fun ChatScreen(
                                         }
                                     }
                                 }
-                            },
-                            onJumpNextOrBottom = {
-                                stepperAlphaTarget = 1.0f
-                                if (currentTurnIndex < turns.size) {
-                                    val targetTurn = currentTurnIndex + 1
-                                    lockedTurnIndex = targetTurn
-                                    val matchTurn = turns.firstOrNull { it.turnIndex == targetTurn }
-                                    if (matchTurn != null) {
-                                        val targetIndex = uiState.messages.indexOfFirst { it.id == matchTurn.firstMessageId }
-                                        if (targetIndex >= 0) {
-                                            coroutineScope.launch {
-                                                isProgrammaticScrolling = true
-                                                try {
-                                                    listState.animateScrollToItem(targetIndex)
-                                                } finally {
-                                                    isProgrammaticScrolling = false
-                                                }
-                                            }
-                                        }
-                                    }
-                                } else {
-                                    lockedTurnIndex = null
-                                    coroutineScope.launch {
-                                        if (uiState.messages.isNotEmpty()) {
-                                            isProgrammaticScrolling = true
-                                            try {
-                                                listState.animateScrollToItem(uiState.messages.size - 1)
-                                            } finally {
-                                                isProgrammaticScrolling = false
-                                            }
-                                        }
-                                    }
-                                }
-                            },
-                            onForceJumpBottom = {
-                                stepperAlphaTarget = 1.0f
+                            } else {
                                 lockedTurnIndex = null
                                 coroutineScope.launch {
                                     if (uiState.messages.isNotEmpty()) {
@@ -1328,13 +1323,27 @@ fun ChatScreen(
                                         }
                                     }
                                 }
-                            },
-                            modifier = Modifier
-                                .align(Alignment.BottomEnd)
-                                .padding(end = 14.dp, bottom = 12.dp)
-                                .alpha(animatedStepperAlpha)
-                        )
-                    }
+                            }
+                        },
+                        onForceJumpBottom = {
+                            stepperAlphaTarget = 1.0f
+                            lockedTurnIndex = null
+                            coroutineScope.launch {
+                                if (uiState.messages.isNotEmpty()) {
+                                    isProgrammaticScrolling = true
+                                    try {
+                                        listState.animateScrollToItem(uiState.messages.size - 1)
+                                    } finally {
+                                        isProgrammaticScrolling = false
+                                    }
+                                }
+                            }
+                        },
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(end = 14.dp, bottom = 12.dp)
+                            .alpha(animatedStepperAlpha)
+                    )
                 }
             }
 
@@ -1522,6 +1531,10 @@ fun ChatScreen(
                                 onShowChanges = {
                                     dismissKeyboard()
                                     viewModel.openChangesSheet()
+                                },
+                                onShowWorkflowTemplates = {
+                                    dismissKeyboard()
+                                    showWorkflowTemplateSheet = true
                                 },
                                 showCommit = uiState.hasGitChanges,
                                 showChanges = uiState.hasSessionChanges,
@@ -2121,6 +2134,28 @@ fun ChatScreen(
             },
             containerColor = colors.surface,
             shape = RoundedCornerShape(16.dp)
+        )
+    }
+
+    // 动态多智能体工作流预设模板选择抽屉 (WorkflowTemplateSheet)
+    if (showWorkflowTemplateSheet) {
+        WorkflowTemplateSheet(
+            onDismissRequest = { showWorkflowTemplateSheet = false },
+            onSelectTemplate = { prompt ->
+                showWorkflowTemplateSheet = false
+                viewModel.onInputTextChanged(prompt)
+            }
+        )
+    }
+
+    // 工作流子智能体原位详情半屏抽屉 (SubagentDetailBottomSheet)
+    selectedWorkflowSubagent?.let { sa ->
+        SubagentDetailBottomSheet(
+            subagent = sa,
+            onDismissRequest = { selectedWorkflowSubagent = null },
+            onStopSubagent = { item ->
+                viewModel.stopSubagent(item.conversationId)
+            }
         )
     }
     }

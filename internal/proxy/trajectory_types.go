@@ -130,7 +130,17 @@ type WorkflowPhaseItem struct {
 	Name      string         `json:"name"`
 	Logs      []string       `json:"logs,omitempty"`
 	Subagents []SubagentItem `json:"subagents,omitempty"`
-	Status    string         `json:"status,omitempty"` // "running", "done", "failed"
+	Status    string         `json:"status,omitempty"` // "pending", "running", "done", "failed"
+	Duration  string         `json:"duration,omitempty"`
+}
+
+// WorkflowApprovalDetails represents safety check details when run_workflow needs user confirmation.
+type WorkflowApprovalDetails struct {
+	Description     string   `json:"description,omitempty"`
+	Script          string   `json:"script,omitempty"`
+	ScriptPath      string   `json:"scriptPath,omitempty"`
+	EstimatedPhases []string `json:"estimatedPhases,omitempty"`
+	MaxConcurrency  int      `json:"maxConcurrency,omitempty"`
 }
 
 // WorkflowItem represents dynamic multi-agent workflow orchestration via run_workflow in Antigravity 2.26+.
@@ -142,8 +152,9 @@ type WorkflowItem struct {
 	Logs        []string            `json:"logs,omitempty"`
 	Output      string              `json:"output,omitempty"`
 	ResultJSON  string              `json:"resultJson,omitempty"` // finish(schema) structured return
-	Status      string              `json:"status"`               // "running", "done", "error"
+	Status      string              `json:"status"`               // "running", "done", "error", "cancelled"
 	Duration    string              `json:"duration,omitempty"`
+	Error       string              `json:"error,omitempty"`
 }
 
 // PermissionGrantDetails represents structured permission declarations under PERMISSION_GRANTS_V2 (Antigravity 2.26+).
@@ -169,6 +180,7 @@ type PendingInteraction struct {
 	Action             string                  `json:"action,omitempty"`
 	Description        string                  `json:"description,omitempty"`
 	PermissionGrant    *PermissionGrantDetails `json:"permissionGrant,omitempty"`
+	WorkflowApproval   *WorkflowApprovalDetails `json:"workflowApproval,omitempty"`
 	Options            []InteractionOption     `json:"options"`
 	IsMultiSelect      bool                    `json:"isMultiSelect,omitempty"`
 	DefaultOptionID    string                  `json:"defaultOptionId,omitempty"`

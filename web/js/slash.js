@@ -43,6 +43,8 @@ const DEFAULT_SYSTEM_SLASH_ICONS = {
   plan: "ballot",
   goal: "timer",
   compact: "collapse_all",
+  workflow: "graph_2",
+  run_workflow: "graph_2",
   schedule: "schedule",
   automation: "schedule",
   browser: "language",

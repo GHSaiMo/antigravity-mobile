@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountTree
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.DropdownMenu
@@ -45,6 +46,7 @@ fun QuickActionChips(
     showCommit: Boolean = true,
     onShowChanges: () -> Unit,
     showChanges: Boolean = true,
+    onShowWorkflowTemplates: (() -> Unit)? = null,
     showContinue: Boolean,
     onContinue: () -> Unit,
     showProceed: Boolean,
@@ -220,7 +222,46 @@ fun QuickActionChips(
             }
         }
 
-        // 2b. 已选中的斜杠命令按钮（紧跟 Gemini 右侧，样式同高对齐，右上角带小叉）
+        // 2b. Workflow: 动态多智能体工作流预设面板（固定放到模型按钮右边）
+        if (onShowWorkflowTemplates != null) {
+            Box(
+                modifier = Modifier
+                    .height(32.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(colors.accentPurple.copy(alpha = 0.12f))
+                    .border(
+                        1.dp,
+                        colors.accentPurple.copy(alpha = 0.35f),
+                        RoundedCornerShape(10.dp)
+                    )
+                    .clickable {
+                        haptic.light()
+                        onShowWorkflowTemplates()
+                    }
+                    .padding(horizontal = 12.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.AccountTree,
+                        contentDescription = "Workflow",
+                        tint = colors.accentPurple,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Text(
+                        text = "Workflow",
+                        color = colors.accentPurple,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
+        }
+
+        // 2c. 已选中的斜杠命令按钮（紧跟右侧，样式同高对齐，右上角带小叉）
         selectedSlashCommand?.let { command ->
             SlashCommandChip(
                 command = command,

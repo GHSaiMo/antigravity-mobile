@@ -44,6 +44,8 @@ public struct ChatView: View {
     @State var showMcpSkillsSheet = false
     @State var showSwarmSheet = false
     @State var showContextAuditSheet = false
+    @State var showWorkflowTemplateSheet = false
+    @State var selectedSubagentDetail: SubagentItem? = nil
     @State var currentVisibleTurnIndex: Int = 1
     @State var lockedTurnIndex: Int? = nil
     @State var lastVisibleMessageGeometries: [VisibleMessageGeometry] = []

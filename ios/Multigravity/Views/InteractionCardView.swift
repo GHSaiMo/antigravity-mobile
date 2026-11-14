@@ -593,48 +593,60 @@ public struct InteractionCardView: View {
     }
     
     public var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            headerView
-            targetBoxView
-            
-            ScrollView(.vertical, showsIndicators: exceedsHalfScreen || isExpanded) {
-                VStack(spacing: 6) {
-                    if hasMultipleQuestions, let questions = interaction.questions {
-                        VStack(alignment: .leading, spacing: 14) {
-                            ForEach(Array(questions.enumerated()), id: \.offset) { qIdx, q in
-                                multiQuestionSection(qIdx: qIdx, q: q)
-                            }
-                        }
-                    } else {
-                        singleQuestionOptions
-                    }
+        if interaction.type == "workflow_approval" || interaction.workflowApproval != nil {
+            WorkflowApprovalCardView(
+                interaction: interaction,
+                isSubmitting: isSubmitting,
+                onSubmit: { optionId, text in
+                    onSubmit(optionId, text, interaction.target, nil)
                 }
-                .background(
-                    GeometryReader { geo in
-                        Color.clear.preference(key: OptionsHeightKey.self, value: geo.size.height)
+            )
+            .padding(.horizontal, 12)
+            .padding(.bottom, 6)
+        } else {
+            VStack(alignment: .leading, spacing: 8) {
+                headerView
+                targetBoxView
+                
+                ScrollView(.vertical, showsIndicators: exceedsHalfScreen || isExpanded) {
+                    VStack(spacing: 6) {
+                        if hasMultipleQuestions, let questions = interaction.questions {
+                            VStack(alignment: .leading, spacing: 14) {
+                                ForEach(Array(questions.enumerated()), id: \.offset) { qIdx, q in
+                                    multiQuestionSection(qIdx: qIdx, q: q)
+                                }
+                            }
+                        } else {
+                            singleQuestionOptions
+                        }
                     }
-                )
+                    .background(
+                        GeometryReader { geo in
+                            Color.clear.preference(key: OptionsHeightKey.self, value: geo.size.height)
+                        }
+                    )
+                }
+                .frame(height: targetOptionsHeight)
+                
+                bottomActionBar
             }
-            .frame(height: targetOptionsHeight)
-            
-            bottomActionBar
-        }
-        .frame(maxWidth: .infinity, alignment: .topLeading)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(headerIconColor.opacity(0.35), lineWidth: 1)
-        )
-        .shadow(color: Color.black.opacity(0.08), radius: 6, x: 0, y: 2)
-        .padding(.horizontal, 12)
-        .padding(.bottom, 6)
-        .animation(.spring(response: 0.35, dampingFraction: 0.82), value: isExpanded)
-        .onPreferenceChange(OptionsHeightKey.self) { height in
-            if height > 0 {
-                self.optionsContentHeight = height
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(Color(uiColor: .secondarySystemGroupedBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(headerIconColor.opacity(0.35), lineWidth: 1)
+            )
+            .shadow(color: Color.black.opacity(0.08), radius: 6, x: 0, y: 2)
+            .padding(.horizontal, 12)
+            .padding(.bottom, 6)
+            .animation(.spring(response: 0.35, dampingFraction: 0.82), value: isExpanded)
+            .onPreferenceChange(OptionsHeightKey.self) { height in
+                if height > 0 {
+                    self.optionsContentHeight = height
+                }
             }
         }
     }

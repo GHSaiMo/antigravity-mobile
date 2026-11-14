@@ -28,7 +28,8 @@ data class WorkflowPhaseItem(
     val name: String = "",
     val logs: List<String> = emptyList(),
     val subagents: List<SubagentItem> = emptyList(),
-    val status: String = "done" // "running", "done", "failed"
+    val status: String = "done", // "running", "done", "failed"
+    val duration: String? = null
 )
 
 @Serializable
@@ -41,7 +42,8 @@ data class WorkflowItem(
     val output: String? = null,
     val resultJson: String? = null,
     val status: String = "done", // "running", "done", "error"
-    val duration: String? = null
+    val duration: String? = null,
+    val error: String? = null
 )
 
 @Serializable

@@ -9,6 +9,8 @@ public struct MessageBubbleView: View {
     let onExportMarkdown: (() -> Void)?
     let onCompact: (() -> Void)?
     let onStartNewSession: (() -> Void)?
+    let onStopWorkflow: (() async -> Void)?
+    let onSelectSubagent: ((SubagentItem) -> Void)?
     let shareContext: ShareCardContext?
     @State var showShareCard: Bool = false
     @State var isThinkingExpanded: Bool = false
@@ -16,13 +18,25 @@ public struct MessageBubbleView: View {
     @State var previewGallery: ImageGalleryData? = nil
     @State var showTextSelectionSheet: Bool = false
     
-    init(message: ChatMessage, isActiveToolBatch: Bool = false, onUndo: ((ChatMessage) -> Void)? = nil, onExportMarkdown: (() -> Void)? = nil, onCompact: (() -> Void)? = nil, onStartNewSession: (() -> Void)? = nil, shareContext: ShareCardContext? = nil) {
+    init(
+        message: ChatMessage,
+        isActiveToolBatch: Bool = false,
+        onUndo: ((ChatMessage) -> Void)? = nil,
+        onExportMarkdown: (() -> Void)? = nil,
+        onCompact: (() -> Void)? = nil,
+        onStartNewSession: (() -> Void)? = nil,
+        onStopWorkflow: (() async -> Void)? = nil,
+        onSelectSubagent: ((SubagentItem) -> Void)? = nil,
+        shareContext: ShareCardContext? = nil
+    ) {
         self.message = message
         self.isActiveToolBatch = isActiveToolBatch
         self.onUndo = onUndo
         self.onExportMarkdown = onExportMarkdown
         self.onCompact = onCompact
         self.onStartNewSession = onStartNewSession
+        self.onStopWorkflow = onStopWorkflow
+        self.onSelectSubagent = onSelectSubagent
         self.shareContext = shareContext
     }
     
@@ -68,7 +82,11 @@ public struct MessageBubbleView: View {
                 }
             case .workflow:
                 if let wf = message.workflow {
-                    WorkflowStageCardView(workflow: wf)
+                    WorkflowStageCardView(
+                        workflow: wf,
+                        onStopWorkflow: onStopWorkflow,
+                        onSelectSubagent: onSelectSubagent
+                    )
                 }
             }
         }
