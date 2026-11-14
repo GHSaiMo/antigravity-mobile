@@ -63,6 +63,19 @@ fun InteractionCard(
     val colors = AntigravityTheme.colors
     val haptic = com.antigravity.mobile.ui.util.rememberHaptic()
 
+    // 动态工作流专有安全审批卡片 (Antigravity 2.32+)
+    if (interaction.type == "workflow_approval" || interaction.workflowApproval != null) {
+        WorkflowApprovalCard(
+            interaction = interaction,
+            isSubmitting = false,
+            onSubmit = { optId, writeIn ->
+                onSubmit(optId, writeIn, null)
+            },
+            modifier = modifier
+        )
+        return
+    }
+
     val questions = interaction.questions
     val hasMultipleQuestions = questions != null && questions.size > 1
 

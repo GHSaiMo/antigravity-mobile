@@ -105,6 +105,26 @@ func buildSlashCommandTables(raw []upstreamSlashCommand) ([]SlashCommandOption, 
 		}
 		options = append(options, SlashCommandOption{Name: info.Name, Title: title, Description: c.Description, Icon: info.Icon, Kind: kind})
 	}
+
+	// 注入移动端首选动态多智能体工作流 (/workflow) 快捷入口
+	hasWorkflow := false
+	for _, opt := range options {
+		if opt.Name == "workflow" {
+			hasWorkflow = true
+			break
+		}
+	}
+	if !hasWorkflow {
+		options = append(options, SlashCommandOption{
+			Name:        "workflow",
+			Title:       "Workflow",
+			Description: "编排 Python 多智能体工作流，并行执行多阶段任务",
+			Icon:        "point.3.connected.trianglepath.dotted",
+			Kind:        "system",
+		})
+		infoByName["workflow"] = json.RawMessage(`{"name":"workflow","type":"COMMAND_TYPE_SYSTEM","icon":"point.3.connected.trianglepath.dotted"}`)
+	}
+
 	// 系统命令在前，技能在后；组内按名称排序，菜单稳定
 	sort.SliceStable(options, func(i, j int) bool {
 		if options[i].Kind != options[j].Kind {

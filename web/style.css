@@ -7256,3 +7256,135 @@ body.font-comfortable pre, body.font-comfortable code {
   color: var(--ios-label, #000);
 }
 
+/* Dynamic Multi-Agent Workflow Styles (Antigravity 2.32+) */
+.workflow-stage-card {
+  background: var(--bg-secondary, #1e1e24);
+  border: 1px solid rgba(168, 85, 247, 0.35);
+  border-radius: 12px;
+  padding: 14px;
+  margin: 8px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.workflow-stage-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.workflow-stage-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.workflow-stage-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: rgba(168, 85, 247, 0.15);
+  color: #a855f7;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.workflow-stage-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.workflow-stepper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 6px 0;
+}
+.workflow-step-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: var(--bg-tertiary, rgba(255, 255, 255, 0.05));
+  white-space: nowrap;
+}
+.workflow-step-item.active {
+  background: rgba(168, 85, 247, 0.2);
+  color: #c084fc;
+  border: 1px solid rgba(168, 85, 247, 0.4);
+}
+.workflow-step-item.done {
+  color: #22c55e;
+}
+.workflow-subagent-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 8px;
+}
+.workflow-subagent-mini-card {
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--bg-tertiary, rgba(255, 255, 255, 0.03));
+  border: 1px solid var(--border-color);
+  font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.workflow-logs-box {
+  background: #0d1117;
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-family: monospace;
+  font-size: 11px;
+  color: #c9d1d9;
+  max-height: 160px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+}
+
+/* Workflow Approval Card in Web PWA */
+.workflow-approval-box {
+  border: 1px solid rgba(168, 85, 247, 0.4);
+  background: rgba(168, 85, 247, 0.06);
+  border-radius: 12px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.workflow-approval-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 6px;
+}
+.workflow-approval-btn {
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  border: none;
+  cursor: pointer;
+}
+.workflow-approval-btn.allow-once {
+  background: #9333ea;
+  color: #fff;
+}
+.workflow-approval-btn.allow-session {
+  background: rgba(168, 85, 247, 0.2);
+  color: #c084fc;
+  border: 1px solid rgba(168, 85, 247, 0.4);
+}
+.workflow-approval-btn.deny {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+.workflow-approval-btn.deny-feedback {
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+}
+

@@ -265,6 +265,28 @@ public struct PermissionGrantDetails: Codable, Sendable, Hashable {
     }
 }
 
+public struct WorkflowApprovalDetails: Codable, Sendable, Hashable {
+    public let description: String?
+    public let script: String?
+    public let scriptPath: String?
+    public let estimatedPhases: [String]?
+    public let maxConcurrency: Int?
+    
+    public init(
+        description: String? = nil,
+        script: String? = nil,
+        scriptPath: String? = nil,
+        estimatedPhases: [String]? = nil,
+        maxConcurrency: Int? = nil
+    ) {
+        self.description = description
+        self.script = script
+        self.scriptPath = scriptPath
+        self.estimatedPhases = estimatedPhases
+        self.maxConcurrency = maxConcurrency
+    }
+}
+
 public struct PendingInteraction: Codable, Sendable, Identifiable, Hashable {
     public var id: String { "\(trajectoryId):\(stepIndex)" }
     public let type: String
@@ -275,6 +297,7 @@ public struct PendingInteraction: Codable, Sendable, Identifiable, Hashable {
     public let action: String?
     public let description: String?
     public let permissionGrant: PermissionGrantDetails?
+    public let workflowApproval: WorkflowApprovalDetails?
     public let options: [InteractionOption]
     public let isMultiSelect: Bool?
     public let defaultOptionId: String?
@@ -292,6 +315,7 @@ public struct PendingInteraction: Codable, Sendable, Identifiable, Hashable {
         action: String? = nil,
         description: String? = nil,
         permissionGrant: PermissionGrantDetails? = nil,
+        workflowApproval: WorkflowApprovalDetails? = nil,
         options: [InteractionOption] = [],
         isMultiSelect: Bool? = nil,
         defaultOptionId: String? = nil,
@@ -308,6 +332,7 @@ public struct PendingInteraction: Codable, Sendable, Identifiable, Hashable {
         self.action = action
         self.description = description
         self.permissionGrant = permissionGrant
+        self.workflowApproval = workflowApproval
         self.options = options
         self.isMultiSelect = isMultiSelect
         self.defaultOptionId = defaultOptionId
@@ -318,7 +343,7 @@ public struct PendingInteraction: Codable, Sendable, Identifiable, Hashable {
     }
     
     enum CodingKeys: String, CodingKey {
-        case type, trajectoryId, stepIndex, title, target, action, description, permissionGrant
+        case type, trajectoryId, stepIndex, title, target, action, description, permissionGrant, workflowApproval
         case options, isMultiSelect, defaultOptionId, hasWriteIn, writeInLabel, writeInPlaceholder, questions
     }
     
@@ -332,6 +357,7 @@ public struct PendingInteraction: Codable, Sendable, Identifiable, Hashable {
         self.action = try container.decodeIfPresent(String.self, forKey: .action)
         self.description = try container.decodeIfPresent(String.self, forKey: .description)
         self.permissionGrant = try container.decodeIfPresent(PermissionGrantDetails.self, forKey: .permissionGrant)
+        self.workflowApproval = try container.decodeIfPresent(WorkflowApprovalDetails.self, forKey: .workflowApproval)
         self.options = try container.decodeIfPresent([InteractionOption].self, forKey: .options) ?? []
         self.isMultiSelect = try container.decodeIfPresent(Bool.self, forKey: .isMultiSelect)
         self.defaultOptionId = try container.decodeIfPresent(String.self, forKey: .defaultOptionId)
@@ -507,6 +533,7 @@ public struct WorkflowItem: Codable, Sendable, Hashable {
     public let resultJson: String?
     public let status: String
     public let duration: String?
+    public let error: String?
     
     public init(
         description: String? = nil,
@@ -517,7 +544,8 @@ public struct WorkflowItem: Codable, Sendable, Hashable {
         output: String? = nil,
         resultJson: String? = nil,
         status: String = "done",
-        duration: String? = nil
+        duration: String? = nil,
+        error: String? = nil
     ) {
         self.description = description
         self.scriptPath = scriptPath
@@ -528,6 +556,7 @@ public struct WorkflowItem: Codable, Sendable, Hashable {
         self.resultJson = resultJson
         self.status = status
         self.duration = duration
+        self.error = error
     }
 }
 

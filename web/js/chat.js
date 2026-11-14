@@ -150,6 +150,83 @@ function renderInteractionCard() {
   if (!container || !currentPendingInteraction) return;
 
   const interaction = currentPendingInteraction;
+
+  // 动态多智能体工作流安全审批卡片 (Antigravity 2.32+)
+  if (interaction.type === "workflow_approval" || interaction.workflowApproval) {
+    const wa = interaction.workflowApproval || {};
+    const phases = wa.estimatedPhases || [];
+    const script = wa.script || interaction.target || "";
+    container.innerHTML = `
+      <div class="interaction-card workflow-approval-box">
+        <div class="interaction-card-header" style="display: flex; align-items: center; gap: 8px;">
+          <div class="interaction-icon" style="color: #a855f7;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+          </div>
+          <div class="interaction-title-group" style="flex: 1;">
+            <div class="interaction-title" style="font-size: 14px; font-weight: bold; color: var(--text-primary); display: flex; align-items: center; gap: 6px;">
+              <span>Workflow 安全审批</span>
+              <span class="badge" style="font-size: 10px; background: rgba(168, 85, 247, 0.2); color: #c084fc;">run_workflow</span>
+            </div>
+          </div>
+        </div>
+
+        <div style="font-size: 13px; color: var(--text-secondary); line-height: 1.4;">
+          ${escapeHtml(wa.description || interaction.description || "Agent 请求执行多智能体动态工作流编排脚本。")}
+        </div>
+
+        ${phases.length > 0 ? `
+          <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+            <span style="font-size: 11px; color: var(--text-muted);">预估阶段:</span>
+            ${phases.map(p => `<span class="badge" style="font-size: 11px; background: var(--bg-tertiary); color: var(--text-secondary);">${escapeHtml(p)}</span>`).join('')}
+          </div>
+        ` : ''}
+
+        ${script ? `
+          <details style="background: rgba(0,0,0,0.3); border-radius: 8px; padding: 6px 10px; font-size: 12px;">
+            <summary style="cursor: pointer; color: #a855f7; font-weight: 500;">查看 Python 编排脚本 (${script.split('\n').length} 行)</summary>
+            <pre style="margin-top: 8px; max-height: 160px; overflow-y: auto; font-family: monospace; font-size: 11px; color: #cbd5e1; white-space: pre-wrap;"><code>${escapeHtml(script)}</code></pre>
+          </details>
+        ` : ''}
+
+        <div id="workflow-feedback-container" class="hidden" style="margin-top: 4px;">
+          <input type="text" id="workflow-feedback-input" placeholder="输入改进指示并拒绝..." style="width: 100%; box-sizing: border-box; padding: 8px 10px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--bg-tertiary); color: var(--text-primary); font-size: 12px;" />
+        </div>
+
+        <div class="workflow-approval-actions">
+          <button type="button" class="workflow-approval-btn allow-once" data-action="once">允许运行本次</button>
+          <button type="button" class="workflow-approval-btn allow-session" data-action="session">允许本会话运行</button>
+          <button type="button" class="workflow-approval-btn deny" data-action="deny">拒绝</button>
+          <button type="button" class="workflow-approval-btn deny-feedback" data-action="feedback">拒绝并指导</button>
+        </div>
+      </div>
+    `;
+
+    container.classList.remove("hidden");
+
+    container.querySelectorAll(".workflow-approval-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const action = btn.dataset.action;
+        if (action === "feedback") {
+          const fbContainer = container.querySelector("#workflow-feedback-container");
+          const fbInput = container.querySelector("#workflow-feedback-input");
+          if (fbContainer.classList.contains("hidden")) {
+            fbContainer.classList.remove("hidden");
+            fbInput.focus();
+            btn.textContent = "确认拒绝并发送";
+            btn.classList.remove("deny-feedback");
+            btn.classList.add("deny");
+          } else {
+            const text = fbInput.value.trim();
+            handleInteractionSubmitDirect("deny_with_feedback", text);
+          }
+        } else {
+          handleInteractionSubmitDirect(action, null);
+        }
+      });
+    });
+    return;
+  }
+
   const isPermission = interaction.type === "permission" || interaction.type === "file_permission";
   const isDownload = interaction.type === "browser_download";
   const isApproval = interaction.type === "approval" || isDownload;
@@ -448,6 +525,53 @@ async function handleInteractionSubmit(isSkip) {
     }
   } catch (err) {
     alert("提交失败: " + err.message);
+  } finally {
+    isSubmittingInteraction = false;
+    if (currentPendingInteraction) {
+      renderInteractionCard();
+    }
+  }
+}
+
+async function handleInteractionSubmitDirect(optionId, writeInText) {
+  if (isSubmittingInteraction || !currentPendingInteraction || !activeCascadeId) return;
+  isSubmittingInteraction = true;
+  const interaction = currentPendingInteraction;
+  const selectedOpt = interaction.options?.find(o => o.id === optionId);
+  const isDeny = optionId === "deny" || optionId === "deny_with_feedback";
+  const payload = {
+    cascadeId: activeCascadeId,
+    trajectoryId: interaction.trajectoryId || "",
+    stepIndex: interaction.stepIndex,
+    substepIndex: interaction.substepIndex || 0,
+    type: interaction.type,
+    optionId: optionId,
+    scope: selectedOpt?.scope || 1,
+    allow: !isDeny,
+    writeInResponse: writeInText || "",
+    target: interaction.target || "",
+    skipped: false,
+    questionResponses: null
+  };
+  try {
+    const res = await fetch("/gateway/cascade/interaction", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || "提交审批选择失败");
+    }
+    updatePendingInteraction(null, false);
+    if (activeCascadeId && currentTrajectories[activeCascadeId]) {
+      currentTrajectories[activeCascadeId].needsInput = false;
+    }
+    if (activeCascadeId) {
+      loadChat(activeCascadeId, true);
+    }
+  } catch (err) {
+    alert("审批提交失败: " + err.message);
   } finally {
     isSubmittingInteraction = false;
     if (currentPendingInteraction) {
@@ -1177,6 +1301,26 @@ function groupSteps(steps) {
           step: s
         });
       });
+    } else if (s.workflow || type === "CORTEX_STEP_TYPE_RUN_WORKFLOW" || (s.toolCall && s.toolCall.name === "run_workflow")) {
+      flushBatch();
+      let wfData = s.workflow;
+      if (!wfData && s.toolCall) {
+        let args = {};
+        try { args = JSON.parse(s.toolCall.argumentsJson || "{}"); } catch (e) {}
+        wfData = {
+          description: args.description || args.Description || "动态多智能体工作流",
+          script: args.script || args.Script || "",
+          scriptPath: args.scriptPath || args.ScriptPath || "",
+          status: s.status === "CORTEX_STEP_STATUS_RUNNING" ? "running" : "done"
+        };
+      }
+      items.push({
+        type: "workflow",
+        id: `item-workflow-${i}`,
+        index: i,
+        workflow: wfData || {},
+        step: s
+      });
     } else if (type === "CORTEX_STEP_TYPE_ERROR_MESSAGE") {
       const isUserVisible = (() => {
         if (s.errorMessage) {
@@ -1306,6 +1450,12 @@ function getItemFingerprint(item, isRunning, isLastItem) {
     const live = SubagentManager.byId.get(item.sub.conversationId);
     return `s:${item.sub.conversationId}:${live ? live.status : ""}:${live ? live.stepCount || 0 : 0}`;
   }
+  if (item.type === "workflow") {
+    const wf = item.workflow || {};
+    const phasesCount = (wf.phases || []).length;
+    const saCount = (wf.phases || []).flatMap(p => p.subagents || []).length;
+    return `wf:${wf.status || ""}:${phasesCount}:${saCount}:${wf.duration || ""}`;
+  }
   return "";
 }
 
@@ -1351,6 +1501,110 @@ function formatToolName(name) {
   if (map[lower]) return map[lower];
   if (lower.startsWith("mcp_")) return `MCP: ${raw.slice(4)}`;
   return raw;
+}
+
+function buildWorkflowCardHtml(workflow) {
+  if (!workflow) return "";
+  const phases = workflow.phases || [];
+  const status = (workflow.status || "running").toLowerCase();
+  const isRunning = status === "running";
+  const isDone = status === "done" || status === "completed";
+  const isError = status === "error" || status === "failed";
+
+  const badgeColor = isRunning ? "#a855f7" : (isDone ? "#22c55e" : (isError ? "#ef4444" : "var(--text-secondary)"));
+  const badgeText = isRunning ? "运行中" : (isDone ? "已完成" : (isError ? "执行异常" : "等待中"));
+
+  let stepperHtml = "";
+  if (phases.length > 0) {
+    stepperHtml = `
+      <div class="workflow-stepper">
+        ${phases.map((ph, idx) => {
+          const phStatus = (ph.status || "pending").toLowerCase();
+          const phActive = phStatus === "running";
+          const phDone = phStatus === "done" || phStatus === "completed";
+          const icon = phDone ? "✓" : (phActive ? "●" : String(idx + 1));
+          return `
+            <div class="workflow-step-item ${phActive ? 'active' : ''} ${phDone ? 'done' : ''}">
+              <span style="font-weight: 700;">${icon}</span>
+              <span>${escapeHtml(ph.name || `阶段 ${idx + 1}`)}</span>
+              ${ph.duration ? `<span style="font-size: 10px; opacity: 0.7;">(${escapeHtml(ph.duration)})</span>` : ''}
+            </div>
+          `;
+        }).join('<span style="color: var(--border-color); opacity: 0.5;">›</span>')}
+      </div>
+    `;
+  }
+
+  let subagentsHtml = "";
+  const allSubagents = phases.flatMap(p => p.subagents || []);
+  if (allSubagents.length > 0) {
+    subagentsHtml = `
+      <div style="font-size: 11px; font-weight: 600; color: var(--text-secondary); margin-top: 4px;">并发智能体矩阵 (${allSubagents.length})</div>
+      <div class="workflow-subagent-grid">
+        ${allSubagents.map(sa => {
+          const saName = sa.displayName || sa.role || sa.typeName || "智能体";
+          const saStatus = sa.statusText || (sa.isRunning ? "执行中" : "完成");
+          return `
+            <div class="workflow-subagent-mini-card">
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <span style="font-weight: 600; color: var(--text-primary);">${escapeHtml(saName)}</span>
+                <span style="font-size: 10px; color: ${sa.isRunning ? '#a855f7' : '#22c55e'};">${escapeHtml(saStatus)}</span>
+              </div>
+              ${sa.prompt ? `<div style="font-size: 11px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(sa.prompt)}</div>` : ''}
+            </div>
+          `;
+        }).join('')}
+      </div>
+    `;
+  }
+
+  let logsHtml = "";
+  const allLogs = phases.flatMap(p => p.logs || []);
+  if (allLogs.length > 0) {
+    logsHtml = `
+      <details style="margin-top: 6px;">
+        <summary style="cursor: pointer; font-size: 11.5px; color: var(--text-secondary); font-weight: 500;">查看执行日志 (${allLogs.length} 条)</summary>
+        <div class="workflow-logs-box" style="margin-top: 6px;">
+          ${allLogs.map(l => escapeHtml(l)).join('\n')}
+        </div>
+      </details>
+    `;
+  }
+
+  let errorHtml = "";
+  if (workflow.error) {
+    errorHtml = `
+      <div style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 8px; padding: 8px 10px; font-size: 12px; color: #ef4444;">
+        ⚠️ ${escapeHtml(workflow.error)}
+      </div>
+    `;
+  }
+
+  return `
+    <div class="workflow-stage-card">
+      <div class="workflow-stage-header">
+        <div class="workflow-stage-title-wrap">
+          <div class="workflow-stage-icon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+          </div>
+          <div>
+            <div class="workflow-stage-title">${escapeHtml(workflow.description || "Workflow")}</div>
+            ${workflow.duration ? `<span style="font-size: 11px; color: var(--text-muted);">${escapeHtml(workflow.duration)}</span>` : ''}
+          </div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span class="badge" style="font-size: 11px; background: ${badgeColor}22; color: ${badgeColor}; border: 1px solid ${badgeColor}44;">${escapeHtml(badgeText)}</span>
+          ${isRunning ? `
+            <button type="button" class="btn-cancel-task" onclick="if (typeof cancelCurrentTask === 'function') cancelCurrentTask();" style="border: 1px solid rgba(239,68,68,0.4); background: rgba(239,68,68,0.1); color: #ef4444; border-radius: 6px; padding: 3px 8px; font-size: 11px; cursor: pointer;">终止</button>
+          ` : ''}
+        </div>
+      </div>
+      ${stepperHtml}
+      ${subagentsHtml}
+      ${logsHtml}
+      ${errorHtml}
+    </div>
+  `;
 }
 
 function generateItemHtml(item, isRunning, isLastItem) {
@@ -1402,6 +1656,9 @@ function generateItemHtml(item, isRunning, isLastItem) {
   }
   if (item.type === "subagent") {
     return buildSubagentCardHtml(item.sub);
+  }
+  if (item.type === "workflow") {
+    return buildWorkflowCardHtml(item.workflow);
   }
   if (item.type === "user") {
     let imagesHtml = "";
@@ -1605,6 +1862,8 @@ function renderMessages(steps, isRunning = false) {
         rowClass = "message-row agent error-row";
       } else if (item.type === "subagent") {
         rowClass = "message-row subagent-row";
+      } else if (item.type === "workflow") {
+        rowClass = "message-row workflow-row";
       }
 
       const newEl = document.createElement("div");
@@ -1670,6 +1929,8 @@ function renderMessages(steps, isRunning = false) {
         rowClass = "message-row agent error-row";
       } else if (item.type === "subagent") {
         rowClass = "message-row subagent-row";
+      } else if (item.type === "workflow") {
+        rowClass = "message-row workflow-row";
       }
 
       let existingEl = document.getElementById(item.id);

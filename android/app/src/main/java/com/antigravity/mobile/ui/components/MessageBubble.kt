@@ -77,7 +77,9 @@ fun MessageBubble(
     onSubagentClick: ((SubagentItem) -> Unit)? = null,
     onCompactClick: (() -> Unit)? = null,
     onStartNewSessionClick: (() -> Unit)? = null,
-    shareContextProvider: ((GatewayMessageItem) -> ShareCardContext)? = null
+    shareContextProvider: ((GatewayMessageItem) -> ShareCardContext)? = null,
+    onStopWorkflow: (() -> Unit)? = null,
+    onSelectWorkflowSubagent: ((SubagentItem) -> Unit)? = null
 ) {
     val colors = AntigravityTheme.colors
     val context = LocalContext.current
@@ -89,9 +91,14 @@ fun MessageBubble(
         return
     }
 
-    // 动态多智能体工作流卡片 (Antigravity 2.26+)
+    // 动态多智能体工作流卡片 (Antigravity 2.32+)
     message.workflow?.takeIf { message.isWorkflow }?.let { wf ->
-        WorkflowStageCard(workflow = wf, modifier = modifier)
+        WorkflowStageCard(
+            workflow = wf,
+            modifier = modifier,
+            onStopWorkflow = onStopWorkflow,
+            onSelectSubagent = onSelectWorkflowSubagent
+        )
         return
     }
 

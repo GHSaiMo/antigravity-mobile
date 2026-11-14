@@ -90,6 +90,20 @@ extension ChatView {
             ShareSheetView(activityItems: [file.url])
                 .presentationDetents([.medium, .large])
         }
+        .sheet(item: $selectedSubagentDetail) { sa in
+            SubagentDetailSheet(
+                subagent: sa,
+                onStopSubagent: { item in
+                    await viewModel.stopSubagent(item)
+                }
+            )
+        }
+        .sheet(isPresented: $showWorkflowTemplateSheet) {
+            WorkflowTemplateSheet { templatePrompt in
+                viewModel.inputText = templatePrompt
+                isInputFocused = true
+            }
+        }
     }
     
     @ViewBuilder
@@ -425,6 +439,14 @@ extension ChatView {
                         name: .startNewSessionForWorkspace,
                         object: viewModel.workspaceName
                     )
+                },
+                onStopWorkflow: {
+                    Task {
+                        await viewModel.cancelTask()
+                    }
+                },
+                onSelectSubagent: { sa in
+                    selectedSubagentDetail = sa
                 },
                 shareContext: shareCtx
             )

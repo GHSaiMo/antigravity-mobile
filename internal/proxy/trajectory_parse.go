@@ -986,7 +986,54 @@ func buildPendingInteraction(rawResp *upstreamTrajectoryResp, steps []Trajectory
 				StepIndex:    idx,
 			}
 			req := s.RequestedInteraction
-			if req.Permission != nil {
+			toolName := extractToolNameFromStep(s)
+			isWorkflow := toolName == "run_workflow"
+			if !isWorkflow && req.Permission != nil {
+				actLower := strings.ToLower(req.Permission.Resource.Action)
+				descLower := strings.ToLower(req.Permission.ActionDescription)
+				if strings.Contains(actLower, "workflow") || strings.Contains(descLower, "workflow") {
+					isWorkflow = true
+				}
+			}
+
+			if isWorkflow {
+				pi.Type = "workflow_approval"
+				pi.Title = "动态工作流执行申请"
+				var args struct {
+					Description string `json:"Description"`
+					Script      string `json:"Script"`
+					ScriptPath  string `json:"ScriptPath"`
+				}
+				tcArgs := ""
+				if s.ToolCall != nil {
+					tcArgs = s.ToolCall.ArgumentsJson
+				} else if s.Metadata.ToolCall != nil {
+					tcArgs = s.Metadata.ToolCall.ArgumentsJson
+				}
+				if tcArgs != "" {
+					_ = json.Unmarshal([]byte(tcArgs), &args)
+				}
+				desc := args.Description
+				if desc == "" && req.Permission != nil {
+					desc = req.Permission.ActionDescription
+				}
+				if desc == "" {
+					desc = "执行多智能体动态工作流编排脚本"
+				}
+				pi.Description = desc
+				pi.Target = args.ScriptPath
+
+				phases := extractPhasesFromScript(args.Script)
+				concurrency := estimateConcurrencyFromScript(args.Script)
+				pi.WorkflowApproval = &WorkflowApprovalDetails{
+					Description:     desc,
+					Script:          args.Script,
+					ScriptPath:      args.ScriptPath,
+					EstimatedPhases: phases,
+					MaxConcurrency:  concurrency,
+				}
+				applyPermissionOptions(pi)
+			} else if req.Permission != nil {
 				pi.Type = "permission"
 				pi.Action = req.Permission.Resource.Action
 				pi.Target = req.Permission.Resource.Target
@@ -1351,6 +1398,81 @@ func parsePermissionGrant(action, target, desc string) *PermissionGrantDetails {
 	return pg
 }
 
+var (
+	phaseRegex     = regexp.MustCompile(`(?i)phase\s*\(\s*["']([^"']+)["']\s*\)`)
+	agentRoleRegex = regexp.MustCompile(`(?i)agent\s*\([^)]*role\s*=\s*["']([^"']+)["'][^)]*\)`)
+)
+
+func extractPhasesFromScript(script string) []string {
+	if script == "" {
+		return nil
+	}
+	matches := phaseRegex.FindAllStringSubmatch(script, -1)
+	if len(matches) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool)
+	var phases []string
+	for _, m := range matches {
+		if len(m) > 1 {
+			p := strings.TrimSpace(m[1])
+			if p != "" && !seen[p] {
+				seen[p] = true
+				phases = append(phases, p)
+			}
+		}
+	}
+	return phases
+}
+
+func estimateConcurrencyFromScript(script string) int {
+	if script == "" {
+		return 1
+	}
+	if strings.Contains(script, "parallel") {
+		return 4 // 默认并发预估度
+	}
+	agents := agentRoleRegex.FindAllString(script, -1)
+	if len(agents) > 1 {
+		return len(agents)
+	}
+	return 1
+}
+
+func extractSubagentsFromScript(script string, stepIndex int) []SubagentItem {
+	if script == "" {
+		return nil
+	}
+	matches := agentRoleRegex.FindAllStringSubmatch(script, -1)
+	if len(matches) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool)
+	var items []SubagentItem
+	for _, m := range matches {
+		if len(m) > 1 {
+			role := strings.TrimSpace(m[1])
+			if role != "" && !seen[role] {
+				seen[role] = true
+				tier := "flash"
+				if strings.Contains(strings.ToLower(script), "pro") {
+					tier = "pro"
+				}
+				items = append(items, SubagentItem{
+					ConversationID: "",
+					TypeName:       "self",
+					Role:           role,
+					ModelTier:      tier,
+					StepIndex:      stepIndex,
+					Status:         "pending",
+					Title:          role,
+				})
+			}
+		}
+	}
+	return items
+}
+
 func parseWorkflowFromStep(s TrajectoryStep, idx int) *WorkflowItem {
 	tcArgs := ""
 	if s.ToolCall != nil {
@@ -1409,6 +1531,17 @@ func parseWorkflowFromStep(s TrajectoryStep, idx int) *WorkflowItem {
 					Status: "done",
 				})
 				currentPhase = &wf.Phases[len(wf.Phases)-1]
+			} else if strings.HasPrefix(line, "Phase ") && strings.Contains(line, ":") {
+				parts := strings.SplitN(line, ":", 2)
+				pName := strings.TrimSpace(parts[1])
+				if pName == "" {
+					pName = strings.TrimSpace(parts[0])
+				}
+				wf.Phases = append(wf.Phases, WorkflowPhaseItem{
+					Name:   pName,
+					Status: "done",
+				})
+				currentPhase = &wf.Phases[len(wf.Phases)-1]
 			} else if currentPhase != nil {
 				currentPhase.Logs = append(currentPhase.Logs, line)
 			} else {
@@ -1422,6 +1555,90 @@ func parseWorkflowFromStep(s TrajectoryStep, idx int) *WorkflowItem {
 					wf.ResultJSON = line
 				}
 			}
+		}
+	}
+
+	// 如果输出尚未产生阶段，但 Python 源码包含 phase(...) 声明，静态提取预置阶段
+	if len(wf.Phases) == 0 && wf.Script != "" {
+		estimated := extractPhasesFromScript(wf.Script)
+		for _, pName := range estimated {
+			wf.Phases = append(wf.Phases, WorkflowPhaseItem{
+				Name:   pName,
+				Status: "pending",
+			})
+		}
+	}
+
+	// 动态修正各 Phase 状态
+	if len(wf.Phases) > 0 {
+		if wf.Status == "running" {
+			hasRunning := false
+			for i := range wf.Phases {
+				if wf.Phases[i].Status == "running" {
+					hasRunning = true
+					break
+				}
+			}
+			if !hasRunning {
+				marked := false
+				for i := range wf.Phases {
+					if wf.Phases[i].Status == "pending" {
+						wf.Phases[i].Status = "running"
+						marked = true
+						break
+					}
+				}
+				if !marked {
+					wf.Phases[len(wf.Phases)-1].Status = "running"
+				}
+			}
+		} else if wf.Status == "done" {
+			for i := range wf.Phases {
+				wf.Phases[i].Status = "done"
+			}
+		} else if wf.Status == "error" {
+			if len(wf.Phases) > 0 {
+				wf.Phases[len(wf.Phases)-1].Status = "failed"
+			}
+		}
+	}
+
+	// 挂载当前步骤产生的 Subagents
+	if s.InvokeSubagent != nil && len(s.InvokeSubagent.Subagents) > 0 {
+		var saItems []SubagentItem
+		for saIdx, sa := range s.InvokeSubagent.Subagents {
+			cid := ""
+			if saIdx < len(s.InvokeSubagent.Results) {
+				cid = s.InvokeSubagent.Results[saIdx].ConversationID
+			}
+			saItems = append(saItems, SubagentItem{
+				ConversationID: cid,
+				TypeName:       sa.TypeName,
+				Role:           sa.Role,
+				Prompt:         sa.InitialPrompt,
+				ModelTier:      sa.ModelTier,
+				StepIndex:      idx,
+				Status:         wf.Status,
+				Title:          sa.Role,
+			})
+		}
+		if len(wf.Phases) > 0 {
+			activeIdx := len(wf.Phases) - 1
+			for i := range wf.Phases {
+				if wf.Phases[i].Status == "running" {
+					activeIdx = i
+					break
+				}
+			}
+			wf.Phases[activeIdx].Subagents = append(wf.Phases[activeIdx].Subagents, saItems...)
+		}
+	}
+
+	// 若尚未派生实例且源码含 agent(role=...) 声明，静态挂载预估子代理
+	if len(wf.Phases) > 0 && len(wf.Phases[0].Subagents) == 0 && wf.Script != "" {
+		estimatedSa := extractSubagentsFromScript(wf.Script, idx)
+		if len(estimatedSa) > 0 {
+			wf.Phases[0].Subagents = estimatedSa
 		}
 	}
 
