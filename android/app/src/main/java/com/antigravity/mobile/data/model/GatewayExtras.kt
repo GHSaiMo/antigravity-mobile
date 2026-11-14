@@ -149,13 +149,40 @@ data class ModelOption(
     val tag: String? = null
 )
 
+enum class ModelEffortRank(val rank: Int, val displayLabel: String) {
+    LOW(0, "Low"),
+    MEDIUM(1, "Medium"),
+    HIGH(2, "High"),
+    EXTRA(3, "Extra");
+
+    companion object {
+        fun parse(raw: String): ModelEffortRank? {
+            val lower = raw.trim().lowercase()
+            return when {
+                lower == "low" || lower.endsWith("-low") -> LOW
+                lower == "medium" || lower == "med" || lower.endsWith("-medium") -> MEDIUM
+                lower == "high" || lower.endsWith("-high") -> HIGH
+                lower == "xhigh" || lower == "extra" || lower == "extra high" || lower == "extra-high" ||
+                    lower.endsWith("-xhigh") || lower.endsWith("-extra") -> EXTRA
+                else -> null
+            }
+        }
+    }
+}
+
 @Serializable
 data class ModelVariant(
     val id: String,
     val label: String,
     val rawName: String,
     val tag: String? = null
-)
+) {
+    val effortRank: ModelEffortRank?
+        get() = ModelEffortRank.parse(label) ?: ModelEffortRank.parse(id)
+
+    val effortDisplayLabel: String
+        get() = effortRank?.displayLabel ?: label
+}
 
 @Serializable
 data class ModelFamily(
@@ -163,7 +190,34 @@ data class ModelFamily(
     val name: String,
     val provider: String,
     val variants: List<ModelVariant>
-)
+) {
+    val hasEffortVariants: Boolean
+        get() = variants.size > 1 && variants.all { it.effortRank != null }
+
+    /** Top-to-bottom is Extra -> High -> Medium -> Low (so bottom-to-top is Low -> Medium -> High -> Extra). */
+    val variantsTopToBottom: List<ModelVariant>
+        get() = if (!hasEffortVariants) {
+            variants
+        } else {
+            variants.sortedByDescending { it.effortRank?.rank ?: -1 }
+        }
+
+    val defaultVariant: ModelVariant?
+        get() {
+            val ordered = variantsTopToBottom
+            return ordered.firstOrNull { it.effortRank == ModelEffortRank.MEDIUM }
+                ?: ordered.firstOrNull { it.effortRank == ModelEffortRank.HIGH }
+                ?: ordered.firstOrNull()
+        }
+
+    val defaultVariantIndexTopToBottom: Int
+        get() {
+            val ordered = variantsTopToBottom
+            val target = defaultVariant ?: return 0
+            val idx = ordered.indexOfFirst { it.id == target.id }
+            return if (idx >= 0) idx else 0
+        }
+}
 
 @Serializable
 data class ModelsResponse(
@@ -178,8 +232,15 @@ data class ModelsResponse(
 object ModelDefaults {
     const val FALLBACK_GEMINI = "gemini-3.8-flash-high"
     const val FALLBACK_CLAUDE = "claude-opus-4-6-thinking"
+    const val FALLBACK_ORCHESTRATOR = "gemini-pro-orchestrator"
 
     private val CLAUDE_ENUM_TOKENS = listOf("m26", "m35", "m400", "m401", "m402", "m403", "m404", "m405")
+    private val ORCHESTRATOR_ENUM_TOKENS = listOf("m667", "m681")
+
+    private val STATIC_ID_BY_ENUM: Map<String, String> = mapOf(
+        "MODEL_PLACEHOLDER_M667" to "gemini-pro-orchestrator",
+        "MODEL_PLACEHOLDER_M681" to "gemini-pro-orchestrator-argon"
+    )
 
     fun isClaude(modelId: String): Boolean =
         modelId.contains("claude", ignoreCase = true) ||
@@ -213,6 +274,8 @@ object ModelDefaults {
         "gemini-4-hydrogen-xhigh" to "Gemini 4 Hydrogen (Extra)",
         "gemini-4-hydrogen-medium" to "Gemini 4 Hydrogen (Medium)",
         "gemini-4-hydrogen-low" to "Gemini 4 Hydrogen (Low)",
+        "gemini-pro-orchestrator" to "Orchestrator (Carbon)",
+        "gemini-pro-orchestrator-argon" to "Orchestrator (Argon)",
         "orchestrator-carbon" to "Orchestrator (Carbon)",
         "orchestrator-argon" to "Orchestrator (Argon)",
         "gpt-oss-120b-medium" to "GPT-OSS 120B (Medium)"
@@ -244,6 +307,8 @@ object ModelDefaults {
         "claude-sonnet-5-5-low" to "Sonnet 5.5 · Low",
         "claude-opus-4-6-thinking" to "Opus 4.6 · Think",
         "claude-sonnet-4-6" to "Sonnet 4.6 · Think",
+        "gemini-pro-orchestrator" to "Orch · Carbon",
+        "gemini-pro-orchestrator-argon" to "Orch · Argon",
         "orchestrator-carbon" to "Orch · Carbon",
         "orchestrator-argon" to "Orch · Argon",
         "gpt-oss-120b-medium" to "GPT-OSS · Med"
@@ -353,11 +418,14 @@ object ModelDefaults {
         val lower = modelId.lowercase()
         return when {
             isClaude(lower) -> "claude"
-            lower.contains("orch") -> "orchestrator"
+            lower.contains("orch") || ORCHESTRATOR_ENUM_TOKENS.any { lower.contains(it) } -> "orchestrator"
             lower.contains("gpt") -> "other"
             else -> "gemini"
         }
     }
+
+    fun hasOrchestratorModels(options: List<ModelOption>): Boolean =
+        options.any { providerKind(it.id) == "orchestrator" || it.provider.equals("orchestrator", ignoreCase = true) }
 
     fun modelFamilies(options: List<ModelOption> = emptyList(), provider: String? = null): List<ModelFamily> {
         val effective = if (options.isEmpty()) {
@@ -365,7 +433,7 @@ object ModelDefaults {
                 ModelOption(
                     id = key,
                     name = STATIC_DISPLAY_NAME_BY_ID[key] ?: key,
-                    provider = if (isClaude(key)) "claude" else if (key.contains("orch")) "other" else "gemini"
+                    provider = providerKind(key)
                 )
             }
         } else {
@@ -416,27 +484,48 @@ object ModelDefaults {
     }
 
     /** 输入框上方胶囊的文字：只有厂商名，保持简洁。 */
-    fun providerLabel(modelId: String): String = when {
-        isClaude(modelId) -> "Claude"
-        modelId.contains("gpt", ignoreCase = true) -> "GPT"
+    fun providerLabel(modelId: String): String = when (providerKind(modelId)) {
+        "claude" -> "Claude"
+        "orchestrator" -> "Orchestrator"
+        "other" -> "GPT"
         else -> "Gemini"
     }
 
-    /** 胶囊点击后要切到的默认模型：Claude → Gemini 默认；其它 → Claude 默认。 */
-    fun toggleTarget(current: String, geminiDefault: String, claudeDefault: String): String =
-        if (isClaude(current)) geminiDefault else claudeDefault
+    /** 胶囊点击后要切到的默认模型：Ultra 账号在 Gemini → Claude → Orchestrator 间循环；否则 Gemini ↔ Claude。 */
+    fun toggleTarget(
+        current: String,
+        geminiDefault: String,
+        claudeDefault: String,
+        orchestratorDefault: String = FALLBACK_ORCHESTRATOR,
+        hasOrchestrator: Boolean = false
+    ): String = when (providerKind(current)) {
+        "gemini" -> claudeDefault
+        "claude" -> if (hasOrchestrator) orchestratorDefault else geminiDefault
+        else -> geminiDefault
+    }
 
     /**
      * 网关推送的 activeModel 如何落到界面状态：
      * - 为空：保持当前；
      * - 已是可读模型 id：原样保留，让后续消息继续用该会话实际的模型；
-     * - 只拿到未解析的裸枚举（MODEL_...）：退回该厂商的默认模型。
+     * - 只拿到未解析的裸枚举（MODEL_...）：优先用静态枚举反查，再退回该厂商的默认模型。
      */
-    fun resolveActive(raw: String?, current: String, geminiDefault: String, claudeDefault: String): String {
+    fun resolveActive(
+        raw: String?,
+        current: String,
+        geminiDefault: String,
+        claudeDefault: String,
+        orchestratorDefault: String = FALLBACK_ORCHESTRATOR
+    ): String {
         val value = raw?.trim().orEmpty()
         if (value.isEmpty()) return current
         if (value.startsWith("MODEL_", ignoreCase = true)) {
-            return if (isClaude(value)) claudeDefault else geminiDefault
+            STATIC_ID_BY_ENUM[value.uppercase()]?.let { return it }
+            return when (providerKind(value)) {
+                "claude" -> claudeDefault
+                "orchestrator" -> orchestratorDefault
+                else -> geminiDefault
+            }
         }
         return value
     }

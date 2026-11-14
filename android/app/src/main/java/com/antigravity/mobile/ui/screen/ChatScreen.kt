@@ -63,6 +63,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -204,6 +205,7 @@ fun ChatScreen(
     var queuedItemToSendNow by remember { mutableStateOf<com.antigravity.mobile.data.model.QueuedMessageItem?>(null) }
     var showWorkflowTemplateSheet by remember { mutableStateOf(false) }
     var pendingSelectFirstPlaceholder by remember { mutableStateOf(false) }
+    val modelSlidePickerState = remember { com.antigravity.mobile.ui.components.ModelSlidePickerState() }
     var inputFieldValue by remember { mutableStateOf(TextFieldValue(inputText)) }
     LaunchedEffect(inputText) {
         if (inputFieldValue.text != inputText) {
@@ -946,6 +948,11 @@ fun ChatScreen(
         com.antigravity.mobile.ui.components.LocalCurrentCascadeId provides uiState.cascadeId,
         com.antigravity.mobile.ui.components.LocalKnowledgeModeEnabled provides isKnowledgeModeEnabled
     ) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .onGloballyPositioned { modelSlidePickerState.containerSize = it.size }
+    ) {
     Scaffold(
         modifier = modifier.fillMaxSize(),
         // Bottom insets are applied inside the input surface so its background reaches the screen
@@ -1549,6 +1556,7 @@ fun ChatScreen(
                                 onToggleModel = { viewModel.toggleModel() },
                                 onSelectModel = { viewModel.selectModel(it) },
                                 modelCatalog = modelCatalog,
+                                modelSlidePickerState = modelSlidePickerState,
                                 onAddImage = {
                                     dismissKeyboard()
                                     showAttachmentSheet = true
@@ -2208,6 +2216,13 @@ fun ChatScreen(
                 viewModel.stopSubagent(item.conversationId)
             }
         )
+    }
+
+    // iOS 对齐的模型上拉右滑二级选择器
+    com.antigravity.mobile.ui.components.ModelSlidePickerOverlay(
+        state = modelSlidePickerState,
+        onSelectModel = { viewModel.selectModel(it) }
+    )
     }
     }
 }

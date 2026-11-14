@@ -240,13 +240,18 @@ class ChatViewModel(
     var hasUserManuallySelectedModel: Boolean = false
         private set
 
-    /** 胶囊切换：Gemini ⇄ Claude，落到「设置 › 默认模型」里为各自选定的具体模型。 */
+    /** 胶囊切换：Ultra 账号在 Gemini → Claude → Orchestrator 间循环；否则 Gemini ↔ Claude。 */
     fun toggleModel() {
         hasUserManuallySelectedModel = true
+        val hasOrchestrator = ModelDefaults.hasOrchestratorModels(
+            prefs?.cachedModelCatalog?.models.orEmpty()
+        )
         val nextModel = ModelDefaults.toggleTarget(
             current = _uiState.value.activeModel,
             geminiDefault = geminiDefaultModel,
-            claudeDefault = claudeDefaultModel
+            claudeDefault = claudeDefaultModel,
+            orchestratorDefault = orchestratorDefaultModel,
+            hasOrchestrator = hasOrchestrator
         )
         _uiState.value = _uiState.value.copy(activeModel = nextModel, activeModelName = null)
     }
@@ -261,7 +266,13 @@ class ChatViewModel(
     fun syncModel(model: String) {
         if (hasUserManuallySelectedModel) return
         _uiState.value = _uiState.value.copy(
-            activeModel = ModelDefaults.resolveActive(model, _uiState.value.activeModel, geminiDefaultModel, claudeDefaultModel)
+            activeModel = ModelDefaults.resolveActive(
+                raw = model,
+                current = _uiState.value.activeModel,
+                geminiDefault = geminiDefaultModel,
+                claudeDefault = claudeDefaultModel,
+                orchestratorDefault = orchestratorDefaultModel
+            )
         )
     }
 
@@ -270,6 +281,9 @@ class ChatViewModel(
 
     internal val claudeDefaultModel: String
         get() = prefs?.defaultClaudeModel ?: ModelDefaults.FALLBACK_CLAUDE
+
+    internal val orchestratorDefaultModel: String
+        get() = prefs?.defaultOrchestratorModel ?: ModelDefaults.FALLBACK_ORCHESTRATOR
 
     fun insertCommitAndPush() {
         val cmd = "Commit and Push"

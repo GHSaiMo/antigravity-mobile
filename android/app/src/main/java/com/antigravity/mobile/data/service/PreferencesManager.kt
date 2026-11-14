@@ -221,7 +221,18 @@ class PreferencesManager(context: Context) {
     private val _defaultClaudeModelFlow = MutableStateFlow(defaultClaudeModel)
     val defaultClaudeModelFlow: StateFlow<String> = _defaultClaudeModelFlow.asStateFlow()
 
-    /** 新建会话默认厂商（"gemini" | "claude"） */
+    var defaultOrchestratorModel: String
+        get() = prefs.getString(KEY_DEFAULT_ORCHESTRATOR_MODEL, null)?.takeIf { it.isNotBlank() } ?: ModelDefaults.FALLBACK_ORCHESTRATOR
+        set(value) {
+            val trimmed = value.trim()
+            prefs.edit().putString(KEY_DEFAULT_ORCHESTRATOR_MODEL, trimmed).apply()
+            _defaultOrchestratorModelFlow.value = trimmed.ifBlank { ModelDefaults.FALLBACK_ORCHESTRATOR }
+        }
+
+    private val _defaultOrchestratorModelFlow = MutableStateFlow(defaultOrchestratorModel)
+    val defaultOrchestratorModelFlow: StateFlow<String> = _defaultOrchestratorModelFlow.asStateFlow()
+
+    /** 新建会话默认厂商（"gemini" | "claude" | "orchestrator"） */
     var defaultNewSessionProvider: String
         get() = prefs.getString(KEY_DEFAULT_NEW_SESSION_PROVIDER, "gemini")?.takeIf { it.isNotBlank() } ?: "gemini"
         set(value) {
@@ -234,7 +245,11 @@ class PreferencesManager(context: Context) {
     val defaultNewSessionProviderFlow: StateFlow<String> = _defaultNewSessionProviderFlow.asStateFlow()
 
     val defaultNewSessionModel: String
-        get() = if (defaultNewSessionProvider == "claude") defaultClaudeModel else defaultGeminiModel
+        get() = when (defaultNewSessionProvider) {
+            "claude" -> defaultClaudeModel
+            "orchestrator" -> defaultOrchestratorModel
+            else -> defaultGeminiModel
+        }
 
     val cachedModelCatalog: ModelsResponse?
         get() {
@@ -254,6 +269,8 @@ class PreferencesManager(context: Context) {
         if (g != defaultGeminiModel) defaultGeminiModel = g
         val cl = ModelDefaults.validated(defaultClaudeModel, "claude", catalog)
         if (cl != defaultClaudeModel) defaultClaudeModel = cl
+        val orch = ModelDefaults.validated(defaultOrchestratorModel, "orchestrator", catalog)
+        if (orch != defaultOrchestratorModel) defaultOrchestratorModel = orch
     }
 
     var autoApprovePermissions: Boolean
@@ -777,6 +794,7 @@ class PreferencesManager(context: Context) {
         _modelCatalogFlow.value = null
         _defaultGeminiModelFlow.value = ModelDefaults.FALLBACK_GEMINI
         _defaultClaudeModelFlow.value = ModelDefaults.FALLBACK_CLAUDE
+        _defaultOrchestratorModelFlow.value = ModelDefaults.FALLBACK_ORCHESTRATOR
     }
 
     companion object {
@@ -813,6 +831,7 @@ class PreferencesManager(context: Context) {
         private const val KEY_KNOWLEDGE_MODE = "knowledge_mode_enabled"
         private const val KEY_DEFAULT_GEMINI_MODEL = "default_gemini_model"
         private const val KEY_DEFAULT_CLAUDE_MODEL = "default_claude_model"
+        private const val KEY_DEFAULT_ORCHESTRATOR_MODEL = "default_orchestrator_model"
         private const val KEY_DEFAULT_NEW_SESSION_PROVIDER = "default_new_session_provider"
         private const val KEY_AUTO_APPROVE = "auto_approve_permissions"
         private const val KEY_LIVE_NOTIFICATIONS = "live_notifications"
