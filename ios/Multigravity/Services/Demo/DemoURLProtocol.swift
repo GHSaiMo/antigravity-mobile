@@ -82,8 +82,11 @@ private enum DemoRouter {
         let gw = DemoGateway.shared
 
         // LanguageServer ConnectRPC endpoints
-        let rpcPrefix = "/exa.language_server_pb.LanguageServerService/"
-        if path.hasPrefix(rpcPrefix) {
+        let rpcPrefixes = [
+            "/api/exa.language_server_pb.LanguageServerService/",
+            "/exa.language_server_pb.LanguageServerService/"
+        ]
+        for rpcPrefix in rpcPrefixes where path.hasPrefix(rpcPrefix) {
             let rpc = String(path.dropFirst(rpcPrefix.count))
             return handleRPC(rpc: rpc, request: request, body: body, gw: gw)
         }
@@ -107,12 +110,22 @@ private enum DemoRouter {
 
         case ("POST", "/gateway/cascade/interaction"):
             let obj = bodyJSON(body)
-            let id = (obj["trajectoryId"] as? String) ?? (obj["cascadeId"] as? String) ?? ""
+            let id = (obj["cascadeId"] as? String) ?? (obj["trajectoryId"] as? String) ?? ""
             let step = (obj["stepIndex"] as? Int) ?? 0
             let allow = obj["allow"] as? Bool
             let optionId = (obj["optionId"] as? String) ?? (obj["selectedOptionId"] as? String)
-            let answers = obj["answers"] as? [[String: Any]]
-            gw.respond(cascadeId: id, stepIndex: step, allow: allow, optionId: optionId, answers: answers)
+            let writeIn = obj["writeInResponse"] as? String
+            let skipped = (obj["skipped"] as? Bool) ?? false
+            let answers = (obj["questionResponses"] as? [[String: Any]]) ?? (obj["answers"] as? [[String: Any]])
+            gw.respond(
+                cascadeId: id,
+                stepIndex: step,
+                allow: allow,
+                optionId: optionId,
+                writeInResponse: writeIn,
+                skipped: skipped,
+                answers: answers
+            )
             return json(["ok": true])
 
         case ("POST", "/gateway/cascade/task/stop"):
@@ -254,8 +267,8 @@ private enum DemoRouter {
 
         case ("POST", "/api/v1/cockpit/switch"):
             let obj = bodyJSON(body)
-            let email = (obj["email"] as? String) ?? ""
-            gw.switchAccount(to: email)
+            let target = (obj["account_id"] as? String) ?? (obj["email"] as? String) ?? ""
+            gw.switchAccount(to: target)
             return json(["ok": true])
 
         case ("GET", "/api/v1/cockpit/tokens/history"):
@@ -265,18 +278,23 @@ private enum DemoRouter {
             return json(["version": "2.35.0-demo", "gateway": "multigravity-demo"])
 
         case ("POST", "/api/v1/attachments"):
-            let (name, fileBytes) = extractMultipartFile(contentType: request.value(forHTTPHeaderField: "Content-Type"), body: body)
-            let savedName = name ?? "upload-\(UUID().uuidString.prefix(6)).bin"
-            let rawPath = gw.storeFile(name: savedName, data: fileBytes)
-            let id = rawPath.split(separator: "=").last.map(String.init) ?? savedName
-            return json(["attachments": [["id": id, "name": savedName, "size": fileBytes.count, "url": rawPath]]])
+            let headerName = request.value(forHTTPHeaderField: "X-File-Name")?.removingPercentEncoding
+            if let headerName, !headerName.isEmpty {
+                let (status, payload) = gw.storeUpload(name: headerName, data: body)
+                return json(payload, status: status)
+            }
+            let (mpName, fileBytes) = extractMultipartFile(contentType: request.value(forHTTPHeaderField: "Content-Type"), body: body)
+            let savedName = mpName ?? "upload-\(UUID().uuidString.prefix(6)).bin"
+            let (status, payload) = gw.storeUpload(name: savedName, data: fileBytes)
+            return json(payload, status: status)
 
         case ("GET", "/api/v1/files/raw"), ("GET", "/api/v1/files/content"):
-            let p = param("path") ?? param("uri") ?? ""
+            let p = param("uri") ?? param("path") ?? ""
             guard let file = gw.fileData(forPath: p) else { return json(["error": "file not found"], status: 404) }
             if path == "/api/v1/files/content" {
                 let text = String(data: file.data, encoding: .utf8) ?? ""
-                return json(["uri": p, "filename": file.name, "content": text, "user_facing": true, "request_feedback": p == "plan.md"])
+                let isPlan = p.contains("implementation_plan.md") || p.hasSuffix("plan.md")
+                return json(["uri": p, "filename": file.name, "content": text, "user_facing": true, "request_feedback": isPlan])
             }
             return Result(contentType: DemoGateway.mime(for: file.name), body: file.data)
 
@@ -315,16 +333,25 @@ private enum DemoRouter {
                 }
             }
             let text = textParts.joined(separator: "")
-            let media = (obj["media"] as? [[String: Any]])?.compactMap { $0["inlineData"] as? String }
+            var media = (obj["media"] as? [[String: Any]])?.compactMap { $0["inlineData"] as? String } ?? []
+            if media.isEmpty, let imgs = obj["images"] as? [[String: Any]] {
+                media = imgs.compactMap { $0["base64Data"] as? String }
+            }
+            let attachmentIds = (obj["attachments"] as? [[String: Any]])?.compactMap { $0["id"] as? String } ?? []
+            let deliveryStrategy = obj["deliveryStrategy"] as? Int
             let isArtifactApproval = text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !artifactComments.isEmpty
-            gw.send(
+            if let err = gw.send(
                 cascadeId: id,
                 text: text,
                 clientMessageId: cmid,
-                media: media,
+                media: media.isEmpty ? nil : media,
+                attachmentIds: attachmentIds,
+                deliveryStrategy: deliveryStrategy,
                 slashCommands: slashCommands.isEmpty ? nil : slashCommands,
                 isArtifactApproval: isArtifactApproval
-            )
+            ) {
+                return json(["error": err, "message": err], status: 400)
+            }
             return json([:])
 
         case "UpdateConversationAnnotations":

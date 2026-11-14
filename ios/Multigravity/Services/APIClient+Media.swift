@@ -117,7 +117,10 @@ extension APIClient {
         // Demo mode: serve files from the built-in demo gateway (background sessions bypass URLProtocol).
         if DemoGateway.isEnabled {
             var path = uri
-            if let comps = URLComponents(string: uri), let p = comps.queryItems?.first(where: { $0.name == "uri" })?.value { path = p }
+            if let comps = URLComponents(string: uri),
+               let p = comps.queryItems?.first(where: { $0.name == "uri" || $0.name == "path" })?.value {
+                path = p
+            }
             guard let file = DemoGateway.shared.fileData(forPath: path) else {
                 throw APIError.serverError(statusCode: 404, message: "file not found")
             }
