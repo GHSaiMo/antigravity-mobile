@@ -110,25 +110,258 @@ public struct MarkdownCarouselSlide: Identifiable, Sendable, Equatable {
 
 final class MarkdownBlockCache: @unchecked Sendable {
     static let shared = MarkdownBlockCache()
+
+    private struct CacheEntry {
+        let blocks: [MarkdownBlock]
+        var generation: UInt64
+    }
+
+    private struct PrefixEntry {
+        let prefix: String
+        let blocks: [MarkdownBlock]
+    }
+
     private let lock = NSLock()
-    private var storage: [Int: [MarkdownBlock]] = [:]
-    
+    private let maxEntries = 200
+    private let maxPrefixEntries = 32
+    private var generationCounter: UInt64 = 0
+    private var storage: [String: CacheEntry] = [:]
+    private var prefixEntries: [PrefixEntry] = []
+
     func blocks(for text: String) -> [MarkdownBlock] {
-        let hash = text.hashValue
+        if text.isEmpty { return [] }
+
+        var matchedPrefix: PrefixEntry? = nil
         lock.lock()
-        if let cached = storage[hash] {
+        if var hit = storage[text] {
+            generationCounter &+= 1
+            hit.generation = generationCounter
+            storage[text] = hit
             lock.unlock()
-            return cached
+            return hit.blocks
+        }
+        if text.count >= 120 {
+            for idx in prefixEntries.indices {
+                let candidate = prefixEntries[idx]
+                if text.count > candidate.prefix.count && text.hasPrefix(candidate.prefix) {
+                    matchedPrefix = candidate
+                    if idx > 0 {
+                        prefixEntries.remove(at: idx)
+                        prefixEntries.insert(candidate, at: 0)
+                    }
+                    break
+                }
+            }
         }
         lock.unlock()
-        
-        let parsed = MarkdownParser.parse(text)
-        lock.lock()
-        if storage.count > 150 {
-            storage.removeAll(keepingCapacity: true)
+
+        let safeSplitIndex = Self.findLastSafeBlankSplit(in: text)
+        let parsed: [MarkdownBlock]
+        var updatedPrefixEntry: PrefixEntry? = nil
+
+        if let base = matchedPrefix {
+            if let splitIdx = safeSplitIndex {
+                let safePrefix = String(text[..<splitIdx])
+                if safePrefix.count > base.prefix.count && safePrefix.hasPrefix(base.prefix) {
+                    let midDelta = String(safePrefix.dropFirst(base.prefix.count))
+                    let midBlocks = MarkdownParser.parse(midDelta, startBlockIdx: base.blocks.count)
+                    let combinedPrefixBlocks = base.blocks + midBlocks
+                    if !combinedPrefixBlocks.isEmpty {
+                        updatedPrefixEntry = PrefixEntry(prefix: safePrefix, blocks: combinedPrefixBlocks)
+                    }
+                    let tail = String(text[splitIdx...])
+                    let tailBlocks = MarkdownParser.parse(tail, startBlockIdx: combinedPrefixBlocks.count)
+                    parsed = combinedPrefixBlocks + tailBlocks
+                } else {
+                    let tail = String(text.dropFirst(base.prefix.count))
+                    let tailBlocks = MarkdownParser.parse(tail, startBlockIdx: base.blocks.count)
+                    parsed = base.blocks + tailBlocks
+                }
+            } else {
+                let tail = String(text.dropFirst(base.prefix.count))
+                let tailBlocks = MarkdownParser.parse(tail, startBlockIdx: base.blocks.count)
+                parsed = base.blocks + tailBlocks
+            }
+        } else if let splitIdx = safeSplitIndex {
+            let safePrefix = String(text[..<splitIdx])
+            let prefixBlocks = MarkdownParser.parse(safePrefix, startBlockIdx: 0)
+            if !prefixBlocks.isEmpty {
+                updatedPrefixEntry = PrefixEntry(prefix: safePrefix, blocks: prefixBlocks)
+            }
+            let tail = String(text[splitIdx...])
+            let tailBlocks = MarkdownParser.parse(tail, startBlockIdx: prefixBlocks.count)
+            parsed = prefixBlocks + tailBlocks
+        } else {
+            parsed = MarkdownParser.parse(text, startBlockIdx: 0)
         }
-        storage[hash] = parsed
+
+        lock.lock()
+        if storage.count >= maxEntries, storage[text] == nil {
+            if let oldestKey = storage.min(by: { $0.value.generation < $1.value.generation })?.key {
+                storage.removeValue(forKey: oldestKey)
+            }
+        }
+        generationCounter &+= 1
+        storage[text] = CacheEntry(blocks: parsed, generation: generationCounter)
+
+        if let pEntry = updatedPrefixEntry {
+            prefixEntries.removeAll { $0.prefix == pEntry.prefix }
+            prefixEntries.insert(pEntry, at: 0)
+            if prefixEntries.count > maxPrefixEntries {
+                prefixEntries.removeLast(prefixEntries.count - maxPrefixEntries)
+            }
+        }
         lock.unlock()
         return parsed
+    }
+
+    /// Finds the `String.Index` right after the last top-level blank line (`\n\n`) that is guaranteed
+    /// not to be inside YAML/Marp frontmatter, `<style>`, fenced code blocks, or display math blocks.
+    private static func findLastSafeBlankSplit(in text: String) -> String.Index? {
+        guard text.count >= 120 else { return nil }
+
+        var firstNonEmptySeen = false
+        var inFrontmatter = false
+        var frontmatterDashOnly = false
+        var frontmatterBodyLines = 0
+        var inStyle = false
+        var inFence = false
+        var fenceChar: Character = "`"
+        var fenceLen = 0
+        var inMath = false
+        var mathCloseToken = "$$"
+        var hasCompletedContent = false
+        var lastSafeIndex: String.Index? = nil
+
+        var lineStart = text.startIndex
+        while lineStart < text.endIndex {
+            let newlineIdx = text[lineStart...].firstIndex(of: "\n")
+            let lineEnd = newlineIdx ?? text.endIndex
+            let afterLine = newlineIdx.map { text.index(after: $0) } ?? text.endIndex
+            let lineSub = text[lineStart..<lineEnd]
+            let trimmed = lineSub.trimmingCharacters(in: .whitespaces)
+
+            if !firstNonEmptySeen {
+                if !trimmed.isEmpty {
+                    firstNonEmptySeen = true
+                    if trimmed == "---" {
+                        inFrontmatter = true
+                        frontmatterDashOnly = false
+                        frontmatterBodyLines = 0
+                        lineStart = afterLine
+                        continue
+                    } else if trimmed.hasPrefix("marp:") || (trimmed.contains(":") && (trimmed.hasPrefix("theme:") || trimmed.hasPrefix("style:"))) {
+                        inFrontmatter = true
+                        frontmatterDashOnly = true
+                        frontmatterBodyLines = 1
+                        lineStart = afterLine
+                        continue
+                    }
+                }
+            } else if inFrontmatter {
+                if frontmatterDashOnly {
+                    if trimmed == "---" {
+                        inFrontmatter = false
+                        hasCompletedContent = true
+                    } else if trimmed.hasPrefix("# ") || trimmed.hasPrefix("## ") {
+                        // Unclosed Marp header fallback — bail out of incremental split for safety
+                        return nil
+                    } else {
+                        frontmatterBodyLines += 1
+                    }
+                } else {
+                    if trimmed == "---" || trimmed == "..." {
+                        if frontmatterBodyLines > 0 {
+                            inFrontmatter = false
+                            hasCompletedContent = true
+                        } else {
+                            // Leading `---` followed immediately by `---` is not frontmatter; skip incremental split
+                            return nil
+                        }
+                    } else {
+                        frontmatterBodyLines += 1
+                    }
+                }
+                lineStart = afterLine
+                continue
+            }
+
+            if inStyle {
+                if trimmed.lowercased().contains("</style>") {
+                    inStyle = false
+                    hasCompletedContent = true
+                }
+                lineStart = afterLine
+                continue
+            }
+
+            if inFence {
+                if trimmed.hasPrefix(String(repeating: fenceChar, count: fenceLen)) {
+                    inFence = false
+                    hasCompletedContent = true
+                }
+                lineStart = afterLine
+                continue
+            }
+
+            if inMath {
+                if trimmed.contains(mathCloseToken) {
+                    inMath = false
+                    hasCompletedContent = true
+                }
+                lineStart = afterLine
+                continue
+            }
+
+            if trimmed.isEmpty {
+                if hasCompletedContent && newlineIdx != nil && afterLine < text.endIndex {
+                    lastSafeIndex = afterLine
+                }
+                lineStart = afterLine
+                continue
+            }
+
+            let lower = trimmed.lowercased()
+            if lower.hasPrefix("<style") {
+                if !lower.contains("</style>") {
+                    inStyle = true
+                } else {
+                    hasCompletedContent = true
+                }
+                lineStart = afterLine
+                continue
+            }
+
+            if trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~") {
+                let ch = trimmed.first!
+                var count = 0
+                for c in trimmed {
+                    if c == ch { count += 1 } else { break }
+                }
+                if count >= 3 {
+                    inFence = true
+                    fenceChar = ch
+                    fenceLen = count
+                    lineStart = afterLine
+                    continue
+                }
+            }
+
+            if (trimmed.hasPrefix("$$") && (trimmed == "$$" || !trimmed.dropFirst(2).contains("$$"))) ||
+               (trimmed.hasPrefix(#"\["#) && !trimmed.dropFirst(2).contains(#"\]"#)) {
+                inMath = true
+                mathCloseToken = trimmed.hasPrefix("$$") ? "$$" : #"\]"#
+                lineStart = afterLine
+                continue
+            }
+
+            hasCompletedContent = true
+            lineStart = afterLine
+        }
+
+        if inFrontmatter {
+            return nil
+        }
+        return lastSafeIndex
     }
 }

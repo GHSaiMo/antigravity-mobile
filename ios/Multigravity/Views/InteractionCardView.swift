@@ -82,15 +82,16 @@ public struct InteractionCardView: View {
         self.onSkip = onSkip
         self.onToggleExpand = onToggleExpand
         
-        var initialSelectedId = "1"
+        let defaultFallback = (interaction.hasWriteIn == true) ? "__write_in__" : "1"
+        var initialSelectedId = defaultFallback
         if AppSettings.shared.autoApprovePermissions && (interaction.type == "permission" || interaction.type == "file_permission") {
             if let opt4 = interaction.options.first(where: { $0.id == "4" || $0.scope == 4 || $0.text.localizedCaseInsensitiveContains("always allow") }) {
                 initialSelectedId = opt4.id
             } else {
-                initialSelectedId = interaction.defaultOptionId ?? interaction.options.first?.id ?? "1"
+                initialSelectedId = interaction.defaultOptionId ?? interaction.options.first?.id ?? defaultFallback
             }
         } else {
-            initialSelectedId = interaction.defaultOptionId ?? interaction.options.first?.id ?? "1"
+            initialSelectedId = interaction.defaultOptionId ?? interaction.options.first?.id ?? defaultFallback
         }
         _selectedOptionId = State(initialValue: initialSelectedId)
         _targetText = State(initialValue: interaction.target ?? "")
@@ -98,7 +99,8 @@ public struct InteractionCardView: View {
         var qMap: [Int: String] = [:]
         if let questions = interaction.questions {
             for (idx, q) in questions.enumerated() {
-                qMap[idx] = q.defaultOptionId ?? q.options.first?.id ?? "1"
+                let qFallback = (q.hasWriteIn == true) ? "__write_in__" : "1"
+                qMap[idx] = q.defaultOptionId ?? q.options.first?.id ?? qFallback
             }
         }
         _selectedOptionsByQuestion = State(initialValue: qMap)
@@ -119,6 +121,10 @@ public struct InteractionCardView: View {
             return "questionmark.bubble.fill"
         case "run_command":
             return "terminal.fill"
+        case "mcp":
+            return "puzzlepiece.extension.fill"
+        case "elicitation":
+            return "rectangle.and.pencil.and.ellipsis"
         default:
             return "questionmark.circle.fill"
         }
@@ -139,6 +145,10 @@ public struct InteractionCardView: View {
             return .orange
         case "run_command":
             return .orange
+        case "mcp":
+            return .purple
+        case "elicitation":
+            return .teal
         default:
             return .orange
         }
@@ -197,9 +207,20 @@ public struct InteractionCardView: View {
 
     private var isDenySelected: Bool {
         if let opt = singleDisplayOptions.first(where: { $0.id == selectedOptionId }) {
-            return opt.isDeny == true || opt.id == "5" || opt.id == "__write_in__"
+            if opt.isDeny == true { return true }
+            if isPermissionType && (opt.id == "5" || opt.id == "__write_in__") { return true }
+            return false
         }
-        return selectedOptionId == "5" || selectedOptionId == "__write_in__"
+        return isPermissionType && (selectedOptionId == "5" || selectedOptionId == "__write_in__")
+    }
+
+    private var isWriteInSelected: Bool {
+        if selectedOptionId == "__write_in__" { return true }
+        guard interaction.hasWriteIn == true else { return false }
+        if let opt = singleDisplayOptions.first(where: { $0.id == selectedOptionId }) {
+            return opt.isDeny == true || opt.id == "5" || opt.id.lowercased() == "other"
+        }
+        return selectedOptionId == "5"
     }
     
     private func isQuestionDenySelected(qIdx: Int, q: InteractionQuestion) -> Bool {
@@ -250,13 +271,14 @@ public struct InteractionCardView: View {
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
         if hasMultipleQuestions, let questions = interaction.questions {
             let responses = questions.enumerated().map { idx, q in
-                let optId = selectedOptionsByQuestion[idx] ?? q.defaultOptionId ?? q.options.first?.id ?? "1"
+                let qFallback = (q.hasWriteIn == true) ? "__write_in__" : "1"
+                let optId = selectedOptionsByQuestion[idx] ?? q.defaultOptionId ?? q.options.first?.id ?? qFallback
                 let text = writeInByQuestion[idx]
                 return QuestionResponse(questionIndex: idx, selectedOptionIds: [optId], writeInResponse: text, skipped: false)
             }
             onSubmit(selectedOptionId, nil, interaction.target, responses)
         } else {
-            let text = isDenySelected ? writeInText : nil
+            let text = (isWriteInSelected || isDenySelected) ? writeInText : nil
             onSubmit(selectedOptionId, text, interaction.target, nil)
         }
     }

@@ -92,11 +92,24 @@ extension ChatViewModel {
         }
     }
     
+    @MainActor
+    func endBackgroundGraceTask() {
+        backgroundDisconnectTask?.cancel()
+        backgroundDisconnectTask = nil
+        if backgroundTaskId != .invalid {
+            UIApplication.shared.endBackgroundTask(backgroundTaskId)
+            backgroundTaskId = .invalid
+        }
+    }
+
+    @MainActor
     public func disconnectStream() {
+        endBackgroundGraceTask()
         streamClient.disconnect(intentional: true)
         stopPollingFallback()
     }
     
+    @MainActor
     public func stopPolling() {
         disconnectStream()
     }

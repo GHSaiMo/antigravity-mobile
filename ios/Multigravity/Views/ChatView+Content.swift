@@ -227,6 +227,9 @@ extension ChatView {
         }
         .onChange(of: viewModel.isLoading) { _, loading in
             if !loading {
+                if !useLazyMessagesStack && !hasInitiallyAligned && viewModel.messages.count > 100 {
+                    useLazyMessagesStack = true
+                }
                 // 网络会话历史同步结算后校准对齐
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
                     alignMessages(proxy: proxy, animated: false)
@@ -234,6 +237,11 @@ extension ChatView {
                 if canScheduleAutoFocus {
                     scheduleAutoFocus(delay: 0.2)
                 }
+            }
+        }
+        .onChange(of: viewModel.isLoadingOlder) { _, loadingOlder in
+            if !loadingOlder && !useLazyMessagesStack && !viewModel.isActivelyRunning && viewModel.messages.count > 250 {
+                useLazyMessagesStack = true
             }
         }
         .onChange(of: cardToggleTrigger) { _, _ in
@@ -353,10 +361,11 @@ extension ChatView {
     }
     
     /// 消息不多时用普通 VStack：LazyVStack 在程序化大幅跳转或滚到底后可能不创建行，整屏空白。
-    /// 现代设备将普通 VStack 阈值扩充至 100 条消息（覆盖绝大多数 15-25 轮常规会话），免除虚拟化抖动与空白。
+    /// 通过锁存的 `useLazyMessagesStack` 控制容器身份，仅在会话初始载入超过 100 条或空闲态翻阅超长历史 (>250) 时启用 LazyVStack，
+    /// 绝不在流式输出跨过第 100 条消息的瞬间切换容器，防止整屏视图与内嵌 WKWebView 销毁重挂载。
     @ViewBuilder
     func messagesStack<C: View>(@ViewBuilder _ content: () -> C) -> some View {
-        if viewModel.messages.count <= 100 {
+        if !useLazyMessagesStack {
             VStack(spacing: 8) { content() }
         } else {
             LazyVStack(spacing: 8) { content() }
