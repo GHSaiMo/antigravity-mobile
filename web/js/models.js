@@ -10,6 +10,10 @@ const MODEL_CATALOG_KEY = "agy_model_catalog";
 const MODEL_DEFAULT_KEY = (provider) => `agy_default_${provider}_model`;
 const IGNORED_PICKER_TAGS = new Set(["new", "fast", "notice", "提示"]);
 const MODEL_STATIC_NAMES = {
+  "gemini-4-hydrogen-xhigh": "Gemini 4 Hydrogen (Extra)",
+  "gemini-4-hydrogen-high": "Gemini 4 Hydrogen (High)",
+  "gemini-4-hydrogen-medium": "Gemini 4 Hydrogen (Medium)",
+  "gemini-4-hydrogen-low": "Gemini 4 Hydrogen (Low)",
   "gemini-4-carbon-high": "Gemini 4 Carbon (High)",
   "gemini-4-carbon-medium": "Gemini 4 Carbon (Medium)",
   "gemini-4-carbon-low": "Gemini 4 Carbon (Low)",
@@ -196,6 +200,22 @@ function initModelSettings() {
       }
     });
   }
+  document.getElementById("btn-refresh-models")?.addEventListener("click", async (e) => {
+    const btn = e.currentTarget;
+    const label = btn.querySelector("span");
+    const origText = label ? label.textContent : "";
+    btn.disabled = true;
+    if (label) label.textContent = "正在刷新...";
+    try {
+      await loadModelCatalog(true);
+      if (label) label.textContent = modelCatalog.live ? "已刷新" : "刷新失败，仍为内置列表";
+    } finally {
+      setTimeout(() => {
+        btn.disabled = false;
+        if (label) label.textContent = origText || "刷新模型列表";
+      }, 1200);
+    }
+  });
   renderDefaultModelSettings();
   loadModelCatalog();
 }

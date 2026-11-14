@@ -145,8 +145,8 @@ const desktopThemePresetFixJS = `
     "Solarized Light": "Solarized 浅色", "Solarized Dark": "Solarized 深色"
   };
   const VALID = {
-    "theme-preset-light": ["经典浅白", "Catppuccin", "One Light 亮色", "Solarized 浅色"],
-    "theme-preset-dark": ["深邃炭黑", "Catppuccin", "Dracula", "Monokai", "One Dark Pro 深色", "Tokyo Night 东京之夜", "Solarized 深色", "Vesper"]
+    "theme-preset-light": ["经典浅白", "Catppuccin", "Everforest Light", "One Light 亮色", "Solarized 浅色"],
+    "theme-preset-dark": ["深邃炭黑", "Catppuccin", "Dracula", "Everforest Dark", "Monokai", "One Dark Pro 深色", "Tokyo Night 东京之夜", "Solarized 深色", "Vesper"]
   };
   try {
     const proto = Storage.prototype, orig = proto.getItem;
