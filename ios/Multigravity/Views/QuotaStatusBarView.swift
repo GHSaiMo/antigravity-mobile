@@ -15,13 +15,26 @@ public struct QuotaStatusBarView: View {
     private var resolvedDisplay: (kind: QuotaBucketKind, bucket: CockpitQuotaBucket)? {
         account?.resolvedQuotaDisplay(preferred: AppSettings.shared.selectedQuotaBucket)
     }
+
+    private var resolvedKind: QuotaBucketKind {
+        resolvedDisplay?.kind ?? .gemini5h
+    }
+
+    private var isWeekly: Bool {
+        resolvedKind == .geminiWeekly || resolvedKind == .claudeWeekly
+    }
     
     private var bucket: CockpitQuotaBucket? {
         resolvedDisplay?.bucket
     }
     
     private var titleText: String {
-        resolvedDisplay?.kind.displayTitle ?? "Gemini · 5h"
+        switch resolvedKind {
+        case .gemini5h: return "Gemini · 5h"
+        case .claude5h: return "Claude · 5h"
+        case .geminiWeekly: return "Gemini"
+        case .claudeWeekly: return "Claude"
+        }
     }
     
     private var percent: Double {
@@ -73,6 +86,15 @@ public struct QuotaStatusBarView: View {
     }
     
     private var resetCountdownDisplay: String? {
+        if isWeekly {
+            if let clock = formattedResetClockTime {
+                return clock
+            }
+            if let friendly = bucket?.resetFriendly, friendly == "已就绪" || friendly == "未知" {
+                return friendly
+            }
+            return nil
+        }
         guard let friendly = bucket?.resetFriendly, !friendly.isEmpty else {
             return nil
         }
@@ -102,7 +124,7 @@ public struct QuotaStatusBarView: View {
                         .layoutPriority(1)
                     
                     // Mini progress bar - stretched to fill available width with pace needle
-                    let paceInfo = bucket?.calculatePaceForTitle(titleText, tier: account?.subscriptionTier)
+                    let paceInfo = bucket?.calculatePaceForTitle(resolvedKind.displayTitle, tier: account?.subscriptionTier)
                     let showCursor = AppSettings.shared.weeklyPaceCursorEnabled && paceInfo != nil
 
                     GeometryReader { geo in
