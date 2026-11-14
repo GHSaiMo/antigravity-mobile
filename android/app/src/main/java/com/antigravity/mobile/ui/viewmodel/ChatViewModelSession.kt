@@ -104,8 +104,9 @@ internal fun ChatViewModel.resetSession() {
     stoppedTaskKeys.clear()
     currentDraftProject = null
     currentLastModifiedTime = null
+    hasUserManuallySelectedModel = false
     _inputText.value = ""
-    _uiState.value = ChatUiState()
+    _uiState.value = ChatUiState(activeModel = favoriteModel1)
 }
 
 internal fun ChatViewModel.prepareSession(
@@ -131,6 +132,7 @@ internal fun ChatViewModel.prepareSession(
     deletedQueueTombstones.clear()
     inFlightDeletingQueueIds.clear()
     stoppedTaskKeys.clear()
+    hasUserManuallySelectedModel = false
 
     val isDraft = cascadeId.startsWith("local_draft_")
     val resolvedDraftProject = draftProject ?: (if (isDraft) prefs?.getLocalDraftSession(cascadeId)?.project else null)
@@ -185,7 +187,7 @@ internal fun ChatViewModel.prepareSession(
             canProceed = cached.canProceed ?: false,
             proceedArtifactUri = cached.proceedArtifactUri,
             pendingInteraction = cached.pendingInteraction,
-            activeModel = cached.activeModel ?: _uiState.value.activeModel,
+            activeModel = cached.activeModel ?: favoriteModel1,
             activeModelName = cached.activeModelName ?: _uiState.value.activeModelName,
             startedAt = cached.startedAt ?: _uiState.value.startedAt,
             errorMessage = null,
@@ -213,7 +215,7 @@ internal fun ChatViewModel.prepareSession(
             canProceed = false,
             proceedArtifactUri = null,
             pendingInteraction = null,
-            activeModel = _uiState.value.activeModel,
+            activeModel = favoriteModel1,
             errorMessage = null,
             isLatestMessageError = false,
             markdownViewerData = null
@@ -254,6 +256,7 @@ internal fun ChatViewModel.initSession(
         deletedQueueTombstones.clear()
         inFlightDeletingQueueIds.clear()
         stoppedTaskKeys.clear()
+        hasUserManuallySelectedModel = false
 
         val savedDraftText = prefs?.getDraftText(cascadeId).orEmpty()
         _inputText.value = savedDraftText
@@ -298,7 +301,7 @@ internal fun ChatViewModel.initSession(
                 canProceed = cached.canProceed ?: false,
                 proceedArtifactUri = cached.proceedArtifactUri,
                 pendingInteraction = cached.pendingInteraction,
-                activeModel = cached.activeModel ?: _uiState.value.activeModel,
+                activeModel = cached.activeModel ?: favoriteModel1,
                 activeModelName = cached.activeModelName ?: _uiState.value.activeModelName,
                 startedAt = cached.startedAt ?: _uiState.value.startedAt,
                 errorMessage = null,
@@ -326,7 +329,7 @@ internal fun ChatViewModel.initSession(
                 canProceed = false,
                 proceedArtifactUri = null,
                 pendingInteraction = null,
-                activeModel = _uiState.value.activeModel,
+                activeModel = favoriteModel1,
                 errorMessage = null,
                 isLatestMessageError = false,
                 markdownViewerData = null
@@ -417,8 +420,8 @@ internal fun ChatViewModel.initSession(
                         canProceed = payload.canProceed,
                         proceedArtifactUri = payload.proceedArtifactUri,
                         pendingInteraction = payload.pendingInteraction,
-                        activeModel = ModelDefaults.resolveActive(payload.activeModel, _uiState.value.activeModel, geminiDefaultModel, claudeDefaultModel),
-                        activeModelName = payload.activeModelName ?: _uiState.value.activeModelName,
+                        activeModel = if (hasUserManuallySelectedModel) _uiState.value.activeModel else ModelDefaults.resolveActive(payload.activeModel, _uiState.value.activeModel, favoriteModel1, favoriteModel2),
+                        activeModelName = if (hasUserManuallySelectedModel) _uiState.value.activeModelName else (payload.activeModelName ?: _uiState.value.activeModelName),
                         startedAt = payload.startedAt ?: _uiState.value.startedAt,
                         errorMessage = if (payload.hasError && _uiState.value.messages.isEmpty()) payload.errorMessage else null,
                         isLatestMessageError = isError,
@@ -550,8 +553,8 @@ internal fun ChatViewModel.ensureWebSocketObserving() {
                     canProceed = payload.canProceed,
                     proceedArtifactUri = payload.proceedArtifactUri,
                     pendingInteraction = payload.pendingInteraction,
-                    activeModel = ModelDefaults.resolveActive(payload.activeModel, _uiState.value.activeModel, geminiDefaultModel, claudeDefaultModel),
-                    activeModelName = payload.activeModelName ?: _uiState.value.activeModelName,
+                    activeModel = if (hasUserManuallySelectedModel) _uiState.value.activeModel else ModelDefaults.resolveActive(payload.activeModel, _uiState.value.activeModel, favoriteModel1, favoriteModel2),
+                    activeModelName = if (hasUserManuallySelectedModel) _uiState.value.activeModelName else (payload.activeModelName ?: _uiState.value.activeModelName),
                     startedAt = payload.startedAt ?: _uiState.value.startedAt,
                     errorMessage = if (payload.hasError) payload.errorMessage else null,
                     isLatestMessageError = isError,

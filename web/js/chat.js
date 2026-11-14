@@ -775,7 +775,7 @@ function initScrollListener() {
 
   const updateNearBottom = () => {
     const dist = streamEl.scrollHeight - streamEl.scrollTop - streamEl.clientHeight;
-    userIsNearBottom = dist <= 80;
+    userIsNearBottom = dist <= 120;
     if (userIsNearBottom) {
       hidePromptJumpStepperImmediately();
     }
@@ -1839,6 +1839,9 @@ function renderMessages(steps, isRunning = false) {
   const lastItem = items[items.length - 1];
   const isAwaiting = isRunning && lastItem?.type !== "tools";
 
+  const preDist = streamEl.scrollHeight - streamEl.scrollTop - streamEl.clientHeight;
+  const wasNearBottom = (userIsNearBottom || preDist <= 120) && !isUserTouching;
+
   let hasDOMChanges = false;
 
   if (isSessionSwitch) {
@@ -1979,7 +1982,7 @@ function renderMessages(steps, isRunning = false) {
       } else {
         const newEl = document.createElement("div");
         newEl.id = item.id;
-        newEl.className = rowClass + " message-entering";
+        newEl.className = (isRunning && item.type === "agent") ? rowClass : (rowClass + " message-entering");
         newEl.setAttribute("data-fp", fp);
         newEl.innerHTML = generateItemHtml(item, isRunning, isLastItem);
 
@@ -2025,10 +2028,16 @@ function renderMessages(steps, isRunning = false) {
     }
   }
 
+  // Render any new mermaid diagram blocks in messages stream before bottom alignment
+  if (hasDOMChanges) {
+    renderAllMermaidDiagrams(streamEl);
+  }
+
   // 1. First-time render on entering a conversation: align cleanly to bottom without whole-page jump
   if (!hasInitiallyAligned) {
     hasInitiallyAligned = true;
     prevWasRunning = isRunning;
+    userIsNearBottom = true;
     streamEl.scrollTop = streamEl.scrollHeight;
     return;
   }
@@ -2040,19 +2049,16 @@ function renderMessages(steps, isRunning = false) {
   if (justFinished) {
     LocalQueueManager.onAgentCompleted();
     if (typeof refreshActionAvailability === "function") refreshActionAvailability();
-    if (userIsNearBottom && !isUserTouching) {
+    if (wasNearBottom) {
+      userIsNearBottom = true;
       streamEl.scrollTop = streamEl.scrollHeight;
     }
   }
 
-  // 3. Live streaming while running: pin to bottom ONLY if user is near bottom and not actively dragging
-  if (isRunning && hasDOMChanges && userIsNearBottom && !isUserTouching) {
+  // 3. Live streaming while running: pin to bottom ONLY if user was near bottom and not actively dragging
+  if (isRunning && hasDOMChanges && wasNearBottom) {
+    userIsNearBottom = true;
     streamEl.scrollTop = streamEl.scrollHeight;
-  }
-
-  // Render any new mermaid diagram blocks in messages stream
-  if (hasDOMChanges) {
-    renderAllMermaidDiagrams(streamEl);
   }
 
   setTimeout(() => updatePromptJumpStepper(), 50);

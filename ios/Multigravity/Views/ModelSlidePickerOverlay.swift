@@ -4,6 +4,8 @@ import UIKit
 public struct ModelPickerRow: Identifiable, Equatable {
     public let id: String
     public let title: String
+    public let providerKind: ModelProviderKind
+    public let isGroupStart: Bool
     public let variantsTopToBottom: [ModelVariant]
     public let defaultVariantIndex: Int
     public let hasSubmenu: Bool
@@ -28,12 +30,15 @@ public final class ModelSlidePickerState {
     private let selectionHaptic = UISelectionFeedbackGenerator()
 
     public enum Layout {
-        static let rowHeight: CGFloat = 36
-        static let rowSpacing: CGFloat = 4
+        static let defaultRowHeight: CGFloat = 34
+        static let compactRowHeight: CGFloat = 30
+        static let minRowHeight: CGFloat = 24
+        static let defaultRowSpacing: CGFloat = 3
+        static let compactRowSpacing: CGFloat = 2
         static let cardPadding: CGFloat = 5
-        static let leftCardMinWidth: CGFloat = 176
-        static let leftCardMaxWidth: CGFloat = 220
-        static let rightCardWidth: CGFloat = 112
+        static let leftCardMinWidth: CGFloat = 186
+        static let leftCardMaxWidth: CGFloat = 226
+        static let rightCardWidth: CGFloat = 104
         static let gapBetweenButtonAndMenu: CGFloat = 8
         static let gapBetweenColumns: CGFloat = 8
         static let horizontalMargin: CGFloat = 12
@@ -43,51 +48,53 @@ public final class ModelSlidePickerState {
 
     public init() {}
 
-    private static func displayMenuTitle(for rawTitle: String) -> String {
-        let trimmed = rawTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        for prefix in ["Gemini ", "Claude "] {
-            if trimmed.count > prefix.count,
-               trimmed.lowercased().hasPrefix(prefix.lowercased()) {
-                return String(trimmed.dropFirst(prefix.count))
-            }
-        }
-        return trimmed
-    }
+    /// 长按打开全模型一级菜单：按 Gemini(蓝) -> Claude(橙) -> Orchestrator(紫) -> 其他 列出全部可用模型。
+    public func open(activeModel: String) {
+        let families = ModelCatalogStore.shared.modelFamilies()
+        var builtRows: [ModelPickerRow] = []
+        var prevProvider: ModelProviderKind? = nil
 
-    public func open(provider: ModelProviderKind, activeModel: String) {
-        let families = ModelCatalogStore.shared.modelFamilies(for: provider.rawValue)
-        let builtRows: [ModelPickerRow]
-        if families.count == 1,
-           let only = families.first,
-           !only.hasEffortVariants,
-           only.variants.count > 1 {
-            // Single non-effort family (e.g. Orchestrator Carbon / Argon): show options directly in upward menu
-            builtRows = only.variants.map { variant in
-                ModelPickerRow(
-                    id: variant.id,
-                    title: Self.displayMenuTitle(for: variant.rawName),
-                    variantsTopToBottom: [variant],
-                    defaultVariantIndex: 0,
-                    hasSubmenu: false,
-                    usesEffortLabels: false
-                )
-            }
-        } else {
-            builtRows = families.map { family in
+        for family in families {
+            let kind = ModelDefaultsLogic.providerKind(forID: family.variants.first?.id ?? family.provider)
+            let isFirstInGroup = prevProvider != nil && prevProvider != kind
+
+            if !family.hasEffortVariants && family.variants.count > 1 {
+                // Multi-variant non-effort family (e.g. Orchestrator Carbon / Argon): flatten into direct level-1 rows
+                for (vIndex, variant) in family.variants.enumerated() {
+                    let displayTitle = variant.rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+                    builtRows.append(
+                        ModelPickerRow(
+                            id: variant.id,
+                            title: displayTitle.isEmpty ? family.name : displayTitle,
+                            providerKind: kind,
+                            isGroupStart: vIndex == 0 ? isFirstInGroup : false,
+                            variantsTopToBottom: [variant],
+                            defaultVariantIndex: 0,
+                            hasSubmenu: false,
+                            usesEffortLabels: false
+                        )
+                    )
+                }
+            } else {
                 let ordered = family.variantsTopToBottom
-                return ModelPickerRow(
-                    id: family.id,
-                    title: Self.displayMenuTitle(for: family.name),
-                    variantsTopToBottom: ordered,
-                    defaultVariantIndex: family.defaultVariantIndexTopToBottom,
-                    hasSubmenu: ordered.count > 1,
-                    usesEffortLabels: family.hasEffortVariants
+                builtRows.append(
+                    ModelPickerRow(
+                        id: family.id,
+                        title: family.name,
+                        providerKind: kind,
+                        isGroupStart: isFirstInGroup,
+                        variantsTopToBottom: ordered,
+                        defaultVariantIndex: family.defaultVariantIndexTopToBottom,
+                        hasSubmenu: ordered.count > 1,
+                        usesEffortLabels: family.hasEffortVariants
+                    )
                 )
             }
+            prevProvider = kind
         }
         guard !builtRows.isEmpty else { return }
 
-        self.providerKind = provider
+        self.providerKind = ModelDefaultsLogic.providerKind(forID: activeModel)
         self.activeModelID = activeModel
         self.rows = builtRows
         self.hoveredRowIndex = nil
@@ -115,13 +122,51 @@ public final class ModelSlidePickerState {
 
     // MARK: - Geometry
 
+    private var availableLeftHeight: CGFloat {
+        if anchorRect.minY > Layout.topSafeMargin + Layout.gapBetweenButtonAndMenu + 60 {
+            return anchorRect.minY - Layout.gapBetweenButtonAndMenu - Layout.topSafeMargin
+        }
+        if containerSize.height > 120 {
+            return containerSize.height - Layout.topSafeMargin * 2
+        }
+        return 420
+    }
+
+    public var leftRowSpacing: CGFloat {
+        rows.count > 7 ? Layout.compactRowSpacing : Layout.defaultRowSpacing
+    }
+
+    public var leftRowHeight: CGFloat {
+        let count = max(rows.count, 1)
+        let preferred = rows.count > 7 ? Layout.compactRowHeight : Layout.defaultRowHeight
+        let fixedOverhead = Layout.cardPadding * 2 + CGFloat(max(0, count - 1)) * leftRowSpacing
+        let maxRow = (availableLeftHeight - fixedOverhead) / CGFloat(count)
+        return min(preferred, max(Layout.minRowHeight, floor(maxRow)))
+    }
+
+    public var rightRowHeight: CGFloat { Layout.defaultRowHeight }
+    public var rightRowSpacing: CGFloat { Layout.defaultRowSpacing }
+
+    public var leftContentNeedsScroll: Bool {
+        let count = max(rows.count, 1)
+        let naturalHeight = CGFloat(count) * leftRowHeight
+            + CGFloat(max(0, count - 1)) * leftRowSpacing
+            + Layout.cardPadding * 2
+        return naturalHeight > availableLeftHeight + 1
+    }
+
     public var leftCardSize: CGSize {
         let count = max(rows.count, 1)
-        let height = CGFloat(count) * Layout.rowHeight
-            + CGFloat(max(0, count - 1)) * Layout.rowSpacing
+        let naturalHeight = CGFloat(count) * leftRowHeight
+            + CGFloat(max(0, count - 1)) * leftRowSpacing
             + Layout.cardPadding * 2
-        let preferredWidth = containerSize.width > 0 ? containerSize.width * 0.52 : Layout.leftCardMinWidth
-        let width = min(Layout.leftCardMaxWidth, max(Layout.leftCardMinWidth, preferredWidth))
+        let height = min(naturalHeight, availableLeftHeight)
+        let maxRoomForLeft = containerSize.width > 0
+            ? containerSize.width - Layout.rightCardWidth - Layout.gapBetweenColumns - Layout.horizontalMargin * 2
+            : Layout.leftCardMaxWidth
+        let upperWidth = min(Layout.leftCardMaxWidth, max(Layout.leftCardMinWidth, maxRoomForLeft))
+        let preferredWidth = containerSize.width > 0 ? containerSize.width * 0.54 : Layout.leftCardMinWidth
+        let width = min(upperWidth, max(Layout.leftCardMinWidth, preferredWidth))
         return CGSize(width: width, height: height)
     }
 
@@ -139,7 +184,8 @@ public final class ModelSlidePickerState {
     }
 
     public func leftRowCenterY(at index: Int) -> CGFloat {
-        leftCardRect.minY + Layout.cardPadding + CGFloat(index) * (Layout.rowHeight + Layout.rowSpacing) + Layout.rowHeight / 2
+        let rawY = leftCardRect.minY + Layout.cardPadding + CGFloat(index) * (leftRowHeight + leftRowSpacing) + leftRowHeight / 2
+        return min(max(leftCardRect.minY + leftRowHeight / 2, rawY), leftCardRect.maxY - leftRowHeight / 2)
     }
 
     public func rightCardRect(for rowIndex: Int) -> CGRect? {
@@ -148,11 +194,11 @@ public final class ModelSlidePickerState {
         let count = row.variantsTopToBottom.count
         guard count > 1 else { return nil }
 
-        let height = CGFloat(count) * Layout.rowHeight
-            + CGFloat(max(0, count - 1)) * Layout.rowSpacing
+        let height = CGFloat(count) * rightRowHeight
+            + CGFloat(max(0, count - 1)) * rightRowSpacing
             + Layout.cardPadding * 2
         let anchorIdx = min(max(0, row.defaultVariantIndex), count - 1)
-        let anchorOffset = Layout.cardPadding + CGFloat(anchorIdx) * (Layout.rowHeight + Layout.rowSpacing) + Layout.rowHeight / 2
+        let anchorOffset = Layout.cardPadding + CGFloat(anchorIdx) * (rightRowHeight + rightRowSpacing) + rightRowHeight / 2
         let rawMinY = leftRowCenterY(at: rowIndex) - anchorOffset
         let maxMinY = containerSize.height > 0 ? max(Layout.topSafeMargin, containerSize.height - height - 6) : rawMinY
         let minY = min(max(Layout.topSafeMargin, rawMinY), maxMinY)
@@ -176,7 +222,7 @@ public final class ModelSlidePickerState {
             } else {
                 let count = rows[rowIdx].variantsTopToBottom.count
                 let localY = point.y - (rightRect.minY + Layout.cardPadding)
-                let step = Layout.rowHeight + Layout.rowSpacing
+                let step = rightRowHeight + rightRowSpacing
                 let vIdx = min(max(0, Int(floor(localY / step))), count - 1)
                 if hoveredVariantIndex != vIdx {
                     hoveredVariantIndex = vIdx
@@ -198,7 +244,7 @@ public final class ModelSlidePickerState {
             hasEnteredMenu = true
             let count = rows[rowIdx].variantsTopToBottom.count
             let localY = point.y - (rightRect.minY + Layout.cardPadding)
-            let step = Layout.rowHeight + Layout.rowSpacing
+            let step = rightRowHeight + rightRowSpacing
             let vIdx = min(max(0, Int(floor(localY / step))), count - 1)
             if hoveredVariantIndex != vIdx {
                 hoveredVariantIndex = vIdx
@@ -218,7 +264,7 @@ public final class ModelSlidePickerState {
             hasEnteredMenu = true
             isInRightColumn = false
             let localY = point.y - (leftRect.minY + Layout.cardPadding)
-            let step = Layout.rowHeight + Layout.rowSpacing
+            let step = leftRowHeight + leftRowSpacing
             let idx = min(max(0, Int(floor(localY / step))), rows.count - 1)
             if hoveredRowIndex != idx {
                 hoveredRowIndex = idx
@@ -280,8 +326,8 @@ public struct ModelSlidePickerOverlay: View {
     @Bindable var state: ModelSlidePickerState
     let onSelectModel: (String) -> Void
 
-    private var accentColor: Color {
-        switch state.providerKind {
+    private func accentColor(for kind: ModelProviderKind) -> Color {
+        switch kind {
         case .claude: return .orange
         case .orchestrator: return .purple
         case .other: return .teal
@@ -304,9 +350,9 @@ public struct ModelSlidePickerOverlay: View {
                         state.dismiss()
                     }
 
-                // Left upward menu: Model families
+                // Left upward menu: All models color-coded by provider (Blue / Orange / Purple)
                 let leftRect = state.leftCardRect
-                leftColumnCard(width: leftRect.width)
+                leftColumnCard(size: leftRect.size)
                     .position(x: leftRect.midX, y: leftRect.midY)
                     .transition(
                         .asymmetric(
@@ -315,7 +361,7 @@ public struct ModelSlidePickerOverlay: View {
                         )
                     )
 
-                // Right column: Thinking intensity (Low -> Medium -> High -> Extra bottom-to-top, Medium aligned to hovered row)
+                // Right column: Thinking intensity Low -> Medium -> High -> Extra (top to bottom), Medium aligned to hovered row
                 if let hoveredIdx = state.hoveredRowIndex,
                    state.rows.indices.contains(hoveredIdx),
                    let rightRect = state.rightCardRect(for: hoveredIdx) {
@@ -330,9 +376,10 @@ public struct ModelSlidePickerOverlay: View {
     }
 
     @ViewBuilder
-    private func leftColumnCard(width: CGFloat) -> some View {
-        VStack(alignment: .leading, spacing: ModelSlidePickerState.Layout.rowSpacing) {
+    private func leftColumnCard(size: CGSize) -> some View {
+        let content = VStack(alignment: .leading, spacing: state.leftRowSpacing) {
             ForEach(Array(state.rows.enumerated()), id: \.element.id) { index, row in
+                let rowColor = accentColor(for: row.providerKind)
                 let isHovered = state.hoveredRowIndex == index
                 let isCurrentActive = row.variantsTopToBottom.contains(where: {
                     $0.id.caseInsensitiveCompare(state.activeModelID) == .orderedSame
@@ -361,47 +408,67 @@ public struct ModelSlidePickerOverlay: View {
                         if isCurrentActive {
                             Image(systemName: "checkmark")
                                 .font(.system(size: 11, weight: .bold))
-                                .foregroundColor(accentColor)
+                                .foregroundColor(rowColor)
                         }
                         Text(row.title)
-                            .font(.system(size: 13.5, weight: (isHovered || isCurrentActive) ? .semibold : .medium))
-                            .foregroundColor(accentColor)
+                            .font(.system(size: state.leftRowHeight < 29 ? 12.5 : 13.5, weight: (isHovered || isCurrentActive) ? .semibold : .medium))
+                            .foregroundColor(rowColor)
                             .lineLimit(1)
-                            .minimumScaleFactor(0.85)
+                            .minimumScaleFactor(0.8)
                         Spacer(minLength: 4)
                         if row.hasSubmenu {
                             Image(systemName: "chevron.right")
                                 .font(.system(size: 10.5, weight: .semibold))
-                                .foregroundColor(accentColor.opacity(isHovered ? 0.95 : 0.65))
+                                .foregroundColor(rowColor.opacity(isHovered ? 0.95 : 0.65))
                         }
                     }
                     .padding(.horizontal, 10)
                     .frame(maxWidth: .infinity)
-                    .frame(height: ModelSlidePickerState.Layout.rowHeight)
-                    .background(rowBackground(isHovered: isHovered, isCurrentActive: isCurrentActive))
+                    .frame(height: state.leftRowHeight)
+                    .background(rowBackground(color: rowColor, isHovered: isHovered, isCurrentActive: isCurrentActive))
                     .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                     .overlay(
                         RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .stroke(rowBorderColor(isHovered: isHovered, isCurrentActive: isCurrentActive), lineWidth: isHovered ? 1.25 : 1)
+                            .stroke(rowBorderColor(color: rowColor, isHovered: isHovered, isCurrentActive: isCurrentActive), lineWidth: isHovered ? 1.25 : 1)
                     )
                 }
                 .buttonStyle(.plain)
+                .overlay(alignment: .top) {
+                    if row.isGroupStart {
+                        Rectangle()
+                            .fill(Color.primary.opacity(0.09))
+                            .frame(height: 0.75)
+                            .padding(.horizontal, 6)
+                            .offset(y: -(state.leftRowSpacing / 2))
+                    }
+                }
             }
         }
         .padding(ModelSlidePickerState.Layout.cardPadding)
-        .frame(width: width)
-        .background(cardSurface)
+
+        Group {
+            if state.leftContentNeedsScroll {
+                ScrollView(.vertical, showsIndicators: false) {
+                    content
+                }
+            } else {
+                content
+            }
+        }
+        .frame(width: size.width, height: size.height)
+        .background(cardSurface(tint: nil))
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(accentColor.opacity(0.35), lineWidth: 1)
+                .stroke(Color.primary.opacity(0.14), lineWidth: 1)
         )
         .shadow(color: Color.black.opacity(0.14), radius: 14, x: 0, y: 6)
     }
 
     @ViewBuilder
     private func rightColumnCard(for row: ModelPickerRow, rowIndex: Int, width: CGFloat) -> some View {
-        VStack(alignment: .leading, spacing: ModelSlidePickerState.Layout.rowSpacing) {
+        let rowColor = accentColor(for: row.providerKind)
+        VStack(alignment: .leading, spacing: state.rightRowSpacing) {
             ForEach(Array(row.variantsTopToBottom.enumerated()), id: \.element.id) { vIdx, variant in
                 let isHovered = state.hoveredRowIndex == rowIndex && state.hoveredVariantIndex == vIdx
                 let isCurrentActive = variant.id.caseInsensitiveCompare(state.activeModelID) == .orderedSame
@@ -415,23 +482,23 @@ public struct ModelSlidePickerOverlay: View {
                     HStack(spacing: 4) {
                         Text(label)
                             .font(.system(size: 13.5, weight: (isHovered || isCurrentActive) ? .semibold : .medium))
-                            .foregroundColor(accentColor)
+                            .foregroundColor(rowColor)
                             .lineLimit(1)
                         Spacer(minLength: 2)
                         if isCurrentActive {
                             Image(systemName: "checkmark")
                                 .font(.system(size: 10.5, weight: .bold))
-                                .foregroundColor(accentColor)
+                                .foregroundColor(rowColor)
                         }
                     }
                     .padding(.horizontal, 10)
                     .frame(maxWidth: .infinity)
-                    .frame(height: ModelSlidePickerState.Layout.rowHeight)
-                    .background(rowBackground(isHovered: isHovered, isCurrentActive: isCurrentActive))
+                    .frame(height: state.rightRowHeight)
+                    .background(rowBackground(color: rowColor, isHovered: isHovered, isCurrentActive: isCurrentActive))
                     .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                     .overlay(
                         RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .stroke(rowBorderColor(isHovered: isHovered, isCurrentActive: isCurrentActive), lineWidth: isHovered ? 1.25 : 1)
+                            .stroke(rowBorderColor(color: rowColor, isHovered: isHovered, isCurrentActive: isCurrentActive), lineWidth: isHovered ? 1.25 : 1)
                     )
                 }
                 .buttonStyle(.plain)
@@ -439,40 +506,42 @@ public struct ModelSlidePickerOverlay: View {
         }
         .padding(ModelSlidePickerState.Layout.cardPadding)
         .frame(width: width)
-        .background(cardSurface)
+        .background(cardSurface(tint: rowColor))
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(accentColor.opacity(0.35), lineWidth: 1)
+                .stroke(rowColor.opacity(0.35), lineWidth: 1)
         )
         .shadow(color: Color.black.opacity(0.14), radius: 14, x: 0, y: 6)
     }
 
     @ViewBuilder
-    private var cardSurface: some View {
+    private func cardSurface(tint: Color?) -> some View {
         ZStack {
             Rectangle().fill(.ultraThinMaterial)
-            Color(uiColor: .systemBackground).opacity(0.76)
-            accentColor.opacity(0.08)
+            Color(uiColor: .systemBackground).opacity(0.80)
+            if let tint {
+                tint.opacity(0.08)
+            }
         }
     }
 
-    private func rowBackground(isHovered: Bool, isCurrentActive: Bool) -> Color {
+    private func rowBackground(color: Color, isHovered: Bool, isCurrentActive: Bool) -> Color {
         if isHovered {
-            return accentColor.opacity(0.24)
+            return color.opacity(0.24)
         }
         if isCurrentActive {
-            return accentColor.opacity(0.11)
+            return color.opacity(0.11)
         }
         return Color.clear
     }
 
-    private func rowBorderColor(isHovered: Bool, isCurrentActive: Bool) -> Color {
+    private func rowBorderColor(color: Color, isHovered: Bool, isCurrentActive: Bool) -> Color {
         if isHovered {
-            return accentColor.opacity(0.80)
+            return color.opacity(0.80)
         }
         if isCurrentActive {
-            return accentColor.opacity(0.42)
+            return color.opacity(0.42)
         }
         return Color.clear
     }
@@ -564,7 +633,7 @@ public struct ModelSwitchChipButton: View {
                 switch newPhase {
                 case .active(let point):
                     if !pickerState.isPresented {
-                        pickerState.open(provider: providerKind, activeModel: activeModelID)
+                        pickerState.open(activeModel: activeModelID)
                     }
                     if let point {
                         pickerState.updateDrag(at: point)

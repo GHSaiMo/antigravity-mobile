@@ -673,6 +673,7 @@ html, body {
 .messages-container {
   flex: 1;
   overflow-y: auto;
+  overflow-anchor: none;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior-y: contain;
   padding: 12px 16px 16px 16px;
@@ -702,8 +703,8 @@ html, body {
 }
 
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(3px); }
-  to { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 /* iOS Message Bubbles */
@@ -744,8 +745,8 @@ html, body {
 }
 
 @keyframes pulseCard {
-  0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(10, 132, 255, 0); }
-  50% { transform: scale(1.002); box-shadow: 0 0 8px 1px rgba(10, 132, 255, 0.12); }
+  0%, 100% { box-shadow: 0 0 0 0 rgba(10, 132, 255, 0); }
+  50% { box-shadow: 0 0 8px 1px rgba(10, 132, 255, 0.12); }
 }
 
 .agent-avatar {
@@ -1681,14 +1682,95 @@ code.inline-code, .markdown-body code:not(.code-block-pre code) {
 }
 .chip-model-switch.chip-gemini {
   border-color: rgba(10, 132, 255, 0.45);
-  background: rgba(10, 132, 255, 0.09);
+  background: rgba(10, 132, 255, 0.11);
   color: var(--ios-blue);
 }
 .chip-model-switch.chip-claude {
-  border-color: rgba(175, 82, 222, 0.45);
-  background: rgba(175, 82, 222, 0.09);
+  border-color: rgba(255, 159, 10, 0.45);
+  background: rgba(255, 159, 10, 0.12);
+  color: var(--ios-orange);
+}
+.chip-model-switch.chip-orchestrator {
+  border-color: rgba(191, 90, 242, 0.45);
+  background: rgba(191, 90, 242, 0.12);
   color: var(--ios-purple);
 }
+.chip-model-switch.chip-other {
+  border-color: rgba(48, 176, 199, 0.45);
+  background: rgba(48, 176, 199, 0.12);
+  color: var(--ios-teal);
+}
+
+/* Long-press 2-level Model Picker Popover */
+.model-picker-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 950;
+}
+.model-picker-overlay.hidden {
+  display: none;
+}
+.model-picker-overlay .mp-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.08);
+}
+.model-picker-overlay .mp-card {
+  position: fixed;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 5px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--ios-secondary-bg) 92%, transparent);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border: 1px solid var(--ios-separator-subtle);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+  overflow-y: auto;
+}
+.model-picker-overlay .mp-left {
+  width: 210px;
+}
+.model-picker-overlay .mp-right {
+  width: 108px;
+}
+.model-picker-overlay .mp-card-prov-gemini { border-color: rgba(10, 132, 255, 0.4); }
+.model-picker-overlay .mp-card-prov-claude { border-color: rgba(255, 159, 10, 0.4); }
+.model-picker-overlay .mp-card-prov-orchestrator { border-color: rgba(191, 90, 242, 0.4); }
+.model-picker-overlay .mp-card-prov-other { border-color: rgba(48, 176, 199, 0.4); }
+.model-picker-overlay .mp-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 32px;
+  padding: 0 9px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: left;
+}
+.model-picker-overlay .mp-row.mp-group-start {
+  margin-top: 3px;
+  box-shadow: 0 -2px 0 -1px var(--ios-separator-subtle);
+}
+.model-picker-overlay .mp-prov-gemini { color: var(--ios-blue); }
+.model-picker-overlay .mp-prov-claude { color: var(--ios-orange); }
+.model-picker-overlay .mp-prov-orchestrator { color: var(--ios-purple); }
+.model-picker-overlay .mp-prov-other { color: var(--ios-teal); }
+.model-picker-overlay .mp-row.is-active { background: rgba(120, 120, 128, 0.14); font-weight: 600; }
+.model-picker-overlay .mp-row.is-hovered,
+.model-picker-overlay .mp-row:hover { background: rgba(120, 120, 128, 0.24); border-color: currentColor; font-weight: 600; }
+.model-picker-overlay .mp-row.is-default:not(.is-active):not(.is-hovered) { background: rgba(120, 120, 128, 0.10); }
+.model-picker-overlay .mp-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.model-picker-overlay .mp-check { width: 12px; font-size: 11px; font-weight: 700; text-align: center; }
+.model-picker-overlay .mp-arrow { font-size: 14px; opacity: 0.7; }
+.cell-label-stack { display: flex; flex-direction: column; gap: 2px; }
+.cell-subtitle { font-size: 11.5px; color: var(--ios-secondary-label); }
 .model-switch-icon {
   font-size: 13px;
   line-height: 1;

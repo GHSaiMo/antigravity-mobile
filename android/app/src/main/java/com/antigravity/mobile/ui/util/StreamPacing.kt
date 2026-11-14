@@ -5,6 +5,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import com.antigravity.mobile.data.model.GatewayMessageItem
 import kotlinx.coroutines.delay
@@ -19,10 +20,14 @@ private const val PACING_CATCH_UP_TICKS = 20
  * 首次出现（历史加载、列表项回收后重现）直接显示完整内容，只对之后的增长做节奏控制。
  */
 @Composable
-fun rememberPacedMessage(message: GatewayMessageItem): GatewayMessageItem {
+fun rememberPacedMessage(
+    message: GatewayMessageItem,
+    onGrow: (() -> Unit)? = null
+): GatewayMessageItem {
     if (!message.isAgent) return message
     val full = message.effectiveText
     var shown by remember { mutableIntStateOf(full.length) }
+    val currentOnGrow by rememberUpdatedState(onGrow)
 
     LaunchedEffect(full.length) {
         if (full.length < shown) shown = full.length
@@ -30,6 +35,7 @@ fun rememberPacedMessage(message: GatewayMessageItem): GatewayMessageItem {
             val backlog = full.length - shown
             val step = maxOf(1, (backlog + PACING_CATCH_UP_TICKS - 1) / PACING_CATCH_UP_TICKS)
             shown = minOf(shown + step, full.length)
+            currentOnGrow?.invoke()
             delay(PACING_TICK_MS)
         }
     }

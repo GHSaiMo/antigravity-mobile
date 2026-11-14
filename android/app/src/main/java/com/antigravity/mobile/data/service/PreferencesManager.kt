@@ -198,58 +198,49 @@ class PreferencesManager(context: Context) {
     private val _knowledgeModeFlow = MutableStateFlow(isKnowledgeModeEnabled)
     val knowledgeModeFlow: StateFlow<Boolean> = _knowledgeModeFlow.asStateFlow()
 
-    /** 「默认模型」：输入框上方 Gemini / Claude 胶囊切换时使用的具体模型。 */
-    var defaultGeminiModel: String
-        get() = prefs.getString(KEY_DEFAULT_GEMINI_MODEL, null)?.takeIf { it.isNotBlank() } ?: ModelDefaults.FALLBACK_GEMINI
+    private fun legacyFavorite1Seed(): String {
+        val g = prefs.getString(KEY_DEFAULT_GEMINI_MODEL, null)?.takeIf { it.isNotBlank() } ?: ModelDefaults.FALLBACK_GEMINI
+        val c = prefs.getString(KEY_DEFAULT_CLAUDE_MODEL, null)?.takeIf { it.isNotBlank() } ?: ModelDefaults.FALLBACK_CLAUDE
+        val o = prefs.getString(KEY_DEFAULT_ORCHESTRATOR_MODEL, null)?.takeIf { it.isNotBlank() } ?: ModelDefaults.FALLBACK_ORCHESTRATOR
+        return when (prefs.getString(KEY_DEFAULT_NEW_SESSION_PROVIDER, "gemini")) {
+            "claude" -> c
+            "orchestrator" -> o
+            else -> g
+        }
+    }
+
+    private fun legacyFavorite2Seed(): String {
+        val g = prefs.getString(KEY_DEFAULT_GEMINI_MODEL, null)?.takeIf { it.isNotBlank() } ?: ModelDefaults.FALLBACK_GEMINI
+        val c = prefs.getString(KEY_DEFAULT_CLAUDE_MODEL, null)?.takeIf { it.isNotBlank() } ?: ModelDefaults.FALLBACK_CLAUDE
+        return if (legacyFavorite1Seed().equals(c, ignoreCase = true)) g else c
+    }
+
+    /** 「常用模型 1」（全模型全思考强度可选；进入新会话首选模型）。 */
+    var favoriteModel1: String
+        get() = prefs.getString(KEY_FAVORITE_MODEL_1, null)?.takeIf { it.isNotBlank() } ?: legacyFavorite1Seed()
         set(value) {
             val trimmed = value.trim()
-            prefs.edit().putString(KEY_DEFAULT_GEMINI_MODEL, trimmed).apply()
-            _defaultGeminiModelFlow.value = trimmed.ifBlank { ModelDefaults.FALLBACK_GEMINI }
+            prefs.edit().putString(KEY_FAVORITE_MODEL_1, trimmed).apply()
+            _favoriteModel1Flow.value = trimmed.ifBlank { ModelDefaults.FALLBACK_GEMINI }
         }
 
-    private val _defaultGeminiModelFlow = MutableStateFlow(defaultGeminiModel)
-    val defaultGeminiModelFlow: StateFlow<String> = _defaultGeminiModelFlow.asStateFlow()
+    private val _favoriteModel1Flow = MutableStateFlow(favoriteModel1)
+    val favoriteModel1Flow: StateFlow<String> = _favoriteModel1Flow.asStateFlow()
 
-    var defaultClaudeModel: String
-        get() = prefs.getString(KEY_DEFAULT_CLAUDE_MODEL, null)?.takeIf { it.isNotBlank() } ?: ModelDefaults.FALLBACK_CLAUDE
+    /** 「常用模型 2」（全模型全思考强度可选；单击胶囊与常用模型 1 快速切换）。 */
+    var favoriteModel2: String
+        get() = prefs.getString(KEY_FAVORITE_MODEL_2, null)?.takeIf { it.isNotBlank() } ?: legacyFavorite2Seed()
         set(value) {
             val trimmed = value.trim()
-            prefs.edit().putString(KEY_DEFAULT_CLAUDE_MODEL, trimmed).apply()
-            _defaultClaudeModelFlow.value = trimmed.ifBlank { ModelDefaults.FALLBACK_CLAUDE }
+            prefs.edit().putString(KEY_FAVORITE_MODEL_2, trimmed).apply()
+            _favoriteModel2Flow.value = trimmed.ifBlank { ModelDefaults.FALLBACK_CLAUDE }
         }
 
-    private val _defaultClaudeModelFlow = MutableStateFlow(defaultClaudeModel)
-    val defaultClaudeModelFlow: StateFlow<String> = _defaultClaudeModelFlow.asStateFlow()
-
-    var defaultOrchestratorModel: String
-        get() = prefs.getString(KEY_DEFAULT_ORCHESTRATOR_MODEL, null)?.takeIf { it.isNotBlank() } ?: ModelDefaults.FALLBACK_ORCHESTRATOR
-        set(value) {
-            val trimmed = value.trim()
-            prefs.edit().putString(KEY_DEFAULT_ORCHESTRATOR_MODEL, trimmed).apply()
-            _defaultOrchestratorModelFlow.value = trimmed.ifBlank { ModelDefaults.FALLBACK_ORCHESTRATOR }
-        }
-
-    private val _defaultOrchestratorModelFlow = MutableStateFlow(defaultOrchestratorModel)
-    val defaultOrchestratorModelFlow: StateFlow<String> = _defaultOrchestratorModelFlow.asStateFlow()
-
-    /** 新建会话默认厂商（"gemini" | "claude" | "orchestrator"） */
-    var defaultNewSessionProvider: String
-        get() = prefs.getString(KEY_DEFAULT_NEW_SESSION_PROVIDER, "gemini")?.takeIf { it.isNotBlank() } ?: "gemini"
-        set(value) {
-            val trimmed = value.trim()
-            prefs.edit().putString(KEY_DEFAULT_NEW_SESSION_PROVIDER, trimmed).apply()
-            _defaultNewSessionProviderFlow.value = trimmed.ifBlank { "gemini" }
-        }
-
-    private val _defaultNewSessionProviderFlow = MutableStateFlow(defaultNewSessionProvider)
-    val defaultNewSessionProviderFlow: StateFlow<String> = _defaultNewSessionProviderFlow.asStateFlow()
+    private val _favoriteModel2Flow = MutableStateFlow(favoriteModel2)
+    val favoriteModel2Flow: StateFlow<String> = _favoriteModel2Flow.asStateFlow()
 
     val defaultNewSessionModel: String
-        get() = when (defaultNewSessionProvider) {
-            "claude" -> defaultClaudeModel
-            "orchestrator" -> defaultOrchestratorModel
-            else -> defaultGeminiModel
-        }
+        get() = favoriteModel1
 
     val cachedModelCatalog: ModelsResponse?
         get() {
@@ -265,12 +256,20 @@ class PreferencesManager(context: Context) {
         runCatching { draftJson.encodeToString(catalog) }.getOrNull()?.let { encoded ->
             prefs.edit().putString(KEY_CACHED_MODEL_CATALOG, encoded).apply()
         }
-        val g = ModelDefaults.validated(defaultGeminiModel, "gemini", catalog)
-        if (g != defaultGeminiModel) defaultGeminiModel = g
-        val cl = ModelDefaults.validated(defaultClaudeModel, "claude", catalog)
-        if (cl != defaultClaudeModel) defaultClaudeModel = cl
-        val orch = ModelDefaults.validated(defaultOrchestratorModel, "orchestrator", catalog)
-        if (orch != defaultOrchestratorModel) defaultOrchestratorModel = orch
+        val fav1 = ModelDefaults.validatedFavorite(
+            saved = favoriteModel1,
+            fallback = ModelDefaults.FALLBACK_GEMINI,
+            avoid = null,
+            catalog = catalog
+        )
+        if (fav1 != favoriteModel1) favoriteModel1 = fav1
+        val fav2 = ModelDefaults.validatedFavorite(
+            saved = favoriteModel2,
+            fallback = ModelDefaults.FALLBACK_CLAUDE,
+            avoid = fav1,
+            catalog = catalog
+        )
+        if (fav2 != favoriteModel2) favoriteModel2 = fav2
     }
 
     var autoApprovePermissions: Boolean
@@ -792,9 +791,8 @@ class PreferencesManager(context: Context) {
         _themeModeFlow.value = "system"
         _gatewayPlatformFlow.value = null
         _modelCatalogFlow.value = null
-        _defaultGeminiModelFlow.value = ModelDefaults.FALLBACK_GEMINI
-        _defaultClaudeModelFlow.value = ModelDefaults.FALLBACK_CLAUDE
-        _defaultOrchestratorModelFlow.value = ModelDefaults.FALLBACK_ORCHESTRATOR
+        _favoriteModel1Flow.value = ModelDefaults.FALLBACK_GEMINI
+        _favoriteModel2Flow.value = ModelDefaults.FALLBACK_CLAUDE
     }
 
     companion object {
@@ -829,6 +827,8 @@ class PreferencesManager(context: Context) {
         private const val KEY_THEME_MODE = "theme_mode"
         private const val KEY_FONT_SIZE_SCALE = "font_size_scale"
         private const val KEY_KNOWLEDGE_MODE = "knowledge_mode_enabled"
+        private const val KEY_FAVORITE_MODEL_1 = "favorite_model_1"
+        private const val KEY_FAVORITE_MODEL_2 = "favorite_model_2"
         private const val KEY_DEFAULT_GEMINI_MODEL = "default_gemini_model"
         private const val KEY_DEFAULT_CLAUDE_MODEL = "default_claude_model"
         private const val KEY_DEFAULT_ORCHESTRATOR_MODEL = "default_orchestrator_model"

@@ -242,7 +242,8 @@ const DraftManager = {
 };
 
 // Active model & Image attachments state
-let activeModel = localStorage.getItem("agy_active_model") || "gemini-3.8-flash-high";
+let activeModel = localStorage.getItem("agy_active_model") || (typeof getFavoriteModel === "function" ? getFavoriteModel(1) : "gemini-3.8-flash-high");
+let hasUserManuallySelectedModel = false;
 let pendingImages = []; // [{ id, name, mimeType, base64Data, previewUrl }]
 
 // iOS Haptic Simulation & App Badge helpers
@@ -286,26 +287,26 @@ function updateModelSwitchUI() {
   const text = document.getElementById("model-switch-text");
   if (!btn || !text) return;
 
-  const label = modelProviderLabel(activeModel);
+  const kind = typeof modelProviderKind === "function" ? modelProviderKind(activeModel) : "gemini";
+  const label = typeof compactModelDisplayName === "function" ? compactModelDisplayName(activeModel) : modelProviderLabel(activeModel);
   const name = modelDisplayName(activeModel);
-  const target = isClaudeModel(activeModel) ? "Gemini" : "Claude";
-  btn.className = `chip-pill chip-model-switch ${label === "Claude" ? "chip-claude" : "chip-gemini"}`;
+  const chipClass = kind === "claude" ? "chip-claude" : (kind === "orchestrator" ? "chip-orchestrator" : (kind === "other" ? "chip-other" : "chip-gemini"));
+  btn.className = `chip-pill chip-model-switch ${chipClass}`;
   text.textContent = label;
-  btn.title = `当前模型: ${name} - 点击切换为 ${target}`;
+  btn.title = `当前模型: ${name} · 单击快切常用模型 · 长按/右键选全部模型`;
 }
 
-async function toggleModel() {
-  activeModel = modelToggleTarget(activeModel);
+async function applySelectedModel(nextModelId) {
+  activeModel = nextModelId;
+  hasUserManuallySelectedModel = true;
   localStorage.setItem("agy_active_model", activeModel);
   updateModelSwitchUI();
 
-  // Keep new-model dropdown in sync if opened
   const newModelSelect = document.getElementById("new-model");
   if (newModelSelect) {
     newModelSelect.value = activeModel;
   }
 
-  // Update Language Server default model via JetboxWriteState
   try {
     await rpc("JetboxWriteState", {
       appState: {
@@ -317,8 +318,17 @@ async function toggleModel() {
   }
 }
 
+async function toggleModel() {
+  await applySelectedModel(modelToggleTarget(activeModel));
+}
+
+async function selectModel(modelId) {
+  if (!modelId || activeModel === modelId) return;
+  await applySelectedModel(modelId);
+}
+
 function syncActiveModel(rawModel) {
-  if (!rawModel) return;
+  if (!rawModel || hasUserManuallySelectedModel) return;
   const target = resolveActiveModel(rawModel, activeModel);
   if (activeModel !== target) {
     activeModel = target;

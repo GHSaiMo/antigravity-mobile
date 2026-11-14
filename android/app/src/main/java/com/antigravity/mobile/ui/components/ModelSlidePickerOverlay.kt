@@ -18,11 +18,14 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Check
@@ -38,6 +41,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
@@ -49,6 +53,7 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -66,6 +71,8 @@ import kotlin.math.roundToInt
 data class ModelPickerRow(
     val id: String,
     val title: String,
+    val providerKind: String,
+    val isGroupStart: Boolean,
     val variantsTopToBottom: List<ModelVariant>,
     val defaultVariantIndex: Int,
     val hasSubmenu: Boolean,
@@ -87,12 +94,15 @@ class ModelSlidePickerState {
     var activeModelId by mutableStateOf("")
 
     object Layout {
-        val rowHeight = 36.dp
-        val rowSpacing = 4.dp
+        val defaultRowHeight = 34.dp
+        val compactRowHeight = 30.dp
+        val minRowHeight = 24.dp
+        val defaultRowSpacing = 3.dp
+        val compactRowSpacing = 2.dp
         val cardPadding = 5.dp
-        val leftCardMinWidth = 176.dp
-        val leftCardMaxWidth = 220.dp
-        val rightCardWidth = 112.dp
+        val leftCardMinWidth = 186.dp
+        val leftCardMaxWidth = 226.dp
+        val rightCardWidth = 104.dp
         val gapBetweenButtonAndMenu = 8.dp
         val gapBetweenColumns = 8.dp
         val horizontalMargin = 12.dp
@@ -100,50 +110,57 @@ class ModelSlidePickerState {
         val columnLockHysteresis = 6.dp
     }
 
-    private fun displayMenuTitle(rawTitle: String): String {
-        val trimmed = rawTitle.trim()
-        for (prefix in listOf("Gemini ", "Claude ")) {
-            if (trimmed.length > prefix.length && trimmed.startsWith(prefix, ignoreCase = true)) {
-                return trimmed.substring(prefix.length)
-            }
-        }
-        return trimmed
-    }
+    /** 长按打开全模型一级菜单：按 Gemini(蓝) -> Claude(橙) -> Orchestrator(紫) -> 其他 列出全部可用模型。 */
+    fun open(activeModel: String, options: List<ModelOption>) {
+        val families = ModelDefaults.modelFamilies(options, provider = null)
+        val builtRows = mutableListOf<ModelPickerRow>()
+        var prevProvider: String? = null
 
-    fun open(provider: String, activeModel: String, options: List<ModelOption>) {
-        val families = ModelDefaults.modelFamilies(options, provider = provider)
-        val builtRows: List<ModelPickerRow> = if (
-            families.size == 1 &&
-            !families.first().hasEffortVariants &&
-            families.first().variants.size > 1
-        ) {
-            // Single non-effort family (e.g. Orchestrator Carbon / Argon): show options directly in upward menu
-            families.first().variants.map { variant ->
-                ModelPickerRow(
-                    id = variant.id,
-                    title = displayMenuTitle(variant.rawName),
-                    variantsTopToBottom = listOf(variant),
-                    defaultVariantIndex = 0,
-                    hasSubmenu = false,
-                    usesEffortLabels = false
-                )
+        for (family in families) {
+            val firstId = family.variants.firstOrNull()?.id ?: family.provider
+            val kind = if (family.provider in setOf("gemini", "claude", "orchestrator", "other")) {
+                family.provider.lowercase()
+            } else {
+                ModelDefaults.providerKind(firstId)
             }
-        } else {
-            families.map { family ->
+            val isFirstInGroup = prevProvider != null && prevProvider != kind
+
+            if (!family.hasEffortVariants && family.variants.size > 1) {
+                family.variants.forEachIndexed { vIndex, variant ->
+                    val displayTitle = variant.rawName.trim()
+                    builtRows.add(
+                        ModelPickerRow(
+                            id = variant.id,
+                            title = displayTitle.ifEmpty { family.name },
+                            providerKind = kind,
+                            isGroupStart = if (vIndex == 0) isFirstInGroup else false,
+                            variantsTopToBottom = listOf(variant),
+                            defaultVariantIndex = 0,
+                            hasSubmenu = false,
+                            usesEffortLabels = false
+                        )
+                    )
+                }
+            } else {
                 val ordered = family.variantsTopToBottom
-                ModelPickerRow(
-                    id = family.id,
-                    title = displayMenuTitle(family.name),
-                    variantsTopToBottom = ordered,
-                    defaultVariantIndex = family.defaultVariantIndexTopToBottom,
-                    hasSubmenu = ordered.size > 1,
-                    usesEffortLabels = family.hasEffortVariants
+                builtRows.add(
+                    ModelPickerRow(
+                        id = family.id,
+                        title = family.name,
+                        providerKind = kind,
+                        isGroupStart = isFirstInGroup,
+                        variantsTopToBottom = ordered,
+                        defaultVariantIndex = family.defaultVariantIndexTopToBottom,
+                        hasSubmenu = ordered.size > 1,
+                        usesEffortLabels = family.hasEffortVariants
+                    )
                 )
             }
+            prevProvider = kind
         }
         if (builtRows.isEmpty()) return
 
-        providerKind = provider
+        providerKind = ModelDefaults.providerKind(activeModel)
         activeModelId = activeModel
         rows = builtRows
         hoveredRowIndex = null
@@ -163,20 +180,61 @@ class ModelSlidePickerState {
         hasEnteredMenu = false
     }
 
+    private fun availableLeftHeightPx(density: Density): Float = with(density) {
+        val topSafe = Layout.topSafeMargin.toPx()
+        val btnGap = Layout.gapBetweenButtonAndMenu.toPx()
+        if (anchorRect.top > topSafe + btnGap + 60.dp.toPx()) {
+            return@with anchorRect.top - btnGap - topSafe
+        }
+        val containerH = containerSize.height.toFloat()
+        if (containerH > 120.dp.toPx()) {
+            return@with containerH - topSafe * 2f
+        }
+        420.dp.toPx()
+    }
+
+    fun leftRowSpacingDp(): Dp =
+        if (rows.size > 7) Layout.compactRowSpacing else Layout.defaultRowSpacing
+
+    fun leftRowHeightDp(density: Density): Dp = with(density) {
+        val count = max(rows.size, 1)
+        val preferredPx = (if (rows.size > 7) Layout.compactRowHeight else Layout.defaultRowHeight).toPx()
+        val rowS = leftRowSpacingDp().toPx()
+        val pad = Layout.cardPadding.toPx()
+        val avail = availableLeftHeightPx(density)
+        val overhead = pad * 2f + max(0, count - 1) * rowS
+        val maxRowPx = (avail - overhead) / count.toFloat()
+        val chosenPx = min(preferredPx, max(Layout.minRowHeight.toPx(), floor(maxRowPx)))
+        chosenPx.toDp()
+    }
+
+    fun leftContentNeedsScroll(density: Density): Boolean = with(density) {
+        val count = max(rows.size, 1)
+        val rowH = leftRowHeightDp(density).toPx()
+        val rowS = leftRowSpacingDp().toPx()
+        val pad = Layout.cardPadding.toPx()
+        val naturalHeight = count * rowH + max(0, count - 1) * rowS + pad * 2f
+        naturalHeight > availableLeftHeightPx(density) + 1f
+    }
+
     fun leftCardRectPx(density: Density): Rect = with(density) {
         val count = max(rows.size, 1)
-        val rowH = Layout.rowHeight.toPx()
-        val rowS = Layout.rowSpacing.toPx()
+        val rowH = leftRowHeightDp(density).toPx()
+        val rowS = leftRowSpacingDp().toPx()
         val pad = Layout.cardPadding.toPx()
-        val height = count * rowH + max(0, count - 1) * rowS + pad * 2f
+        val naturalHeight = count * rowH + max(0, count - 1) * rowS + pad * 2f
+        val avail = availableLeftHeightPx(density)
+        val height = min(naturalHeight, avail)
 
         val containerW = containerSize.width.toFloat()
-        val preferredW = if (containerW > 0f) containerW * 0.52f else Layout.leftCardMinWidth.toPx()
-        val width = min(Layout.leftCardMaxWidth.toPx(), max(Layout.leftCardMinWidth.toPx(), preferredW))
-
         val hMargin = Layout.horizontalMargin.toPx()
         val rightW = Layout.rightCardWidth.toPx()
         val colGap = Layout.gapBetweenColumns.toPx()
+        val maxRoom = if (containerW > 0f) containerW - rightW - colGap - hMargin * 2f else Layout.leftCardMaxWidth.toPx()
+        val upperW = min(Layout.leftCardMaxWidth.toPx(), max(Layout.leftCardMinWidth.toPx(), maxRoom))
+        val preferredW = if (containerW > 0f) containerW * 0.54f else Layout.leftCardMinWidth.toPx()
+        val width = min(upperW, max(Layout.leftCardMinWidth.toPx(), preferredW))
+
         val maxLeftX = max(hMargin, containerW - width - rightW - colGap - hMargin)
         val minX = if (containerW > 0f) {
             min(max(hMargin, anchorRect.left), maxLeftX)
@@ -191,9 +249,10 @@ class ModelSlidePickerState {
 
     private fun leftRowCenterYPx(index: Int, leftRect: Rect, density: Density): Float = with(density) {
         val pad = Layout.cardPadding.toPx()
-        val rowH = Layout.rowHeight.toPx()
-        val rowS = Layout.rowSpacing.toPx()
-        leftRect.top + pad + index * (rowH + rowS) + rowH / 2f
+        val rowH = leftRowHeightDp(density).toPx()
+        val rowS = leftRowSpacingDp().toPx()
+        val rawY = leftRect.top + pad + index * (rowH + rowS) + rowH / 2f
+        rawY.coerceIn(leftRect.top + rowH / 2f, leftRect.bottom - rowH / 2f)
     }
 
     fun rightCardRectPx(rowIndex: Int, leftRect: Rect, density: Density): Rect? = with(density) {
@@ -203,8 +262,8 @@ class ModelSlidePickerState {
         if (count <= 1) return@with null
 
         val pad = Layout.cardPadding.toPx()
-        val rowH = Layout.rowHeight.toPx()
-        val rowS = Layout.rowSpacing.toPx()
+        val rowH = Layout.defaultRowHeight.toPx()
+        val rowS = Layout.defaultRowSpacing.toPx()
         val height = count * rowH + max(0, count - 1) * rowS + pad * 2f
         val anchorIdx = row.defaultVariantIndex.coerceIn(0, count - 1)
         val anchorOffset = pad + anchorIdx * (rowH + rowS) + rowH / 2f
@@ -223,9 +282,8 @@ class ModelSlidePickerState {
         val leftRect = leftCardRectPx(density)
         with(density) {
             val pad = Layout.cardPadding.toPx()
-            val rowH = Layout.rowHeight.toPx()
-            val rowS = Layout.rowSpacing.toPx()
-            val step = rowH + rowS
+            val leftStep = leftRowHeightDp(density).toPx() + leftRowSpacingDp().toPx()
+            val rightStep = Layout.defaultRowHeight.toPx() + Layout.defaultRowSpacing.toPx()
             val hysteresis = Layout.columnLockHysteresis.toPx()
 
             val activeRowIdx = hoveredRowIndex
@@ -244,7 +302,7 @@ class ModelSlidePickerState {
                     } else {
                         val count = rows[activeRowIdx].variantsTopToBottom.size
                         val localY = point.y - (rightRect.top + pad)
-                        val vIdx = floor(localY / step).toInt().coerceIn(0, count - 1)
+                        val vIdx = floor(localY / rightStep).toInt().coerceIn(0, count - 1)
                         if (hoveredVariantIndex != vIdx) {
                             hoveredVariantIndex = vIdx
                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -267,7 +325,7 @@ class ModelSlidePickerState {
                     hasEnteredMenu = true
                     val count = rows[activeRowIdx].variantsTopToBottom.size
                     val localY = point.y - (rightRect.top + pad)
-                    val vIdx = floor(localY / step).toInt().coerceIn(0, count - 1)
+                    val vIdx = floor(localY / rightStep).toInt().coerceIn(0, count - 1)
                     if (hoveredVariantIndex != vIdx) {
                         hoveredVariantIndex = vIdx
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -286,7 +344,7 @@ class ModelSlidePickerState {
                 hasEnteredMenu = true
                 isInRightColumn = false
                 val localY = point.y - (leftRect.top + pad)
-                val idx = floor(localY / step).toInt().coerceIn(0, rows.lastIndex)
+                val idx = floor(localY / leftStep).toInt().coerceIn(0, rows.lastIndex)
                 if (hoveredRowIndex != idx) {
                     hoveredRowIndex = idx
                     hoveredVariantIndex = rows[idx].defaultVariantIndex
@@ -339,6 +397,17 @@ class ModelSlidePickerState {
 }
 
 @Composable
+private fun providerAccentColor(kind: String): Color {
+    val colors = AntigravityTheme.colors
+    return when (kind) {
+        "claude" -> colors.accentOrange
+        "orchestrator" -> colors.accentPurple
+        "other" -> Color(0xFF30B0C7)
+        else -> colors.accentBlue
+    }
+}
+
+@Composable
 fun ModelSlidePickerOverlay(
     state: ModelSlidePickerState,
     onSelectModel: (String) -> Unit,
@@ -347,13 +416,6 @@ fun ModelSlidePickerOverlay(
     val colors = AntigravityTheme.colors
     val density = LocalDensity.current
     val haptic = LocalHapticFeedback.current
-
-    val accentColor = when (state.providerKind) {
-        "claude" -> colors.accentOrange
-        "orchestrator" -> colors.accentPurple
-        "other" -> Color(0xFF30B0C7)
-        else -> colors.accentBlue
-    }
 
     AnimatedVisibility(
         visible = state.isPresented,
@@ -364,6 +426,9 @@ fun ModelSlidePickerOverlay(
             .zIndex(500f)
     ) {
         val leftRect = state.leftCardRectPx(density)
+        val leftRowHeightDp = state.leftRowHeightDp(density)
+        val leftRowSpacingDp = state.leftRowSpacingDp()
+        val needsScroll = state.leftContentNeedsScroll(density)
         val hoveredIdx = state.hoveredRowIndex
         val rightRect = if (hoveredIdx != null) state.rightCardRectPx(hoveredIdx, leftRect, density) else null
 
@@ -379,11 +444,13 @@ fun ModelSlidePickerOverlay(
                     ) { state.dismiss() }
             )
 
-            // Left column: Model families (or direct options for single non-effort family like Orchestrator)
+            // Left column: All models color-coded Blue (Gemini) / Orange (Claude) / Purple (Orchestrator)
             ModelPickerCardSurface(
                 widthDp = with(density) { leftRect.width.toDp() },
-                accentColor = accentColor,
+                maxHeightDp = with(density) { leftRect.height.toDp() },
+                accentColor = null,
                 baseSurfaceColor = colors.surface,
+                borderColor = colors.border,
                 modifier = Modifier
                     .offset { IntOffset(leftRect.left.roundToInt(), leftRect.top.roundToInt()) }
                     .animateEnterExit(
@@ -393,18 +460,43 @@ fun ModelSlidePickerOverlay(
                         )
                     )
             ) {
+                val leftColumnModifier = if (needsScroll) {
+                    Modifier.verticalScroll(rememberScrollState())
+                } else {
+                    Modifier
+                }
                 Column(
-                    verticalArrangement = Arrangement.spacedBy(ModelSlidePickerState.Layout.rowSpacing)
+                    modifier = leftColumnModifier,
+                    verticalArrangement = Arrangement.spacedBy(leftRowSpacingDp)
                 ) {
                     state.rows.forEachIndexed { index, row ->
+                        val rowColor = providerAccentColor(row.providerKind)
                         val isHovered = state.hoveredRowIndex == index
                         val isCurrentActive = row.variantsTopToBottom.any {
                             it.id.equals(state.activeModelId, ignoreCase = true)
                         }
+                        val dividerColor = colors.separator.copy(alpha = 0.45f)
+                        val spacingPx = with(density) { leftRowSpacingDp.toPx() }
+                        val rowModifier = if (row.isGroupStart) {
+                            Modifier.drawBehind {
+                                val y = -(spacingPx / 2f)
+                                drawLine(
+                                    color = dividerColor,
+                                    start = Offset(6.dp.toPx(), y),
+                                    end = Offset(size.width - 6.dp.toPx(), y),
+                                    strokeWidth = 0.75.dp.toPx()
+                                )
+                            }
+                        } else {
+                            Modifier
+                        }
+
                         ModelPickerOptionRow(
                             isHovered = isHovered,
                             isCurrentActive = isCurrentActive,
-                            accentColor = accentColor,
+                            accentColor = rowColor,
+                            rowHeight = leftRowHeightDp,
+                            modifier = rowModifier,
                             onClick = {
                                 if (!row.hasSubmenu) {
                                     row.variantsTopToBottom.firstOrNull()?.let { only ->
@@ -435,15 +527,15 @@ fun ModelSlidePickerOverlay(
                                     Icon(
                                         imageVector = Icons.Default.Check,
                                         contentDescription = null,
-                                        tint = accentColor,
+                                        tint = rowColor,
                                         modifier = Modifier.size(13.dp)
                                     )
                                 }
                                 Text(
                                     text = row.title,
-                                    fontSize = 13.5.sp,
+                                    fontSize = if (leftRowHeightDp < 29.dp) 12.5.sp else 13.5.sp,
                                     fontWeight = if (isHovered || isCurrentActive) FontWeight.SemiBold else FontWeight.Medium,
-                                    color = accentColor,
+                                    color = rowColor,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                     modifier = Modifier.weight(1f, fill = false)
@@ -453,7 +545,7 @@ fun ModelSlidePickerOverlay(
                                     Icon(
                                         imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
                                         contentDescription = null,
-                                        tint = accentColor.copy(alpha = if (isHovered) 0.95f else 0.65f),
+                                        tint = rowColor.copy(alpha = if (isHovered) 0.95f else 0.65f),
                                         modifier = Modifier.size(14.dp)
                                     )
                                 }
@@ -463,19 +555,22 @@ fun ModelSlidePickerOverlay(
                 }
             }
 
-            // Right column: Thinking effort tiers (Extra -> High -> Medium -> Low top-to-bottom)
+            // Right column: Thinking effort tiers Low -> Medium -> High -> Extra (top-to-bottom), default Medium aligned
             if (hoveredIdx != null && hoveredIdx in state.rows.indices && rightRect != null) {
                 val row = state.rows[hoveredIdx]
+                val rowColor = providerAccentColor(row.providerKind)
                 ModelPickerCardSurface(
                     widthDp = ModelSlidePickerState.Layout.rightCardWidth,
-                    accentColor = accentColor,
+                    maxHeightDp = null,
+                    accentColor = rowColor,
                     baseSurfaceColor = colors.surface,
+                    borderColor = rowColor.copy(alpha = 0.35f),
                     modifier = Modifier.offset {
                         IntOffset(rightRect.left.roundToInt(), rightRect.top.roundToInt())
                     }
                 ) {
                     Column(
-                        verticalArrangement = Arrangement.spacedBy(ModelSlidePickerState.Layout.rowSpacing)
+                        verticalArrangement = Arrangement.spacedBy(ModelSlidePickerState.Layout.defaultRowSpacing)
                     ) {
                         row.variantsTopToBottom.forEachIndexed { vIdx, variant ->
                             val isHovered = state.hoveredRowIndex == hoveredIdx && state.hoveredVariantIndex == vIdx
@@ -484,7 +579,8 @@ fun ModelSlidePickerOverlay(
                             ModelPickerOptionRow(
                                 isHovered = isHovered,
                                 isCurrentActive = isCurrentActive,
-                                accentColor = accentColor,
+                                accentColor = rowColor,
+                                rowHeight = ModelSlidePickerState.Layout.defaultRowHeight,
                                 onClick = {
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                     onSelectModel(variant.id)
@@ -500,7 +596,7 @@ fun ModelSlidePickerOverlay(
                                         text = label,
                                         fontSize = 13.5.sp,
                                         fontWeight = if (isHovered || isCurrentActive) FontWeight.SemiBold else FontWeight.Medium,
-                                        color = accentColor,
+                                        color = rowColor,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
@@ -509,7 +605,7 @@ fun ModelSlidePickerOverlay(
                                         Icon(
                                             imageVector = Icons.Default.Check,
                                             contentDescription = null,
-                                            tint = accentColor,
+                                            tint = rowColor,
                                             modifier = Modifier.size(12.dp)
                                         )
                                     }
@@ -525,25 +621,31 @@ fun ModelSlidePickerOverlay(
 
 @Composable
 private fun ModelPickerCardSurface(
-    widthDp: androidx.compose.ui.unit.Dp,
-    accentColor: Color,
+    widthDp: Dp,
+    maxHeightDp: Dp?,
+    accentColor: Color?,
     baseSurfaceColor: Color,
+    borderColor: Color,
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit
 ) {
     val shape = RoundedCornerShape(12.dp)
+    val sizedModifier = modifier
+        .width(widthDp)
+        .let { m -> if (maxHeightDp != null) m.heightIn(max = maxHeightDp) else m }
+        .border(1.dp, borderColor, shape)
     Surface(
-        modifier = modifier
-            .width(widthDp)
-            .border(1.dp, accentColor.copy(alpha = 0.35f), shape),
+        modifier = sizedModifier,
         shape = shape,
-        color = baseSurfaceColor.copy(alpha = 0.95f),
+        color = baseSurfaceColor.copy(alpha = 0.96f),
         shadowElevation = 10.dp,
         tonalElevation = 0.dp
     ) {
         Box(
             modifier = Modifier
-                .background(accentColor.copy(alpha = 0.08f))
+                .then(
+                    if (accentColor != null) Modifier.background(accentColor.copy(alpha = 0.08f)) else Modifier
+                )
                 .padding(ModelSlidePickerState.Layout.cardPadding)
         ) {
             content()
@@ -556,6 +658,8 @@ private fun ModelPickerOptionRow(
     isHovered: Boolean,
     isCurrentActive: Boolean,
     accentColor: Color,
+    rowHeight: Dp,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit,
     content: @Composable () -> Unit
 ) {
@@ -573,9 +677,9 @@ private fun ModelPickerOptionRow(
     val shape = RoundedCornerShape(8.dp)
 
     Box(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
-            .height(ModelSlidePickerState.Layout.rowHeight)
+            .height(rowHeight)
             .clip(shape)
             .background(bgColor)
             .then(

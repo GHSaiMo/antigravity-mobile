@@ -866,7 +866,9 @@ private fun SettingsSection(
 
 private data class PickerMenuOption(
     val id: String,
-    val label: String
+    val label: String,
+    val accentColor: Color? = null,
+    val isGroupStart: Boolean = false
 )
 
 @Composable
@@ -876,6 +878,8 @@ private fun SettingsMenuPickerRow(
     selectedId: String,
     options: List<PickerMenuOption>,
     onSelect: (String) -> Unit,
+    subtitle: String? = null,
+    selectedColor: Color? = null,
     enabled: Boolean = options.isNotEmpty()
 ) {
     val colors = AntigravityTheme.colors
@@ -890,25 +894,35 @@ private fun SettingsMenuPickerRow(
                     haptic.light()
                     expanded = true
                 }
-                .padding(horizontal = 16.dp, vertical = 14.dp),
+                .padding(horizontal = 16.dp, vertical = if (subtitle != null) 12.dp else 14.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Text(text = label, color = colors.textPrimary, fontSize = 15.sp)
+            Column(modifier = Modifier.weight(1f, fill = false)) {
+                Text(text = label, color = colors.textPrimary, fontSize = 15.sp)
+                if (!subtitle.isNullOrBlank()) {
+                    Text(
+                        text = subtitle,
+                        color = colors.textMuted,
+                        fontSize = 12.sp
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.width(8.dp))
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
                     text = selectedLabel,
-                    color = if (enabled) colors.accentIndigo else colors.textSecondary,
+                    color = if (enabled) (selectedColor ?: colors.accentIndigo) else colors.textSecondary,
                     fontSize = 14.sp,
                     maxLines = 1,
                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                    modifier = Modifier.widthIn(max = 220.dp)
+                    modifier = Modifier.widthIn(max = 200.dp)
                 )
                 if (enabled) {
                     Icon(
                         imageVector = Icons.Default.UnfoldMore,
                         contentDescription = null,
-                        tint = colors.accentIndigo,
+                        tint = selectedColor ?: colors.accentIndigo,
                         modifier = Modifier.size(16.dp)
                     )
                 }
@@ -916,11 +930,34 @@ private fun SettingsMenuPickerRow(
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             options.forEach { option ->
+                if (option.isGroupStart) {
+                    HorizontalDivider(color = colors.separator.copy(alpha = 0.4f), thickness = 0.5.dp)
+                }
                 DropdownMenuItem(
-                    text = { Text(option.label) },
+                    text = {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            if (option.accentColor != null) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(7.dp)
+                                        .clip(CircleShape)
+                                        .background(option.accentColor)
+                                )
+                            }
+                            Text(option.label)
+                        }
+                    },
                     trailingIcon = {
                         if (option.id == selectedId) {
-                            Icon(Icons.Default.Check, contentDescription = null, tint = colors.accentIndigo, modifier = Modifier.size(18.dp))
+                            Icon(
+                                Icons.Default.Check,
+                                contentDescription = null,
+                                tint = option.accentColor ?: colors.accentIndigo,
+                                modifier = Modifier.size(18.dp)
+                            )
                         }
                     },
                     onClick = {
@@ -934,8 +971,8 @@ private fun SettingsMenuPickerRow(
 }
 
 /**
- * 「默认模型」：输入框上方 Gemini / Claude 胶囊切换时使用的具体模型。
- * 列表来自网关实时取到的可用模型；已有会话继续沿用它自己正在用的模型。
+ * 「常用模型」：设置页配置的两个常用模型，均可在全部可用模型与全部思考强度中任选。
+ * 进入新会话首选常用模型 1，单击输入框上方模型胶囊在常用模型 1 与常用模型 2 间快速切换。
  */
 @Composable
 private fun DefaultModelSection(
@@ -944,15 +981,11 @@ private fun DefaultModelSection(
 ) {
     val colors = AntigravityTheme.colors
     val catalog by prefs.modelCatalogFlow.collectAsState()
-    val gemini by prefs.defaultGeminiModelFlow.collectAsState()
-    val claude by prefs.defaultClaudeModelFlow.collectAsState()
-    val orchestrator by prefs.defaultOrchestratorModelFlow.collectAsState()
-    val orchestratorOptions = remember(catalog) {
-        catalog?.models?.filter {
-            ModelDefaults.providerKind(it.id) == "orchestrator" || it.provider.equals("orchestrator", ignoreCase = true)
-        }.orEmpty()
+    val favorite1 by prefs.favoriteModel1Flow.collectAsState()
+    val favorite2 by prefs.favoriteModel2Flow.collectAsState()
+    val allOptions = remember(catalog) {
+        ModelDefaults.allSortedOptions(catalog?.models.orEmpty())
     }
-    val hasOrchestrator = orchestratorOptions.isNotEmpty()
     var loadState by remember { mutableStateOf(if (catalog != null) "ok" else "loading") } // loading | ok | failed
 
     LaunchedEffect(Unit) {
@@ -962,25 +995,17 @@ private fun DefaultModelSection(
                 loadState = "ok"
             }
             .onFailure {
-                if (catalog == null) {
-                    loadState = "failed"
-                } else {
-                    loadState = "ok"
-                }
+                loadState = if (catalog == null) "failed" else "ok"
             }
     }
 
     val footer = when (loadState) {
         "loading" -> "正在读取可用模型..."
-        "failed" -> "暂时无法读取可用模型列表，仍会使用当前已保存的默认模型。"
-        else -> if (hasOrchestrator) {
-            "输入框上方短按在 Gemini / Claude / Orchestrator 间切换，长按上滑并右滑选择模型及思考强度；已有会话自动跟随桌面当前模型，更改后随消息发送生效。"
-        } else {
-            "输入框上方短按切换 Gemini 与 Claude，长按上滑并右滑选择模型及思考强度；已有会话自动跟随桌面当前模型，更改后随消息发送生效。"
-        }
+        "failed" -> "暂时无法读取实时模型列表，可先从内置列表中选择常用模型；进入新会话首选常用模型 1，单击模型胶囊可在两个常用模型间快速切换。"
+        else -> "两个常用模型均可在全部可用模型与全部思考强度中任选。进入新会话首选常用模型 1；单击输入框上方模型胶囊在两个常用模型间快速切换，长按可从全部模型中单独选择。"
     }
 
-    SettingsSection(title = "默认模型", footer = footer) {
+    SettingsSection(title = "常用模型", footer = footer) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -988,47 +1013,62 @@ private fun DefaultModelSection(
                 .background(colors.surface)
                 .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
         ) {
-            ModelPickerRow(
-                label = "Gemini",
-                selectedId = gemini,
-                options = catalog?.models?.filter { it.provider == "gemini" }.orEmpty(),
-                onSelect = { prefs.defaultGeminiModel = it }
+            FavoriteModelPickerRow(
+                label = "常用模型 1",
+                subtitle = "进入新会话首选",
+                selectedId = favorite1,
+                options = allOptions,
+                onSelect = { prefs.favoriteModel1 = it }
             )
             HorizontalDivider(color = colors.separator.copy(alpha = 0.4f), thickness = 0.5.dp)
-            ModelPickerRow(
-                label = "Claude",
-                selectedId = claude,
-                options = catalog?.models?.filter { it.provider == "claude" }.orEmpty(),
-                onSelect = { prefs.defaultClaudeModel = it }
+            FavoriteModelPickerRow(
+                label = "常用模型 2",
+                subtitle = "单击胶囊快速切换",
+                selectedId = favorite2,
+                options = allOptions,
+                onSelect = { prefs.favoriteModel2 = it }
             )
-            if (hasOrchestrator) {
-                HorizontalDivider(color = colors.separator.copy(alpha = 0.4f), thickness = 0.5.dp)
-                ModelPickerRow(
-                    label = "Orchestrator",
-                    selectedId = orchestrator,
-                    options = orchestratorOptions,
-                    onSelect = { prefs.defaultOrchestratorModel = it }
-                )
-            }
         }
     }
 }
 
 @Composable
-private fun ModelPickerRow(
+private fun FavoriteModelPickerRow(
     label: String,
+    subtitle: String? = null,
     selectedId: String,
     options: List<ModelOption>,
     onSelect: (String) -> Unit
 ) {
+    val colors = AntigravityTheme.colors
+    fun colorFor(kind: String): Color = when (kind) {
+        "claude" -> colors.accentOrange
+        "orchestrator" -> colors.accentPurple
+        "other" -> Color(0xFF30B0C7)
+        else -> colors.accentBlue
+    }
     val selectedName = ModelDefaults.displayName(selectedId, options)
-    val menuOptions = remember(options) {
-        options.map { PickerMenuOption(id = it.id, label = ModelDefaults.formatPickerLabel(it.name, it.tag)) }
+    val selectedColor = colorFor(ModelDefaults.providerKind(selectedId))
+    val menuOptions = remember(options, colors) {
+        var prevGroup: String? = null
+        options.map { opt ->
+            val kind = ModelDefaults.providerKind(opt.id)
+            val isStart = prevGroup != null && prevGroup != kind
+            prevGroup = kind
+            PickerMenuOption(
+                id = opt.id,
+                label = ModelDefaults.formatPickerLabel(opt.name, opt.tag),
+                accentColor = colorFor(kind),
+                isGroupStart = isStart
+            )
+        }
     }
     SettingsMenuPickerRow(
         label = label,
+        subtitle = subtitle,
         selectedLabel = selectedName,
         selectedId = selectedId,
+        selectedColor = selectedColor,
         options = menuOptions,
         onSelect = onSelect
     )

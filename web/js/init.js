@@ -244,11 +244,42 @@ function initApp() {
     }
   });
 
-  // Model Switch Chip
+  // Model Switch Chip (click to toggle favorites; long-press or right-click for full 2-level model menu)
   const modelSwitchBtn = document.getElementById("btn-model-switch");
-  modelSwitchBtn?.addEventListener("click", () => {
-    toggleModel();
-  });
+  if (modelSwitchBtn) {
+    let modelLongPressTimer = null;
+    let suppressNextClick = false;
+    modelSwitchBtn.addEventListener("pointerdown", (e) => {
+      if (e.button === 2) return;
+      suppressNextClick = false;
+      clearTimeout(modelLongPressTimer);
+      modelLongPressTimer = setTimeout(() => {
+        suppressNextClick = true;
+        triggerHaptic("medium");
+        if (typeof openWebModelPicker === "function") openWebModelPicker(modelSwitchBtn);
+      }, 220);
+    });
+    const cancelPress = () => clearTimeout(modelLongPressTimer);
+    modelSwitchBtn.addEventListener("pointerup", cancelPress);
+    modelSwitchBtn.addEventListener("pointercancel", cancelPress);
+    modelSwitchBtn.addEventListener("pointerleave", cancelPress);
+    modelSwitchBtn.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      cancelPress();
+      if (typeof openWebModelPicker === "function") openWebModelPicker(modelSwitchBtn);
+    });
+    modelSwitchBtn.addEventListener("click", () => {
+      if (suppressNextClick) {
+        suppressNextClick = false;
+        return;
+      }
+      if (typeof webPickerState !== "undefined" && webPickerState) {
+        dismissWebModelPicker();
+        return;
+      }
+      toggleModel();
+    });
+  }
   updateModelSwitchUI();
 
   // Chips
