@@ -48,6 +48,7 @@ public struct ChatView: View {
     @State var workflowSheetStartInEditMode = false
     @State var modelPickerState = ModelSlidePickerState()
     @State var workflowPickerState = WorkflowSlidePickerState()
+    @State var commitPickerState = CommitSlidePickerState()
     @State var selectedSubagentDetail: SubagentItem? = nil
     @State var isSlashPickerDismissed: Bool = false
     @State var highlightedTurnMessageId: String? = nil
@@ -189,6 +190,7 @@ public struct ChatView: View {
         } action: { newSize in
             modelPickerState.containerSize = newSize
             workflowPickerState.containerSize = newSize
+            commitPickerState.containerSize = newSize
         }
         .overlay {
             ModelSlidePickerOverlay(state: modelPickerState) { modelId in
@@ -209,15 +211,30 @@ public struct ChatView: View {
                     showWorkflowTemplateSheet = true
                 }
             )
+            CommitSlidePickerOverlay(
+                state: commitPickerState,
+                onSelect: { action in
+                    viewModel.inputText = action
+                    isInputFocused = true
+                }
+            )
         }
         .onChange(of: modelPickerState.isPresented) { _, presented in
-            if presented && workflowPickerState.isPresented {
-                workflowPickerState.dismiss()
+            if presented {
+                if workflowPickerState.isPresented { workflowPickerState.dismiss() }
+                if commitPickerState.isPresented { commitPickerState.dismiss() }
             }
         }
         .onChange(of: workflowPickerState.isPresented) { _, presented in
-            if presented && modelPickerState.isPresented {
-                modelPickerState.dismiss()
+            if presented {
+                if modelPickerState.isPresented { modelPickerState.dismiss() }
+                if commitPickerState.isPresented { commitPickerState.dismiss() }
+            }
+        }
+        .onChange(of: commitPickerState.isPresented) { _, presented in
+            if presented {
+                if modelPickerState.isPresented { modelPickerState.dismiss() }
+                if workflowPickerState.isPresented { workflowPickerState.dismiss() }
             }
         }
         .navigationTitle(viewModel.currentTitle)
