@@ -650,3 +650,22 @@ func TestReadDesktopSelectedModel_AndHandleModels(t *testing.T) {
 		t.Fatalf("expected MODEL_UNSPECIFIED ignored, got (%q, %q)", id, name)
 	}
 }
+
+func TestReadDesktopSelectedModel_CarbonEnums(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	pbPath := filepath.Join(home, ".gemini", "antigravity", "antigravity_state.pbtxt")
+	if err := os.MkdirAll(filepath.Dir(pbPath), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(pbPath, []byte("last_selected_agent_model: MODEL_PLACEHOLDER_M427\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	id, name := readDesktopSelectedModel()
+	if id != "gemini-4-carbon-high" {
+		t.Fatalf("expected gemini-4-carbon-high, got %q", id)
+	}
+	if name != "Gemini 4 Carbon (High)" {
+		t.Fatalf("expected Gemini 4 Carbon (High), got %q", name)
+	}
+}

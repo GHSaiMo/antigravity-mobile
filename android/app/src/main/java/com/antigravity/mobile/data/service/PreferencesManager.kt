@@ -283,6 +283,26 @@ class PreferencesManager(context: Context) {
         if (fav2 != favoriteModel2) favoriteModel2 = fav2
     }
 
+    fun updateDesktopActiveModel(model: String?, name: String? = null) {
+        val cleanModel = model?.takeIf { it.isNotBlank() } ?: return
+        val cleanName = name?.takeIf { it.isNotBlank() }
+        val current = _modelCatalogFlow.value ?: cachedModelCatalog
+        if (current != null &&
+            current.desktopActiveModel == cleanModel &&
+            (cleanName == null || current.desktopActiveModelName == cleanName)
+        ) {
+            return
+        }
+        val updated = (current ?: ModelsResponse()).copy(
+            desktopActiveModel = cleanModel,
+            desktopActiveModelName = cleanName ?: current?.desktopActiveModelName
+        )
+        _modelCatalogFlow.value = updated
+        runCatching { draftJson.encodeToString(updated) }.getOrNull()?.let { encoded ->
+            prefs.edit().putString(KEY_CACHED_MODEL_CATALOG, encoded).apply()
+        }
+    }
+
     var enableLiveNotifications: Boolean
         get() = prefs.getBoolean(KEY_LIVE_NOTIFICATIONS, true)
         set(value) = prefs.edit().putBoolean(KEY_LIVE_NOTIFICATIONS, value).apply()

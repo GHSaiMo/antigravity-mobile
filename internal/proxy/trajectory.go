@@ -176,7 +176,7 @@ func (p *Proxy) handleCascadeMessages(w http.ResponseWriter, r *http.Request) {
 	details.ContextMeter = p.fetchUpstreamGeneratorMetadata(cascadeID, port, token)
 
 	totalMsgs := len(details.AllMessages)
-	var sliced []CascadeMessageItem
+	sliced := make([]CascadeMessageItem, 0)
 	hasMore := false
 	nextOffset := 0
 
@@ -202,6 +202,9 @@ func (p *Proxy) handleCascadeMessages(w http.ResponseWriter, r *http.Request) {
 		sliced = details.AllMessages[targetStart:targetEnd]
 		hasMore = (targetStart > 0)
 		nextOffset = targetStart
+	}
+	if sliced == nil {
+		sliced = []CascadeMessageItem{}
 	}
 
 	desktopModel, desktopModelName := readDesktopSelectedModel()

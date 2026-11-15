@@ -62,10 +62,12 @@ extension ChatViewModel {
                 self.updateCascadeConfigRawModel(self.activeModelEnum, modelName: self.activeModel)
             }
         }
-        let alignedModel = !self.isNewConversation
+        ModelCatalogStore.shared.updateDesktopActiveModel(payload.desktopActiveModel, name: payload.desktopActiveModelName)
+        let isDraft = self.isDraftConversation
+        let alignedModel = !isDraft
             ? ((payload.desktopActiveModel?.isEmpty == false) ? payload.desktopActiveModel : payload.activeModel)
             : payload.activeModel
-        let alignedName = !self.isNewConversation && (payload.desktopActiveModel?.isEmpty == false)
+        let alignedName = !isDraft && (payload.desktopActiveModel?.isEmpty == false)
             ? payload.desktopActiveModelName
             : payload.activeModelName
         if let alignedModel, !alignedModel.isEmpty {

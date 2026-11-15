@@ -78,6 +78,10 @@ public final class ChatViewModel {
     public var workspaceName: String = "Chat"
     public var workspaceUri: String? = nil
     public var isNewConversation: Bool
+    /// 仅当尚未在服务端创建真实 cascadeId（即本地未发送草稿）时为 true；服务端已有但 0 步的空会话仍需对齐桌面端模型。
+    public var isDraftConversation: Bool {
+        cascadeId.isEmpty || cascadeId.hasPrefix("local_draft_") || cascadeId.hasPrefix("draft_")
+    }
     public var draftProject: ProjectItem?
     public var draftSession: LocalDraftSession?
     public var originDraftId: String? = nil
@@ -585,7 +589,7 @@ public final class ChatViewModel {
         
         var initialModel = resolvedSettings.favoriteModel1
         var initialModelName: String? = nil
-        if !cascadeId.isEmpty && !isNewConversation && !isDraftCascade {
+        if !cascadeId.isEmpty && !isDraftCascade {
             if let desktopModel = ModelCatalogStore.shared.catalog?.desktopActiveModel, !desktopModel.isEmpty {
                 initialModel = ModelDefaultsLogic.resolveActive(
                     raw: desktopModel,
@@ -877,10 +881,12 @@ public final class ChatViewModel {
                     self.updateCascadeConfigRawModel(self.activeModelEnum, modelName: self.activeModel)
                 }
             }
-            let alignedModel = !self.isNewConversation
+            ModelCatalogStore.shared.updateDesktopActiveModel(result.desktopActiveModel, name: result.desktopActiveModelName)
+            let isDraft = self.isDraftConversation
+            let alignedModel = !isDraft
                 ? ((result.desktopActiveModel?.isEmpty == false) ? result.desktopActiveModel : result.activeModel)
                 : result.activeModel
-            let alignedName = !self.isNewConversation && (result.desktopActiveModel?.isEmpty == false)
+            let alignedName = !isDraft && (result.desktopActiveModel?.isEmpty == false)
                 ? result.desktopActiveModelName
                 : result.activeModelName
             if let alignedModel, !alignedModel.isEmpty {

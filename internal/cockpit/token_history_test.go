@@ -176,8 +176,8 @@ func TestGetTokenHistory_PreservesDeletedSessionsAfterScan(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	log1 := `{"step_index":1,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"2026-11-14T10:00:00Z","input_tokens":1000,"cache_read_tokens":500,"output_tokens":200,"callId":"c-1"}` + "\n"
-	log2 := `{"step_index":1,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"2026-11-14T10:05:00Z","input_tokens":300,"cache_read_tokens":0,"output_tokens":100,"callId":"c-2"}` + "\n"
+	log1 := `{"step_index":1,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"2026-11-14T10:00:00Z","input_tokens":1000,"cache_read_tokens":500,"output_tokens":200,"callId":"c-1","chatModel":{"model":"MODEL_PLACEHOLDER_M525"}}` + "\n"
+	log2 := `{"step_index":1,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"2026-11-14T10:05:00Z","input_tokens":300,"cache_read_tokens":0,"output_tokens":100,"callId":"c-2","chatModel":{"model":"MODEL_PLACEHOLDER_M318"}}` + "\n"
 
 	if err := os.WriteFile(filepath.Join(conv1Dir, "transcript.jsonl"), []byte(log1), 0644); err != nil {
 		t.Fatal(err)
@@ -232,7 +232,7 @@ func TestArchiveConversationTokens_BeforeDelete(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	logContent := `{"step_index":1,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"2026-11-14T11:00:00Z","input_tokens":800,"cache_read_tokens":100,"output_tokens":100,"callId":"arch-1"}` + "\n"
+	logContent := `{"step_index":1,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"2026-11-14T11:00:00Z","input_tokens":800,"cache_read_tokens":100,"output_tokens":100,"callId":"arch-1","chatModel":{"model":"MODEL_PLACEHOLDER_M427"}}` + "\n"
 	if err := os.WriteFile(filepath.Join(convDir, "transcript.jsonl"), []byte(logContent), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -273,7 +273,7 @@ func TestGetTokenHistory_LargeJSONLLineOver64KB(t *testing.T) {
 	}
 	hugeLine := `{"step_index":1,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"2026-11-15T01:00:00Z","content":"` +
 		string(padding) +
-		`","input_tokens":5000,"cache_read_tokens":2000,"output_tokens":3000,"callId":"huge-1"}` + "\n"
+		`","input_tokens":5000,"cache_read_tokens":2000,"output_tokens":3000,"callId":"huge-1","chatModel":{"model":"MODEL_PLACEHOLDER_M525"}}` + "\n"
 
 	if err := os.WriteFile(filepath.Join(convDir, "transcript.jsonl"), []byte(hugeLine), 0644); err != nil {
 		t.Fatal(err)
@@ -480,6 +480,123 @@ func TestGetTokenHistory_ResolvesSubagentModelFromParentFallback(t *testing.T) {
 	models := resp.DailyMatrix[0].Models
 	if models["default"] != 0 || models["Gemini 3.8 Flash"] != 1000 {
 		t.Fatalf("expected Gemini 3.8 Flash=1000 without default, got %v", models)
+	}
+}
+
+func TestGetTokenHistory_NeverEmitsDefaultAndCleansLegacyDefaultLedger(t *testing.T) {
+	tempHome := t.TempDir()
+	t.Setenv("HOME", tempHome)
+	cockpitDir := filepath.Join(tempHome, ".cockpit_tools")
+	t.Setenv("COCKPIT_TOOLS_DATA_DIR", cockpitDir)
+	t.Setenv("COCKPIT_DATA_DIR", "")
+
+	// 1. Seed a legacy ledger with:
+	//    - deleted session whose .db still exists -> should reclassify "default" to real model
+	//    - deleted session whose files are completely gone -> should drop "default"
+	dbConvID := "11111111-1111-1111-1111-111111111111"
+	goneConvID := "22222222-2222-2222-2222-222222222222"
+
+	sqliteBin, lookErr := exec.LookPath("sqlite3")
+	if lookErr != nil {
+		t.Skip("sqlite3 not available")
+	}
+
+	convsDir := filepath.Join(tempHome, ".gemini", "antigravity", "conversations")
+	if err := os.MkdirAll(convsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	dbPath := filepath.Join(convsDir, dbConvID+".db")
+	blob := hex.EncodeToString(encodeTestGenMetadataBlob("gemini-4-carbon", "MODEL_PLACEHOLDER_M427", "Gemini 4 Carbon (High)", "0"))
+	initSQL := "CREATE TABLE gen_metadata (idx integer PRIMARY KEY, data blob, size integer NOT NULL DEFAULT 0);" +
+		"INSERT INTO gen_metadata (idx, data, size) VALUES (0, X'" + blob + "', 10);"
+	if out, err := exec.Command(sqliteBin, dbPath, initSQL).CombinedOutput(); err != nil {
+		t.Fatalf("sqlite3 init failed: %v (%s)", err, string(out))
+	}
+
+	// Live transcript with mid-stream Model Selection (turns before selection should backfill)
+	liveConvID := "33333333-3333-3333-3333-333333333333"
+	liveDir := filepath.Join(tempHome, ".gemini", "antigravity", "brain", liveConvID, ".system_generated", "logs")
+	if err := os.MkdirAll(liveDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	liveLog := `{"step_index":0,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"2026-11-15T10:00:00Z","input_tokens":500,"cache_read_tokens":0,"output_tokens":100,"callId":"l-1"}` + "\n" +
+		`{"step_index":1,"source":"USER_EXPLICIT","type":"USER_INPUT","content":"<USER_SETTINGS_CHANGE>\nThe user changed setting ` + "`Model Selection`" + ` from None to Gemini 4 Hydrogen (High).\n</USER_SETTINGS_CHANGE>"}` + "\n"
+
+	if err := os.WriteFile(filepath.Join(liveDir, "transcript.jsonl"), []byte(liveLog), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Live transcript with zero model info anywhere -> must NOT produce "default"
+	orphanConvID := "44444444-4444-4444-4444-444444444444"
+	orphanDir := filepath.Join(tempHome, ".gemini", "antigravity", "brain", orphanConvID, ".system_generated", "logs")
+	if err := os.MkdirAll(orphanDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	orphanLog := `{"step_index":0,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"2026-11-15T10:05:00Z","input_tokens":900,"cache_read_tokens":0,"output_tokens":100,"callId":"o-1"}` + "\n"
+	if err := os.WriteFile(filepath.Join(orphanDir, "transcript.jsonl"), []byte(orphanLog), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	legacyLedger := tokenHistoryLedger{
+		Version: 2,
+		Sessions: map[string]ledgerSession{
+			"desktop:" + dbConvID: {
+				Source: "desktop",
+				Days: map[string]DailyTokenRecord{
+					"2026-11-15": {
+						Date:   "2026-11-15",
+						Total:  1200,
+						Input:  1000,
+						Output: 200,
+						Steps:  1,
+						Models: map[string]int64{"default": 1200},
+					},
+				},
+			},
+			"desktop:" + goneConvID: {
+				Source: "desktop",
+				Days: map[string]DailyTokenRecord{
+					"2026-11-15": {
+						Date:   "2026-11-15",
+						Total:  5000,
+						Input:  4000,
+						Output: 1000,
+						Steps:  2,
+						Models: map[string]int64{"default": 5000},
+					},
+				},
+			},
+		},
+	}
+	if err := saveTokenHistoryLedger(filepath.Join(cockpitDir, "token_history_ledger.json"), &legacyLedger); err != nil {
+		t.Fatal(err)
+	}
+
+	historyMu.Lock()
+	cachedLedger = nil
+	cachedLedgerPath = ""
+	cachedHistoryResp = nil
+	historyMu.Unlock()
+
+	resp, err := GetTokenHistory(true)
+	if err != nil {
+		t.Fatalf("GetTokenHistory() error = %v", err)
+	}
+	if len(resp.DailyMatrix) != 1 {
+		t.Fatalf("DailyMatrix len = %d, want 1", len(resp.DailyMatrix))
+	}
+	models := resp.DailyMatrix[0].Models
+	if _, hasDefault := models["default"]; hasDefault {
+		t.Fatalf("expected no default bucket, got %v", models)
+	}
+	if models["Gemini 4 Carbon (High)"] != 1200 {
+		t.Fatalf("expected reclassified dbConvID=1200, got %v", models)
+	}
+	if models["Gemini 4 Hydrogen (High)"] != 600 {
+		t.Fatalf("expected backfilled liveConvID=600, got %v", models)
+	}
+	if resp.Summary.TotalTokens != 1800 {
+		t.Fatalf("expected TotalTokens=1800 (dropped goneConvID & orphanConvID), got %d", resp.Summary.TotalTokens)
 	}
 }
 
