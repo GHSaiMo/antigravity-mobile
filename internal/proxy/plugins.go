@@ -217,15 +217,63 @@ func (p *Proxy) HandleGetPlugins(w http.ResponseWriter, r *http.Request) {
 	if err == nil {
 		defer res2.Body.Close()
 		body, _ := io.ReadAll(res2.Body)
+		// Antigravity 2.28.1+ returns {plugin, provider, connected, identity, accounts}.
+		// Older builds used {id, name, signedIn}. Accept both shapes, then normalise:
+		// the mobile clients treat the provider id as a list key (Android LazyColumn
+		// keys must be unique), so it has to be non-empty and unique even if upstream
+		// omits every identifying field.
 		var rawAuth struct {
 			Providers []struct {
-				ID       string `json:"id"`
-				Name     string `json:"name"`
-				SignedIn bool   `json:"signedIn"`
+				ID        string `json:"id"`
+				Name      string `json:"name"`
+				SignedIn  bool   `json:"signedIn"`
+				Plugin    string `json:"plugin"`
+				Provider  string `json:"provider"`
+				Connected bool   `json:"connected"`
 			} `json:"providers"`
 		}
 		if json.Unmarshal(body, &rawAuth) == nil {
-			resp.Providers = rawAuth.Providers
+			type providerItem = struct {
+				ID       string `json:"id"`
+				Name     string `json:"name"`
+				SignedIn bool   `json:"signedIn"`
+			}
+			seen := make(map[string]bool, len(rawAuth.Providers))
+			for i, pv := range rawAuth.Providers {
+				plugin := strings.TrimSpace(pv.Plugin)
+				if plugin == "" {
+					plugin = strings.TrimSpace(pv.ID)
+				}
+				provider := strings.TrimSpace(pv.Provider)
+				if provider == "" {
+					provider = strings.TrimSpace(pv.Name)
+				}
+
+				display := plugin
+				if display == "" {
+					display = provider
+				}
+
+				id := plugin
+				if id == "" {
+					id = provider
+				} else if provider != "" && provider != plugin {
+					id = plugin + ":" + provider
+				}
+				if id == "" {
+					id = fmt.Sprintf("provider-%d", i)
+				}
+				if seen[id] {
+					id = fmt.Sprintf("%s-%d", id, i)
+				}
+				seen[id] = true
+
+				resp.Providers = append(resp.Providers, providerItem{
+					ID:       id,
+					Name:     display,
+					SignedIn: pv.Connected || pv.SignedIn,
+				})
+			}
 		}
 	}
 
