@@ -340,6 +340,47 @@ final class DemoGateway: @unchecked Sendable {
         }
     }
 
+    func createProject(path: String, name: String?) -> [String: Any] {
+        lock.lock()
+        defer { lock.unlock() }
+        let clean = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        let uri = clean.hasPrefix("file://") ? clean : "file://\(clean)"
+        if let existing = projects.first(where: { $0.path == clean || $0.workspaceUri == uri }) {
+            return [
+                "ok": true,
+                "alreadyExists": true,
+                "project": [
+                    "id": existing.id,
+                    "name": existing.name,
+                    "uri": existing.workspaceUri,
+                    "path": existing.path,
+                    "isWorkspace": existing.isWorkspace,
+                    "sessionCount": 0,
+                    "lastActive": Self.iso(Date())
+                ]
+            ]
+        }
+        nextIdCounter += 1
+        let id = "demo-proj-\(nextIdCounter)"
+        let resolvedName = (name?.trimmingCharacters(in: .whitespacesAndNewlines)).flatMap { $0.isEmpty ? nil : $0 }
+            ?? URL(fileURLWithPath: clean).lastPathComponent
+        let newProj = Project(id: id, name: resolvedName, alias: nil, workspaceUri: uri, path: clean, isWorkspace: true)
+        projects.insert(newProj, at: 0)
+        return [
+            "ok": true,
+            "alreadyExists": false,
+            "project": [
+                "id": newProj.id,
+                "name": newProj.name,
+                "uri": newProj.workspaceUri,
+                "path": newProj.path,
+                "isWorkspace": newProj.isWorkspace,
+                "sessionCount": 0,
+                "lastActive": Self.iso(Date())
+            ]
+        ]
+    }
+
     func statusPayload() -> [String: Any] {
         lock.lock()
         let first = conversations.first(where: { !$0.isSubagent })
