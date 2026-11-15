@@ -21,6 +21,23 @@ type SlashCommandMention struct {
 	Kind string `json:"kind,omitempty"` // "system" | "skill"
 }
 
+// ToolDetailItem describes a single tool call or step inside a folded tools/thinking capsule.
+type ToolDetailItem struct {
+	Name      string `json:"name"`
+	Summary   string `json:"summary,omitempty"`
+	Status    string `json:"status,omitempty"` // "running", "done", "error"
+	Duration  string `json:"duration,omitempty"`
+	StepIndex int    `json:"stepIndex,omitempty"`
+}
+
+// TaskProgressItem represents the latest CORTEX_STEP_TYPE_TASK_BOUNDARY task state.
+type TaskProgressItem struct {
+	TaskName    string `json:"taskName,omitempty"`
+	TaskStatus  string `json:"taskStatus,omitempty"`
+	TaskSummary string `json:"taskSummary,omitempty"`
+	Mode        string `json:"mode,omitempty"`
+}
+
 type CascadeMessageItem struct {
 	ID            string                `json:"id"`
 	Type          string                `json:"type"` // "user", "agent", "tools", "error", "subagent"
@@ -30,6 +47,9 @@ type CascadeMessageItem struct {
 	StepIndex     *int                  `json:"stepIndex,omitempty"`
 	ToolCount     int                   `json:"toolCount,omitempty"`
 	ToolNames     []string              `json:"toolNames,omitempty"`
+	ToolDetails   []ToolDetailItem      `json:"toolDetails,omitempty"`
+	Thinking      string                `json:"thinking,omitempty"`
+	ThinkingDuration string             `json:"thinkingDuration,omitempty"`
 	Media         []string              `json:"media,omitempty"`         // Base64 thumbnails
 	ImageURLs     []string              `json:"imageUrls,omitempty"`     // Markdown image URLs
 	Artifacts     []ArtifactItem        `json:"artifacts,omitempty"`     // Linked/generated artifact cards
@@ -236,6 +256,8 @@ type CascadeMessagesResponse struct {
 	PendingInteraction *PendingInteraction  `json:"pendingInteraction,omitempty"`
 	Swarm              *SwarmBrief          `json:"swarm,omitempty"`
 	ContextMeter       *ContextMeterItem    `json:"contextMeter,omitempty"`
+	SuggestedResponses []string             `json:"suggestedResponses,omitempty"`
+	TaskProgress       *TaskProgressItem    `json:"taskProgress,omitempty"`
 }
 
 type TrajectoryMediaItem struct {
@@ -370,6 +392,8 @@ type TrajectoryStep struct {
 	Status   string `json:"status"`
 	Metadata struct {
 		CreatedAt                string `json:"createdAt"`
+		StartedAt                string `json:"startedAt,omitempty"`
+		CompletedAt              string `json:"completedAt,omitempty"`
 		GeneratorModel           string `json:"generatorModel,omitempty"`
 		ToolSummary              string `json:"toolSummary,omitempty"`
 		ToolAction               string `json:"toolAction,omitempty"`
@@ -408,9 +432,25 @@ type TrajectoryStep struct {
 	} `json:"invokeSubagent,omitempty"`
 	UserInput       *TrajectoryUserInput `json:"userInput"`
 	PlannerResponse *struct {
-		Response string `json:"response"`
-		Thinking string `json:"thinking"`
+		Response         string `json:"response"`
+		Thinking         string `json:"thinking"`
+		ThinkingDuration string `json:"thinkingDuration,omitempty"`
 	} `json:"plannerResponse"`
+	SuggestedResponses *struct {
+		Suggestions []string `json:"suggestions"`
+	} `json:"suggestedResponses,omitempty"`
+	TaskBoundary *struct {
+		TaskName    string `json:"taskName"`
+		TaskStatus  string `json:"taskStatus"`
+		TaskSummary string `json:"taskSummary"`
+		Mode        string `json:"mode"`
+	} `json:"taskBoundary,omitempty"`
+	CaptureBrowserScreenshot *struct {
+		ScreenshotURI string `json:"screenshotUri,omitempty"`
+		ImageBase64   string `json:"imageBase64,omitempty"`
+		URL           string `json:"url,omitempty"`
+		PageTitle     string `json:"pageTitle,omitempty"`
+	} `json:"captureBrowserScreenshot,omitempty"`
 	CodeAction *struct {
 		IsArtifactFile   bool `json:"isArtifactFile"`
 		ArtifactMetadata *struct {
@@ -626,4 +666,6 @@ type TrajectoryDetails struct {
 	ProceedArtifactURI string               `json:"proceedArtifactUri,omitempty"`
 	PendingInteraction *PendingInteraction  `json:"pendingInteraction,omitempty"`
 	ContextMeter       *ContextMeterItem    `json:"contextMeter,omitempty"`
+	SuggestedResponses []string             `json:"suggestedResponses,omitempty"`
+	TaskProgress       *TaskProgressItem    `json:"taskProgress,omitempty"`
 }

@@ -56,9 +56,18 @@ var Features = []Feature{
 	{ID: "github", RPCs: []string{"GetGitHubPullRequests"}},
 	{ID: "background_tasks", RPCs: []string{"ListBackgroundTasks"}},
 	{ID: "plugins", RPCs: []string{"GetAllPlugins", "InstallCascadePlugin", "ListPluginAuthProviders"}},
-	{ID: "automations", RPCs: []string{"GetSidecars", "GetSidecarEvents", "ManageSidecar"}},
+	{ID: "automations", RPCs: []string{"GetSidecars", "GetSidecarEvents", "ManageSidecar", "ResolveSidecarConfig"}},
 	{ID: "context_meter", RPCs: []string{"GetCascadeTrajectoryGeneratorMetadata"}},
 	{ID: "live_summaries", RPCs: []string{"JetboxSubscribeToSummaries"}}, // 网关自带轮询兜底，缺失不影响列表功能
+	{ID: "context_mentions", RPCs: []string{"GetMatchingContextScopeItems"}},
+	{ID: "worktree_fork", RPCs: []string{"ForkConversation", "CreateWorktree", "CheckoutWorktree", "GetWorktreeDiff", "DeleteWorktree", "CloneGitHubRepo"}},
+	{ID: "permissions", RPCs: []string{"GetPermissionSettings", "UpdatePermissionSettings"}},
+	{ID: "terminals", RPCs: []string{"ListTerminals", "CreateTerminal", "StreamTerminalOutput", "SendTerminalInput", "CloseTerminal", "SendStepsToBackground"}},
+	{ID: "subagent_collab", RPCs: []string{"SendAgentMessage", "GetAgentTeamMetadata", "SkipBrowserSubagent", "GetBrowserOpenConversation", "GetAllBrowserWhitelistedUrls", "AddToBrowserWhitelist"}},
+	{ID: "audio_narration", RPCs: []string{"StreamAudioTranscription", "SendAudioChunk", "EndAudioSession", "StartNarration", "SendNarrationTurn", "EndNarration"}},
+	{ID: "mcp_apps", RPCs: []string{"ToggleMcpServer", "RefreshMcpServers", "LaunchMcpApp", "GetMcpAppResource", "CallMcpAppTool"}},
+	{ID: "memories_rules", RPCs: []string{"GetAllRules", "GetCascadeMemories", "UpdateCascadeMemory", "DeleteCascadeMemory", "GetKnowledgeItems"}},
+	{ID: "git_discard", RPCs: []string{"DiscardFileChanges"}},
 }
 
 // Compatibility is the result of comparing the running language_server with what the gateway needs.

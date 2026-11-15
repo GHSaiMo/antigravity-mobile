@@ -32,6 +32,43 @@
           "browser_subagent",
           "Waiting on build",
           "run_command"
+        ],
+        "toolDetails": [
+          {
+            "name": "run_command",
+            "summary": "dev server",
+            "status": "running",
+            "stepIndex": 1
+          },
+          {
+            "name": "run_command",
+            "summary": "go test ./...",
+            "status": "running",
+            "stepIndex": 2
+          },
+          {
+            "name": "run_command",
+            "summary": "make build",
+            "status": "running",
+            "stepIndex": 3
+          },
+          {
+            "name": "browser_subagent",
+            "summary": "{\"url\":\"x\"}",
+            "status": "running",
+            "stepIndex": 4
+          },
+          {
+            "name": "Waiting on build",
+            "summary": "Waiting on build",
+            "status": "running",
+            "stepIndex": 5
+          },
+          {
+            "name": "run_command",
+            "status": "running",
+            "stepIndex": 6
+          }
         ]
       }
     ],

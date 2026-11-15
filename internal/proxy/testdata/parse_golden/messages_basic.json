@@ -29,6 +29,24 @@
           "view_file",
           "Ran command",
           "grep_search"
+        ],
+        "toolDetails": [
+          {
+            "name": "view_file",
+            "status": "done",
+            "stepIndex": 1
+          },
+          {
+            "name": "Ran command",
+            "summary": "Ran command",
+            "status": "done",
+            "stepIndex": 2
+          },
+          {
+            "name": "grep_search",
+            "status": "done",
+            "stepIndex": 3
+          }
         ]
       },
       {
@@ -51,6 +69,13 @@
         "toolCount": 1,
         "toolNames": [
           "list_dir"
+        ],
+        "toolDetails": [
+          {
+            "name": "list_dir",
+            "status": "done",
+            "stepIndex": 7
+          }
         ]
       },
       {
@@ -70,6 +95,13 @@
         "toolCount": 1,
         "toolNames": [
           "find"
+        ],
+        "toolDetails": [
+          {
+            "name": "find",
+            "status": "done",
+            "stepIndex": 9
+          }
         ]
       }
     ],

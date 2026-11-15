@@ -664,6 +664,73 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Phase 3 native feature routes
+	switch {
+	case r.URL.Path == "/gateway/context/mentions":
+		p.HandleContextMentions(w, r)
+		return
+	case r.URL.Path == "/gateway/cascade/fork":
+		p.HandleCascadeFork(w, r)
+		return
+	case strings.HasPrefix(r.URL.Path, "/gateway/worktree/"):
+		p.HandleWorktree(w, r)
+		return
+	case r.URL.Path == "/gateway/projects/clone":
+		p.HandleCloneGitHubRepo(w, r)
+		return
+	case r.URL.Path == "/gateway/permissions":
+		p.HandlePermissions(w, r)
+		return
+	case r.URL.Path == "/gateway/memories":
+		p.HandleMemories(w, r)
+		return
+	case r.URL.Path == "/gateway/terminals",
+		r.URL.Path == "/gateway/terminal/create",
+		r.URL.Path == "/gateway/terminal/input",
+		r.URL.Path == "/gateway/terminal/close":
+		p.HandleTerminals(w, r)
+		return
+	case r.URL.Path == "/gateway/terminal/stream":
+		p.HandleTerminalStream(w, r)
+		return
+	case r.URL.Path == "/gateway/cascade/task/background":
+		p.HandleSendStepsToBackground(w, r)
+		return
+	case r.URL.Path == "/gateway/subagent/message":
+		p.HandleSubagentMessage(w, r)
+		return
+	case r.URL.Path == "/gateway/subagent/browser",
+		r.URL.Path == "/gateway/subagent/browser/skip",
+		r.URL.Path == "/gateway/subagent/browser/whitelist":
+		p.HandleBrowserSubagent(w, r)
+		return
+	case r.URL.Path == "/gateway/audio/dictate":
+		p.HandleAudioDictate(w, r)
+		return
+	case r.URL.Path == "/gateway/narration":
+		p.HandleNarration(w, r)
+		return
+	case r.URL.Path == "/gateway/mcp/toggle",
+		r.URL.Path == "/gateway/mcp/refresh":
+		p.HandleMcpManage(w, r)
+		return
+	case strings.HasPrefix(r.URL.Path, "/gateway/mcp/app/"):
+		p.HandleMcpApp(w, r)
+		return
+	case strings.HasPrefix(r.URL.Path, "/gateway/sidecar-ui/"):
+		p.HandleSidecarUI(w, r)
+		return
+	case r.URL.Path == "/gateway/automations/create",
+		r.URL.Path == "/gateway/automations/delete":
+		p.HandleAutomationCreateDelete(w, r)
+		return
+	case r.URL.Path == "/gateway/git/branches",
+		r.URL.Path == "/gateway/git/checkout",
+		r.URL.Path == "/gateway/git/discard":
+		p.HandleGitExtra(w, r)
+		return
+	}
+
 	// WebSocket upgrade routes
 	if r.URL.Path == "/connect-websocket" {
 		p.HandleWebSocket(w, r)

@@ -110,6 +110,16 @@ func hashMessageItem(m *CascadeMessageItem) uint64 {
 	for _, tn := range m.ToolNames {
 		h.str(tn)
 	}
+	h.num(len(m.ToolDetails))
+	for _, td := range m.ToolDetails {
+		h.str(td.Name)
+		h.str(td.Summary)
+		h.str(td.Status)
+		h.str(td.Duration)
+		h.num(td.StepIndex)
+	}
+	h.str(m.Thinking)
+	h.str(m.ThinkingDuration)
 	h.num(len(m.Media))
 	for _, md := range m.Media {
 		h.str(md)

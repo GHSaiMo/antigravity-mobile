@@ -19,6 +19,17 @@
         "toolNames": [
           "run_command",
           "run_command"
+        ],
+        "toolDetails": [
+          {
+            "name": "run_command",
+            "status": "done"
+          },
+          {
+            "name": "run_command",
+            "status": "done",
+            "stepIndex": 1
+          }
         ]
       }
     ],

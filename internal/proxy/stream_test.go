@@ -266,8 +266,9 @@ func TestRawTrajectorySignature(t *testing.T) {
 		Type:   "CORTEX_STEP_TYPE_PLANNER_RESPONSE",
 		Status: "CORTEX_STEP_STATUS_RUNNING",
 		PlannerResponse: &struct {
-			Response string `json:"response"`
-			Thinking string `json:"thinking"`
+			Response         string `json:"response"`
+			Thinking         string `json:"thinking"`
+			ThinkingDuration string `json:"thinkingDuration,omitempty"`
 		}{Response: "working..."},
 	})
 	sig3 := rawTrajectorySignature(&resp2)

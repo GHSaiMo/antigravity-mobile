@@ -34,6 +34,14 @@
         "toolCount": 1,
         "toolNames": [
           "run_command"
+        ],
+        "toolDetails": [
+          {
+            "name": "run_command",
+            "summary": "ls",
+            "status": "done",
+            "stepIndex": 2
+          }
         ]
       }
     ],

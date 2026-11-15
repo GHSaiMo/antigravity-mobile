@@ -233,6 +233,8 @@ func (p *Proxy) handleCascadeMessages(w http.ResponseWriter, r *http.Request) {
 		PendingInteraction: details.PendingInteraction,
 		Swarm:              GetSwarmBrief(cascadeID),
 		ContextMeter:       details.ContextMeter,
+		SuggestedResponses: details.SuggestedResponses,
+		TaskProgress:       details.TaskProgress,
 	})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
