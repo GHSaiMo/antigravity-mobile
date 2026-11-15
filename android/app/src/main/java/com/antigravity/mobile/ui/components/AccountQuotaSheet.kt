@@ -948,9 +948,7 @@ private fun QuotaMetricCell(
                 .background(colors.surfaceVariant.copy(alpha = if (colors.isDark) 0.85f else 0.55f))
                 .let { mod ->
                     if (isSelected) {
-                        mod
-                            .background(colors.accentBlue.copy(alpha = if (colors.isDark) 0.14f else 0.08f))
-                            .border(1.5.dp, colors.accentBlue.copy(alpha = if (colors.isDark) 0.85f else 0.75f), cellShape)
+                        mod.border(1.5.dp, colors.accentBlue.copy(alpha = if (colors.isDark) 0.85f else 0.75f), cellShape)
                     } else {
                         mod
                     }
@@ -996,22 +994,14 @@ private fun QuotaMetricCell(
                 } else {
                     Text(
                         text = title,
-                        color = if (isArgon) argonAccent else if (isSelected) colors.textPrimary else colors.textSecondary,
+                        color = if (isArgon) argonAccent else colors.textSecondary,
                         fontSize = if (isSpecial) 11.5.sp else 11.sp,
                         lineHeight = 13.sp,
-                        fontWeight = if (isSelected || isSpecial) FontWeight.SemiBold else FontWeight.Medium,
+                        fontWeight = if (isSpecial) FontWeight.SemiBold else FontWeight.Medium,
                         style = CompactTextStyle,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
-                    if (isSelected) {
-                        Box(
-                            modifier = Modifier
-                                .size(5.dp)
-                                .clip(CircleShape)
-                                .background(colors.accentBlue)
-                        )
-                    }
                 }
             }
             Spacer(modifier = Modifier.width(6.dp))
