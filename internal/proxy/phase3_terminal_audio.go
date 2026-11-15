@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -408,6 +409,7 @@ func (p *Proxy) HandleAudioDictate(w http.ResponseWriter, r *http.Request) {
 
 	cascadeID := strings.TrimSpace(r.URL.Query().Get("cascadeId"))
 	mimeType := firstNonEmpty(r.URL.Query().Get("mimeType"), "audio/pcm;rate=16000")
+	log.Printf("[Dictate] 🎙️ 原生流式听写开始 (cascadeId=%s, mime=%s)", cascadeID, mimeType)
 
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
@@ -420,6 +422,7 @@ func (p *Proxy) HandleAudioDictate(w http.ResponseWriter, r *http.Request) {
 	streamURL := fmt.Sprintf("https://127.0.0.1:%d/exa.language_server_pb.LanguageServerService/StreamAudioTranscription", port)
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, streamURL, bytes.NewReader(frame))
 	if err != nil {
+		log.Printf("[Dictate] ❌ 创建上游流式请求失败: %v", err)
 		return
 	}
 	httpReq.Header.Set("Content-Type", "application/connect+json")
@@ -430,13 +433,16 @@ func (p *Proxy) HandleAudioDictate(w http.ResponseWriter, r *http.Request) {
 
 	resp, err := p.streamingHTTPClient().Do(httpReq)
 	if err != nil {
+		log.Printf("[Dictate] ❌ 请求上游 StreamAudioTranscription 失败: %v", err)
 		_ = conn.WriteJSON(map[string]interface{}{"type": "error", "error": err.Error()})
 		return
 	}
 	defer resp.Body.Close()
 
 	sessionCh := make(chan string, 1)
+	doneCh := make(chan struct{})
 	go func() {
+		defer close(doneCh)
 		defer cancel()
 		sentSession := false
 		for {
@@ -454,11 +460,27 @@ func (p *Proxy) HandleAudioDictate(w http.ResponseWriter, r *http.Request) {
 					if sid, ok := ready["sessionId"].(string); ok && sid != "" && !sentSession {
 						sentSession = true
 						sessionCh <- sid
+						log.Printf("[Dictate] ⚡ 上游听写会话建立: %s", sid)
 					}
 				}
 				if sid, ok := msg["sessionId"].(string); ok && sid != "" && !sentSession {
 					sentSession = true
 					sessionCh <- sid
+					log.Printf("[Dictate] ⚡ 上游听写会话建立: %s", sid)
+				}
+				// 关键协议归一化：上游返回格式为 {"transcription":{"text":"...","isFinal":...}}
+				// 解包并在顶层注入 text, transcript, isFinal，兼容所有端（iOS、Android、Web）
+				if tr, ok := msg["transcription"].(map[string]interface{}); ok {
+					if txt, ok := tr["text"].(string); ok {
+						msg["text"] = txt
+						msg["transcript"] = txt
+						msg["isFinal"] = tr["isFinal"]
+						if norm, err := json.Marshal(msg); err == nil {
+							body = norm
+						}
+						isFinal, _ := tr["isFinal"].(bool)
+						log.Printf("[Dictate] 📝 听写识别: %q (isFinal=%v)", txt, isFinal)
+					}
 				}
 			}
 			_ = conn.WriteMessage(websocket.TextMessage, body)
@@ -477,6 +499,7 @@ func (p *Proxy) HandleAudioDictate(w http.ResponseWriter, r *http.Request) {
 			case sid := <-sessionCh:
 				sessionID = sid
 			case <-time.After(3 * time.Second):
+				log.Printf("[Dictate] ⚠️ 上游听写会话建立超时")
 				_ = conn.WriteJSON(map[string]interface{}{"type": "error", "error": "上游听写会话建立超时"})
 				return
 			}
@@ -506,21 +529,34 @@ func (p *Proxy) HandleAudioDictate(w http.ResponseWriter, r *http.Request) {
 					"sequenceNumber": seq,
 				})
 			case "end":
-				_, _, _ = p.callUpstreamRPC(ctx, "EndAudioSession", map[string]interface{}{
+				log.Printf("[Dictate] 🛑 客户端结束听写 (sessionId=%s, chunks=%d)", sessionID, seq)
+				endCtx, endCancel := context.WithTimeout(context.Background(), 3*time.Second)
+				_, _, _ = p.callUpstreamRPC(endCtx, "EndAudioSession", map[string]interface{}{
 					"sessionId":          sessionID,
 					"lastSequenceNumber": seq,
 				})
+				endCancel()
+				// 等待上游响应流接收完毕（获取最终识别结果与完成标志），最长等待 2 秒
+				select {
+				case <-doneCh:
+				case <-time.After(2 * time.Second):
+				}
 				return
 			}
 		}
 	}
 	if sessionID != "" {
+		log.Printf("[Dictate] 🛑 客户端连接断开，终止上游会话 (sessionId=%s, chunks=%d)", sessionID, seq)
 		endCtx, endCancel := context.WithTimeout(context.Background(), 2*time.Second)
 		_, _, _ = p.callUpstreamRPC(endCtx, "EndAudioSession", map[string]interface{}{
 			"sessionId":          sessionID,
 			"lastSequenceNumber": seq,
 		})
 		endCancel()
+		select {
+		case <-doneCh:
+		case <-time.After(1 * time.Second):
+		}
 	}
 }
 
