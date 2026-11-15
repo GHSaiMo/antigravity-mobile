@@ -56,6 +56,16 @@ type upstreamAgentStateUpdate struct {
 			TotalLength          uint32                 `json:"totalLength"`
 		} `json:"pendingAgentMessagesUpdate"`
 		PendingAgentMessages []upstreamAgentMessage `json:"pendingAgentMessages"`
+		MainTrajectoryUpdate *struct {
+			StepsUpdate *struct {
+				Indices     []uint32 `json:"indices"`
+				TotalLength uint32   `json:"totalLength"`
+			} `json:"stepsUpdate"`
+		} `json:"mainTrajectoryUpdate"`
+		ContextWindowUsage *struct {
+			EstimatedTokensUsed flexInt64 `json:"estimatedTokensUsed"`
+			MaxContextTokens    flexInt64 `json:"maxContextTokens"`
+		} `json:"contextWindowUsage"`
 	} `json:"update"`
 }
 
@@ -874,7 +884,7 @@ func (p *Proxy) GetCachedOrFetchPendingMessages(cascadeID string, port int, toke
 
 	pendingCacheMu.RLock()
 	entry, ok := pendingCache[cascadeID]
-	if ok && time.Since(entry.fetchedAt) < pendingTTL {
+	if ok && (time.Since(entry.fetchedAt) < pendingTTL || p.agentStateHub.IsLive(cascadeID)) {
 		cached := filterTombstonedMessages(cascadeID, entry.messages)
 		pendingCacheMu.RUnlock()
 		return cached

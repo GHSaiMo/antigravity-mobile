@@ -91,7 +91,24 @@ func (w *Watcher) run(ctx context.Context) {
 	scanTicker := time.NewTicker(3500 * time.Millisecond)
 	defer scanTicker.Stop()
 
+	sumWake, unsubSum := w.proxy.SubscribeSummaryUpdates()
+	defer unsubSum()
+
 	maxAge := 1500 * time.Millisecond
+	lastReactiveScan := time.Time{}
+	adjustScanCadence := func(runningCount int) {
+		if runningCount > 0 {
+			maxAge = 400 * time.Millisecond
+			if w.proxy.IsReactiveSummariesLive() {
+				scanTicker.Reset(2500 * time.Millisecond)
+			} else {
+				scanTicker.Reset(1500 * time.Millisecond)
+			}
+		} else {
+			maxAge = 1500 * time.Millisecond
+			scanTicker.Reset(5000 * time.Millisecond)
+		}
+	}
 	for {
 		select {
 		case <-ctx.Done():
@@ -100,16 +117,19 @@ func (w *Watcher) run(ctx context.Context) {
 		case <-cleanupTicker.C:
 			w.notifier.Dedup().Cleanup(4 * time.Hour)
 			w.cleanupKnownSessions()
-		case <-scanTicker.C:
-			runningCount := w.scanOnceWithMaxAge(maxAge)
-			// Adjust scan frequency: faster when tasks are running, calm when idle
-			if runningCount > 0 {
-				maxAge = 400 * time.Millisecond
-				scanTicker.Reset(1500 * time.Millisecond)
-			} else {
-				maxAge = 1500 * time.Millisecond
-				scanTicker.Reset(5000 * time.Millisecond)
+		case <-sumWake:
+			if wait := 80*time.Millisecond - time.Since(lastReactiveScan); wait > 0 {
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(wait):
+				}
 			}
+			lastReactiveScan = time.Now()
+			// Reactive summary stream already updated allTrajectories in-place; read cached snapshot without forcing extra RPC.
+			adjustScanCadence(w.scanOnceWithMaxAge(1500 * time.Millisecond))
+		case <-scanTicker.C:
+			adjustScanCadence(w.scanOnceWithMaxAge(maxAge))
 		}
 	}
 }

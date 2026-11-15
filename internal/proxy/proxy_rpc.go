@@ -618,19 +618,8 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	// Enrich hierarchy metadata (parent-child relationship) from Antigravity 2.26 local store
-	if localSummaries, err := FetchLocalConversationSummaries(listCtx); err == nil {
-		for id, s := range summaries {
-			if loc, ok := localSummaries[id]; ok {
-				if pid, ok := loc["parentConversationId"].(string); ok && pid != "" {
-					s["parentConversationId"] = pid
-				}
-				if depth, ok := loc["nestingDepth"].(int); ok && depth > 0 {
-					s["nestingDepth"] = depth
-				}
-			}
-		}
-	}
+	// Enrich hierarchy metadata (parent-child relationship) with zero-subprocess memory cache + sqlite3 fast path
+	EnrichSummariesHierarchy(listCtx, summaries)
 
 	runningSubagentParents := make(map[string]bool)
 	sidecarProjectIDs := fetchSidecarProjectIDs()

@@ -2,6 +2,9 @@ package proxy
 
 import (
 	"fmt"
+	"sync"
+	"sync/atomic"
+	"time"
 )
 
 // streamDeltaState remembers what one WebSocket client has already been sent so that,
@@ -448,4 +451,124 @@ func hashStrings(parts ...string) uint64 {
 		h.str(s)
 	}
 	return uint64(h)
+}
+
+func (d *streamDeltaState) clone() streamDeltaState {
+	var out streamDeltaState
+	if d.msgSigs != nil {
+		out.msgSigs = make(map[string]uint64, len(d.msgSigs))
+		for k, v := range d.msgSigs {
+			out.msgSigs[k] = v
+		}
+	}
+	if d.stepSigs != nil {
+		out.stepSigs = make([]uint64, len(d.stepSigs))
+		copy(out.stepSigs, d.stepSigs)
+	}
+	return out
+}
+
+const (
+	streamResumeTTL        = 90 * time.Second
+	maxStreamResumeEntries = 64
+)
+
+type streamResumeEntry struct {
+	cascadeID      string
+	isMessagesOnly bool
+	omitMessages   bool
+	fingerprint    string
+	deltaState     streamDeltaState
+	savedAt        time.Time
+}
+
+// streamResumeStore retains recent delta baselines across brief WebSocket disconnects so clients
+// reconnecting with `?sinceRev=N&delta=1` receive a tiny `noop` or incremental `delta` frame
+// instead of re-downloading a multi-hundred-KB `init` snapshot. Zero value is ready to use.
+type streamResumeStore struct {
+	mu      sync.Mutex
+	seq     atomic.Uint64
+	entries map[uint64]*streamResumeEntry
+}
+
+func (s *streamResumeStore) nextRev() uint64 {
+	return s.seq.Add(1)
+}
+
+// save records a new baseline under a fresh revision and replaces prevRev (if > 0) so each active
+// WebSocket connection occupies at most one entry in the store regardless of token rate.
+func (s *streamResumeStore) save(
+	prevRev uint64,
+	cascadeID string,
+	isMessagesOnly bool,
+	omitMessages bool,
+	fingerprint string,
+	state *streamDeltaState,
+) uint64 {
+	rev := s.nextRev()
+	cloned := state.clone()
+	now := time.Now()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.entries == nil {
+		s.entries = make(map[uint64]*streamResumeEntry)
+	}
+	if prevRev > 0 {
+		delete(s.entries, prevRev)
+	}
+	if len(s.entries) >= maxStreamResumeEntries {
+		var oldestKey uint64
+		var oldestAt time.Time
+		for k, v := range s.entries {
+			if now.Sub(v.savedAt) > streamResumeTTL {
+				delete(s.entries, k)
+				continue
+			}
+			if oldestKey == 0 || v.savedAt.Before(oldestAt) {
+				oldestKey = k
+				oldestAt = v.savedAt
+			}
+		}
+		if len(s.entries) >= maxStreamResumeEntries && oldestKey != 0 {
+			delete(s.entries, oldestKey)
+		}
+	}
+	s.entries[rev] = &streamResumeEntry{
+		cascadeID:      cascadeID,
+		isMessagesOnly: isMessagesOnly,
+		omitMessages:   omitMessages,
+		fingerprint:    fingerprint,
+		deltaState:     cloned,
+		savedAt:        now,
+	}
+	return rev
+}
+
+// lookup retrieves and refreshes a stored delta baseline if sinceRev is valid and matches the client format.
+func (s *streamResumeStore) lookup(
+	sinceRev uint64,
+	cascadeID string,
+	isMessagesOnly bool,
+	omitMessages bool,
+) (streamDeltaState, string, bool) {
+	if sinceRev == 0 || cascadeID == "" {
+		return streamDeltaState{}, "", false
+	}
+	now := time.Now()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	entry, ok := s.entries[sinceRev]
+	if !ok {
+		return streamDeltaState{}, "", false
+	}
+	if now.Sub(entry.savedAt) > streamResumeTTL {
+		delete(s.entries, sinceRev)
+		return streamDeltaState{}, "", false
+	}
+	if entry.cascadeID != cascadeID || entry.isMessagesOnly != isMessagesOnly || entry.omitMessages != omitMessages {
+		return streamDeltaState{}, "", false
+	}
+	entry.savedAt = now
+	return entry.deltaState.clone(), entry.fingerprint, true
 }

@@ -91,6 +91,7 @@ type Proxy struct {
 	shortClient  *http.Client // 2-5s timeout, for quick status checks
 	mediumClient *http.Client // 10s timeout, for standard RPC calls
 	longClient   *http.Client // 60s timeout, for large data transfers
+	streamClient *http.Client // 0 timeout, for long-lived ConnectRPC streaming subscriptions
 
 	mu          sync.RWMutex
 	activeProxy *httputil.ReverseProxy
@@ -106,6 +107,11 @@ type Proxy struct {
 
 	// events fans conversation-list change notifications out to /gateway/events subscribers.
 	events eventsHub
+
+	// Reactive Antigravity 2.32+ Connect streaming hubs & WS cursor resume store.
+	agentStateHub reactiveAgentStateHub
+	summariesHub  reactiveSummariesHub
+	streamResume  streamResumeStore
 
 	activeStreamMu        sync.RWMutex
 	activeStreamCascadeID string
@@ -321,8 +327,13 @@ func NewProxy(insp inspector.UpstreamDiscoverer) *Proxy {
 			Timeout:   60 * time.Second,
 			Transport: tr,
 		},
+		streamClient: &http.Client{
+			Timeout:   0,
+			Transport: tr,
+		},
 		mobileStickyDuration: DefaultMobileStickyDuration,
 	}
+	p.events.rev = uint64(time.Now().UnixNano()&0xfffffff) + 1
 
 	insp.OnUpdate(func(info inspector.InstanceInfo) {
 		p.updateUpstream(info)
@@ -348,9 +359,31 @@ func (p *Proxy) trackWSConn(conn *websocket.Conn) func() {
 	}
 }
 
+// streamingHTTPClient returns a timeout-free HTTP client suitable for long-lived Connect streams,
+// falling back to a cloned mediumClient/shortClient transport in struct-literal unit tests.
+func (p *Proxy) streamingHTTPClient() *http.Client {
+	if p.streamClient != nil {
+		return p.streamClient
+	}
+	if p.mediumClient != nil {
+		cp := *p.mediumClient
+		cp.Timeout = 0
+		return &cp
+	}
+	if p.shortClient != nil {
+		cp := *p.shortClient
+		cp.Timeout = 0
+		return &cp
+	}
+	return nil
+}
+
 // Shutdown gracefully closes all tracked WebSocket connections and releases upstream resources.
 // Must be called before http.Server.Shutdown to allow hijacked connections to drain.
 func (p *Proxy) Shutdown() {
+	p.agentStateHub.StopAll()
+	p.summariesHub.StopAll()
+
 	p.wsConnsMu.Lock()
 	conns := make([]*websocket.Conn, 0, len(p.wsConns))
 	for c := range p.wsConns {
@@ -463,6 +496,10 @@ func (p *Proxy) updateUpstream(info inspector.InstanceInfo) {
 	if upstreamSwitched {
 		liveModels.invalidate()
 		go p.ensureLiveModels(context.Background())
+		go func(prt int) {
+			p.agentStateHub.OnUpstreamChanged(p, prt)
+			p.summariesHub.OnUpstreamChanged(p, prt)
+		}(port)
 	}
 	if verboseRPC {
 		slog.Info(fmt.Sprintf("[Proxy] Updated upstream proxy to 127.0.0.1:%d", port))
