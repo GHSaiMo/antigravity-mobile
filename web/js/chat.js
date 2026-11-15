@@ -1084,6 +1084,7 @@ async function connectStreamWs(cascadeId) {
         RunningTasksManager.syncFromServer(data.runningTasks);
         SubagentManager.sync(data);
         if (typeof SwarmManager !== "undefined") SwarmManager.sync(data);
+        if (window.Phase3?.syncStreamData) window.Phase3.syncStreamData(data);
 
         if (data.steps) {
           scheduleRenderMessages(data.steps, isRunning);
@@ -1190,6 +1191,7 @@ async function loadChat(cascadeId, isBackgroundPoll = false) {
             }
             RunningTasksManager.syncFromServer(info.runningTasks);
             SubagentManager.sync(info);
+            if (window.Phase3?.syncStreamData) window.Phase3.syncStreamData(info);
             if (currentTrajectories[cascadeId]) {
               if (info.status) currentTrajectories[cascadeId].status = info.status;
               currentTrajectories[cascadeId].runningTasks = Array.isArray(info.runningTasks) ? info.runningTasks : [];
@@ -1309,13 +1311,18 @@ function groupSteps(steps) {
             id: `item-tools-${i}`,
             startIndex: i,
             steps: [],
-            toolNames: []
+            toolNames: [],
+            thinking: "",
+            thinkingDuration: ""
           };
         }
+        currentBatch.thinking = thinking;
+        if (p.thinkingDuration) currentBatch.thinkingDuration = p.thinkingDuration;
         currentBatch.steps.push({
           name: "thinking",
-          detail: thinking.length > 60 ? thinking.slice(0, 57) + "..." : thinking,
-          status: "DONE",
+          detail: thinking.length > 80 ? thinking.slice(0, 77) + "..." : thinking,
+          duration: p.thinkingDuration || "",
+          status: s.status || "DONE",
           raw: s
         });
         if (!currentBatch.toolNames.includes("thinking") && currentBatch.toolNames.length < 3) {
@@ -1442,13 +1449,26 @@ function groupSteps(steps) {
           id: `item-tools-${i}`,
           startIndex: i,
           steps: [],
-          toolNames: []
+          toolNames: [],
+          thinking: "",
+          thinkingDuration: ""
         };
+      }
+
+      let stepDur = "";
+      if (s.startedAt && s.completedAt) {
+        const ms = Date.parse(s.completedAt) - Date.parse(s.startedAt);
+        if (Number.isFinite(ms) && ms >= 0) {
+          stepDur = ms < 1000 ? `${Math.round(ms)}ms` : `${(ms / 1000).toFixed(1)}s`;
+        }
+      } else if (s.thinkingDuration) {
+        stepDur = s.thinkingDuration;
       }
 
       currentBatch.steps.push({
         name: displayName,
         detail: detail,
+        duration: stepDur,
         status: s.status || "DONE",
         raw: s
       });
@@ -1479,7 +1499,9 @@ function getItemFingerprint(item, isRunning, isLastItem) {
   }
   if (item.type === "tools") {
     const active = (isRunning && isLastItem) ? "1" : "0";
-    return `t:${item.steps.length}:${item.toolNames.join(",")}:${active}`;
+    const thinkLen = (item.thinking || "").length;
+    const lastStep = item.steps[item.steps.length - 1];
+    return `t:${item.steps.length}:${item.toolNames.join(",")}:${thinkLen}:${lastStep?.duration || ""}:${active}`;
   }
   if (item.type === "error") {
     return `e:${item.text.length}:${item.text.slice(-12)}`;
@@ -1766,9 +1788,12 @@ function generateItemHtml(item, isRunning, isLastItem) {
 
   if (item.type === "tools") {
     const isActive = isRunning && isLastItem;
-    const count = item.steps.length;
-    const localizedNames = [...new Set((item.toolNames || []).map(formatToolName))];
+    const toolOnlySteps = item.steps.filter(s => s.name !== "thinking");
+    const toolCount = toolOnlySteps.length;
+    const count = toolCount > 0 ? toolCount : item.steps.length;
+    const localizedNames = [...new Set((item.toolNames || []).filter(n => n !== "thinking").map(formatToolName))];
     const toolNamesStr = localizedNames.join(", ") + (localizedNames.length > 2 ? "..." : "");
+    const liveThinking = (item.thinking || "").trim();
 
     if (isActive) {
       return `
@@ -1780,7 +1805,7 @@ function generateItemHtml(item, isRunning, isLastItem) {
           </div>
           <div class="agent-thinking-body">
             <div class="thinking-title-row">
-              <span>Agent 正在思考与执行</span>
+              <span>${toolCount > 0 ? "Agent 正在思考与执行" : "Agent 正在深度思考"}</span>
               <div class="activity-dots">
                 <span class="dot"></span>
                 <span class="dot"></span>
@@ -1791,33 +1816,38 @@ function generateItemHtml(item, isRunning, isLastItem) {
               <svg class="bolt-icon" width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
                 <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
               </svg>
-              <span>已执行 <strong>${count}</strong> 项操作</span>
+              <span>${toolCount > 0 ? `已执行 <strong>${toolCount}</strong> 项操作` : "思考推理中"}</span>
               ${toolNamesStr ? `<span class="tool-names">(${escapeHtml(toolNamesStr)})</span>` : ''}
             </div>
+            ${liveThinking ? `<div class="p3-thinking-preview">${escapeHtml(liveThinking.slice(-500))}</div>` : ''}
           </div>
         </div>
       `;
     }
 
-    const stepItemsHtml = item.steps.map(s => `
+    const thinkingHtml = liveThinking ? `<div class="p3-thinking-detail">${escapeHtml(liveThinking)}</div>` : "";
+    const stepItemsHtml = item.steps.filter(s => s.name !== "thinking").map(s => `
       <div class="tool-step-item">
         <div class="tool-step-left">
           <svg class="tool-puzzle-icon" width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
             <path d="M20.5 11H19V7c0-1.1-.9-2-2-2h-4V3.5a2.5 2.5 0 0 0-5 0V5H4c-1.1 0-1.99.9-1.99 2v3.8H3.5c1.49 0 2.7 1.21 2.7 2.7s-1.21 2.7-2.7 2.7H2V20c0 1.1.9 2 2 2h3.8v-1.5c0-1.49 1.21-2.7 2.7-2.7s2.7 1.21 2.7 2.7V22H17c1.1 0 2-.9 2-2v-4h1.5a2.5 2.5 0 0 0 0-5z"></path>
           </svg>
           <span class="tool-step-name">${escapeHtml(formatToolName(s.name))}</span>
+          ${s.detail ? `<span class="tool-names" style="margin-left:6px;">${escapeHtml(s.detail)}</span>` : ""}
         </div>
+        ${s.duration ? `<span class="p3-step-dur">${escapeHtml(s.duration)}</span>` : ""}
       </div>
     `).join("");
+
+    const foldedTitle = toolCount === 0
+      ? `💭 已深度思考${item.thinkingDuration ? ` (${escapeHtml(item.thinkingDuration)})` : ""}`
+      : `⚡ 已思考并执行 <strong>${toolCount}</strong> 项操作`;
 
     return `
       <details class="tool-batch-accordion">
         <summary class="tool-batch-summary">
           <div class="tool-batch-banner">
-            <svg class="bolt-icon" width="11" height="11" viewBox="0 0 24 24" fill="currentColor">
-              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
-            </svg>
-            <span class="tool-batch-title">已思考并执行 <strong>${count}</strong> 项操作</span>
+            <span class="tool-batch-title">${foldedTitle}</span>
             ${toolNamesStr ? `<span class="tool-names">(${escapeHtml(toolNamesStr)})</span>` : ''}
             <svg class="chevron-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
               <polyline points="6 9 12 15 18 9"></polyline>
@@ -1825,6 +1855,7 @@ function generateItemHtml(item, isRunning, isLastItem) {
           </div>
         </summary>
         <div class="tool-batch-expanded">
+          ${thinkingHtml}
           ${stepItemsHtml}
         </div>
       </details>
@@ -1966,6 +1997,7 @@ function renderMessages(steps, isRunning = false) {
       newEl.id = item.id;
       newEl.className = rowClass;
       newEl.setAttribute("data-fp", fp);
+      if (item.index !== undefined) newEl.setAttribute("data-step-index", String(item.index));
       newEl.innerHTML = generateItemHtml(item, isRunning, isLastItem);
       fragment.appendChild(newEl);
     }
@@ -2031,6 +2063,7 @@ function renderMessages(steps, isRunning = false) {
 
       let existingEl = document.getElementById(item.id);
       if (existingEl) {
+        if (item.index !== undefined) existingEl.setAttribute("data-step-index", String(item.index));
         if (existingEl.getAttribute("data-fp") !== fp) {
           existingEl.setAttribute("data-fp", fp);
           existingEl.className = rowClass;
@@ -2264,7 +2297,10 @@ const RunningTasksManager = {
             <span class="task-item-desc">${desc}</span>
             <span class="task-item-cmd" title="${cmd}">${cmd}</span>
           </div>
-          <button class="task-stop-btn" data-action="stop-task" data-step="${task.stepIndex}" data-id="${idEsc}" title="终止任务" aria-label="终止任务">
+          <div class="p3-btn-group">
+            <button type="button" class="p3-mini-btn" onclick="window.Phase3?.sendTaskToBackground?.(${task.stepIndex})" title="转入后台">转后台</button>
+            <button type="button" class="p3-mini-btn" onclick="window.Phase3?.openToolsBoard?.('tasks')" title="交互终端">终端</button>
+            <button class="task-stop-btn" data-action="stop-task" data-step="${task.stepIndex}" data-id="${idEsc}" title="终止任务" aria-label="终止任务">
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 -960 960 960" fill="currentColor">
               <path d="M330-330H630V-630H330v300ZM480.07-100q-78.84,0-148.2-29.92T211.18-211.13T129.93-331.76T100-479.93t29.92-148.2t81.21-120.68t120.63-81.25T479.93-860t148.2,29.92t120.68,81.21t81.25,120.63T860-480.07t-29.92,148.2T748.87-211.18T628.24-129.93T480.07-100ZM480-160q134,0 227-93t93-227T707-707T480-800T253-707T160-480t93,227t227,93Zm0-320Z"></path>
             </svg>

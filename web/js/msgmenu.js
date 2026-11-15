@@ -155,6 +155,11 @@ function initMessageActions() {
         showToast(ok ? "已复制" : "复制失败，请长按文字手动选择");
       } else if (action === "export") {
         exportConversationMarkdown();
+      } else if (action === "fork" && row) {
+        const stepIdx = row.getAttribute("data-step-index");
+        window.Phase3?.forkAtStep?.(stepIdx);
+      } else if (action === "narrate" && row) {
+        window.Phase3?.narrateText?.(messageRowText(row));
       }
       row?.classList.remove("actions-open");
       return;
@@ -183,9 +188,13 @@ function buildMessageActionsHtml(kind) {
   const icon = {
     copy: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>',
     export: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>',
+    fork: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="18" r="3"></circle><circle cx="6" cy="6" r="3"></circle><circle cx="18" cy="6" r="3"></circle><path d="M18 9v2c0 .6-.4 1-1 1H7c-.6 0-1-.4-1-1V9"></path><path d="M12 12v3"></path></svg>',
+    narrate: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>',
   };
   let html = `<button type="button" class="msg-action-btn" data-msg-action="copy">${icon.copy}<span>复制</span></button>`;
   if (kind === "agent") {
+    html += `<button type="button" class="msg-action-btn" data-msg-action="fork">${icon.fork}<span>分叉</span></button>`;
+    html += `<button type="button" class="msg-action-btn" data-msg-action="narrate">${icon.narrate}<span>语音播报</span></button>`;
     html += `<button type="button" class="msg-action-btn" data-msg-action="export" data-feature="export">${icon.export}<span>导出 MD</span></button>`;
   }
   return `<div class="msg-actions" data-msg-kind="${kind}">${html}</div>`;

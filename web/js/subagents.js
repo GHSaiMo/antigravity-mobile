@@ -145,14 +145,25 @@ function initSubagents() {
     const card = e.target.closest(".subagent-card");
     if (!card || card.disabled) return;
     const id = card.getAttribute("data-id");
-    if (id) navigateTo(`#c=${id}`);
+    if (!id) return;
+    const live = SubagentManager.byId.get(id);
+    if (live && (live.status === "running" || (live.typeName || "").toLowerCase().includes("browser")) && window.Phase3?.openSubagentDetail) {
+      window.Phase3.openSubagentDetail(live);
+    } else {
+      navigateTo(`#c=${id}`);
+    }
   });
   document.getElementById("subagents-card")?.addEventListener("click", (e) => {
     const btn = e.target.closest("[data-act]");
     if (!btn) return;
     const id = btn.getAttribute("data-id");
-    if (btn.getAttribute("data-act") === "open" && id) navigateTo(`#c=${id}`);
-    else if (btn.getAttribute("data-act") === "stop") SubagentManager.stop(id);
+    if (btn.getAttribute("data-act") === "open" && id) {
+      const live = SubagentManager.byId.get(id) || { conversationId: id, status: "running" };
+      if (window.Phase3?.openSubagentDetail) window.Phase3.openSubagentDetail(live);
+      else navigateTo(`#c=${id}`);
+    } else if (btn.getAttribute("data-act") === "stop") {
+      SubagentManager.stop(id);
+    }
   });
   document.getElementById("subagent-bar")?.addEventListener("click", (e) => {
     if (e.target.closest('[data-act="stop-self"]')) SubagentManager.stop(activeCascadeId);

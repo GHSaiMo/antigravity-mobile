@@ -67,7 +67,7 @@ function renderGitSheet() {
     ? `${st.githubTarget.owner}/${st.githubTarget.repo}`
     : (st.repoName || "");
   const head = `<div class="git-branch-row"><span class="git-repo">${escapeHtml(repoDisplay)}</span>
-    <span class="git-branch">${escapeHtml(st.branch || "")}</span>
+    <button type="button" class="p3-git-branch-btn" data-git="branches" title="切换或新建分支">${escapeHtml(st.branch || "HEAD")} ▾</button>
     ${st.ahead > 0 ? `<span class="git-ahead">↑${st.ahead}</span>` : ""}${st.behind > 0 ? `<span class="git-behind">↓${st.behind}</span>` : ""}
     ${!st.upstream && !st.detached ? '<span class="git-noup">未设置上游</span>' : ""}</div>`;
 
@@ -110,11 +110,14 @@ function renderGitSheet() {
       const parts = String(f.path).split("/");
       const name = parts.pop();
       const dir = parts.join("/");
-      return `<button type="button" class="git-file" data-path="${escapeHtml(f.path)}">
-        <span class="git-check${on ? " on" : ""}" aria-hidden="true"></span>
-        <span class="git-flag ${tone}">${label}</span>
-        <span class="git-file-main"><span class="git-file-name">${escapeHtml(name)}</span>${dir ? `<span class="git-file-dir">${escapeHtml(dir)}</span>` : ""}</span>
-      </button>`;
+      return `<div class="p3-row" style="align-items:center;">
+        <button type="button" class="git-file" style="flex:1;min-width:0;" data-path="${escapeHtml(f.path)}">
+          <span class="git-check${on ? " on" : ""}" aria-hidden="true"></span>
+          <span class="git-flag ${tone}">${label}</span>
+          <span class="git-file-main"><span class="git-file-name">${escapeHtml(name)}</span>${dir ? `<span class="git-file-dir">${escapeHtml(dir)}</span>` : ""}</span>
+        </button>
+        <button type="button" class="p3-discard-btn" data-git="discard" data-discard-path="${escapeHtml(f.path)}">丢弃</button>
+      </div>`;
     })
     .join("");
 
@@ -245,12 +248,15 @@ function initGitSheet() {
       renderGitSheet();
       return;
     }
-    const action = e.target.closest("[data-git]")?.getAttribute("data-git");
+    const actionBtn = e.target.closest("[data-git]");
+    const action = actionBtn?.getAttribute("data-git");
     if (action === "commit") gitCommit(false);
     else if (action === "commit-push") gitCommit(true);
     else if (action === "retry-push") retryGitPush();
     else if (action === "delegate") delegateCommitToAgent();
     else if (action === "done") closeGitSheet();
+    else if (action === "branches") openGitBranchPicker();
+    else if (action === "discard") discardGitFile(actionBtn?.getAttribute("data-discard-path"));
   });
   body?.addEventListener("input", (e) => {
     if (e.target.id !== "git-message") return;
@@ -295,4 +301,55 @@ async function refreshActionAvailability() {
     }
   }
   changesBtn?.classList.toggle("hidden", !(changes && changes.hasChanges));
+}
+
+async function openGitBranchPicker() {
+  if (!activeCascadeId || gitState.working) return;
+  try {
+    const data = await postGatewayJson("/gateway/git/branches", { cascadeId: activeCascadeId });
+    const branches = Array.isArray(data.branches) ? data.branches : [];
+    const cur = data.current || gitState.status?.branch || "";
+    const listText = branches.slice(0, 15).map((b, i) => `${i + 1}. ${b === cur ? "* " : "  "}${b}`).join("\n");
+    const raw = prompt(`当前分支: ${cur}\n\n可选分支:\n${listText}\n\n输入序号或分支名切换，或输入 +新分支名 创建并切换：`);
+    if (!raw || !raw.trim()) return;
+    let trimmed = raw.trim();
+    let create = false;
+    let target = trimmed;
+    if (trimmed.startsWith("+")) {
+      create = true;
+      target = trimmed.slice(1).trim();
+    } else if (/^\d+$/.test(trimmed)) {
+      const idx = Number(trimmed) - 1;
+      if (branches[idx]) target = branches[idx];
+    }
+    if (!target) return;
+    gitState.working = true;
+    renderGitSheet();
+    await postGatewayJson("/gateway/git/checkout", { cascadeId: activeCascadeId, branch: target, create });
+    showToast?.(`已切换至分支 ${target}`);
+  } catch (err) {
+    gitState.actionError = err.message || "切换分支失败";
+  } finally {
+    gitState.working = false;
+    await refreshGitStatus();
+  }
+}
+
+async function discardGitFile(path) {
+  if (!activeCascadeId || !path || gitState.working) return;
+  if (!confirm(`确定丢弃对「${path}」的所有未提交修改？此操作不可撤销。`)) return;
+  gitState.working = true;
+  gitState.actionError = "";
+  renderGitSheet();
+  try {
+    await postGatewayJson("/gateway/git/discard", { cascadeId: activeCascadeId, path });
+    gitState.unchecked.delete(path);
+    showToast?.("已丢弃文件修改");
+    if (typeof refreshActionAvailability === "function") refreshActionAvailability();
+  } catch (err) {
+    gitState.actionError = err.message || "丢弃失败";
+  } finally {
+    gitState.working = false;
+    await refreshGitStatus();
+  }
 }
