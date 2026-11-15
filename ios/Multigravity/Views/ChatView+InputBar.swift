@@ -319,16 +319,12 @@ extension ChatView {
                 onAudioRecord: handleAudioRecordAction,
                 onStartDictation: {
                     if let gwUrl = AppSettings.shared.gatewayURL {
-                        dictationBaseText = viewModel.inputText.trimmingCharacters(in: .whitespacesAndNewlines)
                         dictationManager.start(
                             cascadeId: viewModel.cascadeId,
                             baseURL: gwUrl,
-                            onTranscriptUpdate: { transcript in
-                                if dictationBaseText.isEmpty {
-                                    viewModel.inputText = transcript
-                                } else {
-                                    viewModel.inputText = "\(dictationBaseText) \(transcript)"
-                                }
+                            initialText: viewModel.inputText,
+                            onTranscriptUpdate: { fullText in
+                                viewModel.inputText = fullText
                             },
                             onError: { err in
                                 viewModel.errorMessage = err
@@ -508,45 +504,16 @@ private struct ChatInputTextAndSendRow: View {
                 .buttonStyle(.plain)
                 .transition(.scale.combined(with: .opacity))
             } else {
-                // Voice Mode idle button: 1:1 desktop Antigravity parity
-                ZStack {
-                    Circle()
-                        .fill(Color(uiColor: UIColor { trait in
-                            if trait.userInterfaceStyle == .dark {
-                                return UIColor(red: 71/255.0, green: 85/255.0, blue: 88/255.0, alpha: 1.0)
-                            } else {
-                                return UIColor(red: 67/255.0, green: 81/255.0, blue: 85/255.0, alpha: 1.0)
-                            }
-                        }))
-                        .frame(width: 44, height: 44)
-                        .overlay(
-                            Circle()
-                                .stroke(Color.white.opacity(0.14), lineWidth: 0.8)
-                        )
-                        .shadow(color: Color.black.opacity(0.16), radius: 3, x: 0, y: 1.5)
-
-                    AntigravityVoiceShape()
-                        .fill(Color.white)
-                        .frame(width: 22, height: 22)
-                }
-                .contentShape(Circle())
-                .onTapGesture {
-                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                    if dictationManager.isDictating {
-                        dictationManager.stop()
-                    } else {
-                        onStartVoiceCall()
+                VoiceModeButton(
+                    isDictating: dictationManager.isDictating,
+                    onStartVoiceCall: onStartVoiceCall,
+                    onStartDictation: onStartDictation,
+                    onStopDictation: {
+                        if dictationManager.isDictating {
+                            dictationManager.stop()
+                        }
                     }
-                }
-                .onLongPressGesture(minimumDuration: 0.45) {
-                    UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
-                    if dictationManager.isDictating {
-                        dictationManager.stop()
-                    } else {
-                        onStartDictation()
-                    }
-                }
-                .accessibilityLabel("实时语音对话，长按语音听写或录制语音消息")
+                )
                 .transition(.scale.combined(with: .opacity))
             }
         }
@@ -618,6 +585,81 @@ private struct NarrationPlayerBar: View {
     }
 }
 
+private struct VoiceModeButton: View {
+    let isDictating: Bool
+    let onStartVoiceCall: () -> Void
+    let onStartDictation: () -> Void
+    let onStopDictation: () -> Void
+
+    @State private var isPressing = false
+    @State private var hasTriggeredDictation = false
+    @State private var holdTask: Task<Void, Never>? = nil
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(isDictating ? Color.indigo : (isPressing ? Color.indigo.opacity(0.85) : Color(uiColor: UIColor { trait in
+                    if trait.userInterfaceStyle == .dark {
+                        return UIColor(red: 71/255.0, green: 85/255.0, blue: 88/255.0, alpha: 1.0)
+                    } else {
+                        return UIColor(red: 67/255.0, green: 81/255.0, blue: 85/255.0, alpha: 1.0)
+                    }
+                })))
+                .frame(width: 44, height: 44)
+                .overlay(
+                    Circle()
+                        .stroke(Color.white.opacity(isDictating ? 0.35 : 0.14), lineWidth: isDictating ? 1.5 : 0.8)
+                )
+                .shadow(color: isDictating ? Color.indigo.opacity(0.4) : Color.black.opacity(0.16), radius: isDictating ? 6 : 3, x: 0, y: isDictating ? 2 : 1.5)
+                .scaleEffect(isDictating ? 1.08 : (isPressing ? 0.94 : 1.0))
+                .animation(.spring(response: 0.25, dampingFraction: 0.7), value: isDictating)
+                .animation(.spring(response: 0.2, dampingFraction: 0.7), value: isPressing)
+
+            AntigravityVoiceShape()
+                .fill(Color.white)
+                .frame(width: 22, height: 22)
+                .scaleEffect(isDictating ? 1.1 : 1.0)
+        }
+        .contentShape(Circle())
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { _ in
+                    if !isPressing {
+                        isPressing = true
+                        hasTriggeredDictation = false
+                        holdTask?.cancel()
+                        holdTask = Task { @MainActor in
+                            try? await Task.sleep(nanoseconds: 350_000_000)
+                            if !Task.isCancelled && isPressing {
+                                hasTriggeredDictation = true
+                                UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
+                                onStartDictation()
+                            }
+                        }
+                    }
+                }
+                .onEnded { _ in
+                    holdTask?.cancel()
+                    holdTask = nil
+                    let wasDictating = isDictating || hasTriggeredDictation
+                    isPressing = false
+
+                    if wasDictating {
+                        // 按住说话，松手结束
+                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                        onStopDictation()
+                    } else {
+                        // 短按 Tap (<350ms) -> 进入实时语音通话
+                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                        onStartVoiceCall()
+                    }
+                    hasTriggeredDictation = false
+                }
+        )
+        .accessibilityLabel(isDictating ? "正在流式听写，松开结束" : "实时语音对话，按住流式听写")
+    }
+}
+
 private struct DictationActiveBar: View {
     let onStop: () -> Void
 
@@ -626,7 +668,7 @@ private struct DictationActiveBar: View {
             Circle()
                 .fill(Color.red)
                 .frame(width: 8, height: 8)
-            Text("正在原生流式听写...")
+            Text("按住流式听写中，松开结束...")
                 .font(.system(size: 12, weight: .medium))
                 .foregroundColor(.primary)
             Spacer()

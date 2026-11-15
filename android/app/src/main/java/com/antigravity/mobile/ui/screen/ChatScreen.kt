@@ -702,12 +702,11 @@ fun ChatScreen(
     var dictationBaseText by remember { mutableStateOf("") }
 
     val startDictation: () -> Unit = {
-        dictationBaseText = inputText.trimEnd()
         dictationManager.start(
             cascadeId = uiState.cascadeId.ifBlank { cascadeId },
-            onTranscriptUpdate = { chunk ->
-                val merged = if (dictationBaseText.isEmpty()) chunk else "$dictationBaseText $chunk"
-                viewModel.onInputTextChanged(merged)
+            initialText = inputText,
+            onTranscriptUpdate = { fullText ->
+                viewModel.onInputTextChanged(fullText)
             },
             onError = { err -> phase3Notice = err }
         )

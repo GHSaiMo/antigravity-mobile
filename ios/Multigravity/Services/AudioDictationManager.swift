@@ -15,15 +15,23 @@ public final class AudioDictationManager {
     private var onTranscriptUpdate: ((String) -> Void)?
     private var onError: ((String) -> Void)?
 
+    // 句段多句累加状态机（防止停顿后新一句话冲掉前面已定稿的句子）
+    private var committedText: String = ""
+    private var currentInterim: String = ""
+
     public init() {}
 
     public func start(
         cascadeId: String,
         baseURL: URL,
+        initialText: String = "",
         onTranscriptUpdate: @escaping (String) -> Void,
         onError: @escaping (String) -> Void
     ) {
         if isDictating { return }
+
+        self.committedText = initialText.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.currentInterim = ""
 
         let cid = cascadeId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? cascadeId
         let mime = "audio/pcm;rate=16000".addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "audio/pcm%3Brate%3D16000"
@@ -139,6 +147,13 @@ public final class AudioDictationManager {
         webSocketTask = nil
         urlSession?.invalidateAndCancel()
         urlSession = nil
+
+        // 若连接关闭时仍有尚未定稿的临时文本，自动提交定稿
+        if !currentInterim.isEmpty {
+            committedText = Self.joinText(committedText, currentInterim)
+            currentInterim = ""
+            onTranscriptUpdate?(committedText)
+        }
     }
 
     private func receiveNextMessage() {
@@ -182,9 +197,48 @@ public final class AudioDictationManager {
         let resolved = !direct.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? direct
             : (!transcriptionNested.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? transcriptionNested : updateNested)
+        
+        let isFinalDirect = obj["isFinal"] as? Bool
+        let isFinalNested = (obj["transcription"] as? [String: Any])?["isFinal"] as? Bool
+        let isFinal = isFinalDirect ?? isFinalNested ?? false
+
         if !resolved.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            onTranscriptUpdate?(resolved)
+            if isFinal {
+                // 当前句子已定稿：提交进 committedText，并清空临时区
+                committedText = Self.joinText(committedText, resolved)
+                currentInterim = ""
+                onTranscriptUpdate?(committedText)
+            } else {
+                // 当前句子正在流式识别中：拼在已定稿文本后面实时预览
+                currentInterim = resolved
+                let merged = Self.joinText(committedText, currentInterim)
+                onTranscriptUpdate?(merged)
+            }
         }
+    }
+
+    private static func joinText(_ base: String, _ append: String) -> String {
+        let b = base.trimmingCharacters(in: .whitespacesAndNewlines)
+        let a = append.trimmingCharacters(in: .whitespacesAndNewlines)
+        if b.isEmpty { return a }
+        if a.isEmpty { return b }
+        if base.hasSuffix(" ") || base.hasSuffix("\n") || append.hasPrefix(" ") {
+            return base + append
+        }
+        guard let lastB = b.last, let firstA = a.first else { return "\(b) \(a)" }
+        if isCJK(lastB) || isCJK(firstA) {
+            return "\(b)\(a)"
+        }
+        return "\(b) \(a)"
+    }
+
+    private static func isCJK(_ c: Character) -> Bool {
+        guard let scalar = c.unicodeScalars.first else { return false }
+        let v = scalar.value
+        return (v >= 0x4E00 && v <= 0x9FFF) ||
+               (v >= 0x3400 && v <= 0x4DBF) ||
+               (v >= 0x3000 && v <= 0x303F) ||
+               (v >= 0xFF00 && v <= 0xFFEF)
     }
 }
 

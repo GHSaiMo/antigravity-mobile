@@ -37,13 +37,19 @@ class AudioDictationManager(private val apiClient: ApiClient) {
     private val _isDictating = MutableStateFlow(false)
     val isDictating: StateFlow<Boolean> = _isDictating.asStateFlow()
 
+    private var committedText: String = ""
+    private var currentInterim: String = ""
+
     @SuppressLint("MissingPermission")
     fun start(
         cascadeId: String,
+        initialText: String = "",
         onTranscriptUpdate: (String) -> Unit,
         onError: (String) -> Unit
     ) {
         if (_isDictating.value) return
+        committedText = initialText.trim()
+        currentInterim = ""
         val base = apiClient.currentBaseUrl ?: run {
             onError("未配置网关地址")
             return
@@ -95,8 +101,18 @@ class AudioDictationManager(private val apiClient: ApiClient) {
                         .ifBlank { obj.optString("transcript") }
                         .ifBlank { obj.optJSONObject("transcription")?.optString("text").orEmpty() }
                         .ifBlank { obj.optJSONObject("update")?.optString("text").orEmpty() }
+                    val isFinal = obj.optBoolean("isFinal", false) ||
+                        obj.optJSONObject("transcription")?.optBoolean("isFinal", false) ?: false
                     if (t.isNotBlank()) {
-                        onTranscriptUpdate(t)
+                        if (isFinal) {
+                            committedText = joinText(committedText, t)
+                            currentInterim = ""
+                            onTranscriptUpdate(committedText)
+                        } else {
+                            currentInterim = t
+                            val merged = joinText(committedText, currentInterim)
+                            onTranscriptUpdate(merged)
+                        }
                     }
                 } catch (_: Exception) {}
             }
@@ -146,6 +162,22 @@ class AudioDictationManager(private val apiClient: ApiClient) {
             webSocket?.close(1000, "done")
         } catch (_: Exception) {}
         webSocket = null
+    }
+
+    private fun joinText(base: String, append: String): String {
+        val b = base.trim()
+        val a = append.trim()
+        if (b.isEmpty()) return a
+        if (a.isEmpty()) return b
+        if (base.endsWith(" ") || base.endsWith("\n") || append.startsWith(" ")) return "$base$append"
+        val lastB = b.last()
+        val firstA = a.first()
+        return if (isCJK(lastB) || isCJK(firstA)) "$b$a" else "$b $a"
+    }
+
+    private fun isCJK(c: Char): Boolean {
+        val code = c.code
+        return (code in 0x4E00..0x9FFF) || (code in 0x3400..0x4DBF) || (code in 0x3000..0x303F) || (code in 0xFF00..0xFFEF)
     }
 }
 
