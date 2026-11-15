@@ -410,6 +410,9 @@ function initApp() {
   renderRoute();
   initQuotaModule();
   initMarkdownViewer();
+  if (window.Phase3 && typeof window.Phase3.init === "function") {
+    window.Phase3.init();
+  }
 
   // Handle PWA shortcut action query params e.g. /?action=new (reuses urlParams declared above)
   if (urlParams.get("action") === "new") {

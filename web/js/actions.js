@@ -9,7 +9,8 @@ async function sendMessage() {
   const text = inputEl.value.trim();
   const hasImages = pendingImages.length > 0;
   const slashSelected = getSelectedSlashCommand();
-  if (!text && !hasImages && !slashSelected) return;
+  const hasContextItems = !!(window.Phase3?.contextItems?.length);
+  if (!text && !hasImages && !slashSelected && !hasContextItems) return;
 
   if (!activeCascadeId && activeDraftSession) {
     isSendingMessage = true;
@@ -21,7 +22,8 @@ async function sendMessage() {
     renderImagePreviews();
 
     const sentSlash = slashSelected;
-    const needsSeparateMessage = imagesToSend.length > 0 || !!sentSlash;
+    const ctxItems = window.Phase3?.consumeContextItems?.() || [];
+    const needsSeparateMessage = imagesToSend.length > 0 || !!sentSlash || ctxItems.length > 0;
     const items = needsSeparateMessage ? buildSendItems(text) : null;
     if (sentSlash) {
       clearSelectedSlash();
@@ -70,6 +72,9 @@ async function sendMessage() {
           model: activeModel || undefined,
           items: items || []
         };
+        if (ctxItems.length > 0) {
+          sendPayload.contextItems = ctxItems;
+        }
         if (mediaPayload.length > 0) {
           sendPayload.media = mediaPayload;
         }
@@ -140,6 +145,7 @@ async function sendMessage() {
   updateContinueButton(false);
 
   const items = buildSendItems(text);
+  const ctxItems = window.Phase3?.consumeContextItems?.() || [];
   const displayText = slashDisplayText(text);
   const sentSlash = slashSelected;
   clearSelectedSlash();
@@ -161,6 +167,9 @@ async function sendMessage() {
         items: items,
         deliveryStrategy: 2 // WHEN_IDLE
       };
+      if (ctxItems.length > 0) {
+        payload.contextItems = ctxItems;
+      }
       if (mediaPayload.length > 0) {
         payload.media = mediaPayload;
       }
@@ -211,6 +220,9 @@ async function sendMessage() {
       model: activeModel,
       items: items
     };
+    if (ctxItems.length > 0) {
+      payload.contextItems = ctxItems;
+    }
     if (mediaPayload.length > 0) {
       payload.media = mediaPayload;
     }
@@ -757,6 +769,7 @@ function renderNewProjectsList(projects) {
           <div class="project-card-info">
             <div class="project-card-title-row">
               <span class="project-card-title">${escapeHtml(p.name)}</span>
+              ${window.Phase3?.workspaceNotes?.[p.uri || p.path] ? `<span class="p3-ws-note-badge">${escapeHtml(window.Phase3.workspaceNotes[p.uri || p.path])}</span>` : ""}
               ${countBadge}
             </div>
             <span class="project-card-subtitle monospaced">${escapeHtml(p.path)}</span>

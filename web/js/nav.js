@@ -66,9 +66,16 @@ function renderRoute() {
     // Nav Bar configuration for Chat View
     if (settingsBtn) settingsBtn.classList.add("hidden");
     if (newBtn) newBtn.classList.add("hidden");
+    document.getElementById("btn-chat-tools")?.classList.remove("hidden");
     if (backBtn) backBtn.classList.remove("hidden");
     if (brandHeader) brandHeader.classList.add("hidden");
     if (inlineTitle) inlineTitle.classList.remove("hidden");
+    if (changed && window.Phase3) {
+      Phase3.contextItems = [];
+      Phase3.suggestedResponses = [];
+      Phase3.renderContextChips?.();
+      Phase3.renderSuggestedResponses?.();
+    }
 
     // Title resolution
     const summary = currentTrajectories[activeCascadeId];
@@ -152,9 +159,16 @@ function renderRoute() {
 
     if (settingsBtn) settingsBtn.classList.add("hidden");
     if (newBtn) newBtn.classList.add("hidden");
+    document.getElementById("btn-chat-tools")?.classList.remove("hidden");
     if (backBtn) backBtn.classList.remove("hidden");
     if (brandHeader) brandHeader.classList.add("hidden");
     if (inlineTitle) inlineTitle.classList.remove("hidden");
+    if (window.Phase3) {
+      Phase3.contextItems = [];
+      Phase3.suggestedResponses = [];
+      Phase3.renderContextChips?.();
+      Phase3.renderSuggestedResponses?.();
+    }
 
     if (titleText) titleText.textContent = activeDraftSession.isPure ? "新对话" : activeDraftSession.name;
     if (wsText) wsText.textContent = activeDraftSession.isPure ? "Chat" : `📁 ${activeDraftSession.name}`;
@@ -216,9 +230,16 @@ function renderRoute() {
     // Nav Bar configuration for List View
     if (settingsBtn) settingsBtn.classList.remove("hidden");
     if (newBtn) newBtn.classList.remove("hidden");
+    document.getElementById("btn-chat-tools")?.classList.add("hidden");
     if (backBtn) backBtn.classList.add("hidden");
     if (brandHeader) brandHeader.classList.remove("hidden");
     if (inlineTitle) inlineTitle.classList.add("hidden");
+    if (window.Phase3) {
+      Phase3.contextItems = [];
+      Phase3.suggestedResponses = [];
+      Phase3.renderContextChips?.();
+      Phase3.renderSuggestedResponses?.();
+    }
 
     loadConversations();
     startListEvents();

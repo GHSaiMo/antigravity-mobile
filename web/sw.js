@@ -1,4 +1,4 @@
-const CACHE_NAME = "antigravity-mobile-v62";
+const CACHE_NAME = "antigravity-mobile-v63";
 const ASSETS = [
   "/",
   "/index.html",
@@ -20,6 +20,7 @@ const ASSETS = [
   "/js/subagents.js",
   "/js/swarm.js",
   "/js/egg.js",
+  "/js/phase3.js",
   "/js/vendor/jsQR.js",
   "/mermaid.min.js",
   "/manifest.json",

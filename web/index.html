@@ -64,6 +64,13 @@
             <line x1="5" y1="12" x2="19" y2="12"></line>
           </svg>
         </button>
+        <!-- In Chat View: Single Tools & Tasks Button (tap: 5-tab board, long-press/context: permissions) -->
+        <button id="btn-chat-tools" class="nav-btn nav-action-btn hidden p3-tools-nav-btn" aria-label="工具与任务" title="工具与任务（长按切换权限）" type="button">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path>
+          </svg>
+          <span id="btn-tools-perm-dot" class="p3-amber-dot hidden" aria-hidden="true"></span>
+        </button>
       </div>
     </header>
 
@@ -326,6 +333,10 @@
             </button>
           </div>
 
+          <!-- Phase 3: Suggested Responses Strip (auto-hidden on input focus) & @ Context Chips -->
+          <div id="suggested-responses-bar" class="p3-suggest-bar hidden"></div>
+          <div id="context-chips-bar" class="p3-context-chips-bar hidden"></div>
+
           <!-- Image Attachment Previews Container -->
           <div id="image-previews-bar" class="image-previews-bar hidden"></div>
 
@@ -369,7 +380,7 @@
       <div class="ios-sheet-card">
         <div class="sheet-grabber"></div>
         <div class="sheet-header">
-          <div style="width: 48px;"></div>
+          <button id="btn-clone-repo" class="sheet-header-btn" type="button" title="克隆 GitHub 仓库">Clone</button>
           <h2 class="sheet-title">新建会话</h2>
           <button id="btn-sheet-new-close" class="sheet-header-btn primary" type="button">完成</button>
         </div>
@@ -456,6 +467,24 @@
                 <option value="comfortable">舒适 (大字号)</option>
               </select>
             </div>
+            <div class="ios-cell between">
+              <div class="cell-label-stack">
+                <span class="cell-label">Agent 执行权限预设</span>
+                <span class="cell-subtitle">与聊天右上角长按菜单同步</span>
+              </div>
+              <select id="settings-permission-preset" class="settings-select" aria-label="Agent 执行权限预设">
+                <option value="strict">严格审批</option>
+                <option value="sandbox">离席沙箱放行</option>
+                <option value="auto">全自动 (Turbo)</option>
+              </select>
+            </div>
+            <label class="ios-cell between" for="settings-legacy-voice-longpress">
+              <div class="cell-label-stack">
+                <span class="cell-label">关闭长按流式听写</span>
+                <span class="cell-subtitle">保留右侧按钮仅用于语音通话</span>
+              </div>
+              <input type="checkbox" id="settings-legacy-voice-longpress" class="ios-switch-input" />
+            </label>
           </div>
 
           <!-- 常用模型：两个槽位均可在全部模型与全部思考强度中任选；新会话首选常用模型 1，单击胶囊快切 -->
@@ -897,22 +926,23 @@
   </div>
 
   <script defer src="/js/core.js?v=40"></script>
-  <script defer src="/js/nav.js?v=44"></script>
-  <script defer src="/js/chat.js?v=41"></script>
-  <script defer src="/js/actions.js?v=34"></script>
+  <script defer src="/js/nav.js?v=45"></script>
+  <script defer src="/js/chat.js?v=42"></script>
+  <script defer src="/js/actions.js?v=35"></script>
   <script defer src="/js/media.js?v=34"></script>
   <script defer src="/js/cockpit.js?v=32"></script>
   <script defer src="/js/scan.js?v=2"></script>
-  <script defer src="/js/msgmenu.js?v=3"></script>
+  <script defer src="/js/msgmenu.js?v=4"></script>
   <script defer src="/js/slash.js?v=2"></script>
   <script defer src="/js/workflows.js?v=2"></script>
   <script defer src="/js/changes.js?v=1"></script>
-  <script defer src="/js/git.js?v=2"></script>
+  <script defer src="/js/git.js?v=3"></script>
   <script defer src="/js/models.js?v=1"></script>
-  <script defer src="/js/subagents.js?v=3"></script>
+  <script defer src="/js/subagents.js?v=4"></script>
   <script defer src="/js/swarm.js?v=2"></script>
   <script defer src="/js/egg.js?v=1"></script>
+  <script defer src="/js/phase3.js?v=1"></script>
   <!-- init.js 必须最后加载：它在执行时就会调用 initApp()，依赖前面所有脚本里的函数 -->
-  <script defer src="/js/init.js?v=41"></script>
+  <script defer src="/js/init.js?v=42"></script>
 </body>
 </html>
