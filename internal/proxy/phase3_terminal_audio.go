@@ -9,10 +9,12 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -560,6 +562,72 @@ func (p *Proxy) HandleAudioDictate(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func parseNarrationRate(rawReq interface{}) (multiplier float64, wpm int) {
+	switch v := rawReq.(type) {
+	case float64:
+		multiplier = v
+	case int:
+		multiplier = float64(v)
+	case int64:
+		multiplier = float64(v)
+	case string:
+		clean := strings.TrimSuffix(strings.TrimSuffix(strings.TrimSpace(v), "x"), "X")
+		if parsed, err := strconv.ParseFloat(clean, 64); err == nil {
+			multiplier = parsed
+		}
+	case json.Number:
+		if parsed, err := v.Float64(); err == nil {
+			multiplier = parsed
+		}
+	}
+
+	if multiplier <= 0 {
+		rawEnv := strings.TrimSpace(os.Getenv("MGY_NARRATION_RATE"))
+		if rawEnv == "" {
+			rawEnv = strings.TrimSpace(os.Getenv("MGY_NARRATION_SPEED"))
+		}
+		if rawEnv == "" {
+			rawEnv = strings.TrimSpace(os.Getenv("MULTIGRAVITY_NARRATION_RATE"))
+		}
+		if rawEnv != "" {
+			clean := strings.TrimSuffix(strings.TrimSuffix(rawEnv, "x"), "X")
+			if parsed, err := strconv.ParseFloat(clean, 64); err == nil {
+				multiplier = parsed
+			}
+		}
+	}
+
+	if multiplier <= 0 {
+		return 1.0, 0
+	}
+
+	if multiplier > 20 {
+		// Treat as direct WPM (words per minute), e.g. 300
+		wpm = int(math.Round(multiplier))
+		multiplier = float64(wpm) / 150.0
+		if wpm < 50 {
+			wpm = 50
+		} else if wpm > 600 {
+			wpm = 600
+		}
+		return multiplier, wpm
+	}
+
+	if math.Abs(multiplier-1.0) < 0.05 {
+		return 1.0, 0
+	}
+
+	// For standard Chinese voices on macOS, 150 WPM is approx 1.0x.
+	// 2.0x -> 300 WPM, 1.5x -> 225 WPM.
+	wpm = int(math.Round(150.0 * multiplier))
+	if wpm < 50 {
+		wpm = 50
+	} else if wpm > 600 {
+		wpm = 600
+	}
+	return multiplier, wpm
+}
+
 // HandleNarration synthesizes speech for an Agent bubble via StartNarration, falling back to local TTS when unavailable.
 func (p *Proxy) HandleNarration(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -567,8 +635,9 @@ func (p *Proxy) HandleNarration(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Text  string `json:"text"`
-		Voice string `json:"voice"`
+		Text  string      `json:"text"`
+		Voice string      `json:"voice"`
+		Rate  interface{} `json:"rate"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 512*1024)).Decode(&req); err != nil {
 		writeRPCError(w, http.StatusBadRequest, "无效的请求体")
@@ -584,6 +653,16 @@ func (p *Proxy) HandleNarration(w http.ResponseWriter, r *http.Request) {
 		text = string(runes[:4000])
 	}
 
+	voice := strings.TrimSpace(req.Voice)
+	if voice == "" {
+		if v := strings.TrimSpace(os.Getenv("MGY_NARRATION_VOICE")); v != "" {
+			voice = v
+		} else if v := strings.TrimSpace(os.Getenv("MULTIGRAVITY_NARRATION_VOICE")); v != "" {
+			voice = v
+		}
+	}
+	multiplier, wpm := parseNarrationRate(req.Rate)
+
 	// 1. Try upstream Antigravity StartNarration -> SendNarrationTurn -> EndNarration.
 	if audioBytes, mimeType := p.tryUpstreamNarration(r.Context(), text); len(audioBytes) > 0 {
 		w.Header().Set("Content-Type", firstNonEmpty(mimeType, "audio/mpeg"))
@@ -598,13 +677,38 @@ func (p *Proxy) HandleNarration(w http.ResponseWriter, r *http.Request) {
 		tmpFile := filepath.Join(os.TempDir(), fmt.Sprintf("mgy-narr-%d.m4a", time.Now().UnixNano()))
 		defer os.Remove(tmpFile)
 		sayCtx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
-		cmd := exec.CommandContext(sayCtx, "say", "-o", tmpFile, "--data-format=aac", text)
+		sayArgs := []string{"-o", tmpFile, "--data-format=aac"}
+		if voice != "" {
+			sayArgs = append(sayArgs, "-v", voice)
+		}
+		if wpm > 0 {
+			sayArgs = append(sayArgs, "-r", strconv.Itoa(wpm))
+		}
+		sayArgs = append(sayArgs, text)
+		cmd := exec.CommandContext(sayCtx, "say", sayArgs...)
 		runErr := cmd.Run()
 		cancel()
+		if runErr != nil && (voice != "" || wpm > 0) {
+			// Retry without voice or rate flag in case the specified voice/rate is unavailable
+			retryCtx, retryCancel := context.WithTimeout(r.Context(), 20*time.Second)
+			retryCmd := exec.CommandContext(retryCtx, "say", "-o", tmpFile, "--data-format=aac", text)
+			runErr = retryCmd.Run()
+			retryCancel()
+			if runErr == nil {
+				voice = ""
+				multiplier = 1.0
+			}
+		}
 		if runErr == nil {
 			if data, readErr := os.ReadFile(tmpFile); readErr == nil && len(data) > 0 {
 				w.Header().Set("Content-Type", "audio/mp4")
 				w.Header().Set("X-Narration-Source", "macos-say")
+				if voice != "" {
+					w.Header().Set("X-Narration-Voice", voice)
+				}
+				if multiplier > 0 {
+					w.Header().Set("X-Narration-Rate", fmt.Sprintf("%.2f", multiplier))
+				}
 				w.WriteHeader(http.StatusOK)
 				_, _ = w.Write(data)
 				return

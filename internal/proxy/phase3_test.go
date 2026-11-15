@@ -647,3 +647,53 @@ func TestHandleAudioDictate_Normalization(t *testing.T) {
 	_ = conn.WriteMessage(websocket.BinaryMessage, make([]byte, 3200))
 	_ = conn.WriteJSON(map[string]interface{}{"type": "end"})
 }
+
+func TestHandleNarration_VoiceSelection(t *testing.T) {
+	p := &Proxy{}
+
+	// Test 1: Empty text returns 400
+	req := httptest.NewRequest(http.MethodPost, "/gateway/narration", bytes.NewBufferString(`{"text":""}`))
+	w := httptest.NewRecorder()
+	p.HandleNarration(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for empty text, got %d", w.Code)
+	}
+
+	// Test 2: If say exists (e.g. macOS), test narration fallback with voice
+	if _, err := exec.LookPath("say"); err != nil {
+		t.Skip("say command not available on this platform")
+	}
+
+	t.Setenv("MGY_NARRATION_VOICE", "Yue")
+	t.Setenv("MGY_NARRATION_RATE", "2.0")
+	req = httptest.NewRequest(http.MethodPost, "/gateway/narration", bytes.NewBufferString(`{"text":"测试语音播报"}`))
+	w = httptest.NewRecorder()
+	p.HandleNarration(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if src := w.Header().Get("X-Narration-Source"); src != "macos-say" {
+		t.Errorf("expected X-Narration-Source=macos-say, got %s", src)
+	}
+	if voice := w.Header().Get("X-Narration-Voice"); voice != "Yue" {
+		t.Errorf("expected X-Narration-Voice=Yue, got %s", voice)
+	}
+	if rate := w.Header().Get("X-Narration-Rate"); rate != "2.00" {
+		t.Errorf("expected X-Narration-Rate=2.00, got %s", rate)
+	}
+	if w.Body.Len() == 0 {
+		t.Fatalf("expected non-empty audio body")
+	}
+
+	// Test 3: Explicit rate in request body overrides env
+	req = httptest.NewRequest(http.MethodPost, "/gateway/narration", bytes.NewBufferString(`{"text":"测试语音播报","rate":1.5}`))
+	w = httptest.NewRecorder()
+	p.HandleNarration(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if rate := w.Header().Get("X-Narration-Rate"); rate != "1.50" {
+		t.Errorf("expected X-Narration-Rate=1.50, got %s", rate)
+	}
+}
+
