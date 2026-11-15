@@ -511,8 +511,48 @@ function replaceBareOperatorLimits(str) {
   });
 }
 
+function formatMatrixAndCasesEnvs(str) {
+  if (!str || !str.includes("\\begin{")) return str;
+  str = str.replace(/\\begin\{cases\}([\s\S]*?)\\end\{cases\}/g, (_, body) => {
+    const rows = body.split(/\n|\\\\/).map(r => r.trim()).filter(Boolean).map(r =>
+      r.replace(/\\&/g, "\uE001").replace(/&/g, "   ").replace(/\uE001/g, "&").trim()
+    );
+    if (rows.length === 0) return "";
+    if (rows.length === 1) return `{ ${rows[0]}`;
+    return rows.map((r, idx) => {
+      if (idx === 0) return `⎧ ${r}`;
+      if (idx === rows.length - 1) return `⎩ ${r}`;
+      return `⎨ ${r}`;
+    }).join("\n");
+  });
+
+  const bracketPairs = {
+    pmatrix: { single: ["(", ")"], top: ["⎛", "⎞"], mid: ["⎜", "⎟"], bot: ["⎝", "⎠"] },
+    bmatrix: { single: ["[", "]"], top: ["⎡", "⎤"], mid: ["⎢", "⎥"], bot: ["⎣", "⎦"] },
+    Bmatrix: { single: ["{", "}"], top: ["⎧", "⎫"], mid: ["⎨", "⎬"], bot: ["⎩", "⎭"] },
+    vmatrix: { single: ["|", "|"], top: ["|", "|"], mid: ["|", "|"], bot: ["|", "|"] },
+    Vmatrix: { single: ["‖", "‖"], top: ["‖", "‖"], mid: ["‖", "‖"], bot: ["‖", "‖"] },
+    matrix:  { single: ["", ""],   top: ["", ""],   mid: ["", ""],   bot: ["", ""] },
+  };
+  return str.replace(/\\begin\{(pmatrix|bmatrix|Bmatrix|vmatrix|Vmatrix|matrix)\}([\s\S]*?)\\end\{\1\}/g, (_, kind, body) => {
+    const br = bracketPairs[kind] || bracketPairs.bmatrix;
+    const rows = body.split(/\n|\\\\/).map(r => r.trim()).filter(Boolean).map(r =>
+      r.replace(/\\&/g, "\uE001").split("&").map(c => c.replace(/\uE001/g, "&").trim()).join("   ")
+    );
+    if (rows.length === 0) return "";
+    if (rows.length === 1) {
+      return br.single[0] ? `${br.single[0]} ${rows[0]} ${br.single[1]}` : rows[0];
+    }
+    return rows.map((r, idx) => {
+      const pair = idx === 0 ? br.top : (idx === rows.length - 1 ? br.bot : br.mid);
+      return pair[0] ? `${pair[0]} ${r} ${pair[1]}` : r;
+    }).join("\n");
+  });
+}
+
 function cleanMathExpr(str) {
   if (!str) return "";
+  str = formatMatrixAndCasesEnvs(str);
   str = str.replace(/\\\\/g, "\n");
   str = unwrapTextAndFontCommands(str);
   str = replaceUnderOverBraces(str);
@@ -1477,8 +1517,205 @@ function resolveLanguageInfo(lang) {
   return { displayName: clean.toUpperCase(), color: "#9da5b4", glyph: "" };
 }
 
+// ---------------------------------------------------------------------------
+// Zero-Dependency Offline Code Syntax Highlighter (LRU Cached)
+// ---------------------------------------------------------------------------
+const CODE_HIGHLIGHT_CACHE = new Map();
+const MAX_CODE_HIGHLIGHT_CACHE = 160;
+
+const COMMON_CODE_KEYWORDS = new Set([
+  "func", "package", "import", "return", "defer", "go", "select", "chan", "map", "range", "fallthrough",
+  "type", "struct", "interface", "const", "var", "let", "val", "fun", "class", "object", "companion",
+  "data", "sealed", "open", "override", "suspend", "inline", "reified", "internal", "private", "public",
+  "protected", "static", "final", "abstract", "enum", "protocol", "extension", "actor", "nonisolated",
+  "init", "deinit", "subscript", "guard", "where", "associatedtype", "inout", "mutating", "throws", "rethrows",
+  "async", "await", "try", "catch", "finally", "throw", "new", "delete", "typeof", "instanceof", "void",
+  "yield", "export", "default", "from", "as", "of", "in", "if", "else", "elif", "switch", "case", "when",
+  "for", "while", "do", "break", "continue", "match", "fn", "pub", "impl", "trait", "mod", "use", "crate",
+  "mut", "ref", "move", "unsafe", "extern", "dyn", "def", "lambda", "pass", "raise", "with", "global",
+  "nonlocal", "assert", "del", "is", "not", "and", "or", "then", "fi", "esac", "done", "local", "readonly",
+  "select", "insert", "update", "into", "values", "create", "table", "index", "alter", "drop", "join",
+  "left", "right", "inner", "outer", "on", "group", "order", "by", "having", "limit", "offset", "distinct",
+  "union", "all", "exists", "between", "like", "null", "nil", "None", "true", "false", "True", "False",
+  "self", "Self", "this", "super", "iota"
+]);
+
+const COMMON_CODE_TYPES = new Set([
+  "string", "String", "int", "int8", "int16", "int32", "int64", "uint", "uint8", "uint16", "uint32", "uint64",
+  "uintptr", "byte", "rune", "float32", "float64", "complex64", "complex128", "bool", "Boolean", "error", "any",
+  "Int", "Int64", "UInt", "UInt64", "Double", "Float", "CGFloat", "Bool", "Data", "Date", "URL", "UUID",
+  "Array", "Dictionary", "Set", "Optional", "Result", "Task", "View", " some", "Any", "AnyObject", "Void",
+  "Long", "Short", "Byte", "Char", "Unit", "Nothing", "List", "Map", "MutableList", "MutableMap", "Flow",
+  "StateFlow", "SharedFlow", "i8", "i16", "i32", "i64", "i128", "isize", "u8", "u16", "u32", "u64", "u128",
+  "usize", "f32", "f64", "str", "Vec", "Box", "Rc", "Arc", "Option", "Promise", "Record", "Partial", "Readonly",
+  "number", "boolean", "symbol", "bigint", "never", "unknown", "dict", "list", "tuple", "set", "bytes"
+]);
+
+const CODE_TOKEN_RE = new RegExp([
+  "(\\/\\*[\\s\\S]*?\\*\\/)",                                         // 1: block comment
+  "(\\/\\/[^\\n]*)",                                                  // 2: // line comment
+  "(#(?!!\\[)[^\\n]*)",                                               // 3: # comment / directive
+  "(--[^\\n]*)",                                                      // 4: SQL/Lua -- comment
+  "(\"\"\"[\\s\\S]*?\"\"\"|'''[\\s\\S]*?'''|`(?:\\\\[\\s\\S]|[^`])*`)", // 5: multi-line / template string
+  "(\"(?:\\\\.|[^\"\\\\\\n])*\"|'(?:\\\\.|[^'\\\\\\n])*')",           // 6: single-line string
+  "(@[A-Za-z_][A-Za-z0-9_]*|#\\[[A-Za-z0-9_:,\\s()=]+\\])",           // 7: decorator / attribute
+  "\\b(0[xX][0-9a-fA-F_]+|0[bB][01_]+|0[oO][0-7_]+|\\d[0-9_]*(?:\\.[0-9_]+)?(?:[eE][+-]?\\d+)?)\\b", // 8: number
+  "\\b([A-Za-z_$][A-Za-z0-9_$]*)\\b(\\s*\\()?"                        // 9: identifier, 10: call paren
+].join("|"), "g");
+
+function wrapTok(cls, text) {
+  return `<span class="${cls}">${escapeHtml(text)}</span>`;
+}
+
+function highlightCodeHtml(rawCode, langClean) {
+  if (!rawCode) return "";
+  if (rawCode.length > 60000) return escapeHtml(rawCode);
+
+  const lang = String(langClean || "").trim().toLowerCase();
+  const cacheKey = `${lang}\u0000${rawCode}`;
+  const cached = CODE_HIGHLIGHT_CACHE.get(cacheKey);
+  if (cached !== undefined) {
+    CODE_HIGHLIGHT_CACHE.delete(cacheKey);
+    CODE_HIGHLIGHT_CACHE.set(cacheKey, cached);
+    return cached;
+  }
+
+  let html = "";
+  if (lang === "text" || lang === "plaintext" || lang === "txt" || lang === "ascii") {
+    html = escapeHtml(rawCode);
+  } else if (lang === "diff" || lang === "patch") {
+    html = rawCode.split("\n").map((ln) => {
+      if (ln.startsWith("+++") || ln.startsWith("---") || ln.startsWith("diff ") || ln.startsWith("index ")) {
+        return wrapTok("tok-meta", ln);
+      }
+      if (ln.startsWith("@@")) return wrapTok("tok-fn", ln);
+      if (ln.startsWith("+")) return wrapTok("tok-diff-add", ln);
+      if (ln.startsWith("-")) return wrapTok("tok-diff-del", ln);
+      return escapeHtml(ln);
+    }).join("\n");
+  } else if (lang === "json" || lang === "jsonc" || lang === "jsonl") {
+    const jsonRe = /(\/\/[^\n]*|\/\*[\s\S]*?\*\/)|("(?:\\.|[^"\\\n])*")(\s*:)?|\b(true|false|null)\b|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)/g;
+    let last = 0;
+    let m;
+    while ((m = jsonRe.exec(rawCode)) !== null) {
+      if (m.index > last) html += escapeHtml(rawCode.slice(last, m.index));
+      if (m[1]) {
+        html += wrapTok("tok-cmt", m[1]);
+      } else if (m[2]) {
+        html += m[3] ? wrapTok("tok-attr", m[2]) + escapeHtml(m[3]) : wrapTok("tok-str", m[2]);
+      } else if (m[4]) {
+        html += wrapTok("tok-kw", m[4]);
+      } else if (m[5]) {
+        html += wrapTok("tok-num", m[5]);
+      }
+      last = jsonRe.lastIndex;
+    }
+    if (last < rawCode.length) html += escapeHtml(rawCode.slice(last));
+  } else if (lang === "html" || lang === "xml" || lang === "svg" || lang === "vue") {
+    const xmlRe = /(<!--[\s\S]*?-->)|(<\/?[A-Za-z0-9:_-]+)|(\/?>)|([A-Za-z_:][A-Za-z0-9_.:-]*)(\s*=)|("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')/g;
+    let last = 0;
+    let m;
+    while ((m = xmlRe.exec(rawCode)) !== null) {
+      if (m.index > last) html += escapeHtml(rawCode.slice(last, m.index));
+      if (m[1]) html += wrapTok("tok-cmt", m[1]);
+      else if (m[2]) html += wrapTok("tok-kw", m[2]);
+      else if (m[3]) html += wrapTok("tok-kw", m[3]);
+      else if (m[4]) html += wrapTok("tok-attr", m[4]) + escapeHtml(m[5]);
+      else if (m[6]) html += wrapTok("tok-str", m[6]);
+      last = xmlRe.lastIndex;
+    }
+    if (last < rawCode.length) html += escapeHtml(rawCode.slice(last));
+  } else if (lang === "yaml" || lang === "yml" || lang === "toml" || lang === "ini" || lang === "env") {
+    html = rawCode.split("\n").map((ln) => {
+      if (/^\s*#/.test(ln)) return wrapTok("tok-cmt", ln);
+      const kv = ln.match(/^(\s*-?\s*)([A-Za-z0-9_.-]+)(\s*[:=]\s*)(.*)$/);
+      if (!kv) return escapeHtml(ln);
+      const [, prefix, key, sep, rest] = kv;
+      let valHtml = escapeHtml(rest);
+      if (/^("(?:\\.|[^"])*"|'(?:\\.|[^'])*')$/.test(rest.trim())) {
+        valHtml = wrapTok("tok-str", rest);
+      } else if (/^(true|false|null|yes|no|~)$/i.test(rest.trim())) {
+        valHtml = wrapTok("tok-kw", rest);
+      } else if (/^-?\d+(\.\d+)?$/.test(rest.trim())) {
+        valHtml = wrapTok("tok-num", rest);
+      }
+      return escapeHtml(prefix) + wrapTok("tok-attr", key) + escapeHtml(sep) + valHtml;
+    }).join("\n");
+  } else {
+    const usesHashComments = !["c", "cpp", "c++", "cc", "h", "hpp", "objc", "rust", "rs", "css", "scss", "less", "go", "java", "kotlin", "kt", "kts", "swift", "js", "javascript", "ts", "typescript", "jsx", "tsx", "sql"].includes(lang);
+    const usesDashComments = lang === "sql" || lang === "lua" || lang === "haskell";
+    const isCLikePreproc = lang === "c" || lang === "cpp" || lang === "c++" || lang === "cc" || lang === "h" || lang === "hpp" || lang === "objc";
+    CODE_TOKEN_RE.lastIndex = 0;
+    let last = 0;
+    let m;
+    while ((m = CODE_TOKEN_RE.exec(rawCode)) !== null) {
+      if (m.index > last) html += escapeHtml(rawCode.slice(last, m.index));
+      if (m[1] || m[2]) {
+        html += wrapTok("tok-cmt", m[0]);
+      } else if (m[3]) {
+        if (usesHashComments) html += wrapTok("tok-cmt", m[3]);
+        else if (isCLikePreproc) html += wrapTok("tok-meta", m[3]);
+        else html += escapeHtml(m[3]);
+      } else if (m[4]) {
+        html += usesDashComments ? wrapTok("tok-cmt", m[4]) : escapeHtml(m[4]);
+      } else if (m[5] || m[6]) {
+        html += wrapTok("tok-str", m[0]);
+      } else if (m[7]) {
+        html += wrapTok("tok-meta", m[7]);
+      } else if (m[8]) {
+        html += wrapTok("tok-num", m[8]);
+      } else if (m[9]) {
+        const word = m[9];
+        const callSuffix = m[10] || "";
+        if (COMMON_CODE_KEYWORDS.has(word) || (lang === "sql" && COMMON_CODE_KEYWORDS.has(word.toLowerCase()))) {
+          html += wrapTok("tok-kw", word) + escapeHtml(callSuffix);
+        } else if (COMMON_CODE_TYPES.has(word) || (/^[A-Z][A-Za-z0-9_]*$/.test(word) && !callSuffix && word !== word.toUpperCase())) {
+          html += wrapTok("tok-type", word) + escapeHtml(callSuffix);
+        } else if (callSuffix) {
+          html += wrapTok("tok-fn", word) + escapeHtml(callSuffix);
+        } else {
+          html += escapeHtml(m[0]);
+        }
+      } else {
+        html += escapeHtml(m[0]);
+      }
+      last = CODE_TOKEN_RE.lastIndex;
+    }
+    if (last < rawCode.length) html += escapeHtml(rawCode.slice(last));
+  }
+
+  if (CODE_HIGHLIGHT_CACHE.size >= MAX_CODE_HIGHLIGHT_CACHE) {
+    const oldest = CODE_HIGHLIGHT_CACHE.keys().next().value;
+    if (oldest !== undefined) CODE_HIGHLIGHT_CACHE.delete(oldest);
+  }
+  CODE_HIGHLIGHT_CACHE.set(cacheKey, html);
+  return html;
+}
+
+function extractDisplayMathBlocks(md) {
+  if (!md || (!md.includes("$$") && !md.includes("\\["))) return md;
+  const fences = [];
+  let masked = md.replace(/```[\s\S]*?```|~~~[\s\S]*?~~~/g, (m) => {
+    fences.push(m);
+    return `XXAGYMATHFENCE${fences.length - 1}XX`;
+  });
+  masked = masked.replace(/(?:^|\n)\s*\$\$([\s\S]+?)\$\$\s*(?=\n|$)/g, (_, inner) => {
+    const cleaned = cleanMathExpr(inner);
+    return cleaned ? `\n\n:::math-block ${encodeURIComponent(cleaned)}:::\n\n` : "";
+  });
+  masked = masked.replace(/(?:^|\n)\s*\\\[([\s\S]+?)\\\]\s*(?=\n|$)/g, (_, inner) => {
+    const cleaned = cleanMathExpr(inner);
+    return cleaned ? `\n\n:::math-block ${encodeURIComponent(cleaned)}:::\n\n` : "";
+  });
+  fences.forEach((f, idx) => {
+    masked = masked.split(`XXAGYMATHFENCE${idx}XX`).join(f);
+  });
+  return masked;
+}
+
 function renderMarkdown(md) {
   if (!md) return "";
+  md = extractDisplayMathBlocks(md);
   md = processMathSymbols(md);
 
   // Plugin card custom tag support (Antigravity 2.31+)
@@ -1552,6 +1789,17 @@ function renderMarkdown(md) {
           i = endIdx + 1;
           continue;
         }
+      }
+    }
+
+    if (trimmed.startsWith(":::math-block ")) {
+      const m = trimmed.match(/^:::math-block\s+([^:\s]+):::$/);
+      if (m && m[1]) {
+        let decoded = "";
+        try { decoded = decodeURIComponent(m[1]); } catch (_) { decoded = m[1]; }
+        blocks.push(`<div class="math-display-block">${escapeHtml(decoded)}</div>`);
+        i++;
+        continue;
       }
     }
 
@@ -1670,6 +1918,7 @@ function renderMarkdown(md) {
 
       const langInfo = resolveLanguageInfo(langClean);
       const safeLangClass = String(langClean || "").replace(/[^a-zA-Z0-9_-]/g, "");
+      const codeHighlighted = highlightCodeHtml(rawCode, langClean);
       blocks.push(`
         <div class="code-block-card">
           <div class="code-block-header">
@@ -1686,7 +1935,7 @@ function renderMarkdown(md) {
               <span>复制</span>
             </button>
           </div>
-          <pre class="code-block-pre"><code class="lang-${escapeHtml(safeLangClass)}">${codeEscaped}</code></pre>
+          <pre class="code-block-pre"><code class="lang-${escapeHtml(safeLangClass)}">${codeHighlighted}</code></pre>
         </div>
       `);
       continue;
@@ -1945,7 +2194,7 @@ window.copyCode = function(btn) {
   if (!card) return;
   const codeEl = card.querySelector("code");
   if (!codeEl) return;
-  const text = codeEl.innerText;
+  const text = codeEl.textContent || codeEl.innerText;
   navigator.clipboard.writeText(text).then(() => {
     const span = btn.querySelector("span");
     if (span) {
@@ -1965,7 +2214,7 @@ window.copyMermaidCode = function(btn) {
   if (!card) return;
   const codeEl = card.querySelector(".mermaid-code-wrap code");
   if (!codeEl) return;
-  const text = codeEl.innerText;
+  const text = codeEl.textContent || codeEl.innerText;
   navigator.clipboard.writeText(text).then(() => {
     const span = btn.querySelector("span");
     if (span) {

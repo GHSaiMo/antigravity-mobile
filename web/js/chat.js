@@ -952,6 +952,18 @@ function applyStreamDelta(ws, data) {
 }
 
 let streamWsSeq = 0;
+const streamResumeCache = new Map();
+const MAX_STREAM_RESUME_CACHE = 16;
+
+function saveStreamResumeState(cascadeId, rev, steps, messages) {
+  if (!cascadeId || typeof rev !== "number" || rev <= 0) return;
+  if (streamResumeCache.has(cascadeId)) streamResumeCache.delete(cascadeId);
+  streamResumeCache.set(cascadeId, { rev, steps, messages });
+  if (streamResumeCache.size > MAX_STREAM_RESUME_CACHE) {
+    const oldestKey = streamResumeCache.keys().next().value;
+    if (oldestKey) streamResumeCache.delete(oldestKey);
+  }
+}
 
 async function connectStreamWs(cascadeId) {
   if (activeWs && activeWs.__cascadeId === cascadeId && (activeWs.readyState === WebSocket.OPEN || activeWs.readyState === WebSocket.CONNECTING)) {
@@ -962,6 +974,10 @@ async function connectStreamWs(cascadeId) {
 
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
   let wsUrl = `${proto}//${location.host}/gateway/cascade/stream?cascadeId=${encodeURIComponent(cascadeId)}&delta=1&messages=0`;
+  const resumeState = streamResumeCache.get(cascadeId);
+  if (resumeState && resumeState.rev > 0 && (resumeState.steps || resumeState.messages)) {
+    wsUrl += `&sinceRev=${encodeURIComponent(String(resumeState.rev))}`;
+  }
   try {
     // S9 / C-1: Exchange HttpOnly session cookie for a short-lived one-time ticket
     // so no long-lived token ever appears in query strings or logs.
@@ -981,6 +997,10 @@ async function connectStreamWs(cascadeId) {
   try {
     const ws = new WebSocket(wsUrl);
     ws.__cascadeId = cascadeId;
+    if (resumeState && resumeState.rev > 0) {
+      ws.__steps = resumeState.steps || null;
+      ws.__messages = resumeState.messages || null;
+    }
     activeWs = ws;
 
     ws.onopen = () => {
@@ -998,11 +1018,22 @@ async function connectStreamWs(cascadeId) {
         const data = JSON.parse(event.data);
         if (data.cascadeId !== cascadeId) return;
 
+        if (data.type === "noop") {
+          if (typeof data.rev === "number" && data.rev > 0) {
+            saveStreamResumeState(cascadeId, data.rev, ws.__steps, ws.__messages);
+          }
+          return;
+        }
+
         if (!applyStreamDelta(ws, data)) {
-          // Baseline mismatch: drop this connection and let onclose reconnect for a fresh "init".
+          // Baseline mismatch: clear cached rev, drop this connection, and let onclose reconnect for a fresh "init".
           console.warn("[WS] Delta baseline mismatch, resyncing");
+          streamResumeCache.delete(cascadeId);
           ws.close();
           return;
+        }
+        if (typeof data.rev === "number" && data.rev > 0) {
+          saveStreamResumeState(cascadeId, data.rev, ws.__steps, ws.__messages);
         }
 
         if (data.activeModel) {
