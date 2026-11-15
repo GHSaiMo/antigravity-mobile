@@ -385,6 +385,14 @@ func (p *Proxy) HandleMemories(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if strings.EqualFold(req.Action, "delete") {
+		if raw, readErr := os.ReadFile(targetPath); readErr == nil && len(raw) > 0 && home != "" {
+			backupDir := filepath.Join(home, ".gemini", "backups", "deleted_memories")
+			if mkErr := os.MkdirAll(backupDir, 0o755); mkErr == nil {
+				stamp := time.Now().Format("20060102-150405.000")
+				backupPath := filepath.Join(backupDir, stamp+"_"+filepath.Base(targetPath))
+				_ = os.WriteFile(backupPath, raw, 0o644)
+			}
+		}
 		if err := os.Remove(targetPath); err != nil && !os.IsNotExist(err) {
 			writeRPCError(w, http.StatusInternalServerError, err.Error())
 			return

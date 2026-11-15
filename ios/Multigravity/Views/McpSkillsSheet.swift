@@ -29,12 +29,12 @@ public struct McpSkillsSheet: View {
     @State private var stoppingTaskIds: Set<String> = []
     @State private var copiedTaskId: String? = nil
 
-    // Phase 3 State (MCP toggle/refresh, Agent Memories CRUD, Automation CRUD)
+    // Phase 3 State (MCP toggle, Agent Memories CRUD, Automation CRUD)
     @State private var togglingMcpNames: Set<String> = []
-    @State private var isRefreshingMcp: Bool = false
     @State private var memories: [MemoryRuleItem] = []
     @State private var showMemoryEditor: Bool = false
     @State private var editingMemory: MemoryRuleItem? = nil
+    @State private var pendingDeleteMemory: MemoryRuleItem? = nil
     @State private var memScope: String = "memory"
     @State private var memTitle: String = ""
     @State private var memContent: String = ""
@@ -127,41 +127,6 @@ public struct McpSkillsSheet: View {
             }
             .navigationTitle("工具与任务看板")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    if selectedTab == .mcp {
-                        Button {
-                            refreshAllMcp()
-                        } label: {
-                            if isRefreshingMcp {
-                                ProgressView().scaleEffect(0.8)
-                            } else {
-                                Image(systemName: "arrow.clockwise")
-                            }
-                        }
-                        .disabled(isRefreshingMcp)
-                    } else if selectedTab == .skills {
-                        Button {
-                            editingMemory = nil
-                            memScope = "memory"
-                            memTitle = ""
-                            memContent = ""
-                            showMemoryEditor = true
-                        } label: {
-                            Label("新建记忆", systemImage: "plus")
-                        }
-                    } else if selectedTab == .automations {
-                        Button {
-                            newAutoName = ""
-                            newAutoSchedule = "0 9 * * *"
-                            newAutoPrompt = ""
-                            showCreateAutomation = true
-                        } label: {
-                            Label("新建定时任务", systemImage: "plus")
-                        }
-                    }
-                }
-            }
             .sheet(item: $viewingSkill) { skill in
                 skillDetailSheet(skill)
             }
@@ -170,6 +135,24 @@ public struct McpSkillsSheet: View {
             }
             .sheet(isPresented: $showCreateAutomation) {
                 createAutomationSheet
+            }
+            .alert(
+                "确认删除记忆条目？",
+                isPresented: Binding(
+                    get: { pendingDeleteMemory != nil },
+                    set: { if !$0 { pendingDeleteMemory = nil } }
+                ),
+                presenting: pendingDeleteMemory
+            ) { item in
+                Button("取消", role: .cancel) {
+                    pendingDeleteMemory = nil
+                }
+                Button("删除", role: .destructive) {
+                    deleteMemoryItem(item)
+                    pendingDeleteMemory = nil
+                }
+            } message: { item in
+                Text("确定要删除「\(item.title)」吗？这会同时删除电脑端对应的规则或记忆文件。")
             }
             .task {
                 await loadData()
@@ -465,7 +448,7 @@ public struct McpSkillsSheet: View {
                 .tint(.indigo)
             }
             if memories.isEmpty {
-                Text("暂无全局或记忆条目，可点击右上角添加")
+                Text("暂无全局或记忆条目，可点击「+ 添加」创建")
                     .font(.system(size: 12.5))
                     .foregroundColor(.secondary)
             } else {
@@ -492,10 +475,12 @@ public struct McpSkillsSheet: View {
                                     showMemoryEditor = true
                                 }
                                 .font(.system(size: 11.5))
+                                .buttonStyle(.borderless)
                                 Button("删除", role: .destructive) {
-                                    deleteMemoryItem(item)
+                                    pendingDeleteMemory = item
                                 }
                                 .font(.system(size: 11.5))
+                                .buttonStyle(.borderless)
                             }
                         }
                         if !item.content.isEmpty {
@@ -1480,19 +1465,6 @@ public struct McpSkillsSheet: View {
         Task {
             defer { togglingMcpNames.remove(name) }
             try? await APIClient.shared.toggleMcpServer(serverName: name, enabled: enabled, baseURL: url)
-            if let refreshed = try? await APIClient.shared.fetchMcpServerStates(baseURL: url) {
-                self.mcpServers = refreshed
-                CacheManager.shared.saveMcpServers(refreshed)
-            }
-        }
-    }
-
-    private func refreshAllMcp() {
-        guard let url = settings.gatewayURL else { return }
-        isRefreshingMcp = true
-        Task {
-            defer { isRefreshingMcp = false }
-            try? await APIClient.shared.refreshMcpServers(baseURL: url)
             if let refreshed = try? await APIClient.shared.fetchMcpServerStates(baseURL: url) {
                 self.mcpServers = refreshed
                 CacheManager.shared.saveMcpServers(refreshed)
