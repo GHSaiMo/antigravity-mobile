@@ -188,8 +188,17 @@ internal fun ChatViewModel.prepareSession(
             canProceed = cached.canProceed ?: false,
             proceedArtifactUri = cached.proceedArtifactUri,
             pendingInteraction = cached.pendingInteraction,
-            activeModel = cached.activeModel ?: favoriteModel1,
-            activeModelName = cached.activeModelName ?: _uiState.value.activeModelName,
+            activeModel = if (!isNewConversation && !isDraft) {
+                val desktop = prefs?.cachedModelCatalog?.desktopActiveModel?.takeIf { it.isNotBlank() }
+                ModelDefaults.resolveActive(desktop, cached.activeModel ?: favoriteModel1, favoriteModel1, favoriteModel2)
+            } else {
+                cached.activeModel ?: favoriteModel1
+            },
+            activeModelName = if (!isNewConversation && !isDraft && !prefs?.cachedModelCatalog?.desktopActiveModel.isNullOrBlank()) {
+                prefs?.cachedModelCatalog?.desktopActiveModelName ?: cached.activeModelName ?: _uiState.value.activeModelName
+            } else {
+                cached.activeModelName ?: _uiState.value.activeModelName
+            },
             startedAt = cached.startedAt ?: _uiState.value.startedAt,
             errorMessage = null,
             isLatestMessageError = cached.status.equals("CASCADE_RUN_STATUS_ERROR", ignoreCase = true) || cached.status.equals("ERROR", ignoreCase = true),
@@ -216,7 +225,15 @@ internal fun ChatViewModel.prepareSession(
             canProceed = false,
             proceedArtifactUri = null,
             pendingInteraction = null,
-            activeModel = favoriteModel1,
+            activeModel = if (!isNewConversation && !isDraft) {
+                val desktop = prefs?.cachedModelCatalog?.desktopActiveModel?.takeIf { it.isNotBlank() }
+                ModelDefaults.resolveActive(desktop, favoriteModel1, favoriteModel1, favoriteModel2)
+            } else {
+                favoriteModel1
+            },
+            activeModelName = if (!isNewConversation && !isDraft && !prefs?.cachedModelCatalog?.desktopActiveModel.isNullOrBlank()) {
+                prefs?.cachedModelCatalog?.desktopActiveModelName
+            } else null,
             errorMessage = null,
             isLatestMessageError = false,
             markdownViewerData = null
@@ -302,8 +319,17 @@ internal fun ChatViewModel.initSession(
                 canProceed = cached.canProceed ?: false,
                 proceedArtifactUri = cached.proceedArtifactUri,
                 pendingInteraction = cached.pendingInteraction,
-                activeModel = cached.activeModel ?: favoriteModel1,
-                activeModelName = cached.activeModelName ?: _uiState.value.activeModelName,
+                activeModel = if (!isNewConversation && !isDraft) {
+                    val desktop = prefs?.cachedModelCatalog?.desktopActiveModel?.takeIf { it.isNotBlank() }
+                    ModelDefaults.resolveActive(desktop, cached.activeModel ?: favoriteModel1, favoriteModel1, favoriteModel2)
+                } else {
+                    cached.activeModel ?: favoriteModel1
+                },
+                activeModelName = if (!isNewConversation && !isDraft && !prefs?.cachedModelCatalog?.desktopActiveModel.isNullOrBlank()) {
+                    prefs?.cachedModelCatalog?.desktopActiveModelName ?: cached.activeModelName ?: _uiState.value.activeModelName
+                } else {
+                    cached.activeModelName ?: _uiState.value.activeModelName
+                },
                 startedAt = cached.startedAt ?: _uiState.value.startedAt,
                 errorMessage = null,
                 isLatestMessageError = cached.status.equals("CASCADE_RUN_STATUS_ERROR", ignoreCase = true) || cached.status.equals("ERROR", ignoreCase = true),
@@ -330,7 +356,15 @@ internal fun ChatViewModel.initSession(
                 canProceed = false,
                 proceedArtifactUri = null,
                 pendingInteraction = null,
-                activeModel = favoriteModel1,
+                activeModel = if (!isNewConversation && !isDraft) {
+                val desktop = prefs?.cachedModelCatalog?.desktopActiveModel?.takeIf { it.isNotBlank() }
+                ModelDefaults.resolveActive(desktop, favoriteModel1, favoriteModel1, favoriteModel2)
+            } else {
+                favoriteModel1
+            },
+            activeModelName = if (!isNewConversation && !isDraft && !prefs?.cachedModelCatalog?.desktopActiveModel.isNullOrBlank()) {
+                prefs?.cachedModelCatalog?.desktopActiveModelName
+            } else null,
                 errorMessage = null,
                 isLatestMessageError = false,
                 markdownViewerData = null
@@ -421,8 +455,14 @@ internal fun ChatViewModel.initSession(
                         canProceed = payload.canProceed,
                         proceedArtifactUri = payload.proceedArtifactUri,
                         pendingInteraction = payload.pendingInteraction,
-                        activeModel = if (hasUserManuallySelectedModel) _uiState.value.activeModel else ModelDefaults.resolveActive(payload.activeModel, _uiState.value.activeModel, favoriteModel1, favoriteModel2),
-                        activeModelName = if (hasUserManuallySelectedModel) _uiState.value.activeModelName else (payload.activeModelName ?: _uiState.value.activeModelName),
+                        activeModel = if (hasUserManuallySelectedModel) _uiState.value.activeModel else {
+                            val serverModel = if (!isNewConversation && !payload.desktopActiveModel.isNullOrBlank()) payload.desktopActiveModel else payload.activeModel
+                            ModelDefaults.resolveActive(serverModel, _uiState.value.activeModel, favoriteModel1, favoriteModel2)
+                        },
+                        activeModelName = if (hasUserManuallySelectedModel) _uiState.value.activeModelName else {
+                            val serverName = if (!isNewConversation && !payload.desktopActiveModel.isNullOrBlank()) payload.desktopActiveModelName else payload.activeModelName
+                            serverName ?: _uiState.value.activeModelName
+                        },
                         startedAt = payload.startedAt ?: _uiState.value.startedAt,
                         errorMessage = if (payload.hasError && _uiState.value.messages.isEmpty()) payload.errorMessage else null,
                         isLatestMessageError = isError,
@@ -555,8 +595,14 @@ internal fun ChatViewModel.ensureWebSocketObserving() {
                     canProceed = payload.canProceed,
                     proceedArtifactUri = payload.proceedArtifactUri,
                     pendingInteraction = payload.pendingInteraction,
-                    activeModel = if (hasUserManuallySelectedModel) _uiState.value.activeModel else ModelDefaults.resolveActive(payload.activeModel, _uiState.value.activeModel, favoriteModel1, favoriteModel2),
-                    activeModelName = if (hasUserManuallySelectedModel) _uiState.value.activeModelName else (payload.activeModelName ?: _uiState.value.activeModelName),
+                    activeModel = if (hasUserManuallySelectedModel) _uiState.value.activeModel else {
+                        val serverModel = if (!_uiState.value.isNewConversation && !payload.desktopActiveModel.isNullOrBlank()) payload.desktopActiveModel else payload.activeModel
+                        ModelDefaults.resolveActive(serverModel, _uiState.value.activeModel, favoriteModel1, favoriteModel2)
+                    },
+                    activeModelName = if (hasUserManuallySelectedModel) _uiState.value.activeModelName else {
+                        val serverName = if (!_uiState.value.isNewConversation && !payload.desktopActiveModel.isNullOrBlank()) payload.desktopActiveModelName else payload.activeModelName
+                        serverName ?: _uiState.value.activeModelName
+                    },
                     startedAt = payload.startedAt ?: _uiState.value.startedAt,
                     errorMessage = if (payload.hasError) payload.errorMessage else null,
                     isLatestMessageError = isError,

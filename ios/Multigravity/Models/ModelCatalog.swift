@@ -129,13 +129,24 @@ public struct ModelsResponse: Codable, Sendable {
     public var defaults: [String: String]
     /// false 表示网关暂时取不到实时列表，返回的是内置兜底。
     public var live: Bool?
+    /// 桌面端 Antigravity 客户端当前选中的模型 id 与展示名。
+    public var desktopActiveModel: String?
+    public var desktopActiveModelName: String?
 
     public var isLive: Bool { live ?? false }
 
-    public init(models: [ModelOption], defaults: [String: String], live: Bool? = nil) {
+    public init(
+        models: [ModelOption],
+        defaults: [String: String],
+        live: Bool? = nil,
+        desktopActiveModel: String? = nil,
+        desktopActiveModelName: String? = nil
+    ) {
         self.models = models
         self.defaults = defaults
         self.live = live
+        self.desktopActiveModel = desktopActiveModel
+        self.desktopActiveModelName = desktopActiveModelName
     }
 }
 

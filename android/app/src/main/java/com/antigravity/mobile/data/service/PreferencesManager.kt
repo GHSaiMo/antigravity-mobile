@@ -283,10 +283,6 @@ class PreferencesManager(context: Context) {
         if (fav2 != favoriteModel2) favoriteModel2 = fav2
     }
 
-    var autoApprovePermissions: Boolean
-        get() = prefs.getBoolean(KEY_AUTO_APPROVE, false)
-        set(value) = prefs.edit().putBoolean(KEY_AUTO_APPROVE, value).apply()
-
     var enableLiveNotifications: Boolean
         get() = prefs.getBoolean(KEY_LIVE_NOTIFICATIONS, true)
         set(value) = prefs.edit().putBoolean(KEY_LIVE_NOTIFICATIONS, value).apply()
@@ -741,10 +737,6 @@ class PreferencesManager(context: Context) {
         }
     }
 
-    var legacyVoiceLongPress: Boolean
-        get() = prefs.getBoolean(KEY_LEGACY_VOICE_LONGPRESS, false)
-        set(value) { prefs.edit().putBoolean(KEY_LEGACY_VOICE_LONGPRESS, value).apply() }
-
     fun getWorkspaceNote(key: String): String? {
         if (key.isBlank()) return null
         return prefs.getString("$KEY_WS_NOTE_PREFIX$key", null)?.takeIf { it.isNotBlank() }
@@ -860,7 +852,6 @@ class PreferencesManager(context: Context) {
         private const val KEY_DEFAULT_CLAUDE_MODEL = "default_claude_model"
         private const val KEY_DEFAULT_ORCHESTRATOR_MODEL = "default_orchestrator_model"
         private const val KEY_DEFAULT_NEW_SESSION_PROVIDER = "default_new_session_provider"
-        private const val KEY_AUTO_APPROVE = "auto_approve_permissions"
         private const val KEY_LIVE_NOTIFICATIONS = "live_notifications"
         private const val KEY_ENABLE_VOICE_MODE = "enable_voice_mode"
         private const val KEY_WEEKLY_PACE_CURSOR = "weekly_pace_cursor"
@@ -879,7 +870,6 @@ class PreferencesManager(context: Context) {
         private const val KEY_CACHED_MODEL_CATALOG = "cached_model_catalog_json"
         private const val KEY_DELETED_CONVERSATIONS = "ag_deleted_conversations"
         private const val KEY_PINNED_CONVERSATIONS = "ag_pinned_conversations"
-        private const val KEY_LEGACY_VOICE_LONGPRESS = "p3_legacy_voice_longpress"
         private const val KEY_WS_NOTE_PREFIX = "p3_ws_note_"
     }
 }

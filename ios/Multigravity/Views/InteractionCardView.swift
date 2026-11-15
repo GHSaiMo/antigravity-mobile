@@ -83,16 +83,7 @@ public struct InteractionCardView: View {
         self.onToggleExpand = onToggleExpand
         
         let defaultFallback = (interaction.hasWriteIn == true) ? "__write_in__" : "1"
-        var initialSelectedId = defaultFallback
-        if AppSettings.shared.autoApprovePermissions && (interaction.type == "permission" || interaction.type == "file_permission") {
-            if let opt4 = interaction.options.first(where: { $0.id == "4" || $0.scope == 4 || $0.text.localizedCaseInsensitiveContains("always allow") }) {
-                initialSelectedId = opt4.id
-            } else {
-                initialSelectedId = interaction.defaultOptionId ?? interaction.options.first?.id ?? defaultFallback
-            }
-        } else {
-            initialSelectedId = interaction.defaultOptionId ?? interaction.options.first?.id ?? defaultFallback
-        }
+        let initialSelectedId = interaction.defaultOptionId ?? interaction.options.first?.id ?? defaultFallback
         _selectedOptionId = State(initialValue: initialSelectedId)
         _targetText = State(initialValue: interaction.target ?? "")
         
@@ -238,21 +229,6 @@ public struct InteractionCardView: View {
             isExpanded.toggle()
         }
         onToggleExpand?(isExpanded)
-    }
-    
-    private func toggleAutoApprove() {
-        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-        withAnimation(.easeInOut(duration: 0.2)) {
-            settings.autoApprovePermissions.toggle()
-            if settings.autoApprovePermissions {
-                let opt = interaction.options.first { opt in
-                    opt.id == "4" || opt.scope == 4 || opt.text.localizedCaseInsensitiveContains("always allow")
-                }
-                if let opt = opt {
-                    selectedOptionId = opt.id
-                }
-            }
-        }
     }
     
     private func handleSkip() {
@@ -555,27 +531,6 @@ public struct InteractionCardView: View {
     @ViewBuilder
     private var bottomActionBar: some View {
         VStack(spacing: 8) {
-            if isPermissionType {
-                HStack {
-                    Button(action: toggleAutoApprove) {
-                        HStack(spacing: 4) {
-                            Image(systemName: settings.autoApprovePermissions ? "bolt.fill" : "bolt")
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundColor(settings.autoApprovePermissions ? .yellow : .secondary)
-                            Text(settings.autoApprovePermissions ? "自动审批: 开" : "自动审批: 关")
-                                .font(.system(size: 11.5, weight: .medium))
-                                .foregroundColor(settings.autoApprovePermissions ? .primary : .secondary)
-                        }
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 5)
-                        .background(settings.autoApprovePermissions ? Color.yellow.opacity(0.15) : Color(uiColor: .tertiarySystemFill))
-                        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-                    }
-                    .buttonStyle(.plain)
-                    Spacer()
-                }
-            }
-            
             HStack(spacing: 10) {
                 Button(action: handleSkip) {
                     Text("跳过")

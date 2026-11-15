@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -595,5 +597,56 @@ func TestBuildModelTables_OrchestratorProviderAndDefaults(t *testing.T) {
 	}
 	if canonicalModelName("MODEL_PLACEHOLDER_M681") != "gemini-pro-orchestrator-argon" {
 		t.Errorf("M681 canonical = %q", canonicalModelName("MODEL_PLACEHOLDER_M681"))
+	}
+}
+
+func TestReadDesktopSelectedModel_AndHandleModels(t *testing.T) {
+	resetLiveModels(t)
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+
+	if id, name := readDesktopSelectedModel(); id != "" || name != "" {
+		t.Fatalf("expected empty desktop model when file missing, got (%q, %q)", id, name)
+	}
+
+	stateDir := filepath.Join(tmpHome, ".gemini", "antigravity")
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	stateFile := filepath.Join(stateDir, "antigravity_state.pbtxt")
+	if err := os.WriteFile(stateFile, []byte("agent_onboarding_completed: AGENT_ONBOARDING_STATE_COMPLETED\nlast_selected_agent_model: MODEL_PLACEHOLDER_M525\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	p := newFakeLSProxy(t, func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/GetAvailableModels") {
+			http.NotFound(w, r)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"response": map[string]interface{}{
+			"models": map[string]upstreamModel{
+				"gemini-4-hydrogen-high": {DisplayName: "Gemini 4 Hydrogen (High)", Model: "MODEL_PLACEHOLDER_M525", ModelProvider: "MODEL_PROVIDER_GOOGLE", Recommended: true},
+			},
+		}})
+	})
+
+	rec := httptest.NewRecorder()
+	p.HandleModels(rec, httptest.NewRequest(http.MethodGet, "/gateway/models", nil))
+	var res ModelsResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &res); err != nil {
+		t.Fatal(err)
+	}
+	if res.DesktopActiveModel != "gemini-4-hydrogen-high" {
+		t.Fatalf("expected desktopActiveModel gemini-4-hydrogen-high, got %q", res.DesktopActiveModel)
+	}
+	if res.DesktopActiveModelName != "Gemini 4 Hydrogen (High)" {
+		t.Fatalf("expected desktopActiveModelName Gemini 4 Hydrogen (High), got %q", res.DesktopActiveModelName)
+	}
+
+	if err := os.WriteFile(stateFile, []byte("last_selected_agent_model: MODEL_UNSPECIFIED\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if id, name := readDesktopSelectedModel(); id != "" || name != "" {
+		t.Fatalf("expected MODEL_UNSPECIFIED ignored, got (%q, %q)", id, name)
 	}
 }

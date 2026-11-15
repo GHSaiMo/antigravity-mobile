@@ -88,13 +88,6 @@
           this.setPermissionPreset(e.target.value);
         });
       }
-      const legacyDictate = document.getElementById("settings-legacy-voice-longpress");
-      if (legacyDictate) {
-        legacyDictate.checked = localStorage.getItem("agy_voice_longpress_legacy") === "true";
-        legacyDictate.addEventListener("change", (e) => {
-          localStorage.setItem("agy_voice_longpress_legacy", e.target.checked ? "true" : "false");
-        });
-      }
     },
 
     bindChatToolsButton() {
@@ -967,7 +960,6 @@
       let holding = false;
 
       const canDictate = () => {
-        if (localStorage.getItem("agy_voice_longpress_legacy") === "true") return false;
         const inputEl = document.getElementById("chat-input");
         const hasText = inputEl && inputEl.value.trim().length > 0;
         const isRunning = typeof isCascadeRunning === "function" && isCascadeRunning(activeCascadeId);

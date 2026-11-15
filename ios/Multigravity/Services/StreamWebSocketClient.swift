@@ -37,6 +37,8 @@ public struct StreamUpdatePayload: Decodable, Sendable {
     public let activeModel: String?
     public let activeModelName: String?
     public let modelDisplayName: String?
+    public let desktopActiveModel: String?
+    public let desktopActiveModelName: String?
     public let startedAt: String?
     public let hasError: Bool?
     public let errorMessage: String?

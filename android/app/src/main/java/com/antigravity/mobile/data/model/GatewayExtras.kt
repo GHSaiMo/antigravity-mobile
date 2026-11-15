@@ -225,7 +225,10 @@ data class ModelsResponse(
     /** 网关建议的各厂商默认模型（provider -> model id）。 */
     val defaults: Map<String, String> = emptyMap(),
     /** false 表示网关暂时取不到实时列表，返回的是内置兜底。 */
-    val live: Boolean = false
+    val live: Boolean = false,
+    /** 桌面端 Antigravity 客户端当前选中的模型 id 与展示名。 */
+    val desktopActiveModel: String? = null,
+    val desktopActiveModelName: String? = null
 )
 
 /** 默认模型与当前会话模型的解析规则（纯函数，便于单测）。 */

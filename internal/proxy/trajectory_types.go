@@ -245,9 +245,11 @@ type CascadeMessagesResponse struct {
 	HasRunningSubagents bool                `json:"hasRunningSubagents,omitempty"`
 	ParentConversation string               `json:"parentConversationId,omitempty"`
 	SubagentRole       string               `json:"subagentRole,omitempty"`
-	ActiveModel        string               `json:"activeModel,omitempty"`
-	ActiveModelName    string               `json:"activeModelName,omitempty"` // full display name, e.g. "Gemini 3.8 Flash (High)"
-	ModelDisplayName   string               `json:"modelDisplayName,omitempty"`
+	ActiveModel            string               `json:"activeModel,omitempty"`
+	ActiveModelName        string               `json:"activeModelName,omitempty"` // full display name, e.g. "Gemini 3.8 Flash (High)"
+	ModelDisplayName       string               `json:"modelDisplayName,omitempty"`
+	DesktopActiveModel     string               `json:"desktopActiveModel,omitempty"`
+	DesktopActiveModelName string               `json:"desktopActiveModelName,omitempty"`
 	StartedAt          string               `json:"startedAt,omitempty"` // when the conversation started (first step)
 	CascadeConfig      json.RawMessage      `json:"cascadeConfig,omitempty"`
 	CascadeConfigRaw   string               `json:"cascadeConfigRaw,omitempty"`

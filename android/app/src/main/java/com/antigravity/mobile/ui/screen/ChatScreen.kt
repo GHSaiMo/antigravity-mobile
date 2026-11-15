@@ -2286,11 +2286,7 @@ fun ChatScreen(
                                                 onLongClick = {
                                                     haptic.heavy()
                                                     dismissKeyboard()
-                                                    if (voicePrefs.legacyVoiceLongPress) {
-                                                        launchAudioRecording()
-                                                    } else {
-                                                        toggleDictation()
-                                                    }
+                                                    toggleDictation()
                                                 }
                                             ),
                                         contentAlignment = Alignment.Center

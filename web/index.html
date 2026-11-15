@@ -303,7 +303,7 @@
             </button>
             <input type="file" id="image-file-input" accept="image/*" multiple style="display: none;" />
 
-            <button id="btn-model-switch" class="chip-pill chip-model-switch chip-gemini" type="button" title="单击快切常用模型，长按或右键选择全部模型">
+            <button id="btn-model-switch" class="chip-pill chip-model-switch chip-gemini" type="button" title="短按快切首选与次选模型，长按或右键选择全部模型">
               <span id="model-switch-text" class="model-switch-text">Gemini</span>
             </button>
 
@@ -449,15 +449,60 @@
             </button>
           </div>
 
-          <!-- 实时语音对话开关 -->
+          <!-- 模型：新会话首选，短按快切首选与次选，长按/右键手动选模型 -->
+          <div class="quota-section-header" style="margin: 14px 4px 6px;">模型</div>
+          <div class="ios-grouped-section">
+            <div class="ios-cell between">
+              <div class="cell-label-stack">
+                <span class="cell-label">首选模型</span>
+                <span class="cell-subtitle">进入新会话首选</span>
+              </div>
+              <select id="settings-favorite-1" class="settings-select" aria-label="首选模型"></select>
+            </div>
+            <div class="ios-cell between">
+              <div class="cell-label-stack">
+                <span class="cell-label">次选模型</span>
+                <span class="cell-subtitle">短按胶囊快速切换</span>
+              </div>
+              <select id="settings-favorite-2" class="settings-select" aria-label="次选模型"></select>
+            </div>
+            <button id="btn-refresh-models" class="ios-cell-button" type="button">
+              <span>刷新模型列表</span>
+            </button>
+            <div id="settings-models-note" class="settings-note">进入新会话首选模型；短按模型胶囊可快速切换首选与次选，长按/右键可手动选择一个模型。</div>
+          </div>
+
+          <!-- 扩展与能力 -->
+          <div class="quota-section-header" style="margin: 14px 4px 6px;">扩展与能力</div>
+          <div class="ios-grouped-section">
+            <div class="ios-cell between">
+              <div class="cell-label-stack">
+                <span class="cell-label">Agent 权限模式</span>
+                <span class="cell-subtitle">与聊天右上角长按菜单同步</span>
+              </div>
+              <select id="settings-permission-preset" class="settings-select" aria-label="Agent 权限模式">
+                <option value="strict">严格审批</option>
+                <option value="sandbox">离席沙箱放行</option>
+                <option value="auto">全自动 (Turbo)</option>
+              </select>
+            </div>
+            <button id="btn-settings-open-tools" class="ios-cell-button" type="button" onclick="window.Phase3?.openToolsBoard?.('mcp')">
+              <span>MCP 工具与技能看板</span>
+            </button>
+          </div>
+
+          <!-- 语音 -->
+          <div class="quota-section-header" style="margin: 14px 4px 6px;">语音</div>
           <div class="ios-grouped-section">
             <label class="ios-cell between" for="settings-enable-voice-mode" style="cursor: pointer;">
               <span class="cell-label">实时语音对话</span>
               <input type="checkbox" id="settings-enable-voice-mode" class="ios-switch-input" />
             </label>
+            <div class="settings-note">开启后，输入框为空且空闲时右侧按钮支持单击实时双工语音通话、长按原生流式语音听写。</div>
           </div>
 
-          <!-- 界面与代码字号 (Antigravity 2.31+) -->
+          <!-- 外观与主题 (Antigravity 2.31+) -->
+          <div class="quota-section-header" style="margin: 14px 4px 6px;">外观</div>
           <div class="ios-grouped-section">
             <div class="ios-cell between">
               <span class="cell-label">界面与代码字号</span>
@@ -467,46 +512,6 @@
                 <option value="comfortable">舒适 (大字号)</option>
               </select>
             </div>
-            <div class="ios-cell between">
-              <div class="cell-label-stack">
-                <span class="cell-label">Agent 执行权限预设</span>
-                <span class="cell-subtitle">与聊天右上角长按菜单同步</span>
-              </div>
-              <select id="settings-permission-preset" class="settings-select" aria-label="Agent 执行权限预设">
-                <option value="strict">严格审批</option>
-                <option value="sandbox">离席沙箱放行</option>
-                <option value="auto">全自动 (Turbo)</option>
-              </select>
-            </div>
-            <label class="ios-cell between" for="settings-legacy-voice-longpress">
-              <div class="cell-label-stack">
-                <span class="cell-label">关闭长按流式听写</span>
-                <span class="cell-subtitle">保留右侧按钮仅用于语音通话</span>
-              </div>
-              <input type="checkbox" id="settings-legacy-voice-longpress" class="ios-switch-input" />
-            </label>
-          </div>
-
-          <!-- 常用模型：两个槽位均可在全部模型与全部思考强度中任选；新会话首选常用模型 1，单击胶囊快切 -->
-          <div class="ios-grouped-section">
-            <div class="ios-cell between">
-              <div class="cell-label-stack">
-                <span class="cell-label">常用模型 1</span>
-                <span class="cell-subtitle">进入新会话首选</span>
-              </div>
-              <select id="settings-favorite-1" class="settings-select" aria-label="常用模型 1"></select>
-            </div>
-            <div class="ios-cell between">
-              <div class="cell-label-stack">
-                <span class="cell-label">常用模型 2</span>
-                <span class="cell-subtitle">单击胶囊快切</span>
-              </div>
-              <select id="settings-favorite-2" class="settings-select" aria-label="常用模型 2"></select>
-            </div>
-            <button id="btn-refresh-models" class="ios-cell-button" type="button">
-              <span>刷新模型列表</span>
-            </button>
-            <div id="settings-models-note" class="settings-note">进入新会话首选常用模型 1；单击模型胶囊可在两个常用模型间快切，长按/右键可选择全部模型与思考强度。</div>
           </div>
 
           <!-- Section 3: 本地数据与缓存 -->

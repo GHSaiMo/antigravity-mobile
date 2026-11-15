@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
@@ -48,6 +50,9 @@ type ModelsResponse struct {
 	Defaults map[string]string `json:"defaults"`
 	// Live is false when the list is a built-in fallback because language_server could not be queried.
 	Live bool `json:"live"`
+	// DesktopActiveModel is the canonical model ID currently selected in the desktop Antigravity client.
+	DesktopActiveModel     string `json:"desktopActiveModel,omitempty"`
+	DesktopActiveModelName string `json:"desktopActiveModelName,omitempty"`
 }
 
 // 兜底默认值候选（按优先级排列）：实时列表里存在时才会被采用。
@@ -585,6 +590,49 @@ func (p *Proxy) RefreshLiveModelsAfterSwitch(ctx context.Context) {
 	}
 }
 
+// readDesktopSelectedModel reads Antigravity Desktop's currently selected model
+// from ~/.gemini/antigravity/antigravity_state.pbtxt (`last_selected_agent_model`).
+func readDesktopSelectedModel() (id, displayName string) {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return "", ""
+	}
+	data, err := os.ReadFile(filepath.Join(home, ".gemini", "antigravity", "antigravity_state.pbtxt"))
+	if err != nil || len(data) == 0 {
+		return "", ""
+	}
+	var raw string
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "last_selected_agent_model:") {
+			continue
+		}
+		parts := strings.SplitN(line, ":", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		val := strings.TrimSpace(parts[1])
+		val = strings.Trim(val, `"'`)
+		if val == "" || strings.EqualFold(val, "MODEL_UNSPECIFIED") {
+			return "", ""
+		}
+		raw = val
+		break
+	}
+	if raw == "" {
+		return "", ""
+	}
+	id = canonicalModelName(raw)
+	if id == "" {
+		id = raw
+	}
+	displayName = liveModels.displayName(id)
+	if displayName == "" && id != raw {
+		displayName = liveModels.displayName(raw)
+	}
+	return id, displayName
+}
+
 // HandleModels handles GET/POST /gateway/models.
 func (p *Proxy) HandleModels(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodPost {
@@ -600,6 +648,7 @@ func (p *Proxy) HandleModels(w http.ResponseWriter, r *http.Request) {
 		liveModels.endRefresh()
 	}
 	res, _ := liveModels.snapshot()
+	res.DesktopActiveModel, res.DesktopActiveModelName = readDesktopSelectedModel()
 	data, err := json.Marshal(res)
 	if err != nil {
 		writeJSONError(w, err.Error(), http.StatusInternalServerError)

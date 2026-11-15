@@ -42,9 +42,11 @@ type StreamUpdatePayload struct {
 	CanProceed         bool                 `json:"canProceed"`
 	ProceedArtifactURI string               `json:"proceedArtifactUri,omitempty"`
 	PendingInteraction *PendingInteraction  `json:"pendingInteraction,omitempty"`
-	ActiveModel        string               `json:"activeModel,omitempty"`
-	ActiveModelName    string               `json:"activeModelName,omitempty"`
-	ModelDisplayName   string               `json:"modelDisplayName,omitempty"`
+	ActiveModel            string               `json:"activeModel,omitempty"`
+	ActiveModelName        string               `json:"activeModelName,omitempty"`
+	ModelDisplayName       string               `json:"modelDisplayName,omitempty"`
+	DesktopActiveModel     string               `json:"desktopActiveModel,omitempty"`
+	DesktopActiveModelName string               `json:"desktopActiveModelName,omitempty"`
 	StartedAt          string               `json:"startedAt,omitempty"`
 	Swarm              *SwarmBrief          `json:"swarm,omitempty"`
 	ContextMeter       *ContextMeterItem    `json:"contextMeter,omitempty"`
@@ -107,7 +109,7 @@ func (p *StreamUpdatePayload) Fingerprint() string {
 		tpKey = p.TaskProgress.TaskName + ":" + p.TaskProgress.TaskStatus + ":" + p.TaskProgress.TaskSummary
 	}
 	if len(p.Steps) == 0 {
-		return fmt.Sprintf("%s:%t:%s:%t:%s:%s:%s:%s:%s:%s:%s:%s:%s", p.Status, p.HasError, msgsKey, p.CanProceed, piKey, queuedKey, tasksKey, p.ActiveModel, p.Title, swarmKey, cmKey, sugKey, tpKey)
+		return fmt.Sprintf("%s:%t:%s:%t:%s:%s:%s:%s:%s:%s:%s:%s:%s:%s", p.Status, p.HasError, msgsKey, p.CanProceed, piKey, queuedKey, tasksKey, p.ActiveModel, p.DesktopActiveModel, p.Title, swarmKey, cmKey, sugKey, tpKey)
 	}
 	last := p.Steps[len(p.Steps)-1]
 	lastLen := 0
@@ -130,7 +132,7 @@ func (p *StreamUpdatePayload) Fingerprint() string {
 	} else {
 		contentHash = hashStrings(last.Content)
 	}
-	return fmt.Sprintf("%s:%t:%d:%d:%s:%s:%d:%s:%t:%s:%s:%s:%s:%s:%s:%s:%s:%s:%x", p.Status, p.HasError, p.TotalSteps, p.TotalTools, last.Type, last.Status, lastLen, msgsKey, p.CanProceed, piKey, queuedKey, tasksKey, p.ActiveModel, p.Title, swarmKey, cmKey, sugKey, tpKey, contentHash)
+	return fmt.Sprintf("%s:%t:%d:%d:%s:%s:%d:%s:%t:%s:%s:%s:%s:%s:%s:%s:%s:%s:%s:%x", p.Status, p.HasError, p.TotalSteps, p.TotalTools, last.Type, last.Status, lastLen, msgsKey, p.CanProceed, piKey, queuedKey, tasksKey, p.ActiveModel, p.DesktopActiveModel, p.Title, swarmKey, cmKey, sugKey, tpKey, contentHash)
 }
 
 // rawTrajectorySignature computes an O(1) lightweight fingerprint of the raw upstream response
@@ -418,36 +420,39 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 		slicedMessages := details.AllMessages[streamStart:totalMsgs]
 		hasMore := streamStart > 0
 
+		desktopModel, desktopModelName := readDesktopSelectedModel()
 		payload := StreamUpdatePayload{
-			Type:               "update",
-			CascadeID:          details.CascadeID,
-			Title:              details.Title,
-			Status:             details.Status,
-			HasError:           details.HasError,
-			ErrorMessage:       details.ErrorMessage,
-			Duration:           details.Duration,
-			TotalSteps:         details.TotalSteps,
-			TotalTools:         details.TotalTools,
-			TotalMessages:      totalMsgs,
-			HasMore:            hasMore,
-			NextOffset:         streamStart,
-			WorkspaceURI:       details.WorkspaceURI,
-			Messages:           slicedMessages,
-			QueuedMessages:     details.QueuedMessages,
-			RunningTasks:       details.RunningTasks,
-			Subagents:          details.Subagents,
-			HasRunningSubagents: details.HasRunningSubagents,
-			ParentConversation: details.ParentConversation,
-			SubagentRole:       details.SubagentRole,
-			IsFullSnapshot:     !hasMore,
-			CascadeConfigRaw:   details.CascadeConfigRaw,
-			CanProceed:         details.CanProceed,
-			ProceedArtifactURI: details.ProceedArtifactURI,
-			PendingInteraction: details.PendingInteraction,
-			ActiveModel:        details.ActiveModel,
-			ActiveModelName:    details.ActiveModelName,
-			ModelDisplayName:   details.ModelDisplayName,
-			StartedAt:          details.StartedAt,
+			Type:                   "update",
+			CascadeID:              details.CascadeID,
+			Title:                  details.Title,
+			Status:                 details.Status,
+			HasError:               details.HasError,
+			ErrorMessage:           details.ErrorMessage,
+			Duration:               details.Duration,
+			TotalSteps:             details.TotalSteps,
+			TotalTools:             details.TotalTools,
+			TotalMessages:          totalMsgs,
+			HasMore:                hasMore,
+			NextOffset:             streamStart,
+			WorkspaceURI:           details.WorkspaceURI,
+			Messages:               slicedMessages,
+			QueuedMessages:         details.QueuedMessages,
+			RunningTasks:           details.RunningTasks,
+			Subagents:              details.Subagents,
+			HasRunningSubagents:    details.HasRunningSubagents,
+			ParentConversation:     details.ParentConversation,
+			SubagentRole:           details.SubagentRole,
+			IsFullSnapshot:         !hasMore,
+			CascadeConfigRaw:       details.CascadeConfigRaw,
+			CanProceed:             details.CanProceed,
+			ProceedArtifactURI:     details.ProceedArtifactURI,
+			PendingInteraction:     details.PendingInteraction,
+			ActiveModel:            details.ActiveModel,
+			ActiveModelName:        details.ActiveModelName,
+			ModelDisplayName:       details.ModelDisplayName,
+			DesktopActiveModel:     desktopModel,
+			DesktopActiveModelName: desktopModelName,
+			StartedAt:              details.StartedAt,
 			Swarm:              GetSwarmBrief(cascadeID),
 			ContextMeter:       details.ContextMeter,
 			SuggestedResponses: details.SuggestedResponses,
