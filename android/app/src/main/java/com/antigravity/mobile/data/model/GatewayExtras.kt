@@ -376,6 +376,31 @@ object ModelDefaults {
         }
     }
 
+    /**
+     * 长按模型滑选菜单的展示名：去掉开头的 Gemini / Claude 厂商前缀，从模型号开始显示；
+     * Orchestrator 简写为 `Orch · <模型名>`，节省空间且避免重复厂商名（左侧行已按厂商着色分组）。
+     */
+    fun formatSlidePickerTitle(rawTitle: String): String {
+        val trimmed = rawTitle.trim()
+        if (trimmed.isEmpty()) return ""
+        val lower = trimmed.lowercase()
+        if (lower.startsWith("orchestrator")) {
+            val openParen = trimmed.indexOf('(')
+            val closeParen = trimmed.lastIndexOf(')')
+            if (openParen >= 0 && closeParen > openParen) {
+                val inner = trimmed.substring(openParen + 1, closeParen).trim()
+                if (inner.isNotEmpty()) return "Orch · $inner"
+            }
+            val rest = trimmed.drop("orchestrator".length).trim()
+            return if (rest.isNotEmpty()) "Orch · $rest" else "Orch"
+        }
+        return when {
+            lower.startsWith("gemini ") -> trimmed.drop("gemini ".length).trimStart()
+            lower.startsWith("claude ") -> trimmed.drop("claude ".length).trimStart()
+            else -> trimmed
+        }
+    }
+
     /** 顶栏芯片紧凑展示名（优先查预设表，再对全名进行自然紧凑格式化）。 */
     fun compactDisplayName(id: String, options: List<ModelOption> = emptyList()): String {
         val key = id.trim()

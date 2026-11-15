@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -128,7 +127,8 @@ class ModelSlidePickerState {
 
             if (!family.hasEffortVariants && family.variants.size > 1) {
                 family.variants.forEachIndexed { vIndex, variant ->
-                    val displayTitle = variant.rawName.trim()
+                    val rawTitle = variant.rawName.trim().ifEmpty { family.name }
+                    val displayTitle = ModelDefaults.formatSlidePickerTitle(rawTitle)
                     builtRows.add(
                         ModelPickerRow(
                             id = variant.id,
@@ -144,10 +144,16 @@ class ModelSlidePickerState {
                 }
             } else {
                 val ordered = family.variantsTopToBottom
+                val rawTitle = if (kind == "orchestrator" && ordered.size == 1) {
+                    ordered.first().rawName.trim().ifEmpty { family.name }
+                } else {
+                    family.name
+                }
+                val displayTitle = ModelDefaults.formatSlidePickerTitle(rawTitle)
                 builtRows.add(
                     ModelPickerRow(
                         id = family.id,
-                        title = family.name,
+                        title = displayTitle.ifEmpty { family.name },
                         providerKind = kind,
                         isGroupStart = isFirstInGroup,
                         variantsTopToBottom = ordered,
@@ -531,9 +537,8 @@ fun ModelSlidePickerOverlay(
                                     color = rowColor,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.weight(1f, fill = false)
+                                    modifier = Modifier.weight(1f)
                                 )
-                                Spacer(modifier = Modifier.weight(1f))
                                 if (row.hasSubmenu) {
                                     Icon(
                                         imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
@@ -591,9 +596,9 @@ fun ModelSlidePickerOverlay(
                                         fontWeight = if (isHovered || isCurrentActive) FontWeight.SemiBold else FontWeight.Medium,
                                         color = rowColor,
                                         maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f)
                                     )
-                                    Spacer(modifier = Modifier.weight(1f))
                                     if (isCurrentActive) {
                                         Icon(
                                             imageVector = Icons.Default.Check,

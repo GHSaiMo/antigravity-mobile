@@ -2,7 +2,7 @@ import SwiftUI
 import Observation
 
 /// 统一自绘 24×24 矢量图标路径（与 Android / Web 端像素级对齐，替代星形为 Xcode 编译锤子，Bug 对齐昆虫甲虫）。
-private enum WorkflowTemplateStyle {
+enum WorkflowTemplateStyle {
     struct IconOption: Identifiable {
         let key: String
         let pathData: String

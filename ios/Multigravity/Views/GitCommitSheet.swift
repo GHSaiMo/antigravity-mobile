@@ -295,7 +295,7 @@ public struct GitCommitSheet: View {
         let stateUpper = pr.state.uppercased()
         let stateTint: Color = {
             switch stateUpper {
-            case "MERGED": return .purple
+            case "MERGED": return .blue
             case "DRAFT": return .secondary
             case "CLOSED": return .red
             default: return .green

@@ -14,13 +14,13 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -312,7 +312,8 @@ fun WorkflowSlidePickerOverlay(
                         ) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
                                 Text(
                                     text = if (isHovered) "暂未配置快捷模板 · 松手去设置" else "暂未配置快捷模板 · 点击去设置",
@@ -321,9 +322,8 @@ fun WorkflowSlidePickerOverlay(
                                     color = colors.textPrimary,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.weight(1f, fill = false)
+                                    modifier = Modifier.weight(1f)
                                 )
-                                Spacer(modifier = Modifier.weight(1f))
                                 Text(
                                     text = "›",
                                     fontSize = 14.sp,
@@ -335,6 +335,9 @@ fun WorkflowSlidePickerOverlay(
                     } else {
                         state.quickTemplates.forEachIndexed { index, item ->
                             val isHovered = state.hoveredIndex == index
+                            val iconColor = WorkflowStyleCatalog.resolveColor(item.color, colors)
+                            val badgeSize = if (rowHeightDp < 29.dp) 18.dp else 22.dp
+                            val iconSize = if (rowHeightDp < 29.dp) 11.dp else 13.dp
                             WorkflowPickerNeutralRow(
                                 isHovered = isHovered,
                                 rowHeight = rowHeightDp,
@@ -345,14 +348,34 @@ fun WorkflowSlidePickerOverlay(
                                     state.dismiss()
                                 }
                             ) {
-                                Text(
-                                    text = item.title,
-                                    fontSize = if (rowHeightDp < 29.dp) 12.5.sp else 13.5.sp,
-                                    fontWeight = if (isHovered) FontWeight.SemiBold else FontWeight.Medium,
-                                    color = colors.textPrimary,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(badgeSize)
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(iconColor.copy(alpha = 0.15f)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        WorkflowVectorIcon(
+                                            iconKey = item.icon,
+                                            tint = iconColor,
+                                            size = iconSize
+                                        )
+                                    }
+                                    Text(
+                                        text = item.title,
+                                        fontSize = if (rowHeightDp < 29.dp) 12.5.sp else 13.5.sp,
+                                        fontWeight = if (isHovered) FontWeight.SemiBold else FontWeight.Medium,
+                                        color = colors.textPrimary,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                }
                             }
                         }
                     }

@@ -251,12 +251,21 @@ public struct WorkflowSlidePickerOverlay: View {
             } else {
                 ForEach(Array(state.quickTemplates.enumerated()), id: \.element.id) { index, item in
                     let isHovered = state.hoveredIndex == index
+                    let iconColor = WorkflowTemplateStyle.color(for: item.color)
+                    let badgeSize: CGFloat = state.rowHeight < 29 ? 18 : 22
+                    let iconSize: CGFloat = state.rowHeight < 29 ? 11 : 13
                     Button {
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
                         onSelectTemplate(item.templatePrompt)
                         state.dismiss()
                     } label: {
-                        HStack(spacing: 6) {
+                        HStack(spacing: 8) {
+                            ZStack {
+                                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                    .fill(iconColor.opacity(0.15))
+                                    .frame(width: badgeSize, height: badgeSize)
+                                WorkflowVectorIconView(iconKey: item.icon, size: iconSize, color: iconColor)
+                            }
                             Text(item.title)
                                 .font(.system(size: state.rowHeight < 29 ? 12.5 : 13.5, weight: isHovered ? .semibold : .medium))
                                 .foregroundColor(.primary)

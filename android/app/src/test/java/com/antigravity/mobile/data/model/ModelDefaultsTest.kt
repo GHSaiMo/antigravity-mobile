@@ -138,4 +138,15 @@ class ModelDefaultsTest {
         val families = ModelDefaults.modelFamilies(mixed)
         assertEquals(listOf("gemini", "claude", "orchestrator"), families.map { it.provider })
     }
+
+    @Test
+    fun formatSlidePickerTitleStripsProviderPrefixAndShortensOrchestrator() {
+        assertEquals("4 Carbon", ModelDefaults.formatSlidePickerTitle("Gemini 4 Carbon"))
+        assertEquals("3.8 Flash", ModelDefaults.formatSlidePickerTitle("Gemini 3.8 Flash"))
+        assertEquals("Opus 5.5", ModelDefaults.formatSlidePickerTitle("Claude Opus 5.5"))
+        assertEquals("Sonnet 4.6", ModelDefaults.formatSlidePickerTitle("Claude Sonnet 4.6"))
+        assertEquals("Orch · Carbon", ModelDefaults.formatSlidePickerTitle("Orchestrator (Carbon)"))
+        assertEquals("Orch · Argon", ModelDefaults.formatSlidePickerTitle("Orchestrator (Argon)"))
+        assertEquals("Orch", ModelDefaults.formatSlidePickerTitle("Orchestrator"))
+    }
 }
