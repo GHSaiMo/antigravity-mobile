@@ -109,7 +109,7 @@ public struct NewConversationSheet: View {
                                 .renderingMode(.template)
                                 .resizable()
                                 .aspectRatio(contentMode: .fit)
-                                .frame(width: 19, height: 19)
+                                .frame(width: 25, height: 25)
                         }
                     }
                     .disabled(isCloning || isCreatingWorktree || isAddingWorkspace)

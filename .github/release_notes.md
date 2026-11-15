@@ -1,26 +1,18 @@
-# 🚀 Multigravity v1.1.6
+# 🚀 Multigravity v1.1.7
 
 ### ✨ 核心新功能与重要更新
 
-- ⚡ **Antigravity 2.32+ 动态多智能体工作流全生命周期落地（Dynamic Workflows / `run_workflow` 原语架构 - Go 网关 + iOS + Android + Web PWA）**：
-  - **快捷发起、长按上滑菜单与自定义模板库**：输入栏快捷操作区提供极简单色 `Workflow` 按钮，**短按**直开满屏「Workflow 模板」管理抽屉，**长按上滑**即刻唤出单列快捷菜单秒填常用模板并自动选中首个 `[...]` 占位符；全面支持 **iOS + Android + Web** 三端「长按快捷菜单 / 更多模板」双分区跨区拖拽置顶、微手势配置引导、短按编辑与左滑删除、15 款跨端像素级对齐的 `24×24` 矢量图标（含 Xcode 编译锤与甲虫 Bug 图标），并由 Go 网关 `/gateway/workflow-templates` 持久化同步与各端本地缓存兜底；
-  - **专属安全审批卡（WorkflowApprovalCard）**：Go 网关智能拦截 `run_workflow` 调用并解析提取 Python 编排脚本、预估阶段、并发 Sub-Agents 拓扑；前端展示脚本概览、可折叠 Python 代码预览（含行数与快速复制）与四档安全决策（允许本次执行 / 本会话始终允许 / 拒绝 / 补充反馈打回）；
-  - **阶段拓扑看板（WorkflowStageCard）**：阶段流转轴（Phase 1 ➔ 2 ➔ 3 Stepper 状态图标与单阶段耗时）、并发智能体网格（Sub-agents Matrix Grid）、实时日志流（代码高亮可折叠 Live Logs 控制台）与结果 Schema 产物展示；
-  - **原位穿透与双层控制**：轻触任一子智能体即可弹出半屏详情抽屉（`SubagentDetailSheet`），原地翻阅 Prompt、状态及实时产物而不中断主会话；提供看板全局一键终止工作流与抽屉单点终止子智能体的双层熔断控制；
-  - **异步分级通知**：接入 Bark 与 FCM 里程碑分级通知，工作流需审批、执行完成及异常时即时推送。
-- 📊 **全端实时上下文水位环与生成速率监控（Go 网关 + iOS + Android + Web PWA）**：
-  - **官方 Language Server 元数据实时提取**：通过 `GetCascadeTrajectoryGeneratorMetadata` RPC 零侵入提取当前会话真实上下文占用（`usedTokens` / `maxTokens` / `percentage`）、Token 明细（Input / Cache Hit / Output / Thinking）以及生成性能指标（首字延迟 TTFT、流式耗时与实时输出速率 TPS），带 1.2s 高频防抖缓存并随 WebSocket 增量推送；
-  - **顶栏上下文圆环胶囊**：在会话顶部轮次胶囊旁内联 SVG / Canvas / SwiftUI 进度环胶囊（`<70%` 翠绿、`70%-89%` 警示橙、`≥90%` 红色脉冲提醒），生成期间实时展示 `⚡ t/s` 输出速率；
-  - **上下文审计面板（Audit Bottom Sheet）**：点击水位胶囊即可展开完整物理窗口占用进度条、TTFT / TPS / 流式耗时指标卡、最近一步 Token 构成明细，以及底部的「一键压缩 `/compact`」与「开启新会话」快捷入口。
-- 🔥 **Token 历史用量看板与 52 周热力图（Cockpit「账户与配额」全面升级）**：
-  - **免拆包本地全量扫描**：新增 `GET /api/v1/cockpit/tokens/history` 网关接口，自动扫描桌面端 Antigravity 与 `antigravity-cli` 的本地 `transcript.jsonl`（15s 内存缓存 + 文件 size/mtime 增量缓存，支持 `?force=true` 强制重扫），并按主流模型阶梯定价自动折算美元与人民币估算费用；
-  - **分段 Tab 与 GitHub 风格 52 周热力图**：iOS / Android / Web「账户与配额」面板新增「实时配额 | Token 历史」分段切换，展示今日 / 近 7 日 / 累计总 Token / IDE 与 CLI 占比 / API 折算 KPI 卡片、自动滚至最新一周的 52 周横向热力图，以及点击任意日期格即时刷新的内联明细检查器（Input / Cache / Output / Thinking 与 Top 模型分布）。
-- 🛟 **上下文溢出智能诊断与救援气泡（Smart Overflow Rescue）**：
-  - 网关侧 `ClassifyErrorKind` 自动识别 `context_overflow`、`rate_limited`、`network_error` 并注入结构化 `errorKind` / `isOverflow` 标记；
-  - 三端消息流遇上下文窗口超限错误时，自动将原始报错卡片替换为友好的橙色救援卡片，内嵌 **`一键压缩 /compact`** 与 **`开启新会话`** 动作按钮，支持原地延续当前工作区快速开启新草稿会话。
-- 🖼️ **Token 历史长图海报一键导出与分享（iOS + Android 原生）**：
-  - 「账户与配额」Token 历史面板顶栏新增海报分享入口，一键将当前 52 周热力图、今日 / 近 7 日 / 累计 Token KPI、IDE 与 CLI 占比及选定日期明细合成高保真长图海报，直通系统原生分享与微信；
-- 🕹️ **会话轮次跳跃浮钮体验升级（Prompt Jump Stepper - iOS + Android + Web）**：
-  - 扩大为 44px 舒适触控尺寸，引入智能透明度呼吸逻辑（上滑 100% 唤醒、静止 3s 或下滑 30% 半透避让、静止 10s 平滑隐匿、触底与聚焦输入即刻消失）；
-- 🌐 **iOS 代理自适应 WebSocket 心跳增强**：
-  - `ConversationEventsClient` 引入 `URLSessionWebSocketTask` 作为主力自适应传输，根治 Wi-Fi 代理环境下心跳状态灯误报红色的问题，保留 Tailscale 局域网直连 NWConnection 回退。
+- 🧩 **Antigravity 2.32.1 原生能力全栈落地（Phase 3 全量接入：Go 网关 + iOS + Android + Web PWA）**：
+  - **`@` 上下文提及、对话 Fork 与隔离工作区**：输入框新增 `@` 文件 / 代码片段 / 对话上下文提及补全；支持对话单步或全局 Fork 与 Git Worktree 隔离分支创建；新建会话抽屉新增「新建本地工作区」，并将克隆 GitHub 仓库入口调整至左上角，创建流程更顺手；
+  - **三档 Agent 权限模式与记忆库 CRUD**：支持「严格审批 / 离席沙箱放行 / 全自动放行」三档权限模式，设置页与会话页右上角工具按钮长按菜单实时双向同步；工具与技能看板支持 Agent Memories 增删改查，删除操作配备二次确认弹窗及网关侧文件备份；
+  - **实时交互终端、子智能体直通与 Git/自动化管理**：新增终端 PTY WebSocket 实时交互流（创建、输入、关闭与后台任务转接）、运行中子智能体消息直通与浏览器子智能体跳过/加白控制、Git 分支查看/切换/丢弃，以及 Automation 定时任务的新建与删除；
+  - **MCP 工具控制、嵌入式桥接与原生听写/播报**：支持 MCP Server 启用/禁用与热刷新、MCP App / Sidecar UI 嵌入式桥接，以及原生流式语音听写（Dictation）与回答朗读（Narration）。
+- 🔄 **响应式 Connect 流 Hub 与 WebSocket 增量断点续传 (`sinceRev`)**：
+  - 网关新增响应式 Connect 流聚合 Hub 与本地 SQLite3 快速查询路径（`local_store.go`），对齐 Antigravity 2.32.1 的 MCP / Elicitation / Swarm 协议并大幅降低热路径开销；
+  - 全端接入 WebSocket `sinceRev` 增量断点续传，iOS 新增 Anycast 加速与 LiveActivity 快捷意图，Android 新增通知栏快捷审批/操作按钮，断网重连不丢进度。
+- ⚡ **全端流式渲染性能与离线能力升级**：
+  - iOS 与 Android 引入流式增量 Markdown 解析与有界 LRU 缓存，消除超长对话持续输出时的卡顿与重排抖动；
+  - 三端全量内置离线代码语法高亮，Web 端同步强化矩阵 / LaTeX 公式渲染、草稿媒体与 `/slash` 提及保留及 `agent-embed` 流式稳定性；iOS 修复 `WorkflowTemplateSheet` 跨区拖拽重叠与 `ChatView` 编译器超时问题。
+- 🎛️ **模型切换与设置页重构、Token 历史子代理统计修复**：
+  - 精简重构设置页结构，区分「首选模型」与「次选模型」：新会话默认使用首选模型，已有会话自动同步电脑端最新模型；会话页短按模型胶囊快切首选与次选，长按可从全部模型中任选；
+  - Cockpit Token 历史自动解析归因 Subagent 模型消耗，并在账户配额与历史面板左上角新增海报保存按钮。

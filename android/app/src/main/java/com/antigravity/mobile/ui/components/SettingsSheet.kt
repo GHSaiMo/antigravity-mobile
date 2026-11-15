@@ -471,7 +471,7 @@ private fun MainSettingsContent(
         }
         SettingsSection(
             title = "扩展与能力",
-            footer = "查看已连接的 MCP 工具服务、技能与 Agent 权限放行模式（与聊天顶栏 🔧 长按菜单实时同步）。"
+            footer = "在此配置默认权限并查看 MCP 工具与技能；进入会话后，长按右上角工具按钮也可以随时改变该会话的权限。"
         ) {
             Column(
                 modifier = Modifier
@@ -1027,8 +1027,8 @@ private fun DefaultModelSection(
 
     val footer = when (loadState) {
         "loading" -> "正在读取可用模型..."
-        "failed" -> "暂时无法读取实时模型列表，可先从内置列表中选择模型；进入新会话首选模型，短按模型胶囊可快速切换首选与次选，长按可手动选择一个模型。"
-        else -> "进入新会话首选模型；短按模型胶囊可快速切换首选与次选，长按可手动选择一个模型。"
+        "failed" -> "暂时无法读取实时模型列表，可先从内置列表中选择模型；新会话默认使用首选模型，已有会话自动同步电脑端最新模型；短按模型胶囊切换首选与次选，长按可任选模型。"
+        else -> "新会话默认使用首选模型，已有会话自动同步电脑端最新模型；短按模型胶囊切换首选与次选，长按可任选模型。"
     }
 
     SettingsSection(title = "模型", footer = footer) {
@@ -1041,7 +1041,6 @@ private fun DefaultModelSection(
         ) {
             FavoriteModelPickerRow(
                 label = "首选模型",
-                subtitle = "进入新会话首选",
                 selectedId = favorite1,
                 options = allOptions,
                 onSelect = { prefs.favoriteModel1 = it }
@@ -1049,7 +1048,6 @@ private fun DefaultModelSection(
             HorizontalDivider(color = colors.separator.copy(alpha = 0.4f), thickness = 0.5.dp)
             FavoriteModelPickerRow(
                 label = "次选模型",
-                subtitle = "短按胶囊快速切换",
                 selectedId = favorite2,
                 options = allOptions,
                 onSelect = { prefs.favoriteModel2 = it }

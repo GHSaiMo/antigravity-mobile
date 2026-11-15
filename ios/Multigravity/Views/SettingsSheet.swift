@@ -111,12 +111,10 @@ public struct SettingsSheet: View {
                 ) {
                     favoriteModelPicker(
                         title: String(localized: "首选模型"),
-                        subtitle: String(localized: "进入新会话首选"),
                         selection: $settings.favoriteModel1
                     )
                     favoriteModelPicker(
                         title: String(localized: "次选模型"),
-                        subtitle: String(localized: "短按胶囊快速切换"),
                         selection: $settings.favoriteModel2
                     )
                 }
@@ -124,7 +122,7 @@ public struct SettingsSheet: View {
                 // MARK: - 4. 扩展与能力
                 Section(
                     header: Text("扩展与能力"),
-                    footer: Text("查看已连接的 MCP 工具服务、技能与 Agent 权限放行模式（与聊天顶栏长按菜单实时同步）。")
+                    footer: Text("在此配置默认权限并查看 MCP 工具与技能；进入会话后，长按右上角工具按钮也可以随时改变该会话的权限。")
                 ) {
                     Picker("Agent 权限模式", selection: $permissionPreset) {
                         Text("严格审批").tag("strict")
@@ -239,7 +237,7 @@ public struct SettingsSheet: View {
                     HStack {
                         Text("版本")
                         Spacer()
-                        Text(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.1.6")
+                        Text(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.1.7")
                             .foregroundColor(.secondary)
                     }
                     Button {
@@ -379,9 +377,9 @@ extension SettingsSheet {
     fileprivate var favoriteModelFooter: String {
         if modelCatalog.isLoading && modelCatalog.catalog == nil { return String(localized: "正在读取可用模型...") }
         if modelCatalog.loadFailed && modelCatalog.catalog == nil {
-            return String(localized: "暂时无法读取实时模型列表，可先从内置列表中选择模型；进入新会话首选模型，短按模型胶囊可快速切换首选与次选，长按可手动选择一个模型。")
+            return String(localized: "暂时无法读取实时模型列表，可先从内置列表中选择模型；新会话默认使用首选模型，已有会话自动同步电脑端最新模型；短按模型胶囊切换首选与次选，长按可任选模型。")
         }
-        return String(localized: "进入新会话首选模型；短按模型胶囊可快速切换首选与次选，长按可手动选择一个模型。")
+        return String(localized: "新会话默认使用首选模型，已有会话自动同步电脑端最新模型；短按模型胶囊切换首选与次选，长按可任选模型。")
     }
 
     private func providerSectionTitle(_ key: String) -> String {

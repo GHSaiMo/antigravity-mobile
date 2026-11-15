@@ -456,37 +456,28 @@
             </button>
           </div>
 
-          <!-- 模型：新会话首选，短按快切首选与次选，长按/右键手动选模型 -->
+          <!-- 模型：新会话默认使用首选模型，已有会话同步电脑端最新模型；短按切换首选/次选，长按/右键任选 -->
           <div class="quota-section-header" style="margin: 14px 4px 6px;">模型</div>
           <div class="ios-grouped-section">
             <div class="ios-cell between">
-              <div class="cell-label-stack">
-                <span class="cell-label">首选模型</span>
-                <span class="cell-subtitle">进入新会话首选</span>
-              </div>
+              <span class="cell-label">首选模型</span>
               <select id="settings-favorite-1" class="settings-select" aria-label="首选模型"></select>
             </div>
             <div class="ios-cell between">
-              <div class="cell-label-stack">
-                <span class="cell-label">次选模型</span>
-                <span class="cell-subtitle">短按胶囊快速切换</span>
-              </div>
+              <span class="cell-label">次选模型</span>
               <select id="settings-favorite-2" class="settings-select" aria-label="次选模型"></select>
             </div>
             <button id="btn-refresh-models" class="ios-cell-button" type="button">
               <span>刷新模型列表</span>
             </button>
-            <div id="settings-models-note" class="settings-note">进入新会话首选模型；短按模型胶囊可快速切换首选与次选，长按/右键可手动选择一个模型。</div>
+            <div id="settings-models-note" class="settings-note">新会话默认使用首选模型，已有会话自动同步电脑端最新模型；短按模型胶囊切换首选与次选，长按可任选模型。</div>
           </div>
 
           <!-- 扩展与能力 -->
           <div class="quota-section-header" style="margin: 14px 4px 6px;">扩展与能力</div>
           <div class="ios-grouped-section">
             <div class="ios-cell between">
-              <div class="cell-label-stack">
-                <span class="cell-label">Agent 权限模式</span>
-                <span class="cell-subtitle">与聊天右上角长按菜单同步</span>
-              </div>
+              <span class="cell-label">Agent 权限模式</span>
               <select id="settings-permission-preset" class="settings-select" aria-label="Agent 权限模式">
                 <option value="strict">严格审批</option>
                 <option value="sandbox">离席沙箱放行</option>
@@ -496,6 +487,7 @@
             <button id="btn-settings-open-tools" class="ios-cell-button" type="button" onclick="window.Phase3?.openToolsBoard?.('mcp')">
               <span>MCP 工具与技能看板</span>
             </button>
+            <div class="settings-note">在此配置默认权限并查看 MCP 工具与技能；进入会话后，长按右上角工具按钮也可以随时改变该会话的权限。</div>
           </div>
 
           <!-- 语音 -->
