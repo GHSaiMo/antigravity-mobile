@@ -36,7 +36,6 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AlternateEmail
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.DocumentScanner
@@ -144,7 +143,6 @@ fun AttachmentPickerSheet(
     isDocumentScannerSupported: Boolean = false,
     onScanDocument: () -> Unit = {},
     onRecordAudio: () -> Unit = {},
-    onMentionContext: () -> Unit = {},
     onOpenCamera: () -> Unit,
     onPickFiles: () -> Unit
 ) {
@@ -224,32 +222,6 @@ fun AttachmentPickerSheet(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    item(key = "mention") {
-                        TileFrame(
-                            modifier = Modifier
-                                .background(colors.surfaceVariant)
-                                .clickable {
-                                    haptic.light()
-                                    onDismiss()
-                                    onMentionContext()
-                                }
-                        ) {
-                            Column(
-                                modifier = Modifier.fillMaxSize(),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.AlternateEmail,
-                                    contentDescription = "@ 引用",
-                                    tint = colors.accentBlue,
-                                    modifier = Modifier.size(28.dp)
-                                )
-                                Spacer(Modifier.height(4.dp))
-                                Text("@ 引用", color = colors.textPrimary, fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                            }
-                        }
-                    }
                     item(key = "files") {
                         TileFrame(
                             modifier = Modifier

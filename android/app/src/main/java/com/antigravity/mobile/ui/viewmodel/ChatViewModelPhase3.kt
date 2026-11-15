@@ -3,6 +3,7 @@ package com.antigravity.mobile.ui.viewmodel
 import androidx.lifecycle.viewModelScope
 import com.antigravity.mobile.data.model.ContextMentionItem
 import com.antigravity.mobile.data.service.*
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 internal fun ChatViewModel.refreshPermissionSettings() {
@@ -25,22 +26,31 @@ internal fun ChatViewModel.setPermissionPreset(preset: String, onDone: ((String)
 }
 
 internal fun ChatViewModel.openMentionPicker(query: String = "") {
-    _uiState.value = _uiState.value.copy(showMentionPicker = true)
+    _uiState.value = _uiState.value.copy(showMentionPicker = true, mentionQuery = query)
     searchContextMentions(query)
 }
 
 internal fun ChatViewModel.closeMentionPicker() {
-    _uiState.value = _uiState.value.copy(showMentionPicker = false)
+    mentionSearchJob?.cancel()
+    mentionSearchJob = null
+    _uiState.value = _uiState.value.copy(showMentionPicker = false, isLoadingMentions = false)
 }
 
 internal fun ChatViewModel.searchContextMentions(query: String) {
     val cid = _uiState.value.cascadeId
     val wsFolder = _uiState.value.workspaceFolder
     val wsUri = wsFolder?.takeIf { it.isNotBlank() }?.let { if (it.startsWith("file://")) it else "file://$it" }
-    viewModelScope.launch {
-        apiClient.fetchContextMentions(query, cid, wsUri).onSuccess { items ->
-            _uiState.value = _uiState.value.copy(mentionCandidates = items)
-        }
+    _uiState.value = _uiState.value.copy(mentionQuery = query, isLoadingMentions = true)
+    mentionSearchJob?.cancel()
+    mentionSearchJob = viewModelScope.launch {
+        delay(150L)
+        apiClient.fetchContextMentions(query, cid, wsUri)
+            .onSuccess { items ->
+                _uiState.value = _uiState.value.copy(mentionCandidates = items, isLoadingMentions = false)
+            }
+            .onFailure {
+                _uiState.value = _uiState.value.copy(mentionCandidates = emptyList(), isLoadingMentions = false)
+            }
     }
 }
 

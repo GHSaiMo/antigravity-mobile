@@ -140,6 +140,8 @@ data class ChatUiState(
     val suggestedResponses: List<String> = emptyList(),
     val selectedContextItems: List<ContextMentionItem> = emptyList(),
     val mentionCandidates: List<ContextMentionItem> = emptyList(),
+    val mentionQuery: String = "",
+    val isLoadingMentions: Boolean = false,
     val showMentionPicker: Boolean = false,
     val permissionState: PermissionStateResponse = PermissionStateResponse()
 )
@@ -218,6 +220,7 @@ class ChatViewModel(
 
     internal var wsJob: Job? = null
     internal var fetchJob: Job? = null
+    internal var mentionSearchJob: Job? = null
     internal var pendingOptimisticMessageId: String? = null
     internal var currentLastModifiedTime: String? = null
     internal val pendingOptimisticQueueItems = mutableListOf<PendingOptimisticQueueItem>()

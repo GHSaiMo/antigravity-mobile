@@ -133,6 +133,7 @@ import com.antigravity.mobile.ui.viewmodel.consumeAttachmentNotice
 import com.antigravity.mobile.ui.components.AttachmentPickerSheet
 import com.antigravity.mobile.ui.components.AttachmentFileChip
 import com.antigravity.mobile.ui.components.AudioRecordingCard
+import com.antigravity.mobile.ui.components.ContextMentionPicker
 import com.antigravity.mobile.ui.components.VoiceCallCard
 import com.antigravity.mobile.ui.components.VoiceTroubleshootBubble
 import com.antigravity.mobile.ui.util.AudioRecorderManager
@@ -1259,11 +1260,12 @@ fun ChatScreen(
             }
 
             // Content Area (Loading / Error / Empty / Messages)
-            Box(
+            BoxWithConstraints(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
             ) {
+                val floatingPopupMaxHeight = (maxHeight - 12.dp).coerceIn(240.dp, 500.dp)
                 when {
                     uiState.isLoading && uiState.messages.isEmpty() && !uiState.isNewConversation -> {
                         ChatLoadingStateView()
@@ -1471,7 +1473,7 @@ fun ChatScreen(
                 LaunchedEffect(slashQuery != null) {
                     if (slashQuery != null) viewModel.ensureSlashCommands()
                 }
-                if (slashQuery != null) {
+                if (slashQuery != null && !uiState.showMentionPicker) {
                     SlashCommandPicker(
                         commands = com.antigravity.mobile.data.model.SlashCommandFilter.filter(uiState.slashCommands, slashQuery),
                         isLoading = uiState.isLoadingSlashCommands,
@@ -1570,6 +1572,27 @@ fun ChatScreen(
                             .align(Alignment.BottomEnd)
                             .padding(end = 14.dp, bottom = 12.dp)
                             .alpha(animatedStepperAlpha)
+                    )
+                }
+
+                // @ 上下文引用悬浮弹窗：悬浮在会话区域底部，避免挤占输入栏高度
+                if (uiState.showMentionPicker) {
+                    ContextMentionPicker(
+                        candidates = uiState.mentionCandidates,
+                        selectedItems = uiState.selectedContextItems,
+                        query = uiState.mentionQuery,
+                        isLoading = uiState.isLoadingMentions,
+                        maxHeight = floatingPopupMaxHeight,
+                        onQueryChange = { viewModel.searchContextMentions(it) },
+                        onSelect = { item ->
+                            val stripped = inputText.replace(Regex("""(?:^|\s)@[^\s@]*$"""), "").trimEnd()
+                            if (stripped != inputText) viewModel.onInputTextChanged(stripped)
+                            viewModel.addContextMention(item)
+                        },
+                        onDismiss = { viewModel.closeMentionPicker() },
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(top = 8.dp, bottom = 8.dp)
                     )
                 }
             }
@@ -1857,75 +1880,6 @@ fun ChatScreen(
                                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
                                 ) {
                                     Text("停止", fontSize = 12.sp, color = colors.accentRed)
-                                }
-                            }
-                        }
-
-                        // Phase 3: @ Context Mention picker overlay
-                        if (uiState.showMentionPicker) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 16.dp)
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(colors.surfaceVariant)
-                                    .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
-                                    .padding(10.dp),
-                                verticalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        text = "@ 引用文件 / 符号 / 规则",
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = colors.textSecondary,
-                                        modifier = Modifier.weight(1f)
-                                    )
-                                    Text(
-                                        text = "关闭",
-                                        fontSize = 12.sp,
-                                        color = colors.accentIndigo,
-                                        modifier = Modifier.clickable { viewModel.closeMentionPicker() }
-                                    )
-                                }
-                                if (uiState.mentionCandidates.isEmpty()) {
-                                    Text("继续输入关键词筛选候选上下文...", fontSize = 12.sp, color = colors.textMuted)
-                                } else {
-                                    LazyColumn(modifier = Modifier.heightIn(max = 150.dp)) {
-                                        items(uiState.mentionCandidates.take(20), key = { it.id }) { item ->
-                                            Row(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .clip(RoundedCornerShape(8.dp))
-                                                    .clickable {
-                                                        haptic.light()
-                                                        val stripped = inputText.replace(Regex("""(?:^|\s)@[^\s@]*$"""), "").trimEnd()
-                                                        if (stripped != inputText) viewModel.onInputTextChanged(stripped)
-                                                        viewModel.addContextMention(item)
-                                                    }
-                                                    .padding(horizontal = 8.dp, vertical = 6.dp),
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                            ) {
-                                                Text(
-                                                    text = item.type.uppercase(),
-                                                    fontSize = 10.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = colors.accentIndigo
-                                                )
-                                                Column(modifier = Modifier.weight(1f)) {
-                                                    Text(item.label, fontSize = 13.sp, color = colors.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                                    val det = item.detail.orEmpty()
-                                                    if (det.isNotBlank()) {
-                                                        Text(det, fontSize = 11.sp, color = colors.textMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
                                 }
                             }
                         }
@@ -2437,11 +2391,7 @@ fun ChatScreen(
                     cameraPermissionLauncher.launch(android.Manifest.permission.CAMERA)
                 }
             },
-            onPickFiles = { filePickerLauncher.launch(arrayOf("*/*")) },
-            onMentionContext = {
-                showAttachmentSheet = false
-                viewModel.openMentionPicker("")
-            }
+            onPickFiles = { filePickerLauncher.launch(arrayOf("*/*")) }
         )
     }
 

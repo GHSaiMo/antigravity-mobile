@@ -17,6 +17,15 @@ extension ChatView {
         )
     }
 
+    /// 悬浮在输入栏上方、覆盖在会话气泡底部的 @ 上下文引用选择浮窗
+    @ViewBuilder
+    var floatingMentionPopup: some View {
+        ChatFloatingMentionPopupHost(
+            viewModel: viewModel,
+            currentViewportHeight: currentViewportHeight
+        )
+    }
+
     var inputBar: some View {
         VStack(alignment: .leading, spacing: 8) {
             // Quick action chips at top of input box (➕ and Model Switch placed in front of Slash Command, Commit and Push)
@@ -281,10 +290,6 @@ extension ChatView {
                 }
             }
 
-            if viewModel.showMentionPicker {
-                MentionPickerBar(viewModel: viewModel)
-            }
-
             if !viewModel.suggestedResponses.isEmpty && !isInputFocused && !viewModel.isActivelyRunning && !viewModel.showMentionPicker {
                 SuggestedResponsesBar(suggestions: viewModel.suggestedResponses) { chosen in
                     Task {
@@ -368,6 +373,7 @@ private struct ChatFloatingSlashPopupHost: View {
 
     var body: some View {
         if GatewayCompatStore.shared.isAvailable(GatewayFeature.slash),
+           !viewModel.showMentionPicker,
            !isSlashPickerDismissed,
            let slashQuery = SlashCommandFilter.query(of: viewModel.inputText) {
             let maxTotal = currentViewportHeight > 0 ? min(max(currentViewportHeight - 16, 200), 360) : 300
@@ -555,25 +561,32 @@ private struct ChatInputTextAndSendRow: View {
             } else if newText.hasSuffix("/") && !oldText.hasSuffix("/") {
                 isSlashPickerDismissed = false
             }
-            detectAtMentionTyping(newText)
+            detectAtMentionTyping(oldText: oldText, newText: newText)
         }
     }
 
-    private func detectAtMentionTyping(_ text: String) {
-        if let regex = try? NSRegularExpression(pattern: "(?:^|\\s)@([^\\s@]*)$", options: []) {
-            let ns = text as NSString
-            let range = NSRange(location: 0, length: ns.length)
-            if let match = regex.firstMatch(in: text, options: [], range: range), match.numberOfRanges > 1 {
-                let query = ns.substring(with: match.range(at: 1))
-                if !viewModel.showMentionPicker {
-                    viewModel.openMentionPicker(query: query)
-                } else {
-                    viewModel.scheduleMentionSearch(query: query)
-                }
-                return
-            }
+    private func trailingAtMentionQuery(in text: String) -> String? {
+        guard let regex = try? NSRegularExpression(pattern: "(?:^|\\s)@([^\\s@]*)$", options: []) else {
+            return nil
         }
-        if viewModel.showMentionPicker && text.hasSuffix(" ") {
+        let ns = text as NSString
+        let range = NSRange(location: 0, length: ns.length)
+        guard let match = regex.firstMatch(in: text, options: [], range: range), match.numberOfRanges > 1 else {
+            return nil
+        }
+        return ns.substring(with: match.range(at: 1))
+    }
+
+    private func detectAtMentionTyping(oldText: String, newText: String) {
+        if let query = trailingAtMentionQuery(in: newText) {
+            if !viewModel.showMentionPicker {
+                viewModel.openMentionPicker(query: query)
+            } else {
+                viewModel.scheduleMentionSearch(query: query)
+            }
+            return
+        }
+        if viewModel.showMentionPicker && (trailingAtMentionQuery(in: oldText) != nil || newText.hasSuffix(" ")) {
             viewModel.closeMentionPicker()
         }
     }
@@ -699,88 +712,251 @@ private struct ContextMentionsChipBar: View {
     }
 }
 
-private struct MentionPickerBar: View {
+private struct ChatFloatingMentionPopupHost: View {
     @Bindable var viewModel: ChatViewModel
+    let currentViewportHeight: CGFloat
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        if viewModel.showMentionPicker {
+            let maxTotal: CGFloat = currentViewportHeight > 0
+                ? min(max(currentViewportHeight - 12, 240), 500)
+                : 380
+            let maxList = max(maxTotal - 96, 160)
+            MentionPickerView(
+                viewModel: viewModel,
+                maxListHeight: maxList
+            )
+            .padding(.horizontal, 10)
+            .padding(.bottom, 8)
+            .zIndex(101)
+            .transition(
+                .asymmetric(
+                    insertion: .opacity.combined(with: .scale(scale: 0.96, anchor: .bottom)).combined(with: .offset(y: 8)),
+                    removal: .opacity.combined(with: .scale(scale: 0.96, anchor: .bottom))
+                )
+            )
+        }
+    }
+}
+
+private struct MentionPickerView: View {
+    @Bindable var viewModel: ChatViewModel
+    var maxListHeight: CGFloat = 320
+
+    @State private var contentHeight: CGFloat = 0
+
+    private var effectiveListHeight: CGFloat {
+        let clampedMax = max(maxListHeight, 160)
+        let minComfortable = min(200, clampedMax)
+        let fallback = CGFloat(max(viewModel.mentionCandidates.count, 1)) * 68
+        let measured = contentHeight > 0 ? contentHeight : fallback
+        return min(max(measured, minComfortable), clampedMax)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // 顶部标题栏 + 数量徽标 + 关闭按钮
             HStack(spacing: 8) {
-                Image(systemName: "at")
-                    .font(.system(size: 12, weight: .bold))
+                Image(systemName: "at.circle.fill")
+                    .font(.system(size: 16, weight: .semibold))
                     .foregroundColor(.indigo)
+
+                Text("引用文件或关联会话")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(.primary)
+
+                if !viewModel.mentionCandidates.isEmpty {
+                    Text("\(viewModel.mentionCandidates.count)")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(.indigo)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 1.5)
+                        .background(Color.indigo.opacity(0.14))
+                        .clipShape(Capsule())
+                }
+
+                Spacer(minLength: 8)
+
+                Button {
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    viewModel.closeMentionPicker()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 11.5, weight: .bold))
+                        .foregroundColor(.secondary)
+                        .frame(width: 26, height: 26)
+                        .background(Color(uiColor: .tertiarySystemFill))
+                        .clipShape(Circle())
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("关闭引用选择浮窗")
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+
+            // 搜索输入框
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(.secondary)
                 TextField("搜索文件、目录或关联会话...", text: Binding(
                     get: { viewModel.mentionQuery },
                     set: { viewModel.scheduleMentionSearch(query: $0) }
                 ))
-                .font(.system(size: 13))
+                .font(.system(size: 14))
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 if viewModel.isLoadingMentions {
-                    ProgressView().scaleEffect(0.7)
+                    ProgressView().scaleEffect(0.8)
+                } else if !viewModel.mentionQuery.isEmpty {
+                    Button {
+                        viewModel.scheduleMentionSearch(query: "")
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 14))
+                            .foregroundColor(.secondary)
+                    }
+                    .buttonStyle(.plain)
                 }
-                Button {
-                    viewModel.closeMentionPicker()
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 14))
-                        .foregroundColor(.secondary)
-                }
-                .buttonStyle(.plain)
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
             .background(Color(uiColor: .tertiarySystemBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .padding(.horizontal, 12)
+            .padding(.bottom, 10)
+
+            Divider()
+                .opacity(0.6)
 
             if viewModel.mentionCandidates.isEmpty {
-                Text(viewModel.isLoadingMentions ? "正在检索工作区上下文..." : "暂无匹配上下文条目")
-                    .font(.system(size: 11.5))
-                    .foregroundColor(.secondary)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 4)
+                VStack(spacing: 10) {
+                    if viewModel.isLoadingMentions {
+                        ProgressView()
+                            .scaleEffect(0.95)
+                    } else {
+                        Image(systemName: "doc.text.magnifyingglass")
+                            .font(.system(size: 24))
+                            .foregroundColor(.secondary.opacity(0.7))
+                    }
+                    Text(viewModel.isLoadingMentions ? "正在检索工作区上下文..." : "暂无匹配的文件、目录或关联会话")
+                        .font(.system(size: 13.5))
+                        .foregroundColor(.secondary)
+                }
+                .frame(maxWidth: .infinity)
+                .frame(height: min(200, max(maxListHeight, 160)))
             } else {
                 ScrollView(.vertical, showsIndicators: true) {
-                    LazyVStack(alignment: .leading, spacing: 4) {
-                        ForEach(viewModel.mentionCandidates) { item in
+                    VStack(spacing: 0) {
+                        ForEach(Array(viewModel.mentionCandidates.enumerated()), id: \.element.id) { index, item in
                             Button {
                                 UIImpactFeedbackGenerator(style: .light).impactOccurred()
                                 viewModel.selectMentionItem(item)
                             } label: {
-                                HStack(spacing: 8) {
-                                    Image(systemName: item.type == "directory" ? "folder" : (item.type == "conversation" ? "bubble.left" : "doc.text"))
-                                        .font(.system(size: 12))
-                                        .foregroundColor(.indigo)
-                                    VStack(alignment: .leading, spacing: 1) {
-                                        Text(item.label)
-                                            .font(.system(size: 12.5, weight: .medium))
-                                            .foregroundColor(.primary)
-                                            .lineLimit(1)
-                                        if let detail = item.detail ?? item.path, !detail.isEmpty {
-                                            Text(detail)
-                                                .font(.system(size: 10.5, design: .monospaced))
-                                                .foregroundColor(.secondary)
-                                                .lineLimit(1)
-                                                .truncationMode(.middle)
-                                        }
-                                    }
-                                    Spacer()
-                                }
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 5)
-                                .background(Color(uiColor: .tertiarySystemFill).opacity(0.6))
-                                .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                                mentionRow(item)
                             }
                             .buttonStyle(.plain)
+
+                            if index < viewModel.mentionCandidates.count - 1 {
+                                Divider()
+                                    .padding(.leading, 60)
+                                    .opacity(0.45)
+                            }
+                        }
+                    }
+                    .onGeometryChange(for: CGFloat.self) { proxy in
+                        proxy.size.height
+                    } action: { newHeight in
+                        if newHeight > 0 && abs(contentHeight - newHeight) > 0.5 {
+                            contentHeight = newHeight
                         }
                     }
                 }
-                .frame(maxHeight: 160)
+                .scrollBounceBehavior(.basedOnSize)
+                .frame(height: effectiveListHeight)
             }
         }
-        .padding(10)
-        .background(Color(uiColor: .secondarySystemBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .padding(.horizontal, 12)
+        .background(
+            ZStack {
+                Color(uiColor: .secondarySystemGroupedBackground)
+                Rectangle().fill(.regularMaterial).opacity(0.55)
+            }
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(Color.primary.opacity(0.14), lineWidth: 0.8)
+        )
+        .shadow(color: Color.black.opacity(0.32), radius: 18, x: 0, y: 6)
+    }
+
+    private func mentionRow(_ item: ContextMentionItem) -> some View {
+        let style = mentionStyle(for: item.type)
+        let isAlreadySelected = viewModel.selectedContextItems.contains(where: { $0.id == item.id && $0.label == item.label })
+
+        return HStack(alignment: .top, spacing: 12) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .fill(style.color.opacity(0.13))
+                    .frame(width: 34, height: 34)
+                Image(systemName: style.icon)
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundColor(style.color)
+            }
+            .padding(.top, 1)
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    Text(item.label)
+                        .font(.system(size: 14.5, weight: .semibold))
+                        .foregroundColor(.primary)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+
+                    Text(style.tag)
+                        .font(.system(size: 10.5, weight: .semibold))
+                        .foregroundColor(style.color)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 1.5)
+                        .background(style.color.opacity(0.12))
+                        .clipShape(Capsule())
+                }
+
+                if let detail = item.detail ?? item.path, !detail.isEmpty {
+                    Text(detail)
+                        .font(.system(size: 12, design: .monospaced))
+                        .foregroundColor(.secondary)
+                        .lineLimit(2)
+                        .truncationMode(.middle)
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            Spacer(minLength: 4)
+
+            if isAlreadySelected {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 16))
+                    .foregroundColor(.indigo)
+                    .padding(.top, 2)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 11)
+        .contentShape(Rectangle())
+    }
+
+    private func mentionStyle(for type: String) -> (icon: String, color: Color, tag: String) {
+        switch type {
+        case "directory":
+            return ("folder.fill", .blue, "目录")
+        case "conversation":
+            return ("bubble.left.and.bubble.right.fill", .teal, "会话")
+        default:
+            return ("doc.text.fill", .indigo, "文件")
+        }
     }
 }
 
