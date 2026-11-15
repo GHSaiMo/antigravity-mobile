@@ -391,8 +391,8 @@ function renderFavoriteModelSettings() {
   const note = document.getElementById("settings-models-note");
   if (note) {
     note.textContent = modelCatalog.live
-      ? "进入新会话首选模型；短按模型胶囊可快速切换首选与次选，长按/右键可手动选择一个模型。"
-      : "当前显示内置模型列表；进入新会话首选模型，短按模型胶囊可快速切换首选与次选，长按/右键可手动选择一个模型。";
+      ? "新会话默认使用首选模型，已有会话自动同步电脑端最新模型；短按模型胶囊切换首选与次选，长按可任选模型。"
+      : "当前显示内置模型列表；新会话默认使用首选模型，已有会话自动同步电脑端最新模型；短按模型胶囊切换首选与次选，长按可任选模型。";
   }
 }
 

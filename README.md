@@ -20,7 +20,7 @@
 </p>
 
 <p align="center">
-  🌐 <b>官网</b>：<a href="https://mgy.jiuge.space">mgy.jiuge.space</a> &nbsp;·&nbsp; 📦 <a href="https://github.com/GHSaiMo/antigravity-mobile/releases/latest">最新版 v1.1.6</a>
+  🌐 <b>官网</b>：<a href="https://mgy.jiuge.space">mgy.jiuge.space</a> &nbsp;·&nbsp; 📦 <a href="https://github.com/GHSaiMo/antigravity-mobile/releases/latest">最新版 v1.1.7</a>
 </p>
 
 https://github.com/user-attachments/assets/37360cde-3875-45bf-947e-7774e800094c
@@ -58,7 +58,7 @@ irm https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/scripts/in
 </details>
 
 ### 2. 安装或打开移动端
-- **Android**：前往 [GitHub Releases](https://github.com/GHSaiMo/antigravity-mobile/releases/latest) 直接下载安装 `Multigravity-v1.1.6.apk`（支持覆盖升级，请仅从官方 Releases 下载）。
+- **Android**：前往 [GitHub Releases](https://github.com/GHSaiMo/antigravity-mobile/releases/latest) 直接下载安装 `Multigravity-v1.1.7.apk`（支持覆盖升级，请仅从官方 Releases 下载）。
 - **iOS**：参考 [iOS 本地构建与真机调试指南](docs/ios_build_guide.md) 编译安装。
 - **PWA / Web**：无需安装 App，手机浏览器直接访问网关地址（或 `/?view=pwa`）即可添加到主屏幕。
 
@@ -89,28 +89,29 @@ mgy
 
 ### 1. 全端一致的实时流式体验
 - **三端全覆盖**：原生 **iOS**（SwiftUI / Swift 6）、原生 **Android**（Jetpack Compose Material 3）与零构建嵌入式 **PWA Web**，界面与交互逻辑高度统一。
-- **低延迟增量推流**：WebSocket 增量帧（`delta=1`）+ 内容哈希校验，配合多步工具折叠胶囊、步骤导轨与长对话章节目录（TOC），超长会话依然丝滑。
-- **专业级富媒体排版**：180+ 语言语法高亮、词级行内代码 Diff、LaTeX 公式、自适应横向滚动表格、Mermaid 容错渲染与应用内安全浏览器。
+- **低延迟增量推流与断点续传**：响应式 Connect 流 Hub + WebSocket `sinceRev` 增量断点续传 + 内容哈希校验，配合增量 Markdown LRU 缓存、多步工具折叠胶囊、步骤导轨与长对话章节目录（TOC），超长会话依然丝滑。
+- **专业级富媒体排版**：180+ 语言离线语法高亮、词级行内代码 Diff、LaTeX / 矩阵公式、自适应横向滚动表格、Mermaid 容错渲染与应用内安全浏览器。
 
-### 2. 关键决策与审批不掉线
-- **原生交互卡片**：完整支持多题决策（`askQuestion`）、高危命令审批、Git/GitHub 沙箱权限审批（`PERMISSION_GRANTS_V2`）。
-- **方案放行与撤回**：支持在手机上直接预览 Markdown / PPTX 方案产物并一键 `Proceed` 推进，也支持指令撤回、代码回滚与排队追问（自动避让后台任务防抢跑）。
+### 2. 关键决策、分级权限与模型协同
+- **原生交互卡片与三档权限**：完整支持多题决策（`askQuestion`）、高危命令审批与「严格审批 / 离席沙箱放行 / 全自动放行」三档权限模式（设置页与会话顶栏右上角工具按钮长按菜单实时同步）。
+- **模型快切与桌面同步**：支持设置首选/次选模型，新会话默认使用首选模型、已有会话自动同步电脑端最新模型；短按模型胶囊快切首选与次选，长按任选全部模型。
+- **方案放行与撤回**：支持在手机上直接预览 Markdown / PPTX 方案产物并一键 `Proceed` 推进，支持对话 Fork、Git Worktree 隔离分支、指令撤回、代码回滚与排队追问。
 
-### 3. 多智能体工作流、蜂群看板与自动化
-- **动态工作流全生命周期 (`run_workflow`)**：内置常用模板快捷发起，精准拦截 Python 编排脚本并弹出安全审批卡，实时展示阶段流水线、并发子智能体网格、终端日志与 JSON 产物，支持原位点开子代理详情与双层中断控制。
-- **蜂群看板 (`/swarm`)**：桌面级复刻蜂群协作板，直观呈现成员 Roster、状态与协作拓扑。
-- **定时任务与后台任务中心**：手机端查看并管理 Automations（含离线本地扫描双保险与「立即运行 Run Now」），跨会话监控全局后台任务并实时查看/刷新终端日志 Tail。
+### 3. 多智能体工作流、蜂群看板、终端与自动化
+- **动态工作流全生命周期 (`run_workflow`)**：内置常用模板快捷发起，精准拦截 Python 编排脚本并弹出安全审批卡，实时展示阶段流水线、并发子智能体网格、终端日志与 JSON 产物，支持原位点开子代理详情、消息直通与双层中断控制。
+- **蜂群看板与实时终端**：桌面级复刻蜂群协作板（`/swarm`），原生接入 PTY 终端 WebSocket 实时交互流、MCP Server 开关热刷新、Agent Memories 增删改查与浏览器子智能体跳过/加白控制。
+- **定时任务与后台任务中心**：手机端支持创建/管理 Automations（含离线本地扫描双保险与「立即运行 Run Now」），跨会话监控全局后台任务并实时查看/刷新终端日志 Tail。
 
 ### 4. 全双工实时语音与多模态交互
-- **实时语音通话 (`/voice/ws`)**：四端支持 Antigravity 全双工实时语音协议（iOS 启用硬件级回声消除 AEC），支持实时字幕、打断与倍速播放，并自动过滤系统指令杂音。
-- **多模态输入与产出**：支持任意类型附件（≤20MB 原生多模态直传，≤50MB 智能路径引用）、iOS 文稿扫描相机、AI 生图直出、WebM 录屏硬件加速播放与聊天长图海报分享。
+- **实时语音通话、听写与朗读**：四端支持 Antigravity 全双工实时语音协议（iOS 启用硬件级回声消除 AEC），支持原生流式语音听写（Dictation）、回答语音朗读（Narration）、实时字幕、打断与倍速播放。
+- **多模态输入与产出**：支持 `@` 上下文提及（文件/代码/对话）、任意类型附件（≤20MB 原生多模态直传，≤50MB 智能路径引用）、iOS 文稿扫描相机、AI 生图直出、WebM 录屏硬件加速播放与聊天长图海报分享。
 
 ### 5. 上下文水位、速率监控与配额仪表盘
 - **实时上下文水位与速率**：聊天顶栏实时展示上下文占用圆环与 `TTFT / TPS` 吐字速率，遇到上下文溢出自动升级为带「一键压缩 `/compact`」和「开启新会话」的救援卡片。
-- **配额匀速刻度与 52 周热力图**：实时监控 Claude / Gemini（5h & Weekly）及 Argon 额度，叠加均速消耗刻度针与节奏分析；内置 52 周 Token 消耗热力图、成本统计与海报分享，配合 Cockpit Tools 支持多账号无感热切。
+- **配额匀速刻度与 52 周热力图**：实时监控 Claude / Gemini（5h & Weekly）及 Argon 额度，叠加均速消耗刻度针与节奏分析；内置 52 周 Token 消耗热力图（含 Subagent 模型归因）、成本统计与海报一键保存分享，配合 Cockpit Tools 支持多账号无感热切。
 
 ### 6. 移动端工程闭环与外设生态
-- **代码管理直达**：支持会话全文秒搜（SQLite FTS5）、导出 Markdown、查看本会话累计 `Changes` Diff、原生 `Commit & Push` 并联动查看 GitHub PR 状态，同时支持 `/slash` 斜杠命令与 MCP/技能健康看板。
+- **代码与工作区管理直达**：支持新建本地工作区、一键克隆 GitHub 仓库、会话全文秒搜（SQLite FTS5）、导出 Markdown、查看 `Changes` Diff、原生 `Commit & Push` 与分支切换/丢弃并联动查看 GitHub PR 状态，同时支持 `/slash` 斜杠命令与 MCP/技能健康看板。
 - **跨端游标与物理外设**：Follow-Me 游标引擎智能仲裁桌面与移动端活跃会话；支持 `integrations/yoooclaw/` 随身硬件按键语音直连注入活跃会话。
 
 ### 7. 零配置公网穿透、智能选路与安全推送
