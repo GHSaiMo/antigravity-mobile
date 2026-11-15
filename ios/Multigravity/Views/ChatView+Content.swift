@@ -154,20 +154,6 @@ extension ChatView {
                 messagesContentHeight = height
             }
         }
-        .onPreferenceChange(ChatBottomAnchorOffsetPreferenceKey.self) { anchorMaxY in
-            guard anchorMaxY.isFinite else { return }
-            let isContentFitting = messagesContentHeight > 0 && currentViewportHeight > 0 && messagesContentHeight <= currentViewportHeight
-            let near = isContentFitting || (anchorMaxY <= viewportHeight + 90)
-            if near && hasUserInteracted {
-                hasUserInteracted = false
-            }
-            if near != scrollHUD.isNearBottom {
-                scrollHUD.isNearBottom = near
-                updateCurrentVisibleTurn(viewportHeight: viewportHeight)
-            }
-            scheduleBlankSpaceHeal(anchorMaxY: anchorMaxY, viewportHeight: viewportHeight, proxy: proxy)
-            handleStepperScrollProgress(anchorMaxY: anchorMaxY, isNear: near)
-        }
         .onPreferenceChange(ChatVisibleMessagesPreferenceKey.self) { visibleGeometries in
             scrollHUD.lastVisibleMessageGeometries = visibleGeometries
             updateCurrentVisibleTurn(viewportHeight: viewportHeight)
@@ -194,6 +180,9 @@ extension ChatView {
                     .onChanged { _ in
                         hasUserInteracted = true
                         isUserDragging = true
+                        if !hasInitiallyAligned && !viewModel.messages.isEmpty {
+                            hasInitiallyAligned = true
+                        }
                         if scrollHUD.lockedTurnIndex != nil {
                             scrollHUD.lockedTurnIndex = nil
                         }
@@ -201,13 +190,39 @@ extension ChatView {
                     .onEnded { _ in isUserDragging = false }
             )
             .scrollDismissesKeyboard(.interactively)
-            // 不依赖 LazyVStack 里的底部锚点：锚点离屏时它的 GeometryReader 不会被创建，偏移越过内容末尾后整屏全黑
-            .onScrollGeometryChange(for: CGFloat.self) { geo in
-                guard geo.contentSize.height > geo.containerSize.height else { return 0 }
-                // 视口底边超出内容末尾的距离（>0 即底部出现空白）
-                return geo.contentOffset.y + geo.containerSize.height - geo.contentSize.height
-            } action: { _, overshoot in
-                scheduleOvershootHeal(overshoot: overshoot, proxy: proxy)
+            // 直接基于 ScrollView 几何状态计算距底距离与越界，避免 LazyVStack 中 BOTTOM_ANCHOR 离屏卸载后失灵
+            .onScrollGeometryChange(for: ChatScrollMetrics.self) { geo in
+                let vh = geo.containerSize.height
+                let ch = geo.contentSize.height
+                let dist = ch - (geo.contentOffset.y + vh)
+                let qDist = (dist / 16).rounded() * 16
+                let overshoot: CGFloat = (ch > vh) ? (geo.contentOffset.y + vh - ch) : 0
+                let qOvershoot: CGFloat = overshoot > 120 ? (overshoot / 16).rounded() * 16 : 0
+                return ChatScrollMetrics(
+                    quantizedDistanceFromBottom: qDist,
+                    viewportHeight: vh.rounded(),
+                    contentHeight: ch.rounded(),
+                    overshoot: qOvershoot
+                )
+            } action: { _, metrics in
+                if metrics.contentHeight > 0 && abs(messagesContentHeight - metrics.contentHeight) > 1 {
+                    messagesContentHeight = metrics.contentHeight
+                }
+                scheduleOvershootHeal(overshoot: metrics.overshoot, proxy: proxy)
+                guard metrics.viewportHeight > 0, metrics.contentHeight > 0 else { return }
+                let effectiveVH = currentViewportHeight > 0 ? currentViewportHeight : metrics.viewportHeight
+                let anchorMaxY = effectiveVH + metrics.quantizedDistanceFromBottom
+                let isContentFitting = metrics.contentHeight <= effectiveVH
+                let near = isContentFitting || (metrics.quantizedDistanceFromBottom <= 90)
+                if near && hasUserInteracted {
+                    hasUserInteracted = false
+                }
+                if near != scrollHUD.isNearBottom {
+                    scrollHUD.isNearBottom = near
+                    updateCurrentVisibleTurn(viewportHeight: effectiveVH)
+                }
+                scheduleBlankSpaceHeal(anchorMaxY: anchorMaxY, viewportHeight: effectiveVH, proxy: proxy)
+                handleStepperScrollProgress(anchorMaxY: anchorMaxY, isNear: near)
             }
             .refreshable {
                 await viewModel.loadMessages()
@@ -425,15 +440,6 @@ extension ChatView {
                 .frame(maxWidth: .infinity)
                 .frame(height: 1)
                 .id("BOTTOM_ANCHOR")
-                .background(
-                    GeometryReader { geo in
-                        let qMaxY = (geo.frame(in: .named("ChatScrollViewSpace")).maxY / 16).rounded() * 16
-                        Color.clear.preference(
-                            key: ChatBottomAnchorOffsetPreferenceKey.self,
-                            value: qMaxY
-                        )
-                    }
-                )
         }
         .padding(.top, 12)
         .padding(.bottom, 4)
@@ -686,11 +692,16 @@ extension ChatView {
             return
         }
         
+        if scrollHUD.lastAnchorMaxY == 0 {
+            scrollHUD.lastAnchorMaxY = anchorMaxY
+            return
+        }
+        
         let delta = anchorMaxY - scrollHUD.lastAnchorMaxY
         scrollHUD.lastAnchorMaxY = anchorMaxY
         
-        // 初始或极端跳变防护
-        guard abs(delta) < 500, abs(delta) > 2 else { return }
+        // 极端布局跳变防护（允许快速惯性滑动正常唤醒跳轮条）
+        guard abs(delta) < 2000, abs(delta) > 2 else { return }
         
         if delta > 0 {
             // 上滑（翻看旧历史 / 内容向下，anchorMaxY 增加）-> 唤醒完全可见 (1.0)，重置 3s 渐隐与 10s 全隐定时器
