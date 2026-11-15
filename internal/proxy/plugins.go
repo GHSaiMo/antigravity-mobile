@@ -25,14 +25,17 @@ type PluginItem struct {
 	Accounts    []string `json:"accounts,omitempty"`
 }
 
+// PluginAuthProvider represents a normalised plugin authentication provider entry.
+type PluginAuthProvider struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	SignedIn bool   `json:"signedIn"`
+}
+
 // PluginListResponse is returned by GET /gateway/plugins.
 type PluginListResponse struct {
-	Plugins   []PluginItem `json:"plugins"`
-	Providers []struct {
-		ID       string `json:"id"`
-		Name     string `json:"name"`
-		SignedIn bool   `json:"signedIn"`
-	} `json:"providers,omitempty"`
+	Plugins   []PluginItem         `json:"plugins"`
+	Providers []PluginAuthProvider `json:"providers,omitempty"`
 }
 
 // HandleGetPlugins serves GET /gateway/plugins.
@@ -136,11 +139,23 @@ func (p *Proxy) HandleGetPlugins(w http.ResponseWriter, r *http.Request) {
 			} `json:"plugins"`
 		}
 		if json.Unmarshal(body, &raw) == nil {
-			for _, pl := range raw.Plugins {
+			seenPlugins := make(map[string]bool, len(raw.Plugins))
+			for idx, pl := range raw.Plugins {
 				pid := strings.TrimSpace(pl.ID)
 				if pid == "" {
 					pid = strings.TrimSpace(pl.Name)
 				}
+				if pid == "" {
+					pid = fmt.Sprintf("plugin-%d", idx)
+				}
+				if seenPlugins[pid] {
+					base := pid
+					for n := 2; seenPlugins[pid]; n++ {
+						pid = fmt.Sprintf("%s-%d", base, n)
+					}
+				}
+				seenPlugins[pid] = true
+
 				displayName := strings.TrimSpace(pl.DisplayName)
 				if displayName == "" {
 					displayName = strings.TrimSpace(pl.Name)
@@ -224,51 +239,83 @@ func (p *Proxy) HandleGetPlugins(w http.ResponseWriter, r *http.Request) {
 		// omits every identifying field.
 		var rawAuth struct {
 			Providers []struct {
-				ID        string `json:"id"`
-				Name      string `json:"name"`
-				SignedIn  bool   `json:"signedIn"`
-				Plugin    string `json:"plugin"`
-				Provider  string `json:"provider"`
-				Connected bool   `json:"connected"`
+				ID          string `json:"id"`
+				Name        string `json:"name"`
+				DisplayName string `json:"displayName"`
+				SignedIn    bool   `json:"signedIn"`
+				Plugin      string `json:"plugin"`
+				PluginID    string `json:"pluginId"`
+				PluginName  string `json:"pluginName"`
+				Provider    string `json:"provider"`
+				Connected   bool   `json:"connected"`
 			} `json:"providers"`
 		}
 		if json.Unmarshal(body, &rawAuth) == nil {
-			type providerItem = struct {
-				ID       string `json:"id"`
-				Name     string `json:"name"`
-				SignedIn bool   `json:"signedIn"`
-			}
 			seen := make(map[string]bool, len(rawAuth.Providers))
 			for i, pv := range rawAuth.Providers {
 				plugin := strings.TrimSpace(pv.Plugin)
 				if plugin == "" {
-					plugin = strings.TrimSpace(pv.ID)
+					plugin = strings.TrimSpace(pv.PluginID)
 				}
 				provider := strings.TrimSpace(pv.Provider)
-				if provider == "" {
-					provider = strings.TrimSpace(pv.Name)
+				legacyID := strings.TrimSpace(pv.ID)
+				legacyName := strings.TrimSpace(pv.Name)
+				displayName := strings.TrimSpace(pv.DisplayName)
+				pluginName := strings.TrimSpace(pv.PluginName)
+
+				var id, display string
+				if plugin != "" || provider != "" {
+					if plugin != "" && provider != "" && !strings.EqualFold(plugin, provider) {
+						id = plugin + ":" + provider
+					} else if plugin != "" {
+						id = plugin
+					} else {
+						id = provider
+					}
+
+					pluginLabel := pluginName
+					if pluginLabel == "" {
+						pluginLabel = plugin
+					}
+					if displayName != "" {
+						display = displayName
+					} else if pluginLabel != "" && provider != "" && !strings.EqualFold(pluginLabel, provider) {
+						display = fmt.Sprintf("%s (%s)", pluginLabel, provider)
+					} else if pluginLabel != "" {
+						display = pluginLabel
+					} else {
+						display = provider
+					}
+				} else {
+					id = legacyID
+					if id == "" {
+						id = legacyName
+					}
+					display = displayName
+					if display == "" {
+						display = legacyName
+					}
+					if display == "" {
+						display = legacyID
+					}
 				}
 
-				display := plugin
-				if display == "" {
-					display = provider
-				}
-
-				id := plugin
-				if id == "" {
-					id = provider
-				} else if provider != "" && provider != plugin {
-					id = plugin + ":" + provider
-				}
 				if id == "" {
 					id = fmt.Sprintf("provider-%d", i)
 				}
 				if seen[id] {
-					id = fmt.Sprintf("%s-%d", id, i)
+					base := id
+					for n := 2; seen[id]; n++ {
+						id = fmt.Sprintf("%s-%d", base, n)
+					}
 				}
 				seen[id] = true
 
-				resp.Providers = append(resp.Providers, providerItem{
+				if display == "" {
+					display = id
+				}
+
+				resp.Providers = append(resp.Providers, PluginAuthProvider{
 					ID:       id,
 					Name:     display,
 					SignedIn: pv.Connected || pv.SignedIn,
