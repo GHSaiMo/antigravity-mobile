@@ -469,6 +469,13 @@ private fun MainSettingsContent(
                 permPreset = it.preset
             }
         }
+        val permissionOptions = remember(colors) {
+            listOf(
+                PickerMenuOption("strict", "严格审批", accentColor = colors.accentIndigo),
+                PickerMenuOption("sandbox", "离席沙箱放行", accentColor = colors.accentOrange),
+                PickerMenuOption("auto", "全自动放行", accentColor = colors.accentOrange)
+            )
+        }
         SettingsSection(
             title = "扩展与能力",
             footer = "在此配置默认权限并查看 MCP 工具与技能；进入会话后，长按右上角工具按钮也可以随时改变该会话的权限。"
@@ -480,48 +487,22 @@ private fun MainSettingsContent(
                     .background(colors.surface)
                     .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
             ) {
-                val options = listOf(
-                    Triple("strict", "严格审批", "每步高危工具或命令都需确认"),
-                    Triple("sandbox", "离席沙箱放行", "工作区内只读/沙箱安全动作自动放行"),
-                    Triple("auto", "全自动", "命令与编辑全自动放行（谨慎使用）")
-                )
-                options.forEachIndexed { idx, (key, title, desc) ->
-                    if (idx > 0) HorizontalDivider(thickness = 0.5.dp, color = colors.border)
-                    val selected = permPreset == key
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable {
-                                permPreset = key
-                                coroutineScope.launch {
-                                    ApiClient.defaultInstance?.updatePermissionPreset(key)?.onSuccess {
-                                        permPreset = it.preset
-                                    }
-                                }
+                SettingsMenuPickerRow(
+                    label = "Agent 权限模式",
+                    selectedLabel = permissionOptions.firstOrNull { it.id == permPreset }?.label ?: "严格审批",
+                    selectedId = permPreset,
+                    selectedColor = if (permPreset == "strict") colors.accentIndigo else colors.accentOrange,
+                    options = permissionOptions,
+                    onSelect = { key ->
+                        permPreset = key
+                        coroutineScope.launch {
+                            ApiClient.defaultInstance?.updatePermissionPreset(key)?.onSuccess {
+                                permPreset = it.preset
                             }
-                            .padding(horizontal = 16.dp, vertical = 11.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = title,
-                                color = colors.textPrimary,
-                                fontSize = 15.sp,
-                                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
-                            )
-                            Text(text = desc, color = colors.textSecondary, fontSize = 12.sp)
-                        }
-                        if (selected) {
-                            Icon(
-                                imageVector = Icons.Default.Check,
-                                contentDescription = null,
-                                tint = if (key == "strict") colors.accentIndigo else Color(0xFFFF9F0A),
-                                modifier = Modifier.size(18.dp)
-                            )
                         }
                     }
-                }
-                HorizontalDivider(thickness = 0.5.dp, color = colors.border)
+                )
+                HorizontalDivider(color = colors.separator.copy(alpha = 0.4f), thickness = 0.5.dp)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()

@@ -381,7 +381,7 @@ private fun PullRequestsSection(prs: List<GitPullRequestItem>) {
         prs.forEach { pr ->
             val stateUpper = pr.state.uppercase()
             val stateColor = when (stateUpper) {
-                "MERGED" -> Color(0xFFAB47BC)
+                "MERGED" -> colors.accentBlue
                 "DRAFT" -> colors.textSecondary
                 "CLOSED" -> Color(0xFFEF5350)
                 else -> Color(0xFF4CAF50)

@@ -76,13 +76,13 @@ import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.roundToInt
 
-private data class WorkflowIconOption(
+internal data class WorkflowIconOption(
     val key: String,
     val pathData: String,
     val label: String
 )
 
-private data class WorkflowColorOption(
+internal data class WorkflowColorOption(
     val key: String,
     val label: String
 )
@@ -90,7 +90,7 @@ private data class WorkflowColorOption(
 /**
  * 统一自绘 24×24 矢量图标路径（与 iOS / Web 端像素级对齐，替代 star 为 Xcode 编译锤子，Bug 对齐昆虫甲虫）。
  */
-private object WorkflowStyleCatalog {
+internal object WorkflowStyleCatalog {
     val icons = listOf(
         WorkflowIconOption(
             "workflow",
@@ -206,7 +206,7 @@ private object WorkflowStyleCatalog {
 }
 
 @Composable
-private fun WorkflowVectorIcon(
+internal fun WorkflowVectorIcon(
     iconKey: String,
     tint: Color,
     size: Dp = 20.dp,
