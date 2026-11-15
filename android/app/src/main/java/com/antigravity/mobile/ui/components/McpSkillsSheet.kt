@@ -94,6 +94,7 @@ fun McpSkillsSheet(
     var memories by remember { mutableStateOf<List<MemoryRuleItem>>(emptyList()) }
     var showMemoriesPanel by remember { mutableStateOf(false) }
     var editingMemory by remember { mutableStateOf<MemoryRuleItem?>(null) }
+    var pendingDeleteMemory by remember { mutableStateOf<MemoryRuleItem?>(null) }
     var showNewAutomationDialog by remember { mutableStateOf(false) }
     var isRefreshingMcp by remember { mutableStateOf(false) }
 
@@ -633,12 +634,7 @@ fun McpSkillsSheet(
                                             }
                                             if (!mem.readOnly) {
                                                 IconButton(
-                                                    onClick = {
-                                                        scope.launch {
-                                                            apiClient.deleteMemory(mem.path)
-                                                            apiClient.fetchMemories().onSuccess { memories = it }
-                                                        }
-                                                    },
+                                                    onClick = { pendingDeleteMemory = mem },
                                                     modifier = Modifier.size(28.dp)
                                                 ) {
                                                     Icon(Icons.Default.Delete, contentDescription = "删除记忆", tint = Color(0xFFF44336), modifier = Modifier.size(16.dp))
@@ -1379,6 +1375,35 @@ fun McpSkillsSheet(
             },
             dismissButton = {
                 TextButton(onClick = { editingMemory = null }) { Text("关闭") }
+            },
+            containerColor = colors.surface
+        )
+    }
+
+    pendingDeleteMemory?.let { targetMem ->
+        AlertDialog(
+            onDismissRequest = { pendingDeleteMemory = null },
+            title = { Text("确认删除记忆条目？", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) },
+            text = {
+                Text(
+                    text = "确定要删除「${targetMem.title.ifBlank { targetMem.id }}」吗？这会移除对应的本地规则/记忆文件（并在 ~/.gemini/backups/deleted_memories 保留备份）。",
+                    fontSize = 13.5.sp,
+                    color = colors.textSecondary
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        pendingDeleteMemory = null
+                        scope.launch {
+                            apiClient.deleteMemory(targetMem.path)
+                            apiClient.fetchMemories().onSuccess { memories = it }
+                        }
+                    }
+                ) { Text("删除", color = Color(0xFFF44336)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDeleteMemory = null }) { Text("取消") }
             },
             containerColor = colors.surface
         )
