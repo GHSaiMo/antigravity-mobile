@@ -108,30 +108,55 @@ func TestHandleGetPluginsNormalisesAuthProviders(t *testing.T) {
 			name: "antigravity 2.28.1 shape plugin/provider/connected",
 			upstream: `{"providers":[
 				{"plugin":"gdocs","provider":"google","type":"oauth2","connected":true},
-				{"plugin":"gdrive","provider":"google","type":"oauth2"}
+				{"plugin":"gdrive","provider":"google","type":"oauth2"},
+				{"plugin":"canva","provider":"canva","type":"oauth2","connected":true}
 			]}`,
-			wantCount:    2,
-			wantNames:    map[string]string{"gdocs:google": "gdocs", "gdrive:google": "gdrive"},
-			wantSignedIn: map[string]bool{"gdocs:google": true, "gdrive:google": false},
+			wantCount: 3,
+			wantNames: map[string]string{
+				"gdocs:google":  "gdocs (google)",
+				"gdrive:google": "gdrive (google)",
+				"canva":         "canva",
+			},
+			wantSignedIn: map[string]bool{
+				"gdocs:google":  true,
+				"gdrive:google": false,
+				"canva":         true,
+			},
 		},
 		{
-			name: "duplicate upstream entries still get unique ids",
+			name: "duplicate upstream entries and secondary suffix collisions still get unique ids",
 			upstream: `{"providers":[
-				{"plugin":"gdocs","provider":"google","connected":true},
-				{"plugin":"gdocs","provider":"google","connected":true}
+				{"plugin":"foo"},
+				{"plugin":"foo-2"},
+				{"plugin":"foo"},
+				{"id":"provider-4"},
+				{}
 			]}`,
-			wantCount: 2,
+			wantCount: 5,
+			wantNames: map[string]string{
+				"foo":          "foo",
+				"foo-2":        "foo-2",
+				"foo-3":        "foo",
+				"provider-4":   "provider-4",
+				"provider-4-2": "provider-4-2",
+			},
 		},
 		{
-			name:      "fully empty provider objects still get non-empty unique ids",
+			name:      "fully empty provider objects still get non-empty unique ids and names",
 			upstream:  `{"providers":[{},{},{}]}`,
 			wantCount: 3,
+			wantNames: map[string]string{
+				"provider-0": "provider-0",
+				"provider-1": "provider-1",
+				"provider-2": "provider-2",
+			},
 		},
 		{
-			name:      "legacy id/name/signedIn shape keeps working",
-			upstream:  `{"providers":[{"id":"legacy","name":"Legacy","signedIn":true}]}`,
-			wantCount: 1,
-			wantNames: map[string]string{"legacy:Legacy": "legacy"},
+			name:         "legacy id/name/signedIn shape preserves id and human-readable name",
+			upstream:     `{"providers":[{"id":"legacy","name":"Legacy","signedIn":true}]}`,
+			wantCount:    1,
+			wantNames:    map[string]string{"legacy": "Legacy"},
+			wantSignedIn: map[string]bool{"legacy": true},
 		},
 	}
 
@@ -170,6 +195,9 @@ func TestHandleGetPluginsNormalisesAuthProviders(t *testing.T) {
 			for _, pv := range resp.Providers {
 				if strings.TrimSpace(pv.ID) == "" {
 					t.Fatalf("provider id must not be empty: %+v", resp.Providers)
+				}
+				if strings.TrimSpace(pv.Name) == "" {
+					t.Fatalf("provider name must not be empty (would render blank row on iOS): %+v", resp.Providers)
 				}
 				if seen[pv.ID] {
 					t.Fatalf("duplicate provider id %q would crash the Android list: %+v", pv.ID, resp.Providers)

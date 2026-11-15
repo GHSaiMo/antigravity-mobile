@@ -301,11 +301,69 @@ public struct PluginAuthProviderItem: Codable, Sendable, Identifiable, Equatable
     public let name: String
     public let signedIn: Bool
 
+    enum CodingKeys: String, CodingKey {
+        case id, name, signedIn
+    }
+
+    private enum FallbackKeys: String, CodingKey {
+        case displayName, plugin, pluginId, pluginName, provider, connected
+    }
+
+    public init(id: String, name: String, signedIn: Bool) {
+        self.id = id
+        self.name = name
+        self.signedIn = signedIn
+    }
+
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        self.id = try c.decodeIfPresent(String.self, forKey: .id) ?? ""
-        self.name = try c.decodeIfPresent(String.self, forKey: .name) ?? self.id
-        self.signedIn = try c.decodeIfPresent(Bool.self, forKey: .signedIn) ?? false
+        let extra = try decoder.container(keyedBy: FallbackKeys.self)
+
+        let rawId = (try c.decodeIfPresent(String.self, forKey: .id) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let rawName = (try c.decodeIfPresent(String.self, forKey: .name) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let displayName = (try extra.decodeIfPresent(String.self, forKey: .displayName) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let plugin = (try extra.decodeIfPresent(String.self, forKey: .plugin) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let pluginId = (try extra.decodeIfPresent(String.self, forKey: .pluginId) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let pluginName = (try extra.decodeIfPresent(String.self, forKey: .pluginName) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let provider = (try extra.decodeIfPresent(String.self, forKey: .provider) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let effectivePlugin = !plugin.isEmpty ? plugin : pluginId
+        let resolvedId: String
+        if !rawId.isEmpty {
+            resolvedId = rawId
+        } else if !effectivePlugin.isEmpty && !provider.isEmpty && effectivePlugin.caseInsensitiveCompare(provider) != .orderedSame {
+            resolvedId = "\(effectivePlugin):\(provider)"
+        } else if !effectivePlugin.isEmpty {
+            resolvedId = effectivePlugin
+        } else if !provider.isEmpty {
+            resolvedId = provider
+        } else if !rawName.isEmpty {
+            resolvedId = rawName
+        } else if !displayName.isEmpty {
+            resolvedId = displayName
+        } else {
+            resolvedId = UUID().uuidString
+        }
+        self.id = resolvedId
+
+        let pluginLabel = !pluginName.isEmpty ? pluginName : effectivePlugin
+        if !rawName.isEmpty {
+            self.name = rawName
+        } else if !displayName.isEmpty {
+            self.name = displayName
+        } else if !pluginLabel.isEmpty && !provider.isEmpty && pluginLabel.caseInsensitiveCompare(provider) != .orderedSame {
+            self.name = "\(pluginLabel) (\(provider))"
+        } else if !pluginLabel.isEmpty {
+            self.name = pluginLabel
+        } else if !provider.isEmpty {
+            self.name = provider
+        } else {
+            self.name = resolvedId
+        }
+
+        let signed = try c.decodeIfPresent(Bool.self, forKey: .signedIn)
+        let connected = try extra.decodeIfPresent(Bool.self, forKey: .connected)
+        self.signedIn = (signed == true) || (connected == true)
     }
 }
 
@@ -316,7 +374,20 @@ public struct CascadePluginsResponse: Codable, Sendable {
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         self.plugins = try c.decodeIfPresent([CascadePluginItem].self, forKey: .plugins) ?? []
-        self.providers = try c.decodeIfPresent([PluginAuthProviderItem].self, forKey: .providers) ?? []
+        let rawProviders = try c.decodeIfPresent([PluginAuthProviderItem].self, forKey: .providers) ?? []
+        var seenIds = Set<String>()
+        self.providers = rawProviders.map { item in
+            var candidate = item.id
+            if seenIds.contains(candidate) {
+                var n = 2
+                while seenIds.contains("\(item.id)-\(n)") {
+                    n += 1
+                }
+                candidate = "\(item.id)-\(n)"
+            }
+            seenIds.insert(candidate)
+            return candidate == item.id ? item : PluginAuthProviderItem(id: candidate, name: item.name, signedIn: item.signedIn)
+        }
     }
 }
 

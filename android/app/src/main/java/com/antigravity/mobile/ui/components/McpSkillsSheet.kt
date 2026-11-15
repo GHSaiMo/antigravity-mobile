@@ -7,6 +7,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -713,7 +714,7 @@ fun McpSkillsSheet(
                                     modifier = Modifier.padding(top = 2.dp, bottom = 2.dp)
                                 )
                             }
-                            items(pluginProviders, key = { "prov_${it.id}_${it.name}" }) { prov ->
+                            itemsIndexed(pluginProviders, key = { index, it -> "prov_${index}_${it.id}_${it.name}" }) { _, prov ->
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -750,7 +751,7 @@ fun McpSkillsSheet(
                                     modifier = Modifier.padding(top = 6.dp, bottom = 2.dp)
                                 )
                             }
-                            items(filteredPlugins, key = { it.effectiveId }) { plugin ->
+                            itemsIndexed(filteredPlugins, key = { index, it -> "plugin_${index}_${it.effectiveId}" }) { _, plugin ->
                                 val pid = plugin.effectiveId
                                 val isSwarmPlugin = pid.equals("swarm", ignoreCase = true) || plugin.name.equals("swarm", ignoreCase = true)
                                 PluginCard(
