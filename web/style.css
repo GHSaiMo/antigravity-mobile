@@ -28,6 +28,18 @@
   --code-bg: rgba(229, 192, 123, 0.12);
   --code-border: rgba(229, 192, 123, 0.22);
 
+  /* Code Syntax Highlighting Palette - Dark (Xcode/OneDark inspired) */
+  --tok-kw: #ff7ab2;
+  --tok-str: #fc6a5d;
+  --tok-cmt: #7f8c98;
+  --tok-num: #d0bf69;
+  --tok-type: #6bdfff;
+  --tok-fn: #67b7a4;
+  --tok-attr: #a167e6;
+  --tok-meta: #fd8f3f;
+  --tok-diff-add: #30d158;
+  --tok-diff-del: #ff453a;
+
   --user-bubble-bg: var(--ios-indigo);
   --user-bubble-text: #ffffff;
   --agent-bubble-bg: var(--ios-secondary-bg);
@@ -67,6 +79,18 @@
     --code-fg: #92400e;
     --code-bg: rgba(180, 83, 9, 0.08);
     --code-border: rgba(180, 83, 9, 0.18);
+
+    /* Code Syntax Highlighting Palette - Light (Xcode Light inspired) */
+    --tok-kw: #ad3da4;
+    --tok-str: #c41a16;
+    --tok-cmt: #6c7986;
+    --tok-num: #1c00cf;
+    --tok-type: #0b4f79;
+    --tok-fn: #326d74;
+    --tok-attr: #6f42c1;
+    --tok-meta: #8250df;
+    --tok-diff-add: #1a7f37;
+    --tok-diff-del: #cf222e;
 
     --user-bubble-bg: var(--ios-indigo);
     --user-bubble-text: #ffffff;
@@ -1221,6 +1245,31 @@ code.inline-code, .markdown-body code:not(.code-block-pre code) {
   background: none;
   padding: 0;
   border: none;
+}
+
+.code-block-pre .tok-kw { color: var(--tok-kw); font-weight: 500; }
+.code-block-pre .tok-str { color: var(--tok-str); }
+.code-block-pre .tok-cmt { color: var(--tok-cmt); font-style: italic; }
+.code-block-pre .tok-num { color: var(--tok-num); }
+.code-block-pre .tok-type { color: var(--tok-type); }
+.code-block-pre .tok-fn { color: var(--tok-fn); }
+.code-block-pre .tok-attr { color: var(--tok-attr); }
+.code-block-pre .tok-meta { color: var(--tok-meta); }
+.code-block-pre .tok-diff-add { color: var(--tok-diff-add); background: rgba(48, 209, 88, 0.10); display: inline-block; width: 100%; }
+.code-block-pre .tok-diff-del { color: var(--tok-diff-del); background: rgba(255, 69, 58, 0.10); display: inline-block; width: 100%; }
+
+.math-display-block {
+  margin: 10px 0;
+  padding: 10px 14px;
+  background-color: var(--ios-tertiary-bg);
+  border-left: 3px solid var(--ios-indigo);
+  border-radius: 8px;
+  font-family: "STIX Two Math", "Cambria Math", "Apple Symbols", ui-serif, Georgia, serif;
+  font-size: 15px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-x: auto;
+  color: var(--ios-label);
 }
 
 /* Agent Embed Card (Generative UI Interactive Card) */

@@ -238,6 +238,7 @@ let listEventsReconnectTimer = null;
 let listEventsRefreshTimer = null;
 let listEventsAttempts = 0;
 let listEventsHadConnection = false;
+let listEventsLastRev = null;
 let listEventsSeq = 0;
 
 // ---- Connection heartbeat (gateway "beat" frames every 5s) -> dot in the home quota bar ----
@@ -358,12 +359,17 @@ async function connectListEvents() {
 
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
   let wsUrl = `${proto}//${location.host}/gateway/events`;
+  if (listEventsLastRev !== null) {
+    wsUrl += `?sinceRev=${encodeURIComponent(String(listEventsLastRev))}`;
+  }
   try {
     // Same one-time ticket exchange as the cascade stream: no long-lived token in the URL.
     const resp = await originalFetch("/api/v1/auth/ws-ticket", { method: "POST" });
     if (resp.ok) {
       const data = await resp.json();
-      if (data && data.ticket) wsUrl += `?ticket=${encodeURIComponent(data.ticket)}`;
+      if (data && data.ticket) {
+        wsUrl += `${wsUrl.includes("?") ? "&" : "?"}ticket=${encodeURIComponent(data.ticket)}`;
+      }
     }
   } catch (_) {}
   // The route may have changed or another connectListEvents superseded us while the ticket was in flight.
@@ -391,11 +397,14 @@ async function connectListEvents() {
         renderLinkHealth();
         pulseLinkDot();
       }
+      if (typeof frame.rev === "number") {
+        listEventsLastRev = frame.rev;
+      }
       if (frame.type === "changed") {
         scheduleListRefresh();
       } else if (frame.type === "hello") {
-        // After a reconnect we may have missed changes; the first connect already has fresh data.
-        if (listEventsHadConnection) scheduleListRefresh();
+        // Skip full HTTP list refetch when gateway confirms revision did not change while disconnected.
+        if (listEventsHadConnection && !frame.unchanged) scheduleListRefresh();
         listEventsHadConnection = true;
       }
     };
