@@ -11,6 +11,10 @@ public struct NewConversationSheet: View {
     @State private var errorMessage: String? = nil
     @State private var editingAliasProject: ProjectItem? = nil
     @State private var aliasInputText: String = ""
+    @State private var showCloneAlert: Bool = false
+    @State private var cloneRepoSlug: String = ""
+    @State private var isCloning: Bool = false
+    @State private var isCreatingWorktree: Bool = false
     
     public init(
         onSelectProject: ((ProjectItem) -> Void)? = nil,
@@ -89,9 +93,40 @@ public struct NewConversationSheet: View {
             }
             .navigationTitle("新建会话")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showCloneAlert = true
+                    } label: {
+                        if isCloning || isCreatingWorktree {
+                            ProgressView()
+                                .scaleEffect(0.8)
+                        } else {
+                            Image(systemName: "arrow.down.circle")
+                                .font(.system(size: 16, weight: .medium))
+                        }
+                    }
+                    .disabled(isCloning || isCreatingWorktree)
+                    .accessibilityLabel("克隆 GitHub 仓库")
+                }
+            }
             .presentationDragIndicator(.visible)
         }
         .presentationDragIndicator(.visible)
+        .alert("从 GitHub 克隆仓库", isPresented: $showCloneAlert) {
+            TextField("owner/repo 或 HTTPS URL", text: $cloneRepoSlug)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+            Button("取消", role: .cancel) { cloneRepoSlug = "" }
+            Button("克隆并开启会话") {
+                let slug = cloneRepoSlug.trimmingCharacters(in: .whitespacesAndNewlines)
+                cloneRepoSlug = ""
+                guard !slug.isEmpty else { return }
+                startCloneRepo(slug: slug)
+            }
+        } message: {
+            Text("克隆完成后将在新工作区中自动发起会话。")
+        }
         .task {
             await refreshProjectsInBackground()
         }
@@ -222,17 +257,81 @@ public struct NewConversationSheet: View {
             .onTapGesture {
                 selectProject(for: project)
             }
-            .onLongPressGesture(minimumDuration: 0.5) {
-                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                aliasInputText = project.alias ?? ""
-                editingAliasProject = project
+            .contextMenu {
+                Button {
+                    startWorktreeSession(for: project)
+                } label: {
+                    Label("在独立 Worktree 开启会话", systemImage: "arrow.triangle.branch")
+                }
+
+                Button {
+                    aliasInputText = project.alias ?? AppSettings.shared.workspaceNote(for: project.path.isEmpty ? project.uri : project.path)
+                    editingAliasProject = project
+                } label: {
+                    Label("设置工作区备注", systemImage: "pencil")
+                }
             }
+    }
+
+    private func startWorktreeSession(for project: ProjectItem) {
+        guard let url = AppSettings.shared.gatewayURL, !isCreatingWorktree else { return }
+        let wsPath = project.path.isEmpty ? project.uri : project.path
+        let repoUri = project.uri.isEmpty ? (wsPath.hasPrefix("/") ? "file://\(wsPath)" : wsPath) : project.uri
+        isCreatingWorktree = true
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        Task {
+            defer { isCreatingWorktree = false }
+            do {
+                let resp = try await APIClient.shared.createWorktreeSession(
+                    repoUri: repoUri,
+                    workspacePath: wsPath,
+                    startSession: true,
+                    baseURL: url
+                )
+                if let cid = resp.cascadeId, !cid.isEmpty {
+                    dismiss()
+                    NotificationCenter.default.post(name: .openConversationById, object: cid)
+                } else if let err = resp.error, !err.isEmpty {
+                    errorMessage = err
+                } else {
+                    await refreshProjectsInBackground()
+                }
+            } catch {
+                errorMessage = "创建 Worktree 失败: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    private func startCloneRepo(slug: String) {
+        guard let url = AppSettings.shared.gatewayURL, !isCloning else { return }
+        isCloning = true
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        Task {
+            defer { isCloning = false }
+            do {
+                let resp = try await APIClient.shared.cloneGitHubRepo(
+                    repoSlug: slug,
+                    startSession: true,
+                    baseURL: url
+                )
+                await refreshProjectsInBackground()
+                if let cid = resp.cascadeId, !cid.isEmpty {
+                    dismiss()
+                    NotificationCenter.default.post(name: .openConversationById, object: cid)
+                } else if let err = resp.error, !err.isEmpty {
+                    errorMessage = err
+                }
+            } catch {
+                errorMessage = "克隆仓库失败: \(error.localizedDescription)"
+            }
+        }
     }
     
     private func saveAlias(_ text: String, for project: ProjectItem) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         let newAlias: String? = trimmed.isEmpty ? nil : trimmed
         let targetPath = project.path.isEmpty ? project.uri : project.path
+        AppSettings.shared.setWorkspaceNote(trimmed, for: targetPath)
         
         // Optimistic local update + cache
         projects = projects.map { item in

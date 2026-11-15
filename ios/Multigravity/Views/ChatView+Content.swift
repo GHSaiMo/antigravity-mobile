@@ -476,6 +476,14 @@ extension ChatView {
                 onSelectSubagent: { sa in
                     selectedSubagentDetail = sa
                 },
+                onFork: { target in
+                    if let stepIdx = target.effectiveStepIndex {
+                        Task { await viewModel.forkConversation(at: stepIdx, createWorktree: false) }
+                    }
+                },
+                onNarrate: { text in
+                    narrationPlayer.play(text: text, baseURL: AppSettings.shared.gatewayURL)
+                },
                 shareContext: shareCtx
             )
         }

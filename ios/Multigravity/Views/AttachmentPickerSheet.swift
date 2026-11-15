@@ -164,6 +164,7 @@ struct AttachmentPickerSheet: View {
     let onOpenCamera: () -> Void
     let onOpenDocumentScanner: () -> Void
     let onFilesPicked: ([URL]) -> Void
+    var onOpenMentions: (() -> Void)? = nil
     
     @Environment(\.dismiss) private var dismiss
     @StateObject private var photos = RecentPhotosModel()
@@ -203,6 +204,9 @@ struct AttachmentPickerSheet: View {
                     limitedBanner
                 }
                 LazyVGrid(columns: columns, spacing: 6) {
+                    if onOpenMentions != nil {
+                        mentionTile
+                    }
                     fileTile
                     recordAudioTile
                     if VNDocumentCameraViewController.isSupported {
@@ -265,6 +269,28 @@ struct AttachmentPickerSheet: View {
         .padding(.top, 4)
     }
     
+    private var mentionTile: some View {
+        Button {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            dismiss()
+            onOpenMentions?()
+        } label: {
+            VStack(spacing: 4) {
+                Image(systemName: "at")
+                    .font(.system(size: 26, weight: .regular))
+                    .frame(height: 32)
+                Text("引用")
+                    .font(.system(size: 13, weight: .medium))
+            }
+            .foregroundColor(.indigo)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color(uiColor: .secondarySystemBackground))
+            .aspectRatio(1, contentMode: .fit)
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+        .buttonStyle(.plain)
+    }
+
     private var fileTile: some View {
         Button {
             UIImpactFeedbackGenerator(style: .light).impactOccurred()

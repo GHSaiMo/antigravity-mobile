@@ -28,6 +28,22 @@ public struct McpSkillsSheet: View {
     @State private var loadingLogTaskIds: Set<String> = []
     @State private var stoppingTaskIds: Set<String> = []
     @State private var copiedTaskId: String? = nil
+
+    // Phase 3 State (MCP toggle/refresh, Agent Memories CRUD, Automation CRUD)
+    @State private var togglingMcpNames: Set<String> = []
+    @State private var isRefreshingMcp: Bool = false
+    @State private var memories: [MemoryRuleItem] = []
+    @State private var showMemoryEditor: Bool = false
+    @State private var editingMemory: MemoryRuleItem? = nil
+    @State private var memScope: String = "memory"
+    @State private var memTitle: String = ""
+    @State private var memContent: String = ""
+    @State private var isSavingMemory: Bool = false
+    @State private var showCreateAutomation: Bool = false
+    @State private var newAutoName: String = ""
+    @State private var newAutoSchedule: String = "0 9 * * *"
+    @State private var newAutoPrompt: String = ""
+    @State private var isCreatingAutomation: Bool = false
     
     private let currentConversationId: String?
     private let hasActiveSwarm: Bool
@@ -111,8 +127,49 @@ public struct McpSkillsSheet: View {
             }
             .navigationTitle("工具与任务看板")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    if selectedTab == .mcp {
+                        Button {
+                            refreshAllMcp()
+                        } label: {
+                            if isRefreshingMcp {
+                                ProgressView().scaleEffect(0.8)
+                            } else {
+                                Image(systemName: "arrow.clockwise")
+                            }
+                        }
+                        .disabled(isRefreshingMcp)
+                    } else if selectedTab == .skills {
+                        Button {
+                            editingMemory = nil
+                            memScope = "memory"
+                            memTitle = ""
+                            memContent = ""
+                            showMemoryEditor = true
+                        } label: {
+                            Label("新建记忆", systemImage: "plus")
+                        }
+                    } else if selectedTab == .automations {
+                        Button {
+                            newAutoName = ""
+                            newAutoSchedule = "0 9 * * *"
+                            newAutoPrompt = ""
+                            showCreateAutomation = true
+                        } label: {
+                            Label("新建定时任务", systemImage: "plus")
+                        }
+                    }
+                }
+            }
             .sheet(item: $viewingSkill) { skill in
                 skillDetailSheet(skill)
+            }
+            .sheet(isPresented: $showMemoryEditor) {
+                memoryEditorSheet
+            }
+            .sheet(isPresented: $showCreateAutomation) {
+                createAutomationSheet
             }
             .task {
                 await loadData()
@@ -196,6 +253,16 @@ public struct McpSkillsSheet: View {
                             .padding(.vertical, 3)
                             .background(server.isReady ? Color.green.opacity(0.1) : Color.orange.opacity(0.1))
                             .clipShape(Capsule())
+
+                            Toggle("", isOn: Binding(
+                                get: { server.spec.disabled != true },
+                                set: { nextEnabled in
+                                    toggleMcp(server.spec.serverName, enabled: nextEnabled)
+                                }
+                            ))
+                            .labelsHidden()
+                            .scaleEffect(0.85)
+                            .disabled(togglingMcpNames.contains(server.spec.serverName))
                         }
                         
                         if let instructions = server.instructions, !instructions.isEmpty {
@@ -380,6 +447,69 @@ public struct McpSkillsSheet: View {
     
     @ViewBuilder
     private var skillsSection: some View {
+        Section {
+            HStack {
+                Label("Agent 记忆与规则库 (\(memories.count))", systemImage: "brain.head.profile")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(.indigo)
+                Spacer()
+                Button("+ 添加") {
+                    editingMemory = nil
+                    memScope = "memory"
+                    memTitle = ""
+                    memContent = ""
+                    showMemoryEditor = true
+                }
+                .font(.system(size: 12.5, weight: .semibold))
+                .buttonStyle(.bordered)
+                .tint(.indigo)
+            }
+            if memories.isEmpty {
+                Text("暂无全局或记忆条目，可点击右上角添加")
+                    .font(.system(size: 12.5))
+                    .foregroundColor(.secondary)
+            } else {
+                ForEach(memories) { item in
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: 6) {
+                            Text(item.scope)
+                                .font(.system(size: 10, weight: .semibold))
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 2)
+                                .background(Color.indigo.opacity(0.12))
+                                .foregroundColor(.indigo)
+                                .clipShape(Capsule())
+                            Text(item.title)
+                                .font(.system(size: 13.5, weight: .semibold))
+                                .lineLimit(1)
+                            Spacer()
+                            if !item.isReadOnly {
+                                Button("编辑") {
+                                    editingMemory = item
+                                    memScope = item.scope
+                                    memTitle = item.title
+                                    memContent = item.content
+                                    showMemoryEditor = true
+                                }
+                                .font(.system(size: 11.5))
+                                Button("删除", role: .destructive) {
+                                    deleteMemoryItem(item)
+                                }
+                                .font(.system(size: 11.5))
+                            }
+                        }
+                        if !item.content.isEmpty {
+                            Text(item.content)
+                                .font(.system(size: 12))
+                                .foregroundColor(.secondary)
+                                .lineLimit(3)
+                        }
+                    }
+                    .padding(.vertical, 3)
+                }
+            }
+        }
+
         if filteredSkills.isEmpty {
             Section {
                 VStack(spacing: 8) {
@@ -658,6 +788,19 @@ public struct McpSkillsSheet: View {
 
     @ViewBuilder
     private var automationsSection: some View {
+        Section {
+            Button {
+                newAutoName = ""
+                newAutoSchedule = "0 9 * * *"
+                newAutoPrompt = ""
+                showCreateAutomation = true
+            } label: {
+                Label("新建定时任务", systemImage: "plus.circle.fill")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(.indigo)
+            }
+        }
+
         if filteredAutomations.isEmpty && automationEvents.isEmpty {
             Section {
                 VStack(spacing: 8) {
@@ -708,6 +851,15 @@ public struct McpSkillsSheet: View {
                                         Text(sidecar.isRunning ? "停止" : "启动")
                                             .font(.system(size: 12, weight: .semibold))
                                     }
+                                }
+                                .buttonStyle(.bordered)
+                                .disabled(managingAutomationNames.contains(sidecar.id))
+
+                                Button(role: .destructive) {
+                                    deleteAutomationItem(sidecar)
+                                } label: {
+                                    Image(systemName: "trash")
+                                        .font(.system(size: 12))
                                 }
                                 .buttonStyle(.bordered)
                                 .disabled(managingAutomationNames.contains(sidecar.id))
@@ -1208,8 +1360,9 @@ public struct McpSkillsSheet: View {
         async let fetchSkills = try? APIClient.shared.fetchAllSkills(baseURL: url)
         async let fetchPlugins = try? APIClient.shared.fetchPlugins(baseURL: url)
         async let fetchAutomations = try? APIClient.shared.fetchAutomations(baseURL: url)
+        async let fetchMemories = try? APIClient.shared.fetchMemories(baseURL: url)
         
-        let (tasksResult, mcpResult, skillsResult, pluginsResult, automationsResult) = await (fetchTasks, fetchMcp, fetchSkills, fetchPlugins, fetchAutomations)
+        let (tasksResult, mcpResult, skillsResult, pluginsResult, automationsResult, memoriesResult) = await (fetchTasks, fetchMcp, fetchSkills, fetchPlugins, fetchAutomations, fetchMemories)
         
         if let tasksResult {
             self.backgroundTasks = tasksResult
@@ -1230,6 +1383,9 @@ public struct McpSkillsSheet: View {
         if let automationsResult {
             self.automations = automationsResult.automations
             self.automationEvents = automationsResult.events
+        }
+        if let memoriesResult {
+            self.memories = memoriesResult
         }
         
         if mcpResult == nil && skillsResult == nil && mcpServers.isEmpty && skills.isEmpty {
@@ -1314,5 +1470,164 @@ public struct McpSkillsSheet: View {
                 content: isZH ? "# Swift Concurrency Audit\n检查 @MainActor 隔离、Sendable 合规性与取消传递" : "# Swift Concurrency Audit\nVerify @MainActor isolation, Sendable conformance, and task cancellation."
             )
         ]
+    }
+
+    // MARK: - Phase 3 Helpers & Sheets
+
+    private func toggleMcp(_ name: String, enabled: Bool) {
+        guard let url = settings.gatewayURL else { return }
+        togglingMcpNames.insert(name)
+        Task {
+            defer { togglingMcpNames.remove(name) }
+            try? await APIClient.shared.toggleMcpServer(serverName: name, enabled: enabled, baseURL: url)
+            if let refreshed = try? await APIClient.shared.fetchMcpServerStates(baseURL: url) {
+                self.mcpServers = refreshed
+                CacheManager.shared.saveMcpServers(refreshed)
+            }
+        }
+    }
+
+    private func refreshAllMcp() {
+        guard let url = settings.gatewayURL else { return }
+        isRefreshingMcp = true
+        Task {
+            defer { isRefreshingMcp = false }
+            try? await APIClient.shared.refreshMcpServers(baseURL: url)
+            if let refreshed = try? await APIClient.shared.fetchMcpServerStates(baseURL: url) {
+                self.mcpServers = refreshed
+                CacheManager.shared.saveMcpServers(refreshed)
+            }
+        }
+    }
+
+    private func deleteMemoryItem(_ item: MemoryRuleItem) {
+        guard let url = settings.gatewayURL else { return }
+        Task {
+            if let updated = try? await APIClient.shared.deleteMemory(path: item.path, baseURL: url) {
+                memories = updated
+            }
+        }
+    }
+
+    private func saveMemoryEditor() {
+        guard let url = settings.gatewayURL else { return }
+        let title = memTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        let content = memContent.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty, !content.isEmpty else { return }
+        isSavingMemory = true
+        Task {
+            defer { isSavingMemory = false }
+            if let updated = try? await APIClient.shared.upsertMemory(
+                scope: memScope,
+                title: title,
+                content: content,
+                path: editingMemory?.path,
+                baseURL: url
+            ) {
+                memories = updated
+                showMemoryEditor = false
+            }
+        }
+    }
+
+    private func deleteAutomationItem(_ item: AutomationSidecarItem) {
+        guard let url = settings.gatewayURL else { return }
+        managingAutomationNames.insert(item.id)
+        Task {
+            defer { managingAutomationNames.remove(item.id) }
+            try? await APIClient.shared.deleteAutomation(name: item.name, baseURL: url)
+            if let refreshed = try? await APIClient.shared.fetchAutomations(baseURL: url) {
+                automations = refreshed.automations
+                automationEvents = refreshed.events
+            }
+        }
+    }
+
+    private func submitCreateAutomation() {
+        guard let url = settings.gatewayURL else { return }
+        let name = newAutoName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let schedule = newAutoSchedule.trimmingCharacters(in: .whitespacesAndNewlines)
+        let prompt = newAutoPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, !schedule.isEmpty, !prompt.isEmpty else { return }
+        isCreatingAutomation = true
+        Task {
+            defer { isCreatingAutomation = false }
+            try? await APIClient.shared.createAutomation(name: name, schedule: schedule, prompt: prompt, baseURL: url)
+            if let refreshed = try? await APIClient.shared.fetchAutomations(baseURL: url) {
+                automations = refreshed.automations
+                automationEvents = refreshed.events
+            }
+            showCreateAutomation = false
+        }
+    }
+
+    private var memoryEditorSheet: some View {
+        NavigationStack {
+            Form {
+                if editingMemory == nil {
+                    Picker("作用域", selection: $memScope) {
+                        Text("Agent 记忆").tag("memory")
+                        Text("全局规则").tag("global")
+                    }
+                }
+                Section("标题") {
+                    TextField("规则或记忆标题", text: $memTitle)
+                }
+                Section("内容") {
+                    TextEditor(text: $memContent)
+                        .frame(minHeight: 160)
+                }
+            }
+            .navigationTitle(editingMemory == nil ? "新建记忆条目" : "编辑记忆条目")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") { showMemoryEditor = false }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(isSavingMemory ? "保存中..." : "保存") {
+                        saveMemoryEditor()
+                    }
+                    .disabled(isSavingMemory || memTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || memContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+
+    private var createAutomationSheet: some View {
+        NavigationStack {
+            Form {
+                Section("任务名称") {
+                    TextField("例如：daily-digest", text: $newAutoName)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                }
+                Section("Cron 调度表达式") {
+                    TextField("0 9 * * *", text: $newAutoSchedule)
+                        .font(.system(size: 14, design: .monospaced))
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                }
+                Section("触发指令") {
+                    TextEditor(text: $newAutoPrompt)
+                        .frame(minHeight: 140)
+                }
+            }
+            .navigationTitle("新建定时任务")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") { showCreateAutomation = false }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(isCreatingAutomation ? "创建中..." : "创建") {
+                        submitCreateAutomation()
+                    }
+                    .disabled(isCreatingAutomation || newAutoName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || newAutoSchedule.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || newAutoPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
     }
 }

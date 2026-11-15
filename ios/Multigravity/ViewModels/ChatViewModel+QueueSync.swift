@@ -295,7 +295,9 @@ extension ChatViewModel {
         let sendFiles = files ?? []
         let hasFiles = !sendFiles.isEmpty
         let hasSlash = !(slashCommand ?? "").isEmpty
-        guard (!text.isEmpty || hasImages || hasFiles || hasSlash), let url = settings.serverURL else { return false }
+        let currentContextItems = self.selectedContextItems
+        let hasContextItems = !currentContextItems.isEmpty
+        guard (!text.isEmpty || hasImages || hasFiles || hasSlash || hasContextItems), let url = settings.serverURL else { return false }
         // The gateway appends the attachment block to the text; mirror it locally so optimistic
         // bubbles and queued items match what the server will echo back.
         let bodyText = AttachmentRules.appendBlock(to: text, files: sendFiles)
@@ -352,6 +354,7 @@ extension ChatViewModel {
             triggerScrollToBottom()
             if customText == nil {
                 self.inputText = ""
+                self.selectedContextItems.removeAll()
                 cacheManager.clearDraft(key: draftKey)
             }
             
@@ -389,6 +392,7 @@ extension ChatViewModel {
                         clientMessageId: queueClientMsgId,
                         attachmentIds: attachmentIds,
                         slashCommand: slashCommand,
+                        contextItems: hasContextItems ? currentContextItems : nil,
                         baseURL: url
                     )
                 } catch {
@@ -429,6 +433,10 @@ extension ChatViewModel {
         self.hasError = false
         self.trajectoryErrorMessage = nil
         inputText = ""
+        if customText == nil {
+            self.selectedContextItems.removeAll()
+            self.suggestedResponses.removeAll()
+        }
         cacheManager.clearDraft(key: draftKey)
         errorMessage = nil
         
@@ -449,7 +457,7 @@ extension ChatViewModel {
                 let isPure = project.isPureChat
                 let pid = isPure ? "outside-of-project" : (project.rawId ?? (project.id != project.uri ? project.id : nil))
                 let wsUri = isPure ? "" : project.uri
-                let initialPrompt = (images == nil || images!.isEmpty) && !hasFiles && !hasSlash ? text : ""
+                let initialPrompt = (images == nil || images!.isEmpty) && !hasFiles && !hasSlash && !hasContextItems ? text : ""
                 let newCascadeId = try await apiClient.createCascade(
                     workspaceUri: wsUri,
                     prompt: initialPrompt,
@@ -506,7 +514,7 @@ extension ChatViewModel {
                     startPollingFallback()
                 }
                 
-                if (images?.isEmpty == false) || hasFiles || hasSlash {
+                if (images?.isEmpty == false) || hasFiles || hasSlash || hasContextItems {
                     try await apiClient.sendMessage(
                         cascadeId: newCascadeId,
                         text: text,
@@ -516,6 +524,7 @@ extension ChatViewModel {
                         clientMessageId: UUID().uuidString,
                         attachmentIds: attachmentIds,
                         slashCommand: slashCommand,
+                        contextItems: hasContextItems ? currentContextItems : nil,
                         baseURL: url
                     )
                 }
@@ -534,6 +543,7 @@ extension ChatViewModel {
                     clientMessageId: clientMessageId,
                     attachmentIds: attachmentIds,
                     slashCommand: slashCommand,
+                    contextItems: hasContextItems ? currentContextItems : nil,
                     baseURL: url
                 )
                 // Allow upstream 250ms to register task and update state before first eager sync

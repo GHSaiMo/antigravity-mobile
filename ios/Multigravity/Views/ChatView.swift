@@ -38,6 +38,8 @@ public struct ChatView: View {
     @State var queuedItemToSendNow: QueuedMessageItem? = nil
     @ObservedObject var audioRecorder = AudioRecorderManager.shared
     @ObservedObject var voiceCall = VoiceCallManager.shared
+    @State var dictationManager = AudioDictationManager()
+    @State var narrationPlayer = NarrationAudioPlayer()
     @State var showVoiceTroubleshootBubble = false
     @State var lastVoiceTroubleshootBubbleAt: Date = .distantPast
     @State var previewDraftGallery: ImageGalleryData? = nil
@@ -285,13 +287,45 @@ public struct ChatView: View {
             }
             
             ToolbarItem(placement: .topBarTrailing) {
-                Button(action: {
+                Menu {
+                    Section("权限放行模式 (\(viewModel.permissionState.label))") {
+                        Button {
+                            Task { await viewModel.updatePermissionPreset("strict") }
+                        } label: {
+                            Label("严格审批", systemImage: viewModel.permissionState.preset == "strict" ? "checkmark" : "lock.shield")
+                        }
+                        Button {
+                            Task { await viewModel.updatePermissionPreset("sandbox") }
+                        } label: {
+                            Label("离席沙箱放行", systemImage: viewModel.permissionState.preset == "sandbox" ? "checkmark" : "shield.lefthalf.filled")
+                        }
+                        Button {
+                            Task { await viewModel.updatePermissionPreset("auto") }
+                        } label: {
+                            Label("全自动放行", systemImage: viewModel.permissionState.preset == "auto" ? "checkmark" : "bolt.shield")
+                        }
+                    }
+                    Divider()
+                    Button {
+                        showMcpSkillsSheet = true
+                    } label: {
+                        Label("打开工具与任务看板", systemImage: "wrench.and.screwdriver")
+                    }
+                } label: {
+                    ZStack(alignment: .topTrailing) {
+                        Image(systemName: viewModel.hasAnyBackgroundTasks ? "terminal" : "wrench.and.screwdriver")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(.indigo)
+                        if viewModel.permissionState.isUnlocked {
+                            Circle()
+                                .fill(Color.orange)
+                                .frame(width: 7, height: 7)
+                                .offset(x: 4, y: -3)
+                        }
+                    }
+                } primaryAction: {
                     UIImpactFeedbackGenerator(style: .light).impactOccurred()
                     showMcpSkillsSheet = true
-                }) {
-                    Image(systemName: viewModel.hasAnyBackgroundTasks ? "terminal" : "wrench.and.screwdriver")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(.indigo)
                 }
                 .accessibilityLabel(viewModel.hasAnyBackgroundTasks ? "打开后台任务与工具看板" : "打开已连接工具与技能看板")
             }
@@ -304,6 +338,7 @@ public struct ChatView: View {
             handleViewAppear()
         }
         .task {
+            ChatViewModel.activeCascadeId = viewModel.cascadeId
             if let url = AppSettings.shared.serverURL {
                 Task {
                     await ModelCatalogStore.shared.refreshIfNeeded(settings: AppSettings.shared, baseURL: url)
@@ -312,8 +347,16 @@ public struct ChatView: View {
                     await WorkflowTemplateStore.shared.refresh()
                 }
             }
+            Task {
+                await viewModel.refreshPermissionSettings()
+            }
             await viewModel.loadMessages()
             viewModel.connectStream()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .permissionPresetDidChange)) { notif in
+            if let state = notif.object as? PermissionStateResponse {
+                viewModel.permissionState = state
+            }
         }
         .onChange(of: viewModel.pendingInteraction != nil) { _, hasPending in
             if hasPending {
@@ -365,7 +408,10 @@ public struct ChatView: View {
                 onOpenDocumentScanner: {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { handleDocumentScannerAction() }
                 },
-                onFilesPicked: { urls in viewModel.addFiles(from: urls) }
+                onFilesPicked: { urls in viewModel.addFiles(from: urls) },
+                onOpenMentions: {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { viewModel.openMentionPicker() }
+                }
             )
         }
         .alert("无法添加文件", isPresented: isAttachmentNoticePresented) {

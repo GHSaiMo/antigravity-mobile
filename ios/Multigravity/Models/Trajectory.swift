@@ -439,8 +439,9 @@ public struct SendUserCascadeMessageRequest: Codable, Sendable {
     public let artifactComments: [ArtifactCommentPayload]?
     public let deliveryStrategy: Int?
     public let attachments: [AttachmentRef]?
+    public let contextItems: [ContextMentionItem]?
     
-    public init(cascadeId: String, text: String, model: String? = nil, images: [ImageDataPayload]? = nil, media: [MediaDataPayload]? = nil, deliveryStrategy: Int? = nil, cascadeConfigRaw: String? = nil, attachments: [AttachmentRef]? = nil, slashCommand: String? = nil) {
+    public init(cascadeId: String, text: String, model: String? = nil, images: [ImageDataPayload]? = nil, media: [MediaDataPayload]? = nil, deliveryStrategy: Int? = nil, cascadeConfigRaw: String? = nil, attachments: [AttachmentRef]? = nil, slashCommand: String? = nil, contextItems: [ContextMentionItem]? = nil) {
         self.cascadeId = cascadeId
         self.model = model
         if let slash = slashCommand, !slash.isEmpty {
@@ -455,9 +456,10 @@ public struct SendUserCascadeMessageRequest: Codable, Sendable {
         self.artifactComments = nil
         self.deliveryStrategy = deliveryStrategy
         self.attachments = attachments
+        self.contextItems = (contextItems?.isEmpty == false) ? contextItems : nil
     }
     
-    public init(cascadeId: String, items: [SendItem] = [], model: String? = nil, images: [ImageDataPayload]? = nil, media: [MediaDataPayload]? = nil, deliveryStrategy: Int? = nil, cascadeConfigRaw: String? = nil, artifactComments: [ArtifactCommentPayload]? = nil) {
+    public init(cascadeId: String, items: [SendItem] = [], model: String? = nil, images: [ImageDataPayload]? = nil, media: [MediaDataPayload]? = nil, deliveryStrategy: Int? = nil, cascadeConfigRaw: String? = nil, artifactComments: [ArtifactCommentPayload]? = nil, contextItems: [ContextMentionItem]? = nil) {
         self.cascadeId = cascadeId
         self.model = model
         self.items = items
@@ -467,6 +469,7 @@ public struct SendUserCascadeMessageRequest: Codable, Sendable {
         self.artifactComments = artifactComments
         self.deliveryStrategy = deliveryStrategy
         self.attachments = nil
+        self.contextItems = (contextItems?.isEmpty == false) ? contextItems : nil
     }
 }
 
@@ -589,6 +592,8 @@ public struct ChatMessage: Identifiable, Hashable, Sendable, Codable {
     public let clientMessageId: String?
     public let errorKind: String?
     public let isOverflow: Bool?
+    public let thinkingDuration: String?
+    public let toolDetails: [ToolDetailItem]?
     
     public enum MessageSender: Hashable, Sendable, Codable {
         case user
@@ -665,7 +670,9 @@ public struct ChatMessage: Identifiable, Hashable, Sendable, Codable {
         slashCommands: [SlashCommandMention]? = nil,
         clientMessageId: String? = nil,
         errorKind: String? = nil,
-        isOverflow: Bool? = nil
+        isOverflow: Bool? = nil,
+        thinkingDuration: String? = nil,
+        toolDetails: [ToolDetailItem]? = nil
     ) {
         self.model = model
         self.modelName = modelName
@@ -676,6 +683,8 @@ public struct ChatMessage: Identifiable, Hashable, Sendable, Codable {
         self.clientMessageId = clientMessageId
         self.errorKind = errorKind
         self.isOverflow = isOverflow
+        self.thinkingDuration = thinkingDuration
+        self.toolDetails = toolDetails
         self.id = id
         self.sender = sender
         self.content = content

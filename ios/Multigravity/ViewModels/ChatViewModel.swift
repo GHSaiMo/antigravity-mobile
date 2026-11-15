@@ -64,10 +64,19 @@ public struct DocumentActionItem: Identifiable, Sendable, Equatable {
 
 @MainActor
 public final class ChatViewModel {
-    public var cascadeId: String
+    public static var activeCascadeId: String = ""
+
+    public var cascadeId: String {
+        didSet {
+            if !cascadeId.isEmpty {
+                Self.activeCascadeId = cascadeId
+            }
+        }
+    }
     public let initialTitle: String
     public var currentTitle: String
     public var workspaceName: String = "Chat"
+    public var workspaceUri: String? = nil
     public var isNewConversation: Bool
     public var draftProject: ProjectItem?
     public var draftSession: LocalDraftSession?
@@ -333,6 +342,18 @@ public final class ChatViewModel {
     public var htmlPreviewTitle: String = ""
     /// 应用内沉浸式安全浏览器 URL (SFSafariViewController)
     public var inAppBrowserURL: URL? = nil
+
+    // MARK: - Phase 3 State
+    public var suggestedResponses: [String] = []
+    public var selectedContextItems: [ContextMentionItem] = []
+    public var mentionCandidates: [ContextMentionItem] = []
+    public var isLoadingMentions: Bool = false
+    public var showMentionPicker: Bool = false
+    public var mentionQuery: String = ""
+    public var permissionState: PermissionStateResponse = PermissionStateResponse()
+    public var activeTerminals: [TerminalItem] = []
+    public var isForkingConversation: Bool = false
+    @ObservationIgnored var mentionSearchTask: Task<Void, Never>? = nil
     
     @MainActor
     public func openInAppBrowser(url: URL) {
@@ -868,6 +889,9 @@ public final class ChatViewModel {
             }
             if let role = result.subagentRole {
                 self.subagentRole = role
+            }
+            if let suggestions = result.suggestedResponses {
+                self.suggestedResponses = suggestions
             }
             
             if result.messages.isEmpty {

@@ -13,6 +13,7 @@ public struct SettingsSheet: View {
     @State private var webSheetURL: IdentifiableURL? = nil
     @State private var showPrivacyPolicySheet: Bool = false
     @State private var showLicensesSheet: Bool = false
+    @State private var permissionPreset: String = "strict"
     
     public init() {}
     
@@ -130,7 +131,7 @@ public struct SettingsSheet: View {
                 // MARK: - 4a. 实时语音对话
                 Section(
                     header: Text("语音"),
-                    footer: Text("开启后，输入框为空且空闲时右侧按钮将变为实时语音对话入口（单击开始双工通话，长按离线录音）；关闭时保持原有的发送按钮。")
+                    footer: Text("开启后，输入框为空且空闲时右侧按钮支持单击实时双工语音通话、长按原生流式语音听写；也可切回传统离线录音附件。")
                 ) {
                     Toggle("实时语音对话", isOn: $settings.enableVoiceMode)
                         .onChange(of: settings.enableVoiceMode) { _, enabled in
@@ -139,6 +140,7 @@ public struct SettingsSheet: View {
                                 VoiceCallManager.shared.endCall()
                             }
                         }
+                    Toggle("长按麦克风使用旧版录音附件", isOn: $settings.legacyVoiceLongPress)
                 }
                 
                 // MARK: - 4b. 常用模型
@@ -161,8 +163,21 @@ public struct SettingsSheet: View {
                 // MARK: - 4c. MCP 工具与技能看板
                 Section(
                     header: Text("扩展与能力"),
-                    footer: Text("查看当前已连接的 MCP 工具服务、运行健康状态与可调用的扩展技能。")
+                    footer: Text("查看已连接的 MCP 工具服务、技能与 Agent 权限放行模式（与聊天顶栏长按菜单实时同步）。")
                 ) {
+                    Picker("Agent 权限模式", selection: $permissionPreset) {
+                        Text("严格审批").tag("strict")
+                        Text("离席沙箱放行").tag("sandbox")
+                        Text("全自动放行").tag("auto")
+                    }
+                    .onChange(of: permissionPreset) { _, next in
+                        guard let url = settings.gatewayURL else { return }
+                        Task {
+                            if let state = try? await APIClient.shared.updatePermissionPreset(preset: next, baseURL: url) {
+                                NotificationCenter.default.post(name: .permissionPresetDidChange, object: state)
+                            }
+                        }
+                    }
                     Button(action: {
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
                         showMcpSkillsSheet = true
@@ -302,6 +317,15 @@ public struct SettingsSheet: View {
         .task {
             if let url = settings.serverURL {
                 await modelCatalog.refresh(settings: settings, baseURL: url, force: true)
+            }
+            if let gwUrl = settings.gatewayURL,
+               let state = try? await APIClient.shared.fetchPermissionSettings(baseURL: gwUrl) {
+                permissionPreset = state.preset
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .permissionPresetDidChange)) { notif in
+            if let state = notif.object as? PermissionStateResponse {
+                permissionPreset = state.preset
             }
         }
         .alert(settings.isDemoMode ? String(localized: "确定退出演示模式？") : String(localized: "确定解除设备配对？"), isPresented: $showUnpairAlert) {

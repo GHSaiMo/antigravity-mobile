@@ -12,6 +12,7 @@ extension APIClient {
         clientMessageId: String? = nil,
         attachmentIds: [String]? = nil,
         slashCommand: String? = nil,
+        contextItems: [ContextMentionItem]? = nil,
         baseURL: URL
     ) async throws {
         // Only media[] is stored by language_server (and read by the model); sending the legacy
@@ -26,7 +27,8 @@ extension APIClient {
             deliveryStrategy: deliveryStrategy,
             cascadeConfigRaw: cascadeConfigRaw,
             attachments: attachmentIds?.isEmpty == false ? attachmentIds?.map { AttachmentRef(id: $0) } : nil,
-            slashCommand: slashCommand
+            slashCommand: slashCommand,
+            contextItems: contextItems
         )
         var headers: [String: String] = [:]
         if let cmid = clientMessageId, !cmid.isEmpty {

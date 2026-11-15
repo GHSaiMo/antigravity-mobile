@@ -254,6 +254,11 @@ public struct ConversationListView: View {
                 openConversationById(targetId)
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .openConversationById)) { notif in
+            if let targetId = notif.object as? String, !targetId.isEmpty {
+                openConversationById(targetId)
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .startNewSessionForWorkspace)) { notif in
             let wsName = (notif.object as? String) ?? ""
             let cachedProjects = ProjectCacheManager.shared.loadProjects()

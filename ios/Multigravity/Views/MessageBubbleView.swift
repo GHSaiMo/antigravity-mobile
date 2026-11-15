@@ -11,6 +11,8 @@ public struct MessageBubbleView: View {
     let onStartNewSession: (() -> Void)?
     let onStopWorkflow: (() async -> Void)?
     let onSelectSubagent: ((SubagentItem) -> Void)?
+    let onFork: ((ChatMessage) -> Void)?
+    let onNarrate: ((String) -> Void)?
     let shareContext: ShareCardContext?
     @State var showShareCard: Bool = false
     @State var isThinkingExpanded: Bool = false
@@ -27,6 +29,8 @@ public struct MessageBubbleView: View {
         onStartNewSession: (() -> Void)? = nil,
         onStopWorkflow: (() async -> Void)? = nil,
         onSelectSubagent: ((SubagentItem) -> Void)? = nil,
+        onFork: ((ChatMessage) -> Void)? = nil,
+        onNarrate: ((String) -> Void)? = nil,
         shareContext: ShareCardContext? = nil
     ) {
         self.message = message
@@ -37,6 +41,8 @@ public struct MessageBubbleView: View {
         self.onStartNewSession = onStartNewSession
         self.onStopWorkflow = onStopWorkflow
         self.onSelectSubagent = onSelectSubagent
+        self.onFork = onFork
+        self.onNarrate = onNarrate
         self.shareContext = shareContext
     }
     
@@ -68,7 +74,13 @@ public struct MessageBubbleView: View {
                     }
                     .padding(.vertical, 2)
                 } else {
-                    ToolBatchAccordionView(count: count, tools: tools)
+                    ToolBatchAccordionView(
+                        count: count,
+                        tools: tools,
+                        thinking: message.thinking,
+                        thinkingDuration: message.thinkingDuration,
+                        toolDetails: message.toolDetails
+                    )
                 }
             case .error:
                 if message.isContextOverflow {

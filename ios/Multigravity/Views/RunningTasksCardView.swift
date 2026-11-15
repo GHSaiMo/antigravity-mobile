@@ -1,21 +1,28 @@
 import SwiftUI
 
 public struct RunningTasksCardView: View {
+    public let cascadeId: String
     public let items: [RunningTaskItem]
     public let onStop: @MainActor @Sendable (RunningTaskItem) -> Void
+    public let onSendToBackground: (@MainActor @Sendable (RunningTaskItem) -> Void)?
     public let onToggleExpand: (@MainActor @Sendable (Bool) -> Void)?
     
     @State private var isCardExpanded: Bool = true
     @State private var expandedCommandIds: Set<String> = []
     @State private var copiedCommandId: String? = nil
+    @State private var showTerminalPanel: Bool = false
     
     public init(
+        cascadeId: String = "",
         items: [RunningTaskItem],
         onStop: @escaping @MainActor @Sendable (RunningTaskItem) -> Void,
+        onSendToBackground: (@MainActor @Sendable (RunningTaskItem) -> Void)? = nil,
         onToggleExpand: (@MainActor @Sendable (Bool) -> Void)? = nil
     ) {
+        self.cascadeId = cascadeId
         self.items = items
         self.onStop = onStop
+        self.onSendToBackground = onSendToBackground
         self.onToggleExpand = onToggleExpand
     }
     
@@ -41,6 +48,25 @@ public struct RunningTasksCardView: View {
                     .clipShape(Capsule())
                 
                 Spacer()
+
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        showTerminalPanel.toggle()
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "terminal")
+                            .font(.system(size: 11, weight: .semibold))
+                        Text(showTerminalPanel ? "收起终端" : "终端交互")
+                            .font(.system(size: 11, weight: .medium))
+                    }
+                    .foregroundColor(showTerminalPanel ? .white : .indigo)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(showTerminalPanel ? Color.indigo : Color.indigo.opacity(0.12))
+                    .clipShape(Capsule())
+                }
+                .buttonStyle(.plain)
                 
                 // Expand / Collapse Card Toggle
                 Button(action: {
@@ -69,6 +95,10 @@ public struct RunningTasksCardView: View {
                         if item.id != items.last?.id {
                             Divider().opacity(0.4)
                         }
+                    }
+
+                    if showTerminalPanel {
+                        InteractiveTerminalPanelView(cascadeId: cascadeId)
                     }
                 }
                 .clipped()
@@ -135,6 +165,22 @@ public struct RunningTasksCardView: View {
                 }
                 .buttonStyle(.plain)
                 .help("复制完整命令行")
+
+                if item.isDaemon != true, let onSendToBackground {
+                    Button {
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        onSendToBackground(item)
+                    } label: {
+                        Text("转后台")
+                            .font(.system(size: 10.5, weight: .semibold))
+                            .foregroundColor(.indigo)
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 3.5)
+                            .background(Color.indigo.opacity(0.12))
+                            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                }
                 
                 // Stop Task Button
                 Button(action: {
@@ -188,11 +234,11 @@ public struct RunningTasksCardView: View {
         }
         .padding(.vertical, 2)
     }
-    
+
     private func isCommandLong(_ cmd: String) -> Bool {
         return cmd.count > 100 || cmd.components(separatedBy: "\n").count > 3
     }
-    
+
     private func copyCommand(_ cmd: String, id: String) {
         UIPasteboard.general.string = cmd
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
@@ -204,12 +250,12 @@ public struct RunningTasksCardView: View {
             }
         }
     }
-    
+
     private func highlightCommand(_ command: String) -> AttributedString {
         var result = AttributedString("$ ")
         result.foregroundColor = Color.green.opacity(0.8)
         result.font = .system(size: 11, weight: .bold, design: .monospaced)
-        
+
         let parts = command.components(separatedBy: " ")
         var isFirstWord = true
         for (idx, part) in parts.enumerated() {
@@ -233,5 +279,206 @@ public struct RunningTasksCardView: View {
             result.append(attrPart)
         }
         return result
+    }
+}
+
+@MainActor
+@Observable
+private final class TerminalStreamSession {
+    var terminals: [TerminalItem] = []
+    var selectedTerminalId: String = ""
+    var outputText: String = ""
+    var isConnected = false
+    var errorText: String? = nil
+
+    private var wsTask: URLSessionWebSocketTask?
+    private var urlSession: URLSession?
+
+    func refreshTerminals() async {
+        guard let gwUrl = AppSettings.shared.gatewayURL else { return }
+        if let list = try? await APIClient.shared.listTerminals(baseURL: gwUrl) {
+            terminals = list
+            if selectedTerminalId.isEmpty || !list.contains(where: { $0.effectiveId == selectedTerminalId }) {
+                if let first = list.first {
+                    connect(terminalId: first.effectiveId)
+                }
+            }
+        }
+    }
+
+    func connect(terminalId: String) {
+        disconnect()
+        selectedTerminalId = terminalId
+        guard !terminalId.isEmpty, let gwUrl = AppSettings.shared.gatewayURL else { return }
+        let q = terminalId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? terminalId
+        guard let req = APIClient.shared.authorizedWebSocketRequest(pathAndQuery: "gateway/terminal/stream?terminalId=\(q)", baseURL: gwUrl) else { return }
+        let session = URLSession(configuration: .default)
+        let ws = session.webSocketTask(with: req)
+        urlSession = session
+        wsTask = ws
+        isConnected = true
+        outputText = ""
+        ws.resume()
+        receiveNext()
+    }
+
+    func disconnect() {
+        isConnected = false
+        wsTask?.cancel(with: .normalClosure, reason: nil)
+        wsTask = nil
+        urlSession?.invalidateAndCancel()
+        urlSession = nil
+    }
+
+    func sendInput(_ input: String, cascadeId: String) {
+        let tid = selectedTerminalId
+        guard !tid.isEmpty, let gwUrl = AppSettings.shared.gatewayURL else { return }
+        Task {
+            try? await APIClient.shared.sendTerminalInput(terminalId: tid, input: input, conversationId: cascadeId, baseURL: gwUrl)
+        }
+    }
+
+    private func receiveNext() {
+        guard isConnected, let ws = wsTask else { return }
+        ws.receive { [weak self] result in
+            Task { @MainActor in
+                guard let self, self.isConnected else { return }
+                switch result {
+                case .success(let msg):
+                    if case .string(let str) = msg {
+                        self.appendOutput(str)
+                    } else if case .data(let data) = msg, let str = String(data: data, encoding: .utf8) {
+                        self.appendOutput(str)
+                    }
+                    self.receiveNext()
+                case .failure(let err):
+                    self.errorText = err.localizedDescription
+                    self.isConnected = false
+                }
+            }
+        }
+    }
+
+    private func appendOutput(_ raw: String) {
+        var chunk = raw
+        if let data = raw.data(using: .utf8),
+           let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            chunk = (obj["data"] as? String) ?? (obj["output"] as? String) ?? (obj["text"] as? String) ?? raw
+        }
+        outputText.append(chunk)
+        if outputText.count > 12000 {
+            outputText = String(outputText.suffix(12000))
+        }
+    }
+}
+
+struct InteractiveTerminalPanelView: View {
+    let cascadeId: String
+    @State private var session = TerminalStreamSession()
+    @State private var commandInput = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Text("交互终端")
+                    .font(.system(size: 11.5, weight: .semibold))
+                    .foregroundColor(.indigo)
+
+                if !session.terminals.isEmpty {
+                    Menu {
+                        ForEach(session.terminals) { t in
+                            Button(t.displayTitle) {
+                                session.connect(terminalId: t.effectiveId)
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text(session.terminals.first(where: { $0.effectiveId == session.selectedTerminalId })?.displayTitle ?? "选择终端")
+                                .font(.system(size: 11, design: .monospaced))
+                                .lineLimit(1)
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 9))
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(Color(uiColor: .tertiarySystemFill))
+                        .clipShape(Capsule())
+                    }
+                }
+
+                Spacer()
+
+                Button {
+                    Task { await session.refreshTerminals() }
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+
+            ScrollView {
+                Text(session.outputText.isEmpty ? (session.terminals.isEmpty ? "暂无活动终端输出" : "等待终端输出...") : session.outputText)
+                    .font(.system(size: 10.5, design: .monospaced))
+                    .foregroundColor(.primary.opacity(0.9))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .textSelection(.enabled)
+            }
+            .frame(maxHeight: 130)
+            .padding(8)
+            .background(Color.black.opacity(0.08))
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+
+            HStack(spacing: 6) {
+                quickKey("y", send: "y\n")
+                quickKey("n", send: "n\n")
+                quickKey("Enter", send: "\n")
+                quickKey("Ctrl+C", send: "\u{0003}")
+            }
+
+            HStack(spacing: 6) {
+                TextField("向终端发送输入...", text: $commandInput)
+                    .font(.system(size: 12, design: .monospaced))
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
+                    .background(Color(uiColor: .tertiarySystemBackground))
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .onSubmit { submitLine() }
+
+                Button("发送") { submitLine() }
+                    .font(.system(size: 11.5, weight: .semibold))
+                    .buttonStyle(.borderedProminent)
+                    .tint(.indigo)
+                    .disabled(session.selectedTerminalId.isEmpty)
+            }
+        }
+        .padding(8)
+        .background(Color(uiColor: .secondarySystemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .task { await session.refreshTerminals() }
+        .onDisappear { session.disconnect() }
+    }
+
+    private func quickKey(_ label: String, send: String) -> some View {
+        Button(label) {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            session.sendInput(send, cascadeId: cascadeId)
+        }
+        .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(Color(uiColor: .tertiarySystemFill))
+        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .buttonStyle(.plain)
+        .disabled(session.selectedTerminalId.isEmpty)
+    }
+
+    private func submitLine() {
+        let txt = commandInput
+        commandInput = ""
+        session.sendInput(txt + "\n", cascadeId: cascadeId)
     }
 }

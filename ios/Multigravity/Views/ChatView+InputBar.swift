@@ -22,7 +22,7 @@ extension ChatView {
             // Quick action chips at top of input box (➕ and Model Switch placed in front of Slash Command, Commit and Push)
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
-                    // 1. Add ➕ Button (opens the attachment panel: camera, recent photos, add file)
+                    // 1. Add ➕ Button (opens the attachment panel: camera, recent photos, add file; long-press opens @ mentions)
                     Button {
                         isInputFocused = false
                         showAttachmentSheet = true
@@ -39,6 +39,12 @@ extension ChatView {
                             )
                     }
                     .buttonStyle(.plain)
+                    .simultaneousGesture(
+                        LongPressGesture(minimumDuration: 0.45).onEnded { _ in
+                            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                            viewModel.openMentionPicker()
+                        }
+                    )
                     
                     // 2. Model Switch Button (Tap to cycle Gemini/Claude/Orchestrator, Long-press + slide up/right for custom menu)
                     ModelSwitchChipButton(
@@ -265,16 +271,66 @@ extension ChatView {
                 .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
             
+            if narrationPlayer.isPlaying {
+                NarrationPlayerBar(player: narrationPlayer)
+            }
+
+            if dictationManager.isDictating {
+                DictationActiveBar {
+                    dictationManager.stop()
+                }
+            }
+
+            if viewModel.showMentionPicker {
+                MentionPickerBar(viewModel: viewModel)
+            }
+
+            if !viewModel.suggestedResponses.isEmpty && !isInputFocused && !viewModel.isActivelyRunning && !viewModel.showMentionPicker {
+                SuggestedResponsesBar(suggestions: viewModel.suggestedResponses) { chosen in
+                    Task {
+                        viewModel.suggestedResponses = []
+                        _ = await viewModel.sendMessage(text: chosen)
+                    }
+                }
+            }
+
+            if !viewModel.selectedContextItems.isEmpty {
+                ContextMentionsChipBar(
+                    items: viewModel.selectedContextItems,
+                    onRemove: { id in viewModel.removeContextItem(id: id) }
+                )
+            }
+
             // Input field and send/stop button (isolated into child View so typing never invalidates ChatView.body)
             ChatInputTextAndSendRow(
                 viewModel: viewModel,
                 voiceCall: voiceCall,
+                dictationManager: dictationManager,
                 isInputFocused: $isInputFocused,
                 isSlashPickerDismissed: $isSlashPickerDismissed,
                 onSend: handleSend,
                 onCancel: handleCancel,
                 onStartVoiceCall: handleStartVoiceCall,
-                onAudioRecord: handleAudioRecordAction
+                onAudioRecord: handleAudioRecordAction,
+                onStartDictation: {
+                    if let gwUrl = AppSettings.shared.gatewayURL {
+                        dictationManager.start(
+                            cascadeId: viewModel.cascadeId,
+                            baseURL: gwUrl,
+                            onTranscriptUpdate: { transcript in
+                                let existing = viewModel.inputText
+                                if existing.isEmpty || existing.hasSuffix(" ") || existing.hasSuffix("\n") {
+                                    viewModel.inputText = existing + transcript
+                                } else {
+                                    viewModel.inputText = transcript
+                                }
+                            },
+                            onError: { err in
+                                viewModel.errorMessage = err
+                            }
+                        )
+                    }
+                }
             )
         }
         .readableChatWidth(horizontalSizeClass == .regular)
@@ -358,18 +414,21 @@ private struct ChatFloatingSlashPopupHost: View {
 private struct ChatInputTextAndSendRow: View {
     @Bindable var viewModel: ChatViewModel
     @ObservedObject var voiceCall: VoiceCallManager
+    let dictationManager: AudioDictationManager
     @Binding var isInputFocused: Bool
     @Binding var isSlashPickerDismissed: Bool
     let onSend: () -> Void
     let onCancel: () -> Void
     let onStartVoiceCall: () -> Void
     let onAudioRecord: () -> Void
+    let onStartDictation: () -> Void
 
     private var hasSendableDraft: Bool {
         !viewModel.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             || !viewModel.selectedImageData.isEmpty
             || !viewModel.selectedFiles.isEmpty
             || viewModel.selectedSlashCommand != nil
+            || !viewModel.selectedContextItems.isEmpty
     }
 
     private var isSendDisabled: Bool {
@@ -472,13 +531,23 @@ private struct ChatInputTextAndSendRow: View {
                 .contentShape(Circle())
                 .onTapGesture {
                     UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                    onStartVoiceCall()
+                    if dictationManager.isDictating {
+                        dictationManager.stop()
+                    } else {
+                        onStartVoiceCall()
+                    }
                 }
                 .onLongPressGesture(minimumDuration: 0.45) {
                     UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
-                    onAudioRecord()
+                    if AppSettings.shared.legacyVoiceLongPress {
+                        onAudioRecord()
+                    } else if dictationManager.isDictating {
+                        dictationManager.stop()
+                    } else {
+                        onStartDictation()
+                    }
                 }
-                .accessibilityLabel("实时语音对话，长按录制语音消息")
+                .accessibilityLabel("实时语音对话，长按语音听写或录制语音消息")
                 .transition(.scale.combined(with: .opacity))
             }
         }
@@ -493,7 +562,232 @@ private struct ChatInputTextAndSendRow: View {
             } else if newText.hasSuffix("/") && !oldText.hasSuffix("/") {
                 isSlashPickerDismissed = false
             }
+            detectAtMentionTyping(newText)
         }
+    }
+
+    private func detectAtMentionTyping(_ text: String) {
+        if let regex = try? NSRegularExpression(pattern: "(?:^|\\s)@([^\\s@]*)$", options: []) {
+            let ns = text as NSString
+            let range = NSRange(location: 0, length: ns.length)
+            if let match = regex.firstMatch(in: text, options: [], range: range), match.numberOfRanges > 1 {
+                let query = ns.substring(with: match.range(at: 1))
+                if !viewModel.showMentionPicker {
+                    viewModel.openMentionPicker(query: query)
+                } else {
+                    viewModel.scheduleMentionSearch(query: query)
+                }
+                return
+            }
+        }
+        if viewModel.showMentionPicker && text.hasSuffix(" ") {
+            viewModel.closeMentionPicker()
+        }
+    }
+}
+
+private struct NarrationPlayerBar: View {
+    let player: NarrationAudioPlayer
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "speaker.wave.2.fill")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(.indigo)
+            Text(player.statusLabel.isEmpty ? "正在语音播报..." : player.statusLabel)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(.primary)
+            Spacer()
+            Button("停止") {
+                player.stop()
+            }
+            .font(.system(size: 11.5, weight: .semibold))
+            .foregroundColor(.red)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(Color.indigo.opacity(0.1))
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .padding(.horizontal, 16)
+    }
+}
+
+private struct DictationActiveBar: View {
+    let onStop: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(Color.red)
+                .frame(width: 8, height: 8)
+            Text("正在原生流式听写...")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(.primary)
+            Spacer()
+            Button("完成") {
+                onStop()
+            }
+            .font(.system(size: 11.5, weight: .semibold))
+            .foregroundColor(.indigo)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(Color.red.opacity(0.1))
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .padding(.horizontal, 16)
+    }
+}
+
+private struct SuggestedResponsesBar: View {
+    let suggestions: [String]
+    let onSelect: (String) -> Void
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(suggestions, id: \.self) { text in
+                    Button {
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        onSelect(text)
+                    } label: {
+                        Text(text)
+                            .font(.system(size: 12.5, weight: .medium))
+                            .foregroundColor(.indigo)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(Color.indigo.opacity(0.1))
+                            .clipShape(Capsule())
+                            .overlay(
+                                Capsule().stroke(Color.indigo.opacity(0.25), lineWidth: 0.8)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 16)
+        }
+        .transition(.opacity.combined(with: .move(edge: .bottom)))
+    }
+}
+
+private struct ContextMentionsChipBar: View {
+    let items: [ContextMentionItem]
+    let onRemove: (String) -> Void
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                ForEach(items) { item in
+                    HStack(spacing: 4) {
+                        Image(systemName: item.type == "directory" ? "folder.fill" : (item.type == "conversation" ? "bubble.left.fill" : "doc.text.fill"))
+                            .font(.system(size: 10))
+                            .foregroundColor(.indigo)
+                        Text("@\(item.label)")
+                            .font(.system(size: 11.5, weight: .medium, design: .monospaced))
+                            .foregroundColor(.primary)
+                            .lineLimit(1)
+                        Button {
+                            onRemove(item.id)
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 11))
+                                .foregroundColor(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.indigo.opacity(0.1))
+                    .clipShape(Capsule())
+                }
+            }
+            .padding(.horizontal, 16)
+        }
+    }
+}
+
+private struct MentionPickerBar: View {
+    @Bindable var viewModel: ChatViewModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Image(systemName: "at")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundColor(.indigo)
+                TextField("搜索文件、目录或关联会话...", text: Binding(
+                    get: { viewModel.mentionQuery },
+                    set: { viewModel.scheduleMentionSearch(query: $0) }
+                ))
+                .font(.system(size: 13))
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                if viewModel.isLoadingMentions {
+                    ProgressView().scaleEffect(0.7)
+                }
+                Button {
+                    viewModel.closeMentionPicker()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 14))
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(Color(uiColor: .tertiarySystemBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+
+            if viewModel.mentionCandidates.isEmpty {
+                Text(viewModel.isLoadingMentions ? "正在检索工作区上下文..." : "暂无匹配上下文条目")
+                    .font(.system(size: 11.5))
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 4)
+            } else {
+                ScrollView(.vertical, showsIndicators: true) {
+                    LazyVStack(alignment: .leading, spacing: 4) {
+                        ForEach(viewModel.mentionCandidates) { item in
+                            Button {
+                                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                viewModel.selectMentionItem(item)
+                            } label: {
+                                HStack(spacing: 8) {
+                                    Image(systemName: item.type == "directory" ? "folder" : (item.type == "conversation" ? "bubble.left" : "doc.text"))
+                                        .font(.system(size: 12))
+                                        .foregroundColor(.indigo)
+                                    VStack(alignment: .leading, spacing: 1) {
+                                        Text(item.label)
+                                            .font(.system(size: 12.5, weight: .medium))
+                                            .foregroundColor(.primary)
+                                            .lineLimit(1)
+                                        if let detail = item.detail ?? item.path, !detail.isEmpty {
+                                            Text(detail)
+                                                .font(.system(size: 10.5, design: .monospaced))
+                                                .foregroundColor(.secondary)
+                                                .lineLimit(1)
+                                                .truncationMode(.middle)
+                                        }
+                                    }
+                                    Spacer()
+                                }
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 5)
+                                .background(Color(uiColor: .tertiarySystemFill).opacity(0.6))
+                                .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+                .frame(maxHeight: 160)
+            }
+        }
+        .padding(10)
+        .background(Color(uiColor: .secondarySystemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .padding(.horizontal, 12)
     }
 }
 
