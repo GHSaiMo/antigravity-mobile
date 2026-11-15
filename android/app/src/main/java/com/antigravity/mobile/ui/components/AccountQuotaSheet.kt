@@ -13,6 +13,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Visibility
@@ -80,6 +81,7 @@ fun AccountQuotaSheet(
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
     var isMasked by remember { mutableStateOf(false) }
+    var isSavingTokenHistory by remember { mutableStateOf(false) }
     var isSharingTokenHistory by remember { mutableStateOf(false) }
     var selectedHeatmapDate by remember { mutableStateOf<String?>(null) }
     var pendingSwitchAccount by remember { mutableStateOf<CockpitAccountQuota?>(null) }
@@ -142,26 +144,88 @@ fun AccountQuotaSheet(
                 )
             }
 
-            // Header title row: Mask toggle (Left), Centered Title, Refresh (Right)
+            suspend fun captureTokenHistoryBitmap(): android.graphics.Bitmap {
+                if (cardGraphicsLayer.size.width <= 0 || cardGraphicsLayer.size.height <= 0) {
+                    kotlinx.coroutines.delay(120)
+                }
+                val size = cardGraphicsLayer.size
+                val maxPixelHeight = 8192
+                return if (size.height > maxPixelHeight) {
+                    val ratio = maxPixelHeight.toFloat() / size.height
+                    val target = androidx.compose.ui.unit.IntSize(
+                        (size.width * ratio).roundToInt().coerceAtLeast(1),
+                        maxPixelHeight
+                    )
+                    scaledCardLayer.record(density, androidx.compose.ui.unit.LayoutDirection.Ltr, target) {
+                        scale(ratio, pivot = Offset.Zero) {
+                            drawLayer(cardGraphicsLayer)
+                        }
+                    }
+                    scaledCardLayer.toImageBitmap().asAndroidBitmap()
+                } else {
+                    cardGraphicsLayer.toImageBitmap().asAndroidBitmap()
+                }
+            }
+
+            // Header title row: Mask/Save (Left), Centered Title, Refresh/Share (Right)
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(bottom = 10.dp),
                 contentAlignment = Alignment.Center
             ) {
-                IconButton(
-                    onClick = { isMasked = !isMasked },
-                    modifier = Modifier
-                        .align(Alignment.CenterStart)
-                        .padding(start = 8.dp)
-                        .size(34.dp)
-                ) {
-                    Icon(
-                        imageVector = if (isMasked) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                        contentDescription = "Toggle Mask",
-                        tint = if (isMasked) colors.accentBlue else colors.textSecondary,
-                        modifier = Modifier.size(19.dp)
-                    )
+                if (selectedTab == 0) {
+                    IconButton(
+                        onClick = { isMasked = !isMasked },
+                        modifier = Modifier
+                            .align(Alignment.CenterStart)
+                            .padding(start = 8.dp)
+                            .size(34.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (isMasked) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                            contentDescription = "Toggle Mask",
+                            tint = if (isMasked) colors.accentBlue else colors.textSecondary,
+                            modifier = Modifier.size(19.dp)
+                        )
+                    }
+                } else {
+                    IconButton(
+                        onClick = {
+                            if (tokenHistory == null || isSavingTokenHistory || isSharingTokenHistory) return@IconButton
+                            scope.launch {
+                                isSavingTokenHistory = true
+                                try {
+                                    ShareImageUtils.saveBitmapToGallery(context, captureTokenHistoryBitmap())
+                                } catch (e: Throwable) {
+                                    android.util.Log.e("AccountQuotaSheet", "Save token history failed", e)
+                                    Toast.makeText(context, "长图保存失败: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                                } finally {
+                                    isSavingTokenHistory = false
+                                }
+                            }
+                        },
+                        enabled = tokenHistory != null && !isLoadingTokenHistory && !isSavingTokenHistory && !isSharingTokenHistory,
+                        modifier = Modifier
+                            .align(Alignment.CenterStart)
+                            .padding(start = 8.dp)
+                            .size(34.dp)
+                    ) {
+                        if (isSavingTokenHistory) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                strokeWidth = 2.dp,
+                                color = colors.accentBlue
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.FileDownload,
+                                contentDescription = "保存到相册",
+                                tint = if (tokenHistory == null) colors.textMuted else colors.accentBlue,
+                                modifier = Modifier.size(19.dp)
+                            )
+                        }
+                    }
                 }
 
                 Text(
@@ -204,31 +268,11 @@ fun AccountQuotaSheet(
                 } else {
                     IconButton(
                         onClick = {
-                            if (tokenHistory == null || isSharingTokenHistory) return@IconButton
+                            if (tokenHistory == null || isSavingTokenHistory || isSharingTokenHistory) return@IconButton
                             scope.launch {
                                 isSharingTokenHistory = true
                                 try {
-                                    if (cardGraphicsLayer.size.width <= 0 || cardGraphicsLayer.size.height <= 0) {
-                                        kotlinx.coroutines.delay(120)
-                                    }
-                                    val size = cardGraphicsLayer.size
-                                    val maxPixelHeight = 8192
-                                    val bitmap = if (size.height > maxPixelHeight) {
-                                        val ratio = maxPixelHeight.toFloat() / size.height
-                                        val target = androidx.compose.ui.unit.IntSize(
-                                            (size.width * ratio).roundToInt().coerceAtLeast(1),
-                                            maxPixelHeight
-                                        )
-                                        scaledCardLayer.record(density, androidx.compose.ui.unit.LayoutDirection.Ltr, target) {
-                                            scale(ratio, pivot = Offset.Zero) {
-                                                drawLayer(cardGraphicsLayer)
-                                            }
-                                        }
-                                        scaledCardLayer.toImageBitmap().asAndroidBitmap()
-                                    } else {
-                                        cardGraphicsLayer.toImageBitmap().asAndroidBitmap()
-                                    }
-                                    ShareImageUtils.shareBitmap(context, bitmap)
+                                    ShareImageUtils.shareBitmap(context, captureTokenHistoryBitmap())
                                 } catch (e: Throwable) {
                                     android.util.Log.e("AccountQuotaSheet", "Share token history failed", e)
                                     Toast.makeText(context, "长图生成失败: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
@@ -237,7 +281,7 @@ fun AccountQuotaSheet(
                                 }
                             }
                         },
-                        enabled = tokenHistory != null && !isLoadingTokenHistory && !isSharingTokenHistory,
+                        enabled = tokenHistory != null && !isLoadingTokenHistory && !isSavingTokenHistory && !isSharingTokenHistory,
                         modifier = Modifier
                             .align(Alignment.CenterEnd)
                             .padding(end = 8.dp)
@@ -252,7 +296,7 @@ fun AccountQuotaSheet(
                         } else {
                             Icon(
                                 imageVector = Icons.Default.Share,
-                                contentDescription = "Share",
+                                contentDescription = "分享",
                                 tint = if (tokenHistory == null) colors.textMuted else colors.accentBlue,
                                 modifier = Modifier.size(19.dp)
                             )

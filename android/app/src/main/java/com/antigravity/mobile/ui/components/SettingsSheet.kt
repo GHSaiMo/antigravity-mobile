@@ -46,6 +46,7 @@ import com.antigravity.mobile.data.service.PreferencesManager
 import com.antigravity.mobile.data.service.fetchPermissionSettings
 import com.antigravity.mobile.data.service.updatePermissionPreset
 import com.antigravity.mobile.ui.theme.AntigravityTheme
+import com.antigravity.mobile.ui.theme.modelProviderAccent
 import com.antigravity.mobile.ui.util.rememberHaptic
 import kotlinx.coroutines.launch
 
@@ -1066,14 +1067,8 @@ private fun FavoriteModelPickerRow(
     onSelect: (String) -> Unit
 ) {
     val colors = AntigravityTheme.colors
-    fun colorFor(kind: String): Color = when (kind) {
-        "claude" -> colors.accentOrange
-        "orchestrator" -> colors.accentPurple
-        "other" -> Color(0xFF30B0C7)
-        else -> colors.accentBlue
-    }
     val selectedName = ModelDefaults.displayName(selectedId, options)
-    val selectedColor = colorFor(ModelDefaults.providerKind(selectedId))
+    val selectedColor = colors.modelProviderAccent(ModelDefaults.providerKind(selectedId))
     val menuOptions = remember(options, colors) {
         var prevGroup: String? = null
         options.map { opt ->
@@ -1083,7 +1078,7 @@ private fun FavoriteModelPickerRow(
             PickerMenuOption(
                 id = opt.id,
                 label = ModelDefaults.formatPickerLabel(opt.name, opt.tag),
-                accentColor = colorFor(kind),
+                accentColor = colors.modelProviderAccent(kind),
                 isGroupStart = isStart
             )
         }

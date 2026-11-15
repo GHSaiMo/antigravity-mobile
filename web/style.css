@@ -23,6 +23,8 @@
   --ios-red: #ff453a;
   --ios-purple: #bf5af2;
   --ios-teal: #64d2ff;
+  --orchestrator-slate: #cbd5e1;
+  --orchestrator-slate-rgb: 203, 213, 225;
 
   --code-fg: #e5c07b;
   --code-bg: rgba(229, 192, 123, 0.12);
@@ -75,6 +77,8 @@
     --ios-red: #ff3b30;
     --ios-purple: #af52de;
     --ios-teal: #5ac8fa;
+    --orchestrator-slate: #334155;
+    --orchestrator-slate-rgb: 51, 65, 85;
 
     --code-fg: #92400e;
     --code-bg: rgba(180, 83, 9, 0.08);
@@ -1740,9 +1744,9 @@ code.inline-code, .markdown-body code:not(.code-block-pre code) {
   color: var(--ios-orange);
 }
 .chip-model-switch.chip-orchestrator {
-  border-color: rgba(191, 90, 242, 0.45);
-  background: rgba(191, 90, 242, 0.12);
-  color: var(--ios-purple);
+  border-color: rgba(var(--orchestrator-slate-rgb), 0.38);
+  background: rgba(var(--orchestrator-slate-rgb), 0.12);
+  color: var(--orchestrator-slate);
 }
 .chip-model-switch.chip-other {
   border-color: rgba(48, 176, 199, 0.45);
@@ -1786,7 +1790,7 @@ code.inline-code, .markdown-body code:not(.code-block-pre code) {
 }
 .model-picker-overlay .mp-card-prov-gemini { border-color: rgba(10, 132, 255, 0.4); }
 .model-picker-overlay .mp-card-prov-claude { border-color: rgba(255, 159, 10, 0.4); }
-.model-picker-overlay .mp-card-prov-orchestrator { border-color: rgba(191, 90, 242, 0.4); }
+.model-picker-overlay .mp-card-prov-orchestrator { border-color: rgba(var(--orchestrator-slate-rgb), 0.38); }
 .model-picker-overlay .mp-card-prov-other { border-color: rgba(48, 176, 199, 0.4); }
 .model-picker-overlay .mp-row {
   display: flex;
@@ -1809,7 +1813,7 @@ code.inline-code, .markdown-body code:not(.code-block-pre code) {
 }
 .model-picker-overlay .mp-prov-gemini { color: var(--ios-blue); }
 .model-picker-overlay .mp-prov-claude { color: var(--ios-orange); }
-.model-picker-overlay .mp-prov-orchestrator { color: var(--ios-purple); }
+.model-picker-overlay .mp-prov-orchestrator { color: var(--orchestrator-slate); }
 .model-picker-overlay .mp-prov-other { color: var(--ios-teal); }
 .model-picker-overlay .mp-row.is-active { background: rgba(120, 120, 128, 0.14); font-weight: 600; }
 .model-picker-overlay .mp-row.is-hovered,

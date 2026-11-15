@@ -9,6 +9,7 @@ public struct AccountQuotaSheet: View {
     @State private var pendingSwitch: CockpitAccountQuota? = nil
     @State private var showSwitchConfirm: Bool = false
     @State private var isRefreshing: Bool = false
+    @State private var isSavingTokenHistory: Bool = false
     @State private var isSharingTokenHistory: Bool = false
     @State private var errorMessage: String? = nil
     @State private var alertTitle: String = "操作失败"
@@ -194,10 +195,28 @@ public struct AccountQuotaSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button(action: { isMasked.toggle() }) {
-                        Image(systemName: isMasked ? "eye.slash.fill" : "eye.slash")
-                            .font(.system(size: 15, weight: .medium))
-                            .foregroundColor(isMasked ? .blue : .secondary)
+                    if selectedTab == 0 {
+                        Button(action: { isMasked.toggle() }) {
+                            Image(systemName: isMasked ? "eye.slash.fill" : "eye.slash")
+                                .font(.system(size: 15, weight: .medium))
+                                .foregroundColor(isMasked ? .blue : .secondary)
+                        }
+                    } else {
+                        Button(action: {
+                            Task {
+                                await saveTokenHistory()
+                            }
+                        }) {
+                            if isSavingTokenHistory {
+                                ProgressView()
+                                    .controlSize(.small)
+                            } else {
+                                Image(systemName: "square.and.arrow.down")
+                                    .font(.system(size: 15, weight: .semibold))
+                            }
+                        }
+                        .accessibilityLabel("保存到相册")
+                        .disabled(tokenHistory == nil || isLoadingTokenHistory || isSavingTokenHistory || isSharingTokenHistory)
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
@@ -236,7 +255,8 @@ public struct AccountQuotaSheet: View {
                                     .font(.system(size: 15, weight: .semibold))
                             }
                         }
-                        .disabled(tokenHistory == nil || isLoadingTokenHistory || isSharingTokenHistory)
+                        .accessibilityLabel("分享")
+                        .disabled(tokenHistory == nil || isLoadingTokenHistory || isSavingTokenHistory || isSharingTokenHistory)
                     }
                 }
             }
@@ -1167,10 +1187,8 @@ extension AccountQuotaSheet {
     }
 
     @MainActor
-    private func shareTokenHistory() {
-        guard let history = tokenHistory else { return }
-        isSharingTokenHistory = true
-        defer { isSharingTokenHistory = false }
+    private func renderTokenHistoryImage(failureTitle: String) -> UIImage? {
+        guard let history = tokenHistory else { return nil }
 
         let matrix = history.dailyMatrix
         let activeDate = selectedHeatmapDate
@@ -1190,8 +1208,34 @@ extension AccountQuotaSheet {
         renderer.scale = max(displayScale, 2.0)
 
         guard let image = renderer.uiImage else {
-            alertTitle = String(localized: "分享失败")
+            alertTitle = failureTitle
             errorMessage = String(localized: "长图生成失败，请稍后重试")
+            return nil
+        }
+
+        return image
+    }
+
+    @MainActor
+    private func saveTokenHistory() async {
+        guard !isSavingTokenHistory, !isSharingTokenHistory else { return }
+        isSavingTokenHistory = true
+        defer { isSavingTokenHistory = false }
+
+        guard let image = renderTokenHistoryImage(failureTitle: String(localized: "保存失败")) else {
+            return
+        }
+
+        await ImageActions.saveWithFeedback(image)
+    }
+
+    @MainActor
+    private func shareTokenHistory() {
+        guard !isSavingTokenHistory, !isSharingTokenHistory else { return }
+        isSharingTokenHistory = true
+        defer { isSharingTokenHistory = false }
+
+        guard let image = renderTokenHistoryImage(failureTitle: String(localized: "分享失败")) else {
             return
         }
 

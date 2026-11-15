@@ -48,7 +48,7 @@ public final class ModelSlidePickerState {
 
     public init() {}
 
-    /// 长按打开全模型一级菜单：按 Gemini(蓝) -> Claude(橙) -> Orchestrator(紫) -> 其他 列出全部可用模型。
+    /// 长按打开全模型一级菜单：按 Gemini(蓝) -> Claude(橙) -> Orchestrator(钛灰) -> 其他 列出全部可用模型。
     public func open(activeModel: String) {
         let families = ModelCatalogStore.shared.modelFamilies()
         var builtRows: [ModelPickerRow] = []
@@ -322,17 +322,31 @@ public final class ModelSlidePickerState {
     }
 }
 
+public extension ModelProviderKind {
+    /// 厂商专属强调色（Gemini 蓝 / Claude 橙 / Orchestrator 石墨钛灰 / Other 青）。
+    var accentColor: Color {
+        switch self {
+        case .claude: return .orange
+        case .orchestrator:
+            return Color(
+                uiColor: UIColor { traits in
+                    traits.userInterfaceStyle == .dark
+                        ? UIColor(red: 0xCB / 255.0, green: 0xD5 / 255.0, blue: 0xE1 / 255.0, alpha: 1.0)
+                        : UIColor(red: 0x33 / 255.0, green: 0x41 / 255.0, blue: 0x55 / 255.0, alpha: 1.0)
+                }
+            )
+        case .other: return .teal
+        case .gemini: return .blue
+        }
+    }
+}
+
 public struct ModelSlidePickerOverlay: View {
     @Bindable var state: ModelSlidePickerState
     let onSelectModel: (String) -> Void
 
     private func accentColor(for kind: ModelProviderKind) -> Color {
-        switch kind {
-        case .claude: return .orange
-        case .orchestrator: return .purple
-        case .other: return .teal
-        case .gemini: return .blue
-        }
+        kind.accentColor
     }
 
     public var body: some View {

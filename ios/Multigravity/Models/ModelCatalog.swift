@@ -445,7 +445,7 @@ public enum ModelDefaultsLogic {
     }
 
     /// 将扁平模型列表按大类/家族归类（如 Gemini 4 Carbon、Gemini 4 Argon、Claude Opus 5.5、Orchestrator 等），
-    /// 并按 Gemini (蓝) -> Claude (橙) -> Orchestrator (紫) -> Other 的厂商顺序排列，
+    /// 并按 Gemini (蓝) -> Claude (橙) -> Orchestrator (钛灰) -> Other 的厂商顺序排列，
     /// 用于长按呼出二级选择菜单（上下选模型、右滑选强度）。
     public static func modelFamilies(from options: [ModelOption]) -> [ModelFamily] {
         let effectiveOptions: [ModelOption] = options.isEmpty ? fallbackOptions : options

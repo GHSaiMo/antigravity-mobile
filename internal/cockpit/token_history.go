@@ -3,11 +3,15 @@ package cockpit
 import (
 	"bufio"
 	"bytes"
+	"context"
+	"encoding/hex"
 	"encoding/json"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -64,7 +68,10 @@ type transcriptJob struct {
 	source string
 }
 
+const currentTokenHistoryLedgerVersion = 2
+
 type parsedTranscriptRecord struct {
+	stepIndex int
 	dateKey   string
 	input     int64
 	output    int64
@@ -90,7 +97,7 @@ func CalculateCostUSD(model string, input, cacheRead, output int64) float64 {
 	var inRate, cacheRate, outRate float64
 
 	switch {
-	case strings.Contains(m, "claude-3-5-sonnet") || strings.Contains(m, "claude-3-7-sonnet") || strings.Contains(m, "claude-opus"):
+	case strings.Contains(m, "claude"):
 		inRate = 3.0 / 1e6
 		cacheRate = 0.3 / 1e6
 		outRate = 15.0 / 1e6
@@ -168,6 +175,10 @@ func parseModelFromUserSettings(raw map[string]interface{}) string {
 }
 
 func parseTranscriptFile(filePath, source string) []parsedTranscriptRecord {
+	return parseTranscriptFileWithConvID(filePath, "", source)
+}
+
+func parseTranscriptFileWithConvID(filePath, convID, source string) []parsedTranscriptRecord {
 	f, err := os.Open(filePath)
 	if err != nil {
 		return nil
@@ -182,6 +193,7 @@ func parseTranscriptFile(filePath, source string) []parsedTranscriptRecord {
 
 	lineIdx := 0
 	currentModel := ""
+	parentConvID := ""
 
 	for scanner.Scan() {
 		line := scanner.Bytes()
@@ -190,14 +202,22 @@ func parseTranscriptFile(filePath, source string) []parsedTranscriptRecord {
 			continue
 		}
 
-		// Quick check if line might contain token counts or model before full JSON unmarshal
-		if !bytes.Contains(line, []byte("token")) && !bytes.Contains(line, []byte("Model")) {
+		// Quick check if line might contain token counts, model, or subagent sender before full JSON unmarshal
+		hasTokenOrModel := bytes.Contains(line, []byte("token")) || bytes.Contains(line, []byte("Model"))
+		maybeSubagentHeader := parentConvID == "" && bytes.Contains(line, []byte("SYSTEM_MESSAGE")) && bytes.Contains(line, []byte("sender="))
+		if !hasTokenOrModel && !maybeSubagentHeader {
 			continue
 		}
 
 		var raw map[string]interface{}
 		if err := json.Unmarshal(line, &raw); err != nil {
 			continue
+		}
+
+		if parentConvID == "" {
+			if p := parseParentConvIDFromSystemMessage(raw); p != "" {
+				parentConvID = p
+			}
 		}
 
 		// Check for model selection setting
@@ -207,6 +227,10 @@ func parseTranscriptFile(filePath, source string) []parsedTranscriptRecord {
 
 		var inp, outp, capTokens, thinking int64
 		var callID, dateKey string
+		stepIndex := -1
+		if si, ok := raw["step_index"].(float64); ok {
+			stepIndex = int(si)
+		}
 
 		if createdAt, ok := raw["created_at"].(string); ok && len(createdAt) >= 10 {
 			var t time.Time
@@ -241,7 +265,7 @@ func parseTranscriptFile(filePath, source string) []parsedTranscriptRecord {
 		if inp == 0 && outp == 0 && capTokens == 0 {
 			if cm, ok := raw["chatModel"].(map[string]interface{}); ok {
 				if mName, ok := cm["model"].(string); ok && mName != "" {
-					currentModel = mName
+					currentModel = resolveGenMetadataModelName("", mName, mName)
 				}
 				if u, ok := cm["usage"].(map[string]interface{}); ok {
 					if v, ok := u["inputTokens"].(float64); ok {
@@ -272,6 +296,7 @@ func parseTranscriptFile(filePath, source string) []parsedTranscriptRecord {
 		tot := inp + outp + capTokens
 		if tot > 0 && dateKey != "" {
 			records = append(records, parsedTranscriptRecord{
+				stepIndex: stepIndex,
 				dateKey:   dateKey,
 				input:     inp,
 				output:    outp,
@@ -285,7 +310,500 @@ func parseTranscriptFile(filePath, source string) []parsedTranscriptRecord {
 		}
 	}
 
+	if hasUnresolvedModel(records) && convID != "" {
+		resolveMissingRecordModels(records, convID, parentConvID, source)
+	}
+
 	return records
+}
+
+func hasUnresolvedModel(records []parsedTranscriptRecord) bool {
+	for _, r := range records {
+		if r.model == "" {
+			return true
+		}
+	}
+	return false
+}
+
+// parseParentConvIDFromSystemMessage extracts sender=<uuid> from subagent SYSTEM_MESSAGE steps.
+func parseParentConvIDFromSystemMessage(raw map[string]interface{}) string {
+	if rawType, _ := raw["type"].(string); rawType != "SYSTEM_MESSAGE" {
+		return ""
+	}
+	content, ok := raw["content"].(string)
+	if !ok {
+		return ""
+	}
+	const needle = "sender="
+	idx := strings.Index(content, needle)
+	if idx == -1 {
+		return ""
+	}
+	rem := content[idx+len(needle):]
+	end := strings.IndexAny(rem, " \t\r\n")
+	if end != -1 {
+		rem = rem[:end]
+	}
+	rem = strings.TrimSpace(rem)
+	// Subagent parent senders are UUIDs (e.g. 36 chars); ignore non-UUID task/system senders.
+	if len(rem) < 16 || strings.Contains(rem, "/") {
+		return ""
+	}
+	return rem
+}
+
+type genMetadataModelEntry struct {
+	lastStepIndex int
+	modelName     string
+}
+
+var knownModelDisplayNames = map[string]string{
+	"model_placeholder_m26":     "Claude Opus 4.6 (Thinking)",
+	"claude-opus-4-6-thinking":  "Claude Opus 4.6 (Thinking)",
+	"model_placeholder_m35":     "Claude Sonnet 4.6 (Thinking)",
+	"claude-sonnet-4-6":         "Claude Sonnet 4.6 (Thinking)",
+	"model_placeholder_m36":     "Gemini 3.1 Pro (Low)",
+	"gemini-3.1-pro-low":        "Gemini 3.1 Pro (Low)",
+	"model_placeholder_m37":     "Gemini 3.1 Pro (High)",
+	"gemini-3.1-pro-high":       "Gemini 3.1 Pro (High)",
+	"model_placeholder_m318":    "Gemini 3.8 Flash (High)",
+	"gemini-3.8-flash-high":     "Gemini 3.8 Flash (High)",
+	"model_placeholder_m319":    "Gemini 3.8 Flash (Medium)",
+	"gemini-3.8-flash-medium":   "Gemini 3.8 Flash (Medium)",
+	"model_placeholder_m320":    "Gemini 3.8 Flash (Low)",
+	"gemini-3.8-flash-low":      "Gemini 3.8 Flash (Low)",
+	"model_placeholder_m322":    "Gemini 3.8 Flash",
+	"gemini-3.8-flash-tiered":   "Gemini 3.8 Flash",
+	"gemini-3.5-flash-lite":     "Gemini 3.5 Flash Lite",
+	"model_placeholder_m400":    "Claude Opus 5.5 (Low)",
+	"claude-opus-5-5-low":       "Claude Opus 5.5 (Low)",
+	"model_placeholder_m401":    "Claude Opus 5.5 (Medium)",
+	"claude-opus-5-5-medium":    "Claude Opus 5.5 (Medium)",
+	"model_placeholder_m402":    "Claude Opus 5.5 (High)",
+	"claude-opus-5-5-high":      "Claude Opus 5.5 (High)",
+	"model_placeholder_m403":    "Claude Sonnet 5.5 (Low)",
+	"claude-sonnet-5-5-low":     "Claude Sonnet 5.5 (Low)",
+	"model_placeholder_m404":    "Claude Sonnet 5.5 (Medium)",
+	"claude-sonnet-5-5-medium":  "Claude Sonnet 5.5 (Medium)",
+	"model_placeholder_m405":    "Claude Sonnet 5.5 (High)",
+	"claude-sonnet-5-5-high":    "Claude Sonnet 5.5 (High)",
+	"model_placeholder_m417":    "Gemini 4 Argon (High)",
+	"gemini-4-argon-high":       "Gemini 4 Argon (High)",
+	"model_placeholder_m418":    "Gemini 4 Argon (Medium)",
+	"gemini-4-argon-medium":     "Gemini 4 Argon (Medium)",
+	"model_placeholder_m419":    "Gemini 4 Argon (Low)",
+	"gemini-4-argon-low":        "Gemini 4 Argon (Low)",
+	"model_placeholder_m420":    "Gemini 4 Carbon (High)",
+	"model_placeholder_m427":    "Gemini 4 Carbon (High)",
+	"gemini-4-carbon-high":      "Gemini 4 Carbon (High)",
+	"model_placeholder_m421":    "Gemini 4 Carbon (Medium)",
+	"gemini-4-carbon-medium":    "Gemini 4 Carbon (Medium)",
+	"model_placeholder_m422":    "Gemini 4 Carbon (Low)",
+	"gemini-4-carbon-low":       "Gemini 4 Carbon (Low)",
+	"model_placeholder_m525":    "Gemini 4 Hydrogen (High)",
+	"gemini-4-hydrogen-high":    "Gemini 4 Hydrogen (High)",
+	"model_placeholder_m526":    "Gemini 4 Hydrogen (Medium)",
+	"gemini-4-hydrogen-medium":  "Gemini 4 Hydrogen (Medium)",
+	"model_placeholder_m527":    "Gemini 4 Hydrogen (Low)",
+	"gemini-4-hydrogen-low":     "Gemini 4 Hydrogen (Low)",
+	"model_placeholder_m528":    "Gemini 4 Hydrogen (Extra)",
+	"gemini-4-hydrogen-xhigh":   "Gemini 4 Hydrogen (Extra)",
+}
+
+func resolveGenMetadataModelName(displayName, slug, modelEnum string) string {
+	if dn := strings.TrimSpace(displayName); dn != "" {
+		return dn
+	}
+	if enumKey := strings.ToLower(strings.TrimSpace(modelEnum)); enumKey != "" {
+		if mapped, ok := knownModelDisplayNames[enumKey]; ok {
+			return mapped
+		}
+	}
+	if slugKey := strings.ToLower(strings.TrimSpace(slug)); slugKey != "" {
+		if mapped, ok := knownModelDisplayNames[slugKey]; ok {
+			return mapped
+		}
+		return prettifyModelSlug(slug)
+	}
+	return strings.TrimSpace(modelEnum)
+}
+
+func prettifyModelSlug(slug string) string {
+	s := strings.TrimSpace(slug)
+	if s == "" {
+		return ""
+	}
+	if !strings.Contains(s, "-") {
+		return s
+	}
+	parts := strings.Split(s, "-")
+	for i, p := range parts {
+		if len(p) == 0 {
+			continue
+		}
+		if strings.EqualFold(p, "gpt") {
+			parts[i] = "GPT"
+		} else {
+			parts[i] = strings.ToUpper(p[:1]) + p[1:]
+		}
+	}
+	return strings.Join(parts, " ")
+}
+
+func conversationDBCandidates(convID, source string) []string {
+	if strings.TrimSpace(convID) == "" {
+		return nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil
+	}
+	desktopDB := filepath.Join(home, ".gemini", "antigravity", "conversations", convID+".db")
+	cliDB := filepath.Join(home, ".gemini", "antigravity-cli", "conversations", convID+".db")
+	if source == "cli" {
+		return []string{cliDB, desktopDB}
+	}
+	return []string{desktopDB, cliDB}
+}
+
+func conversationDBExists(convID, source string) bool {
+	for _, p := range conversationDBCandidates(convID, source) {
+		if st, err := os.Stat(p); err == nil && !st.IsDir() {
+			return true
+		}
+	}
+	return false
+}
+
+func loadGenMetadataModels(convID, source string) []genMetadataModelEntry {
+	for _, dbPath := range conversationDBCandidates(convID, source) {
+		st, err := os.Stat(dbPath)
+		if err != nil || st.IsDir() {
+			continue
+		}
+		blobs, err := queryGenMetadataBlobs(dbPath)
+		if err != nil || len(blobs) == 0 {
+			continue
+		}
+		var entries []genMetadataModelEntry
+		for _, blob := range blobs {
+			lastStep, modelName := parseGenMetadataBlob(blob)
+			if modelName != "" {
+				entries = append(entries, genMetadataModelEntry{
+					lastStepIndex: lastStep,
+					modelName:     modelName,
+				})
+			}
+		}
+		if len(entries) > 0 {
+			return entries
+		}
+	}
+	return nil
+}
+
+func queryGenMetadataBlobs(dbPath string) ([][]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	var out []byte
+	var err error
+	if sqliteBin, lookErr := exec.LookPath("sqlite3"); lookErr == nil && isExecutableValid(sqliteBin) {
+		cmd := exec.CommandContext(ctx, sqliteBin, "-batch", "-noheader", "-cmd", ".timeout 2000", dbPath, "SELECT hex(data) FROM gen_metadata ORDER BY idx;")
+		out, err = cmd.Output()
+	} else {
+		var pyBin string
+		for _, candidate := range []string{"python3", "python"} {
+			if p, pErr := exec.LookPath(candidate); pErr == nil && isExecutableValid(p) {
+				pyBin = p
+				break
+			}
+		}
+		if pyBin == "" {
+			return nil, os.ErrNotExist
+		}
+		pyScript := `import sqlite3, sys
+conn = sqlite3.connect('file:' + sys.argv[1] + '?mode=ro', uri=True, timeout=2.0)
+for (val,) in conn.execute('SELECT hex(data) FROM gen_metadata ORDER BY idx'):
+    if val:
+        print(val)
+`
+		cmd := exec.CommandContext(ctx, pyBin, "-c", pyScript, dbPath)
+		out, err = cmd.Output()
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	var blobs [][]byte
+	for _, line := range strings.Split(string(out), "\n") {
+		h := strings.TrimSpace(line)
+		if h == "" {
+			continue
+		}
+		decoded, decErr := hex.DecodeString(h)
+		if decErr != nil || len(decoded) == 0 {
+			continue
+		}
+		blobs = append(blobs, decoded)
+	}
+	return blobs, nil
+}
+
+func readProtobufVarint(b []byte, pos int) (uint64, int, bool) {
+	var v uint64
+	var shift uint
+	for pos < len(b) && shift < 64 {
+		byt := b[pos]
+		pos++
+		v |= uint64(byt&0x7f) << shift
+		if byt&0x80 == 0 {
+			return v, pos, true
+		}
+		shift += 7
+	}
+	return 0, pos, false
+}
+
+func skipProtobufWireField(b []byte, pos int, wireType int) (int, bool) {
+	switch wireType {
+	case 0:
+		_, next, ok := readProtobufVarint(b, pos)
+		return next, ok
+	case 1:
+		if pos+8 > len(b) {
+			return pos, false
+		}
+		return pos + 8, true
+	case 2:
+		ln, next, ok := readProtobufVarint(b, pos)
+		if !ok || ln > uint64(len(b)-next) {
+			return pos, false
+		}
+		return next + int(ln), true
+	case 5:
+		if pos+4 > len(b) {
+			return pos, false
+		}
+		return pos + 4, true
+	default:
+		return pos, false
+	}
+}
+
+// parseGenMetadataBlob decodes GeneratorMetadata protobuf bytes from conversations/*.db
+// to extract last_step_index and the resolved human-readable model name.
+func parseGenMetadataBlob(blob []byte) (int, string) {
+	pos := 0
+	for pos < len(blob) {
+		tag, next, ok := readProtobufVarint(blob, pos)
+		if !ok {
+			break
+		}
+		pos = next
+		fieldNum := int(tag >> 3)
+		wireType := int(tag & 7)
+		if fieldNum == 1 && wireType == 2 {
+			ln, valStart, ok := readProtobufVarint(blob, pos)
+			if !ok || ln > uint64(len(blob)-valStart) {
+				break
+			}
+			return parseChatModelMetaFields(blob[valStart : valStart+int(ln)])
+		}
+		nextPos, ok := skipProtobufWireField(blob, pos, wireType)
+		if !ok {
+			break
+		}
+		pos = nextPos
+	}
+	return -1, ""
+}
+
+func parseChatModelMetaFields(msg []byte) (int, string) {
+	lastStep := -1
+	var slug, displayName, modelEnum string
+
+	pos := 0
+	for pos < len(msg) {
+		tag, next, ok := readProtobufVarint(msg, pos)
+		if !ok {
+			break
+		}
+		pos = next
+		fieldNum := int(tag >> 3)
+		wireType := int(tag & 7)
+		if wireType != 2 {
+			nextPos, ok := skipProtobufWireField(msg, pos, wireType)
+			if !ok {
+				break
+			}
+			pos = nextPos
+			continue
+		}
+		ln, valStart, ok := readProtobufVarint(msg, pos)
+		if !ok || ln > uint64(len(msg)-valStart) {
+			break
+		}
+		chunk := msg[valStart : valStart+int(ln)]
+		pos = valStart + int(ln)
+
+		switch fieldNum {
+		case 19:
+			slug = string(chunk)
+		case 21:
+			displayName = string(chunk)
+		case 20:
+			k, v := parseProtobufKV(chunk)
+			switch k {
+			case "model_enum":
+				modelEnum = v
+			case "last_step_index":
+				if idx, convErr := strconv.Atoi(v); convErr == nil {
+					lastStep = idx
+				}
+			}
+		}
+	}
+	return lastStep, resolveGenMetadataModelName(displayName, slug, modelEnum)
+}
+
+func parseProtobufKV(msg []byte) (string, string) {
+	var key, val string
+	pos := 0
+	for pos < len(msg) {
+		tag, next, ok := readProtobufVarint(msg, pos)
+		if !ok {
+			break
+		}
+		pos = next
+		fieldNum := int(tag >> 3)
+		wireType := int(tag & 7)
+		if wireType != 2 {
+			nextPos, ok := skipProtobufWireField(msg, pos, wireType)
+			if !ok {
+				break
+			}
+			pos = nextPos
+			continue
+		}
+		ln, valStart, ok := readProtobufVarint(msg, pos)
+		if !ok || ln > uint64(len(msg)-valStart) {
+			break
+		}
+		chunk := msg[valStart : valStart+int(ln)]
+		pos = valStart + int(ln)
+		switch fieldNum {
+		case 1:
+			key = string(chunk)
+		case 2:
+			val = string(chunk)
+		}
+	}
+	return key, val
+}
+
+func matchGenMetadataModel(entries []genMetadataModelEntry, stepIndex int) string {
+	if len(entries) == 0 {
+		return ""
+	}
+	if stepIndex < 0 {
+		return entries[0].modelName
+	}
+	bestIdx := -1
+	bestStep := -1
+	for i, e := range entries {
+		if e.lastStepIndex >= 0 && e.lastStepIndex < stepIndex && e.lastStepIndex >= bestStep {
+			bestStep = e.lastStepIndex
+			bestIdx = i
+		}
+	}
+	if bestIdx >= 0 {
+		return entries[bestIdx].modelName
+	}
+	return entries[0].modelName
+}
+
+func resolveMissingRecordModels(records []parsedTranscriptRecord, convID, parentConvID, source string) {
+	if entries := loadGenMetadataModels(convID, source); len(entries) > 0 {
+		for i := range records {
+			if records[i].model == "" {
+				records[i].model = matchGenMetadataModel(entries, records[i].stepIndex)
+			}
+		}
+	}
+	if !hasUnresolvedModel(records) || parentConvID == "" {
+		return
+	}
+
+	// Fallback if child .db is absent: check parent's gen_metadata when subagent inherited parent's model.
+	if parentModel := resolveSubagentModelFromParent(convID, parentConvID, source); parentModel != "" {
+		for i := range records {
+			if records[i].model == "" {
+				records[i].model = parentModel
+			}
+		}
+	}
+}
+
+func resolveSubagentModelFromParent(convID, parentConvID, source string) string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	baseDir := filepath.Join(home, ".gemini", "antigravity", "brain")
+	if source == "cli" {
+		baseDir = filepath.Join(home, ".gemini", "antigravity-cli", "brain")
+	}
+
+	// Check parent transcript_full.jsonl for explicit Model override in invoke_subagent;
+	// only inherit parent's active model when Model was omitted or "inherit".
+	fullPath := filepath.Join(baseDir, parentConvID, ".system_generated", "logs", "transcript_full.jsonl")
+	if data, err := os.ReadFile(fullPath); err == nil {
+		lines := bytes.Split(data, []byte("\n"))
+		spawnLineIdx := -1
+		for i, ln := range lines {
+			if bytes.Contains(ln, []byte(convID)) {
+				spawnLineIdx = i
+				break
+			}
+		}
+		if spawnLineIdx > 0 {
+			for i := spawnLineIdx - 1; i >= 0 && i >= spawnLineIdx-5; i-- {
+				if !bytes.Contains(lines[i], []byte("invoke_subagent")) {
+					continue
+				}
+				var raw struct {
+					ToolCalls []struct {
+						Name string                 `json:"name"`
+						Args map[string]interface{} `json:"args"`
+					} `json:"tool_calls"`
+				}
+				if json.Unmarshal(lines[i], &raw) == nil {
+					for _, tc := range raw.ToolCalls {
+						if tc.Name == "invoke_subagent" {
+							if m, _ := tc.Args["Model"].(string); m != "" && m != "inherit" {
+								switch m {
+								case "flash":
+									return "Gemini 3.8 Flash"
+								case "flash_lite":
+									return "Gemini 3.5 Flash Lite"
+								default:
+									return resolveGenMetadataModelName("", m, m)
+								}
+							}
+						}
+					}
+				}
+				break
+			}
+		}
+	}
+
+	if entries := loadGenMetadataModels(parentConvID, source); len(entries) > 0 {
+		return entries[len(entries)-1].modelName
+	}
+	return ""
 }
 
 // collectTranscriptJobs scans both desktop and CLI brain directories for transcript.jsonl files.
@@ -354,7 +872,7 @@ func getOrLoadTokenLedgerLocked(ledgerPath string) *tokenHistoryLedger {
 	}
 
 	ledger := &tokenHistoryLedger{
-		Version:  1,
+		Version:  currentTokenHistoryLedgerVersion,
 		Sessions: make(map[string]ledgerSession),
 	}
 	if ledgerPath != "" {
@@ -430,6 +948,15 @@ func aggregateRecordsToDays(records []parsedTranscriptRecord) map[string]DailyTo
 	return days
 }
 
+func sessionHasDefaultModel(sess ledgerSession) bool {
+	for _, day := range sess.Days {
+		if day.Models["default"] > 0 {
+			return true
+		}
+	}
+	return false
+}
+
 func upsertSessionFromFile(ledger *tokenHistoryLedger, job transcriptJob, forceReparse bool) bool {
 	st, err := os.Stat(job.path)
 	if err != nil || st.IsDir() {
@@ -440,11 +967,15 @@ func upsertSessionFromFile(ledger *tokenHistoryLedger, job transcriptJob, forceR
 	modNano := st.ModTime().UnixNano()
 	if !forceReparse {
 		if existing, ok := ledger.Sessions[key]; ok && existing.Size == st.Size() && existing.ModTimeNano == modNano {
-			return false
+			needsBackfill := sessionHasDefaultModel(existing) &&
+				(ledger.Version < currentTokenHistoryLedgerVersion || conversationDBExists(job.convID, job.source))
+			if !needsBackfill {
+				return false
+			}
 		}
 	}
 
-	records := parseTranscriptFile(job.path, job.source)
+	records := parseTranscriptFileWithConvID(job.path, job.convID, job.source)
 	days := aggregateRecordsToDays(records)
 
 	ledger.Sessions[key] = ledgerSession{
@@ -523,6 +1054,10 @@ func GetTokenHistory(forceRefresh bool) (*TokenHistoryResponse, error) {
 		if upsertSessionFromFile(ledger, job, forceRefresh) {
 			dirty = true
 		}
+	}
+	if ledger.Version < currentTokenHistoryLedgerVersion {
+		ledger.Version = currentTokenHistoryLedgerVersion
+		dirty = true
 	}
 
 	if dirty && ledgerPath != "" {
