@@ -107,6 +107,11 @@ private enum DemoRouter {
             let alias = (obj["alias"] as? String) ?? ""
             gw.updateProjectAlias(path: p, alias: alias)
             return json(["ok": true])
+        case ("POST", "/gateway/projects/create"):
+            let obj = bodyJSON(body)
+            let p = (obj["path"] as? String) ?? ""
+            let name = obj["name"] as? String
+            return json(gw.createProject(path: p, name: name))
 
         case ("POST", "/gateway/cascade/interaction"):
             let obj = bodyJSON(body)

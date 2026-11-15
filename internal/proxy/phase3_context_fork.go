@@ -3,6 +3,7 @@ package proxy
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -717,6 +718,8 @@ func (p *Proxy) HandleCloneGitHubRepo(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = json.Unmarshal(body, &cloned)
 
+	p.invalidateProjectsCache()
+
 	cascadeID := ""
 	if req.StartSession && cloned.FolderURI != "" {
 		cBody, cStatus, cErr := p.callUpstreamRPC(ctx, "StartCascade", map[string]interface{}{
@@ -738,6 +741,293 @@ func (p *Proxy) HandleCloneGitHubRepo(w http.ResponseWriter, r *http.Request) {
 		"path":      uriToFilePath(cloned.FolderURI),
 		"cascadeId": cascadeID,
 	})
+}
+
+// HandleCreateProject registers a local folder path as an Antigravity workspace project
+// using ResolveFolder + CreateProject RPC (falling back to local ~/.gemini/config/projects JSON if offline).
+func (p *Proxy) HandleCreateProject(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		Path         string `json:"path"`
+		Name         string `json:"name"`
+		StartSession bool   `json:"startSession"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 256*1024)).Decode(&req); err != nil {
+		writeRPCError(w, http.StatusBadRequest, "无效的请求体")
+		return
+	}
+
+	cleanPath, err := normalizeLocalWorkspacePath(req.Path)
+	if err != nil {
+		writeRPCError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	folderURI := normalizeURI(filePathToURI(cleanPath))
+	if folderURI == "" {
+		writeRPCError(w, http.StatusBadRequest, "无法解析该路径的 URI")
+		return
+	}
+
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		name = filepath.Base(cleanPath)
+	}
+	if name == "" || name == "/" || name == "\\" || name == "." {
+		writeRPCError(w, http.StatusBadRequest, "无效的文件夹名称")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+	defer cancel()
+
+	// Avoid creating duplicate entries if this folder is already registered.
+	if existing, err := p.GetProjects(); err == nil {
+		for _, prj := range existing {
+			if normalizeURI(prj.URI) == folderURI || (prj.Path != "" && filepath.Clean(prj.Path) == cleanPath) {
+				cascadeID := ""
+				if req.StartSession {
+					cascadeID = p.startCascadeForProject(ctx, prj.ID, folderURI)
+				}
+				writeJSONStatus(w, http.StatusOK, map[string]interface{}{
+					"ok":            true,
+					"alreadyExists": true,
+					"project":       prj,
+					"cascadeId":     cascadeID,
+				})
+				return
+			}
+		}
+	}
+
+	port, _ := p.ActiveUpstream()
+	isGit, defaultBranch := p.detectProjectFolderType(ctx, port, cleanPath, folderURI)
+
+	projectID := newUUIDv4()
+	var resourceObj map[string]interface{}
+	if isGit {
+		resourceObj = map[string]interface{}{
+			"gitFolder": map[string]interface{}{
+				"folderUri":     folderURI,
+				"defaultBranch": defaultBranch,
+			},
+		}
+	} else {
+		resourceObj = map[string]interface{}{
+			"folderUri": folderURI,
+		}
+	}
+
+	if port > 0 {
+		payload := map[string]interface{}{
+			"project": map[string]interface{}{
+				"id":   projectID,
+				"name": name,
+				"projectResources": map[string]interface{}{
+					"resources": []interface{}{resourceObj},
+				},
+				"isWorkspaceOnly": false,
+				"settings":        map[string]interface{}{},
+			},
+		}
+		body, status, err := p.callUpstreamRPC(ctx, "CreateProject", payload)
+		if err != nil {
+			writeRPCError(w, status, err.Error())
+			return
+		}
+		if status != http.StatusOK {
+			writeRPCError(w, status, firstNonEmpty(strings.TrimSpace(string(body)), fmt.Sprintf("CreateProject failed (%d)", status)))
+			return
+		}
+	} else {
+		if err := writeFallbackGeminiProjectFile(projectID, name, resourceObj); err != nil {
+			writeRPCError(w, http.StatusInternalServerError, fmt.Sprintf("保存工作区配置失败: %v", err))
+			return
+		}
+	}
+
+	p.invalidateProjectsCache()
+
+	cascadeID := ""
+	if req.StartSession && port > 0 {
+		cascadeID = p.startCascadeForProject(ctx, projectID, folderURI)
+	}
+
+	now := time.Now()
+	created := ProjectItem{
+		ID:          projectID,
+		Name:        name,
+		URI:         folderURI,
+		Path:        cleanPath,
+		IsWorkspace: false,
+		LastActive:  &now,
+	}
+
+	writeJSONStatus(w, http.StatusOK, map[string]interface{}{
+		"ok":            true,
+		"alreadyExists": false,
+		"project":       created,
+		"cascadeId":     cascadeID,
+	})
+}
+
+func normalizeLocalWorkspacePath(raw string) (string, error) {
+	p := strings.TrimSpace(raw)
+	p = strings.Trim(p, `"'`)
+	p = strings.TrimSpace(p)
+	if p == "" {
+		return "", fmt.Errorf("请输入电脑本地路径")
+	}
+	if strings.HasPrefix(p, "file://") {
+		p = uriToPath(p)
+	}
+	if p == "~" || strings.HasPrefix(p, "~/") || strings.HasPrefix(p, `~\`) {
+		home, err := os.UserHomeDir()
+		if err != nil || home == "" {
+			return "", fmt.Errorf("无法解析用户主目录 ~")
+		}
+		if p == "~" {
+			p = home
+		} else {
+			p = filepath.Join(home, p[2:])
+		}
+	}
+	if !filepath.IsAbs(p) {
+		return "", fmt.Errorf("请输入绝对路径，例如 /Users/... 或 ~/...")
+	}
+	cleanPath := filepath.Clean(p)
+	if isDriveRoot(cleanPath) {
+		return "", fmt.Errorf("不能将系统根目录作为工作区")
+	}
+	fi, err := os.Stat(cleanPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", fmt.Errorf("本地路径不存在: %s", cleanPath)
+		}
+		return "", fmt.Errorf("无法访问该路径: %v", err)
+	}
+	if !fi.IsDir() {
+		return "", fmt.Errorf("该路径不是文件夹: %s", cleanPath)
+	}
+	return cleanPath, nil
+}
+
+func (p *Proxy) detectProjectFolderType(ctx context.Context, port int, cleanPath, folderURI string) (bool, string) {
+	isGit := false
+	defaultBranch := ""
+	if port > 0 {
+		rCtx, rCancel := context.WithTimeout(ctx, 3*time.Second)
+		body, status, err := p.callUpstreamRPC(rCtx, "ResolveFolder", map[string]interface{}{
+			"folderUri": folderURI,
+		})
+		rCancel()
+		if err == nil && status == http.StatusOK {
+			var resolved struct {
+				ResourceType string `json:"resourceType"`
+			}
+			if json.Unmarshal(body, &resolved) == nil && resolved.ResourceType == "FOLDER_TYPE_GIT_FOLDER" {
+				isGit = true
+			}
+		} else if _, statErr := os.Stat(filepath.Join(cleanPath, ".git")); statErr == nil {
+			isGit = true
+		}
+
+		if isGit {
+			gCtx, gCancel := context.WithTimeout(ctx, 2*time.Second)
+			gBody, gStatus, gErr := p.callUpstreamRPC(gCtx, "GetRepoInfos", map[string]interface{}{
+				"repoUris": []string{folderURI},
+			})
+			gCancel()
+			if gErr == nil && gStatus == http.StatusOK {
+				var repoResp struct {
+					Repos []struct {
+						Branches []struct {
+							Name            string `json:"name"`
+							IsCurrentBranch bool   `json:"isCurrentBranch"`
+						} `json:"branches"`
+					} `json:"repos"`
+				}
+				if json.Unmarshal(gBody, &repoResp) == nil && len(repoResp.Repos) > 0 {
+					for _, b := range repoResp.Repos[0].Branches {
+						if b.IsCurrentBranch && b.Name != "" {
+							defaultBranch = b.Name
+							break
+						}
+					}
+				}
+			}
+		}
+		return isGit, defaultBranch
+	}
+
+	if _, statErr := os.Stat(filepath.Join(cleanPath, ".git")); statErr == nil {
+		isGit = true
+	}
+	return isGit, defaultBranch
+}
+
+func (p *Proxy) startCascadeForProject(ctx context.Context, projectID, folderURI string) string {
+	payload := map[string]interface{}{}
+	if projectID != "" {
+		payload["source"] = "CORTEX_TRAJECTORY_SOURCE_CASCADE_CLIENT"
+		payload["workspaceUris"] = []string{}
+		payload["projectEnvConfig"] = map[string]interface{}{
+			"projectId":                 projectID,
+			"defaultProjectEnvironment": map[string]interface{}{},
+		}
+	} else {
+		payload["source"] = "CORTEX_TRAJECTORY_SOURCE_INTERACTIVE_CASCADE"
+		payload["workspaceUris"] = []string{folderURI}
+	}
+	cBody, cStatus, cErr := p.callUpstreamRPC(ctx, "StartCascade", payload)
+	if cErr == nil && cStatus == http.StatusOK {
+		var started struct {
+			CascadeID string `json:"cascadeId"`
+		}
+		if json.Unmarshal(cBody, &started) == nil {
+			return started.CascadeID
+		}
+	}
+	return ""
+}
+
+func writeFallbackGeminiProjectFile(projectID, name string, resourceObj map[string]interface{}) error {
+	dirs := getGeminiConfigProjectsDirs()
+	if len(dirs) == 0 {
+		return fmt.Errorf("cannot resolve projects config directory")
+	}
+	projDir := filepath.Clean(dirs[0])
+	if err := os.MkdirAll(projDir, 0o755); err != nil {
+		return err
+	}
+	doc := map[string]interface{}{
+		"id":   projectID,
+		"name": name,
+		"projectResources": map[string]interface{}{
+			"resources": []interface{}{resourceObj},
+		},
+		"permissionGrants": map[string]interface{}{
+			"v2Migrated": true,
+		},
+		"settings":        map[string]interface{}{},
+		"isWorkspaceOnly": false,
+	}
+	raw, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(projDir, projectID+".json"), append(raw, '\n'), 0o644)
+}
+
+func newUUIDv4() string {
+	var b [16]byte
+	_, _ = rand.Read(b[:])
+	b[6] = (b[6] & 0x0f) | 0x40
+	b[8] = (b[8] & 0x3f) | 0x80
+	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
 }
 
 func normalizeGitHubSlug(raw string) string {

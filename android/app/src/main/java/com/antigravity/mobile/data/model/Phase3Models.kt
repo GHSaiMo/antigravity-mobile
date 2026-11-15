@@ -58,6 +58,15 @@ data class CloneRepoResponse(
 )
 
 @Serializable
+data class CreateProjectResponse(
+    val ok: Boolean = false,
+    val alreadyExists: Boolean = false,
+    val project: ProjectItem? = null,
+    val cascadeId: String? = null,
+    val error: String? = null
+)
+
+@Serializable
 data class PermissionStateResponse(
     val ok: Boolean = true,
     val preset: String = "strict", // "strict" | "sandbox" | "auto"

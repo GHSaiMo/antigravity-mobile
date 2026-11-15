@@ -114,6 +114,39 @@ suspend fun ApiClient.cloneGitHubRepo(repoSlug: String, startSession: Boolean = 
     }
 }
 
+suspend fun ApiClient.createProjectWorkspace(
+    path: String,
+    name: String? = null,
+    startSession: Boolean = false
+): Result<CreateProjectResponse> = withContext(Dispatchers.IO) {
+    val base = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
+    val payload = buildJsonObject {
+        put("path", path)
+        if (!name.isNullOrBlank()) put("name", name)
+        put("startSession", startSession)
+    }
+    try {
+        val req = buildAuthorizedRequest("$base/gateway/projects/create")
+            .post(payload.toString().toRequestBody(p3JsonMediaType))
+            .build()
+        okHttpClient.newCall(req).awaitP3().use { resp ->
+            val body = resp.body?.string().orEmpty()
+            val parsed = runCatching {
+                if (body.trimStart().startsWith("{")) json.decodeFromString<CreateProjectResponse>(body) else null
+            }.getOrNull()
+            if (resp.isSuccessful && parsed != null && parsed.ok) {
+                Result.success(parsed)
+            } else {
+                val errMsg = parsed?.error?.takeIf { it.isNotBlank() }
+                    ?: "HTTP ${resp.code}: ${body.take(180)}"
+                Result.failure(RuntimeException(errMsg))
+            }
+        }
+    } catch (e: Exception) {
+        Result.failure(e)
+    }
+}
+
 suspend fun ApiClient.fetchPermissionSettings(): Result<PermissionStateResponse> {
     return p3Get("/gateway/permissions").mapCatching { body ->
         json.decodeFromString<PermissionStateResponse>(body)

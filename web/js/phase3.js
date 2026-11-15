@@ -707,6 +707,30 @@
         }
       });
 
+      const addWorkspaceBtn = document.getElementById("btn-add-workspace");
+      addWorkspaceBtn?.addEventListener("click", async () => {
+        const localPath = prompt("输入电脑本地目录路径 (如 ~/Projects/my-app)：");
+        if (!localPath || !localPath.trim()) return;
+        showToast?.("正在添加本地工作区…", 4000);
+        try {
+          const res = await fetch("/gateway/projects/create", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ path: localPath.trim(), startSession: false }),
+          });
+          const d = await res.json();
+          if (!res.ok || !d.ok) throw new Error(d.error || "添加工作区失败");
+          const listRes = await fetch("/gateway/projects");
+          if (listRes.ok) {
+            discoveredProjects = await listRes.json();
+            renderNewProjectsList?.(discoveredProjects);
+          }
+          showToast?.(d.alreadyExists ? "工作区已在列表中" : "已添加工作区", 2400);
+        } catch (err) {
+          showToast?.("添加失败: " + err.message, 3200);
+        }
+      });
+
       const listEl = document.getElementById("new-projects-list");
       if (!listEl) return;
       let lpTimer = 0;

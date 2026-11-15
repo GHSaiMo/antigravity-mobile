@@ -233,6 +233,26 @@ func TestHandleMemories_CRUDAndPathGuard(t *testing.T) {
 	if !strings.Contains(wGet.Body.String(), "Keep functions short") {
 		t.Fatalf("expected created rule in GET list: %s", wGet.Body.String())
 	}
+
+	// Delete archives a backup before removing original file
+	delBody, _ := json.Marshal(map[string]string{
+		"action":        "delete",
+		"workspacePath": ws,
+		"path":          filepath.Join(ws, ".agents", "rules", "style-guide.md"),
+	})
+	reqDel := httptest.NewRequest(http.MethodPost, "/gateway/memories", bytes.NewReader(delBody))
+	wDel := httptest.NewRecorder()
+	p.HandleMemories(wDel, reqDel)
+	if wDel.Code != http.StatusOK {
+		t.Fatalf("delete failed: %d %s", wDel.Code, wDel.Body.String())
+	}
+	if _, err := os.Stat(filepath.Join(ws, ".agents", "rules", "style-guide.md")); !os.IsNotExist(err) {
+		t.Fatalf("expected original file to be deleted")
+	}
+	backupMatches, err := filepath.Glob(filepath.Join(home, ".gemini", "backups", "deleted_memories", "*_style-guide.md"))
+	if err != nil || len(backupMatches) != 1 {
+		t.Fatalf("expected backup copy in deleted_memories, got %v (err=%v)", backupMatches, err)
+	}
 }
 
 func TestHandleAutomationCreateDelete(t *testing.T) {
@@ -406,5 +426,120 @@ func TestHandleContextMentionsAndNormalization(t *testing.T) {
 	p.HandleTerminals(wTerm, httptest.NewRequest(http.MethodPost, "/gateway/terminal/input", strings.NewReader(`{"terminalId":"t-1","input":"y\n"}`)))
 	if wTerm.Code != http.StatusOK {
 		t.Fatalf("terminal input failed: %d %s", wTerm.Code, wTerm.Body.String())
+	}
+}
+
+func TestHandleCreateProject_UpstreamAndOfflineAndValidation(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("APPDATA", home)
+	t.Setenv("ANTIGRAVITY_APP_DATA_DIR", filepath.Join(home, ".gemini", "antigravity"))
+	t.Setenv("MULTIGRAVITY_DATA_DIR", filepath.Join(home, "mgy-data"))
+
+	gitDir := filepath.Join(home, "Projects", "my-git-app")
+	normalDir := filepath.Join(home, "Projects", "notes")
+	filePath := filepath.Join(home, "Projects", "readme.txt")
+	if err := os.MkdirAll(gitDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(normalDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filePath, []byte("hi"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var createPayloads []map[string]interface{}
+	p := setupMockUpstreamProxy(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/ResolveFolder"):
+			var body struct {
+				FolderURI string `json:"folderUri"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			if strings.Contains(body.FolderURI, "my-git-app") {
+				_, _ = w.Write([]byte(`{"resourceType":"FOLDER_TYPE_GIT_FOLDER"}`))
+			} else {
+				_, _ = w.Write([]byte(`{"resourceType":"FOLDER_TYPE_NORMAL_FOLDER"}`))
+			}
+		case strings.HasSuffix(r.URL.Path, "/GetRepoInfos"):
+			_, _ = w.Write([]byte(`{"repos":[{"branches":[{"name":"main","isCurrentBranch":true}]}]}`))
+		case strings.HasSuffix(r.URL.Path, "/CreateProject"):
+			var payload map[string]interface{}
+			_ = json.NewDecoder(r.Body).Decode(&payload)
+			createPayloads = append(createPayloads, payload)
+			_, _ = w.Write([]byte(`{}`))
+		case strings.HasSuffix(r.URL.Path, "/GetAllCascadeTrajectories"):
+			_, _ = w.Write([]byte(`{"trajectorySummaries":{}}`))
+		default:
+			_, _ = w.Write([]byte(`{}`))
+		}
+	})
+
+	// 1. Validation errors
+	for _, bad := range []string{`{"path":""}`, `{"path":"relative/dir"}`, `{"path":"` + filePath + `"}`, `{"path":"` + filepath.Join(home, "missing") + `"}`} {
+		wBad := httptest.NewRecorder()
+		p.ServeHTTP(wBad, httptest.NewRequest(http.MethodPost, "/gateway/projects/create", strings.NewReader(bad)))
+		if wBad.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400 for %s, got %d: %s", bad, wBad.Code, wBad.Body.String())
+		}
+	}
+
+	// 2. Git folder via ~/Projects/my-git-app
+	wGit := httptest.NewRecorder()
+	p.ServeHTTP(wGit, httptest.NewRequest(http.MethodPost, "/gateway/projects/create", strings.NewReader(`{"path":"~/Projects/my-git-app"}`)))
+	if wGit.Code != http.StatusOK {
+		t.Fatalf("expected 200 for git dir, got %d: %s", wGit.Code, wGit.Body.String())
+	}
+	var respGit struct {
+		OK            bool        `json:"ok"`
+		AlreadyExists bool        `json:"alreadyExists"`
+		Project       ProjectItem `json:"project"`
+	}
+	if err := json.Unmarshal(wGit.Body.Bytes(), &respGit); err != nil {
+		t.Fatal(err)
+	}
+	if !respGit.OK || respGit.AlreadyExists || respGit.Project.Name != "my-git-app" || respGit.Project.Path != gitDir {
+		t.Fatalf("unexpected git create resp: %+v", respGit)
+	}
+	if len(createPayloads) != 1 {
+		t.Fatalf("expected 1 CreateProject RPC, got %d", len(createPayloads))
+	}
+	projObj := createPayloads[0]["project"].(map[string]interface{})
+	resources := projObj["projectResources"].(map[string]interface{})["resources"].([]interface{})
+	gitRes := resources[0].(map[string]interface{})["gitFolder"].(map[string]interface{})
+	if gitRes["defaultBranch"] != "main" {
+		t.Fatalf("expected defaultBranch main, got %#v", gitRes)
+	}
+
+	// 3. Normal folder via offline fallback (port == 0)
+	pOffline := &Proxy{}
+	bodyNorm, _ := json.Marshal(map[string]string{"path": normalDir})
+	wNorm := httptest.NewRecorder()
+	pOffline.ServeHTTP(wNorm, httptest.NewRequest(http.MethodPost, "/gateway/projects/create", bytes.NewReader(bodyNorm)))
+	if wNorm.Code != http.StatusOK {
+		t.Fatalf("expected 200 for offline normal dir, got %d: %s", wNorm.Code, wNorm.Body.String())
+	}
+	projects, err := pOffline.GetProjects()
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, item := range projects {
+		if item.Path == normalDir && item.Name == "notes" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected offline created project %s in GetProjects(), got %+v", normalDir, projects)
+	}
+
+	// 4. Duplicate path returns alreadyExists: true without extra CreateProject
+	wDup := httptest.NewRecorder()
+	pOffline.ServeHTTP(wDup, httptest.NewRequest(http.MethodPost, "/gateway/projects/create", bytes.NewReader(bodyNorm)))
+	if wDup.Code != http.StatusOK || !strings.Contains(wDup.Body.String(), `"alreadyExists":true`) {
+		t.Fatalf("expected alreadyExists:true on duplicate, got %d: %s", wDup.Code, wDup.Body.String())
 	}
 }

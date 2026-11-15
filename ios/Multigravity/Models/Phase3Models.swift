@@ -163,6 +163,14 @@ public struct CloneRepoResponse: Codable, Sendable {
     public let error: String?
 }
 
+public struct CreateProjectResponse: Codable, Sendable {
+    public let ok: Bool?
+    public let alreadyExists: Bool?
+    public let project: ProjectItem?
+    public let cascadeId: String?
+    public let error: String?
+}
+
 public struct PermissionStateResponse: Codable, Hashable, Sendable {
     public let ok: Bool?
     public let preset: String

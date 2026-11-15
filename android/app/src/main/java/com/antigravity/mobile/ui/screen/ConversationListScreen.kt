@@ -18,6 +18,7 @@ import androidx.compose.ui.res.painterResource
 import com.antigravity.mobile.R
 import com.antigravity.mobile.data.service.ApiClient
 import com.antigravity.mobile.data.service.cloneGitHubRepo
+import com.antigravity.mobile.data.service.createProjectWorkspace
 import com.antigravity.mobile.data.service.createWorktreeSession
 import com.antigravity.mobile.ui.util.rememberHaptic
 import androidx.compose.foundation.lazy.LazyColumn
@@ -631,6 +632,23 @@ fun ConversationListScreen(
                         )
                     }
                 }
+            },
+            onAddLocalWorkspace = { localPath ->
+                val client = ApiClient.defaultInstance
+                    ?: return@NewConversationSheet "未配置网关地址"
+                val result = client.createProjectWorkspace(
+                    path = localPath,
+                    startSession = false
+                )
+                result.fold(
+                    onSuccess = {
+                        viewModel.loadProjects()
+                        null
+                    },
+                    onFailure = { err ->
+                        err.message?.takeIf { it.isNotBlank() } ?: "添加工作区失败"
+                    }
+                )
             },
             onDismiss = { showNewConvSheet = false }
         )

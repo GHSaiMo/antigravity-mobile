@@ -556,6 +556,10 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		p.HandleProjectAlias(w, r)
 		return
 	}
+	if r.URL.Path == "/gateway/projects/create" {
+		p.HandleCreateProject(w, r)
+		return
+	}
 	if r.URL.Path == "/gateway/projects" {
 		p.HandleProjects(w, r)
 		return

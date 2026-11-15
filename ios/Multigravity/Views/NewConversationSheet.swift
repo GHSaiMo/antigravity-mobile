@@ -14,6 +14,9 @@ public struct NewConversationSheet: View {
     @State private var showCloneAlert: Bool = false
     @State private var cloneRepoSlug: String = ""
     @State private var isCloning: Bool = false
+    @State private var showAddWorkspaceAlert: Bool = false
+    @State private var localWorkspacePath: String = ""
+    @State private var isAddingWorkspace: Bool = false
     @State private var isCreatingWorktree: Bool = false
     
     public init(
@@ -94,25 +97,58 @@ public struct NewConversationSheet: View {
             .navigationTitle("新建会话")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: .topBarLeading) {
                     Button {
                         showCloneAlert = true
                     } label: {
-                        if isCloning || isCreatingWorktree {
+                        if isCloning {
                             ProgressView()
                                 .scaleEffect(0.8)
                         } else {
-                            Image(systemName: "arrow.down.circle")
-                                .font(.system(size: 16, weight: .medium))
+                            Image("file_icon_github")
+                                .renderingMode(.template)
+                                .resizable()
+                                .aspectRatio(contentMode: .fit)
+                                .frame(width: 19, height: 19)
                         }
                     }
-                    .disabled(isCloning || isCreatingWorktree)
+                    .disabled(isCloning || isCreatingWorktree || isAddingWorkspace)
                     .accessibilityLabel("克隆 GitHub 仓库")
+                }
+
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showAddWorkspaceAlert = true
+                    } label: {
+                        if isAddingWorkspace || isCreatingWorktree {
+                            ProgressView()
+                                .scaleEffect(0.8)
+                        } else {
+                            Image(systemName: "plus")
+                                .font(.system(size: 16, weight: .semibold))
+                        }
+                    }
+                    .disabled(isCloning || isCreatingWorktree || isAddingWorkspace)
+                    .accessibilityLabel("添加本地工作区")
                 }
             }
             .presentationDragIndicator(.visible)
         }
         .presentationDragIndicator(.visible)
+        .alert("添加本地工作区", isPresented: $showAddWorkspaceAlert) {
+            TextField(localWorkspacePlaceholder, text: $localWorkspacePath)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+            Button("取消", role: .cancel) { localWorkspacePath = "" }
+            Button("添加") {
+                let path = localWorkspacePath.trimmingCharacters(in: .whitespacesAndNewlines)
+                localWorkspacePath = ""
+                guard !path.isEmpty else { return }
+                startAddWorkspace(path: path)
+            }
+        } message: {
+            Text("输入电脑上的文件夹路径，将添加为新的工作区。")
+        }
         .alert("从 GitHub 克隆仓库", isPresented: $showCloneAlert) {
             TextField("owner/repo 或 HTTPS URL", text: $cloneRepoSlug)
                 .textInputAutocapitalization(.never)
@@ -298,6 +334,54 @@ public struct NewConversationSheet: View {
                 }
             } catch {
                 errorMessage = "创建 Worktree 失败: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    private var localWorkspacePlaceholder: String {
+        if AppSettings.shared.gatewayPlatform == "windows" {
+            return #"C:\Users\...\project"#
+        }
+        return "/Users/... 或 ~/Projects/..."
+    }
+
+    private func startAddWorkspace(path: String) {
+        guard let url = AppSettings.shared.gatewayURL, !isAddingWorkspace else { return }
+        isAddingWorkspace = true
+        errorMessage = nil
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        Task {
+            defer { isAddingWorkspace = false }
+            do {
+                let resp = try await APIClient.shared.createProjectWorkspace(
+                    path: path,
+                    startSession: false,
+                    baseURL: url
+                )
+                if resp.ok == false {
+                    errorMessage = resp.error ?? "添加工作区失败"
+                    return
+                }
+                await refreshProjectsInBackground()
+                if let created = resp.project {
+                    let existsInList = projects.contains {
+                        $0.id == created.id ||
+                        $0.uri == created.uri ||
+                        (!created.path.isEmpty && $0.path == created.path)
+                    }
+                    if !existsInList {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            projects.insert(created, at: 0)
+                        }
+                        ProjectCacheManager.shared.saveProjects(projects)
+                    }
+                } else if let err = resp.error, !err.isEmpty {
+                    errorMessage = err
+                    return
+                }
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+            } catch {
+                errorMessage = "添加工作区失败: \(error.localizedDescription)"
             }
         }
     }

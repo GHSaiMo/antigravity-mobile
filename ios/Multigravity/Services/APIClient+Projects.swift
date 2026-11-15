@@ -17,22 +17,7 @@ extension APIClient {
             throw APIError.serverError(statusCode: httpResp.statusCode, message: String(data: data, encoding: .utf8) ?? "")
         }
         
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .custom { decoder in
-            let container = try decoder.singleValueContainer()
-            let dateStr = try container.decode(String.self)
-            let isoFormatter = ISO8601DateFormatter()
-            isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            if let date = isoFormatter.date(from: dateStr) {
-                return date
-            }
-            let stdFormatter = ISO8601DateFormatter()
-            if let date = stdFormatter.date(from: dateStr) {
-                return date
-            }
-            throw DecodingError.dataCorruptedError(in: container, debugDescription: "Invalid date: \(dateStr)")
-        }
-        
+        let decoder = Self.makeProjectsDecoder()
         let projects = try decoder.decode([ProjectItem].self, from: data)
         if AppSettings.shared.gatewayPlatform == nil {
             for item in projects {
@@ -50,6 +35,65 @@ extension APIClient {
             }
         }
         return projects
+    }
+
+    private static func makeProjectsDecoder() -> JSONDecoder {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .custom { decoder in
+            let container = try decoder.singleValueContainer()
+            let dateStr = try container.decode(String.self)
+            let isoFormatter = ISO8601DateFormatter()
+            isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            if let date = isoFormatter.date(from: dateStr) {
+                return date
+            }
+            let stdFormatter = ISO8601DateFormatter()
+            if let date = stdFormatter.date(from: dateStr) {
+                return date
+            }
+            throw DecodingError.dataCorruptedError(in: container, debugDescription: "Invalid date: \(dateStr)")
+        }
+        return decoder
+    }
+
+    /// Register a local folder path on the gateway host as a new Antigravity workspace project.
+    public func createProjectWorkspace(
+        path: String,
+        name: String? = nil,
+        startSession: Bool = false,
+        baseURL: URL
+    ) async throws -> CreateProjectResponse {
+        let endpoint = baseURL.appendingPathComponent("gateway/projects/create")
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 25
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        struct Payload: Encodable {
+            let path: String
+            let name: String?
+            let startSession: Bool
+        }
+        request.httpBody = try Self.sharedEncoder.encode(Payload(
+            path: path.trimmingCharacters(in: .whitespacesAndNewlines),
+            name: name?.trimmingCharacters(in: .whitespacesAndNewlines),
+            startSession: startSession
+        ))
+
+        let (data, response) = try await transport.send(request: request)
+        guard let httpResp = response as? HTTPURLResponse else {
+            throw APIError.networkError("Invalid response type")
+        }
+        guard (200...299).contains(httpResp.statusCode) else {
+            if httpResp.statusCode == 401 {
+                NotificationCenter.default.post(name: .deviceTokenRevoked, object: nil)
+            }
+            let msg = (try? Self.makeProjectsDecoder().decode(CreateProjectResponse.self, from: data))?.error
+                ?? String(data: data, encoding: .utf8)
+                ?? "HTTP \(httpResp.statusCode)"
+            throw APIError.serverError(statusCode: httpResp.statusCode, message: msg)
+        }
+        return try Self.makeProjectsDecoder().decode(CreateProjectResponse.self, from: data)
     }
     
     /// Set or clear (empty alias) the custom display alias of a workspace.
