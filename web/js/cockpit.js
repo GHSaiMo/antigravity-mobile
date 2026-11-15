@@ -309,15 +309,11 @@ function renderPacedMetricBox(title, titleClass, bucket, tier, options = {}) {
     isSelected ? "is-selected" : ""
   ].filter(Boolean).join(" ");
   const keyAttr = bucketKey ? ` data-bucket-key="${escapeHtml(bucketKey)}"` : "";
-  const selectedDotHtml = isSelected ? `<span class="metric-selected-dot"></span>` : "";
 
   return `
     <div class="metric-box metric-box-weekly ${extraClasses}"${keyAttr} title="${escapeHtml(fullTitle)}">
       <div class="metric-box-header">
-        <span class="metric-box-title-wrap">
-          <span class="metric-box-title ${titleClass}">${escapeHtml(title)}</span>
-          ${selectedDotHtml}
-        </span>
+        <span class="metric-box-title ${titleClass}">${escapeHtml(title)}</span>
         <span class="metric-box-value ${statusClass}">${remaining.toFixed(1)}%</span>
       </div>
       <div class="metric-mini-track weekly-track">

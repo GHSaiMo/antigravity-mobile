@@ -604,15 +604,9 @@ public struct AccountQuotaSheet: View {
                         .lineLimit(1)
                 } else {
                     Text(title)
-                        .font(.system(size: isSpecial ? 11.5 : 11, weight: isSelected ? .semibold : (isSpecial ? .semibold : .medium)))
-                        .foregroundColor(isArgon ? argonAccent : (isSelected ? .primary : .secondary))
+                        .font(.system(size: isSpecial ? 11.5 : 11, weight: isSpecial ? .semibold : .medium))
+                        .foregroundColor(isArgon ? argonAccent : .secondary)
                         .lineLimit(1)
-                }
-
-                if isSelected {
-                    Circle()
-                        .fill(Color.blue)
-                        .frame(width: 5, height: 5)
                 }
                 
                 Spacer()
@@ -715,13 +709,6 @@ public struct AccountQuotaSheet: View {
                                 startPoint: .topLeading,
                                 endPoint: .bottomTrailing
                             )
-                        )
-                } else if isSelected {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(Color(uiColor: .tertiarySystemGroupedBackground))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .fill(Color.blue.opacity(isDark ? 0.14 : 0.08))
                         )
                 } else {
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
