@@ -77,6 +77,32 @@ class AntigravityMessagingService : FirebaseMessagingService() {
             .setCategory(if (isAction) NotificationCompat.CATEGORY_ALARM else NotificationCompat.CATEGORY_EVENT)
             .setDefaults(NotificationCompat.DEFAULT_ALL)
 
+        val cascadeId = data["cascadeId"]?.takeIf { it.isNotBlank() }
+            ?: runCatching { Uri.parse(deeplink).lastPathSegment }.getOrNull()?.takeIf { it.isNotBlank() && it != "cascade" }
+        val isApprovalPush = isAction && !category.contains("error")
+        if (isApprovalPush && !cascadeId.isNullOrBlank()) {
+            builder.addAction(
+                0,
+                "允许",
+                NotificationActionReceiver.buildPendingIntent(
+                    applicationContext,
+                    NotificationActionReceiver.ACTION_APPROVE,
+                    cascadeId,
+                    alertNotifId = notifId
+                )
+            )
+            builder.addAction(
+                0,
+                "拒绝",
+                NotificationActionReceiver.buildPendingIntent(
+                    applicationContext,
+                    NotificationActionReceiver.ACTION_REJECT,
+                    cascadeId,
+                    alertNotifId = notifId
+                )
+            )
+        }
+
         try {
             NotificationManagerCompat.from(applicationContext).notify(notifId, builder.build())
         } catch (e: SecurityException) {

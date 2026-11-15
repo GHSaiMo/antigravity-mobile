@@ -43,6 +43,8 @@ class StreamWebSocketClient(
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var reconnectJob: Job? = null
     private var reconnectAttempt = 0
+    @Volatile private var lastStreamRev: Long = 0L
+    @Volatile private var revCascadeId: String? = null
     private val deltaReassembler = StreamDeltaReassembler()
 
     init {
@@ -64,6 +66,12 @@ class StreamWebSocketClient(
     fun connect(cascadeId: String) {
         if (_connectionStatus.value == ConnectionStatus.CONNECTED && activeCascadeId == cascadeId) {
             return
+        }
+
+        if (revCascadeId != cascadeId) {
+            lastStreamRev = 0L
+            revCascadeId = cascadeId
+            deltaReassembler.reset()
         }
 
         disconnect(intentional = false)
@@ -112,20 +120,35 @@ class StreamWebSocketClient(
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 Log.d("StreamWS", "Connected to cascade stream: $cascadeId")
                 reconnectAttempt = 0
-                deltaReassembler.reset()
+                if (lastStreamRev == 0L) {
+                    deltaReassembler.reset()
+                }
                 _connectionStatus.value = ConnectionStatus.CONNECTED
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
                 try {
                     val raw = json.decodeFromString<StreamUpdatePayload>(text)
+                    if (raw.type == "noop") {
+                        if (raw.rev > 0L) {
+                            lastStreamRev = raw.rev
+                            revCascadeId = cascadeId
+                        }
+                        return
+                    }
                     val payload = deltaReassembler.apply(raw)
                     if (payload == null) {
                         // Delta does not line up with what we hold: drop the socket and let the
                         // normal reconnect path fetch a fresh complete "init" frame.
                         Log.w("StreamWS", "Delta baseline mismatch, resyncing")
+                        lastStreamRev = 0L
+                        deltaReassembler.reset()
                         webSocket.close(1000, "delta resync")
                         return
+                    }
+                    if (raw.rev > 0L) {
+                        lastStreamRev = raw.rev
+                        revCascadeId = cascadeId
                     }
                     _streamUpdates.value = payload
                 } catch (e: Exception) {
@@ -178,6 +201,9 @@ class StreamWebSocketClient(
         val hostAndPort = cleanBase.substringAfter("://")
 
         var url = "$wsScheme://$hostAndPort/gateway/cascade/stream?cascadeId=$cascadeId&client=android&format=messages&delta=1"
+        if (lastStreamRev > 0L && revCascadeId == cascadeId) {
+            url += "&sinceRev=$lastStreamRev"
+        }
         if (!ticket.isNullOrBlank()) {
             url += "&ticket=$ticket"
         }

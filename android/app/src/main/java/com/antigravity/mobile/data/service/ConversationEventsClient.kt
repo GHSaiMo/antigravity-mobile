@@ -23,6 +23,7 @@ import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
@@ -34,7 +35,9 @@ internal data class ConversationEventFrame(
     val rev: Long,
     val ts: Long? = null,
     /** Desktop language_server state from the gateway: ok / down / unknown. */
-    val desktop: String? = null
+    val desktop: String? = null,
+    /** Set on `hello` when `?sinceRev=` matches the gateway's current revision. */
+    val unchanged: Boolean = false
 )
 
 internal fun parseConversationEventFrame(text: String): ConversationEventFrame? = try {
@@ -44,7 +47,8 @@ internal fun parseConversationEventFrame(text: String): ConversationEventFrame? 
         type,
         obj["rev"]?.jsonPrimitive?.longOrNull ?: 0L,
         obj["ts"]?.jsonPrimitive?.longOrNull,
-        obj["desktop"]?.jsonPrimitive?.content
+        obj["desktop"]?.jsonPrimitive?.content,
+        obj["unchanged"]?.jsonPrimitive?.booleanOrNull ?: false
     )
 } catch (_: Exception) {
     null
@@ -73,6 +77,8 @@ class ConversationEventsClient(
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var runJob: Job? = null
     private var webSocket: WebSocket? = null
+    @Volatile private var lastRev: Long = 0L
+    @Volatile private var lastHost: String? = null
 
     private val _connected = MutableStateFlow(false)
     val connected: StateFlow<Boolean> = _connected.asStateFlow()
@@ -134,7 +140,13 @@ class ConversationEventsClient(
     private suspend fun connectOnce(): Boolean {
         val base = baseUrlProvider()?.trimEnd('/') ?: return false
         val scheme = if (base.startsWith("https://", ignoreCase = true)) "wss" else "ws"
-        val url = "$scheme://${base.substringAfter("://")}/gateway/events"
+        val hostPart = base.substringAfter("://")
+        if (lastHost != null && lastHost != hostPart) {
+            lastRev = 0L
+        }
+        lastHost = hostPart
+        val revSuffix = if (lastRev > 0L) "?sinceRev=$lastRev" else ""
+        val url = "$scheme://$hostPart/gateway/events$revSuffix"
 
         val builder = Request.Builder().url(url)
         prefs.deviceToken?.takeIf { it.isNotBlank() }?.let { token ->
@@ -153,6 +165,9 @@ class ConversationEventsClient(
 
             override fun onMessage(webSocket: WebSocket, text: String) {
                 val frame = parseConversationEventFrame(text) ?: return
+                if (frame.rev > 0L) {
+                    lastRev = frame.rev
+                }
                 if (frame.type == "hello" || frame.type == "beat" || frame.type == "changed") {
                     _snapshot.update {
                         it.copy(
@@ -163,7 +178,7 @@ class ConversationEventsClient(
                         )
                     }
                 }
-                if (frame.type == "hello" || frame.type == "changed") {
+                if (frame.type == "changed" || (frame.type == "hello" && !frame.unchanged)) {
                     _changes.tryEmit(Unit)
                 }
             }

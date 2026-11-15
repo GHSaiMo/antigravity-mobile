@@ -39,6 +39,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
@@ -173,6 +174,11 @@ internal fun CodeBlockView(
 
         // Horizontally Scrollable Monospaced Code
         val codeScale = if (LocalShareExport.current) 1.0f else LocalMarkdownCodeScale.current
+        val trimmedCode = remember(code) { code.trimEnd() }
+        val isDark = colors.codeBlockBg.luminance() < 0.5f
+        val highlighted = remember(trimmedCode, lang, isDark) {
+            CodeSyntaxHighlighter.highlight(trimmedCode, lang, isDark)
+        }
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -180,7 +186,7 @@ internal fun CodeBlockView(
                 .padding(12.dp)
         ) {
             Text(
-                text = code.trimEnd(),
+                text = highlighted,
                 color = colors.textPrimary,
                 fontSize = (12.5f * codeScale).sp,
                 fontFamily = FontFamily.Monospace,

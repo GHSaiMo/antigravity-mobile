@@ -750,6 +750,57 @@ object MathSymbolProcessor {
         return s.trim()
     }
 
+    private val matrixCasesEnvRegex = Regex("""\\begin\{(cases|pmatrix|bmatrix|Bmatrix|vmatrix|Vmatrix|matrix)\}([\s\S]*?)\\end\{\1\}""")
+
+    private fun formatMatrixAndCasesEnvs(input: String): String {
+        if (!input.contains("\\begin{")) return input
+        return matrixCasesEnvRegex.replace(input) { match ->
+            val env = match.groupValues[1]
+            val body = match.groupValues[2]
+            val rawRows = body.split("\\\\")
+                .map { it.trim() }
+                .filter { it.isNotEmpty() }
+            if (rawRows.isEmpty()) return@replace ""
+
+            if (env == "cases") {
+                val rows = rawRows.map { row ->
+                    val cols = row.split("&").map { it.trim() }
+                    if (cols.size >= 2 && cols[1].isNotEmpty()) {
+                        "${cols[0]}  (${cols.drop(1).joinToString(", ")})"
+                    } else {
+                        cols.firstOrNull() ?: row
+                    }
+                }
+                if (rows.size == 1) {
+                    "{ ${rows[0]}"
+                } else {
+                    rows.mapIndexed { idx, r ->
+                        val glyph = when (idx) {
+                            0 -> "⎧"
+                            rows.lastIndex -> "⎩"
+                            else -> "⎨"
+                        }
+                        "$glyph $r"
+                    }.joinToString("\n")
+                }
+            } else {
+                val (openB, closeB) = when (env) {
+                    "pmatrix" -> "(" to ")"
+                    "bmatrix" -> "[" to "]"
+                    "Bmatrix" -> "{" to "}"
+                    "vmatrix" -> "|" to "|"
+                    "Vmatrix" -> "‖" to "‖"
+                    else -> "[" to "]"
+                }
+                val rows = rawRows.map { row ->
+                    val cols = row.split("&").map { it.trim() }
+                    "$openB ${cols.joinToString(", ")} $closeB"
+                }
+                if (rows.size > 1) "[${rows.joinToString("; ")}]" else rows[0]
+            }
+        }
+    }
+
     /**
      * Translates an isolated math expression into Unicode.
      */
@@ -764,6 +815,9 @@ object MathSymbolProcessor {
 
         // 3. Extensible arrows: \xrightarrow{训练} -> ──(训练)──>
         str = replaceExtensibleArrows(str)
+
+        // 3b. Piecewise cases & matrix environments (\begin{cases}, \begin{pmatrix}, \begin{bmatrix}, etc.)
+        str = formatMatrixAndCasesEnvs(str)
 
         // 4. Math tag, label, and environments
         str = mathTagRegex.replace(str, " ($1)")

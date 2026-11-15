@@ -217,7 +217,8 @@ data class SubagentItem(
 
 @Serializable
 data class StreamUpdatePayload(
-    val type: String = "update", // "init", "update", "error"
+    val type: String = "update", // "init", "update", "noop", "error"
+    val rev: Long = 0L,
     val cascadeId: String = "",
     val title: String? = null,
     val status: String = "",
