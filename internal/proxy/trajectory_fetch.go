@@ -484,8 +484,8 @@ func (p *Proxy) fetchUpstreamTrajectoryUncached(ctx context.Context, cascadeID s
 	}
 
 	const maxRawCacheBytes = 8 * 1024 * 1024
-	rawBuf := GetLargeBuffer()
-	defer PutLargeBuffer(rawBuf)
+	rawBuf := GetHugeBuffer()
+	defer PutHugeBuffer(rawBuf)
 	if _, err := rawBuf.ReadFrom(reader); err != nil {
 		return nil, fmt.Errorf("failed to read upstream response: %w", err)
 	}
@@ -638,8 +638,9 @@ func (p *Proxy) fetchUpstreamGeneratorMetadata(cascadeID string, port int, token
 	contextMeterCacheMu.Lock()
 	if entry, ok := contextMeterCache[cascadeID]; ok {
 		if time.Since(entry.at) < 1200*time.Millisecond {
+			cached := entry.item
 			contextMeterCacheMu.Unlock()
-			return entry.item
+			return p.overlayLiveContextUsage(cascadeID, cached)
 		}
 		reqOffset = entry.nextOffset
 		prevItem = entry.item
@@ -681,18 +682,18 @@ func (p *Proxy) fetchUpstreamGeneratorMetadata(cascadeID string, port int, token
 
 	item, sum, ok := doQuery(reqOffset)
 	if !ok {
-		return prevItem
+		return p.overlayLiveContextUsage(cascadeID, prevItem)
 	}
 	// If trajectory reverted or tail slice had no chat model metrics, fall back to full offset=0 once.
 	if reqOffset > 0 && (item == nil || (!sum.hasMetrics && prevItem != nil)) {
 		reqOffset = 0
 		item, sum, ok = doQuery(0)
 		if !ok {
-			return prevItem
+			return p.overlayLiveContextUsage(cascadeID, prevItem)
 		}
 	}
 	if item == nil {
-		return nil
+		return p.overlayLiveContextUsage(cascadeID, nil)
 	}
 
 	if !sum.explicitMax && sum.model != "" {
@@ -726,7 +727,33 @@ func (p *Proxy) fetchUpstreamGeneratorMetadata(cascadeID string, port int, token
 	}
 	contextMeterCacheMu.Unlock()
 
-	return item
+	return p.overlayLiveContextUsage(cascadeID, item)
+}
+
+func (p *Proxy) overlayLiveContextUsage(cascadeID string, base *ContextMeterItem) *ContextMeterItem {
+	used, maxTok, ok := p.agentStateHub.LiveContextUsage(cascadeID, 30*time.Second)
+	if !ok {
+		return base
+	}
+	var out ContextMeterItem
+	if base != nil {
+		out = *base
+	}
+	if used > 0 {
+		out.UsedTokens = used
+	}
+	if maxTok > 0 {
+		out.MaxTokens = maxTok
+	}
+	if out.MaxTokens > 0 && out.UsedTokens > 0 {
+		pct := float64(out.UsedTokens) / float64(out.MaxTokens) * 100.0
+		if pct > 100.0 {
+			pct = 100.0
+		}
+		out.Percentage = float64(int(pct*10+0.5)) / 10
+		out.IsOverflow = out.UsedTokens >= out.MaxTokens
+	}
+	return &out
 }
 
 // flexInt64 decodes ProtoJSON int64 fields encoded as either JSON numbers or quoted strings.

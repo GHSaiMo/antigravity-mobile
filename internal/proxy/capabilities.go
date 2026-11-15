@@ -58,6 +58,7 @@ var Features = []Feature{
 	{ID: "plugins", RPCs: []string{"GetAllPlugins", "InstallCascadePlugin", "ListPluginAuthProviders"}},
 	{ID: "automations", RPCs: []string{"GetSidecars", "GetSidecarEvents", "ManageSidecar"}},
 	{ID: "context_meter", RPCs: []string{"GetCascadeTrajectoryGeneratorMetadata"}},
+	{ID: "live_summaries", RPCs: []string{"JetboxSubscribeToSummaries"}}, // 网关自带轮询兜底，缺失不影响列表功能
 }
 
 // Compatibility is the result of comparing the running language_server with what the gateway needs.

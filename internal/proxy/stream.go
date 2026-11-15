@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -14,7 +15,8 @@ import (
 
 // StreamUpdatePayload represents a real-time event pushed over WebSocket.
 type StreamUpdatePayload struct {
-	Type               string               `json:"type"` // "init", "update", "error"
+	Type               string               `json:"type"` // "init", "update", "noop", "error"
+	Rev                uint64               `json:"rev,omitempty"`
 	CascadeID          string               `json:"cascadeId"`
 	Title              string               `json:"title,omitempty"`
 	Status             string               `json:"status"`
@@ -189,6 +191,7 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 		((strings.Contains(ua, "CFNetwork") || strings.Contains(ua, "Darwin") || strings.Contains(ua, "Antigravity")) && !strings.Contains(ua, "Mozilla"))
 
 	wantDelta := r.URL.Query().Get("delta") == "1"
+	sinceRev, _ := strconv.ParseUint(r.URL.Query().Get("sinceRev"), 10, 64)
 	// Step-rendering clients (the web app) never read the messages window; messages=0 drops it so
 	// every frame (and the large init frame) is not sent twice in two shapes.
 	omitMessages := !isMessagesOnly && r.URL.Query().Get("messages") == "0"
@@ -205,17 +208,21 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 	defer clientConn.Close()
 	defer p.trackWSConn(clientConn)()
 
+	releaseReactive := p.agentStateHub.Acquire(p, cascadeID)
+	defer releaseReactive()
+
 	if verboseRPC {
 		slog.Info("[Stream] WS client connected", "cascadeId", cascadeID, "remote", r.RemoteAddr, "client", clientType, "format", format)
 		defer slog.Info("[Stream] WS client disconnected", "cascadeId", cascadeID, "remote", r.RemoteAddr)
 	}
 
-	cur := p.insp.Current()
 	var curPort int
 	var curToken string
-	if cur != nil {
-		curPort = cur.Port
-		curToken = cur.CSRFToken
+	if p.insp != nil {
+		if cur := p.insp.Current(); cur != nil {
+			curPort = cur.Port
+			curToken = cur.CSRFToken
+		}
 	}
 	streamTitle := p.lookupCascadeTitle(cascadeID, curPort, curToken)
 	if streamTitle == "" {
@@ -266,6 +273,16 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 	lastFingerprint := ""
 	lastRawSig := ""
 	firstPush := true
+	var connStreamRev uint64
+	resumedFromRev := false
+	if wantDelta && sinceRev > 0 {
+		if savedDelta, savedFP, ok := p.streamResume.lookup(sinceRev, cascadeID, isMessagesOnly, omitMessages); ok {
+			deltaState = savedDelta
+			lastFingerprint = savedFP
+			connStreamRev = sinceRev
+			resumedFromRev = true
+		}
+	}
 	cachedStreamTitle := streamTitle
 	lastTitleLookupTime := time.Time{}
 	var lastDetails TrajectoryDetails
@@ -329,7 +346,11 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 			// Fast path: Upstream trajectory has not changed at all.
 			// Skip full steps scan, regex image extraction, and payload construction.
 			if lastDetails.Status == "CASCADE_RUN_STATUS_RUNNING" || len(lastDetails.QueuedMessages) > 0 {
-				ticker.Reset(350 * time.Millisecond)
+				if p.agentStateHub.IsLive(cascadeID) {
+					ticker.Reset(900 * time.Millisecond)
+				} else {
+					ticker.Reset(350 * time.Millisecond)
+				}
 			} else {
 				ticker.Reset(2000 * time.Millisecond)
 			}
@@ -431,17 +452,31 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 			payload.Messages = nil
 		}
 
-		if firstPush {
+		if firstPush && !resumedFromRev {
 			payload.Type = "init"
 		}
 
 		fp := payload.Fingerprint()
-		if firstPush || fp != lastFingerprint {
+		if firstPush && resumedFromRev && fp == lastFingerprint {
+			firstPush = false
+			resumedFromRev = false
+			if errWrite := writeJSON(StreamUpdatePayload{
+				Type:      "noop",
+				CascadeID: cascadeID,
+				Status:    payload.Status,
+				Rev:       connStreamRev,
+			}); errWrite != nil {
+				return false
+			}
+		} else if firstPush || fp != lastFingerprint {
 			lastFingerprint = fp
 			if wantDelta {
 				deltaState.apply(&payload)
+				connStreamRev = p.streamResume.save(connStreamRev, cascadeID, isMessagesOnly, omitMessages, fp, &deltaState)
+				payload.Rev = connStreamRev
 			}
 			firstPush = false
+			resumedFromRev = false
 			t3 := time.Now()
 			errWrite := writeJSON(payload)
 			if time.Since(t3) > 100*time.Millisecond {
@@ -452,9 +487,13 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		// Adjust poll interval dynamically: fast when executing or queued messages exist, slower when idle
+		// Adjust poll interval dynamically: reactive Connect stream wakes touchCh in <2ms, so relax fallback ticker when live.
 		if details.Status == "CASCADE_RUN_STATUS_RUNNING" || len(details.QueuedMessages) > 0 {
-			ticker.Reset(350 * time.Millisecond)
+			if p.agentStateHub.IsLive(cascadeID) {
+				ticker.Reset(900 * time.Millisecond)
+			} else {
+				ticker.Reset(350 * time.Millisecond)
+			}
 		} else {
 			ticker.Reset(2000 * time.Millisecond)
 		}

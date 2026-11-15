@@ -64,7 +64,15 @@ var (
 	cachedSummariesStamp string
 	summariesCacheTTL    = 3 * time.Second
 	summariesFlights     flightGroup[map[string]map[string]interface{}]
+
+	hierarchyMu    sync.RWMutex
+	hierarchyCache = make(map[string]hierarchyMeta)
 )
+
+type hierarchyMeta struct {
+	parentID string
+	depth    int
+}
 
 func sqliteDBStamp(dbPath string) string {
 	fi, err := os.Stat(dbPath)
@@ -276,6 +284,17 @@ func FetchLocalConversationSummaries(ctx context.Context) (map[string]map[string
 		fb := cachedSummariesMap
 		localStoreMu.RUnlock()
 
+		if sqliteRes, sqliteErr := fetchSummariesViaSQLiteCLI(ctx, dbPath); sqliteErr == nil && sqliteRes != nil {
+			finalStamp := sqliteDBStamp(dbPath)
+			localStoreMu.Lock()
+			cachedSummariesMap = sqliteRes
+			cachedSummariesAt = time.Now()
+			cachedSummariesStamp = finalStamp
+			localStoreMu.Unlock()
+			seedHierarchyCacheFromSummaries(sqliteRes)
+			return sqliteRes, nil
+		}
+
 		pyBin, err := findPythonExecutable()
 		if err != nil {
 			if fb != nil {
@@ -386,9 +405,290 @@ sys.stdout.buffer.write(json.dumps(summaries, ensure_ascii=False).encode('utf-8'
 		cachedSummariesAt = time.Now()
 		cachedSummariesStamp = finalStamp
 		localStoreMu.Unlock()
+		seedHierarchyCacheFromSummaries(res)
 
 		return res, nil
 	})
+}
+
+func normalizeLocalSummaryStatus(status string) string {
+	switch status {
+	case "running", "CASCADE_RUN_STATUS_RUNNING":
+		return "CASCADE_RUN_STATUS_RUNNING"
+	case "error", "CASCADE_RUN_STATUS_ERROR":
+		return "CASCADE_RUN_STATUS_ERROR"
+	default:
+		return "CASCADE_RUN_STATUS_COMPLETED"
+	}
+}
+
+func seedHierarchyCacheFromSummaries(summaries map[string]map[string]interface{}) {
+	if len(summaries) == 0 {
+		return
+	}
+	hierarchyMu.Lock()
+	defer hierarchyMu.Unlock()
+	for cid, s := range summaries {
+		pid, _ := s["parentConversationId"].(string)
+		depth := 0
+		switch d := s["nestingDepth"].(type) {
+		case int:
+			depth = d
+		case float64:
+			depth = int(d)
+		}
+		hierarchyCache[cid] = hierarchyMeta{parentID: pid, depth: depth}
+	}
+}
+
+// EnrichSummariesHierarchy populates parentConversationId and nestingDepth on upstream trajectory summaries
+// without spawning Python subprocesses on every list poll:
+//  1. Promotes embedded trajectoryMetadata.parentConversationId directly in memory.
+//  2. Serves immutable parent/depth relationships from hierarchyCache in O(N) memory lookups.
+//  3. Queries SQLite only when an unseen conversationId lacks embedded hierarchy metadata.
+func EnrichSummariesHierarchy(ctx context.Context, summaries map[string]map[string]interface{}) {
+	if len(summaries) == 0 {
+		return
+	}
+
+	var unknownIDs []string
+	hierarchyMu.RLock()
+	for id, s := range summaries {
+		if pid, ok := s["parentConversationId"].(string); ok && pid != "" {
+			continue
+		}
+		if meta, ok := s["trajectoryMetadata"].(map[string]interface{}); ok {
+			if pid, ok := meta["parentConversationId"].(string); ok && strings.TrimSpace(pid) != "" {
+				s["parentConversationId"] = strings.TrimSpace(pid)
+				continue
+			}
+		}
+		if h, ok := hierarchyCache[id]; ok {
+			if h.parentID != "" {
+				s["parentConversationId"] = h.parentID
+			}
+			if h.depth > 0 {
+				s["nestingDepth"] = h.depth
+			}
+			continue
+		}
+		unknownIDs = append(unknownIDs, id)
+	}
+	hierarchyMu.RUnlock()
+
+	if len(unknownIDs) == 0 {
+		return
+	}
+
+	dbPath := getAntigravityDBPath()
+	if dbPath == "" {
+		// Cache negative lookup in-memory when no local DB exists (e.g., tests or older Antigravity)
+		hierarchyMu.Lock()
+		for _, id := range unknownIDs {
+			if _, exists := hierarchyCache[id]; !exists {
+				hierarchyCache[id] = hierarchyMeta{}
+			}
+		}
+		hierarchyMu.Unlock()
+		return
+	}
+
+	if rows, err := fetchHierarchyViaSQLiteCLI(ctx, dbPath); err == nil {
+		found := make(map[string]hierarchyMeta, len(rows))
+		for _, r := range rows {
+			found[r.ConversationID] = hierarchyMeta{
+				parentID: r.ParentConversationID,
+				depth:    r.NestingDepth,
+			}
+		}
+		hierarchyMu.Lock()
+		for cid, meta := range found {
+			hierarchyCache[cid] = meta
+		}
+		for _, id := range unknownIDs {
+			if _, ok := found[id]; !ok {
+				// Mark known root session so we don't re-query SQLite on every poll before DB flushes it
+				hierarchyCache[id] = hierarchyMeta{}
+			}
+		}
+		hierarchyMu.Unlock()
+
+		for _, id := range unknownIDs {
+			if meta, ok := found[id]; ok {
+				if s := summaries[id]; s != nil {
+					if meta.parentID != "" {
+						s["parentConversationId"] = meta.parentID
+					}
+					if meta.depth > 0 {
+						s["nestingDepth"] = meta.depth
+					}
+				}
+			}
+		}
+		return
+	}
+
+	// Final fallback if sqlite3 CLI is unavailable
+	if localSummaries, err := FetchLocalConversationSummaries(ctx); err == nil {
+		hierarchyMu.Lock()
+		for _, id := range unknownIDs {
+			if loc, ok := localSummaries[id]; ok {
+				pid, _ := loc["parentConversationId"].(string)
+				depth, _ := loc["nestingDepth"].(int)
+				hierarchyCache[id] = hierarchyMeta{parentID: pid, depth: depth}
+				if s := summaries[id]; s != nil {
+					if pid != "" {
+						s["parentConversationId"] = pid
+					}
+					if depth > 0 {
+						s["nestingDepth"] = depth
+					}
+				}
+			} else {
+				hierarchyCache[id] = hierarchyMeta{}
+			}
+		}
+		hierarchyMu.Unlock()
+	}
+}
+
+type sqliteHierarchyRow struct {
+	ConversationID       string `json:"conversation_id"`
+	ParentConversationID string `json:"parent_conversation_id"`
+	NestingDepth         int    `json:"nesting_depth"`
+}
+
+func fetchHierarchyViaSQLiteCLI(ctx context.Context, dbPath string) ([]sqliteHierarchyRow, error) {
+	bin, roFlag, err := findSQLiteExecutable()
+	if err != nil {
+		return nil, err
+	}
+	execCtx, cancel := context.WithTimeout(ctx, 2500*time.Millisecond)
+	defer cancel()
+
+	const sqlQuery = `SELECT conversation_id, COALESCE(parent_conversation_id, '') AS parent_conversation_id, COALESCE(nesting_depth, 0) AS nesting_depth FROM conversation_summaries`
+	args := make([]string, 0, 6)
+	if roFlag {
+		args = append(args, "-readonly")
+	}
+	args = append(args, "-cmd", ".timeout 2500", "-json", dbPath, sqlQuery)
+
+	cmd := exec.CommandContext(execCtx, bin, args...)
+	var outBuf, errBuf bytes.Buffer
+	cmd.Stdout = &outBuf
+	cmd.Stderr = &errBuf
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("sqlite3 hierarchy query error: %w (%s)", err, errBuf.String())
+	}
+	trimmed := bytes.TrimSpace(outBuf.Bytes())
+	if len(trimmed) == 0 {
+		return nil, nil
+	}
+	var rows []sqliteHierarchyRow
+	if err := json.Unmarshal(trimmed, &rows); err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+func fetchSummariesViaSQLiteCLI(ctx context.Context, dbPath string) (map[string]map[string]interface{}, error) {
+	bin, roFlag, err := findSQLiteExecutable()
+	if err != nil {
+		return nil, err
+	}
+	execCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+
+	const sqlQuery = `SELECT conversation_id, COALESCE(title, '') AS title, COALESCE(preview, '') AS preview, COALESCE(step_count, 0) AS step_count, COALESCE(CAST(last_modified_time AS TEXT), '') AS last_modified_time, COALESCE(workspace_uris, '') AS workspace_uris, COALESCE(status, '') AS status, COALESCE(parent_conversation_id, '') AS parent_conversation_id, COALESCE(nesting_depth, 0) AS nesting_depth FROM conversation_summaries ORDER BY last_modified_time DESC`
+	args := make([]string, 0, 6)
+	if roFlag {
+		args = append(args, "-readonly")
+	}
+	args = append(args, "-cmd", ".timeout 2500", "-json", dbPath, sqlQuery)
+
+	cmd := exec.CommandContext(execCtx, bin, args...)
+	var outBuf, errBuf bytes.Buffer
+	cmd.Stdout = &outBuf
+	cmd.Stderr = &errBuf
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("sqlite3 summaries query error: %w (%s)", err, errBuf.String())
+	}
+
+	res := make(map[string]map[string]interface{})
+	trimmed := bytes.TrimSpace(outBuf.Bytes())
+	if len(trimmed) == 0 {
+		return res, nil
+	}
+
+	var rows []struct {
+		ConversationID       string `json:"conversation_id"`
+		Title                string `json:"title"`
+		Preview              string `json:"preview"`
+		StepCount            int    `json:"step_count"`
+		LastModifiedTime     string `json:"last_modified_time"`
+		WorkspaceURIs        string `json:"workspace_uris"`
+		Status               string `json:"status"`
+		ParentConversationID string `json:"parent_conversation_id"`
+		NestingDepth         int    `json:"nesting_depth"`
+	}
+	if err := json.Unmarshal(trimmed, &rows); err != nil {
+		return nil, err
+	}
+	for _, r := range rows {
+		if r.ConversationID == "" {
+			continue
+		}
+		title := r.Title
+		if title == "" {
+			title = "未命名会话"
+		}
+		res[r.ConversationID] = map[string]interface{}{
+			"cascadeId":            r.ConversationID,
+			"status":               normalizeLocalSummaryStatus(r.Status),
+			"lastModifiedTime":     r.LastModifiedTime,
+			"stepCount":            r.StepCount,
+			"summary":              r.Preview,
+			"parentConversationId": r.ParentConversationID,
+			"nestingDepth":         r.NestingDepth,
+			"trajectory": map[string]interface{}{
+				"cascadeId": r.ConversationID,
+				"summary":   r.Preview,
+				"annotations": map[string]interface{}{
+					"title": title,
+				},
+			},
+		}
+	}
+	return res, nil
+}
+
+var (
+	sqliteBinOnce     sync.Once
+	cachedSQLiteBin   string
+	cachedSQLiteRO    bool
+	cachedSQLiteErr   error
+)
+
+func findSQLiteExecutable() (string, bool, error) {
+	sqliteBinOnce.Do(func() {
+		path, err := exec.LookPath("sqlite3")
+		if err != nil || !isExecutableValid(path) {
+			cachedSQLiteErr = fmt.Errorf("sqlite3 not found in PATH")
+			return
+		}
+		if out, err := exec.Command(path, "-readonly", "-json", ":memory:", "SELECT 1 AS ok").Output(); err == nil && bytes.Contains(out, []byte(`"ok"`)) {
+			cachedSQLiteBin = path
+			cachedSQLiteRO = true
+			return
+		}
+		if out, err := exec.Command(path, "-json", ":memory:", "SELECT 1 AS ok").Output(); err == nil && bytes.Contains(out, []byte(`"ok"`)) {
+			cachedSQLiteBin = path
+			cachedSQLiteRO = false
+			return
+		}
+		cachedSQLiteErr = fmt.Errorf("sqlite3 does not support -json output")
+	})
+	return cachedSQLiteBin, cachedSQLiteRO, cachedSQLiteErr
 }
 
 var (

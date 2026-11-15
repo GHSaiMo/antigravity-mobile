@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"sort"
+	"strconv"
 	"sync"
 	"time"
 
@@ -47,10 +48,11 @@ const (
 )
 
 type eventsFrame struct {
-	Type    string `json:"type"`
-	Rev     uint64 `json:"rev"`
-	TS      int64  `json:"ts,omitempty"`      // server unix ms (beat/hello)
-	Desktop string `json:"desktop,omitempty"` // ok | down | unknown (beat/hello)
+	Type      string `json:"type"`
+	Rev       uint64 `json:"rev"`
+	TS        int64  `json:"ts,omitempty"`        // server unix ms (beat/hello)
+	Desktop   string `json:"desktop,omitempty"`   // ok | down | unknown (beat/hello)
+	Unchanged bool   `json:"unchanged,omitempty"` // true on hello when client's sinceRev matches current rev
 }
 
 // desktopState reports whether the desktop language_server is reachable: "ok", "down" or "unknown"
@@ -71,19 +73,27 @@ type eventSub struct {
 
 // eventsHub fans change notifications out to subscribers. The zero value is ready to use.
 type eventsHub struct {
-	mu     sync.Mutex
-	subs   map[*eventSub]struct{}
-	rev    uint64
-	sig    uint64
-	hasSig bool
-	cancel context.CancelFunc
-	nudge  chan struct{}
+	mu              sync.Mutex
+	subs            map[*eventSub]struct{}
+	rev             uint64
+	sig             uint64
+	hasSig          bool
+	lastKnownSig    uint64
+	hasLastKnownSig bool
+	cancel          context.CancelFunc
+	nudge           chan struct{}
 }
 
 func (h *eventsHub) currentRev() uint64 {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return h.rev
+}
+
+func (h *eventsHub) currentRevAndHasSig() (uint64, bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.rev, h.hasSig
 }
 
 // subscribe registers a subscriber; the first one starts the detector via start.
@@ -116,18 +126,24 @@ func (h *eventsHub) subscribe(start func(ctx context.Context, nudge <-chan struc
 }
 
 // observe records a new list signature and notifies subscribers when it differs from the last one.
-// The first observation after the detector starts only sets the baseline.
+// The first observation after the detector starts only sets the baseline (advancing rev without wake
+// if the list mutated while zero subscribers were connected).
 func (h *eventsHub) observe(sig uint64) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if !h.hasSig {
 		h.sig, h.hasSig = sig, true
+		if h.hasLastKnownSig && h.lastKnownSig != sig {
+			h.rev++
+		}
+		h.lastKnownSig, h.hasLastKnownSig = sig, true
 		return
 	}
 	if sig == h.sig {
 		return
 	}
 	h.sig = sig
+	h.lastKnownSig, h.hasLastKnownSig = sig, true
 	h.rev++
 	for s := range h.subs {
 		select {
@@ -192,40 +208,57 @@ func (p *Proxy) cascadeSummarySignature(cascadeID string, port int, token string
 	return sig, ok
 }
 
-// runEventsDetector polls the shared list snapshot while subscribers exist.
-func (p *Proxy) runEventsDetector(ctx context.Context, nudge <-chan struct{}) {
-	ticker := time.NewTicker(eventsPollInterval)
-	defer ticker.Stop()
-	check := func() {
-		port, token := p.ActiveUpstream()
-		if port == 0 {
-			return
-		}
-		cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		defer cancel()
-		// The snapshot's own TTL keeps this from adding upstream load beyond what list polls already cause.
-		idx, err := p.fetchAllTrajectoriesIndex(cctx, port, token)
-		if err != nil || idx == nil {
-			return
-		}
-		if sig, ok := idx.computeListSignature(); ok {
-			p.events.observe(sig)
-		}
+func (p *Proxy) checkEventsOnce(ctx context.Context) {
+	port, token := p.ActiveUpstream()
+	if port == 0 {
+		return
 	}
+	cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	// The snapshot's own TTL keeps this from adding upstream load beyond what list polls already cause.
+	idx, err := p.fetchAllTrajectoriesIndex(cctx, port, token)
+	if err != nil || idx == nil {
+		return
+	}
+	if sig, ok := idx.computeListSignature(); ok {
+		p.events.observe(sig)
+	}
+}
+
+// runEventsDetector subscribes to live JetboxSubscribeToSummaries updates and polls the shared
+// list snapshot as fallback while subscribers exist.
+func (p *Proxy) runEventsDetector(ctx context.Context, nudge <-chan struct{}) {
+	sumWake, unsubSum := p.SubscribeSummaryUpdates()
+	defer unsubSum()
+
+	pollInterval := eventsPollInterval
+	nudgeSpacing := eventsNudgeSpacing
+	ticker := time.NewTicker(pollInterval)
+	defer ticker.Stop()
+
 	lastCheck := time.Time{}
 	run := func() {
-		check()
+		p.checkEventsOnce(ctx)
 		lastCheck = time.Now()
+		if pollInterval >= time.Second && p.IsReactiveSummariesLive() {
+			ticker.Reset(4 * time.Second)
+		} else {
+			ticker.Reset(pollInterval)
+		}
 	}
 	run()
 	for {
 		select {
 		case <-ctx.Done():
 			return
+		case <-sumWake:
+			if pollInterval >= time.Second && p.IsReactiveSummariesLive() {
+				ticker.Reset(4 * time.Second)
+			}
 		case <-ticker.C:
 			run()
 		case <-nudge:
-			if wait := eventsNudgeSpacing - time.Since(lastCheck); wait > 0 {
+			if wait := nudgeSpacing - time.Since(lastCheck); wait > 0 {
 				select {
 				case <-ctx.Done():
 					return
@@ -239,6 +272,9 @@ func (p *Proxy) runEventsDetector(ctx context.Context, nudge <-chan struct{}) {
 
 // HandleEvents serves GET /gateway/events.
 func (p *Proxy) HandleEvents(w http.ResponseWriter, r *http.Request) {
+	hasSinceRev := r.URL.Query().Has("sinceRev")
+	sinceRev, sinceRevErr := strconv.ParseUint(r.URL.Query().Get("sinceRev"), 10, 64)
+
 	sanitizeWebSocketHeaders(r)
 	conn, err := streamUpgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -276,11 +312,25 @@ func (p *Proxy) HandleEvents(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	desktop := p.desktopState()
-	beat := func(typ string) error {
-		return write(eventsFrame{Type: typ, Rev: p.events.currentRev(), TS: time.Now().UnixMilli(), Desktop: desktop})
+	helloUnchanged := false
+	if hasSinceRev && sinceRevErr == nil {
+		if _, hasSig := p.events.currentRevAndHasSig(); !hasSig {
+			p.checkEventsOnce(r.Context())
+		}
+		select {
+		case <-sub.wake:
+		default:
+		}
+		if curRev, hasSig := p.events.currentRevAndHasSig(); hasSig && curRev == sinceRev {
+			helloUnchanged = true
+		}
 	}
-	if err := beat("hello"); err != nil {
+
+	desktop := p.desktopState()
+	beat := func(typ string, unchanged bool) error {
+		return write(eventsFrame{Type: typ, Rev: p.events.currentRev(), TS: time.Now().UnixMilli(), Desktop: desktop, Unchanged: unchanged})
+	}
+	if err := beat("hello", helloUnchanged); err != nil {
 		return
 	}
 	beatTick := time.NewTicker(eventsBeatInterval)
@@ -300,13 +350,13 @@ func (p *Proxy) HandleEvents(w http.ResponseWriter, r *http.Request) {
 			}
 		case <-beatTick.C:
 			desktop = p.desktopState()
-			if err := beat("beat"); err != nil {
+			if err := beat("beat", false); err != nil {
 				return
 			}
 		case <-desktopTick.C:
 			if now := p.desktopState(); now != desktop {
 				desktop = now
-				if err := beat("beat"); err != nil {
+				if err := beat("beat", false); err != nil {
 					return
 				}
 			}

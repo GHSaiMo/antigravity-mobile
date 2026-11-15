@@ -466,12 +466,15 @@ func (p *Proxy) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	wg.Wait()
 }
 
+var voiceWriteBufferPool = &sync.Pool{}
+
 // voiceUpgrader handles /voice/ws full-duplex audio WebSocket upgrades.
 // Compression is disabled because 40ms PCM16LE binary frames (1280B) are latency-sensitive
 // and incompressible. Subprotocols negotiates "jetski-voice-proto" required by Antigravity 2.29+.
 var voiceUpgrader = websocket.Upgrader{
 	ReadBufferSize:    32 * 1024,
 	WriteBufferSize:   32 * 1024,
+	WriteBufferPool:   voiceWriteBufferPool,
 	CheckOrigin:       CheckWebSocketOrigin,
 	EnableCompression: false,
 	Subprotocols:      []string{"jetski-voice-proto"},

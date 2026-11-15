@@ -62,6 +62,32 @@ func PutLargeBuffer(buf *bytes.Buffer) {
 	largeBufferPool.Put(buf)
 }
 
+// hugeBufferPool pools reusable memory buffers for multi-MB trajectory & summary payloads (up to 4MB).
+var hugeBufferPool = sync.Pool{
+	New: func() any {
+		return bytes.NewBuffer(make([]byte, 0, 256*1024))
+	},
+}
+
+// GetHugeBuffer acquires a clean buffer from the huge buffer pool.
+func GetHugeBuffer() *bytes.Buffer {
+	buf := hugeBufferPool.Get().(*bytes.Buffer)
+	buf.Reset()
+	return buf
+}
+
+// PutHugeBuffer resets and returns a buffer to the huge buffer pool, dropping outliers > 4MB.
+func PutHugeBuffer(buf *bytes.Buffer) {
+	if buf == nil {
+		return
+	}
+	if buf.Cap() > 4*1024*1024 {
+		return
+	}
+	buf.Reset()
+	hugeBufferPool.Put(buf)
+}
+
 // gzipReaderPool pools gzip.Reader instances to eliminate repeated ~32KB decompression buffer allocations.
 var gzipReaderPool sync.Pool
 

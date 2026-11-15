@@ -1,7 +1,6 @@
 package proxy
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -165,10 +164,14 @@ func (p *Proxy) fetchAllTrajectoriesMaxAge(ctx context.Context, port int, token 
 				parsed = parseAllTrajectoriesIndex(body)
 			}
 			s.mu.Lock()
-			f.body, f.parsed, f.err = body, parsed, err
-			if err == nil && s.gen == gen {
-				s.port, s.token, s.body, s.parsed, s.fetchedAt = port, token, body, parsed, time.Now()
+			if err == nil {
+				if s.gen == gen {
+					s.port, s.token, s.body, s.parsed, s.fetchedAt = port, token, body, parsed, time.Now()
+				} else if s.body != nil && s.port == port && s.token == token {
+					body, parsed = s.body, s.parsed
+				}
 			}
+			f.body, f.parsed, f.err = body, parsed, err
 			s.flight = nil
 			s.mu.Unlock()
 			close(f.done)
@@ -227,9 +230,12 @@ func (p *Proxy) fetchAllTrajectoriesUpstream(ctx context.Context, port int, toke
 		reader = gz
 	}
 
-	var buf bytes.Buffer
+	buf := GetHugeBuffer()
+	defer PutHugeBuffer(buf)
 	if _, err := buf.ReadFrom(io.LimitReader(reader, maxAllTrajectoriesBody)); err != nil {
 		return nil, err
 	}
-	return buf.Bytes(), nil
+	out := make([]byte, buf.Len())
+	copy(out, buf.Bytes())
+	return out, nil
 }
