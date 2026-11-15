@@ -2369,6 +2369,22 @@
         }
       }
     },
+    "一键压缩": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compact Context"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一键压缩"
+          }
+        }
+      }
+    },
     "一键压缩 /compact": {
       "localizations": {
         "en": {

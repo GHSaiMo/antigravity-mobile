@@ -961,7 +961,7 @@ struct ContextAuditSheetView: View {
                         dismiss()
                         onCompact()
                     }) {
-                        Label("一键压缩 /compact", systemImage: "arrow.down.right.and.arrow.up.left")
+                        Label("一键压缩", systemImage: "arrow.down.right.and.arrow.up.left")
                             .font(.system(size: 13, weight: .semibold))
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 8)

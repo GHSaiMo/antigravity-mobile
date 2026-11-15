@@ -839,7 +839,6 @@ public struct WeeklyPaceDetailItem: Identifiable, Sendable {
 
 private struct WeeklyPaceDetailSheet: View {
     let item: WeeklyPaceDetailItem
-    @Environment(\.dismiss) private var dismiss
     
     var body: some View {
         NavigationStack {
@@ -897,14 +896,6 @@ private struct WeeklyPaceDetailSheet: View {
             .padding(.top, 16)
             .navigationTitle(String(localized: "\(item.title) 消耗节奏"))
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("完成") {
-                        dismiss()
-                    }
-                    .fontWeight(.semibold)
-                }
-            }
         }
     }
     
