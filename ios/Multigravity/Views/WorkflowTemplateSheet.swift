@@ -347,11 +347,17 @@ private struct RowFramePreferenceKey: PreferenceKey {
     }
 }
 
-private struct MoreBoundaryMinYKey: PreferenceKey {
-    static var defaultValue: CGFloat? { nil }
-    static func reduce(value: inout CGFloat?, nextValue: () -> CGFloat?) {
+private struct MoreHeaderFrameKey: PreferenceKey {
+    static var defaultValue: CGRect? { nil }
+    static func reduce(value: inout CGRect?, nextValue: () -> CGRect?) {
         if let v = nextValue() { value = v }
     }
+}
+
+private struct WorkflowDragLayout {
+    var rowDisplacements: [String: CGFloat] = [:]
+    var moreSectionOffset: CGFloat = 0
+    var footerOffset: CGFloat = 0
 }
 
 /// 动态多智能体工作流模板选择与管理抽屉（直接满屏、双分区配置、编辑模式点击整卡编辑）。
@@ -370,13 +376,17 @@ public struct WorkflowTemplateSheet: View {
     // Cross-section drag-and-drop state
     @State private var draggingId: String?
     @State private var dragStartIndex: Int?
+    @State private var dragStartGlobalY: CGFloat?
     @State private var dragTargetInQuickMenu: Bool?
     @State private var dragInsertInTargetSection: Int = 0
     @State private var dragOffsetY: CGFloat = 0
     @State private var rowFrames: [String: CGRect] = [:]
-    @State private var moreBoundaryMinY: CGFloat = 0
+    @State private var moreHeaderFrame: CGRect = .zero
+    @State private var dragBaseFrames: [String: CGRect] = [:]
+    @State private var dragBaseMoreHeaderFrame: CGRect = .zero
 
     private let cardSpacing: CGFloat = 10
+    private let sectionSpacing: CGFloat = 14
 
     public let onSelectTemplate: (String) -> Void
 
@@ -399,9 +409,11 @@ public struct WorkflowTemplateSheet: View {
     }
 
     public var body: some View {
+        let dragLayout = computeDragLayout()
+
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: sectionSpacing) {
                     if !guideDismissed {
                         WorkflowQuickGuideBanner(
                             isEditing: isEditing,
@@ -462,13 +474,18 @@ public struct WorkflowTemplateSheet: View {
                         if quickItems.isEmpty {
                             let highlightDrop = draggingId != nil && dragTargetInQuickMenu == true
                             emptyQuickMenuDropZone(isHighlighted: highlightDrop)
+                                .zIndex(0)
                         } else {
                             VStack(spacing: cardSpacing) {
                                 ForEach(quickItems, id: \.item.id) { entry in
-                                    templateRowView(index: entry.index, item: entry.item)
+                                    templateRowView(
+                                        index: entry.index,
+                                        item: entry.item,
+                                        displacement: dragLayout.rowDisplacements[entry.item.id] ?? 0
+                                    )
                                 }
                             }
-                            .zIndex(draggingInQuickMenu == true ? 10 : 0)
+                            .zIndex(draggingInQuickMenu == true ? 20 : 1)
                         }
 
                         // Section 2: 更多模板
@@ -481,16 +498,22 @@ public struct WorkflowTemplateSheet: View {
                         .background(
                             GeometryReader { geo in
                                 Color.clear.preference(
-                                    key: MoreBoundaryMinYKey.self,
-                                    value: geo.frame(in: .named("wfScrollContent")).minY
+                                    key: MoreHeaderFrameKey.self,
+                                    value: geo.frame(in: .named("wfScrollContent"))
                                 )
                             }
                         )
+                        .offset(y: dragLayout.moreSectionOffset)
+                        .animation(draggingId == nil ? nil : .snappy(duration: 0.18), value: dragLayout.moreSectionOffset)
+                        .zIndex(0)
 
                         if moreItems.isEmpty {
                             if isEditing {
                                 let highlightDrop = draggingId != nil && dragTargetInQuickMenu == false
                                 emptyMoreTemplatesDropZone(isHighlighted: highlightDrop)
+                                    .offset(y: dragLayout.moreSectionOffset)
+                                    .animation(draggingId == nil ? nil : .snappy(duration: 0.18), value: dragLayout.moreSectionOffset)
+                                    .zIndex(0)
                             } else {
                                 Text("全部模板已加入长按快捷菜单")
                                     .font(.system(size: 12.5))
@@ -501,10 +524,14 @@ public struct WorkflowTemplateSheet: View {
                         } else {
                             VStack(spacing: cardSpacing) {
                                 ForEach(moreItems, id: \.item.id) { entry in
-                                    templateRowView(index: entry.index, item: entry.item)
+                                    templateRowView(
+                                        index: entry.index,
+                                        item: entry.item,
+                                        displacement: dragLayout.rowDisplacements[entry.item.id] ?? 0
+                                    )
                                 }
                             }
-                            .zIndex(draggingInQuickMenu == false ? 10 : 0)
+                            .zIndex(draggingInQuickMenu == false ? 20 : 1)
                         }
                     }
 
@@ -518,16 +545,22 @@ public struct WorkflowTemplateSheet: View {
                                 .padding(.vertical, 8)
                         }
                         .padding(.top, 4)
+                        .offset(y: dragLayout.footerOffset)
+                        .animation(draggingId == nil ? nil : .snappy(duration: 0.18), value: dragLayout.footerOffset)
+                        .zIndex(0)
                     }
                 }
                 .padding(16)
+                .padding(.bottom, max(0, dragLayout.footerOffset))
                 .coordinateSpace(name: "wfScrollContent")
                 .onPreferenceChange(RowFramePreferenceKey.self) { frames in
-                    rowFrames.merge(frames, uniquingKeysWith: { _, new in new })
+                    if draggingId == nil {
+                        rowFrames.merge(frames, uniquingKeysWith: { _, new in new })
+                    }
                 }
-                .onPreferenceChange(MoreBoundaryMinYKey.self) { minY in
-                    if let minY {
-                        moreBoundaryMinY = minY
+                .onPreferenceChange(MoreHeaderFrameKey.self) { frame in
+                    if draggingId == nil, let frame {
+                        moreHeaderFrame = frame
                     }
                 }
             }
@@ -667,9 +700,8 @@ public struct WorkflowTemplateSheet: View {
     }
 
     @ViewBuilder
-    private func templateRowView(index: Int, item: WorkflowTemplateRecord) -> some View {
+    private func templateRowView(index: Int, item: WorkflowTemplateRecord, displacement: CGFloat) -> some View {
         let isDragging = draggingId == item.id
-        let displacement = siblingDisplacement(for: index)
 
         WorkflowSwipeableRow(
             item: item,
@@ -723,69 +755,142 @@ public struct WorkflowTemplateSheet: View {
             }
         )
         .offset(y: isDragging ? dragOffsetY : displacement)
-        .zIndex(isDragging ? 10 : 0)
-        .animation(isDragging ? nil : .snappy(duration: 0.18), value: displacement)
+        .zIndex(isDragging ? 50 : 0)
+        .animation((isDragging || draggingId == nil) ? nil : .snappy(duration: 0.18), value: displacement)
     }
 
-    private func siblingDisplacement(for index: Int) -> CGFloat {
+    private func quickSectionDelta(
+        startInQuick: Bool,
+        targetInQuick: Bool,
+        origQuickCount: Int,
+        draggedHeight: CGFloat
+    ) -> CGFloat {
+        if startInQuick == targetInQuick { return 0 }
+        if targetInQuick {
+            return origQuickCount == 0 ? 0 : (draggedHeight + cardSpacing)
+        }
+        return origQuickCount <= 1 ? -(draggedHeight + sectionSpacing) : -(draggedHeight + cardSpacing)
+    }
+
+    private func computeDragLayout() -> WorkflowDragLayout {
         guard let dId = draggingId,
               let start = dragStartIndex,
               let targetQuick = dragTargetInQuickMenu,
-              index != start,
-              store.templates.indices.contains(start),
-              store.templates.indices.contains(index) else {
-            return 0
+              store.templates.indices.contains(start) else {
+            return WorkflowDragLayout()
         }
-        let startItem = store.templates[start]
-        let thisItem = store.templates[index]
-        let draggedHeight = (rowFrames[dId]?.height ?? 68) + cardSpacing
 
-        if startItem.inQuickMenu == targetQuick {
-            // Same-section reorder
-            guard thisItem.inQuickMenu == targetQuick else { return 0 }
-            let sectionOthers = store.templates.enumerated().filter {
-                $0.offset != start && $0.element.inQuickMenu == targetQuick
+        let draggedItem = store.templates[start]
+        let startInQuick = draggedItem.inQuickMenu
+        let draggedHeight = dragBaseFrames[dId]?.height ?? 68
+        let draggedStep = draggedHeight + cardSpacing
+
+        let origQuick = store.templates.filter(\.inQuickMenu)
+        let origMore = store.templates.filter { !$0.inQuickMenu }
+
+        let deltaQuick = quickSectionDelta(
+            startInQuick: startInQuick,
+            targetInQuick: targetQuick,
+            origQuickCount: origQuick.count,
+            draggedHeight: draggedHeight
+        )
+
+        let deltaMore: CGFloat = {
+            if startInQuick == targetQuick { return 0 }
+            if targetQuick {
+                return origMore.count <= 1 ? -(draggedHeight + sectionSpacing) : -draggedStep
+            } else {
+                return origMore.isEmpty ? 0 : draggedStep
             }
-            let startPosInSection = store.templates[..<start].filter { $0.inQuickMenu == targetQuick }.count
-            guard let thisPosAmongOthers = sectionOthers.firstIndex(where: { $0.offset == index }) else { return 0 }
-            // In original coordinates before removal:
-            let origPos = thisPosAmongOthers >= startPosInSection ? thisPosAmongOthers + 1 : thisPosAmongOthers
-            if dragInsertInTargetSection > startPosInSection && origPos > startPosInSection && origPos <= dragInsertInTargetSection {
-                return -draggedHeight
+        }()
+
+        var displacements: [String: CGFloat] = [:]
+
+        func populateDisplacements(
+            origSection: [WorkflowTemplateRecord],
+            insertDragged: Bool,
+            sectionTopShift: CGFloat
+        ) {
+            guard let firstId = origSection.first?.id,
+                  let origTopY = dragBaseFrames[firstId]?.minY else {
+                return
             }
-            if dragInsertInTargetSection < startPosInSection && origPos >= dragInsertInTargetSection && origPos < startPosInSection {
-                return draggedHeight
+            var preview = origSection.filter { $0.id != dId }
+            if insertDragged {
+                let slot = min(max(0, dragInsertInTargetSection), preview.count)
+                preview.insert(draggedItem, at: slot)
             }
-            return 0
-        } else {
-            // Cross-section drag
-            if thisItem.inQuickMenu == startItem.inQuickMenu {
-                return index > start ? -draggedHeight : 0
-            } else if thisItem.inQuickMenu == targetQuick {
-                let destOthers = store.templates.enumerated().filter {
-                    $0.offset != start && $0.element.inQuickMenu == targetQuick
+            var cursorY = origTopY + sectionTopShift
+            for record in preview {
+                let h = dragBaseFrames[record.id]?.height ?? 68
+                if record.id != dId, let origY = dragBaseFrames[record.id]?.minY {
+                    displacements[record.id] = cursorY - origY
                 }
-                guard let posInDest = destOthers.firstIndex(where: { $0.offset == index }) else { return 0 }
-                return posInDest >= dragInsertInTargetSection ? draggedHeight : 0
+                cursorY += h + cardSpacing
             }
-            return 0
         }
+
+        populateDisplacements(
+            origSection: origQuick,
+            insertDragged: targetQuick,
+            sectionTopShift: 0
+        )
+        populateDisplacements(
+            origSection: origMore,
+            insertDragged: !targetQuick,
+            sectionTopShift: deltaQuick
+        )
+
+        return WorkflowDragLayout(
+            rowDisplacements: displacements,
+            moreSectionOffset: deltaQuick,
+            footerOffset: deltaQuick + deltaMore
+        )
     }
 
     private func updateDragTarget(startIndex: Int, offsetY: CGFloat) {
         let list = store.templates
         guard list.indices.contains(startIndex) else { return }
         let draggedItem = list[startIndex]
-        let baseMidY = rowFrames[draggedItem.id]?.midY ?? 0
-        let currentMidY = baseMidY + offsetY
+        guard let baseFrame = dragBaseFrames[draggedItem.id],
+              dragBaseMoreHeaderFrame != .zero else {
+            return
+        }
 
-        let nextInQuick = currentMidY < moreBoundaryMinY
+        let startInQuick = draggedItem.inQuickMenu
+        let currentMidY = baseFrame.midY + offsetY
+        let draggedHeight = baseFrame.height
+        let origQuickCount = list.filter(\.inQuickMenu).count
+
+        let currentMoreHeaderShift = quickSectionDelta(
+            startInQuick: startInQuick,
+            targetInQuick: dragTargetInQuickMenu ?? startInQuick,
+            origQuickCount: origQuickCount,
+            draggedHeight: draggedHeight
+        )
+
+        let visualMoreHeaderMinY = dragBaseMoreHeaderFrame.minY + currentMoreHeaderShift
+        let visualMoreHeaderMaxY = dragBaseMoreHeaderFrame.maxY + currentMoreHeaderShift
+        let wasInQuick = dragTargetInQuickMenu ?? startInQuick
+        let nextInQuick = wasInQuick
+            ? (currentMidY <= visualMoreHeaderMaxY)
+            : (currentMidY < visualMoreHeaderMinY)
+
+        let destSectionShift = nextInQuick
+            ? 0
+            : quickSectionDelta(
+                startInQuick: startInQuick,
+                targetInQuick: false,
+                origQuickCount: origQuickCount,
+                draggedHeight: draggedHeight
+            )
+
         let destOthers = list.enumerated().filter {
             $0.offset != startIndex && $0.element.inQuickMenu == nextInQuick
         }
         var insertAt = 0
         for entry in destOthers {
-            let mid = rowFrames[entry.element.id]?.midY ?? 0
+            let mid = (dragBaseFrames[entry.element.id]?.midY ?? 0) + destSectionShift
             if currentMidY > mid {
                 insertAt += 1
             } else {
@@ -801,18 +906,22 @@ public struct WorkflowTemplateSheet: View {
     }
 
     private func dragGesture(for item: WorkflowTemplateRecord, index: Int) -> some Gesture {
-        DragGesture(minimumDistance: 1, coordinateSpace: .named("wfScrollContent"))
+        DragGesture(minimumDistance: 1, coordinateSpace: .global)
             .onChanged { value in
                 if draggingId == nil {
                     swipedId = nil
                     draggingId = item.id
                     dragStartIndex = index
+                    dragStartGlobalY = value.startLocation.y
+                    dragBaseFrames = rowFrames
+                    dragBaseMoreHeaderFrame = moreHeaderFrame
                     dragTargetInQuickMenu = item.inQuickMenu
                     let posInSection = store.templates[..<index].filter { $0.inQuickMenu == item.inQuickMenu }.count
                     dragInsertInTargetSection = posInSection
                     UIImpactFeedbackGenerator(style: .light).impactOccurred()
                 }
-                dragOffsetY = value.translation.height
+                let originY = dragStartGlobalY ?? value.startLocation.y
+                dragOffsetY = value.location.y - originY
                 if let start = dragStartIndex {
                     updateDragTarget(startIndex: start, offsetY: dragOffsetY)
                 }
@@ -841,6 +950,9 @@ public struct WorkflowTemplateSheet: View {
                     }
                     draggingId = nil
                     dragStartIndex = nil
+                    dragStartGlobalY = nil
+                    dragBaseFrames = [:]
+                    dragBaseMoreHeaderFrame = .zero
                     dragTargetInQuickMenu = nil
                     dragInsertInTargetSection = 0
                     dragOffsetY = 0
