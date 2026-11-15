@@ -35,6 +35,13 @@ import androidx.compose.ui.unit.sp
 import com.antigravity.mobile.data.model.*
 import com.antigravity.mobile.data.service.ApiClient
 import com.antigravity.mobile.data.service.PreferencesManager
+import com.antigravity.mobile.data.service.createAutomation
+import com.antigravity.mobile.data.service.deleteAutomation
+import com.antigravity.mobile.data.service.deleteMemory
+import com.antigravity.mobile.data.service.fetchMemories
+import com.antigravity.mobile.data.service.refreshMcpServers
+import com.antigravity.mobile.data.service.toggleMcpServer
+import com.antigravity.mobile.data.service.upsertMemory
 import com.antigravity.mobile.ui.theme.AntigravityTheme
 import com.antigravity.mobile.ui.util.rememberHaptic
 import kotlinx.coroutines.async
@@ -82,6 +89,13 @@ fun McpSkillsSheet(
     var viewingSkill by remember { mutableStateOf<SkillInfo?>(null) }
     val installingPluginIds = remember { mutableStateListOf<String>() }
     val managingAutomationNames = remember { mutableStateListOf<String>() }
+
+    // Phase 3: Memories CRUD, Automation Create dialog, MCP refresh state
+    var memories by remember { mutableStateOf<List<MemoryRuleItem>>(emptyList()) }
+    var showMemoriesPanel by remember { mutableStateOf(false) }
+    var editingMemory by remember { mutableStateOf<MemoryRuleItem?>(null) }
+    var showNewAutomationDialog by remember { mutableStateOf(false) }
+    var isRefreshingMcp by remember { mutableStateOf(false) }
 
     var expandedLogTaskIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var taskLogs by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
@@ -157,6 +171,7 @@ fun McpSkillsSheet(
                 val skillsDeferred = async { apiClient.fetchAllSkills() }
                 val pluginsDeferred = async { apiClient.fetchPluginsCatalog() }
                 val automationsDeferred = async { apiClient.fetchAutomationsData() }
+                val memoriesDeferred = async { apiClient.fetchMemories() }
 
                 tasksDeferred.await().onSuccess {
                     backgroundTasks = it
@@ -169,6 +184,9 @@ fun McpSkillsSheet(
                 automationsDeferred.await().onSuccess {
                     automations = it.automations
                     automationEvents = it.events
+                }
+                memoriesDeferred.await().onSuccess {
+                    memories = it
                 }
                 val mcpRes = mcpDeferred.await()
                 val skillsRes = skillsDeferred.await()
@@ -434,15 +452,30 @@ fun McpSkillsSheet(
                 }
 
                 if (filteredServers.isEmpty()) {
-                    Box(
+                    Column(
                         modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
                     ) {
                         Text(
                             text = "未找到匹配的 MCP 服务或工具",
                             fontSize = 14.sp,
                             color = colors.textSecondary
                         )
+                        Spacer(Modifier.height(10.dp))
+                        OutlinedButton(
+                            onClick = {
+                                scope.launch {
+                                    isRefreshingMcp = true
+                                    apiClient.refreshMcpServers()
+                                    loadData()
+                                    isRefreshingMcp = false
+                                }
+                            },
+                            enabled = !isRefreshingMcp
+                        ) {
+                            Text(if (isRefreshingMcp) "正在刷新..." else "刷新 MCP 状态", fontSize = 13.sp)
+                        }
                     }
                 } else {
                     LazyColumn(
@@ -450,6 +483,33 @@ fun McpSkillsSheet(
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                         contentPadding = PaddingValues(top = 4.dp, bottom = 84.dp)
                     ) {
+                        item(key = "mcp_refresh_bar") {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "已配置 ${filteredServers.size} 个服务",
+                                    fontSize = 12.sp,
+                                    color = colors.textMuted
+                                )
+                                TextButton(
+                                    enabled = !isRefreshingMcp,
+                                    onClick = {
+                                        scope.launch {
+                                            isRefreshingMcp = true
+                                            apiClient.refreshMcpServers()
+                                            loadData()
+                                            isRefreshingMcp = false
+                                        }
+                                    },
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                                ) {
+                                    Text(if (isRefreshingMcp) "刷新中..." else "↻ 刷新 MCP", fontSize = 12.sp, color = colors.accentIndigo)
+                                }
+                            }
+                        }
                         items(filteredServers, key = { it.spec.serverName }) { server ->
                             McpServerCard(
                                 server = server,
@@ -470,13 +530,20 @@ fun McpSkillsSheet(
                                     } else {
                                         expandedTools + toolId
                                     }
+                                },
+                                onToggleEnabled = { enabled ->
+                                    haptic.light()
+                                    scope.launch {
+                                        apiClient.toggleMcpServer(server.spec.serverName, enabled)
+                                        loadData()
+                                    }
                                 }
                             )
                         }
                     }
                 }
             } else if (selectedTab == 1) {
-                // Skills Tab
+                // Skills Tab + embedded Agent Memories accordion
                 val query = searchText.trim().lowercase()
                 val filteredSkills = remember(skills, query) {
                     if (query.isEmpty()) skills
@@ -485,24 +552,121 @@ fun McpSkillsSheet(
                         (sk.description?.lowercase()?.contains(query) == true)
                     }
                 }
-
-                if (filteredSkills.isEmpty()) {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "未找到匹配的技能",
-                            fontSize = 14.sp,
-                            color = colors.textSecondary
-                        )
+                val filteredMemories = remember(memories, query) {
+                    if (query.isEmpty()) memories
+                    else memories.filter { m ->
+                        m.title.lowercase().contains(query) || m.content.lowercase().contains(query)
                     }
-                } else {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                        contentPadding = PaddingValues(top = 4.dp, bottom = 84.dp)
-                    ) {
+                }
+
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(top = 4.dp, bottom = 84.dp)
+                ) {
+                    item(key = "agent_memories_accordion") {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(colors.surface)
+                                .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
+                                .padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { haptic.light(); showMemoriesPanel = !showMemoriesPanel },
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "🧠 Agent 记忆库与规则 (${filteredMemories.size})",
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = colors.textPrimary,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                TextButton(
+                                    onClick = { editingMemory = MemoryRuleItem(id = "", scope = "memory", title = "", content = "") },
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                                ) {
+                                    Text("+ 新增", fontSize = 12.sp, color = colors.accentIndigo)
+                                }
+                                Icon(
+                                    imageVector = if (showMemoriesPanel) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                                    contentDescription = null,
+                                    tint = colors.textMuted,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                            if (showMemoriesPanel) {
+                                if (filteredMemories.isEmpty()) {
+                                    Text("暂无记忆或规则条目", fontSize = 12.5.sp, color = colors.textMuted)
+                                } else {
+                                    filteredMemories.forEach { mem ->
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .background(colors.surfaceVariant.copy(alpha = 0.5f))
+                                                .clickable { editingMemory = mem }
+                                                .padding(horizontal = 10.dp, vertical = 8.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    text = mem.title.ifBlank { mem.id },
+                                                    fontSize = 13.sp,
+                                                    fontWeight = FontWeight.Medium,
+                                                    color = colors.textPrimary,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                                Text(
+                                                    text = mem.content,
+                                                    fontSize = 11.5.sp,
+                                                    color = colors.textSecondary,
+                                                    maxLines = 2,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
+                                            if (!mem.readOnly) {
+                                                IconButton(
+                                                    onClick = {
+                                                        scope.launch {
+                                                            apiClient.deleteMemory(mem.path)
+                                                            apiClient.fetchMemories().onSuccess { memories = it }
+                                                        }
+                                                    },
+                                                    modifier = Modifier.size(28.dp)
+                                                ) {
+                                                    Icon(Icons.Default.Delete, contentDescription = "删除记忆", tint = Color(0xFFF44336), modifier = Modifier.size(16.dp))
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if (filteredSkills.isEmpty()) {
+                        item(key = "skills_empty") {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 40.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "未找到匹配的技能",
+                                    fontSize = 14.sp,
+                                    color = colors.textSecondary
+                                )
+                            }
+                        }
+                    } else {
                         items(filteredSkills, key = { it.name }) { skill ->
                             SkillCard(
                                 skill = skill,
@@ -645,7 +809,7 @@ fun McpSkillsSheet(
                     ) {
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Schedule,
@@ -658,6 +822,9 @@ fun McpSkillsSheet(
                                 fontSize = 14.sp,
                                 color = colors.textSecondary
                             )
+                            FilledTonalButton(onClick = { showNewAutomationDialog = true }) {
+                                Text("+ 新建定时任务", fontSize = 13.sp)
+                            }
                         }
                     }
                 } else {
@@ -666,16 +833,29 @@ fun McpSkillsSheet(
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                         contentPadding = PaddingValues(top = 4.dp, bottom = 84.dp)
                     ) {
-                        if (filteredAutomations.isNotEmpty()) {
-                            item(key = "automations_header") {
+                        item(key = "automations_top_bar") {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
                                 Text(
                                     text = "定时计划 (${filteredAutomations.size})",
                                     fontSize = 13.5.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     color = colors.textSecondary,
-                                    modifier = Modifier.padding(top = 4.dp, bottom = 2.dp, start = 2.dp)
+                                    modifier = Modifier.padding(start = 2.dp)
                                 )
+                                FilledTonalButton(
+                                    onClick = { showNewAutomationDialog = true },
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                                    modifier = Modifier.height(30.dp)
+                                ) {
+                                    Text("+ 新建定时任务", fontSize = 12.sp)
+                                }
                             }
+                        }
+                        if (filteredAutomations.isNotEmpty()) {
                             items(filteredAutomations, key = { it.targetSidecarId }) { sidecar ->
                                 val sid = sidecar.targetSidecarId
                                 AutomationCard(
@@ -697,6 +877,17 @@ fun McpSkillsSheet(
                                         scope.launch {
                                             managingAutomationNames.add(sid)
                                             apiClient.manageAutomation("run_now", sid)
+                                            apiClient.fetchAutomationsData().onSuccess {
+                                                automations = it.automations
+                                                automationEvents = it.events
+                                            }
+                                            managingAutomationNames.remove(sid)
+                                        }
+                                    },
+                                    onDelete = {
+                                        scope.launch {
+                                            managingAutomationNames.add(sid)
+                                            apiClient.deleteAutomation(sid)
                                             apiClient.fetchAutomationsData().onSuccess {
                                                 automations = it.automations
                                                 automationEvents = it.events
@@ -1141,6 +1332,113 @@ fun McpSkillsSheet(
             containerColor = colors.surface
         )
     }
+
+    editingMemory?.let { initialMem ->
+        var memTitle by remember(initialMem) { mutableStateOf(initialMem.title) }
+        var memContent by remember(initialMem) { mutableStateOf(initialMem.content) }
+        AlertDialog(
+            onDismissRequest = { editingMemory = null },
+            title = { Text(if (initialMem.id.isBlank()) "新增 Agent 记忆" else "编辑记忆 / 规则", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = memTitle,
+                        onValueChange = { memTitle = it },
+                        label = { Text("标题") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = memContent,
+                        onValueChange = { memContent = it },
+                        label = { Text("内容") },
+                        minLines = 3,
+                        maxLines = 8,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = memContent.isNotBlank() && !initialMem.readOnly,
+                    onClick = {
+                        val t = memTitle.trim().ifBlank { "未命名记忆" }
+                        val c = memContent.trim()
+                        editingMemory = null
+                        scope.launch {
+                            apiClient.upsertMemory(
+                                scope = initialMem.scope.ifBlank { "memory" },
+                                title = t,
+                                content = c,
+                                path = initialMem.path.ifBlank { null }
+                            )
+                            apiClient.fetchMemories().onSuccess { memories = it }
+                        }
+                    }
+                ) { Text("保存") }
+            },
+            dismissButton = {
+                TextButton(onClick = { editingMemory = null }) { Text("关闭") }
+            },
+            containerColor = colors.surface
+        )
+    }
+
+    if (showNewAutomationDialog) {
+        var autoName by remember { mutableStateOf("") }
+        var autoCron by remember { mutableStateOf("0 9 * * *") }
+        var autoPrompt by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { showNewAutomationDialog = false },
+            title = { Text("新建定时自动化任务", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = autoName,
+                        onValueChange = { autoName = it },
+                        label = { Text("任务名称") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = autoCron,
+                        onValueChange = { autoCron = it },
+                        label = { Text("Cron 表达式（如 0 9 * * *）") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = autoPrompt,
+                        onValueChange = { autoPrompt = it },
+                        label = { Text("执行 Prompt") },
+                        minLines = 2,
+                        maxLines = 5,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = autoName.isNotBlank() && autoCron.isNotBlank() && autoPrompt.isNotBlank(),
+                    onClick = {
+                        val n = autoName.trim(); val s = autoCron.trim(); val p = autoPrompt.trim()
+                        showNewAutomationDialog = false
+                        scope.launch {
+                            apiClient.createAutomation(n, s, p)
+                            apiClient.fetchAutomationsData().onSuccess {
+                                automations = it.automations
+                                automationEvents = it.events
+                            }
+                        }
+                    }
+                ) { Text("创建") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showNewAutomationDialog = false }) { Text("取消") }
+            },
+            containerColor = colors.surface
+        )
+    }
 }
 
 @Composable
@@ -1149,7 +1447,8 @@ private fun McpServerCard(
     isExpanded: Boolean,
     onToggleExpand: () -> Unit,
     expandedTools: Set<String>,
-    onToggleTool: (String) -> Unit
+    onToggleTool: (String) -> Unit,
+    onToggleEnabled: ((Boolean) -> Unit)? = null
 ) {
     val colors = AntigravityTheme.colors
     Column(
@@ -1210,6 +1509,14 @@ private fun McpServerCard(
                 )
             }
             Spacer(modifier = Modifier.width(6.dp))
+            if (onToggleEnabled != null) {
+                val isEnabled = !server.spec.disabled && !server.status.contains("STOPPED")
+                Switch(
+                    checked = isEnabled,
+                    onCheckedChange = { onToggleEnabled(it) },
+                    modifier = Modifier.padding(end = 4.dp)
+                )
+            }
             Icon(
                 imageVector = if (isExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
                 contentDescription = null,
@@ -1850,7 +2157,8 @@ private fun AutomationCard(
     sidecar: AutomationSidecarItem,
     isManaging: Boolean,
     onToggle: () -> Unit,
-    onRunNow: (() -> Unit)? = null
+    onRunNow: (() -> Unit)? = null,
+    onDelete: (() -> Unit)? = null
 ) {
     val colors = AntigravityTheme.colors
     val isRunning = sidecar.isRunning
@@ -1921,6 +2229,20 @@ private fun AutomationCard(
                             color = colors.textPrimary,
                             fontSize = 11.5.sp,
                             fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+                if (onDelete != null) {
+                    IconButton(
+                        enabled = !isManaging,
+                        onClick = onDelete,
+                        modifier = Modifier.size(26.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Delete,
+                            contentDescription = "删除定时任务",
+                            tint = Color(0xFFF44336),
+                            modifier = Modifier.size(16.dp)
                         )
                     }
                 }

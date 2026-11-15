@@ -148,6 +148,16 @@ import com.antigravity.mobile.ui.viewmodel.stopSubagent
 import com.antigravity.mobile.ui.viewmodel.stopTask
 import com.antigravity.mobile.ui.viewmodel.submitInteraction
 import com.antigravity.mobile.ui.viewmodel.updateGlobalBackgroundTasks
+import com.antigravity.mobile.ui.viewmodel.addContextMention
+import com.antigravity.mobile.ui.viewmodel.closeMentionPicker
+import com.antigravity.mobile.ui.viewmodel.forkConversationAt
+import com.antigravity.mobile.ui.viewmodel.openMentionPicker
+import com.antigravity.mobile.ui.viewmodel.prepareSession
+import com.antigravity.mobile.ui.viewmodel.refreshPermissionSettings
+import com.antigravity.mobile.ui.viewmodel.removeContextMention
+import com.antigravity.mobile.ui.viewmodel.searchContextMentions
+import com.antigravity.mobile.ui.viewmodel.sendTaskToBackground
+import com.antigravity.mobile.ui.viewmodel.setPermissionPreset
 
 private val BracketPlaceholderRegex = Regex("\\[[^\\[\\]\\n]+\\]")
 
@@ -673,10 +683,67 @@ fun ChatScreen(
         }
     }
 
+    val narrationPlayer = remember(context) {
+        val client = com.antigravity.mobile.data.service.ApiClient.defaultInstance
+            ?: com.antigravity.mobile.data.service.ApiClient(context.applicationContext, voicePrefs)
+        com.antigravity.mobile.ui.util.NarrationAudioPlayer(context.applicationContext, client)
+    }
+    val dictationManager = remember(context) {
+        val client = com.antigravity.mobile.data.service.ApiClient.defaultInstance
+            ?: com.antigravity.mobile.data.service.ApiClient(context.applicationContext, voicePrefs)
+        com.antigravity.mobile.ui.util.AudioDictationManager(client)
+    }
+    val isDictating by dictationManager.isDictating.collectAsState()
+    val isNarrating by narrationPlayer.isPlaying.collectAsState()
+    val narrationLabel by narrationPlayer.statusLabel.collectAsState()
+    var showPermissionMenu by remember { mutableStateOf(false) }
+    var phase3Notice by remember { mutableStateOf<String?>(null) }
+    var dictationBaseText by remember { mutableStateOf("") }
+
+    val startDictation: () -> Unit = {
+        dictationBaseText = inputText.trimEnd()
+        dictationManager.start(
+            cascadeId = uiState.cascadeId.ifBlank { cascadeId },
+            onTranscriptUpdate = { chunk ->
+                val merged = if (dictationBaseText.isEmpty()) chunk else "$dictationBaseText $chunk"
+                viewModel.onInputTextChanged(merged)
+            },
+            onError = { err -> phase3Notice = err }
+        )
+    }
+    val dictationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) startDictation()
+        else phase3Notice = "需要麦克风权限以开启流式听写"
+    }
+    val toggleDictation: () -> Unit = {
+        if (isDictating) {
+            dictationManager.stop()
+        } else if (androidx.core.content.ContextCompat.checkSelfPermission(
+                context, android.Manifest.permission.RECORD_AUDIO
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            if (isInVoiceCall) voiceCall.endCall()
+            startDictation()
+        } else {
+            dictationPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+        }
+    }
+
+    LaunchedEffect(phase3Notice) {
+        if (phase3Notice != null) {
+            kotlinx.coroutines.delay(2600)
+            phase3Notice = null
+        }
+    }
+
     DisposableEffect(Unit) {
         onDispose {
             audioRecorder.cancelRecording()
             voiceCall.endCall()
+            dictationManager.stop()
+            narrationPlayer.stop()
         }
     }
 
@@ -745,6 +812,7 @@ fun ChatScreen(
 
     LaunchedEffect(cascadeId, isNewConversation) {
         enterSession()
+        viewModel.refreshPermissionSettings()
         // Automatically focus the input field and pop up soft keyboard ONLY on new conversation creation without pending options
         if (isNewConversation && uiState.pendingInteraction == null) {
             delay(250)
@@ -1087,32 +1155,82 @@ fun ChatScreen(
                 },
                 actions = {
                     val hasAnyBgTasks = uiState.runningTasks.isNotEmpty() || uiState.globalBackgroundTasks.isNotEmpty()
-                    IconButton(onClick = {
-                        haptic.light()
-                        showMcpSkillsSheet = true
-                    }) {
-                        if (hasAnyBgTasks) {
-                            Box(
-                                modifier = Modifier
-                                    .size(26.dp)
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .border(1.5.dp, colors.accentBlue, RoundedCornerShape(6.dp)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = ">_",
-                                    fontSize = 11.sp,
-                                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                                    fontWeight = FontWeight.Bold,
-                                    color = colors.accentBlue
+                    Box {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .combinedClickable(
+                                    onClick = {
+                                        haptic.light()
+                                        showMcpSkillsSheet = true
+                                    },
+                                    onLongClick = {
+                                        haptic.medium()
+                                        showPermissionMenu = true
+                                    }
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (hasAnyBgTasks) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(26.dp)
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .border(1.5.dp, colors.accentBlue, RoundedCornerShape(6.dp)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = ">_",
+                                        fontSize = 11.sp,
+                                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                        fontWeight = FontWeight.Bold,
+                                        color = colors.accentBlue
+                                    )
+                                }
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Default.Build,
+                                    contentDescription = "MCP 工具与技能看板",
+                                    tint = colors.accentBlue
                                 )
                             }
-                        } else {
-                            Icon(
-                                imageVector = Icons.Default.Build,
-                                contentDescription = "MCP 工具与技能看板",
-                                tint = colors.accentBlue
-                            )
+                            if (uiState.permissionState.isUnlocked) {
+                                Box(
+                                    modifier = Modifier
+                                        .align(Alignment.TopEnd)
+                                        .padding(top = 6.dp, end = 6.dp)
+                                        .size(7.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFFFF9F0A))
+                                )
+                            }
+                        }
+
+                        DropdownMenu(
+                            expanded = showPermissionMenu,
+                            onDismissRequest = { showPermissionMenu = false }
+                        ) {
+                            listOf(
+                                Triple("strict", "严格审批", "每步高危命令需确认"),
+                                Triple("sandbox", "离席沙箱放行", "工作区安全操作自动放行"),
+                                Triple("auto", "全自动", "命令与编辑自动放行")
+                            ).forEach { (preset, label, _) ->
+                                val selected = uiState.permissionState.preset == preset
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            text = (if (selected) "✓ " else "   ") + label,
+                                            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                                            color = if (selected && preset != "strict") Color(0xFFFF9F0A) else colors.textPrimary
+                                        )
+                                    },
+                                    onClick = {
+                                        showPermissionMenu = false
+                                        viewModel.setPermissionPreset(preset) { msg -> phase3Notice = msg }
+                                    }
+                                )
+                            }
                         }
                     }
                 },
@@ -1274,6 +1392,17 @@ fun ChatScreen(
                                         onSubagentClick = openSubagent,
                                         onStopWorkflow = { viewModel.cancelExecution() },
                                         onSelectWorkflowSubagent = { sa -> selectedWorkflowSubagent = sa },
+                                        onForkClick = { target ->
+                                            viewModel.forkConversationAt(target.stepIndex ?: 0, false) { newId ->
+                                                viewModel.prepareSession(
+                                                    cascadeId = newId,
+                                                    initialTitle = "${uiState.title} (分支)",
+                                                    isNewConversation = false,
+                                                    workspaceName = uiState.workspaceName
+                                                )
+                                            }
+                                        },
+                                        onNarrateClick = { text -> narrationPlayer.play(text) },
                                         onCompactClick = { viewModel.sendCompactCommand() },
                                         onStartNewSessionClick = onStartNewSession,
                                         onUndoClick = if (compat.isAvailable(com.antigravity.mobile.data.model.GatewayFeature.REVERT)) {
@@ -1508,6 +1637,10 @@ fun ChatScreen(
                         RunningTasksCard(
                             tasks = uiState.runningTasks,
                             onStopTask = { viewModel.stopTask(it) },
+                            onSendToBackground = { task ->
+                                viewModel.sendTaskToBackground(task.stepIndex) { msg -> phase3Notice = msg }
+                            },
+                            cascadeId = uiState.cascadeId.ifBlank { cascadeId },
                             onToggleExpand = { isExpanded ->
                                 handleFloatingCardToggle(isExpanded)
                             },
@@ -1623,6 +1756,10 @@ fun ChatScreen(
                                     dismissKeyboard()
                                     showAttachmentSheet = true
                                 },
+                                onAddImageLongClick = {
+                                    dismissKeyboard()
+                                    viewModel.openMentionPicker("")
+                                },
                                 selectedSlashCommand = uiState.selectedSlashCommand,
                                 onClearSlashCommand = { viewModel.clearSlashCommand() },
                                 onCommitAndPush = {
@@ -1667,6 +1804,201 @@ fun ChatScreen(
                                     viewModel.proceedArtifact()
                                 }
                             )
+                        }
+
+                        // Phase 3: Transient notice pill
+                        phase3Notice?.let { noticeText ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(colors.accentIndigo.copy(alpha = 0.12f))
+                                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = noticeText,
+                                    fontSize = 12.5.sp,
+                                    color = colors.accentIndigo,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                        }
+
+                        // Phase 3: Voice Narration playback bar
+                        if (isNarrating) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(colors.surfaceVariant)
+                                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.GraphicEq,
+                                    contentDescription = null,
+                                    tint = colors.accentIndigo,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Text(
+                                    text = narrationLabel.ifBlank { "语音播报中..." },
+                                    fontSize = 12.5.sp,
+                                    color = colors.textPrimary,
+                                    modifier = Modifier.weight(1f),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                TextButton(
+                                    onClick = { narrationPlayer.stop() },
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                                ) {
+                                    Text("停止", fontSize = 12.sp, color = colors.accentRed)
+                                }
+                            }
+                        }
+
+                        // Phase 3: @ Context Mention picker overlay
+                        if (uiState.showMentionPicker) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(colors.surfaceVariant)
+                                    .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
+                                    .padding(10.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "@ 引用文件 / 符号 / 规则",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = colors.textSecondary,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    Text(
+                                        text = "关闭",
+                                        fontSize = 12.sp,
+                                        color = colors.accentIndigo,
+                                        modifier = Modifier.clickable { viewModel.closeMentionPicker() }
+                                    )
+                                }
+                                if (uiState.mentionCandidates.isEmpty()) {
+                                    Text("继续输入关键词筛选候选上下文...", fontSize = 12.sp, color = colors.textMuted)
+                                } else {
+                                    LazyColumn(modifier = Modifier.heightIn(max = 150.dp)) {
+                                        items(uiState.mentionCandidates.take(20), key = { it.id }) { item ->
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .clip(RoundedCornerShape(8.dp))
+                                                    .clickable {
+                                                        haptic.light()
+                                                        val stripped = inputText.replace(Regex("""(?:^|\s)@[^\s@]*$"""), "").trimEnd()
+                                                        if (stripped != inputText) viewModel.onInputTextChanged(stripped)
+                                                        viewModel.addContextMention(item)
+                                                    }
+                                                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
+                                                Text(
+                                                    text = item.type.uppercase(),
+                                                    fontSize = 10.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = colors.accentIndigo
+                                                )
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Text(item.label, fontSize = 13.sp, color = colors.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                                    val det = item.detail.orEmpty()
+                                                    if (det.isNotBlank()) {
+                                                        Text(det, fontSize = 11.sp, color = colors.textMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Phase 3: SuggestedResponses single horizontal pill strip (hidden immediately when input focused)
+                        if (uiState.suggestedResponses.isNotEmpty() && !isInputFocused && !uiState.isRunning && !uiState.isAwaitingResponse) {
+                            LazyRow(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                items(uiState.suggestedResponses, key = { it }) { suggestion ->
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(16.dp))
+                                            .background(colors.accentIndigo.copy(alpha = 0.1f))
+                                            .border(0.5.dp, colors.accentIndigo.copy(alpha = 0.35f), RoundedCornerShape(16.dp))
+                                            .clickable {
+                                                haptic.light()
+                                                viewModel.onInputTextChanged(suggestion)
+                                                viewModel.sendCurrentMessage()
+                                            }
+                                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                                    ) {
+                                        Text(
+                                            text = suggestion,
+                                            fontSize = 12.5.sp,
+                                            color = colors.accentIndigo,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        // Phase 3: Selected @ Context Mention chips
+                        if (uiState.selectedContextItems.isNotEmpty()) {
+                            LazyRow(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 2.dp),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                items(uiState.selectedContextItems, key = { it.id }) { item ->
+                                    Row(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .background(colors.accentIndigo.copy(alpha = 0.14f))
+                                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Text(
+                                            text = "@${item.label}",
+                                            fontSize = 12.sp,
+                                            color = colors.accentIndigo,
+                                            maxLines = 1
+                                        )
+                                        Icon(
+                                            imageVector = Icons.Default.Close,
+                                            contentDescription = "移除引用",
+                                            tint = colors.accentIndigo,
+                                            modifier = Modifier
+                                                .size(13.dp)
+                                                .clickable { viewModel.removeContextMention(item.id) }
+                                        )
+                                    }
+                                }
+                            }
                         }
 
                         // Attached Image Previews Strip (displayed directly above the input box)
@@ -1777,6 +2109,12 @@ fun ChatScreen(
                                     inputFieldValue = expandedValue
                                     if (expandedValue.text != inputText) {
                                         viewModel.onInputTextChanged(expandedValue.text)
+                                        val m = Regex("""(?:^|\s)@([^\s@]*)$""").find(expandedValue.text)
+                                        if (m != null) {
+                                            viewModel.openMentionPicker(m.groupValues[1])
+                                        } else if (uiState.showMentionPicker) {
+                                            viewModel.closeMentionPicker()
+                                        }
                                     }
                                 },
                                 modifier = Modifier
@@ -1829,7 +2167,7 @@ fun ChatScreen(
 
                             val isActivelyRunning = uiState.isRunning || uiState.isAwaitingResponse || uiState.runningTasks.hasBlockingTasks
                             val isInputBlank = inputText.isBlank()
-                            val hasAttachments = uiState.selectedImages.isNotEmpty() || uiState.selectedFiles.isNotEmpty() || uiState.selectedSlashCommand != null
+                            val hasAttachments = uiState.selectedImages.isNotEmpty() || uiState.selectedFiles.isNotEmpty() || uiState.selectedSlashCommand != null || uiState.selectedContextItems.isNotEmpty()
                             val hasSendableDraft = !isInputBlank || hasAttachments
                             val hasUnuploadedFiles = uiState.selectedFiles.any { !it.isUploaded }
 
@@ -1933,18 +2271,26 @@ fun ChatScreen(
                                                 spotColor = Color.Black.copy(alpha = 0.3f)
                                             )
                                             .clip(CircleShape)
-                                            .background(Color(0xFF475558))
+                                            .background(if (isDictating) colors.accentRed else Color(0xFF475558))
                                             .border(0.8.dp, Color.White.copy(alpha = 0.14f), CircleShape)
                                             .combinedClickable(
                                                 onClick = {
                                                     haptic.medium()
                                                     dismissKeyboard()
-                                                    launchVoiceCall()
+                                                    if (isDictating) {
+                                                        dictationManager.stop()
+                                                    } else {
+                                                        launchVoiceCall()
+                                                    }
                                                 },
                                                 onLongClick = {
                                                     haptic.heavy()
                                                     dismissKeyboard()
-                                                    launchAudioRecording()
+                                                    if (voicePrefs.legacyVoiceLongPress) {
+                                                        launchAudioRecording()
+                                                    } else {
+                                                        toggleDictation()
+                                                    }
                                                 }
                                             ),
                                         contentAlignment = Alignment.Center
@@ -2095,7 +2441,11 @@ fun ChatScreen(
                     cameraPermissionLauncher.launch(android.Manifest.permission.CAMERA)
                 }
             },
-            onPickFiles = { filePickerLauncher.launch(arrayOf("*/*")) }
+            onPickFiles = { filePickerLauncher.launch(arrayOf("*/*")) },
+            onMentionContext = {
+                showAttachmentSheet = false
+                viewModel.openMentionPicker("")
+            }
         )
     }
 
@@ -2159,6 +2509,8 @@ fun ChatScreen(
     uiState.gitSheet?.let { sheet ->
         GitCommitSheet(
             state = sheet,
+            cascadeId = uiState.cascadeId.ifBlank { cascadeId },
+            onRefreshGit = { viewModel.openGitSheet() },
             onCommit = { message, paths, push -> viewModel.commitGit(message, paths, push) },
             onRetryPush = { viewModel.retryGitPush() },
             onDelegateToAgent = { viewModel.delegateCommitToAgent() },

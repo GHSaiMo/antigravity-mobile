@@ -13,12 +13,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForwardIos
 import androidx.compose.material.icons.filled.ChatBubbleOutline
+import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.WorkOutline
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -43,11 +43,16 @@ fun NewConversationSheet(
     onRefreshProjects: () -> Unit = {},
     onSelectProject: (ProjectItem) -> Unit,
     onEditProjectAlias: (ProjectItem) -> Unit = {},
+    onStartWorktreeSession: ((ProjectItem) -> Unit)? = null,
+    onCloneGitHubRepo: ((String) -> Unit)? = null,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val colors = AntigravityTheme.colors
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var longPressedProject by remember { mutableStateOf<ProjectItem?>(null) }
+    var showCloneDialog by remember { mutableStateOf(false) }
+    var cloneRepoSlug by remember { mutableStateOf("") }
 
     LaunchedEffect(Unit) {
         onRefreshProjects()
@@ -87,17 +92,35 @@ fun NewConversationSheet(
                 )
             }
 
-            // Header title
-            Text(
-                text = "新建会话",
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Bold,
-                color = colors.textPrimary,
-                textAlign = TextAlign.Center,
+            // Header title + optional Clone GitHub Repo button
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
                     .padding(bottom = 12.dp)
-            )
+            ) {
+                Text(
+                    text = "新建会话",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = colors.textPrimary,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.align(Alignment.Center)
+                )
+                if (onCloneGitHubRepo != null) {
+                    IconButton(
+                        onClick = { showCloneDialog = true },
+                        modifier = Modifier.align(Alignment.CenterEnd).size(32.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CloudDownload,
+                            contentDescription = "克隆 GitHub 仓库",
+                            tint = colors.accentBlue,
+                            modifier = Modifier.size(19.dp)
+                        )
+                    }
+                }
+            }
 
             HorizontalDivider(thickness = 0.5.dp, color = colors.border)
 
@@ -278,7 +301,10 @@ fun NewConversationSheet(
                                 .background(colors.surfaceVariant)
                                 .combinedClickable(
                                     onClick = { onSelectProject(project) },
-                                    onLongClick = { onEditProjectAlias(project) }
+                                    onLongClick = {
+                                        if (onStartWorktreeSession != null) longPressedProject = project
+                                        else onEditProjectAlias(project)
+                                    }
                                 )
                                 .padding(horizontal = 14.dp, vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically,
@@ -364,5 +390,60 @@ fun NewConversationSheet(
             }
         }
             }
+    }
+
+    longPressedProject?.let { proj ->
+        AlertDialog(
+            onDismissRequest = { longPressedProject = null },
+            title = { Text(proj.displayName) },
+            text = { Text("选择工作区操作：") },
+            confirmButton = {
+                TextButton(onClick = {
+                    val target = proj
+                    longPressedProject = null
+                    onStartWorktreeSession?.invoke(target)
+                }) {
+                    Text("在独立 Worktree 开启会话")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    val target = proj
+                    longPressedProject = null
+                    onEditProjectAlias(target)
+                }) {
+                    Text("设置工作区备注")
+                }
+            }
+        )
+    }
+
+    if (showCloneDialog) {
+        AlertDialog(
+            onDismissRequest = { showCloneDialog = false },
+            title = { Text("克隆 GitHub 仓库") },
+            text = {
+                OutlinedTextField(
+                    value = cloneRepoSlug,
+                    onValueChange = { cloneRepoSlug = it },
+                    label = { Text("owner/repo 或 HTTPS URL") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val slug = cloneRepoSlug.trim()
+                    showCloneDialog = false
+                    if (slug.isNotEmpty()) {
+                        cloneRepoSlug = ""
+                        onCloneGitHubRepo?.invoke(slug)
+                    }
+                }) { Text("克隆并开启") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCloneDialog = false }) { Text("取消") }
+            }
+        )
     }
 }

@@ -40,8 +40,11 @@ import androidx.compose.ui.unit.sp
 import com.antigravity.mobile.data.model.ModelDefaults
 import com.antigravity.mobile.data.model.ModelOption
 import com.antigravity.mobile.data.model.ModelsResponse
+import com.antigravity.mobile.data.service.ApiClient
 import com.antigravity.mobile.data.service.ConnectionManager
 import com.antigravity.mobile.data.service.PreferencesManager
+import com.antigravity.mobile.data.service.fetchPermissionSettings
+import com.antigravity.mobile.data.service.updatePermissionPreset
 import com.antigravity.mobile.ui.theme.AntigravityTheme
 import com.antigravity.mobile.ui.util.rememberHaptic
 import kotlinx.coroutines.launch
@@ -486,6 +489,68 @@ private fun MainSettingsContent(
             }
         }
 
+        // MARK: - 3b. Agent 执行权限预设（与对话顶栏 🔧 长按同步）
+        var permPreset by remember { mutableStateOf("strict") }
+        LaunchedEffect(Unit) {
+            ApiClient.defaultInstance?.fetchPermissionSettings()?.onSuccess {
+                permPreset = it.preset
+            }
+        }
+        SettingsSection(
+            title = "Agent 执行权限",
+            footer = "与聊天顶栏 🔧 长按切换的权限预设实时同步。非严格模式将在 🔧 按钮右上角显示琥珀色圆点提示。"
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(colors.surface)
+                    .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
+            ) {
+                val options = listOf(
+                    Triple("strict", "严格审批", "每步高危工具或命令都需确认"),
+                    Triple("sandbox", "离席沙箱放行", "工作区内只读/沙箱安全动作自动放行"),
+                    Triple("auto", "全自动", "命令与编辑全自动放行（谨慎使用）")
+                )
+                options.forEachIndexed { idx, (key, title, desc) ->
+                    if (idx > 0) HorizontalDivider(thickness = 0.5.dp, color = colors.border)
+                    val selected = permPreset == key
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                permPreset = key
+                                coroutineScope.launch {
+                                    ApiClient.defaultInstance?.updatePermissionPreset(key)?.onSuccess {
+                                        permPreset = it.preset
+                                    }
+                                }
+                            }
+                            .padding(horizontal = 16.dp, vertical = 11.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = title,
+                                color = colors.textPrimary,
+                                fontSize = 15.sp,
+                                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
+                            )
+                            Text(text = desc, color = colors.textSecondary, fontSize = 12.sp)
+                        }
+                        if (selected) {
+                            Icon(
+                                imageVector = Icons.Default.Check,
+                                contentDescription = null,
+                                tint = if (key == "strict") colors.accentIndigo else Color(0xFFFF9F0A),
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
         // MARK: - 4. 实时通知 (1:1 iOS 对齐)
         SettingsSection(
             title = "实时通知",
@@ -598,6 +663,40 @@ private fun MainSettingsContent(
                     onCheckedChange = {
                         enableVoiceMode = it
                         prefs.enableVoiceMode = it
+                    },
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = colors.surface,
+                        checkedTrackColor = colors.accentIndigo
+                    )
+                )
+            }
+            var legacyVoiceLongPress by remember { mutableStateOf(prefs.legacyVoiceLongPress) }
+            HorizontalDivider(thickness = 0.5.dp, color = colors.border)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(colors.surface)
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "关闭长按流式听写",
+                        color = colors.textPrimary,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Text(
+                        text = "关闭后长按右侧语音圆钮仍使用旧版录音",
+                        color = colors.textSecondary,
+                        fontSize = 12.sp
+                    )
+                }
+                Switch(
+                    checked = legacyVoiceLongPress,
+                    onCheckedChange = {
+                        legacyVoiceLongPress = it
+                        prefs.legacyVoiceLongPress = it
                     },
                     colors = SwitchDefaults.colors(
                         checkedThumbColor = colors.surface,

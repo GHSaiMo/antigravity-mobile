@@ -159,7 +159,17 @@ internal fun RichTextRenderer(
                                 return@let
                             }
 
-                            if (onPlanClick != null && FileIconResolver.isAccessibleDocument(url)) {
+                            if (url.startsWith("sidecar://")) {
+                                val resolved = resolveSidecarGatewayUrl(url)
+                                if (resolved != null) {
+                                    try {
+                                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(resolved)).apply {
+                                            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                        }
+                                        context.startActivity(intent)
+                                    } catch (_: Exception) {}
+                                }
+                            } else if (onPlanClick != null && FileIconResolver.isAccessibleDocument(url)) {
                                 onPlanClick(url, decodedTitle)
                             } else if (url.startsWith("http://") || url.startsWith("https://")) {
                                 try {
@@ -641,4 +651,10 @@ internal fun replaceHtmlBreaks(text: String): String {
     return splitCodeSpans(text).joinToString("") { (content, isCode) ->
         if (isCode) content else replaceInSegment(content)
     }
+}
+
+private fun resolveSidecarGatewayUrl(rawUrl: String): String? {
+    val base = com.antigravity.mobile.data.service.ApiClient.defaultInstance?.currentBaseUrl?.trimEnd('/') ?: return null
+    val trimmed = rawUrl.removePrefix("sidecar://").trimStart('/')
+    return if (trimmed.isEmpty()) null else "$base/gateway/sidecar-ui/$trimmed"
 }

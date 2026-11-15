@@ -119,6 +119,7 @@ internal fun ChatViewModel.prepareSession(
     draftProject: ProjectItem? = null,
     lastModifiedTime: String? = null
 ) {
+    com.antigravity.mobile.data.service.ApiClient.currentCascadeId = cascadeId
     this.currentLastModifiedTime = lastModifiedTime
     this.isUnreadOnEntry = isUnread
     this.initialConversationStatus = conversationStatus
@@ -431,7 +432,8 @@ internal fun ChatViewModel.initSession(
                         totalTools = payload.totalTools,
                         duration = payload.duration ?: _uiState.value.duration,
                         cascadeConfigRaw = payload.cascadeConfigRaw ?: _uiState.value.cascadeConfigRaw,
-                        contextMeter = payload.contextMeter ?: _uiState.value.contextMeter
+                        contextMeter = payload.contextMeter ?: _uiState.value.contextMeter,
+                        suggestedResponses = if (!isRunning) payload.suggestedResponses.orEmpty() else emptyList()
                     )
 
                     if (isRunning) {
@@ -564,7 +566,8 @@ internal fun ChatViewModel.ensureWebSocketObserving() {
                     totalTools = if (payload.totalTools > 0) payload.totalTools else _uiState.value.totalTools,
                     duration = payload.duration ?: _uiState.value.duration,
                     cascadeConfigRaw = payload.cascadeConfigRaw ?: _uiState.value.cascadeConfigRaw,
-                    contextMeter = payload.contextMeter ?: _uiState.value.contextMeter
+                    contextMeter = payload.contextMeter ?: _uiState.value.contextMeter,
+                    suggestedResponses = if (!isRunning) payload.suggestedResponses.orEmpty() else emptyList()
                 )
 
                 if (isRunning) {

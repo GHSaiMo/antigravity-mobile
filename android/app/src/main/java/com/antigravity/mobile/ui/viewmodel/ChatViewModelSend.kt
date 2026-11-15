@@ -202,6 +202,10 @@ internal fun ChatViewModel.sendMessage(
     // language_server 把斜杠命令的显示文本生成为 "/name 内容"，本地气泡与队列条目保持一致
     val displayText = if (slashCommand.isNullOrBlank()) bodyText else "/$slashCommand" + if (bodyText.isNotEmpty()) " $bodyText" else ""
     val attachmentIds = files.mapNotNull { it.attachmentId }
+    val ctxItems = _uiState.value.selectedContextItems
+    if (ctxItems.isNotEmpty() || _uiState.value.suggestedResponses.isNotEmpty()) {
+        _uiState.value = _uiState.value.copy(selectedContextItems = emptyList(), suggestedResponses = emptyList())
+    }
     val model = _uiState.value.activeModel
 
     val isRunningOrAwaiting = _uiState.value.isRunning || _uiState.value.isAwaitingResponse
@@ -255,7 +259,8 @@ internal fun ChatViewModel.sendMessage(
                     deliveryStrategy = 2,
                     clientMessageId = queueClientMsgId,
                     attachmentIds = attachmentIds,
-                    slashCommand = slashCommand
+                    slashCommand = slashCommand,
+                    contextItems = ctxItems
                 )
             } catch (e: Exception) {
                 Log.w("ChatViewModel", "Failed to deliver queued message upstream", e)
@@ -301,7 +306,7 @@ internal fun ChatViewModel.sendMessage(
         val isPure = project.isPureChat
         val pid = if (isPure) "outside-of-project" else (project.rawId ?: (if (project.id != project.uri) project.id else null))
         val wsUri = if (isPure) "" else project.uri
-        val initialPrompt = if (attachments.isEmpty() && files.isEmpty() && slashCommand.isNullOrBlank()) text else ""
+        val initialPrompt = if (attachments.isEmpty() && files.isEmpty() && slashCommand.isNullOrBlank() && ctxItems.isEmpty()) text else ""
 
         viewModelScope.launch {
             val createRes = apiClient.createCascade(
@@ -358,12 +363,13 @@ internal fun ChatViewModel.sendMessage(
                 wsClient.connect(newCascadeId)
                 ensureWebSocketObserving()
 
-                if (attachments.isNotEmpty() || files.isNotEmpty() || !slashCommand.isNullOrBlank()) {
+                if (attachments.isNotEmpty() || files.isNotEmpty() || !slashCommand.isNullOrBlank() || ctxItems.isNotEmpty()) {
                     val imagePayloads = attachments.map { Pair(it.byteArray, it.mimeType) }
                     val sendResult = apiClient.sendMessage(
                         newCascadeId, text, model, imagePayloads,
                         attachmentIds = attachmentIds,
-                        slashCommand = slashCommand
+                        slashCommand = slashCommand,
+                        contextItems = ctxItems
                     )
                     sendResult.onFailure { err ->
                         _uiState.value = _uiState.value.copy(
@@ -448,7 +454,8 @@ internal fun ChatViewModel.sendMessage(
             deliveryStrategy = deliveryStrategy,
             clientMessageId = optId,
             attachmentIds = attachmentIds,
-            slashCommand = slashCommand
+            slashCommand = slashCommand,
+            contextItems = ctxItems
         )
         result.onFailure { err ->
             _uiState.value = _uiState.value.copy(

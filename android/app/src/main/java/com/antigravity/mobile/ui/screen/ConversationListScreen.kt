@@ -16,6 +16,9 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.ui.res.painterResource
 import com.antigravity.mobile.R
+import com.antigravity.mobile.data.service.ApiClient
+import com.antigravity.mobile.data.service.cloneGitHubRepo
+import com.antigravity.mobile.data.service.createWorktreeSession
 import com.antigravity.mobile.ui.util.rememberHaptic
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
@@ -95,6 +98,7 @@ fun ConversationListScreen(
     var showBackgroundTasksSheet by remember { mutableStateOf(false) }
     var showNewConvSheet by remember { mutableStateOf(false) }
     var showSettingsSheet by remember { mutableStateOf(false) }
+    val p3Scope = rememberCoroutineScope()
 
     var easterEggTapCount by remember { mutableIntStateOf(0) }
     var lastEasterEggTapTime by remember { mutableLongStateOf(0L) }
@@ -583,6 +587,50 @@ fun ConversationListScreen(
             onEditProjectAlias = { project ->
                 editingAliasProject = project
                 aliasInputText = project.alias ?: ""
+            },
+            onStartWorktreeSession = { project ->
+                showNewConvSheet = false
+                p3Scope.launch {
+                    val resp = ApiClient.defaultInstance?.createWorktreeSession(
+                        repoUri = project.uri,
+                        workspacePath = project.path
+                    )?.getOrNull()
+                    if (resp?.ok == true && !resp.cascadeId.isNullOrBlank()) {
+                        viewModel.refresh()
+                        onSelectConversation(
+                            resp.cascadeId,
+                            "${project.displayName} (Worktree)",
+                            false,
+                            false,
+                            com.antigravity.mobile.data.model.ConversationStatus.IDLE,
+                            null
+                        )
+                    } else {
+                        val draftSession = viewModel.createLocalDraftSession(project)
+                        onSelectConversation(draftSession.id, project.displayName, true, false, com.antigravity.mobile.data.model.ConversationStatus.IDLE, null)
+                    }
+                }
+            },
+            onCloneGitHubRepo = { repoUrl ->
+                showNewConvSheet = false
+                p3Scope.launch {
+                    val resp = ApiClient.defaultInstance?.cloneGitHubRepo(
+                        repoSlug = repoUrl,
+                        startSession = true
+                    )?.getOrNull()
+                    viewModel.loadProjects()
+                    if (resp?.ok == true && !resp.cascadeId.isNullOrBlank()) {
+                        viewModel.refresh()
+                        onSelectConversation(
+                            resp.cascadeId,
+                            repoUrl.substringAfterLast('/').removeSuffix(".git"),
+                            false,
+                            false,
+                            com.antigravity.mobile.data.model.ConversationStatus.IDLE,
+                            null
+                        )
+                    }
+                }
             },
             onDismiss = { showNewConvSheet = false }
         )

@@ -136,7 +136,12 @@ data class ChatUiState(
     val chapterTitles: Map<String, String> = emptyMap(),
     val isLoadingChapterTitles: Boolean = false,
     val focusInputTrigger: Int = 0,
-    val contextMeter: ContextMeterItem? = null
+    val contextMeter: ContextMeterItem? = null,
+    val suggestedResponses: List<String> = emptyList(),
+    val selectedContextItems: List<ContextMentionItem> = emptyList(),
+    val mentionCandidates: List<ContextMentionItem> = emptyList(),
+    val showMentionPicker: Boolean = false,
+    val permissionState: PermissionStateResponse = PermissionStateResponse()
 )
 
 class ChatViewModel(
@@ -299,7 +304,7 @@ class ChatViewModel(
         val text = _inputText.value.trim()
         val images = _uiState.value.selectedImages
         val files = _uiState.value.selectedFiles
-        if (text.isEmpty() && images.isEmpty() && files.isEmpty() && _uiState.value.selectedSlashCommand == null) return
+        if (text.isEmpty() && images.isEmpty() && files.isEmpty() && _uiState.value.selectedSlashCommand == null && _uiState.value.selectedContextItems.isEmpty()) return
         if (files.any { it.state == UploadState.FAILED }) {
             _uiState.value = _uiState.value.copy(attachmentNotice = "有文件上传失败，请重试或移除后再发送")
             return

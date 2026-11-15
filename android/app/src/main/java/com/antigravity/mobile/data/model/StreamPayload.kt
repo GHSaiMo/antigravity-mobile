@@ -78,6 +78,9 @@ data class GatewayMessageItem(
     val clientMessageId: String? = null,
     val errorKind: String? = null,
     val isOverflow: Boolean = false,
+    val thinking: String? = null,
+    val thinkingDuration: String? = null,
+    val toolDetails: List<ToolDetailItem>? = null,
     @kotlinx.serialization.Transient val imageDataList: List<ByteArray> = emptyList()
 ) {
     val effectiveRole: String
@@ -253,7 +256,8 @@ data class StreamUpdatePayload(
     val delta: Boolean = false,
     val messageIds: List<String>? = null,
     val swarm: SwarmBrief? = null,
-    val contextMeter: ContextMeterItem? = null
+    val contextMeter: ContextMeterItem? = null,
+    val suggestedResponses: List<String>? = null
 )
 
 @Serializable

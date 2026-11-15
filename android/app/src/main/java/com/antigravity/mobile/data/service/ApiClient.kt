@@ -61,6 +61,9 @@ class ApiClient(
         @Volatile
         var defaultInstance: ApiClient? = null
 
+        @Volatile
+        var currentCascadeId: String? = null
+
         suspend fun fetchFileContent(uri: String, cascadeId: String? = null): Result<FileContentResponse> {
             val inst = defaultInstance ?: return Result.failure(IllegalStateException("ApiClient not initialized"))
             return inst.fetchFileContent(uri, cascadeId)
@@ -591,7 +594,8 @@ class ApiClient(
         clientMessageId: String? = null,
         attachmentIds: List<String> = emptyList(),
         /** 斜杠命令名（如 "plan"）。网关会补全权威定义；命令条目排在文本条目之前。 */
-        slashCommand: String? = null
+        slashCommand: String? = null,
+        contextItems: List<ContextMentionItem> = emptyList()
     ): Result<Unit> = withContext(Dispatchers.IO) {
         val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
         val url = "$baseUrl/api/exa.language_server_pb.LanguageServerService/SendUserCascadeMessage"
@@ -634,6 +638,9 @@ class ApiClient(
                 putJsonArray("attachments") {
                     attachmentIds.forEach { id -> addJsonObject { put("id", id) } }
                 }
+            }
+            if (contextItems.isNotEmpty()) {
+                put("contextItems", json.encodeToJsonElement(contextItems))
             }
             deliveryStrategy?.let { put("deliveryStrategy", it) }
             model?.let { put("model", it) }
@@ -1659,7 +1666,10 @@ class ApiClient(
 
     // endregion
 
-    private fun buildAuthorizedRequest(url: String): Request.Builder {
+    internal val prefsRef: PreferencesManager
+        get() = prefs
+
+    internal fun buildAuthorizedRequest(url: String): Request.Builder {
         val builder = Request.Builder()
             .url(url)
             .header("Content-Type", "application/json")

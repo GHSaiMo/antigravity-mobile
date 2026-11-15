@@ -9,12 +9,14 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.CallSplit
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Undo
 import androidx.compose.material.icons.filled.UnfoldLess
 import androidx.compose.material.icons.filled.UnfoldMore
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -79,7 +81,9 @@ fun MessageBubble(
     onStartNewSessionClick: (() -> Unit)? = null,
     shareContextProvider: ((GatewayMessageItem) -> ShareCardContext)? = null,
     onStopWorkflow: (() -> Unit)? = null,
-    onSelectWorkflowSubagent: ((SubagentItem) -> Unit)? = null
+    onSelectWorkflowSubagent: ((SubagentItem) -> Unit)? = null,
+    onForkClick: ((GatewayMessageItem) -> Unit)? = null,
+    onNarrateClick: ((String) -> Unit)? = null
 ) {
     val colors = AntigravityTheme.colors
     val context = LocalContext.current
@@ -102,8 +106,19 @@ fun MessageBubble(
         return
     }
 
-    // Standalone tool message
+    // Standalone tool or thinking capsule
     if (message.isTools) {
+        val hasStructuredThinking = !message.thinking.isNullOrBlank() || !message.toolDetails.isNullOrEmpty()
+        if (hasStructuredThinking) {
+            ToolStepCollapseCard(
+                toolCalls = message.toolCalls.orEmpty(),
+                thinkingText = message.thinking,
+                thinkingDuration = message.thinkingDuration,
+                toolDetails = message.toolDetails,
+                modifier = modifier.fillMaxWidth(0.95f).padding(vertical = 4.dp)
+            )
+            return
+        }
         val toolText = message.effectiveText.ifBlank { "已思考并执行工具操作" }
         Box(
             modifier = modifier
@@ -284,8 +299,8 @@ fun MessageBubble(
             .padding(vertical = 4.dp),
         horizontalAlignment = if (isUser) Alignment.End else Alignment.Start
     ) {
-        // Render folded tools capsule (simplified in Knowledge Mode)
-        if (!message.toolCalls.isNullOrEmpty()) {
+        // Render folded tools / thinking capsule (simplified in Knowledge Mode)
+        if (!message.toolCalls.isNullOrEmpty() || !message.thinking.isNullOrBlank()) {
             if (LocalKnowledgeModeEnabled.current) {
                 Row(
                     modifier = Modifier
@@ -301,14 +316,17 @@ fun MessageBubble(
                         modifier = Modifier.size(12.dp)
                     )
                     Text(
-                        text = "已完成 ${message.toolCalls.size} 项检索与命令操作",
+                        text = if (!message.toolCalls.isNullOrEmpty()) "已完成 ${message.toolCalls.size} 项检索与命令操作" else "已完成深度思考",
                         color = colors.textSecondary,
                         fontSize = 11.5.sp
                     )
                 }
             } else {
                 ToolStepCollapseCard(
-                    toolCalls = message.toolCalls,
+                    toolCalls = message.toolCalls.orEmpty(),
+                    thinkingText = message.thinking,
+                    thinkingDuration = message.thinkingDuration,
+                    toolDetails = message.toolDetails,
                     modifier = Modifier
                         .fillMaxWidth(0.95f)
                         .padding(bottom = 6.dp)
@@ -774,6 +792,27 @@ fun MessageBubble(
                                     shareCardRequest = ShareCardRequest(displayText, false, emptyList())
                                 }
                             )
+                            if (onForkClick != null) {
+                                DropdownMenuItem(
+                                    text = { Text("分叉会话") },
+                                    leadingIcon = { Icon(Icons.Default.CallSplit, contentDescription = "分叉会话") },
+                                    onClick = {
+                                        showAgentMenu = false
+                                        onForkClick(message)
+                                    }
+                                )
+                            }
+                            if (onNarrateClick != null) {
+                                DropdownMenuItem(
+                                    text = { Text("语音播报") },
+                                    leadingIcon = { Icon(Icons.Default.VolumeUp, contentDescription = "语音播报") },
+                                    onClick = {
+                                        showAgentMenu = false
+                                        val plain = MarkdownPlainText.convert(displayText)
+                                        onNarrateClick(plain.ifEmpty { displayText })
+                                    }
+                                )
+                            }
                         }
                     }
 

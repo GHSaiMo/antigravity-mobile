@@ -741,6 +741,22 @@ class PreferencesManager(context: Context) {
         }
     }
 
+    var legacyVoiceLongPress: Boolean
+        get() = prefs.getBoolean(KEY_LEGACY_VOICE_LONGPRESS, false)
+        set(value) { prefs.edit().putBoolean(KEY_LEGACY_VOICE_LONGPRESS, value).apply() }
+
+    fun getWorkspaceNote(key: String): String? {
+        if (key.isBlank()) return null
+        return prefs.getString("$KEY_WS_NOTE_PREFIX$key", null)?.takeIf { it.isNotBlank() }
+    }
+
+    fun setWorkspaceNote(key: String, note: String?) {
+        if (key.isBlank()) return
+        val trimmed = note?.trim().orEmpty()
+        if (trimmed.isEmpty()) prefs.edit().remove("$KEY_WS_NOTE_PREFIX$key").apply()
+        else prefs.edit().putString("$KEY_WS_NOTE_PREFIX$key", trimmed).apply()
+    }
+
     fun getPinnedConversationIds(): Set<String> {
         return prefs.getStringSet(KEY_PINNED_CONVERSATIONS, emptySet()) ?: emptySet()
     }
@@ -863,5 +879,7 @@ class PreferencesManager(context: Context) {
         private const val KEY_CACHED_MODEL_CATALOG = "cached_model_catalog_json"
         private const val KEY_DELETED_CONVERSATIONS = "ag_deleted_conversations"
         private const val KEY_PINNED_CONVERSATIONS = "ag_pinned_conversations"
+        private const val KEY_LEGACY_VOICE_LONGPRESS = "p3_legacy_voice_longpress"
+        private const val KEY_WS_NOTE_PREFIX = "p3_ws_note_"
     }
 }
