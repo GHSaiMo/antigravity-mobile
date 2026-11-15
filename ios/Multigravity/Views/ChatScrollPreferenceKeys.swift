@@ -15,11 +15,11 @@ final class ChatScrollHUDState {
     @ObservationIgnored var lockedTurnIndex: Int? = nil
 }
 
-struct ChatBottomAnchorOffsetPreferenceKey: PreferenceKey {
-    static var defaultValue: CGFloat = .infinity
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
-    }
+struct ChatScrollMetrics: Equatable {
+    let quantizedDistanceFromBottom: CGFloat
+    let viewportHeight: CGFloat
+    let contentHeight: CGFloat
+    let overshoot: CGFloat
 }
 
 struct ChatContentHeightPreferenceKey: PreferenceKey {
