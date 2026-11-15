@@ -37,6 +37,7 @@ suspend fun ChatViewModel.refreshActionAvailability(changesSupported: Boolean) {
     if (cascadeId.isLocalDraft()) {
         _uiState.value = _uiState.value.copy(
             hasGitChanges = false,
+            hasUncommittedFiles = false,
             hasSessionChanges = false,
             globalBackgroundTasks = bgTasks ?: _uiState.value.globalBackgroundTasks
         )
@@ -55,6 +56,7 @@ suspend fun ChatViewModel.refreshActionAvailability(changesSupported: Boolean) {
     }
     _uiState.value = _uiState.value.copy(
         hasGitChanges = hasFiles || prs.isNotEmpty(),
+        hasUncommittedFiles = hasFiles,
         gitChipLabel = chipLabel,
         hasSessionChanges = changes?.hasChanges == true,
         globalBackgroundTasks = bgTasks ?: _uiState.value.globalBackgroundTasks

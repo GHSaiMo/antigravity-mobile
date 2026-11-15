@@ -130,6 +130,7 @@ data class ChatUiState(
     val gitSheet: GitSheetState? = null,
     /** Commit / Changes 快捷按钮的动态可见性：会话没有 Git 工作区、或没有文件变动及 PR 时不显示。 */
     val hasGitChanges: Boolean = false,
+    val hasUncommittedFiles: Boolean = false,
     val gitChipLabel: String = "Commit",
     val hasSessionChanges: Boolean = false,
     /** Antigravity 2.30.0 GetChapterTitles 生成的章节标题缓存（key: "start:end" 或 "start:s"）。 */

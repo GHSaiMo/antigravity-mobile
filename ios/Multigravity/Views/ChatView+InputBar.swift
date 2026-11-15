@@ -112,26 +112,25 @@ extension ChatView {
                         .transition(.scale(scale: 0.9).combined(with: .opacity))
                     }
                     
-                    // 3. Commit：打开 Git 提交浮窗（会话没有 Git 工作区或没有文件变动/PR 时不显示）
+                    // 3. Commit：打开 Git 提交浮窗（长按上滑快捷填充 Commit 命令，仅在有工作区变动时可上滑）
                     if viewModel.hasGitChanges {
-                        Button {
-                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                            isInputFocused = false
-                            viewModel.openGitSheet()
-                        } label: {
-                            Text(viewModel.gitChipLabel)
-                                .font(.system(size: 13, weight: .medium))
-                                .foregroundColor(.primary)
-                                .padding(.horizontal, 14)
-                                .frame(height: 32)
-                                .background(Color(uiColor: .secondarySystemBackground))
-                                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                        .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
-                                )
-                        }
-                        .buttonStyle(.plain)
+                        CommitChipButton(
+                            label: viewModel.gitChipLabel,
+                            canCommit: viewModel.hasUncommittedFiles,
+                            pickerState: commitPickerState,
+                            onTap: {
+                                isInputFocused = false
+                                viewModel.openGitSheet()
+                            },
+                            onSelectAction: { action in
+                                viewModel.inputText = action
+                                isInputFocused = true
+                            },
+                            onWillOpen: {
+                                if modelPickerState.isPresented { modelPickerState.dismiss() }
+                                if workflowPickerState.isPresented { workflowPickerState.dismiss() }
+                            }
+                        )
                     }
 
                     // 3b. Changes：本会话累计改动的 diff（当前 Antigravity 缺少所需接口时隐藏）

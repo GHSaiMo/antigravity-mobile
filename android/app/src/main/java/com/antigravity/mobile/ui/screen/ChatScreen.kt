@@ -219,6 +219,7 @@ fun ChatScreen(
     var pendingSelectFirstPlaceholder by remember { mutableStateOf(false) }
     val modelSlidePickerState = remember { com.antigravity.mobile.ui.components.ModelSlidePickerState() }
     val workflowSlidePickerState = remember { com.antigravity.mobile.ui.components.WorkflowSlidePickerState() }
+    val commitSlidePickerState = remember { com.antigravity.mobile.ui.components.CommitSlidePickerState() }
     var workflowTemplates by remember { mutableStateOf(com.antigravity.mobile.ui.components.WorkflowTemplateLocalCache.load(context)) }
     LaunchedEffect(Unit) {
         val apiClient = com.antigravity.mobile.data.service.ApiClient.defaultInstance
@@ -1052,6 +1053,7 @@ fun ChatScreen(
             .onGloballyPositioned {
                 modelSlidePickerState.containerSize = it.size
                 workflowSlidePickerState.containerSize = it.size
+                commitSlidePickerState.containerSize = it.size
             }
     ) {
     Scaffold(
@@ -1769,6 +1771,7 @@ fun ChatScreen(
                                 activeModel = uiState.activeModel,
                                 onToggleModel = {
                                     workflowSlidePickerState.dismiss()
+                                    commitSlidePickerState.dismiss()
                                     viewModel.toggleModel()
                                 },
                                 onSelectModel = { viewModel.selectModel(it) },
@@ -1789,6 +1792,12 @@ fun ChatScreen(
                                     viewModel.openGitSheet()
                                 },
                                 commitLabel = uiState.gitChipLabel,
+                                showCommit = uiState.hasGitChanges,
+                                canCommit = uiState.hasUncommittedFiles,
+                                commitSlidePickerState = commitSlidePickerState,
+                                onSelectCommitAction = { cmd ->
+                                    viewModel.onInputTextChanged(cmd)
+                                },
                                 onShowChanges = {
                                     dismissKeyboard()
                                     viewModel.openChangesSheet()
@@ -1797,6 +1806,7 @@ fun ChatScreen(
                                     dismissKeyboard()
                                     modelSlidePickerState.dismiss()
                                     workflowSlidePickerState.dismiss()
+                                    commitSlidePickerState.dismiss()
                                     workflowSheetStartEditing = false
                                     showWorkflowTemplateSheet = true
                                 },
@@ -1810,10 +1820,10 @@ fun ChatScreen(
                                     dismissKeyboard()
                                     modelSlidePickerState.dismiss()
                                     workflowSlidePickerState.dismiss()
+                                    commitSlidePickerState.dismiss()
                                     workflowSheetStartEditing = true
                                     showWorkflowTemplateSheet = true
                                 },
-                                showCommit = uiState.hasGitChanges,
                                 showChanges = uiState.hasSessionChanges,
                                 showContinue = uiState.isLatestMessageError,
                                 onContinue = {
@@ -2616,6 +2626,14 @@ fun ChatScreen(
             dismissKeyboard()
             workflowSheetStartEditing = true
             showWorkflowTemplateSheet = true
+        }
+    )
+
+    // Commit / PR 长按上滑快捷提交命令菜单
+    com.antigravity.mobile.ui.components.CommitSlidePickerOverlay(
+        state = commitSlidePickerState,
+        onSelect = { cmd ->
+            viewModel.onInputTextChanged(cmd)
         }
     )
     }

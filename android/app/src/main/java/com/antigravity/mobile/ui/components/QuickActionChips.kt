@@ -52,6 +52,9 @@ fun QuickActionChips(
     onCommitAndPush: () -> Unit,
     commitLabel: String = "Commit",
     showCommit: Boolean = true,
+    canCommit: Boolean = false,
+    commitSlidePickerState: CommitSlidePickerState? = null,
+    onSelectCommitAction: (String) -> Unit = {},
     onShowChanges: () -> Unit,
     showChanges: Boolean = true,
     onShowWorkflowTemplates: (() -> Unit)? = null,
@@ -78,6 +81,7 @@ fun QuickActionChips(
     val density = LocalDensity.current
     var chipBoundsInRoot by remember { mutableStateOf(Rect.Zero) }
     var workflowChipBoundsInRoot by remember { mutableStateOf(Rect.Zero) }
+    var commitChipBoundsInRoot by remember { mutableStateOf(Rect.Zero) }
     val latestWorkflowTemplates by rememberUpdatedState(workflowTemplates)
 
     Row(
@@ -253,19 +257,60 @@ fun QuickActionChips(
             )
         }
 
-        // 3. Commit：打开 Git 提交浮窗（直接调用网关，不再消耗一轮 Agent 对话）
+        // 3. Commit：打开 Git 提交浮窗（长按上滑快捷填充 Commit 命令，仅在有工作区变动时可上滑）
         if (showCommit) {
-            Box(
-                modifier = Modifier
-                    .height(32.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(colors.surface)
-                    .border(1.dp, colors.border, RoundedCornerShape(10.dp))
-                    .clickable {
-                        haptic.light()
+            val commitModifier = Modifier
+                .height(32.dp)
+                .onGloballyPositioned { coords ->
+                    val rect = coords.boundsInRoot()
+                    commitChipBoundsInRoot = rect
+                    commitSlidePickerState?.anchorRect = rect
+                }
+                .clip(RoundedCornerShape(10.dp))
+                .background(colors.surface)
+                .border(1.dp, colors.border, RoundedCornerShape(10.dp))
+                .clickable {
+                    haptic.light()
+                    if (commitSlidePickerState?.isPresented == true) {
+                        commitSlidePickerState.dismiss()
+                    } else {
                         onCommitAndPush()
                     }
-                    .padding(horizontal = 14.dp),
+                }
+                .then(
+                    if (canCommit && commitSlidePickerState != null) {
+                        Modifier.pointerInput(canCommit, commitSlidePickerState) {
+                            detectDragGesturesAfterLongPress(
+                                onDragStart = {
+                                    haptic.medium()
+                                    modelSlidePickerState?.dismiss()
+                                    workflowSlidePickerState?.dismiss()
+                                    commitSlidePickerState.open()
+                                },
+                                onDrag = { change, _ ->
+                                    change.consume()
+                                    val rootPoint = Offset(
+                                        x = commitChipBoundsInRoot.left + change.position.x,
+                                        y = commitChipBoundsInRoot.top + change.position.y
+                                    )
+                                    commitSlidePickerState.updateDrag(rootPoint, density, hapticFeedback)
+                                },
+                                onDragEnd = {
+                                    commitSlidePickerState.endDrag(onSelect = onSelectCommitAction)
+                                },
+                                onDragCancel = {
+                                    commitSlidePickerState.dismiss()
+                                }
+                            )
+                        }
+                    } else {
+                        Modifier
+                    }
+                )
+                .padding(horizontal = 14.dp)
+
+            Box(
+                modifier = commitModifier,
                 contentAlignment = Alignment.Center
             ) {
                 Text(

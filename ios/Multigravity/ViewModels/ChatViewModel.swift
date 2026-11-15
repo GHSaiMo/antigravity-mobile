@@ -386,6 +386,7 @@ public final class ChatViewModel {
     public var gitSheet: GitSheetState? = nil
     /// Commit / Changes 快捷按钮的动态可见性：会话没有 Git 工作区、或没有文件变动及 PR 时不显示。
     public var hasGitChanges: Bool = false
+    public var hasUncommittedFiles: Bool = false
     public var gitChipLabel: String = "Commit"
     public var hasSessionChanges: Bool = false
     public var exportedMarkdownFile: ExportedMarkdownFile? = nil

@@ -36,6 +36,7 @@ extension ChatViewModel {
     public func refreshActionAvailability() async {
         guard let url = settings.serverURL else {
             hasGitChanges = false
+            hasUncommittedFiles = false
             hasSessionChanges = false
             globalBackgroundTasks = []
             return
@@ -43,6 +44,7 @@ extension ChatViewModel {
         async let bgTasks = try? apiClient.fetchGlobalBackgroundTasks(baseURL: url)
         guard !isLocalDraftSession else {
             hasGitChanges = false
+            hasUncommittedFiles = false
             hasSessionChanges = false
             if let tasks = await bgTasks {
                 globalBackgroundTasks = tasks
@@ -62,6 +64,7 @@ extension ChatViewModel {
         let hasFiles = !(g?.files.isEmpty ?? true)
         let prs = g?.pullRequests ?? []
         hasGitChanges = hasFiles || !prs.isEmpty
+        hasUncommittedFiles = hasFiles
         if let firstPR = prs.first, firstPR.number > 0 {
             gitChipLabel = hasFiles ? "Commit · #\(firstPR.number)" : "PR #\(firstPR.number)"
         } else {
