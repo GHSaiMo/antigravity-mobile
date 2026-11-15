@@ -158,7 +158,7 @@ public struct ConversationListView: View {
                     openConversationById(targetId)
                 },
                 onTasksChanged: { updated in
-                    viewModel.globalBackgroundTasks = updated
+                    viewModel.updateGlobalBackgroundTasks(updated)
                 }
             )
             .presentationDetents([.large])
@@ -384,6 +384,9 @@ public struct ConversationListView: View {
                     .font(.system(size: 12, weight: .medium))
                     .foregroundColor(.primary)
                     .lineLimit(1)
+                    .contentTransition(.numericText())
+                    .animation(.spring(response: 0.35, dampingFraction: 0.8), value: count)
+                    .animation(.spring(response: 0.35, dampingFraction: 0.8), value: daemonCount)
 
                 Spacer(minLength: 4)
 
@@ -648,6 +651,7 @@ public struct ConversationListView: View {
                     .listRowInsets(EdgeInsets(top: 2, leading: 16, bottom: 6, trailing: 16))
                     .listRowSeparator(.hidden)
                     .listRowBackground(Color.clear)
+                    .transition(.opacity.combined(with: .scale(scale: 0.94, anchor: .top)).combined(with: .move(edge: .top)))
             }
             
             ForEach(viewModel.filteredConversations) { item in
@@ -777,6 +781,7 @@ public struct ConversationListView: View {
             }
         }
         .listStyle(.plain)
+        .animation(.spring(response: 0.42, dampingFraction: 0.72), value: viewModel.globalBackgroundTasks.isEmpty)
         .refreshable {
             await viewModel.fetchConversations()
         }

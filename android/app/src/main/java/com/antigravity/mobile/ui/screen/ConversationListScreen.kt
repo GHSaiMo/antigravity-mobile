@@ -56,6 +56,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 import com.antigravity.mobile.data.model.CockpitQuotaResponse
@@ -879,6 +880,24 @@ private fun ConversationListContent(
     onSwipedConversationIdChange: (String?) -> Unit
 ) {
     val colors = AntigravityTheme.colors
+    val hasGlobalTasks = globalBackgroundTasks.isNotEmpty()
+    val globalTasksAppearAnim = remember { Animatable(if (hasGlobalTasks) 1f else 0f) }
+
+    LaunchedEffect(hasGlobalTasks) {
+        if (hasGlobalTasks) {
+            if (globalTasksAppearAnim.value < 1f) {
+                globalTasksAppearAnim.animateTo(
+                    targetValue = 1f,
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                        stiffness = Spring.StiffnessLow
+                    )
+                )
+            }
+        } else {
+            globalTasksAppearAnim.snapTo(0f)
+        }
+    }
 
     LaunchedEffect(listState.isScrollInProgress) {
         if (listState.isScrollInProgress && swipedConversationId != null) {
@@ -947,13 +966,33 @@ private fun ConversationListContent(
         }
 
         // Global Background Tasks Capsule (appears right below QuotaStatusBar when count > 0)
-        if (globalBackgroundTasks.isNotEmpty()) {
+        if (hasGlobalTasks) {
             item(key = "header_global_tasks") {
                 val count = globalBackgroundTasks.size
                 val daemonCount = globalBackgroundTasks.count { it.isDaemon }
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .zIndex(-1f)
+                        .animateItem(
+                            fadeInSpec = null,
+                            placementSpec = spring(
+                                dampingRatio = Spring.DampingRatioMediumBouncy,
+                                stiffness = Spring.StiffnessLow
+                            ),
+                            fadeOutSpec = spring(
+                                dampingRatio = Spring.DampingRatioNoBouncy,
+                                stiffness = Spring.StiffnessMediumLow
+                            )
+                        )
+                        .graphicsLayer {
+                            val p = globalTasksAppearAnim.value
+                            val scale = 0.92f + 0.08f * p
+                            scaleX = scale
+                            scaleY = scale
+                            translationY = -12.dp.toPx() * (1f - p)
+                            alpha = p.coerceIn(0f, 1f)
+                        }
                         .clip(CircleShape)
                         .background(colors.surface)
                         .border(0.8.dp, colors.accentIndigo.copy(alpha = 0.28f), CircleShape)
@@ -992,6 +1031,12 @@ private fun ConversationListContent(
             item(key = "empty_placeholder") {
                 Column(
                     modifier = Modifier
+                        .animateItem(
+                            placementSpec = spring(
+                                dampingRatio = Spring.DampingRatioMediumBouncy,
+                                stiffness = Spring.StiffnessLow
+                            )
+                        )
                         .fillMaxWidth()
                         .padding(vertical = 48.dp, horizontal = 16.dp),
                     verticalArrangement = Arrangement.Center,
