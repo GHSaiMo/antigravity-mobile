@@ -1,8 +1,10 @@
 package com.antigravity.mobile.ui.components
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -34,6 +36,7 @@ import com.antigravity.mobile.data.model.SlashCommandOption
 import com.antigravity.mobile.data.model.WorkflowTemplateRecord
 import com.antigravity.mobile.ui.theme.AntigravityTheme
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun QuickActionChips(
     activeModel: String,
@@ -42,6 +45,7 @@ fun QuickActionChips(
     modelCatalog: ModelsResponse? = null,
     modelSlidePickerState: ModelSlidePickerState? = null,
     onAddImage: () -> Unit,
+    onAddImageLongClick: (() -> Unit)? = null,
     selectedSlashCommand: SlashCommandOption? = null,
     onClearSlashCommand: () -> Unit = {},
     onCommitAndPush: () -> Unit,
@@ -88,7 +92,7 @@ fun QuickActionChips(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // 1. Add Image ➕
+        // 1. Add Image ➕ (long press for @ Mention)
         Box(
             modifier = Modifier
                 .height(32.dp)
@@ -96,10 +100,16 @@ fun QuickActionChips(
                 .clip(RoundedCornerShape(10.dp))
                 .background(colors.surface)
                 .border(1.dp, colors.border, RoundedCornerShape(10.dp))
-                .clickable {
-                    haptic.light()
-                    onAddImage()
-                },
+                .combinedClickable(
+                    onClick = {
+                        haptic.light()
+                        onAddImage()
+                    },
+                    onLongClick = {
+                        haptic.medium()
+                        onAddImageLongClick?.invoke()
+                    }
+                ),
             contentAlignment = Alignment.Center
         ) {
             Icon(

@@ -31,28 +31,36 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.antigravity.mobile.data.model.ToolCallItem
+import com.antigravity.mobile.data.model.ToolDetailItem
 import com.antigravity.mobile.ui.theme.AntigravityTheme
 import com.antigravity.mobile.ui.util.ToolLocalization
 
 @Composable
 fun ToolStepCollapseCard(
     toolCalls: List<ToolCallItem>,
+    thinkingText: String? = null,
+    thinkingDuration: String? = null,
+    toolDetails: List<ToolDetailItem>? = null,
     modifier: Modifier = Modifier
 ) {
-    if (toolCalls.isEmpty()) return
+    if (toolCalls.isEmpty() && thinkingText.isNullOrBlank()) return
 
     var isExpanded by remember { mutableStateOf(false) }
     val colors = AntigravityTheme.colors
+    val hasTools = toolCalls.isNotEmpty()
 
     val uniqueToolNames = remember(toolCalls) {
         toolCalls.map { ToolLocalization.localizedName(it.name.ifBlank { "action" }) }.distinct().joinToString(", ")
     }
 
-    val summaryText = remember(toolCalls, uniqueToolNames) {
-        if (uniqueToolNames.isNotBlank()) {
-            "已思考并执行 ${toolCalls.size} 项操作 ($uniqueToolNames)"
-        } else {
-            "已思考并执行 ${toolCalls.size} 项操作"
+    val summaryText = remember(toolCalls, uniqueToolNames, thinkingText, thinkingDuration) {
+        when {
+            !hasTools -> buildString {
+                append("💭 已深度思考")
+                if (!thinkingDuration.isNullOrBlank()) append(" ($thinkingDuration)")
+            }
+            uniqueToolNames.isNotBlank() -> "⚡ 已思考并执行 ${toolCalls.size} 项操作 ($uniqueToolNames)"
+            else -> "⚡ 已思考并执行 ${toolCalls.size} 项操作"
         }
     }
 
@@ -141,7 +149,32 @@ fun ToolStepCollapseCard(
                     .padding(top = 2.dp),
                 verticalArrangement = Arrangement.spacedBy(5.dp)
             ) {
+                if (!thinkingText.isNullOrBlank()) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(colors.surfaceVariant.copy(alpha = 0.55f))
+                            .border(0.5.dp, colors.border.copy(alpha = 0.45f), RoundedCornerShape(8.dp))
+                            .padding(horizontal = 12.dp, vertical = 8.dp)
+                    ) {
+                        Text(
+                            text = "思考过程",
+                            color = colors.textSecondary,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Spacer(Modifier.height(3.dp))
+                        Text(
+                            text = thinkingText,
+                            color = colors.textSecondary,
+                            fontSize = 12.sp,
+                            lineHeight = 16.sp
+                        )
+                    }
+                }
                 toolCalls.forEachIndexed { index, tool ->
+                    val detailMeta = toolDetails?.getOrNull(index)
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -160,15 +193,30 @@ fun ToolStepCollapseCard(
                         )
 
                         Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = ToolLocalization.localizedName(tool.name.ifBlank { tool.type.ifBlank { "action_${index + 1}" } }),
-                                color = colors.textPrimary,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            tool.input?.takeIf { it.isNotBlank() }?.let { input ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = ToolLocalization.localizedName(tool.name.ifBlank { tool.type.ifBlank { "action_${index + 1}" } }),
+                                    color = colors.textPrimary,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                detailMeta?.duration?.takeIf { it.isNotBlank() }?.let { dur ->
+                                    Text(
+                                        text = dur,
+                                        color = colors.textSecondary,
+                                        fontSize = 10.5.sp
+                                    )
+                                }
+                            }
+                            val detailLine = detailMeta?.detail?.takeIf { it.isNotBlank() } ?: tool.input?.takeIf { it.isNotBlank() }
+                            detailLine?.let { input ->
                                 Text(
                                     text = input.take(200) + if (input.length > 200) "..." else "",
                                     color = colors.textSecondary,

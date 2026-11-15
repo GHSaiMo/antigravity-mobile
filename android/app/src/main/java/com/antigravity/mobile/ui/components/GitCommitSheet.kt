@@ -27,11 +27,17 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.antigravity.mobile.data.model.GitBranchesResponse
 import com.antigravity.mobile.data.model.GitFileStatus
 import com.antigravity.mobile.data.model.GitPullRequestItem
 import com.antigravity.mobile.data.model.GitStatusResponse
+import com.antigravity.mobile.data.service.ApiClient
+import com.antigravity.mobile.data.service.gitCheckoutBranch
+import com.antigravity.mobile.data.service.gitDiscardFile
+import com.antigravity.mobile.data.service.gitListBranches
 import com.antigravity.mobile.ui.theme.AntigravityTheme
 import com.antigravity.mobile.ui.viewmodel.GitSheetState
+import kotlinx.coroutines.launch
 
 /** 默认提交信息：只列文件名，让用户在此基础上改写；真正有语义的信息交给用户或 Agent。 */
 internal fun suggestCommitMessage(files: List<GitFileStatus>): String {
@@ -44,6 +50,8 @@ internal fun suggestCommitMessage(files: List<GitFileStatus>): String {
 @Composable
 fun GitCommitSheet(
     state: GitSheetState,
+    cascadeId: String = "",
+    onRefreshGit: (() -> Unit)? = null,
     onCommit: (message: String, paths: List<String>, push: Boolean) -> Unit,
     onRetryPush: () -> Unit,
     onDelegateToAgent: () -> Unit,
@@ -53,6 +61,11 @@ fun GitCommitSheet(
     val colors = AntigravityTheme.colors
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val status = state.status
+    val scope = rememberCoroutineScope()
+    var showBranchDialog by remember { mutableStateOf(false) }
+    var branchesResp by remember { mutableStateOf<GitBranchesResponse?>(null) }
+    var newBranchInput by remember { mutableStateOf("") }
+    var discardTargetPath by remember { mutableStateOf<String?>(null) }
 
     // 以文件路径为键保存勾选；状态刷新后保留仍存在的勾选，新增文件默认勾选。
     var unchecked by remember { mutableStateOf(setOf<String>()) }
@@ -138,7 +151,19 @@ fun GitCommitSheet(
                 }
                 result != null && result.committed -> CommitDone(result.commitId, result.pushed, result.pushError, state, onRetryPush, onDismiss)
                 status != null -> {
-                    BranchHeader(status)
+                    BranchHeader(
+                        status = status,
+                        onOpenBranches = if (cascadeId.isNotBlank()) {
+                            {
+                                showBranchDialog = true
+                                scope.launch {
+                                    ApiClient.defaultInstance?.gitListBranches(cascadeId)?.onSuccess {
+                                        branchesResp = it
+                                    }
+                                }
+                            }
+                        } else null
+                    )
                     Spacer(Modifier.height(10.dp))
                     if (status.pullRequests.isNotEmpty()) {
                         PullRequestsSection(status.pullRequests)
@@ -167,7 +192,8 @@ fun GitCommitSheet(
                                 GitFileRow(
                                     file = f,
                                     checked = f.path !in unchecked,
-                                    onToggle = { unchecked = if (f.path in unchecked) unchecked - f.path else unchecked + f.path }
+                                    onToggle = { unchecked = if (f.path in unchecked) unchecked - f.path else unchecked + f.path },
+                                    onDiscard = if (cascadeId.isNotBlank()) { { discardTargetPath = f.path } } else null
                                 )
                             }
                         }
@@ -211,14 +237,109 @@ fun GitCommitSheet(
                     }
                 }
             }
+                }
+            }
         }
     }
-}
+
+    if (showBranchDialog && status != null && cascadeId.isNotBlank()) {
+        AlertDialog(
+            onDismissRequest = { showBranchDialog = false },
+            title = { Text("切换 / 新建分支", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    val list = branchesResp?.branches.orEmpty()
+                    if (list.isEmpty()) {
+                        Text("正在加载分支...", fontSize = 13.sp, color = colors.textMuted)
+                    } else {
+                        Column(
+                            modifier = Modifier.heightIn(max = 220.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            list.forEach { b ->
+                                val isCurrent = b == status.branch
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(if (isCurrent) colors.accentIndigo.copy(alpha = 0.14f) else Color.Transparent)
+                                        .clickable(enabled = !isCurrent) {
+                                            showBranchDialog = false
+                                            scope.launch {
+                                                ApiClient.defaultInstance?.gitCheckoutBranch(cascadeId, b, create = false)
+                                                onRefreshGit?.invoke()
+                                            }
+                                        }
+                                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        b,
+                                        fontSize = 13.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        color = if (isCurrent) colors.accentIndigo else colors.textPrimary,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    if (isCurrent) {
+                                        Text("当前", fontSize = 11.sp, color = colors.accentIndigo)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    OutlinedTextField(
+                        value = newBranchInput,
+                        onValueChange = { newBranchInput = it },
+                        label = { Text("新建分支名") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = newBranchInput.isNotBlank(),
+                    onClick = {
+                        val b = newBranchInput.trim()
+                        showBranchDialog = false
+                        newBranchInput = ""
+                        scope.launch {
+                            ApiClient.defaultInstance?.gitCheckoutBranch(cascadeId, b, create = true)
+                            onRefreshGit?.invoke()
+                        }
+                    }
+                ) { Text("新建并切换") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showBranchDialog = false }) { Text("关闭") }
+            }
+        )
+    }
+
+    discardTargetPath?.let { path ->
+        AlertDialog(
+            onDismissRequest = { discardTargetPath = null },
+            title = { Text("丢弃文件改动？", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) },
+            text = { Text("确定丢弃 $path 的工作区改动？未跟踪文件也会被清理，此操作不可撤销。", fontSize = 13.sp) },
+            confirmButton = {
+                TextButton(onClick = {
+                    val target = path
+                    discardTargetPath = null
+                    scope.launch {
+                        ApiClient.defaultInstance?.gitDiscardFile(cascadeId, target)
+                        onRefreshGit?.invoke()
+                    }
+                }) { Text("丢弃", color = Color(0xFFF44336)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { discardTargetPath = null }) { Text("取消") }
+            }
+        )
     }
 }
 
 @Composable
-private fun BranchHeader(status: GitStatusResponse) {
+private fun BranchHeader(status: GitStatusResponse, onOpenBranches: (() -> Unit)? = null) {
     val colors = AntigravityTheme.colors
     val repoLabel = status.githubTarget?.takeIf { it.owner.isNotBlank() && it.repo.isNotBlank() }
         ?.let { "${it.owner}/${it.repo}" }
@@ -229,9 +350,16 @@ private fun BranchHeader(status: GitStatusResponse) {
             modifier = Modifier
                 .clip(RoundedCornerShape(6.dp))
                 .background(colors.accentIndigo.copy(alpha = 0.14f))
+                .then(if (onOpenBranches != null) Modifier.clickable(onClick = onOpenBranches) else Modifier)
                 .padding(horizontal = 8.dp, vertical = 2.dp)
         ) {
-            Text(status.branch, fontSize = 12.sp, fontFamily = FontFamily.Monospace, color = colors.accentIndigo, maxLines = 1)
+            Text(
+                text = if (onOpenBranches != null) "${status.branch} ▾" else status.branch,
+                fontSize = 12.sp,
+                fontFamily = FontFamily.Monospace,
+                color = colors.accentIndigo,
+                maxLines = 1
+            )
         }
         if (status.ahead > 0) Text("↑${status.ahead}", fontSize = 12.sp, color = colors.textSecondary, fontFamily = FontFamily.Monospace)
         if (status.behind > 0) Text("↓${status.behind}", fontSize = 12.sp, color = colors.accentOrange, fontFamily = FontFamily.Monospace)
@@ -330,7 +458,12 @@ private fun PullRequestsSection(prs: List<GitPullRequestItem>) {
 }
 
 @Composable
-private fun GitFileRow(file: GitFileStatus, checked: Boolean, onToggle: () -> Unit) {
+private fun GitFileRow(
+    file: GitFileStatus,
+    checked: Boolean,
+    onToggle: () -> Unit,
+    onDiscard: (() -> Unit)? = null
+) {
     val colors = AntigravityTheme.colors
     val (label, tint) = when (file.status) {
         "ADDED" -> "A" to Color(0xFF4CAF50)
@@ -354,6 +487,14 @@ private fun GitFileRow(file: GitFileStatus, checked: Boolean, onToggle: () -> Un
             Text(file.path.substringAfterLast('/'), fontSize = 13.5.sp, color = colors.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
             val dir = file.path.substringBeforeLast('/', "")
             if (dir.isNotEmpty()) Text(dir, fontSize = 11.sp, color = colors.textMuted, maxLines = 1, overflow = TextOverflow.Ellipsis, fontFamily = FontFamily.Monospace)
+        }
+        if (onDiscard != null) {
+            TextButton(
+                onClick = onDiscard,
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+            ) {
+                Text("丢弃", fontSize = 11.5.sp, color = Color(0xFFF44336))
+            }
         }
     }
 }

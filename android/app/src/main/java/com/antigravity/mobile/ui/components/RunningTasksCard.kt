@@ -38,14 +38,23 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.antigravity.mobile.data.model.RunningTaskItem
+import com.antigravity.mobile.data.service.ApiClient
+import com.antigravity.mobile.data.service.openTerminalWebSocket
+import com.antigravity.mobile.data.service.sendTerminalInput
 import com.antigravity.mobile.ui.theme.AntigravityTheme
 import com.antigravity.mobile.ui.util.rememberHaptic
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import okhttp3.WebSocket
+import okhttp3.WebSocketListener
+import org.json.JSONObject
 
 @Composable
 fun RunningTasksCard(
     tasks: List<RunningTaskItem>,
     onStopTask: (RunningTaskItem) -> Unit,
+    onSendToBackground: ((RunningTaskItem) -> Unit)? = null,
+    cascadeId: String = "",
     onToggleExpand: ((Boolean) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
@@ -53,11 +62,38 @@ fun RunningTasksCard(
 
     var isCardExpanded by remember { mutableStateOf(true) }
     var expandedTaskIds by remember { mutableStateOf(setOf<String>()) }
+    var activeTerminalTaskId by remember { mutableStateOf<String?>(null) }
+    var terminalLog by remember { mutableStateOf("") }
+    var terminalInput by remember { mutableStateOf("") }
     var copiedTaskId by remember { mutableStateOf<String?>(null) }
 
     val colors = AntigravityTheme.colors
     val haptic = rememberHaptic()
     val clipboardManager = LocalClipboardManager.current
+    val coroutineScope = rememberCoroutineScope()
+
+    DisposableEffect(activeTerminalTaskId) {
+        val tid = activeTerminalTaskId
+        var ws: WebSocket? = null
+        if (!tid.isNullOrBlank()) {
+            ws = ApiClient.defaultInstance?.openTerminalWebSocket(tid, object : WebSocketListener() {
+                override fun onMessage(webSocket: WebSocket, text: String) {
+                    val chunk = try {
+                        val obj = JSONObject(text)
+                        obj.optString("output").ifBlank { obj.optString("data").ifBlank { obj.optString("chunk") } }
+                    } catch (_: Exception) {
+                        text
+                    }
+                    if (chunk.isNotBlank()) {
+                        terminalLog = (terminalLog + chunk).takeLast(6000)
+                    }
+                }
+            })
+        }
+        onDispose {
+            try { ws?.close(1000, "closed") } catch (_: Exception) {}
+        }
+    }
 
     LaunchedEffect(copiedTaskId) {
         if (copiedTaskId != null) {
@@ -203,8 +239,42 @@ fun RunningTasksCard(
 
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
+                                    if (onSendToBackground != null) {
+                                        Text(
+                                            text = "转后台",
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            color = colors.accentBlue,
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(6.dp))
+                                                .background(colors.accentBlue.copy(alpha = 0.12f))
+                                                .clickable {
+                                                    haptic.light()
+                                                    onSendToBackground(task)
+                                                }
+                                                .padding(horizontal = 6.dp, vertical = 3.dp)
+                                        )
+                                    }
+                                    if (task.id.isNotBlank()) {
+                                        val isTermOpen = activeTerminalTaskId == task.id
+                                        Text(
+                                            text = if (isTermOpen) "收起终端" else "终端",
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            color = colors.accentIndigo,
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(6.dp))
+                                                .background(colors.accentIndigo.copy(alpha = 0.12f))
+                                                .clickable {
+                                                    haptic.light()
+                                                    terminalLog = ""
+                                                    activeTerminalTaskId = if (isTermOpen) null else task.id
+                                                }
+                                                .padding(horizontal = 6.dp, vertical = 3.dp)
+                                        )
+                                    }
                                     // Copy Command Button
                                     Row(
                                         modifier = Modifier
@@ -305,6 +375,69 @@ fun RunningTasksCard(
                                             tint = colors.accentIndigo,
                                             modifier = Modifier.size(12.dp)
                                         )
+                                    }
+                                }
+                            }
+
+                            if (activeTerminalTaskId == task.id && task.id.isNotBlank()) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(Color(0xFF121418))
+                                        .padding(8.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Text(
+                                        text = terminalLog.ifBlank { "等待终端输出流…" },
+                                        color = Color(0xFFE5E5EA),
+                                        fontSize = 10.5.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        maxLines = 10
+                                    )
+                                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        listOf("y" to "y\n", "n" to "n\n", "Enter" to "\n", "Ctrl+C" to "\u0003").forEach { (lbl, seq) ->
+                                            Surface(
+                                                shape = RoundedCornerShape(6.dp),
+                                                color = Color(0xFF2C2C2E),
+                                                modifier = Modifier.clickable {
+                                                    coroutineScope.launch {
+                                                        ApiClient.defaultInstance?.sendTerminalInput(task.id, seq, cascadeId)
+                                                    }
+                                                }
+                                            ) {
+                                                Text(
+                                                    text = lbl,
+                                                    color = if (lbl == "Ctrl+C") Color(0xFFFF453A) else Color.White,
+                                                    fontSize = 10.sp,
+                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        OutlinedTextField(
+                                            value = terminalInput,
+                                            onValueChange = { terminalInput = it },
+                                            placeholder = { Text("输入命令或回答…", fontSize = 11.sp, color = Color.Gray) },
+                                            singleLine = true,
+                                            textStyle = androidx.compose.ui.text.TextStyle(color = Color.White, fontSize = 11.sp, fontFamily = FontFamily.Monospace),
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        TextButton(onClick = {
+                                            val cmdText = terminalInput
+                                            if (cmdText.isNotEmpty()) {
+                                                terminalInput = ""
+                                                coroutineScope.launch {
+                                                    ApiClient.defaultInstance?.sendTerminalInput(task.id, "$cmdText\n", cascadeId)
+                                                }
+                                            }
+                                        }) {
+                                            Text("发送", color = colors.accentBlue, fontSize = 11.sp)
+                                        }
                                     }
                                 }
                             }

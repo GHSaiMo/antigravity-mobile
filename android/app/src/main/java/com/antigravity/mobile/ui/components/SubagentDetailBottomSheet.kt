@@ -8,6 +8,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Memory
+import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.StopCircle
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -15,13 +16,25 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.graphics.BitmapFactory
+import android.util.Base64
+import androidx.compose.foundation.Image
+import com.antigravity.mobile.data.model.BrowserSubagentResponse
 import com.antigravity.mobile.data.model.SubagentItem
+import com.antigravity.mobile.data.service.ApiClient
+import com.antigravity.mobile.data.service.fetchBrowserSubagent
+import com.antigravity.mobile.data.service.sendSubagentMessage
+import com.antigravity.mobile.data.service.skipBrowserSubagent
+import com.antigravity.mobile.data.service.whitelistBrowserUrl
 import com.antigravity.mobile.ui.theme.AntigravityTheme
 import com.antigravity.mobile.ui.util.rememberHaptic
+import kotlinx.coroutines.launch
 
 /**
  * 工作流子智能体原位详情半屏抽屉 (SubagentDetailBottomSheet)。
@@ -36,8 +49,21 @@ fun SubagentDetailBottomSheet(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
     val colors = AntigravityTheme.colors
     val haptic = rememberHaptic()
+    val scope = rememberCoroutineScope()
     var isStopping by remember { mutableStateOf(false) }
     val isRunning = subagent.isRunning
+    val isBrowser = (subagent.typeName ?: "").contains("browser", ignoreCase = true)
+    var messageInput by remember { mutableStateOf("") }
+    var actionNotice by remember { mutableStateOf<String?>(null) }
+    var browserState by remember { mutableStateOf<BrowserSubagentResponse?>(null) }
+
+    LaunchedEffect(subagent.conversationId, isBrowser) {
+        if (isBrowser && subagent.conversationId.isNotBlank()) {
+            ApiClient.defaultInstance?.fetchBrowserSubagent(subagent.conversationId)?.onSuccess {
+                browserState = it
+            }
+        }
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismissRequest,
@@ -189,6 +215,107 @@ fun SubagentDetailBottomSheet(
                                 color = colors.textPrimary
                             )
                         }
+                    }
+                }
+            }
+
+            // Browser Subagent Live View / Skip / Whitelist
+            if (isBrowser && browserState != null) {
+                val b = browserState!!
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "浏览器实时画布",
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                        color = colors.textSecondary
+                    )
+                    b.url?.takeIf { it.isNotBlank() }?.let { url ->
+                        Text(
+                            text = url,
+                            style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                            color = colors.accentBlue
+                        )
+                    }
+                    b.imageBase64?.takeIf { it.isNotBlank() }?.let { b64 ->
+                        val bmp = remember(b64) {
+                            try {
+                                val pure = if (b64.contains(",")) b64.substringAfter(",") else b64
+                                val bytes = Base64.decode(pure, Base64.DEFAULT)
+                                BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
+                            } catch (_: Exception) { null }
+                        }
+                        if (bmp != null) {
+                            Image(
+                                bitmap = bmp,
+                                contentDescription = "浏览器截图",
+                                contentScale = ContentScale.FillWidth,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(10.dp))
+                            )
+                        }
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        b.url?.takeIf { it.isNotBlank() }?.let { url ->
+                            OutlinedButton(onClick = {
+                                scope.launch {
+                                    ApiClient.defaultInstance?.whitelistBrowserUrl(url)?.onSuccess {
+                                        actionNotice = "已添加到浏览器允许名单"
+                                    }
+                                }
+                            }) {
+                                Text("加白名单", fontSize = 12.sp)
+                            }
+                        }
+                        OutlinedButton(onClick = {
+                            scope.launch {
+                                ApiClient.defaultInstance?.skipBrowserSubagent(subagent.conversationId)?.onSuccess {
+                                    actionNotice = "已请求跳过此步骤"
+                                }
+                            }
+                        }) {
+                            Text("跳过此步", color = colors.accentOrange, fontSize = 12.sp)
+                        }
+                    }
+                }
+            }
+
+            // Mid-run SendAgentMessage box
+            if (subagent.conversationId.isNotBlank()) {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        text = "向子代理发送指示",
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                        color = colors.textSecondary
+                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = messageInput,
+                            onValueChange = { messageInput = it },
+                            placeholder = { Text("中途插话 / 补充要求…", fontSize = 13.sp) },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f)
+                        )
+                        IconButton(
+                            onClick = {
+                                val txt = messageInput.trim()
+                                if (txt.isNotEmpty()) {
+                                    messageInput = ""
+                                    scope.launch {
+                                        ApiClient.defaultInstance?.sendSubagentMessage(subagent.conversationId, txt)
+                                            ?.onSuccess { actionNotice = "指示已送达子代理" }
+                                            ?.onFailure { actionNotice = "发送失败: ${it.message}" }
+                                    }
+                                }
+                            }
+                        ) {
+                            Icon(Icons.Default.Send, contentDescription = "发送", tint = colors.accentBlue)
+                        }
+                    }
+                    actionNotice?.let { note ->
+                        Text(note, style = MaterialTheme.typography.bodySmall, color = colors.accentGreen)
                     }
                 }
             }

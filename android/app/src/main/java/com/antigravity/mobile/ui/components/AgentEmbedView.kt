@@ -38,14 +38,18 @@ import androidx.compose.ui.window.DialogProperties
 import com.antigravity.mobile.data.model.FileContentResponse
 import com.antigravity.mobile.data.service.ApiClient
 import com.antigravity.mobile.data.service.PreferencesManager
+import com.antigravity.mobile.data.service.callMcpAppTool
 import com.antigravity.mobile.ui.theme.AntigravityTheme
 import com.antigravity.mobile.ui.theme.AppColors
 import com.antigravity.mobile.ui.util.rememberHaptic
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import org.json.JSONObject
 
 /**
  * In-memory cache for loaded Agent Embed HTML content.
@@ -519,6 +523,38 @@ private fun AgentEmbedWebViewContainer(
                                 onTitleDetected?.invoke(title)
                             }
                         }
+
+                        @JavascriptInterface
+                        fun postMessage(jsonStr: String) {
+                            try {
+                                val obj = JSONObject(jsonStr)
+                                val kind = obj.optString("type").ifBlank { obj.optString("method") }
+                                val payload = obj.optJSONObject("payload") ?: obj.optJSONObject("params") ?: obj
+                                val inst = ApiClient.defaultInstance ?: return
+                                when (kind) {
+                                    "sendMessage", "send_message" -> {
+                                        val msg = payload.optString("text").ifBlank { payload.optString("message") }.ifBlank { payload.optString("content") }
+                                        val cid = payload.optString("cascadeId").ifBlank { ApiClient.currentCascadeId.orEmpty() }
+                                        if (msg.isNotBlank() && cid.isNotBlank()) {
+                                            CoroutineScope(Dispatchers.IO).launch {
+                                                inst.sendMessage(cid, msg)
+                                            }
+                                        }
+                                    }
+                                    "callServerTool", "tools/call" -> {
+                                        val tool = payload.optString("toolName").ifBlank { payload.optString("name") }
+                                        val argsRaw = payload.opt("arguments")?.toString()
+                                        val appUri = payload.optString("appUri")
+                                        if (tool.isNotBlank()) {
+                                            val argsEl = argsRaw?.let { runCatching { Json.parseToJsonElement(it) }.getOrNull() }
+                                            CoroutineScope(Dispatchers.IO).launch {
+                                                inst.callMcpAppTool(tool, argsEl, appUri)
+                                            }
+                                        }
+                                    }
+                                }
+                            } catch (_: Throwable) {}
+                        }
                     },
                     "AndroidAgentEmbedBridge"
                 )
@@ -587,6 +623,16 @@ private object AgentEmbedHtmlBuilder {
                 document.addEventListener('gesturestart', function(e) { e.preventDefault(); }, { passive: false });
                 document.addEventListener('gesturechange', function(e) { e.preventDefault(); }, { passive: false });
                 document.addEventListener('gestureend', function(e) { e.preventDefault(); });
+
+                // Phase 3: interactive postMessage bridge for sendMessage / callServerTool
+                window.parent = window.parent || {};
+                window.parent.postMessage = function(data) {
+                  try {
+                    if (window.AndroidAgentEmbedBridge && window.AndroidAgentEmbedBridge.postMessage) {
+                      window.AndroidAgentEmbedBridge.postMessage(typeof data === 'string' ? data : JSON.stringify(data || {}));
+                    }
+                  } catch(e) {}
+                };
 
                 function reportSize() {
                   try {
