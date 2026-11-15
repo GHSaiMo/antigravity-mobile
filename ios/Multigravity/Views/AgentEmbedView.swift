@@ -301,6 +301,7 @@ public struct AgentEmbedWebView: UIViewRepresentable {
         
         controller.add(context.coordinator, name: "agentEmbedSize")
         controller.add(context.coordinator, name: "agentEmbedTitle")
+        controller.add(context.coordinator, name: "agentEmbedBridge")
         config.userContentController = controller
         
         let webView = WKWebView(frame: .zero, configuration: config)
@@ -408,7 +409,55 @@ public struct AgentEmbedWebView: UIViewRepresentable {
                     if let title = body["title"] as? String {
                         self.parent.onTitleDetected?(title)
                     }
+                } else if message.name == "agentEmbedBridge", let body = message.body as? [String: Any] {
+                    Self.handleBridgeAction(body)
                 }
+            }
+        }
+
+        private static func toJSONValue(_ value: Any?) -> JSONValue {
+            guard let value else { return .null }
+            if let s = value as? String { return .string(s) }
+            if let b = value as? Bool { return .bool(b) }
+            if let i = value as? Int { return .int(i) }
+            if let d = value as? Double { return .double(d) }
+            if let arr = value as? [Any] { return .array(arr.map { toJSONValue($0) }) }
+            if let dict = value as? [String: Any] {
+                var out: [String: JSONValue] = [:]
+                for (k, v) in dict { out[k] = toJSONValue(v) }
+                return .object(out)
+            }
+            return .null
+        }
+
+        @MainActor
+        private static func handleBridgeAction(_ body: [String: Any]) {
+            guard let gwUrl = AppSettings.shared.gatewayURL else { return }
+            let action = (body["method"] as? String) ?? (body["type"] as? String) ?? ""
+            let params = (body["params"] as? [String: Any]) ?? body
+            switch action {
+            case "sendMessage", "ui/message":
+                let text = ((params["text"] as? String) ?? (params["message"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                let cid = (params["cascadeId"] as? String) ?? ChatViewModel.activeCascadeId
+                guard !text.isEmpty, !cid.isEmpty else { return }
+                Task {
+                    try? await APIClient.shared.sendMessage(cascadeId: cid, text: text, baseURL: gwUrl)
+                }
+            case "callServerTool", "tools/call":
+                let toolName = (params["name"] as? String) ?? (params["toolName"] as? String) ?? ""
+                let appUri = (params["appUri"] as? String) ?? ""
+                guard !toolName.isEmpty else { return }
+                let args = toJSONValue(params["arguments"])
+                Task {
+                    _ = try? await APIClient.shared.callMcpAppTool(
+                        toolName: toolName,
+                        arguments: args,
+                        appUri: appUri,
+                        baseURL: gwUrl
+                    )
+                }
+            default:
+                break
             }
         }
     }
@@ -513,6 +562,18 @@ private enum AgentEmbedHTMLBuilder {
         let reporterScript = """
         <script id="antigravity-embed-injected-reporter">
           (function() {
+            // Bridge interactive MCP App postMessage events back to native handler
+            try {
+              window.__origParentPostMessage = window.parent && window.parent.postMessage ? window.parent.postMessage.bind(window.parent) : null;
+              window.parent = window.parent || {};
+              window.parent.postMessage = function(data) {
+                try {
+                  if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.agentEmbedBridge) {
+                    window.webkit.messageHandlers.agentEmbedBridge.postMessage(data);
+                  }
+                } catch(e) {}
+              };
+            } catch(e) {}
             // Prevent pinch-to-zoom gestures in WebKit/Safari
             document.addEventListener('gesturestart', function(e) { e.preventDefault(); }, { passive: false });
             document.addEventListener('gesturechange', function(e) { e.preventDefault(); }, { passive: false });

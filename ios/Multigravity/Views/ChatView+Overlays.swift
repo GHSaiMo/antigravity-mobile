@@ -7,10 +7,16 @@ extension ChatView {
     var floatingCards: some View {
         if !viewModel.runningTasks.isEmpty {
             RunningTasksCardView(
+                cascadeId: viewModel.cascadeId,
                 items: viewModel.runningTasks,
                 onStop: { task in
                     Task {
                         await viewModel.stopTask(task)
+                    }
+                },
+                onSendToBackground: { task in
+                    Task {
+                        await viewModel.sendTaskToBackground(stepIndices: [task.stepIndex])
                     }
                 },
                 onToggleExpand: { isExpanded in
@@ -178,6 +184,25 @@ extension ChatView {
         let unescaped = clean.removingPercentEncoding ?? clean
         let lower = unescaped.lowercased()
         let pathLower = url.path.lowercased()
+
+        // 0. Native Sidecar UI links (sidecar://<id>/...)
+        if url.scheme?.lowercased() == "sidecar", let gwURL = AppSettings.shared.gatewayURL {
+            let sidecarId = url.host ?? ""
+            if !sidecarId.isEmpty {
+                let relPath = url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+                var target = gwURL.appendingPathComponent("gateway/sidecar-ui/\(sidecarId)")
+                if !relPath.isEmpty {
+                    target = target.appendingPathComponent(relPath)
+                }
+                if let query = url.query, !query.isEmpty, var comps = URLComponents(url: target, resolvingAgainstBaseURL: false) {
+                    comps.percentEncodedQuery = query
+                    if let full = comps.url { target = full }
+                }
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                viewModel.openInAppBrowser(url: target)
+                return .handled
+            }
+        }
         
         let uriParam = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "uri" })?.value
         let decodedFileName: String = {

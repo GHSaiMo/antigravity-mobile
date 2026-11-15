@@ -29,6 +29,43 @@ extension MessageBubbleView {
     
     var agentBubble: some View {
         VStack(alignment: .leading, spacing: 8) {
+            if let think = message.thinking?.trimmingCharacters(in: .whitespacesAndNewlines), !think.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            isThinkingExpanded.toggle()
+                        }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "brain.head.profile")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundColor(.indigo)
+                            Text("已深度思考\(message.thinkingDuration.map { " · \($0)" } ?? "")")
+                                .font(.system(size: 11.5, weight: .medium))
+                                .foregroundColor(.secondary)
+                            Image(systemName: isThinkingExpanded ? "chevron.up" : "chevron.down")
+                                .font(.system(size: 9.5, weight: .semibold))
+                                .foregroundColor(.secondary)
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(Color.indigo.opacity(0.08))
+                        .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+
+                    if isThinkingExpanded {
+                        Text(think)
+                            .font(.system(size: 12))
+                            .foregroundColor(.secondary)
+                            .textSelection(.enabled)
+                            .padding(10)
+                            .background(Color(uiColor: .tertiarySystemBackground))
+                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    }
+                }
+            }
+
             if !message.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 MarkdownContentView(content: message.content, onImageTap: { url in
                     previewGallery = ImageGalleryData(url: url)
@@ -79,6 +116,20 @@ extension MessageBubbleView {
             }
             if !plainText.isEmpty || !message.imageUrls.isEmpty {
                 shareLongImageButton
+            }
+            if !plainText.isEmpty, let onNarrate {
+                Button {
+                    onNarrate(plainText)
+                } label: {
+                    Label("语音播报", systemImage: "speaker.wave.2")
+                }
+            }
+            if let onFork, message.effectiveStepIndex != nil {
+                Button {
+                    onFork(message)
+                } label: {
+                    Label("从此步分叉会话", systemImage: "arrow.triangle.branch")
+                }
             }
         }
     }

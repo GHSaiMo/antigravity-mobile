@@ -118,13 +118,17 @@ public struct PaginatedMessagesResponse: Codable, Sendable {
     public let subagents: [SubagentItem]?
     public let parentConversationId: String?
     public let subagentRole: String?
+    public let suggestedResponses: [String]?
     
     public struct GatewayMessageItem: Codable, Sendable {
         public let id: String
         public let type: String
         public let text: String
+        public let thinking: String?
+        public let thinkingDuration: String?
         public let toolCount: Int?
         public let toolNames: [String]?
+        public let toolDetails: [ToolDetailItem]?
         public let media: [String]?
         public let imageUrls: [String]?
         public let artifacts: [ArtifactItem]?
@@ -174,4 +178,5 @@ public struct FetchMessagesResult: Sendable {
     public let subagents: [SubagentItem]?
     public let parentConversationId: String?
     public let subagentRole: String?
+    public let suggestedResponses: [String]?
 }

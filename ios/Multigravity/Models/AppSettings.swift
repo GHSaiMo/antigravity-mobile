@@ -46,6 +46,31 @@ public final class AppSettings {
     private let knowledgeModeKey = "antigravity.knowledge_mode_enabled"
     private let gatewayPlatformKey = "antigravity.gateway_platform"
     private let demoModeKey = "antigravity.demo_mode"
+    private let legacyVoiceLongPressKey = "antigravity.legacy_voice_long_press"
+    private let workspaceNotesKey = "antigravity.workspace_notes"
+
+    public var legacyVoiceLongPress: Bool {
+        didSet { UserDefaults.standard.set(legacyVoiceLongPress, forKey: legacyVoiceLongPressKey) }
+    }
+
+    public var workspaceNotes: [String: String] {
+        didSet { UserDefaults.standard.set(workspaceNotes, forKey: workspaceNotesKey) }
+    }
+
+    public func workspaceNote(for pathOrUri: String) -> String {
+        workspaceNotes[pathOrUri] ?? ""
+    }
+
+    public func setWorkspaceNote(_ note: String, for pathOrUri: String) {
+        let trimmed = note.trimmingCharacters(in: .whitespacesAndNewlines)
+        var next = workspaceNotes
+        if trimmed.isEmpty {
+            next.removeValue(forKey: pathOrUri)
+        } else {
+            next[pathOrUri] = trimmed
+        }
+        workspaceNotes = next
+    }
 
     public enum FontSizeScale: String, CaseIterable, Identifiable, Sendable {
         case compact = "compact"
@@ -660,5 +685,7 @@ public final class AppSettings {
         self.fontSizeScale = FontSizeScale(rawValue: savedScale) ?? .standard
         self.isKnowledgeModeEnabled = UserDefaults.standard.bool(forKey: knowledgeModeKey)
         self.gatewayPlatform = UserDefaults.standard.string(forKey: gatewayPlatformKey)
+        self.legacyVoiceLongPress = UserDefaults.standard.bool(forKey: legacyVoiceLongPressKey)
+        self.workspaceNotes = (UserDefaults.standard.dictionary(forKey: workspaceNotesKey) as? [String: String]) ?? [:]
     }
 }

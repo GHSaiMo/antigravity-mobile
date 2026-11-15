@@ -45,6 +45,7 @@ public struct StreamUpdatePayload: Decodable, Sendable {
     public let messageIds: [String]?
     public let swarm: SwarmBrief?
     public let contextMeter: ContextMeterItem?
+    public let suggestedResponses: [String]?
 }
 
 @Observable

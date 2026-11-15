@@ -7,12 +7,14 @@ public struct McpServerSpec: Codable, Sendable, Hashable {
     public let command: String?
     public let args: [String]?
     public let env: [String: String]?
+    public let disabled: Bool?
 
-    public init(serverName: String, command: String? = nil, args: [String]? = nil, env: [String: String]? = nil) {
+    public init(serverName: String, command: String? = nil, args: [String]? = nil, env: [String: String]? = nil, disabled: Bool? = nil) {
         self.serverName = serverName
         self.command = command
         self.args = args
         self.env = env
+        self.disabled = disabled
     }
 }
 

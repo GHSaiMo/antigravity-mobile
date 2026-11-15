@@ -19,6 +19,11 @@ public struct GitCommitSheet: View {
     @State private var message: String = ""
     @State private var messageEdited = false
     @State private var detent: PresentationDetent = .medium
+    @State private var availableBranches: [String] = []
+    @State private var showCreateBranchAlert: Bool = false
+    @State private var newBranchName: String = ""
+    @State private var fileToDiscard: GitFileStatus? = nil
+    @State private var isMutatingGit: Bool = false
 
     public init(viewModel: ChatViewModel, onDelegateToAgent: @escaping () -> Void) {
         self.viewModel = viewModel
@@ -39,6 +44,70 @@ public struct GitCommitSheet: View {
         }
         .presentationDetents([.medium, .large], selection: $detent)
         .presentationDragIndicator(.visible)
+        .task { await loadBranches() }
+        .alert("新建并切换分支", isPresented: $showCreateBranchAlert) {
+            TextField("输入新分支名（如 feat/xxx）", text: $newBranchName)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+            Button("取消", role: .cancel) { newBranchName = "" }
+            Button("创建并切换") {
+                let name = newBranchName.trimmingCharacters(in: .whitespacesAndNewlines)
+                newBranchName = ""
+                guard !name.isEmpty else { return }
+                checkoutBranch(name, create: true)
+            }
+        }
+        .alert("确定丢弃该文件改动？", isPresented: Binding(
+            get: { fileToDiscard != nil },
+            set: { if !$0 { fileToDiscard = nil } }
+        )) {
+            Button("取消", role: .cancel) { fileToDiscard = nil }
+            Button("丢弃改动", role: .destructive) {
+                if let file = fileToDiscard {
+                    discardFile(file)
+                }
+                fileToDiscard = nil
+            }
+        } message: {
+            Text(fileToDiscard?.path ?? "")
+        }
+    }
+
+    private func loadBranches() async {
+        guard let gwUrl = AppSettings.shared.gatewayURL, !viewModel.cascadeId.isEmpty else { return }
+        if let resp = try? await APIClient.shared.gitListBranches(cascadeId: viewModel.cascadeId, baseURL: gwUrl) {
+            availableBranches = resp.branches ?? []
+        }
+    }
+
+    private func checkoutBranch(_ branch: String, create: Bool) {
+        guard let gwUrl = AppSettings.shared.gatewayURL, !viewModel.cascadeId.isEmpty else { return }
+        isMutatingGit = true
+        Task {
+            defer { isMutatingGit = false }
+            _ = try? await APIClient.shared.gitCheckoutBranch(
+                cascadeId: viewModel.cascadeId,
+                branch: branch,
+                create: create,
+                baseURL: gwUrl
+            )
+            await loadBranches()
+            viewModel.refreshGitStatus()
+        }
+    }
+
+    private func discardFile(_ file: GitFileStatus) {
+        guard let gwUrl = AppSettings.shared.gatewayURL, !viewModel.cascadeId.isEmpty else { return }
+        isMutatingGit = true
+        Task {
+            defer { isMutatingGit = false }
+            try? await APIClient.shared.gitDiscardFile(
+                cascadeId: viewModel.cascadeId,
+                path: file.path,
+                baseURL: gwUrl
+            )
+            viewModel.refreshGitStatus()
+        }
     }
 
     @ViewBuilder
@@ -177,13 +246,38 @@ public struct GitCommitSheet: View {
                 .font(.system(size: 13))
                 .foregroundColor(.secondary)
                 .lineLimit(1)
-            Text(status.branch)
-                .font(.system(size: 12, design: .monospaced))
+            Menu {
+                if availableBranches.isEmpty {
+                    Text("暂无可选分支")
+                } else {
+                    ForEach(availableBranches, id: \.self) { b in
+                        Button {
+                            checkoutBranch(b, create: false)
+                        } label: {
+                            Label(b, systemImage: b == status.branch ? "checkmark" : "arrow.triangle.branch")
+                        }
+                    }
+                }
+                Divider()
+                Button {
+                    showCreateBranchAlert = true
+                } label: {
+                    Label("新建分支...", systemImage: "plus")
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    Text(status.branch)
+                        .font(.system(size: 12, design: .monospaced))
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 9, weight: .bold))
+                }
                 .foregroundColor(.indigo)
                 .padding(.horizontal, 8)
-                .padding(.vertical, 2)
+                .padding(.vertical, 3)
                 .background(Color.indigo.opacity(0.14))
                 .clipShape(RoundedRectangle(cornerRadius: 6))
+            }
+            .disabled(isMutatingGit)
             if status.ahead > 0 {
                 Text("↑\(status.ahead)").font(.system(size: 12, design: .monospaced)).foregroundColor(.secondary)
             }
@@ -288,6 +382,15 @@ public struct GitCommitSheet: View {
                     }
                 }
                 Spacer()
+                Button {
+                    fileToDiscard = file
+                } label: {
+                    Image(systemName: "arrow.uturn.backward.circle")
+                        .font(.system(size: 15))
+                        .foregroundColor(.red.opacity(0.8))
+                }
+                .buttonStyle(.plain)
+                .disabled(isMutatingGit)
             }
         }
         .buttonStyle(.plain)

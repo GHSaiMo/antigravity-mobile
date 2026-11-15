@@ -52,6 +52,7 @@ extension APIClient {
                         id: item.id,
                         sender: sender,
                         content: item.text,
+                        thinking: item.thinking,
                         toolCount: item.toolCount ?? 0,
                         toolNames: item.toolNames ?? [],
                         imageDataList: imgDataList,
@@ -68,7 +69,9 @@ extension APIClient {
                         slashCommands: item.slashCommands,
                         clientMessageId: item.clientMessageId,
                         errorKind: item.errorKind,
-                        isOverflow: item.isOverflow
+                        isOverflow: item.isOverflow,
+                        thinkingDuration: item.thinkingDuration,
+                        toolDetails: item.toolDetails
                     )
                 }
                 
@@ -103,7 +106,8 @@ extension APIClient {
                     contextMeter: decoded.contextMeter,
                     subagents: decoded.subagents,
                     parentConversationId: decoded.parentConversationId,
-                    subagentRole: decoded.subagentRole
+                    subagentRole: decoded.subagentRole,
+                    suggestedResponses: decoded.suggestedResponses
                 )
             }
         } catch {
@@ -136,7 +140,8 @@ extension APIClient {
             contextMeter: nil,
             subagents: nil,
             parentConversationId: nil,
-            subagentRole: nil
+            subagentRole: nil,
+            suggestedResponses: nil
         )
     }
     
