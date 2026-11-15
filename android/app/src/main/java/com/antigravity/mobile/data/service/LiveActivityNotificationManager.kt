@@ -180,6 +180,37 @@ class LiveActivityNotificationManager(
             .setCategory(NotificationCompat.CATEGORY_PROGRESS)
             .setPriority(NotificationCompat.PRIORITY_LOW)
 
+        if (hasPendingAction) {
+            builder.addAction(
+                0,
+                "允许",
+                NotificationActionReceiver.buildPendingIntent(
+                    context,
+                    NotificationActionReceiver.ACTION_APPROVE,
+                    cascadeId
+                )
+            )
+            builder.addAction(
+                0,
+                "拒绝",
+                NotificationActionReceiver.buildPendingIntent(
+                    context,
+                    NotificationActionReceiver.ACTION_REJECT,
+                    cascadeId
+                )
+            )
+        } else if (status.equals("RUNNING", ignoreCase = true)) {
+            builder.addAction(
+                0,
+                "停止",
+                NotificationActionReceiver.buildPendingIntent(
+                    context,
+                    NotificationActionReceiver.ACTION_STOP,
+                    cascadeId
+                )
+            )
+        }
+
         try {
             NotificationManagerCompat.from(context).notify(notifId, builder.build())
         } catch (_: SecurityException) {
@@ -193,7 +224,8 @@ class LiveActivityNotificationManager(
                 title = "⚠️ Antigravity 需要审批",
                 body = "【$resolvedTitle】$actionText",
                 deeplink = "antigravity://cascade/$cascadeId?action=review",
-                isAction = true
+                isAction = true,
+                cascadeId = cascadeId
             )
         } else if (!hasPendingAction) {
             lastActionNotifiedForCascade = null
@@ -267,7 +299,8 @@ class LiveActivityNotificationManager(
         title: String,
         body: String,
         deeplink: String,
-        isAction: Boolean = false
+        isAction: Boolean = false,
+        cascadeId: String? = null
     ) {
         if (prefs?.enableLiveNotifications == false) return
 
@@ -296,6 +329,29 @@ class LiveActivityNotificationManager(
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(if (isAction) NotificationCompat.CATEGORY_ALARM else NotificationCompat.CATEGORY_EVENT)
             .setDefaults(NotificationCompat.DEFAULT_ALL)
+
+        if (isAction && !cascadeId.isNullOrBlank()) {
+            alertBuilder.addAction(
+                0,
+                "允许",
+                NotificationActionReceiver.buildPendingIntent(
+                    context,
+                    NotificationActionReceiver.ACTION_APPROVE,
+                    cascadeId,
+                    alertNotifId = alertNotifId
+                )
+            )
+            alertBuilder.addAction(
+                0,
+                "拒绝",
+                NotificationActionReceiver.buildPendingIntent(
+                    context,
+                    NotificationActionReceiver.ACTION_REJECT,
+                    cascadeId,
+                    alertNotifId = alertNotifId
+                )
+            )
+        }
 
         try {
             NotificationManagerCompat.from(context).notify(alertNotifId, alertBuilder.build())
