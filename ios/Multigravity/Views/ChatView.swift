@@ -154,6 +154,9 @@ public struct ChatView: View {
                 
                 floatingSlashCommandPopup
                     .readableChatWidth(horizontalSizeClass == .regular)
+                
+                floatingMentionPopup
+                    .readableChatWidth(horizontalSizeClass == .regular)
             }
             if viewModel.isSubagentSession || initialConversation?.isSubagent == true {
                 SubagentReadOnlyBar(
@@ -408,10 +411,7 @@ public struct ChatView: View {
                 onOpenDocumentScanner: {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { handleDocumentScannerAction() }
                 },
-                onFilesPicked: { urls in viewModel.addFiles(from: urls) },
-                onOpenMentions: {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { viewModel.openMentionPicker() }
-                }
+                onFilesPicked: { urls in viewModel.addFiles(from: urls) }
             )
         }
         .alert("无法添加文件", isPresented: isAttachmentNoticePresented) {
