@@ -319,15 +319,15 @@ extension ChatView {
                 onAudioRecord: handleAudioRecordAction,
                 onStartDictation: {
                     if let gwUrl = AppSettings.shared.gatewayURL {
+                        dictationBaseText = viewModel.inputText.trimmingCharacters(in: .whitespacesAndNewlines)
                         dictationManager.start(
                             cascadeId: viewModel.cascadeId,
                             baseURL: gwUrl,
                             onTranscriptUpdate: { transcript in
-                                let existing = viewModel.inputText
-                                if existing.isEmpty || existing.hasSuffix(" ") || existing.hasSuffix("\n") {
-                                    viewModel.inputText = existing + transcript
-                                } else {
+                                if dictationBaseText.isEmpty {
                                     viewModel.inputText = transcript
+                                } else {
+                                    viewModel.inputText = "\(dictationBaseText) \(transcript)"
                                 }
                             },
                             onError: { err in

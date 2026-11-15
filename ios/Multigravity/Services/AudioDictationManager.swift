@@ -11,6 +11,7 @@ public final class AudioDictationManager {
     private var audioEngine: AVAudioEngine?
     private var webSocketTask: URLSessionWebSocketTask?
     private var urlSession: URLSession?
+    private var isReceiving = false
     private var onTranscriptUpdate: ((String) -> Void)?
     private var onError: ((String) -> Void)?
 
@@ -73,6 +74,7 @@ public final class AudioDictationManager {
         self.webSocketTask = ws
         self.audioEngine = engine
         self.isDictating = true
+        self.isReceiving = true
 
         ws.resume()
         receiveNextMessage()
@@ -109,29 +111,41 @@ public final class AudioDictationManager {
     }
 
     public func stop() {
-        guard isDictating || audioEngine != nil || webSocketTask != nil else { return }
+        guard isDictating || isReceiving || audioEngine != nil || webSocketTask != nil else { return }
         isDictating = false
         if let engine = audioEngine {
             engine.inputNode.removeTap(onBus: 0)
             engine.stop()
         }
         audioEngine = nil
-        if let ws = webSocketTask {
-            ws.send(.string("{\"type\":\"end\"}")) { _ in
-                ws.cancel(with: .normalClosure, reason: nil)
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+
+        if let ws = webSocketTask, isReceiving {
+            ws.send(.string("{\"type\":\"end\"}")) { [weak self] _ in
+                // 保留接收窗口，等待上游返回最终识别结果及 complete 标志
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
+                    self?.cleanupWebSocket()
+                }
             }
+        } else {
+            cleanupWebSocket()
         }
+    }
+
+    private func cleanupWebSocket() {
+        guard isReceiving || webSocketTask != nil else { return }
+        isReceiving = false
+        webSocketTask?.cancel(with: .normalClosure, reason: nil)
         webSocketTask = nil
         urlSession?.invalidateAndCancel()
         urlSession = nil
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 
     private func receiveNextMessage() {
-        guard isDictating, let ws = webSocketTask else { return }
+        guard isReceiving, let ws = webSocketTask else { return }
         ws.receive { [weak self] result in
             Task { @MainActor [weak self] in
-                guard let s = self, s.isDictating else { return }
+                guard let s = self, s.isReceiving else { return }
                 switch result {
                 case .success(let message):
                     if case .string(let text) = message {
@@ -141,8 +155,10 @@ public final class AudioDictationManager {
                     }
                     s.receiveNextMessage()
                 case .failure(let error):
-                    s.onError?("语音识别连接中断: \(error.localizedDescription)")
-                    s.stop()
+                    if s.isDictating {
+                        s.onError?("语音识别连接中断: \(error.localizedDescription)")
+                    }
+                    s.cleanupWebSocket()
                 }
             }
         }
@@ -151,9 +167,21 @@ public final class AudioDictationManager {
     private func handleServerJSON(_ raw: String) {
         guard let data = raw.data(using: .utf8),
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
+        if let err = obj["error"] as? String, !err.isEmpty {
+            onError?(err)
+            cleanupWebSocket()
+            return
+        }
+        if let type = obj["type"] as? String, type == "complete" {
+            cleanupWebSocket()
+            return
+        }
         let direct = (obj["text"] as? String) ?? (obj["transcript"] as? String) ?? ""
-        let nested = ((obj["update"] as? [String: Any])?["text"] as? String) ?? ""
-        let resolved = !direct.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? direct : nested
+        let transcriptionNested = ((obj["transcription"] as? [String: Any])?["text"] as? String) ?? ""
+        let updateNested = ((obj["update"] as? [String: Any])?["text"] as? String) ?? ""
+        let resolved = !direct.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? direct
+            : (!transcriptionNested.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? transcriptionNested : updateNested)
         if !resolved.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             onTranscriptUpdate?(resolved)
         }

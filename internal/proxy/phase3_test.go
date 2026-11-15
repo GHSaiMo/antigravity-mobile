@@ -14,6 +14,9 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/gorilla/websocket"
 )
 
 func setupMockUpstreamProxy(t *testing.T, handler http.HandlerFunc) *Proxy {
@@ -542,4 +545,105 @@ func TestHandleCreateProject_UpstreamAndOfflineAndValidation(t *testing.T) {
 	if wDup.Code != http.StatusOK || !strings.Contains(wDup.Body.String(), `"alreadyExists":true`) {
 		t.Fatalf("expected alreadyExists:true on duplicate, got %d: %s", wDup.Code, wDup.Body.String())
 	}
+}
+
+func TestHandleAudioDictate_Normalization(t *testing.T) {
+	p := setupMockUpstreamProxy(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/exa.language_server_pb.LanguageServerService/StreamAudioTranscription":
+			w.Header().Set("Content-Type", "application/connect+json")
+			// Frame 1: ready
+			f1, _ := buildConnectFrame(map[string]interface{}{
+				"ready": map[string]interface{}{"sessionId": "test-sid-999"},
+			})
+			_, _ = w.Write(f1)
+			if fl, ok := w.(http.Flusher); ok {
+				fl.Flush()
+			}
+			time.Sleep(20 * time.Millisecond)
+
+			// Frame 2: transcription proto JSON (upstream format)
+			f2, _ := buildConnectFrame(map[string]interface{}{
+				"transcription": map[string]interface{}{
+					"text":    "测试语音识别",
+					"isFinal": true,
+				},
+			})
+			_, _ = w.Write(f2)
+			if fl, ok := w.(http.Flusher); ok {
+				fl.Flush()
+			}
+			time.Sleep(20 * time.Millisecond)
+
+			// Frame 3: Connect trailer (flag 2)
+			trailer := []byte{2, 0, 0, 0, 2, '{', '}'}
+			_, _ = w.Write(trailer)
+			if fl, ok := w.(http.Flusher); ok {
+				fl.Flush()
+			}
+
+		case "/exa.language_server_pb.LanguageServerService/SendAudioChunk":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte("{}"))
+
+		case "/exa.language_server_pb.LanguageServerService/EndAudioSession":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte("{}"))
+
+		default:
+			http.NotFound(w, r)
+		}
+	})
+
+	gwServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/gateway/audio/dictate" {
+			p.HandleAudioDictate(w, r)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer gwServer.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(gwServer.URL, "http") + "/gateway/audio/dictate?cascadeId=test-cid"
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("failed to dial audio dictate ws: %v", err)
+	}
+	defer conn.Close()
+
+	// Wait for messages
+	var receivedNormalized bool
+	deadline := time.Now().Add(3 * time.Second)
+	_ = conn.SetReadDeadline(deadline)
+
+	for {
+		_, msg, err := conn.ReadMessage()
+		if err != nil {
+			break
+		}
+		var parsed map[string]interface{}
+		if err := json.Unmarshal(msg, &parsed); err != nil {
+			continue
+		}
+		// Check that the gateway normalized the message to include top-level text & transcript
+		if parsed["text"] == "测试语音识别" && parsed["transcript"] == "测试语音识别" {
+			receivedNormalized = true
+			if isFinal, ok := parsed["isFinal"].(bool); !ok || !isFinal {
+				t.Errorf("expected isFinal=true, got %v", parsed["isFinal"])
+			}
+			// And also preserves the original transcription block
+			if tr, ok := parsed["transcription"].(map[string]interface{}); !ok || tr["text"] != "测试语音识别" {
+				t.Errorf("expected original transcription block preserved, got %v", tr)
+			}
+			break
+		}
+	}
+
+	if !receivedNormalized {
+		t.Fatalf("did not receive normalized transcription message with text and transcript")
+	}
+
+	// Send an audio chunk and end message
+	_ = conn.WriteMessage(websocket.BinaryMessage, make([]byte, 3200))
+	_ = conn.WriteJSON(map[string]interface{}{"type": "end"})
 }

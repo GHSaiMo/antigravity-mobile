@@ -1035,7 +1035,7 @@
         ws.onmessage = (ev) => {
           try {
             const msg = JSON.parse(ev.data);
-            const txt = msg.text || msg.transcript || msg.update?.text || msg.update?.transcript || "";
+            const txt = msg.text || msg.transcript || msg.transcription?.text || msg.update?.text || msg.update?.transcript || "";
             if (txt && inputEl) {
               inputEl.value = baseText ? (baseText.trimEnd() + " " + txt) : txt;
               inputEl.dispatchEvent(new Event("input", { bubbles: true }));

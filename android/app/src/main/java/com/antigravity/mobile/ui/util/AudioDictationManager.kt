@@ -85,8 +85,15 @@ class AudioDictationManager(private val apiClient: ApiClient) {
             override fun onMessage(webSocket: WebSocket, text: String) {
                 try {
                     val obj = JSONObject(text)
+                    val err = obj.optString("error")
+                    if (err.isNotBlank()) {
+                        onError(err)
+                        stop()
+                        return
+                    }
                     val t = obj.optString("text")
                         .ifBlank { obj.optString("transcript") }
+                        .ifBlank { obj.optJSONObject("transcription")?.optString("text").orEmpty() }
                         .ifBlank { obj.optJSONObject("update")?.optString("text").orEmpty() }
                     if (t.isNotBlank()) {
                         onTranscriptUpdate(t)
