@@ -35,7 +35,6 @@ public struct ChatView: View {
     @ObservedObject var audioRecorder = AudioRecorderManager.shared
     @ObservedObject var voiceCall = VoiceCallManager.shared
     @State var dictationManager = AudioDictationManager()
-    @State var dictationBaseText: String = ""
     @State var narrationPlayer = NarrationAudioPlayer()
     @State var showVoiceTroubleshootBubble = false
     @State var lastVoiceTroubleshootBubbleAt: Date = .distantPast
