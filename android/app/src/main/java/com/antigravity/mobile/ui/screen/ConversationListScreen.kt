@@ -91,6 +91,7 @@ fun ConversationListScreen(
     val projectsError by viewModel.projectsError.collectAsStateWithLifecycle()
     val showWeeklyPaceCursor by viewModel.prefs.weeklyPaceCursorFlow.collectAsStateWithLifecycle()
     val selectedQuotaBucket by viewModel.prefs.selectedQuotaBucketFlow.collectAsStateWithLifecycle()
+    val isEmailMasked by viewModel.prefs.cockpitEmailMaskedFlow.collectAsStateWithLifecycle()
     val textToolbar = LocalTextToolbar.current
     LaunchedEffect(Unit) {
         textToolbar.hide()
@@ -546,6 +547,8 @@ fun ConversationListScreen(
             showWeeklyPaceCursor = showWeeklyPaceCursor,
             selectedQuotaBucket = selectedQuotaBucket,
             onSelectQuotaBucket = { viewModel.prefs.selectedQuotaBucket = it },
+            isMasked = isEmailMasked,
+            onToggleMask = { viewModel.prefs.cockpitEmailMasked = !isEmailMasked },
             tokenHistory = tokenHistory,
             isLoadingTokenHistory = isLoadingTokenHistory,
             onLoadTokenHistory = { force -> viewModel.loadTokenHistory(force) },

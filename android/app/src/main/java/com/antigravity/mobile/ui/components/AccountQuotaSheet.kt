@@ -71,6 +71,8 @@ fun AccountQuotaSheet(
     showWeeklyPaceCursor: Boolean = true,
     selectedQuotaBucket: QuotaBucketKind = QuotaBucketKind.GEMINI_5H,
     onSelectQuotaBucket: ((QuotaBucketKind) -> Unit)? = null,
+    isMasked: Boolean = false,
+    onToggleMask: () -> Unit = {},
     tokenHistory: TokenHistoryResponse? = null,
     isLoadingTokenHistory: Boolean = false,
     onLoadTokenHistory: (Boolean) -> Unit = {},
@@ -80,7 +82,6 @@ fun AccountQuotaSheet(
     modifier: Modifier = Modifier
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
-    var isMasked by remember { mutableStateOf(false) }
     var isSavingTokenHistory by remember { mutableStateOf(false) }
     var isSharingTokenHistory by remember { mutableStateOf(false) }
     var selectedHeatmapDate by remember { mutableStateOf<String?>(null) }
@@ -176,7 +177,7 @@ fun AccountQuotaSheet(
             ) {
                 if (selectedTab == 0) {
                     IconButton(
-                        onClick = { isMasked = !isMasked },
+                        onClick = onToggleMask,
                         modifier = Modifier
                             .align(Alignment.CenterStart)
                             .padding(start = 8.dp)
