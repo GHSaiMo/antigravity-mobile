@@ -48,6 +48,8 @@ type StreamUpdatePayload struct {
 	StartedAt          string               `json:"startedAt,omitempty"`
 	Swarm              *SwarmBrief          `json:"swarm,omitempty"`
 	ContextMeter       *ContextMeterItem    `json:"contextMeter,omitempty"`
+	SuggestedResponses []string             `json:"suggestedResponses,omitempty"`
+	TaskProgress       *TaskProgressItem    `json:"taskProgress,omitempty"`
 
 	// Delta framing, only set for clients that connect with delta=1 (see streamDeltaState).
 	Delta      bool     `json:"delta,omitempty"`
@@ -99,8 +101,13 @@ func (p *StreamUpdatePayload) Fingerprint() string {
 	if p.ContextMeter != nil {
 		cmKey = fmt.Sprintf("%d:%d:%.1f", p.ContextMeter.UsedTokens, p.ContextMeter.OutputTokens, p.ContextMeter.TokensPerSecond)
 	}
+	sugKey := fmt.Sprintf("%d:%s", len(p.SuggestedResponses), strings.Join(p.SuggestedResponses, "|"))
+	tpKey := ""
+	if p.TaskProgress != nil {
+		tpKey = p.TaskProgress.TaskName + ":" + p.TaskProgress.TaskStatus + ":" + p.TaskProgress.TaskSummary
+	}
 	if len(p.Steps) == 0 {
-		return fmt.Sprintf("%s:%t:%s:%t:%s:%s:%s:%s:%s:%s:%s", p.Status, p.HasError, msgsKey, p.CanProceed, piKey, queuedKey, tasksKey, p.ActiveModel, p.Title, swarmKey, cmKey)
+		return fmt.Sprintf("%s:%t:%s:%t:%s:%s:%s:%s:%s:%s:%s:%s:%s", p.Status, p.HasError, msgsKey, p.CanProceed, piKey, queuedKey, tasksKey, p.ActiveModel, p.Title, swarmKey, cmKey, sugKey, tpKey)
 	}
 	last := p.Steps[len(p.Steps)-1]
 	lastLen := 0
@@ -123,7 +130,7 @@ func (p *StreamUpdatePayload) Fingerprint() string {
 	} else {
 		contentHash = hashStrings(last.Content)
 	}
-	return fmt.Sprintf("%s:%t:%d:%d:%s:%s:%d:%s:%t:%s:%s:%s:%s:%s:%s:%s:%x", p.Status, p.HasError, p.TotalSteps, p.TotalTools, last.Type, last.Status, lastLen, msgsKey, p.CanProceed, piKey, queuedKey, tasksKey, p.ActiveModel, p.Title, swarmKey, cmKey, contentHash)
+	return fmt.Sprintf("%s:%t:%d:%d:%s:%s:%d:%s:%t:%s:%s:%s:%s:%s:%s:%s:%s:%s:%x", p.Status, p.HasError, p.TotalSteps, p.TotalTools, last.Type, last.Status, lastLen, msgsKey, p.CanProceed, piKey, queuedKey, tasksKey, p.ActiveModel, p.Title, swarmKey, cmKey, sugKey, tpKey, contentHash)
 }
 
 // rawTrajectorySignature computes an O(1) lightweight fingerprint of the raw upstream response
@@ -443,6 +450,8 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 			StartedAt:          details.StartedAt,
 			Swarm:              GetSwarmBrief(cascadeID),
 			ContextMeter:       details.ContextMeter,
+			SuggestedResponses: details.SuggestedResponses,
+			TaskProgress:       details.TaskProgress,
 		}
 
 		if !isMessagesOnly {

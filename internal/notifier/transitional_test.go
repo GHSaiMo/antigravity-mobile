@@ -67,8 +67,9 @@ func TestIsCascadeInProgress(t *testing.T) {
 				Type:   "CORTEX_STEP_TYPE_PLANNER_RESPONSE",
 				Status: "CORTEX_STEP_STATUS_DONE",
 				PlannerResponse: &struct {
-					Response string `json:"response"`
-					Thinking string `json:"thinking"`
+					Response         string `json:"response"`
+					Thinking         string `json:"thinking"`
+					ThinkingDuration string `json:"thinkingDuration,omitempty"`
 				}{Response: "正在调用 ego-browser 刷新雪球有效会话并加载最新 WAF 凭证..."},
 			},
 		},
@@ -102,8 +103,9 @@ func TestIsCascadeInProgress(t *testing.T) {
 				Type:   "CORTEX_STEP_TYPE_PLANNER_RESPONSE",
 				Status: "CORTEX_STEP_STATUS_DONE",
 				PlannerResponse: &struct {
-					Response string `json:"response"`
-					Thinking string `json:"thinking"`
+					Response         string `json:"response"`
+					Thinking         string `json:"thinking"`
+					ThinkingDuration string `json:"thinkingDuration,omitempty"`
 				}{Response: "Done."},
 			},
 		},
@@ -120,8 +122,9 @@ func TestIsCascadeInProgress(t *testing.T) {
 				Type:   "CORTEX_STEP_TYPE_PLANNER_RESPONSE",
 				Status: "CORTEX_STEP_STATUS_DONE",
 				PlannerResponse: &struct {
-					Response string `json:"response"`
-					Thinking string `json:"thinking"`
+					Response         string `json:"response"`
+					Thinking         string `json:"thinking"`
+					ThinkingDuration string `json:"thinkingDuration,omitempty"`
 				}{Response: "正在等待槽位检索结果返回..."},
 			},
 		},
@@ -138,8 +141,9 @@ func TestIsCascadeInProgress(t *testing.T) {
 				Type:   "CORTEX_STEP_TYPE_PLANNER_RESPONSE",
 				Status: "CORTEX_STEP_STATUS_DONE",
 				PlannerResponse: &struct {
-					Response string `json:"response"`
-					Thinking string `json:"thinking"`
+					Response         string `json:"response"`
+					Thinking         string `json:"thinking"`
+					ThinkingDuration string `json:"thinkingDuration,omitempty"`
 				}{Response: "所有改动已在上一轮中自动完成提交并成功推送至远端：\n- 当前最新 Commit: db1df14"},
 			},
 		},
@@ -176,8 +180,9 @@ func TestIsCascadeInProgress(t *testing.T) {
 				Type:   "CORTEX_STEP_TYPE_PLANNER_RESPONSE",
 				Status: "CORTEX_STEP_STATUS_DONE",
 				PlannerResponse: &struct {
-					Response string `json:"response"`
-					Thinking string `json:"thinking"`
+					Response         string `json:"response"`
+					Thinking         string `json:"thinking"`
+					ThinkingDuration string `json:"thinkingDuration,omitempty"`
 				}{Response: "服务已顺利完成启动。"},
 			},
 		},
@@ -199,8 +204,9 @@ func TestIsCascadeInProgress(t *testing.T) {
 				Type:   "CORTEX_STEP_TYPE_PLANNER_RESPONSE",
 				Status: "CORTEX_STEP_STATUS_DONE",
 				PlannerResponse: &struct {
-					Response string `json:"response"`
-					Thinking string `json:"thinking"`
+					Response         string `json:"response"`
+					Thinking         string `json:"thinking"`
+					ThinkingDuration string `json:"thinkingDuration,omitempty"`
 				}{Response: "服务已顺利完成启动。"},
 			},
 		},

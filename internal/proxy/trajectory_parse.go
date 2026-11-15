@@ -47,6 +47,8 @@ func (p *Proxy) ParseTrajectoryDetails(rawResp *upstreamTrajectoryResp) Trajecto
 	parentID, subagentRole := subagentIdentity(rawResp)
 	finalStatus, latestTurnErrorText := resolveFinalStatus(rawResp.Status, steps, lastUserInputIdx)
 	hasError := finalStatus == "CASCADE_RUN_STATUS_ERROR"
+	suggestedResponses := extractSuggestedResponses(steps, lastUserInputIdx, finalStatus)
+	taskProgress := extractLatestTaskProgress(steps, lastUserInputIdx)
 
 	return TrajectoryDetails{
 		CascadeID:          rawResp.Trajectory.CascadeID,
@@ -74,6 +76,112 @@ func (p *Proxy) ParseTrajectoryDetails(rawResp *upstreamTrajectoryResp) Trajecto
 		CanProceed:         canProceed,
 		ProceedArtifactURI: proceedArtifactURI,
 		PendingInteraction: pendingInteraction,
+		SuggestedResponses: suggestedResponses,
+		TaskProgress:       taskProgress,
+	}
+}
+
+func extractSuggestedResponses(steps []TrajectoryStep, lastUserIdx int, status string) []string {
+	if status == "CASCADE_RUN_STATUS_RUNNING" {
+		return nil
+	}
+	for i := len(steps) - 1; i > lastUserIdx && i >= 0; i-- {
+		s := steps[i]
+		if s.Type == "CORTEX_STEP_TYPE_SUGGESTED_RESPONSES" && s.SuggestedResponses != nil && len(s.SuggestedResponses.Suggestions) > 0 {
+			out := make([]string, 0, len(s.SuggestedResponses.Suggestions))
+			for _, sg := range s.SuggestedResponses.Suggestions {
+				if trimmed := strings.TrimSpace(sg); trimmed != "" {
+					out = append(out, trimmed)
+				}
+			}
+			if len(out) > 0 {
+				return out
+			}
+		}
+	}
+	return nil
+}
+
+func extractLatestTaskProgress(steps []TrajectoryStep, lastUserIdx int) *TaskProgressItem {
+	for i := len(steps) - 1; i > lastUserIdx && i >= 0; i-- {
+		s := steps[i]
+		if s.Type == "CORTEX_STEP_TYPE_TASK_BOUNDARY" && s.TaskBoundary != nil {
+			return &TaskProgressItem{
+				TaskName:    strings.TrimSpace(s.TaskBoundary.TaskName),
+				TaskStatus:  strings.TrimSpace(s.TaskBoundary.TaskStatus),
+				TaskSummary: strings.TrimSpace(s.TaskBoundary.TaskSummary),
+				Mode:        strings.TrimSpace(s.TaskBoundary.Mode),
+			}
+		}
+	}
+	return nil
+}
+
+func stepDurationLabel(s TrajectoryStep) string {
+	startStr := s.Metadata.StartedAt
+	if startStr == "" {
+		startStr = s.Metadata.CreatedAt
+	}
+	endStr := s.Metadata.CompletedAt
+	if startStr == "" || endStr == "" {
+		return ""
+	}
+	tStart, err1 := time.Parse(time.RFC3339Nano, startStr)
+	if err1 != nil {
+		tStart, err1 = time.Parse(time.RFC3339, startStr)
+	}
+	tEnd, err2 := time.Parse(time.RFC3339Nano, endStr)
+	if err2 != nil {
+		tEnd, err2 = time.Parse(time.RFC3339, endStr)
+	}
+	if err1 != nil || err2 != nil || tEnd.Before(tStart) {
+		return ""
+	}
+	d := tEnd.Sub(tStart)
+	if d < time.Second {
+		return fmt.Sprintf("%dms", d.Milliseconds())
+	}
+	if d < time.Minute {
+		return fmt.Sprintf("%.1fs", d.Seconds())
+	}
+	return fmt.Sprintf("%dm%ds", int(d.Minutes()), int(d.Seconds())%60)
+}
+
+func stepSummaryLabel(s TrajectoryStep) string {
+	if s.Metadata.ToolSummary != "" {
+		return strings.TrimSpace(s.Metadata.ToolSummary)
+	}
+	if s.Metadata.ToolAction != "" {
+		return strings.TrimSpace(s.Metadata.ToolAction)
+	}
+	if s.RunCommand != nil {
+		if s.RunCommand.CommandLine != "" {
+			return strings.TrimSpace(s.RunCommand.CommandLine)
+		}
+		if s.RunCommand.ProposedCommandLine != "" {
+			return strings.TrimSpace(s.RunCommand.ProposedCommandLine)
+		}
+	}
+	if s.TaskBoundary != nil && s.TaskBoundary.TaskName != "" {
+		return strings.TrimSpace(s.TaskBoundary.TaskName)
+	}
+	if args := strings.TrimSpace(extractStepToolArgsJSON(s)); args != "" {
+		if len(args) > 120 {
+			return args[:120] + "..."
+		}
+		return args
+	}
+	return ""
+}
+
+func stepStatusLabel(status string) string {
+	switch status {
+	case "CORTEX_STEP_STATUS_RUNNING":
+		return "running"
+	case "CORTEX_STEP_STATUS_ERROR":
+		return "error"
+	default:
+		return "done"
 	}
 }
 
@@ -83,6 +191,9 @@ func buildTrajectoryMessages(steps []TrajectoryStep) ([]CascadeMessageItem, int)
 	var allMessages []CascadeMessageItem
 	pendingTools := 0
 	var toolNames []string
+	var toolDetails []ToolDetailItem
+	var pendingThinking string
+	var pendingThinkingDuration string
 	totalToolsCount := 0
 
 	var turnArtifacts []ArtifactItem
@@ -105,21 +216,31 @@ func buildTrajectoryMessages(steps []TrajectoryStep) ([]CascadeMessageItem, int)
 	}
 
 	flushTools := func() {
-		if pendingTools == 0 {
+		if pendingTools == 0 && pendingThinking == "" {
 			return
 		}
+		text := "💭 已深度思考"
+		if pendingTools > 0 {
+			text = fmt.Sprintf("已思考并执行 %d 项操作", pendingTools)
+		}
 		item := CascadeMessageItem{
-			ID:        fmt.Sprintf("tools-%d", len(allMessages)),
-			Type:      "tools",
-			Role:      "tools",
-			Text:      fmt.Sprintf("已思考并执行 %d 项操作", pendingTools),
-			Content:   fmt.Sprintf("已思考并执行 %d 项操作", pendingTools),
-			ToolCount: pendingTools,
-			ToolNames: toolNames,
+			ID:               fmt.Sprintf("tools-%d", len(allMessages)),
+			Type:             "tools",
+			Role:             "tools",
+			Text:             text,
+			Content:          text,
+			ToolCount:        pendingTools,
+			ToolNames:        toolNames,
+			ToolDetails:      toolDetails,
+			Thinking:         pendingThinking,
+			ThinkingDuration: pendingThinkingDuration,
 		}
 		allMessages = append(allMessages, item)
 		pendingTools = 0
 		toolNames = nil
+		toolDetails = nil
+		pendingThinking = ""
+		pendingThinkingDuration = ""
 	}
 
 	for idx, s := range steps {
@@ -234,6 +355,16 @@ func buildTrajectoryMessages(steps []TrajectoryStep) ([]CascadeMessageItem, int)
 			respText := ""
 			if s.PlannerResponse != nil {
 				respText = CleanInternalSystemMessage(s.PlannerResponse.Response)
+				if th := strings.TrimSpace(s.PlannerResponse.Thinking); th != "" {
+					if pendingThinking == "" {
+						pendingThinking = th
+					} else {
+						pendingThinking += "\n\n" + th
+					}
+					if td := strings.TrimSpace(s.PlannerResponse.ThinkingDuration); td != "" {
+						pendingThinkingDuration = td
+					}
+				}
 			}
 
 			if respText != "" {
@@ -345,11 +476,21 @@ func buildTrajectoryMessages(steps []TrajectoryStep) ([]CascadeMessageItem, int)
 				ErrorKind:    errKind,
 				IsOverflow:   errKind == "context_overflow",
 			})
+		} else if stepType == "CORTEX_STEP_TYPE_SUGGESTED_RESPONSES" {
+			// 快捷回复建议不折进工具执行胶囊，统一挂载到 TrajectoryDetails.SuggestedResponses
+			continue
 		} else if strings.HasPrefix(stepType, "CORTEX_STEP_TYPE_") && stepType != "CORTEX_STEP_TYPE_SYSTEM_MESSAGE" && stepType != "CORTEX_STEP_TYPE_ERROR_MESSAGE" {
 			pendingTools++
 			totalToolsCount++
 			name := extractToolNameFromStep(s)
 			toolNames = append(toolNames, name)
+			toolDetails = append(toolDetails, ToolDetailItem{
+				Name:      name,
+				Summary:   stepSummaryLabel(s),
+				Status:    stepStatusLabel(s.Status),
+				Duration:  stepDurationLabel(s),
+				StepIndex: idx,
+			})
 		}
 	}
 

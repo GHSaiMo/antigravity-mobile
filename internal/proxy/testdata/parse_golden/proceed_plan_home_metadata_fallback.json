@@ -27,6 +27,13 @@
         "toolCount": 1,
         "toolNames": [
           "code_action"
+        ],
+        "toolDetails": [
+          {
+            "name": "code_action",
+            "status": "done",
+            "stepIndex": 1
+          }
         ]
       }
     ],

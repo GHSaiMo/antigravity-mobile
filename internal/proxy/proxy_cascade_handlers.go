@@ -164,6 +164,9 @@ func (p *Proxy) handleSendUserCascadeMessage(w http.ResponseWriter, r *http.Requ
 			tagApplied = applyClientMessageTag(rawMap, clientMsgID)
 		}
 
+		// Normalize `@` contextItems into native TextOrScopeItem items[]
+		appendNormalizedContextItems(rawMap)
+
 		// Short-window idempotency check: prevent duplicate triggers within 15 seconds
 		// PERF: use streaming hasher to avoid full string copy for sha256
 		contentHasher := sha256.New()
