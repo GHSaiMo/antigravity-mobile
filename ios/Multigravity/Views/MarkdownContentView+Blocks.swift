@@ -70,8 +70,9 @@ extension MarkdownContentView {
             
             // Code text
             let codeScale = isShareExport ? 1.0 : AppSettings.shared.fontSizeScale.codeScale
+            let highlighted = CodeSyntaxHighlighter.highlight(code: code, language: lang, isDark: colorScheme == .dark)
             ExportAwareHorizontalScroll {
-                Text(code)
+                Text(highlighted)
                     .font(.system(size: 12.5 * codeScale, design: .monospaced))
                     .padding(10)
             }

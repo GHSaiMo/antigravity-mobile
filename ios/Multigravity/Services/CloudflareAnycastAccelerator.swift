@@ -59,7 +59,7 @@ public final class CloudflareAnycastAccelerator: @unchecked Sendable {
     
     public static func isCloudflareTunnelHost(_ host: String) -> Bool {
         let clean = host.trimmingCharacters(in: CharacterSet(charactersIn: "[]")).lowercased()
-        return clean.hasSuffix(".jiuge.space") || clean == "jiuge.space"
+        return clean.hasSuffix(".jiuge.space") || clean == "jiuge.space" || clean.hasSuffix(".trycloudflare.com")
     }
     
     public func triggerProbeIfNeeded(force: Bool = false) {

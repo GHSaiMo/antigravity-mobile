@@ -11,6 +11,7 @@ public enum StreamConnectionStatus: String, Sendable {
 
 public struct StreamUpdatePayload: Decodable, Sendable {
     public let type: String
+    public let rev: UInt64?
     public let cascadeId: String
     public let title: String?
     public let status: String?
@@ -62,6 +63,8 @@ public final class StreamWebSocketClient {
     private var activeCascadeId: String?
     private var isIntentionallyClosed: Bool = false
     private var reconnectAttempt: Int = 0
+    private var lastStreamRev: UInt64 = 0
+    private var revCascadeId: String?
     private var deltaReassembler = StreamDeltaReassembler<PaginatedMessagesResponse.GatewayMessageItem>(idOf: { $0.id })
     
     public init() {
@@ -86,6 +89,12 @@ public final class StreamWebSocketClient {
         // If already connected or currently connecting to the same session and URL, do not abort/reconnect unless forced
         if !force && (status == .connected || status == .connecting) && activeCascadeId == cascadeId && activeURL == effectiveURL {
             return
+        }
+        
+        if revCascadeId != cascadeId {
+            lastStreamRev = 0
+            revCascadeId = cascadeId
+            deltaReassembler.reset()
         }
         
         disconnect(intentional: true)
@@ -141,6 +150,9 @@ public final class StreamWebSocketClient {
             URLQueryItem(name: "format", value: "messages"),
             URLQueryItem(name: "delta", value: "1")
         ]
+        if lastStreamRev > 0 && revCascadeId == cascadeId {
+            queryItems.append(URLQueryItem(name: "sinceRev", value: "\(lastStreamRev)"))
+        }
         components.queryItems = queryItems
         
         guard let wsURL = components.url else {
@@ -157,7 +169,19 @@ public final class StreamWebSocketClient {
             return
         }
         let isCloudflare = CloudflareAnycastAccelerator.isCloudflareTunnelHost(hostStr)
-        let endpoint = NWEndpoint.url(wsURL)
+        let connectURL: URL
+        if isCloudflare && wsURL.scheme?.lowercased() == "wss" && reconnectAttempt == 0 {
+            CloudflareAnycastAccelerator.shared.triggerProbeIfNeeded()
+            var edgeComponents = components
+            edgeComponents.host = CloudflareAnycastAccelerator.primaryIP
+            if edgeComponents.port == nil {
+                edgeComponents.port = 443
+            }
+            connectURL = edgeComponents.url ?? wsURL
+        } else {
+            connectURL = wsURL
+        }
+        let endpoint = NWEndpoint.url(connectURL)
         
         let wsOptions = NWProtocolWebSocket.Options()
         wsOptions.autoReplyPing = true
@@ -221,7 +245,9 @@ public final class StreamWebSocketClient {
             connectionWatchdogTask?.cancel()
             connectionWatchdogTask = nil
             reconnectAttempt = 0
-            deltaReassembler.reset()
+            if lastStreamRev == 0 {
+                deltaReassembler.reset()
+            }
             updateStatus(.connected)
             receiveNextMessage()
         case .waiting(let error):
@@ -269,14 +295,27 @@ public final class StreamWebSocketClient {
         do {
             var payload = try JSONDecoder().decode(StreamUpdatePayload.self, from: data)
             if payload.cascadeId == expectedCascadeId {
+                if payload.type == "noop" {
+                    if let r = payload.rev, r > 0 {
+                        lastStreamRev = r
+                        revCascadeId = expectedCascadeId
+                    }
+                    return
+                }
                 switch deltaReassembler.apply(isDelta: payload.delta ?? false, messageIds: payload.messageIds, messages: payload.messages) {
                 case .messages(let rebuilt):
                     payload.messages = rebuilt
                 case .resync:
                     // Baseline mismatch: drop this socket; the reconnect path opens with a fresh complete "init".
                     print("[StreamWS] Delta baseline mismatch, resyncing")
+                    lastStreamRev = 0
+                    deltaReassembler.reset()
                     handleConnectionLoss()
                     return
+                }
+                if let r = payload.rev, r > 0 {
+                    lastStreamRev = r
+                    revCascadeId = expectedCascadeId
                 }
                 self.onUpdate?(payload)
             }

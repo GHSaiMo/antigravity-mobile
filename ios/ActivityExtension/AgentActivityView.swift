@@ -1,6 +1,7 @@
 import SwiftUI
 import WidgetKit
 import ActivityKit
+import AppIntents
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -222,6 +223,59 @@ public struct AgentActivityWidget: Widget {
                 }
                 .padding(.vertical, 2)
             }
+            
+            if context.state.hasPendingAction {
+                HStack(spacing: 8) {
+                    Button(intent: ApproveAgentActionIntent(cascadeId: context.attributes.cascadeId)) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "checkmark")
+                                .font(.system(size: 10, weight: .bold))
+                            Text("允许")
+                                .font(.system(size: 11.5, weight: .bold))
+                        }
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 5)
+                        .background(Color.green.opacity(0.82))
+                        .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    
+                    Button(intent: RejectAgentActionIntent(cascadeId: context.attributes.cascadeId)) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 10, weight: .bold))
+                            Text("拒绝")
+                                .font(.system(size: 11.5, weight: .bold))
+                        }
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 5)
+                        .background(Color.red.opacity(0.75))
+                        .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.top, 2)
+            } else if context.state.status == "RUNNING" {
+                HStack {
+                    Spacer()
+                    Button(intent: StopAgentRunIntent(cascadeId: context.attributes.cascadeId)) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "stop.fill")
+                                .font(.system(size: 9))
+                            Text("停止")
+                                .font(.system(size: 11, weight: .semibold))
+                        }
+                        .foregroundColor(Color(red: 1.0, green: 0.55, blue: 0.55))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .background(Color.red.opacity(0.22))
+                        .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
         }
         .padding(.horizontal, 4)
         .padding(.top, 4)
@@ -334,7 +388,48 @@ struct AgentLockScreenView: View {
                             .foregroundColor(secondaryTextColor)
                     }
                     
-                    Spacer()
+                    Spacer(minLength: 4)
+                    
+                    if context.state.hasPendingAction {
+                        HStack(spacing: 6) {
+                            Button(intent: ApproveAgentActionIntent(cascadeId: context.attributes.cascadeId)) {
+                                Text("允许")
+                                    .font(.system(size: 11, weight: .bold))
+                                    .foregroundColor(.white)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 3.5)
+                                    .background(Color(red: 0.12, green: 0.68, blue: 0.34))
+                                    .clipShape(Capsule())
+                            }
+                            .buttonStyle(.plain)
+                            
+                            Button(intent: RejectAgentActionIntent(cascadeId: context.attributes.cascadeId)) {
+                                Text("拒绝")
+                                    .font(.system(size: 11, weight: .bold))
+                                    .foregroundColor(isDark ? Color(red: 1.0, green: 0.55, blue: 0.55) : Color(red: 0.78, green: 0.14, blue: 0.14))
+                                    .padding(.horizontal, 9)
+                                    .padding(.vertical, 3.5)
+                                    .background(isDark ? Color.red.opacity(0.24) : Color(red: 1.0, green: 0.90, blue: 0.90))
+                                    .clipShape(Capsule())
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    } else if context.state.status == "RUNNING" {
+                        Button(intent: StopAgentRunIntent(cascadeId: context.attributes.cascadeId)) {
+                            HStack(spacing: 3) {
+                                Image(systemName: "stop.fill")
+                                    .font(.system(size: 8.5))
+                                Text("停止")
+                                    .font(.system(size: 10.5, weight: .bold))
+                            }
+                            .foregroundColor(isDark ? Color(red: 1.0, green: 0.55, blue: 0.55) : Color(red: 0.78, green: 0.14, blue: 0.14))
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
+                            .background(isDark ? Color.red.opacity(0.20) : Color(red: 1.0, green: 0.92, blue: 0.92))
+                            .clipShape(Capsule())
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
             }
         }
