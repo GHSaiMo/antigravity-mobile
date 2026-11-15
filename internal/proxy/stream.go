@@ -332,17 +332,20 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 		if time.Since(t1) > 100*time.Millisecond {
 			slog.Debug("stream perf: slow fetchUpstream", "cascade_id", cascadeID, "took", time.Since(t1))
 		}
+		desktopModel, desktopModelName := readDesktopSelectedModel()
 		if err != nil {
 			if firstPush {
 				// Send empty init payload immediately so client never hangs spinning on load
 				_ = writeJSON(StreamUpdatePayload{
-					Type:       "init",
-					CascadeID:  cascadeID,
-					Title:      streamTitle,
-					Status:     "CASCADE_RUN_STATUS_IDLE",
-					TotalSteps: 0,
-					Steps:      []TrajectoryStep{},
-					Messages:   []CascadeMessageItem{},
+					Type:                   "init",
+					CascadeID:              cascadeID,
+					Title:                  streamTitle,
+					Status:                 "CASCADE_RUN_STATUS_IDLE",
+					TotalSteps:             0,
+					Steps:                  []TrajectoryStep{},
+					Messages:               []CascadeMessageItem{},
+					DesktopActiveModel:     desktopModel,
+					DesktopActiveModelName: desktopModelName,
 				})
 				firstPush = false
 			}
@@ -350,7 +353,7 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 			return true
 		}
 
-		rawSig := rawTrajectorySignature(rawResp) + "|" + p.subagentLiveSignature(rawResp) + "|" + GetSwarmSignature(cascadeID)
+		rawSig := rawTrajectorySignature(rawResp) + "|" + p.subagentLiveSignature(rawResp) + "|" + GetSwarmSignature(cascadeID) + "|" + desktopModel
 		if !firstPush && rawSig == lastRawSig && (time.Since(lastTitleLookupTime) < 2*time.Second || cachedStreamTitle != "") {
 			// Fast path: Upstream trajectory has not changed at all.
 			// Skip full steps scan, regex image extraction, and payload construction.
@@ -420,7 +423,6 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 		slicedMessages := details.AllMessages[streamStart:totalMsgs]
 		hasMore := streamStart > 0
 
-		desktopModel, desktopModelName := readDesktopSelectedModel()
 		payload := StreamUpdatePayload{
 			Type:                   "update",
 			CascadeID:              details.CascadeID,

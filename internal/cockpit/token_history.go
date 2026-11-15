@@ -68,7 +68,7 @@ type transcriptJob struct {
 	source string
 }
 
-const currentTokenHistoryLedgerVersion = 2
+const currentTokenHistoryLedgerVersion = 3
 
 type parsedTranscriptRecord struct {
 	stepIndex int
@@ -221,7 +221,7 @@ func parseTranscriptFileWithConvID(filePath, convID, source string) []parsedTran
 		}
 
 		// Check for model selection setting
-		if m := parseModelFromUserSettings(raw); m != "" {
+		if m := parseModelFromUserSettings(raw); m != "" && !strings.EqualFold(m, "default") {
 			currentModel = m
 		}
 
@@ -261,12 +261,14 @@ func parseTranscriptFileWithConvID(filePath, convID, source string) []parsedTran
 			thinking = int64(v)
 		}
 
-		// Check chatModel usage
-		if inp == 0 && outp == 0 && capTokens == 0 {
-			if cm, ok := raw["chatModel"].(map[string]interface{}); ok {
-				if mName, ok := cm["model"].(string); ok && mName != "" {
-					currentModel = resolveGenMetadataModelName("", mName, mName)
+		// Check chatModel metadata (extract model even if top-level token fields are present)
+		if cm, ok := raw["chatModel"].(map[string]interface{}); ok {
+			if mName, ok := cm["model"].(string); ok && mName != "" {
+				if resolved := resolveGenMetadataModelName("", mName, mName); resolved != "" && !strings.EqualFold(resolved, "default") {
+					currentModel = resolved
 				}
+			}
+			if inp == 0 && outp == 0 && capTokens == 0 {
 				if u, ok := cm["usage"].(map[string]interface{}); ok {
 					if v, ok := u["inputTokens"].(float64); ok {
 						inp = int64(v)
@@ -307,6 +309,14 @@ func parseTranscriptFileWithConvID(filePath, convID, source string) []parsedTran
 				source:    source,
 				callID:    callID,
 			})
+		}
+	}
+
+	if currentModel != "" {
+		for i := range records {
+			if records[i].model == "" {
+				records[i].model = currentModel
+			}
 		}
 	}
 
@@ -724,26 +734,111 @@ func matchGenMetadataModel(entries []genMetadataModelEntry, stepIndex int) strin
 	return entries[0].modelName
 }
 
-func resolveMissingRecordModels(records []parsedTranscriptRecord, convID, parentConvID, source string) {
-	if entries := loadGenMetadataModels(convID, source); len(entries) > 0 {
-		for i := range records {
-			if records[i].model == "" {
-				records[i].model = matchGenMetadataModel(entries, records[i].stepIndex)
-			}
+func backfillRecordsFromSiblings(records []parsedTranscriptRecord) {
+	firstModel := ""
+	for i := range records {
+		if m := strings.TrimSpace(records[i].model); m != "" && !strings.EqualFold(m, "default") {
+			firstModel = m
+			break
 		}
 	}
-	if !hasUnresolvedModel(records) || parentConvID == "" {
+	if firstModel == "" {
+		return
+	}
+	lastSeen := firstModel
+	for i := range records {
+		m := strings.TrimSpace(records[i].model)
+		if m == "" || strings.EqualFold(m, "default") {
+			records[i].model = lastSeen
+		} else {
+			lastSeen = m
+		}
+	}
+}
+
+func resolveMissingRecordModels(records []parsedTranscriptRecord, convID, parentConvID, source string) {
+	backfillRecordsFromSiblings(records)
+	if !hasUnresolvedModel(records) {
 		return
 	}
 
-	// Fallback if child .db is absent: check parent's gen_metadata when subagent inherited parent's model.
-	if parentModel := resolveSubagentModelFromParent(convID, parentConvID, source); parentModel != "" {
+	if entries := loadGenMetadataModels(convID, source); len(entries) > 0 {
+		for i := range records {
+			if records[i].model == "" {
+				if m := matchGenMetadataModel(entries, records[i].stepIndex); m != "" && !strings.EqualFold(m, "default") {
+					records[i].model = m
+				}
+			}
+		}
+	}
+	if !hasUnresolvedModel(records) {
+		return
+	}
+
+	if parentConvID == "" {
+		parentConvID = lookupParentConvIDFromSummariesDB(convID, source)
+	}
+	if parentConvID == "" {
+		return
+	}
+
+	// Fallback if child .db is absent: check parent's gen_metadata / transcript when subagent inherited parent's model.
+	if parentModel := resolveSubagentModelFromParent(convID, parentConvID, source); parentModel != "" && !strings.EqualFold(parentModel, "default") {
 		for i := range records {
 			if records[i].model == "" {
 				records[i].model = parentModel
 			}
 		}
 	}
+}
+
+func lookupParentConvIDFromSummariesDB(convID, source string) string {
+	if strings.TrimSpace(convID) == "" {
+		return ""
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return ""
+	}
+	subDir := "antigravity"
+	if source == "cli" {
+		subDir = "antigravity-cli"
+	}
+	dbPath := filepath.Join(home, ".gemini", subDir, "conversation_summaries.db")
+	st, err := os.Stat(dbPath)
+	if err != nil || st.IsDir() {
+		return ""
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	query := "SELECT COALESCE((SELECT parent_id FROM conversation_parents WHERE conversation_id = ?1 LIMIT 1), (SELECT parent_conversation_id FROM conversation_summaries WHERE conversation_id = ?1 LIMIT 1));"
+	var out []byte
+	if sqliteBin, lookErr := exec.LookPath("sqlite3"); lookErr == nil && isExecutableValid(sqliteBin) {
+		escaped := strings.ReplaceAll(convID, "'", "''")
+		q := "SELECT COALESCE((SELECT parent_id FROM conversation_parents WHERE conversation_id = '" + escaped + "' LIMIT 1), (SELECT parent_conversation_id FROM conversation_summaries WHERE conversation_id = '" + escaped + "' LIMIT 1));"
+		cmd := exec.CommandContext(ctx, sqliteBin, "-batch", "-noheader", "-cmd", ".timeout 1000", dbPath, q)
+		out, _ = cmd.Output()
+	} else {
+		for _, candidate := range []string{"python3", "python"} {
+			if pyBin, pErr := exec.LookPath(candidate); pErr == nil && isExecutableValid(pyBin) {
+				pyScript := `import sqlite3, sys
+conn = sqlite3.connect('file:' + sys.argv[1] + '?mode=ro', uri=True, timeout=1.0)
+row = conn.execute(sys.argv[2], (sys.argv[3],)).fetchone()
+if row and row[0]:
+    print(row[0])
+`
+				cmd := exec.CommandContext(ctx, pyBin, "-c", pyScript, dbPath, query, convID)
+				out, _ = cmd.Output()
+				break
+			}
+		}
+	}
+	parent := strings.TrimSpace(string(out))
+	if parent == "" || parent == convID {
+		return ""
+	}
+	return parent
 }
 
 func resolveSubagentModelFromParent(convID, parentConvID, source string) string {
@@ -802,6 +897,19 @@ func resolveSubagentModelFromParent(convID, parentConvID, source string) string 
 
 	if entries := loadGenMetadataModels(parentConvID, source); len(entries) > 0 {
 		return entries[len(entries)-1].modelName
+	}
+
+	// Also check parent's own transcript for Model Selection / chatModel when parent .db is missing.
+	for _, p := range []string{
+		filepath.Join(baseDir, parentConvID, ".system_generated", "logs", "transcript.jsonl"),
+		filepath.Join(baseDir, parentConvID, "transcript.jsonl"),
+	} {
+		parentRecs := parseTranscriptFileWithConvID(p, "", source)
+		for i := len(parentRecs) - 1; i >= 0; i-- {
+			if m := strings.TrimSpace(parentRecs[i].model); m != "" && !strings.EqualFold(m, "default") {
+				return m
+			}
+		}
 	}
 	return ""
 }
@@ -921,6 +1029,12 @@ func aggregateRecordsToDays(records []parsedTranscriptRecord) map[string]DailyTo
 			seenCalls[rec.callID] = true
 		}
 
+		modelKey := strings.TrimSpace(rec.model)
+		if modelKey == "" || strings.EqualFold(modelKey, "default") {
+			// Never emit a synthetic "default" bucket; unattributable turns are omitted from stats.
+			continue
+		}
+
 		day, ok := days[rec.dateKey]
 		if !ok {
 			day = DailyTokenRecord{
@@ -936,11 +1050,6 @@ func aggregateRecordsToDays(records []parsedTranscriptRecord) map[string]DailyTo
 		day.Thinking += rec.thinking
 		day.Steps++
 		day.CostUSD += CalculateCostUSD(rec.model, rec.input, rec.cacheRead, rec.output)
-
-		modelKey := rec.model
-		if modelKey == "" {
-			modelKey = "default"
-		}
 		day.Models[modelKey] += rec.total
 		days[rec.dateKey] = day
 	}
@@ -950,11 +1059,96 @@ func aggregateRecordsToDays(records []parsedTranscriptRecord) map[string]DailyTo
 
 func sessionHasDefaultModel(sess ledgerSession) bool {
 	for _, day := range sess.Days {
-		if day.Models["default"] > 0 {
-			return true
+		for k, cnt := range day.Models {
+			if strings.EqualFold(k, "default") && cnt > 0 {
+				return true
+			}
 		}
 	}
 	return false
+}
+
+func resolveLedgerSessionFallbackModel(convID, source string) string {
+	if convID == "" {
+		return ""
+	}
+	if entries := loadGenMetadataModels(convID, source); len(entries) > 0 {
+		for i := len(entries) - 1; i >= 0; i-- {
+			if m := strings.TrimSpace(entries[i].modelName); m != "" && !strings.EqualFold(m, "default") {
+				return m
+			}
+		}
+	}
+	if parentConvID := lookupParentConvIDFromSummariesDB(convID, source); parentConvID != "" {
+		if m := resolveSubagentModelFromParent(convID, parentConvID, source); m != "" && !strings.EqualFold(m, "default") {
+			return m
+		}
+	}
+	return ""
+}
+
+// sanitizeLedgerDefaultEntries reclassifies any legacy "default" entries when a concrete model
+// can be recovered from local DB/parent metadata, or drops them if unrecoverable.
+func sanitizeLedgerDefaultEntries(ledger *tokenHistoryLedger) bool {
+	if ledger == nil || len(ledger.Sessions) == 0 {
+		return false
+	}
+	changed := false
+	for key, sess := range ledger.Sessions {
+		if !sessionHasDefaultModel(sess) {
+			continue
+		}
+		source, convID, hasSep := strings.Cut(key, ":")
+		if !hasSep {
+			source = sess.Source
+			convID = key
+		}
+		resolvedModel := resolveLedgerSessionFallbackModel(convID, source)
+
+		for dateKey, day := range sess.Days {
+			var defaultCnt int64
+			for mKey, cnt := range day.Models {
+				if strings.EqualFold(mKey, "default") {
+					defaultCnt += cnt
+					delete(day.Models, mKey)
+					changed = true
+				}
+			}
+			if defaultCnt <= 0 {
+				sess.Days[dateKey] = day
+				continue
+			}
+			if resolvedModel != "" {
+				if day.Models == nil {
+					day.Models = make(map[string]int64)
+				}
+				day.Models[resolvedModel] += defaultCnt
+				sess.Days[dateKey] = day
+				continue
+			}
+			// Unrecoverable default tokens: remove them cleanly so totals match remaining models.
+			if len(day.Models) == 0 || day.Total <= defaultCnt {
+				delete(sess.Days, dateKey)
+				changed = true
+				continue
+			}
+			ratio := float64(day.Total-defaultCnt) / float64(day.Total)
+			day.Total -= defaultCnt
+			day.Input = int64(float64(day.Input) * ratio)
+			day.Output = int64(float64(day.Output) * ratio)
+			day.CacheRead = int64(float64(day.CacheRead) * ratio)
+			day.Thinking = int64(float64(day.Thinking) * ratio)
+			day.CostUSD *= ratio
+			sess.Days[dateKey] = day
+			changed = true
+		}
+		if len(sess.Days) == 0 {
+			delete(ledger.Sessions, key)
+		} else {
+			ledger.Sessions[key] = sess
+		}
+	}
+	return changed
 }
 
 func upsertSessionFromFile(ledger *tokenHistoryLedger, job transcriptJob, forceReparse bool) bool {
@@ -1055,6 +1249,9 @@ func GetTokenHistory(forceRefresh bool) (*TokenHistoryResponse, error) {
 			dirty = true
 		}
 	}
+	if sanitizeLedgerDefaultEntries(ledger) {
+		dirty = true
+	}
 	if ledger.Version < currentTokenHistoryLedgerVersion {
 		ledger.Version = currentTokenHistoryLedgerVersion
 		dirty = true
@@ -1094,6 +1291,9 @@ func GetTokenHistory(forceRefresh bool) (*TokenHistoryResponse, error) {
 			day.Steps += dayRec.Steps
 			day.CostUSD += dayRec.CostUSD
 			for modelKey, cnt := range dayRec.Models {
+				if strings.EqualFold(modelKey, "default") || cnt <= 0 {
+					continue
+				}
 				day.Models[modelKey] += cnt
 			}
 

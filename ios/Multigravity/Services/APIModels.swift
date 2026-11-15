@@ -100,7 +100,7 @@ public struct PaginatedMessagesResponse: Codable, Sendable {
     public let totalMessages: Int
     public let hasMore: Bool
     public let nextOffset: Int
-    public let messages: [GatewayMessageItem]
+    public let messages: [GatewayMessageItem]?
     public let cascadeConfigRaw: String?
     public let canProceed: Bool?
     public let proceedArtifactUri: String?

@@ -135,7 +135,7 @@ internal fun ChatViewModel.prepareSession(
     stoppedTaskKeys.clear()
     hasUserManuallySelectedModel = false
 
-    val isDraft = cascadeId.startsWith("local_draft_")
+    val isDraft = cascadeId.isBlank() || cascadeId.startsWith("local_draft_") || cascadeId.startsWith("draft_")
     val resolvedDraftProject = draftProject ?: (if (isDraft) prefs?.getLocalDraftSession(cascadeId)?.project else null)
     this.currentDraftProject = resolvedDraftProject
 
@@ -188,13 +188,13 @@ internal fun ChatViewModel.prepareSession(
             canProceed = cached.canProceed ?: false,
             proceedArtifactUri = cached.proceedArtifactUri,
             pendingInteraction = cached.pendingInteraction,
-            activeModel = if (!isNewConversation && !isDraft) {
+            activeModel = if (!isDraft) {
                 val desktop = prefs?.cachedModelCatalog?.desktopActiveModel?.takeIf { it.isNotBlank() }
                 ModelDefaults.resolveActive(desktop, cached.activeModel ?: favoriteModel1, favoriteModel1, favoriteModel2)
             } else {
                 cached.activeModel ?: favoriteModel1
             },
-            activeModelName = if (!isNewConversation && !isDraft && !prefs?.cachedModelCatalog?.desktopActiveModel.isNullOrBlank()) {
+            activeModelName = if (!isDraft && !prefs?.cachedModelCatalog?.desktopActiveModel.isNullOrBlank()) {
                 prefs?.cachedModelCatalog?.desktopActiveModelName ?: cached.activeModelName ?: _uiState.value.activeModelName
             } else {
                 cached.activeModelName ?: _uiState.value.activeModelName
@@ -225,13 +225,13 @@ internal fun ChatViewModel.prepareSession(
             canProceed = false,
             proceedArtifactUri = null,
             pendingInteraction = null,
-            activeModel = if (!isNewConversation && !isDraft) {
+            activeModel = if (!isDraft) {
                 val desktop = prefs?.cachedModelCatalog?.desktopActiveModel?.takeIf { it.isNotBlank() }
                 ModelDefaults.resolveActive(desktop, favoriteModel1, favoriteModel1, favoriteModel2)
             } else {
                 favoriteModel1
             },
-            activeModelName = if (!isNewConversation && !isDraft && !prefs?.cachedModelCatalog?.desktopActiveModel.isNullOrBlank()) {
+            activeModelName = if (!isDraft && !prefs?.cachedModelCatalog?.desktopActiveModel.isNullOrBlank()) {
                 prefs?.cachedModelCatalog?.desktopActiveModelName
             } else null,
             errorMessage = null,
@@ -257,7 +257,7 @@ internal fun ChatViewModel.initSession(
     } else if (isUnread) {
         this.isUnreadOnEntry = true
     }
-    val isDraft = cascadeId.startsWith("local_draft_")
+    val isDraft = cascadeId.isBlank() || cascadeId.startsWith("local_draft_") || cascadeId.startsWith("draft_")
     val resolvedDraftProject = draftProject ?: this.currentDraftProject ?: (if (isDraft) prefs?.getLocalDraftSession(cascadeId)?.project else null)
     this.currentDraftProject = resolvedDraftProject
 
@@ -319,13 +319,13 @@ internal fun ChatViewModel.initSession(
                 canProceed = cached.canProceed ?: false,
                 proceedArtifactUri = cached.proceedArtifactUri,
                 pendingInteraction = cached.pendingInteraction,
-                activeModel = if (!isNewConversation && !isDraft) {
+                activeModel = if (!isDraft) {
                     val desktop = prefs?.cachedModelCatalog?.desktopActiveModel?.takeIf { it.isNotBlank() }
                     ModelDefaults.resolveActive(desktop, cached.activeModel ?: favoriteModel1, favoriteModel1, favoriteModel2)
                 } else {
                     cached.activeModel ?: favoriteModel1
                 },
-                activeModelName = if (!isNewConversation && !isDraft && !prefs?.cachedModelCatalog?.desktopActiveModel.isNullOrBlank()) {
+                activeModelName = if (!isDraft && !prefs?.cachedModelCatalog?.desktopActiveModel.isNullOrBlank()) {
                     prefs?.cachedModelCatalog?.desktopActiveModelName ?: cached.activeModelName ?: _uiState.value.activeModelName
                 } else {
                     cached.activeModelName ?: _uiState.value.activeModelName
@@ -356,13 +356,13 @@ internal fun ChatViewModel.initSession(
                 canProceed = false,
                 proceedArtifactUri = null,
                 pendingInteraction = null,
-                activeModel = if (!isNewConversation && !isDraft) {
+                activeModel = if (!isDraft) {
                 val desktop = prefs?.cachedModelCatalog?.desktopActiveModel?.takeIf { it.isNotBlank() }
                 ModelDefaults.resolveActive(desktop, favoriteModel1, favoriteModel1, favoriteModel2)
             } else {
                 favoriteModel1
             },
-            activeModelName = if (!isNewConversation && !isDraft && !prefs?.cachedModelCatalog?.desktopActiveModel.isNullOrBlank()) {
+            activeModelName = if (!isDraft && !prefs?.cachedModelCatalog?.desktopActiveModel.isNullOrBlank()) {
                 prefs?.cachedModelCatalog?.desktopActiveModelName
             } else null,
                 errorMessage = null,
@@ -371,11 +371,24 @@ internal fun ChatViewModel.initSession(
             )
         }
     } else {
+        val desktop = if (!isDraft) prefs?.cachedModelCatalog?.desktopActiveModel?.takeIf { it.isNotBlank() } else null
+        val syncedModel = if (!hasUserManuallySelectedModel && desktop != null) {
+            ModelDefaults.resolveActive(desktop, _uiState.value.activeModel, favoriteModel1, favoriteModel2)
+        } else {
+            _uiState.value.activeModel
+        }
+        val syncedName = if (!hasUserManuallySelectedModel && desktop != null) {
+            prefs?.cachedModelCatalog?.desktopActiveModelName ?: _uiState.value.activeModelName
+        } else {
+            _uiState.value.activeModelName
+        }
         _uiState.value = _uiState.value.copy(
             title = initialTitle?.takeIf { it.isNotBlank() } ?: _uiState.value.title,
             workspaceName = if (resolvedWs.isNotBlank()) resolvedWs else _uiState.value.workspaceName,
             isNewConversation = isNewConversation,
-            isLoading = if (_uiState.value.messages.isEmpty() && !isNewConversation && !isDraft) true else false
+            isLoading = if (_uiState.value.messages.isEmpty() && !isNewConversation && !isDraft) true else false,
+            activeModel = syncedModel,
+            activeModelName = syncedName
         )
     }
 
@@ -420,6 +433,7 @@ internal fun ChatViewModel.initSession(
         apiClient.fetchMessages(cascadeId, limit = 15)
             .onSuccess { payload ->
                 if (_uiState.value.cascadeId == cascadeId) {
+                    prefs?.updateDesktopActiveModel(payload.desktopActiveModel, payload.desktopActiveModelName)
                     val incoming = payload.messages ?: emptyList()
                     val mergedMsgs = if (_uiState.value.messages.isNotEmpty()) {
                         mergeIncomingMessages(incoming)
@@ -456,11 +470,11 @@ internal fun ChatViewModel.initSession(
                         proceedArtifactUri = payload.proceedArtifactUri,
                         pendingInteraction = payload.pendingInteraction,
                         activeModel = if (hasUserManuallySelectedModel) _uiState.value.activeModel else {
-                            val serverModel = if (!isNewConversation && !payload.desktopActiveModel.isNullOrBlank()) payload.desktopActiveModel else payload.activeModel
+                            val serverModel = if (!isDraft && !payload.desktopActiveModel.isNullOrBlank()) payload.desktopActiveModel else payload.activeModel
                             ModelDefaults.resolveActive(serverModel, _uiState.value.activeModel, favoriteModel1, favoriteModel2)
                         },
                         activeModelName = if (hasUserManuallySelectedModel) _uiState.value.activeModelName else {
-                            val serverName = if (!isNewConversation && !payload.desktopActiveModel.isNullOrBlank()) payload.desktopActiveModelName else payload.activeModelName
+                            val serverName = if (!isDraft && !payload.desktopActiveModel.isNullOrBlank()) payload.desktopActiveModelName else payload.activeModelName
                             serverName ?: _uiState.value.activeModelName
                         },
                         startedAt = payload.startedAt ?: _uiState.value.startedAt,
@@ -544,6 +558,10 @@ internal fun ChatViewModel.ensureWebSocketObserving() {
             wsClient.streamUpdates.collect { payload ->
                 if (payload == null) return@collect
                 if (payload.cascadeId != _uiState.value.cascadeId) return@collect
+                prefs?.updateDesktopActiveModel(payload.desktopActiveModel, payload.desktopActiveModelName)
+                val isCurrentDraft = _uiState.value.cascadeId.let {
+                    it.isBlank() || it.startsWith("local_draft_") || it.startsWith("draft_")
+                }
 
                 val rawMsgs = payload.messages
                 val msgs = if (rawMsgs != null) {
@@ -596,11 +614,11 @@ internal fun ChatViewModel.ensureWebSocketObserving() {
                     proceedArtifactUri = payload.proceedArtifactUri,
                     pendingInteraction = payload.pendingInteraction,
                     activeModel = if (hasUserManuallySelectedModel) _uiState.value.activeModel else {
-                        val serverModel = if (!_uiState.value.isNewConversation && !payload.desktopActiveModel.isNullOrBlank()) payload.desktopActiveModel else payload.activeModel
+                        val serverModel = if (!isCurrentDraft && !payload.desktopActiveModel.isNullOrBlank()) payload.desktopActiveModel else payload.activeModel
                         ModelDefaults.resolveActive(serverModel, _uiState.value.activeModel, favoriteModel1, favoriteModel2)
                     },
                     activeModelName = if (hasUserManuallySelectedModel) _uiState.value.activeModelName else {
-                        val serverName = if (!_uiState.value.isNewConversation && !payload.desktopActiveModel.isNullOrBlank()) payload.desktopActiveModelName else payload.activeModelName
+                        val serverName = if (!isCurrentDraft && !payload.desktopActiveModel.isNullOrBlank()) payload.desktopActiveModelName else payload.activeModelName
                         serverName ?: _uiState.value.activeModelName
                     },
                     startedAt = payload.startedAt ?: _uiState.value.startedAt,
@@ -728,6 +746,7 @@ internal fun ChatViewModel.loadOlderMessages() {
         apiClient.fetchMessages(cascadeId, limit = 15, offset = state.nextOffset)
             .onSuccess { payload ->
                 if (_uiState.value.cascadeId == cascadeId) {
+                    prefs?.updateDesktopActiveModel(payload.desktopActiveModel, payload.desktopActiveModelName)
                     val incoming = payload.messages ?: emptyList()
                     val existingIds = _uiState.value.messages.map { it.id }.toSet()
                     val uniqueOlder = incoming.filter { !existingIds.contains(it.id) }

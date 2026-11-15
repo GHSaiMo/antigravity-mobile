@@ -27,7 +27,7 @@ extension APIClient {
             let (data, response) = try await transport.send(request: request)
             if let httpResp = response as? HTTPURLResponse, httpResp.statusCode == 200 {
                 let decoded = try JSONDecoder().decode(PaginatedMessagesResponse.self, from: data)
-                let chatMessages = decoded.messages.map { item -> ChatMessage in
+                let chatMessages = (decoded.messages ?? []).map { item -> ChatMessage in
                     let sender: ChatMessage.MessageSender = {
                         switch item.type {
                         case "user": return .user

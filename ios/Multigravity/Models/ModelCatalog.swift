@@ -746,6 +746,38 @@ public final class ModelCatalogStore {
         return ModelDefaultsLogic.staticIDByEnum[modelEnum]
     }
 
+    /// 用来自会话接口/流推送的最新桌面端选中模型同步本地目录缓存，避免跨会话切换读到旧缓存。
+    public func updateDesktopActiveModel(_ model: String?, name: String? = nil) {
+        guard let model, !model.isEmpty else { return }
+        let normalizedName = (name?.isEmpty == false) ? name : nil
+        if var existing = catalog {
+            if existing.desktopActiveModel == model &&
+                (normalizedName == nil || existing.desktopActiveModelName == normalizedName) {
+                return
+            }
+            existing.desktopActiveModel = model
+            if let normalizedName {
+                existing.desktopActiveModelName = normalizedName
+            }
+            catalog = existing
+            if let data = try? JSONEncoder().encode(existing) {
+                UserDefaults.standard.set(data, forKey: Self.storageKey)
+            }
+        } else {
+            let seeded = ModelsResponse(
+                models: ModelDefaultsLogic.fallbackOptions,
+                defaults: [:],
+                live: false,
+                desktopActiveModel: model,
+                desktopActiveModelName: normalizedName
+            )
+            catalog = seeded
+            if let data = try? JSONEncoder().encode(seeded) {
+                UserDefaults.standard.set(data, forKey: Self.storageKey)
+            }
+        }
+    }
+
     /// 仅在目录缺失或超过 maxAge 时刷新，避免页面切换重复打网关。
     public func refreshIfNeeded(settings: AppSettings, baseURL: URL, maxAge: TimeInterval = 180) async {
         if isLoading { return }

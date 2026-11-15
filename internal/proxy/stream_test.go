@@ -291,3 +291,23 @@ func TestRawTrajectorySignature(t *testing.T) {
 	}
 }
 
+func TestStreamUpdatePayloadFingerprintIncludesDesktopActiveModel(t *testing.T) {
+	p1 := StreamUpdatePayload{
+		Type:               "update",
+		CascadeID:          "c1",
+		Status:             "CASCADE_RUN_STATUS_IDLE",
+		DesktopActiveModel: "gemini-4-hydrogen-high",
+	}
+	p2 := p1
+	p2.DesktopActiveModel = "gemini-4-carbon-high"
+	if p1.Fingerprint() == p2.Fingerprint() {
+		t.Fatalf("expected Fingerprint to change when DesktopActiveModel changes")
+	}
+
+	p1.Steps = []TrajectoryStep{{Type: "CORTEX_STEP_TYPE_USER_INPUT", Status: "CORTEX_STEP_STATUS_DONE"}}
+	p2.Steps = p1.Steps
+	if p1.Fingerprint() == p2.Fingerprint() {
+		t.Fatalf("expected non-empty Steps Fingerprint to change when DesktopActiveModel changes")
+	}
+}
+

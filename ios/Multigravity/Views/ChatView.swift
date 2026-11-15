@@ -343,8 +343,16 @@ public struct ChatView: View {
         .task {
             ChatViewModel.activeCascadeId = viewModel.cascadeId
             if let url = AppSettings.shared.serverURL {
-                Task {
+                Task { @MainActor in
                     await ModelCatalogStore.shared.refreshIfNeeded(settings: AppSettings.shared, baseURL: url)
+                    if !viewModel.isDraftConversation && !viewModel.hasUserManuallySelectedModel,
+                       let desktopModel = ModelCatalogStore.shared.catalog?.desktopActiveModel,
+                       !desktopModel.isEmpty {
+                        viewModel.syncModel(from: desktopModel)
+                        if let dName = ModelCatalogStore.shared.catalog?.desktopActiveModelName, !dName.isEmpty {
+                            viewModel.activeModelName = dName
+                        }
+                    }
                 }
                 Task {
                     await WorkflowTemplateStore.shared.refresh()
