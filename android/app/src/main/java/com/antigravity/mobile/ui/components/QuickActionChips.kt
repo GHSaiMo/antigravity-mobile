@@ -35,6 +35,7 @@ import com.antigravity.mobile.data.model.ModelsResponse
 import com.antigravity.mobile.data.model.SlashCommandOption
 import com.antigravity.mobile.data.model.WorkflowTemplateRecord
 import com.antigravity.mobile.ui.theme.AntigravityTheme
+import com.antigravity.mobile.ui.theme.modelProviderAccent
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -71,12 +72,7 @@ fun QuickActionChips(
     val providerKind = remember(activeModel) {
         ModelDefaults.providerKind(activeModel)
     }
-    val chipTextColor = when (providerKind) {
-        "claude" -> colors.accentOrange
-        "orchestrator" -> colors.accentPurple
-        "other" -> Color(0xFF30B0C7)
-        else -> colors.accentBlue
-    }
+    val chipTextColor = colors.modelProviderAccent(providerKind)
     val haptic = com.antigravity.mobile.ui.util.rememberHaptic()
     val hapticFeedback = LocalHapticFeedback.current
     val density = LocalDensity.current

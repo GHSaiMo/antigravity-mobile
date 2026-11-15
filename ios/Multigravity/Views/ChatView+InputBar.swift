@@ -348,12 +348,7 @@ extension ChatView {
     // 不要在 ChatView 上重新声明并在 body 中读取，否则会把 inputText 订阅带回 ChatView.body，打字时整页重绘。
 
     private var modelChipForegroundColor: Color {
-        switch viewModel.activeModelProviderKind {
-        case .claude: return .orange
-        case .orchestrator: return .purple
-        case .other: return .teal
-        case .gemini: return .blue
-        }
+        viewModel.activeModelProviderKind.accentColor
     }
 
     private var modelChipBackgroundColor: Color {

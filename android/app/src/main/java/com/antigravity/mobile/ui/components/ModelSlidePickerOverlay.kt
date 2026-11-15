@@ -63,6 +63,7 @@ import com.antigravity.mobile.data.model.ModelDefaults
 import com.antigravity.mobile.data.model.ModelOption
 import com.antigravity.mobile.data.model.ModelVariant
 import com.antigravity.mobile.ui.theme.AntigravityTheme
+import com.antigravity.mobile.ui.theme.modelProviderAccent
 import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.min
@@ -110,7 +111,7 @@ class ModelSlidePickerState {
         val columnLockHysteresis = 6.dp
     }
 
-    /** 长按打开全模型一级菜单：按 Gemini(蓝) -> Claude(橙) -> Orchestrator(紫) -> 其他 列出全部可用模型。 */
+    /** 长按打开全模型一级菜单：按 Gemini(蓝) -> Claude(橙) -> Orchestrator(钛灰) -> 其他 列出全部可用模型。 */
     fun open(activeModel: String, options: List<ModelOption>) {
         val families = ModelDefaults.modelFamilies(options, provider = null)
         val builtRows = mutableListOf<ModelPickerRow>()
@@ -397,15 +398,7 @@ class ModelSlidePickerState {
 }
 
 @Composable
-private fun providerAccentColor(kind: String): Color {
-    val colors = AntigravityTheme.colors
-    return when (kind) {
-        "claude" -> colors.accentOrange
-        "orchestrator" -> colors.accentPurple
-        "other" -> Color(0xFF30B0C7)
-        else -> colors.accentBlue
-    }
-}
+private fun providerAccentColor(kind: String): Color = AntigravityTheme.colors.modelProviderAccent(kind)
 
 @Composable
 fun ModelSlidePickerOverlay(

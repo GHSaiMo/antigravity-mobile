@@ -1,7 +1,9 @@
 package cockpit
 
 import (
+	"encoding/hex"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
@@ -284,4 +286,221 @@ func TestGetTokenHistory_LargeJSONLLineOver64KB(t *testing.T) {
 	if resp.Summary.TotalTokens != 10000 {
 		t.Fatalf("TotalTokens for >64KB JSONL line = %d, want 10000", resp.Summary.TotalTokens)
 	}
+}
+
+func encodeTestPBString(fieldNum int, s string) []byte {
+	return encodeTestPBBytes(fieldNum, []byte(s))
+}
+
+func encodeTestVarint(v uint64) []byte {
+	var out []byte
+	for {
+		if v < 0x80 {
+			out = append(out, byte(v))
+			break
+		}
+		out = append(out, byte((v&0x7f)|0x80))
+		v >>= 7
+	}
+	return out
+}
+
+func encodeTestPBBytes(fieldNum int, b []byte) []byte {
+	var out []byte
+	out = append(out, encodeTestVarint(uint64((fieldNum<<3)|2))...)
+	out = append(out, encodeTestVarint(uint64(len(b)))...)
+	out = append(out, b...)
+	return out
+}
+
+func encodeTestGenMetadataBlob(slug, modelEnum, displayName, lastStepIndex string) []byte {
+	var inner []byte
+	if slug != "" {
+		inner = append(inner, encodeTestPBString(19, slug)...)
+	}
+	if modelEnum != "" {
+		kv := append(encodeTestPBString(1, "model_enum"), encodeTestPBString(2, modelEnum)...)
+		inner = append(inner, encodeTestPBBytes(20, kv)...)
+	}
+	if lastStepIndex != "" {
+		kv := append(encodeTestPBString(1, "last_step_index"), encodeTestPBString(2, lastStepIndex)...)
+		inner = append(inner, encodeTestPBBytes(20, kv)...)
+	}
+	if displayName != "" {
+		inner = append(inner, encodeTestPBString(21, displayName)...)
+	}
+	return encodeTestPBBytes(1, inner)
+}
+
+func TestParseGenMetadataBlob(t *testing.T) {
+	blob1 := encodeTestGenMetadataBlob("gemini-4-carbon", "MODEL_PLACEHOLDER_M427", "Gemini 4 Carbon (High)", "0")
+	step1, name1 := parseGenMetadataBlob(blob1)
+	if step1 != 0 || name1 != "Gemini 4 Carbon (High)" {
+		t.Fatalf("blob1 = (%d, %q), want (0, %q)", step1, name1, "Gemini 4 Carbon (High)")
+	}
+
+	blob2 := encodeTestGenMetadataBlob("claude-opus-4-6-thinking", "MODEL_PLACEHOLDER_M26", "", "12")
+	step2, name2 := parseGenMetadataBlob(blob2)
+	if step2 != 12 || name2 != "Claude Opus 4.6 (Thinking)" {
+		t.Fatalf("blob2 = (%d, %q), want (12, %q)", step2, name2, "Claude Opus 4.6 (Thinking)")
+	}
+
+	blob3 := encodeTestGenMetadataBlob("gemini-3.8-flash-tiered", "MODEL_PLACEHOLDER_M322", "", "4")
+	step3, name3 := parseGenMetadataBlob(blob3)
+	if step3 != 4 || name3 != "Gemini 3.8 Flash" {
+		t.Fatalf("blob3 = (%d, %q), want (4, %q)", step3, name3, "Gemini 3.8 Flash")
+	}
+}
+
+func TestGetTokenHistory_ResolvesSubagentModelFromConversationDB(t *testing.T) {
+	sqliteBin, err := exec.LookPath("sqlite3")
+	if err != nil {
+		t.Skip("sqlite3 not available")
+	}
+
+	tempHome := t.TempDir()
+	t.Setenv("HOME", tempHome)
+	t.Setenv("COCKPIT_TOOLS_DATA_DIR", filepath.Join(tempHome, ".cockpit_tools"))
+	t.Setenv("COCKPIT_DATA_DIR", "")
+
+	convID := "subagent-db-1"
+	logDir := filepath.Join(tempHome, ".gemini", "antigravity", "brain", convID, ".system_generated", "logs")
+	convDBDir := filepath.Join(tempHome, ".gemini", "antigravity", "conversations")
+	if err := os.MkdirAll(logDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(convDBDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Subagent transcript starts with SYSTEM_MESSAGE (no USER_SETTINGS_CHANGE / chatModel).
+	transcript := `{"step_index":0,"source":"SYSTEM","type":"SYSTEM_MESSAGE","status":"DONE","created_at":"2026-11-15T10:00:00Z","content":"[Message] sender=parent-conv-1234567890"}` + "\n" +
+		`{"step_index":1,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"2026-11-15T10:00:01Z","input_tokens":1000,"cache_read_tokens":500,"output_tokens":200,"callId":"sub-c1"}` + "\n" +
+		`{"step_index":3,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"2026-11-15T10:00:05Z","input_tokens":400,"cache_read_tokens":0,"output_tokens":100,"callId":"sub-c2"}` + "\n"
+	transcriptPath := filepath.Join(logDir, "transcript.jsonl")
+	if err := os.WriteFile(transcriptPath, []byte(transcript), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Write a stale v1 ledger with "default" to verify automatic backfill when Version < 2.
+	dataDir := filepath.Join(tempHome, ".cockpit_tools")
+	if err := os.MkdirAll(dataDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	st, err := os.Stat(transcriptPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	staleLedger := `{"version":1,"sessions":{"desktop:subagent-db-1":{"source":"desktop","size":` +
+		strconvFormatInt(st.Size()) + `,"mod_time_nano":` + strconvFormatInt(st.ModTime().UnixNano()) +
+		`,"days":{"2026-11-15":{"date":"2026-11-15","total":2200,"input":1400,"output":300,"cache_read":500,"thinking":0,"steps":2,"cost_usd":0.003,"models":{"default":2200}}}}}}`
+	if err := os.WriteFile(filepath.Join(dataDir, "token_history_ledger.json"), []byte(staleLedger), 0600); err != nil {
+		t.Fatal(err)
+	}
+	// Reset in-memory ledger cache for clean test isolation.
+	historyMu.Lock()
+	cachedLedger = nil
+	cachedLedgerPath = ""
+	cachedHistoryResp = nil
+	historyMu.Unlock()
+
+	blob0 := hex.EncodeToString(encodeTestGenMetadataBlob("gemini-4-carbon", "MODEL_PLACEHOLDER_M427", "Gemini 4 Carbon (High)", "0"))
+	blob1 := hex.EncodeToString(encodeTestGenMetadataBlob("gemini-4-hydrogen", "MODEL_PLACEHOLDER_M525", "Gemini 4 Hydrogen (High)", "2"))
+	dbPath := filepath.Join(convDBDir, convID+".db")
+	sql := "CREATE TABLE gen_metadata (idx integer PRIMARY KEY, data blob, size integer NOT NULL DEFAULT 0);" +
+		"INSERT INTO gen_metadata (idx, data, size) VALUES (0, X'" + blob0 + "', 10);" +
+		"INSERT INTO gen_metadata (idx, data, size) VALUES (1, X'" + blob1 + "', 10);"
+	if out, err := exec.Command(sqliteBin, dbPath, sql).CombinedOutput(); err != nil {
+		t.Fatalf("sqlite3 init failed: %v (%s)", err, string(out))
+	}
+
+	resp, err := GetTokenHistory(false)
+	if err != nil {
+		t.Fatalf("GetTokenHistory() error = %v", err)
+	}
+	if len(resp.DailyMatrix) != 1 {
+		t.Fatalf("DailyMatrix len = %d, want 1", len(resp.DailyMatrix))
+	}
+	models := resp.DailyMatrix[0].Models
+	if models["default"] != 0 {
+		t.Fatalf("expected no default model, got %v", models)
+	}
+	if models["Gemini 4 Carbon (High)"] != 1700 {
+		t.Errorf("Gemini 4 Carbon (High) = %d, want 1700 (models=%v)", models["Gemini 4 Carbon (High)"], models)
+	}
+	if models["Gemini 4 Hydrogen (High)"] != 500 {
+		t.Errorf("Gemini 4 Hydrogen (High) = %d, want 500 (models=%v)", models["Gemini 4 Hydrogen (High)"], models)
+	}
+}
+
+func TestGetTokenHistory_ResolvesSubagentModelFromParentFallback(t *testing.T) {
+	tempHome := t.TempDir()
+	t.Setenv("HOME", tempHome)
+	t.Setenv("COCKPIT_TOOLS_DATA_DIR", filepath.Join(tempHome, ".cockpit_tools"))
+	t.Setenv("COCKPIT_DATA_DIR", "")
+
+	parentID := "parent-conv-abcdef0123456789"
+	childID := "child-conv-abcdef0123456789"
+
+	parentLogDir := filepath.Join(tempHome, ".gemini", "antigravity", "brain", parentID, ".system_generated", "logs")
+	childLogDir := filepath.Join(tempHome, ".gemini", "antigravity", "brain", childID, ".system_generated", "logs")
+	if err := os.MkdirAll(parentLogDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(childLogDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	parentFull := `{"step_index":0,"source":"USER_EXPLICIT","type":"USER_INPUT","content":"<USER_SETTINGS_CHANGE>\nThe user changed setting ` + "`Model Selection`" + ` from None to Gemini 4 Carbon (High).\n</USER_SETTINGS_CHANGE>"}` + "\n" +
+		`{"step_index":1,"source":"MODEL","type":"PLANNER_RESPONSE","tool_calls":[{"name":"invoke_subagent","args":{"Model":"flash","Role":"Browser","TypeName":"browser"}}]}` + "\n" +
+		`{"step_index":2,"source":"SYSTEM","type":"GENERIC","content":"Created the following subagent:\n{\"conversationId\":\"` + childID + `\"}"}` + "\n"
+	if err := os.WriteFile(filepath.Join(parentLogDir, "transcript_full.jsonl"), []byte(parentFull), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	childLog := `{"step_index":0,"source":"SYSTEM","type":"SYSTEM_MESSAGE","status":"DONE","created_at":"2026-11-15T10:00:00Z","content":"[Message] sender=` + parentID + ` content=check"}` + "\n" +
+		`{"step_index":1,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"2026-11-15T10:00:01Z","input_tokens":800,"cache_read_tokens":0,"output_tokens":200,"callId":"ch-1"}` + "\n"
+	if err := os.WriteFile(filepath.Join(childLogDir, "transcript.jsonl"), []byte(childLog), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	historyMu.Lock()
+	cachedLedger = nil
+	cachedLedgerPath = ""
+	cachedHistoryResp = nil
+	historyMu.Unlock()
+
+	resp, err := GetTokenHistory(true)
+	if err != nil {
+		t.Fatalf("GetTokenHistory() error = %v", err)
+	}
+	if len(resp.DailyMatrix) != 1 {
+		t.Fatalf("DailyMatrix len = %d, want 1", len(resp.DailyMatrix))
+	}
+	models := resp.DailyMatrix[0].Models
+	if models["default"] != 0 || models["Gemini 3.8 Flash"] != 1000 {
+		t.Fatalf("expected Gemini 3.8 Flash=1000 without default, got %v", models)
+	}
+}
+
+func strconvFormatInt(v int64) string {
+	if v == 0 {
+		return "0"
+	}
+	neg := v < 0
+	if neg {
+		v = -v
+	}
+	var buf [24]byte
+	i := len(buf)
+	for v > 0 {
+		i--
+		buf[i] = byte('0' + v%10)
+		v /= 10
+	}
+	if neg {
+		i--
+		buf[i] = '-'
+	}
+	return string(buf[i:])
 }

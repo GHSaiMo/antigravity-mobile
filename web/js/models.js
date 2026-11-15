@@ -2,7 +2,7 @@
 //
 // 网关 GET /gateway/models 返回 language_server 当前可用的模型（含内部枚举）和建议默认模型；
 // 设置页配置两个常用模型（均支持全部模型与全部思考强度），新会话首选常用模型 1；
-// 单击模型胶囊在两个常用模型间快速切换；长按/右键列出全部模型（Gemini 蓝 / Claude 橙 / Orchestrator 紫）及二级思考强度（Low -> Medium -> High -> Extra，默认 Medium）。
+// 单击模型胶囊在两个常用模型间快速切换；长按/右键列出全部模型（Gemini 蓝 / Claude 橙 / Orchestrator 钛灰）及二级思考强度（Low -> Medium -> High -> Extra，默认 Medium）。
 
 const MODEL_FALLBACK = {
   gemini: "gemini-3.8-flash-high",
@@ -423,7 +423,7 @@ function initModelSettings() {
   loadModelCatalog();
 }
 
-// Web 端长按 / 右键全模型二级菜单（蓝色 Gemini / 橙色 Claude / 紫色 Orchestrator；二级菜单 Low -> Medium -> High -> Extra，默认 Medium）
+// Web 端长按 / 右键全模型二级菜单（蓝色 Gemini / 橙色 Claude / 石墨钛灰 Orchestrator；二级菜单 Low -> Medium -> High -> Extra，默认 Medium）
 let webPickerState = null;
 
 function dismissWebModelPicker() {

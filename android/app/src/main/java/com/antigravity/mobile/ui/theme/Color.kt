@@ -22,6 +22,7 @@ val LightAppleOrange = Color(0xFFFF9500)
 val LightAppleRed = Color(0xFFFF3B30)
 val LightAppleYellow = Color(0xFFFFCC00)
 val LightApplePurple = Color(0xFFAF52DE)
+val LightOrchestratorSlate = Color(0xFF334155)
 val LightCodeBlockBg = Color(0xFFF6F8FA)
 
 // Dark Palette (1:1 Apple HIG / iOS System Colors)
@@ -43,6 +44,7 @@ val DarkAppleOrange = Color(0xFFFF9F0A)
 val DarkAppleRed = Color(0xFFFF453A)
 val DarkAppleYellow = Color(0xFFFFD60A)
 val DarkApplePurple = Color(0xFFBF5AF2)
+val DarkOrchestratorSlate = Color(0xFFCBD5E1)
 val DarkCodeBlockBg = Color(0xFF161B22)
 
 // Common Accent references for backward compatibility
@@ -83,6 +85,7 @@ data class AppColors(
     val accentRed: Color,
     val accentYellow: Color,
     val accentPurple: Color,
+    val accentOrchestrator: Color,
     val codeBlockBg: Color,
     val searchBarBg: Color,
     val inputBarBg: Color,
@@ -111,6 +114,7 @@ val LightAppColors = AppColors(
     accentRed = LightAppleRed,
     accentYellow = LightAppleYellow,
     accentPurple = LightApplePurple,
+    accentOrchestrator = LightOrchestratorSlate,
     codeBlockBg = LightCodeBlockBg,
     searchBarBg = Color(0xFFE3E3E8),
     inputBarBg = LightSecondarySystemGroupedBackground,
@@ -139,11 +143,20 @@ val DarkAppColors = AppColors(
     accentRed = DarkAppleRed,
     accentYellow = DarkAppleYellow,
     accentPurple = DarkApplePurple,
+    accentOrchestrator = DarkOrchestratorSlate,
     codeBlockBg = DarkCodeBlockBg,
     searchBarBg = Color(0xFF1C1C1E),
     inputBarBg = Color(0xFF121212),
     cardShadow = Color(0x33000000)
 )
+
+/** 厂商专属强调色（Gemini 蓝 / Claude 橙 / Orchestrator 石墨钛灰 / Other 青）。 */
+fun AppColors.modelProviderAccent(kind: String): Color = when (kind) {
+    "claude" -> accentOrange
+    "orchestrator" -> accentOrchestrator
+    "other" -> Color(0xFF30B0C7)
+    else -> accentBlue
+}
 
 typealias AntigravityColors = AppColors
 
