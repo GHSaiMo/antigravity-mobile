@@ -387,10 +387,23 @@ public final class ConversationListViewModel {
     }
 
     @MainActor
+    public func updateGlobalBackgroundTasks(_ tasks: [GlobalBackgroundTaskItem]) {
+        let wasEmpty = self.globalBackgroundTasks.isEmpty
+        let isNowEmpty = tasks.isEmpty
+        if wasEmpty != isNowEmpty {
+            withAnimation(.spring(response: 0.42, dampingFraction: 0.72)) {
+                self.globalBackgroundTasks = tasks
+            }
+        } else {
+            self.globalBackgroundTasks = tasks
+        }
+    }
+
+    @MainActor
     public func fetchGlobalBackgroundTasks() async {
         guard settings.isPaired, let url = settings.serverURL else { return }
         if let tasks = try? await apiClient.fetchGlobalBackgroundTasks(baseURL: url) {
-            self.globalBackgroundTasks = tasks
+            updateGlobalBackgroundTasks(tasks)
         }
     }
     
