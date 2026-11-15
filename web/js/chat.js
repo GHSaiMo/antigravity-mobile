@@ -77,7 +77,6 @@ function checkLatestMessageIsError(steps, isRunning) {
 }
 
 // --- Floating Interaction Card Management ---
-let autoApprovePermissions = localStorage.getItem("agy_auto_approve_permissions") === "true";
 let currentPendingInteraction = null;
 let selectedInteractionOptionId = null;
 let isSubmittingInteraction = false;
@@ -100,30 +99,10 @@ function updatePendingInteraction(interaction, isRunning) {
 
   currentPendingInteraction = interaction;
   if (isDifferent || !selectedInteractionOptionId) {
-    const isPermissionType = interaction.type === "permission" || interaction.type === "file_permission";
-    if (autoApprovePermissions && isPermissionType) {
-      const opt4 = interaction.options.find(o => o.scope === 4 || o.id === "4" || (o.text && o.text.toLowerCase().includes("always allow")));
-      selectedInteractionOptionId = opt4 ? opt4.id : (interaction.defaultOptionId || interaction.options?.[0]?.id || "");
-    } else {
-      selectedInteractionOptionId = interaction.defaultOptionId || interaction.options?.[0]?.id || (interaction.hasWriteIn ? "__write_in__" : "");
-    }
+    selectedInteractionOptionId = interaction.defaultOptionId || interaction.options?.[0]?.id || (interaction.hasWriteIn ? "__write_in__" : "");
   }
 
   renderInteractionCard();
-
-  // Trigger auto-approve if enabled and this is a permission request
-  const isPermissionType = interaction.type === "permission" || interaction.type === "file_permission";
-  if (autoApprovePermissions && isPermissionType && !isSubmittingInteraction) {
-    const opt4 = interaction.options.find(o => o.scope === 4 || o.id === "4" || (o.text && o.text.toLowerCase().includes("always allow")));
-    if (opt4) {
-      selectedInteractionOptionId = opt4.id;
-      setTimeout(() => {
-        if (currentPendingInteraction && currentPendingInteraction.stepIndex === interaction.stepIndex && !isSubmittingInteraction) {
-          handleInteractionSubmit(false);
-        }
-      }, 250);
-    }
-  }
 }
 
 let multiQuestionSelections = {};
@@ -347,11 +326,6 @@ function renderInteractionCard() {
       ${contentHtml}
 
       <div class="interaction-card-actions" style="display: flex; align-items: center; gap: 10px; margin-top: 12px;">
-        ${(interaction.type === "permission" || interaction.type === "file_permission") ? `
-          <button type="button" id="btn-interaction-auto-approve" class="btn-interaction-auto ${autoApprovePermissions ? 'active' : ''}" style="border: 1px solid var(--border-color); border-radius: 6px; padding: 4px 8px; font-size: 11px; background: ${autoApprovePermissions ? 'rgba(234, 179, 8, 0.15)' : 'transparent'}; color: ${autoApprovePermissions ? '#ca8a04' : 'var(--text-secondary)'}; cursor: pointer;">
-            <span>⚡️ ${autoApprovePermissions ? '自动审批: 开' : '自动审批: 关'}</span>
-          </button>
-        ` : ''}
         <button type="button" id="btn-interaction-skip" class="btn-interaction-skip" ${isSubmittingInteraction ? 'disabled' : ''} style="flex: 1; text-align: center; padding: 8px 14px; border-radius: 8px; border: 1px solid var(--border-color); background: transparent; color: var(--text-secondary); cursor: pointer;">跳过</button>
         <button type="button" id="btn-interaction-submit" class="btn-interaction-submit" ${isSubmittingInteraction ? 'disabled' : ''} style="flex: 1; text-align: center; padding: 8px 16px; border-radius: 8px; border: none; background: #2563eb; color: white; font-weight: 600; cursor: pointer;">
           <span>${isSubmittingInteraction ? '提交中...' : '提交'}</span>
@@ -416,21 +390,6 @@ function renderInteractionCard() {
       }
     });
   });
-
-  const autoApproveBtn = container.querySelector("#btn-interaction-auto-approve");
-  if (autoApproveBtn) {
-    autoApproveBtn.addEventListener("click", () => {
-      autoApprovePermissions = !autoApprovePermissions;
-      localStorage.setItem("agy_auto_approve_permissions", autoApprovePermissions ? "true" : "false");
-      if (autoApprovePermissions && currentPendingInteraction) {
-        const opt4 = currentPendingInteraction.options?.find(o => o.scope === 4 || o.id === "4" || (o.text && o.text.toLowerCase().includes("always allow")));
-        if (opt4) {
-          selectedInteractionOptionId = opt4.id;
-        }
-      }
-      renderInteractionCard();
-    });
-  }
 
   const writeInInput = container.querySelector("#interaction-write-in-input");
   if (writeInInput) {
@@ -1036,8 +995,9 @@ async function connectStreamWs(cascadeId) {
           saveStreamResumeState(cascadeId, data.rev, ws.__steps, ws.__messages);
         }
 
-        if (data.activeModel) {
-          syncActiveModel(data.activeModel);
+        const alignedModel = data.desktopActiveModel || data.activeModel;
+        if (alignedModel) {
+          syncActiveModel(alignedModel);
         }
 
         const isRunning = data.status === "CASCADE_RUN_STATUS_RUNNING" || hasActiveRunningTasks(data.runningTasks);
@@ -1181,8 +1141,9 @@ async function loadChat(cascadeId, isBackgroundPoll = false) {
         .then(res => res.json())
         .then(info => {
           if (activeCascadeId === cascadeId) {
-            if (info.activeModel) {
-              syncActiveModel(info.activeModel);
+            const alignedModel = info.desktopActiveModel || info.activeModel;
+            if (alignedModel) {
+              syncActiveModel(alignedModel);
             }
             if (info.queuedMessages !== undefined) {
               LocalQueueManager.syncFromServer(info.queuedMessages, info.messages || info.steps);

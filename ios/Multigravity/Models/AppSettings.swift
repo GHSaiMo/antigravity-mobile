@@ -37,7 +37,6 @@ public final class AppSettings {
     private let defaultClaudeModelKey = "antigravity.default_claude_model"
     private let defaultOrchestratorModelKey = "antigravity.default_orchestrator_model"
     private let defaultNewSessionProviderKey = "antigravity.default_new_session_provider"
-    private let autoApprovePermissionsKey = "antigravity.auto_approve_permissions"
     private let enableVoiceModeKey = "antigravity.enable_voice_mode"
     private let weeklyPaceCursorKey = "antigravity.weekly_pace_cursor"
     private let selectedQuotaBucketKey = "antigravity.selected_quota_bucket"
@@ -46,12 +45,7 @@ public final class AppSettings {
     private let knowledgeModeKey = "antigravity.knowledge_mode_enabled"
     private let gatewayPlatformKey = "antigravity.gateway_platform"
     private let demoModeKey = "antigravity.demo_mode"
-    private let legacyVoiceLongPressKey = "antigravity.legacy_voice_long_press"
     private let workspaceNotesKey = "antigravity.workspace_notes"
-
-    public var legacyVoiceLongPress: Bool {
-        didSet { UserDefaults.standard.set(legacyVoiceLongPress, forKey: legacyVoiceLongPressKey) }
-    }
 
     public var workspaceNotes: [String: String] {
         didSet { UserDefaults.standard.set(workspaceNotes, forKey: workspaceNotesKey) }
@@ -211,12 +205,6 @@ public final class AppSettings {
     public var activeModel: String {
         didSet {
             UserDefaults.standard.set(activeModel, forKey: activeModelKey)
-        }
-    }
-    
-    public var autoApprovePermissions: Bool {
-        didSet {
-            UserDefaults.standard.set(autoApprovePermissions, forKey: autoApprovePermissionsKey)
         }
     }
     
@@ -670,8 +658,6 @@ public final class AppSettings {
         let savedModel = UserDefaults.standard.string(forKey: activeModelKey).flatMap { $0.isEmpty ? nil : $0 } ?? resolvedFav1
         self.activeModel = savedModel
         
-        let savedAutoApprove = UserDefaults.standard.bool(forKey: autoApprovePermissionsKey)
-        self.autoApprovePermissions = savedAutoApprove
         self.enableVoiceMode = UserDefaults.standard.bool(forKey: enableVoiceModeKey)
         if UserDefaults.standard.object(forKey: weeklyPaceCursorKey) == nil {
             self.weeklyPaceCursorEnabled = true
@@ -685,7 +671,6 @@ public final class AppSettings {
         self.fontSizeScale = FontSizeScale(rawValue: savedScale) ?? .standard
         self.isKnowledgeModeEnabled = UserDefaults.standard.bool(forKey: knowledgeModeKey)
         self.gatewayPlatform = UserDefaults.standard.string(forKey: gatewayPlatformKey)
-        self.legacyVoiceLongPress = UserDefaults.standard.bool(forKey: legacyVoiceLongPressKey)
         self.workspaceNotes = (UserDefaults.standard.dictionary(forKey: workspaceNotesKey) as? [String: String]) ?? [:]
     }
 }

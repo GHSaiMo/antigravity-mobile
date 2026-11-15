@@ -391,8 +391,8 @@ function renderFavoriteModelSettings() {
   const note = document.getElementById("settings-models-note");
   if (note) {
     note.textContent = modelCatalog.live
-      ? "进入新会话首选常用模型 1；单击模型胶囊可在两个常用模型间快切，长按/右键可选择全部模型与思考强度。"
-      : "当前显示内置模型列表；进入新会话首选常用模型 1，单击模型胶囊可在两个常用模型间快切，长按/右键可选择全部模型与思考强度。";
+      ? "进入新会话首选模型；短按模型胶囊可快速切换首选与次选，长按/右键可手动选择一个模型。"
+      : "当前显示内置模型列表；进入新会话首选模型，短按模型胶囊可快速切换首选与次选，长按/右键可手动选择一个模型。";
   }
 }
 

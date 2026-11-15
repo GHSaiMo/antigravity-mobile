@@ -46,15 +46,60 @@ public enum JSONValue: Codable, Hashable, Sendable {
 
 public struct ToolDetailItem: Codable, Hashable, Sendable {
     public let name: String
-    public let detail: String
+    public let summary: String
     public let status: String
     public let duration: String?
+    public let stepIndex: Int?
 
-    public init(name: String = "", detail: String = "", status: String = "", duration: String? = nil) {
+    /// UI display alias; gateway JSON sends `summary` (and omits empty fields).
+    public var detail: String { summary }
+
+    enum CodingKeys: String, CodingKey {
+        case name
+        case summary
+        case detail
+        case status
+        case duration
+        case stepIndex
+    }
+
+    public init(
+        name: String = "",
+        summary: String = "",
+        detail: String = "",
+        status: String = "",
+        duration: String? = nil,
+        stepIndex: Int? = nil
+    ) {
         self.name = name
-        self.detail = detail
+        self.summary = !summary.isEmpty ? summary : detail
         self.status = status
         self.duration = duration
+        self.stepIndex = stepIndex
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.name = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
+        let decodedSummary = try c.decodeIfPresent(String.self, forKey: .summary)
+        let decodedDetail = try c.decodeIfPresent(String.self, forKey: .detail)
+        self.summary = decodedSummary ?? decodedDetail ?? ""
+        self.status = try c.decodeIfPresent(String.self, forKey: .status) ?? ""
+        self.duration = try c.decodeIfPresent(String.self, forKey: .duration)
+        self.stepIndex = try c.decodeIfPresent(Int.self, forKey: .stepIndex)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(name, forKey: .name)
+        if !summary.isEmpty {
+            try c.encode(summary, forKey: .summary)
+        }
+        if !status.isEmpty {
+            try c.encode(status, forKey: .status)
+        }
+        try c.encodeIfPresent(duration, forKey: .duration)
+        try c.encodeIfPresent(stepIndex, forKey: .stepIndex)
     }
 }
 

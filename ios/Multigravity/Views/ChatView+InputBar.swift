@@ -539,9 +539,7 @@ private struct ChatInputTextAndSendRow: View {
                 }
                 .onLongPressGesture(minimumDuration: 0.45) {
                     UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
-                    if AppSettings.shared.legacyVoiceLongPress {
-                        onAudioRecord()
-                    } else if dictationManager.isDictating {
+                    if dictationManager.isDictating {
                         dictationManager.stop()
                     } else {
                         onStartDictation()

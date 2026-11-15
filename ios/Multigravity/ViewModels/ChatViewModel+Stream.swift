@@ -62,13 +62,19 @@ extension ChatViewModel {
                 self.updateCascadeConfigRawModel(self.activeModelEnum, modelName: self.activeModel)
             }
         }
-        if let activeModel = payload.activeModel, !activeModel.isEmpty {
+        let alignedModel = !self.isNewConversation
+            ? ((payload.desktopActiveModel?.isEmpty == false) ? payload.desktopActiveModel : payload.activeModel)
+            : payload.activeModel
+        let alignedName = !self.isNewConversation && (payload.desktopActiveModel?.isEmpty == false)
+            ? payload.desktopActiveModelName
+            : payload.activeModelName
+        if let alignedModel, !alignedModel.isEmpty {
             // Streaming updates occur during execution; do not override user manual model selection
             if !self.hasUserManuallySelectedModel {
-                self.syncModel(from: activeModel)
+                self.syncModel(from: alignedModel)
             }
         }
-        if let name = payload.activeModelName, !name.isEmpty { self.activeModelName = name }
+        if !self.hasUserManuallySelectedModel, let name = alignedName, !name.isEmpty { self.activeModelName = name }
         if let started = payload.startedAt, !started.isEmpty { self.startedAt = started }
         if let cm = payload.contextMeter { self.contextMeter = cm }
         if let ws = payload.workspaceUri, !ws.isEmpty { self.workspaceUri = ws }
@@ -267,7 +273,6 @@ extension ChatViewModel {
         if self.isRunning {
             if let pi = payload.pendingInteraction {
                 self.pendingInteraction = pi
-                self.checkAutoApproveInteractionIfNeeded(pi)
             }
         } else {
             self.pendingInteraction = nil
@@ -416,34 +421,6 @@ extension ChatViewModel {
         } catch {
             isSubmittingInteraction = false
             errorMessage = String(localized: "跳过失败: \(error.localizedDescription)")
-        }
-    }
-    
-    // Auto-approve permission requests with "Yes, and always allow" (Scope 4) if enabled in settings
-    @MainActor
-    func checkAutoApproveInteractionIfNeeded(_ interaction: PendingInteraction?) {
-        guard let interaction = interaction else { return }
-        guard AppSettings.shared.autoApprovePermissions else { return }
-        guard !isSubmittingInteraction else { return }
-        guard lastAutoApprovedInteractionId != interaction.id else { return }
-        
-        let isPermissionType = interaction.type == "permission" || interaction.type == "file_permission"
-        guard isPermissionType else { return }
-        
-        // Find option 4 or option with scope 4 or text containing "always allow"
-        guard let opt = interaction.options.first(where: {
-            $0.scope == 4 || $0.id == "4" || $0.text.localizedCaseInsensitiveContains("always allow")
-        }) else {
-            return
-        }
-        
-        lastAutoApprovedInteractionId = interaction.id
-        
-        Task { @MainActor [weak self] in
-            // Small delay to allow any current render cycle to settle
-            try? await Task.sleep(nanoseconds: 200_000_000)
-            guard let self, self.pendingInteraction?.id == interaction.id, !self.isSubmittingInteraction else { return }
-            await self.submitInteraction(optionId: opt.id, writeInText: nil, target: interaction.target)
         }
     }
     

@@ -104,63 +104,24 @@ public struct SettingsSheet: View {
                     .padding(.vertical, 2)
                 }
                 
-                // MARK: - 3. 权限与自动化
+                // MARK: - 3. 模型
                 Section(
-                    header: Text("权限"),
-                    footer: Text("自动批准 Agent 工具调用与执行权限，无需每次手动确认。")
-                ) {
-                    Toggle("自动批准操作权限", isOn: $settings.autoApprovePermissions)
-                        .onChange(of: settings.autoApprovePermissions) { _, enabled in
-                            if enabled {
-                                UINotificationFeedbackGenerator().notificationOccurred(.warning)
-                            }
-                        }
-                }
-                
-                // MARK: - 4. 灵动岛与实时活动
-                Section(
-                    header: Text("实时活动"),
-                    footer: Text("在灵动岛和锁屏上显示任务进展及后台命令。")
-                ) {
-                    Toggle("灵动岛与实时活动", isOn: $settings.enableLiveActivities)
-                        .onChange(of: settings.enableLiveActivities) { _, _ in
-                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                        }
-                }
-                
-                // MARK: - 4a. 实时语音对话
-                Section(
-                    header: Text("语音"),
-                    footer: Text("开启后，输入框为空且空闲时右侧按钮支持单击实时双工语音通话、长按原生流式语音听写；也可切回传统离线录音附件。")
-                ) {
-                    Toggle("实时语音对话", isOn: $settings.enableVoiceMode)
-                        .onChange(of: settings.enableVoiceMode) { _, enabled in
-                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                            if !enabled && VoiceCallManager.shared.isInCall {
-                                VoiceCallManager.shared.endCall()
-                            }
-                        }
-                    Toggle("长按麦克风使用旧版录音附件", isOn: $settings.legacyVoiceLongPress)
-                }
-                
-                // MARK: - 4b. 常用模型
-                Section(
-                    header: Text("常用模型"),
+                    header: Text("模型"),
                     footer: Text(favoriteModelFooter)
                 ) {
                     favoriteModelPicker(
-                        title: String(localized: "常用模型 1"),
+                        title: String(localized: "首选模型"),
                         subtitle: String(localized: "进入新会话首选"),
                         selection: $settings.favoriteModel1
                     )
                     favoriteModelPicker(
-                        title: String(localized: "常用模型 2"),
-                        subtitle: String(localized: "单击胶囊快速切换"),
+                        title: String(localized: "次选模型"),
+                        subtitle: String(localized: "短按胶囊快速切换"),
                         selection: $settings.favoriteModel2
                     )
                 }
                 
-                // MARK: - 4c. MCP 工具与技能看板
+                // MARK: - 4. 扩展与能力
                 Section(
                     header: Text("扩展与能力"),
                     footer: Text("查看已连接的 MCP 工具服务、技能与 Agent 权限放行模式（与聊天顶栏长按菜单实时同步）。")
@@ -191,6 +152,31 @@ public struct SettingsSheet: View {
                                 .foregroundColor(.secondary)
                         }
                     }
+                }
+                
+                // MARK: - 4a. 实时语音对话
+                Section(
+                    header: Text("语音"),
+                    footer: Text("开启后，输入框为空且空闲时右侧按钮支持单击实时双工语音通话、长按原生流式语音听写。")
+                ) {
+                    Toggle("实时语音对话", isOn: $settings.enableVoiceMode)
+                        .onChange(of: settings.enableVoiceMode) { _, enabled in
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            if !enabled && VoiceCallManager.shared.isInCall {
+                                VoiceCallManager.shared.endCall()
+                            }
+                        }
+                }
+                
+                // MARK: - 4b. 灵动岛与实时活动
+                Section(
+                    header: Text("实时活动"),
+                    footer: Text("在灵动岛和锁屏上显示任务进展及后台命令。")
+                ) {
+                    Toggle("灵动岛与实时活动", isOn: $settings.enableLiveActivities)
+                        .onChange(of: settings.enableLiveActivities) { _, _ in
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        }
                 }
                 
                 // MARK: - 5. 外观与主题
@@ -387,15 +373,15 @@ public struct SettingsSheet: View {
 }
 
 
-// MARK: - 常用模型
+// MARK: - 模型
 
 extension SettingsSheet {
     fileprivate var favoriteModelFooter: String {
         if modelCatalog.isLoading && modelCatalog.catalog == nil { return String(localized: "正在读取可用模型...") }
         if modelCatalog.loadFailed && modelCatalog.catalog == nil {
-            return String(localized: "暂时无法读取实时模型列表，可先从内置列表中选择常用模型；进入新会话首选常用模型 1，单击模型胶囊可在两个常用模型间快速切换。")
+            return String(localized: "暂时无法读取实时模型列表，可先从内置列表中选择模型；进入新会话首选模型，短按模型胶囊可快速切换首选与次选，长按可手动选择一个模型。")
         }
-        return String(localized: "两个常用模型均可在全部可用模型与全部思考强度中任选。进入新会话首选常用模型 1；单击输入框上方模型胶囊在两个常用模型间快速切换，长按可从全部模型中单独选择。")
+        return String(localized: "进入新会话首选模型；短按模型胶囊可快速切换首选与次选，长按可手动选择一个模型。")
     }
 
     private func providerSectionTitle(_ key: String) -> String {

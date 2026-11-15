@@ -250,6 +250,9 @@ data class StreamUpdatePayload(
     /** 完整展示名，如 "Gemini 3.8 Flash (High)"。 */
     val activeModelName: String? = null,
     val modelDisplayName: String? = null,
+    /** 桌面端 Antigravity 客户端当前选中的模型。 */
+    val desktopActiveModel: String? = null,
+    val desktopActiveModelName: String? = null,
     /** 会话发起时间（ISO-8601）。 */
     val startedAt: String? = null,
     /** delta=1 增量帧：messages 仅含新增/变化项，messageIds 为当前窗口完整有序 ID（见 StreamDeltaReassembler）。 */

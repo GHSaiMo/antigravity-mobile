@@ -204,6 +204,7 @@ func (p *Proxy) handleCascadeMessages(w http.ResponseWriter, r *http.Request) {
 		nextOffset = targetStart
 	}
 
+	desktopModel, desktopModelName := readDesktopSelectedModel()
 	respBytes, err := json.Marshal(CascadeMessagesResponse{
 		CascadeID:          cascadeID,
 		Title:              details.Title,
@@ -222,10 +223,12 @@ func (p *Proxy) handleCascadeMessages(w http.ResponseWriter, r *http.Request) {
 		Subagents:          details.Subagents,
 		ParentConversation: details.ParentConversation,
 		SubagentRole:       details.SubagentRole,
-		ActiveModel:        details.ActiveModel,
-		ActiveModelName:    details.ActiveModelName,
-		ModelDisplayName:   details.ModelDisplayName,
-		StartedAt:          details.StartedAt,
+		ActiveModel:            details.ActiveModel,
+		ActiveModelName:        details.ActiveModelName,
+		ModelDisplayName:       details.ModelDisplayName,
+		DesktopActiveModel:     desktopModel,
+		DesktopActiveModelName: desktopModelName,
+		StartedAt:              details.StartedAt,
 		CascadeConfig:      details.CascadeConfig,
 		CascadeConfigRaw:   details.CascadeConfigRaw,
 		CanProceed:         details.CanProceed,

@@ -253,7 +253,6 @@ private fun MainSettingsContent(
         }
     }
     val coroutineScope = rememberCoroutineScope()
-    var autoApprove by remember { mutableStateOf(prefs.autoApprovePermissions) }
     var enableLiveNotifications by remember { mutableStateOf(prefs.enableLiveNotifications) }
     var enableVoiceMode by remember { mutableStateOf(prefs.enableVoiceMode) }
     val isPaired = prefs.isPaired()
@@ -459,37 +458,10 @@ private fun MainSettingsContent(
             }
         }
 
-        // MARK: - 3. 权限与自动化 (1:1 iOS 对齐)
-        SettingsSection(
-            title = "权限",
-            footer = "自动批准 Agent 工具调用与执行权限，无需每次手动确认。"
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(colors.surface)
-                    .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
-                    .padding(horizontal = 16.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text(text = "自动批准操作权限", color = colors.textPrimary, fontSize = 15.sp)
-                Switch(
-                    checked = autoApprove,
-                    onCheckedChange = {
-                        autoApprove = it
-                        prefs.autoApprovePermissions = it
-                    },
-                    colors = SwitchDefaults.colors(
-                        checkedThumbColor = colors.surface,
-                        checkedTrackColor = colors.accentIndigo
-                    )
-                )
-            }
-        }
+        // MARK: - 3. 模型
+        DefaultModelSection(prefs = prefs, onLoadModels = onLoadModels)
 
-        // MARK: - 3b. Agent 执行权限预设（与对话顶栏 🔧 长按同步）
+        // MARK: - 4. 扩展与能力（Agent 权限模式 + MCP 工具与技能看板）
         var permPreset by remember { mutableStateOf("strict") }
         LaunchedEffect(Unit) {
             ApiClient.defaultInstance?.fetchPermissionSettings()?.onSuccess {
@@ -497,8 +469,8 @@ private fun MainSettingsContent(
             }
         }
         SettingsSection(
-            title = "Agent 执行权限",
-            footer = "与聊天顶栏 🔧 长按切换的权限预设实时同步。非严格模式将在 🔧 按钮右上角显示琥珀色圆点提示。"
+            title = "扩展与能力",
+            footer = "查看已连接的 MCP 工具服务、技能与 Agent 权限放行模式（与聊天顶栏 🔧 长按菜单实时同步）。"
         ) {
             Column(
                 modifier = Modifier
@@ -548,10 +520,76 @@ private fun MainSettingsContent(
                         }
                     }
                 }
+                HorizontalDivider(thickness = 0.5.dp, color = colors.border)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onOpenMcpSkills() }
+                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text(
+                            text = "MCP 工具与技能看板",
+                            color = colors.textPrimary,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            text = "MCP / 技能 / 插件 / 定时任务 / 后台",
+                            color = colors.textMuted,
+                            fontSize = 11.5.sp
+                        )
+                    }
+                    Spacer(modifier = Modifier.weight(1f))
+                    Icon(
+                        imageVector = Icons.Default.ChevronRight,
+                        contentDescription = null,
+                        tint = colors.textMuted,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
             }
         }
 
-        // MARK: - 4. 实时通知 (1:1 iOS 对齐)
+        // MARK: - 4a. 实时语音对话
+        SettingsSection(
+            title = "语音",
+            footer = "开启后，输入框为空且空闲时右侧按钮支持单击实时双工语音通话、长按原生流式语音听写。"
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(colors.surface)
+                    .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(text = "实时语音对话", color = colors.textPrimary, fontSize = 15.sp)
+                    Text(
+                        text = if (enableVoiceMode) "已开启（空闲时显示语音入口）" else "已关闭",
+                        color = colors.textSecondary,
+                        fontSize = 12.sp
+                    )
+                }
+                Switch(
+                    checked = enableVoiceMode,
+                    onCheckedChange = {
+                        enableVoiceMode = it
+                        prefs.enableVoiceMode = it
+                    },
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = colors.surface,
+                        checkedTrackColor = colors.accentIndigo
+                    )
+                )
+            }
+        }
+
+        // MARK: - 4b. 实时通知
         SettingsSection(
             title = "实时通知",
             footer = "在通知栏中展示任务实时进展，并在需要用户审批或任务完成时发出高优先级提示音与振动提醒。"
@@ -632,118 +670,6 @@ private fun MainSettingsContent(
                         )
                     }
                 }
-            }
-        }
-
-        // MARK: - 4a. 实时语音对话
-        SettingsSection(
-            title = "语音",
-            footer = "开启后，输入框为空且空闲时右侧按钮将变为实时语音对话入口（单击开始双工通话，长按离线录音）；关闭时保持原有的发送按钮。"
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(colors.surface)
-                    .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
-                    .padding(horizontal = 16.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(text = "实时语音对话", color = colors.textPrimary, fontSize = 15.sp)
-                    Text(
-                        text = if (enableVoiceMode) "已开启（空闲时显示语音入口）" else "已关闭",
-                        color = colors.textSecondary,
-                        fontSize = 12.sp
-                    )
-                }
-                Switch(
-                    checked = enableVoiceMode,
-                    onCheckedChange = {
-                        enableVoiceMode = it
-                        prefs.enableVoiceMode = it
-                    },
-                    colors = SwitchDefaults.colors(
-                        checkedThumbColor = colors.surface,
-                        checkedTrackColor = colors.accentIndigo
-                    )
-                )
-            }
-            var legacyVoiceLongPress by remember { mutableStateOf(prefs.legacyVoiceLongPress) }
-            HorizontalDivider(thickness = 0.5.dp, color = colors.border)
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(colors.surface)
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "关闭长按流式听写",
-                        color = colors.textPrimary,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Medium
-                    )
-                    Text(
-                        text = "关闭后长按右侧语音圆钮仍使用旧版录音",
-                        color = colors.textSecondary,
-                        fontSize = 12.sp
-                    )
-                }
-                Switch(
-                    checked = legacyVoiceLongPress,
-                    onCheckedChange = {
-                        legacyVoiceLongPress = it
-                        prefs.legacyVoiceLongPress = it
-                    },
-                    colors = SwitchDefaults.colors(
-                        checkedThumbColor = colors.surface,
-                        checkedTrackColor = colors.accentIndigo
-                    )
-                )
-            }
-        }
-
-        // MARK: - 4b. 默认模型
-        DefaultModelSection(prefs = prefs, onLoadModels = onLoadModels)
-
-        // MARK: - 4c. MCP 工具与技能看板
-        SettingsSection(
-            title = "扩展与能力",
-            footer = "查看当前已连接的 MCP 工具服务、运行健康状态与可调用的扩展技能。"
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(colors.surface)
-                    .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
-                    .clickable { onOpenMcpSkills() }
-                    .padding(horizontal = 16.dp, vertical = 14.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column {
-                    Text(
-                        text = "MCP 工具与技能看板",
-                        color = colors.textPrimary,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Medium
-                    )
-                    Text(
-                        text = "MCP / 技能 / 插件 / 定时任务 / 后台",
-                        color = colors.textMuted,
-                        fontSize = 11.5.sp
-                    )
-                }
-                Spacer(modifier = Modifier.weight(1f))
-                Icon(
-                    imageVector = Icons.Default.ChevronRight,
-                    contentDescription = null,
-                    tint = colors.textMuted,
-                    modifier = Modifier.size(16.dp)
-                )
             }
         }
 
@@ -1100,11 +1026,11 @@ private fun DefaultModelSection(
 
     val footer = when (loadState) {
         "loading" -> "正在读取可用模型..."
-        "failed" -> "暂时无法读取实时模型列表，可先从内置列表中选择常用模型；进入新会话首选常用模型 1，单击模型胶囊可在两个常用模型间快速切换。"
-        else -> "两个常用模型均可在全部可用模型与全部思考强度中任选。进入新会话首选常用模型 1；单击输入框上方模型胶囊在两个常用模型间快速切换，长按可从全部模型中单独选择。"
+        "failed" -> "暂时无法读取实时模型列表，可先从内置列表中选择模型；进入新会话首选模型，短按模型胶囊可快速切换首选与次选，长按可手动选择一个模型。"
+        else -> "进入新会话首选模型；短按模型胶囊可快速切换首选与次选，长按可手动选择一个模型。"
     }
 
-    SettingsSection(title = "常用模型", footer = footer) {
+    SettingsSection(title = "模型", footer = footer) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1113,7 +1039,7 @@ private fun DefaultModelSection(
                 .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
         ) {
             FavoriteModelPickerRow(
-                label = "常用模型 1",
+                label = "首选模型",
                 subtitle = "进入新会话首选",
                 selectedId = favorite1,
                 options = allOptions,
@@ -1121,8 +1047,8 @@ private fun DefaultModelSection(
             )
             HorizontalDivider(color = colors.separator.copy(alpha = 0.4f), thickness = 0.5.dp)
             FavoriteModelPickerRow(
-                label = "常用模型 2",
-                subtitle = "单击胶囊快速切换",
+                label = "次选模型",
+                subtitle = "短按胶囊快速切换",
                 selectedId = favorite2,
                 options = allOptions,
                 onSelect = { prefs.favoriteModel2 = it }

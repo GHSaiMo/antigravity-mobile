@@ -293,7 +293,7 @@ function updateModelSwitchUI() {
   const chipClass = kind === "claude" ? "chip-claude" : (kind === "orchestrator" ? "chip-orchestrator" : (kind === "other" ? "chip-other" : "chip-gemini"));
   btn.className = `chip-pill chip-model-switch ${chipClass}`;
   text.textContent = label;
-  btn.title = `当前模型: ${name} · 单击快切常用模型 · 长按/右键选全部模型`;
+  btn.title = `当前模型: ${name} · 短按快切首选/次选 · 长按/右键手选模型`;
 }
 
 async function applySelectedModel(nextModelId) {
