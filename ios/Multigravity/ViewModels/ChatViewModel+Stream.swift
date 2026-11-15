@@ -64,12 +64,16 @@ extension ChatViewModel {
         }
         ModelCatalogStore.shared.updateDesktopActiveModel(payload.desktopActiveModel, name: payload.desktopActiveModelName)
         let isDraft = self.isDraftConversation
-        let alignedModel = !isDraft
-            ? ((payload.desktopActiveModel?.isEmpty == false) ? payload.desktopActiveModel : payload.activeModel)
-            : payload.activeModel
-        let alignedName = !isDraft && (payload.desktopActiveModel?.isEmpty == false)
-            ? payload.desktopActiveModelName
-            : payload.activeModelName
+        let hasSessionModel = payload.activeModel?.isEmpty == false
+        if hasSessionModel {
+            self.hasResolvedSessionModel = true
+        }
+        let alignedModel = hasSessionModel
+            ? payload.activeModel
+            : (!isDraft ? payload.desktopActiveModel : nil)
+        let alignedName = hasSessionModel
+            ? payload.activeModelName
+            : (!isDraft ? payload.desktopActiveModelName : nil)
         if let alignedModel, !alignedModel.isEmpty {
             // Streaming updates occur during execution; do not override user manual model selection
             if !self.hasUserManuallySelectedModel {

@@ -197,9 +197,13 @@ fun TokenHistoryTabContent(
         }
 
         if (tokenHistory.updatedAt > 0) {
-            val timeFmt = remember { SimpleDateFormat("HH:mm:ss", Locale.getDefault()) }
+            val timeFmt = remember(TimeZone.getDefault().id) {
+                SimpleDateFormat("HH:mm:ss", Locale.US).apply {
+                    timeZone = TimeZone.getDefault()
+                }
+            }
             Text(
-                text = "本地历史扫描于 ${timeFmt.format(Date(tokenHistory.updatedAt * 1000))}",
+                text = "本地历史扫描于 ${timeFmt.format(Date(tokenHistory.updatedAtEpochMs))}",
                 fontSize = 11.sp,
                 color = colors.textMuted,
                 modifier = Modifier

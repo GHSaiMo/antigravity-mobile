@@ -540,6 +540,7 @@ public final class ChatViewModel {
     var knownServerMessageIds: Set<String> = []
     var pollTask: Task<Void, Never>?
     var hasUserManuallySelectedModel: Bool = false
+    var hasResolvedSessionModel: Bool = false
     public private(set) var streamClient: StreamWebSocketClient
     let apiClient: APIClient
     let settings: AppSettings
@@ -589,8 +590,36 @@ public final class ChatViewModel {
         
         var initialModel = resolvedSettings.favoriteModel1
         var initialModelName: String? = nil
+        var resolvedFromSessionCache = false
         if !cascadeId.isEmpty && !isDraftCascade {
-            if let desktopModel = ModelCatalogStore.shared.catalog?.desktopActiveModel, !desktopModel.isEmpty {
+            if let cached = resolvedCacheManager.loadSession(for: cascadeId),
+               let cfg = cached.cascadeConfigRaw {
+                if let enumName = ModelDefaultsLogic.extractModelEnum(fromConfig: cfg),
+                   let knownID = ModelCatalogStore.shared.id(forEnum: enumName) {
+                    initialModel = knownID
+                    resolvedFromSessionCache = true
+                } else {
+                    let lower = cfg.lowercased()
+                    if ModelDefaultsLogic.isClaude(lower) {
+                        initialModel = ModelDefaultsLogic.providerKind(forID: resolvedSettings.favoriteModel2) == .claude
+                            ? resolvedSettings.favoriteModel2
+                            : ModelDefaultsLogic.fallbackClaude
+                        resolvedFromSessionCache = true
+                    } else if lower.contains("m667") || lower.contains("m681") || lower.contains("orch") {
+                        initialModel = ModelDefaultsLogic.providerKind(forID: resolvedSettings.favoriteModel2) == .orchestrator
+                            ? resolvedSettings.favoriteModel2
+                            : ModelDefaultsLogic.fallbackOrchestrator
+                        resolvedFromSessionCache = true
+                    } else if lower.contains("m318") || lower.contains("m417") || lower.contains("m418") || lower.contains("m419") || lower.contains("gemini") {
+                        initialModel = ModelDefaultsLogic.providerKind(forID: resolvedSettings.favoriteModel1) == .gemini
+                            ? resolvedSettings.favoriteModel1
+                            : ModelDefaultsLogic.fallbackGemini
+                        resolvedFromSessionCache = true
+                    }
+                }
+            }
+            if !resolvedFromSessionCache,
+               let desktopModel = ModelCatalogStore.shared.catalog?.desktopActiveModel, !desktopModel.isEmpty {
                 initialModel = ModelDefaultsLogic.resolveActive(
                     raw: desktopModel,
                     current: initialModel,
@@ -600,29 +629,9 @@ public final class ChatViewModel {
                 if let dName = ModelCatalogStore.shared.catalog?.desktopActiveModelName, !dName.isEmpty {
                     initialModelName = dName
                 }
-            } else if let cached = resolvedCacheManager.loadSession(for: cascadeId),
-                      let cfg = cached.cascadeConfigRaw {
-                if let enumName = ModelDefaultsLogic.extractModelEnum(fromConfig: cfg),
-                   let knownID = ModelCatalogStore.shared.id(forEnum: enumName) {
-                    initialModel = knownID
-                } else {
-                    let lower = cfg.lowercased()
-                    if ModelDefaultsLogic.isClaude(lower) {
-                        initialModel = ModelDefaultsLogic.providerKind(forID: resolvedSettings.favoriteModel2) == .claude
-                            ? resolvedSettings.favoriteModel2
-                            : ModelDefaultsLogic.fallbackClaude
-                    } else if lower.contains("m667") || lower.contains("m681") || lower.contains("orch") {
-                        initialModel = ModelDefaultsLogic.providerKind(forID: resolvedSettings.favoriteModel2) == .orchestrator
-                            ? resolvedSettings.favoriteModel2
-                            : ModelDefaultsLogic.fallbackOrchestrator
-                    } else if lower.contains("m318") || lower.contains("m417") || lower.contains("m418") || lower.contains("m419") || lower.contains("gemini") {
-                        initialModel = ModelDefaultsLogic.providerKind(forID: resolvedSettings.favoriteModel1) == .gemini
-                            ? resolvedSettings.favoriteModel1
-                            : ModelDefaultsLogic.fallbackGemini
-                    }
-                }
             }
         }
+        self.hasResolvedSessionModel = resolvedFromSessionCache
         self.activeModel = initialModel
         self.activeModelName = initialModelName
         
@@ -883,12 +892,16 @@ public final class ChatViewModel {
             }
             ModelCatalogStore.shared.updateDesktopActiveModel(result.desktopActiveModel, name: result.desktopActiveModelName)
             let isDraft = self.isDraftConversation
-            let alignedModel = !isDraft
-                ? ((result.desktopActiveModel?.isEmpty == false) ? result.desktopActiveModel : result.activeModel)
-                : result.activeModel
-            let alignedName = !isDraft && (result.desktopActiveModel?.isEmpty == false)
-                ? result.desktopActiveModelName
-                : result.activeModelName
+            let hasSessionModel = result.activeModel?.isEmpty == false
+            if hasSessionModel {
+                self.hasResolvedSessionModel = true
+            }
+            let alignedModel = hasSessionModel
+                ? result.activeModel
+                : (!isDraft ? result.desktopActiveModel : nil)
+            let alignedName = hasSessionModel
+                ? result.activeModelName
+                : (!isDraft ? result.desktopActiveModelName : nil)
             if let alignedModel, !alignedModel.isEmpty {
                 // User manual model selection is authoritative and must not be overwritten by background polling
                 if !self.hasUserManuallySelectedModel && !isBackgroundPoll {

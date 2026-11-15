@@ -251,6 +251,12 @@ public struct TokenHistoryResponse: Codable, Sendable, Equatable {
     public let summary: TokenHistorySummary
     public let dailyMatrix: [DailyTokenRecord]
 
+    /// 后端下发毫秒级 Unix 时间戳；兼容秒级历史结构并转为本地可格式化 Date
+    public var updatedAtDate: Date {
+        let seconds = updatedAt >= 10_000_000_000 ? Double(updatedAt) / 1000.0 : Double(updatedAt)
+        return Date(timeIntervalSince1970: seconds)
+    }
+
     enum CodingKeys: String, CodingKey {
         case summary
         case updatedAt = "updated_at"
