@@ -1083,6 +1083,68 @@ public enum MathSymbolProcessor: Sendable {
         return s.trimmingCharacters(in: .whitespacesAndNewlines)
     }
     
+    private static let matrixCasesEnvRegex: NSRegularExpression? = try? NSRegularExpression(
+        pattern: #"\\begin\{(cases|pmatrix|bmatrix|Bmatrix|vmatrix|Vmatrix|matrix)\}([\s\S]*?)\\end\{\1\}"#,
+        options: []
+    )
+
+    private static func formatMatrixAndCasesEnvs(_ input: String) -> String {
+        guard input.contains(#"\begin{"#), let regex = matrixCasesEnvRegex else { return input }
+        let nsText = input as NSString
+        let matches = regex.matches(in: input, range: NSRange(location: 0, length: nsText.length))
+        guard !matches.isEmpty else { return input }
+
+        var result = input
+        for match in matches.reversed() {
+            let env = nsText.substring(with: match.range(at: 1))
+            let body = nsText.substring(with: match.range(at: 2))
+            let rawRows = body.components(separatedBy: #"\\"#)
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+            guard !rawRows.isEmpty else {
+                result = (result as NSString).replacingCharacters(in: match.range, with: "")
+                continue
+            }
+
+            let formatted: String
+            if env == "cases" {
+                let rows = rawRows.map { row -> String in
+                    let cols = row.components(separatedBy: "&").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    if cols.count >= 2 && !cols[1].isEmpty {
+                        return "\(cols[0])  (\(cols.dropFirst().joined(separator: ", ")))"
+                    }
+                    return cols.first ?? row
+                }
+                if rows.count == 1 {
+                    formatted = "{ \(rows[0])"
+                } else {
+                    formatted = rows.enumerated().map { idx, r in
+                        let glyph = idx == 0 ? "⎧" : (idx == rows.count - 1 ? "⎩" : "⎨")
+                        return "\(glyph) \(r)"
+                    }.joined(separator: "\n")
+                }
+            } else {
+                let (openB, closeB): (String, String) = {
+                    switch env {
+                    case "pmatrix": return ("(", ")")
+                    case "bmatrix": return ("[", "]")
+                    case "Bmatrix": return ("{", "}")
+                    case "vmatrix": return ("|", "|")
+                    case "Vmatrix": return ("‖", "‖")
+                    default: return ("[", "]")
+                    }
+                }()
+                let rows = rawRows.map { row -> String in
+                    let cols = row.components(separatedBy: "&").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    return "\(openB) \(cols.joined(separator: ", ")) \(closeB)"
+                }
+                formatted = rows.count > 1 ? "[\(rows.joined(separator: "; "))]" : rows[0]
+            }
+            result = (result as NSString).replacingCharacters(in: match.range, with: formatted)
+        }
+        return result
+    }
+
     // MARK: - Math Expression Cleaner
     
     /// Cleans a math expression, stripping wrappers and translating LaTeX symbols
@@ -1097,6 +1159,9 @@ public enum MathSymbolProcessor: Sendable {
         
         // 3. Extensible arrows: \xrightarrow{训练} -> ──(训练)──>
         str = replaceExtensibleArrows(str)
+        
+        // 3b. Piecewise cases & matrix environments (\begin{cases}, \begin{pmatrix}, \begin{bmatrix}, etc.)
+        str = formatMatrixAndCasesEnvs(str)
         
         // 4. Math tag, label, and environments (\begin{aligned}...\end{aligned})
         if let mathTagRegex = Self.mathTagRegex {

@@ -17,6 +17,7 @@ public struct MarkdownContentView: View {
     let blocks: [MarkdownBlock]
     
     @State var internalPreviewImage: IdentifiableImage? = nil
+    @Environment(\.colorScheme) var colorScheme
     @Environment(\.isShareExport) var isShareExport
     @Environment(\.currentCascadeId) private var currentCascadeId
 

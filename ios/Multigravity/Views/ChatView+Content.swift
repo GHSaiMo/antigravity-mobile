@@ -140,8 +140,14 @@ extension ChatView {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
     
-    @ViewBuilder
     func messagesScrollView(proxy: ScrollViewProxy, viewportWidth: CGFloat, viewportHeight: CGFloat) -> some View {
+        let step1 = messagesScrollCore(proxy: proxy, viewportWidth: viewportWidth, viewportHeight: viewportHeight)
+        let step2 = applyScrollGesturesAndLifecycle(step1, proxy: proxy)
+        let step3 = applyScrollLoadingAndTriggerHandlers(step2, proxy: proxy)
+        return applyScrollMessageAndFocusHandlers(step3, proxy: proxy)
+    }
+
+    private func messagesScrollCore(proxy: ScrollViewProxy, viewportWidth: CGFloat, viewportHeight: CGFloat) -> some View {
         ScrollView(.vertical, showsIndicators: true) {
             messagesList(proxy: proxy)
                 .frame(width: horizontalSizeClass == .regular ? min(viewportWidth, chatReadableMaxWidth) : viewportWidth)
@@ -176,182 +182,190 @@ extension ChatView {
         .onChange(of: viewModel.turns.count) { _, _ in
             updateCurrentVisibleTurn(viewportHeight: viewportHeight)
         }
-        .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
-        .background(Color(uiColor: .systemBackground))
-        .contentShape(Rectangle())
-        .simultaneousGesture(
-            TapGesture().onEnded {
-                if isInputFocused {
-                    isInputFocused = false
-                }
-            }
-        )
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 10)
-                .onChanged { _ in
-                    hasUserInteracted = true
-                    isUserDragging = true
-                    if lockedTurnIndex != nil {
-                        lockedTurnIndex = nil
+    }
+
+    private func applyScrollGesturesAndLifecycle<Content: View>(_ content: Content, proxy: ScrollViewProxy) -> some View {
+        content
+            .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
+            .background(Color(uiColor: .systemBackground))
+            .contentShape(Rectangle())
+            .simultaneousGesture(
+                TapGesture().onEnded {
+                    if isInputFocused {
+                        isInputFocused = false
                     }
                 }
-                .onEnded { _ in isUserDragging = false }
-        )
-        .scrollDismissesKeyboard(.interactively)
-        // 不依赖 LazyVStack 里的底部锚点：锚点离屏时它的 GeometryReader 不会被创建，偏移越过内容末尾后整屏全黑
-        .onScrollGeometryChange(for: CGFloat.self) { geo in
-            guard geo.contentSize.height > geo.containerSize.height else { return 0 }
-            // 视口底边超出内容末尾的距离（>0 即底部出现空白）
-            return geo.contentOffset.y + geo.containerSize.height - geo.contentSize.height
-        } action: { _, overshoot in
-            scheduleOvershootHeal(overshoot: overshoot, proxy: proxy)
-        }
-        .refreshable {
-            await viewModel.loadMessages()
-        }
-        .onAppear {
-            // 第 1 阶段：快速非动画初位定位（0.05s），避免看到历史顶部闪动
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                alignMessages(proxy: proxy, animated: false)
+            )
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 10)
+                    .onChanged { _ in
+                        hasUserInteracted = true
+                        isUserDragging = true
+                        if lockedTurnIndex != nil {
+                            lockedTurnIndex = nil
+                        }
+                    }
+                    .onEnded { _ in isUserDragging = false }
+            )
+            .scrollDismissesKeyboard(.interactively)
+            // 不依赖 LazyVStack 里的底部锚点：锚点离屏时它的 GeometryReader 不会被创建，偏移越过内容末尾后整屏全黑
+            .onScrollGeometryChange(for: CGFloat.self) { geo in
+                guard geo.contentSize.height > geo.containerSize.height else { return 0 }
+                // 视口底边超出内容末尾的距离（>0 即底部出现空白）
+                return geo.contentOffset.y + geo.containerSize.height - geo.contentSize.height
+            } action: { _, overshoot in
+                scheduleOvershootHeal(overshoot: overshoot, proxy: proxy)
             }
-            // 第 2 阶段：等待 NavigationStack 转场动画完全完成（约 0.35s），视口展开至最终真实高度后二次对齐
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                alignMessages(proxy: proxy, animated: false)
+            .refreshable {
+                await viewModel.loadMessages()
             }
-            // 第 3 阶段：贴底后底部的行仍没被 LazyVStack 创建（整屏空白）时兜底
-            for delay in [0.7, 1.4] {
-                DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-                    healUnmaterializedBottom(proxy: proxy)
-                }
-            }
-        }
-        .onChange(of: viewModel.isLoading) { _, loading in
-            if !loading {
-                if !useLazyMessagesStack && !hasInitiallyAligned && viewModel.messages.count > 100 {
-                    useLazyMessagesStack = true
-                }
-                // 网络会话历史同步结算后校准对齐
+            .onAppear {
+                // 第 1 阶段：快速非动画初位定位（0.05s），避免看到历史顶部闪动
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
                     alignMessages(proxy: proxy, animated: false)
                 }
-                if canScheduleAutoFocus {
-                    scheduleAutoFocus(delay: 0.2)
+                // 第 2 阶段：等待 NavigationStack 转场动画完全完成（约 0.35s），视口展开至最终真实高度后二次对齐
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                    alignMessages(proxy: proxy, animated: false)
+                }
+                // 第 3 阶段：贴底后底部的行仍没被 LazyVStack 创建（整屏空白）时兜底
+                for delay in [0.7, 1.4] {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                        healUnmaterializedBottom(proxy: proxy)
+                    }
                 }
             }
-        }
-        .onChange(of: viewModel.isLoadingOlder) { _, loadingOlder in
-            if !loadingOlder && !useLazyMessagesStack && !viewModel.isActivelyRunning && viewModel.messages.count > 250 {
-                useLazyMessagesStack = true
-            }
-        }
-        .onChange(of: cardToggleTrigger) { _, _ in
-            performAdaptiveCardScroll(proxy: proxy)
-        }
-        .onChange(of: viewModel.runningTasks.count) { oldVal, newVal in
-            if newVal != oldVal && hasInitiallyAligned {
-                if isNearBottom || !hasUserInteracted {
-                    scrollToBottom(proxy: proxy, animated: true)
+    }
+
+    private func applyScrollLoadingAndTriggerHandlers<Content: View>(_ content: Content, proxy: ScrollViewProxy) -> some View {
+        content
+            .onChange(of: viewModel.isLoading) { _, loading in
+                if !loading {
+                    if !useLazyMessagesStack && !hasInitiallyAligned && viewModel.messages.count > 100 {
+                        useLazyMessagesStack = true
+                    }
+                    // 网络会话历史同步结算后校准对齐
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                        alignMessages(proxy: proxy, animated: false)
+                    }
+                    if canScheduleAutoFocus {
+                        scheduleAutoFocus(delay: 0.2)
+                    }
                 }
             }
-        }
-        .onChange(of: viewModel.scrollToTurnStartTrigger) { _, _ in
-            scrollToTurnStart(proxy: proxy, animated: true)
-        }
-        .onChange(of: viewModel.scrollToBottomTrigger) { _, _ in
-            scrollToBottom(proxy: proxy, animated: true)
-        }
-        .onChange(of: viewModel.messages.last?.id) { _, lastId in
-            guard lastId != nil else { return }
-            if !hasInitiallyAligned {
-                alignMessages(proxy: proxy, animated: false)
-                return
+            .onChange(of: viewModel.isLoadingOlder) { _, loadingOlder in
+                if !loadingOlder && !useLazyMessagesStack && !viewModel.isActivelyRunning && viewModel.messages.count > 250 {
+                    useLazyMessagesStack = true
+                }
             }
-            if !hasUserInteracted || isNearBottom {
-                // 新 Agent 气泡进入流式传输时无动画贴底，避免与 PacedAgentRow 的 followStreamGrowth 动画冲突抖动
-                let shouldAnimate = !(viewModel.messages.last?.isAgent == true && viewModel.isActivelyRunning)
-                scrollToBottom(proxy: proxy, animated: shouldAnimate)
+            .onChange(of: cardToggleTrigger) { _, _ in
+                performAdaptiveCardScroll(proxy: proxy)
             }
-        }
-        .onChange(of: viewModel.messages.last) { oldMsg, lastMsg in
-            guard let lastMsg else { return }
-            guard hasInitiallyAligned else { return }
-            // 新消息 ID 切换已由上方 last?.id 处理；同一条 Agent 消息的文本增长由 PacedAgentRow 按节奏驱动滚动
-            guard oldMsg?.id == lastMsg.id, !lastMsg.isAgent else { return }
-            if !hasUserInteracted || isNearBottom {
+            .onChange(of: viewModel.runningTasks.count) { oldVal, newVal in
+                if newVal != oldVal && hasInitiallyAligned {
+                    if isNearBottom || !hasUserInteracted {
+                        scrollToBottom(proxy: proxy, animated: true)
+                    }
+                }
+            }
+            .onChange(of: viewModel.scrollToTurnStartTrigger) { _, _ in
+                scrollToTurnStart(proxy: proxy, animated: true)
+            }
+            .onChange(of: viewModel.scrollToBottomTrigger) { _, _ in
                 scrollToBottom(proxy: proxy, animated: true)
             }
-        }
-        .onChange(of: viewModel.queuedMessages) { oldVal, newVal in
-            if newVal != oldVal && hasInitiallyAligned {
-                if isNearBottom || !hasUserInteracted {
+    }
+
+    private func applyScrollMessageAndFocusHandlers<Content: View>(_ content: Content, proxy: ScrollViewProxy) -> some View {
+        content
+            .onChange(of: viewModel.messages.last?.id) { _, lastId in
+                guard lastId != nil else { return }
+                if !hasInitiallyAligned {
+                    alignMessages(proxy: proxy, animated: false)
+                    return
+                }
+                if !hasUserInteracted || isNearBottom {
+                    // 新 Agent 气泡进入流式传输时无动画贴底，避免与 PacedAgentRow 的 followStreamGrowth 动画冲突抖动
+                    let shouldAnimate = !(viewModel.messages.last?.isAgent == true && viewModel.isActivelyRunning)
+                    scrollToBottom(proxy: proxy, animated: shouldAnimate)
+                }
+            }
+            .onChange(of: viewModel.messages.last) { oldMsg, lastMsg in
+                guard let lastMsg else { return }
+                guard hasInitiallyAligned else { return }
+                // 新消息 ID 切换已由上方 last?.id 处理；同一条 Agent 消息的文本增长由 PacedAgentRow 按节奏驱动滚动
+                guard oldMsg?.id == lastMsg.id, !lastMsg.isAgent else { return }
+                if !hasUserInteracted || isNearBottom {
                     scrollToBottom(proxy: proxy, animated: true)
                 }
             }
-        }
-        .onChange(of: isInputFocused) { _, focused in
-            if focused {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                    scrollToBottom(proxy: proxy, animated: true)
-                }
-            } else {
-                // 等待键盘完全收起并恢复完整视口高度后，做底部对齐校准，消除悬空留白
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.28) {
-                    scrollToBottom(proxy: proxy, animated: true)
-                }
-            }
-        }
-        .onChange(of: viewModel.focusInputTrigger) {
-            Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 100_000_000)
-                isInputFocused = true
-            }
-        }
-        .onChange(of: isInputFocused) { _, focused in
-            if focused {
-                hideStepperImmediately()
-            }
-        }
-        .onChange(of: targetScrollTurnId) { _, targetId in
-            guard let targetId = targetId else { return }
-            if targetId == "BOTTOM_ANCHOR" {
-                hasUserInteracted = false
-                isNearBottom = true
-                withAnimation(.easeOut(duration: 0.2)) {
-                    proxy.scrollTo("BOTTOM_ANCHOR", anchor: .bottom)
-                }
-            } else {
-                hasUserInteracted = true
-                isNearBottom = false
-                blankHealTask?.cancel()
-                blankHealTask = nil
-                
-                // 1. 若目标为首条消息或首轮，先对齐顶部锚点唤醒顶部区域渲染
-                if targetId == viewModel.messages.first?.id || targetId == "TOP_ANCHOR" {
-                    proxy.scrollTo("TOP_ANCHOR", anchor: .top)
-                }
-                
-                // 2. 立即跳转至目标消息行
-                proxy.scrollTo(targetId, anchor: .top)
-                
-                // 3. 在 Sheet 转场关闭及 Lazy 视图实例化阶段做多级微调校准，避免大跨度跳转下的空白
-                for delay in [0.08, 0.22, 0.4] {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-                        proxy.scrollTo(targetId, anchor: .top)
+            .onChange(of: viewModel.queuedMessages) { oldVal, newVal in
+                if newVal != oldVal && hasInitiallyAligned {
+                    if isNearBottom || !hasUserInteracted {
+                        scrollToBottom(proxy: proxy, animated: true)
                     }
                 }
             }
-            highlightedTurnMessageId = targetId
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                targetScrollTurnId = nil
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) {
-                if highlightedTurnMessageId == targetId {
-                    withAnimation(.easeOut(duration: 0.3)) {
-                        highlightedTurnMessageId = nil
+            .onChange(of: isInputFocused) { _, focused in
+                if focused {
+                    hideStepperImmediately()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        scrollToBottom(proxy: proxy, animated: true)
+                    }
+                } else {
+                    // 等待键盘完全收起并恢复完整视口高度后，做底部对齐校准，消除悬空留白
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.28) {
+                        scrollToBottom(proxy: proxy, animated: true)
                     }
                 }
             }
-        }
+            .onChange(of: viewModel.focusInputTrigger) {
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 100_000_000)
+                    isInputFocused = true
+                }
+            }
+            .onChange(of: targetScrollTurnId) { _, targetId in
+                guard let targetId = targetId else { return }
+                if targetId == "BOTTOM_ANCHOR" {
+                    hasUserInteracted = false
+                    isNearBottom = true
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        proxy.scrollTo("BOTTOM_ANCHOR", anchor: .bottom)
+                    }
+                } else {
+                    hasUserInteracted = true
+                    isNearBottom = false
+                    blankHealTask?.cancel()
+                    blankHealTask = nil
+
+                    // 1. 若目标为首条消息或首轮，先对齐顶部锚点唤醒顶部区域渲染
+                    if targetId == viewModel.messages.first?.id || targetId == "TOP_ANCHOR" {
+                        proxy.scrollTo("TOP_ANCHOR", anchor: .top)
+                    }
+
+                    // 2. 立即跳转至目标消息行
+                    proxy.scrollTo(targetId, anchor: .top)
+
+                    // 3. 在 Sheet 转场关闭及 Lazy 视图实例化阶段做多级微调校准，避免大跨度跳转下的空白
+                    for delay in [0.08, 0.22, 0.4] {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                            proxy.scrollTo(targetId, anchor: .top)
+                        }
+                    }
+                }
+                highlightedTurnMessageId = targetId
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    targetScrollTurnId = nil
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) {
+                    if highlightedTurnMessageId == targetId {
+                        withAnimation(.easeOut(duration: 0.3)) {
+                            highlightedTurnMessageId = nil
+                        }
+                    }
+                }
+            }
     }
     
     var canScheduleAutoFocus: Bool {

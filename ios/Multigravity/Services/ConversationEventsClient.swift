@@ -41,6 +41,8 @@ public final class ConversationEventsClient {
     private var attempt = 0
     private var generation = 0
     private var baseURLProvider: (() -> URL?)?
+    private var lastRev: Int64 = 0
+    private var lastRevHost: String?
     /// Resolves the in-flight `connectOnce` continuation; lets `stop()` end it without polling.
     private var finishCurrent: (@MainActor () -> Void)?
 
@@ -159,18 +161,32 @@ public final class ConversationEventsClient {
         var path = components.path
         if !path.hasSuffix("/") { path += "/" }
         components.path = path + "gateway/events"
-        components.queryItems = nil
+
+        let hostStr = (components.host ?? "").lowercased()
+        if lastRevHost != nil && lastRevHost != hostStr {
+            lastRev = 0
+        }
+        lastRevHost = hostStr
+
+        if lastRev > 0 {
+            components.queryItems = [URLQueryItem(name: "sinceRev", value: "\(lastRev)")]
+        } else {
+            components.queryItems = nil
+        }
         guard let targetURL = components.url else { return false }
 
-        let hostStr = (targetURL.host ?? "").lowercased()
         let scheme = targetURL.scheme?.lowercased() ?? "http"
+        let isCloudflare = CloudflareAnycastAccelerator.isCloudflareTunnelHost(hostStr)
 
-        // Tailscale cleartext HTTP cannot pass URLSession ATS; use NWConnection fallback for it
+        // Tailscale cleartext HTTP cannot pass URLSession ATS; use NWConnection fallback for it.
         let isTailscaleCleartext = (scheme == "http" || scheme == "ws") && NetworkTransport.isTailscaleHost(hostStr)
 
         if isTailscaleCleartext {
             print("[EventsWS] Target is Tailscale cleartext (\(hostStr)), routing via NWConnection fallback")
-            return await connectWithNWConnection(targetURL: targetURL, generation: gen)
+            return await connectWithNWConnection(targetURL: targetURL, useAnycastEdge: false, generation: gen)
+        } else if isCloudflare && (scheme == "https" || scheme == "wss") && attempt == 0 {
+            CloudflareAnycastAccelerator.shared.triggerProbeIfNeeded()
+            return await connectWithNWConnection(targetURL: targetURL, useAnycastEdge: true, generation: gen)
         } else {
             return await connectWithURLSession(targetURL: targetURL, generation: gen)
         }
@@ -351,16 +367,27 @@ public final class ConversationEventsClient {
         }
     }
 
-    // MARK: - ATS Bypass Fallback: NWConnection (For Tailscale Cleartext Hosts)
+    // MARK: - Direct Socket Transport: NWConnection (Tailscale Cleartext & Cloudflare Anycast Edge)
 
-    private func connectWithNWConnection(targetURL: URL, generation gen: Int) async -> Bool {
+    private func connectWithNWConnection(targetURL: URL, useAnycastEdge: Bool = false, generation gen: Int) async -> Bool {
         var components = URLComponents(url: targetURL, resolvingAgainstBaseURL: true)
-        components?.scheme = (targetURL.scheme?.lowercased() == "https") ? "wss" : "ws"
+        components?.scheme = (targetURL.scheme?.lowercased() == "https" || targetURL.scheme?.lowercased() == "wss") ? "wss" : "ws"
         guard let wsURL = components?.url else { return false }
 
         let hostStr = (wsURL.host ?? "").lowercased()
         let isCloudflare = CloudflareAnycastAccelerator.isCloudflareTunnelHost(hostStr)
-        let endpoint = NWEndpoint.url(wsURL)
+        let connectURL: URL
+        if useAnycastEdge && isCloudflare && wsURL.scheme?.lowercased() == "wss" {
+            var edgeComps = components
+            edgeComps?.host = CloudflareAnycastAccelerator.primaryIP
+            if edgeComps?.port == nil {
+                edgeComps?.port = 443
+            }
+            connectURL = edgeComps?.url ?? wsURL
+        } else {
+            connectURL = wsURL
+        }
+        let endpoint = NWEndpoint.url(connectURL)
 
         let wsOptions = NWProtocolWebSocket.Options()
         wsOptions.autoReplyPing = true
@@ -466,6 +493,9 @@ public final class ConversationEventsClient {
     }
 
     private func noteFrame(_ frame: ConversationEventFrame) {
+        if frame.rev > 0 {
+            lastRev = frame.rev
+        }
         guard frame.isHeartbeat else { return }
         lastBeatAt = Date()
         beatCount &+= 1
