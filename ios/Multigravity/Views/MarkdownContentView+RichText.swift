@@ -6,7 +6,9 @@ extension MarkdownContentView {
     final class InlineMarkdownCache: @unchecked Sendable {
         static let shared = InlineMarkdownCache()
         private let lock = NSLock()
+        private let maxEntries = 1200
         private var cache: [Int: AttributedString] = [:]
+        private var insertionOrder: [Int] = []
         
         func get(_ key: Int) -> AttributedString? {
             lock.lock()
@@ -17,8 +19,15 @@ extension MarkdownContentView {
         func set(_ key: Int, value: AttributedString) {
             lock.lock()
             defer { lock.unlock() }
-            if cache.count > 500 {
-                cache.removeAll(keepingCapacity: true)
+            if cache[key] == nil {
+                if cache.count >= maxEntries {
+                    let evictCount = min(300, insertionOrder.count)
+                    for i in 0..<evictCount {
+                        cache.removeValue(forKey: insertionOrder[i])
+                    }
+                    insertionOrder.removeFirst(evictCount)
+                }
+                insertionOrder.append(key)
             }
             cache[key] = value
         }
@@ -84,7 +93,7 @@ extension MarkdownContentView {
             }
         }
         
-        let attr = renderInlineMarkdown(text, size: size, weight: weight)
+        let attr = renderInlineMarkdownNormalized(text, size: size, weight: weight)
         
         // Fast-path: If text does not contain markdown link signature `](` or URL scheme, return Text(attr) directly
         guard (text.contains("[") && text.contains("](")) || text.contains("http://") || text.contains("https://") || text.contains("file://") else {
@@ -603,13 +612,17 @@ extension MarkdownContentView {
     }
     
     public static func renderInlineMarkdown(_ text: String, size: CGFloat = 15, weight: Font.Weight = .regular) -> AttributedString {
-        let cacheKey = text.hashValue ^ (Int(size * 100) << 2) ^ weight.hashValue
+        let textWithBreaks = replaceHtmlBreaks(in: text)
+        let unwrappedText = unwrapBacktickBold(in: textWithBreaks)
+        return renderInlineMarkdownNormalized(unwrappedText, size: size, weight: weight)
+    }
+
+    private static func renderInlineMarkdownNormalized(_ unwrappedText: String, size: CGFloat = 15, weight: Font.Weight = .regular) -> AttributedString {
+        let cacheKey = unwrappedText.hashValue ^ (Int(size * 100) << 2) ^ weight.hashValue
         if let cached = InlineMarkdownCache.shared.get(cacheKey) {
             return cached
         }
         
-        let textWithBreaks = replaceHtmlBreaks(in: text)
-        let unwrappedText = unwrapBacktickBold(in: textWithBreaks)
         let (preprocessedText, hasMarkers) = fixCJKDelimiters(in: unwrappedText)
         
         var options = AttributedString.MarkdownParsingOptions()

@@ -92,13 +92,13 @@ extension ChatView {
     
     func handleFloatingCardToggle(isExpanded: Bool) {
         hasUserInteracted = false
-        isNearBottom = true
+        scrollHUD.isNearBottom = true
         cardToggleTrigger &+= 1
     }
     
     func performAdaptiveCardScroll(proxy: ScrollViewProxy) {
         hasUserInteracted = false
-        isNearBottom = true
+        scrollHUD.isNearBottom = true
         guard messagesContentHeight == 0 || currentViewportHeight == 0 || messagesContentHeight > currentViewportHeight else {
             return
         }
@@ -126,7 +126,7 @@ extension ChatView {
     /// 流式文本每播放一小段后调用：用户没有手动翻看时，无动画贴底，避免动画叠加造成的抖动。
     func followStreamGrowth(proxy: ScrollViewProxy) {
         guard hasInitiallyAligned, !isUserDragging else { return }
-        guard isNearBottom || !hasUserInteracted else { return }
+        guard scrollHUD.isNearBottom || !hasUserInteracted else { return }
         let now = Date()
         guard now.timeIntervalSince(lastFollowScrollAt) >= 0.06 else { return }
         lastFollowScrollAt = now
@@ -140,7 +140,7 @@ extension ChatView {
     /// 且稳定一小会儿后，主动重新贴底。
     func scheduleBlankSpaceHeal(anchorMaxY: CGFloat, viewportHeight: CGFloat, proxy: ScrollViewProxy) {
         // 仅在用户期望贴底时执行底部自愈，用户手动翻阅或浏览历史轮次时绝不强行贴底
-        guard !hasUserInteracted || isNearBottom else { return }
+        guard !hasUserInteracted || scrollHUD.isNearBottom else { return }
         let hasBlank = messagesContentHeight > viewportHeight + 1
             && viewportHeight > 0
             && anchorMaxY < viewportHeight - 40
@@ -151,7 +151,7 @@ extension ChatView {
         }
         blankHealTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: 250_000_000)
-            guard !Task.isCancelled, !isUserDragging, (!hasUserInteracted || isNearBottom) else { return }
+            guard !Task.isCancelled, !isUserDragging, (!hasUserInteracted || scrollHUD.isNearBottom) else { return }
             scrollToBottom(proxy: proxy, animated: false)
         }
     }
@@ -160,12 +160,12 @@ extension ChatView {
     /// 用户正在拖动、或下拉/上拉回弹的小幅越界不处理。
     func scheduleOvershootHeal(overshoot: CGFloat, proxy: ScrollViewProxy) {
         // 仅在用户期望贴底时执行底部自愈
-        guard !hasUserInteracted || isNearBottom else { return }
+        guard !hasUserInteracted || scrollHUD.isNearBottom else { return }
         guard overshoot > 120 else { return }
         blankHealTask?.cancel()
         blankHealTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: 250_000_000)
-            guard !Task.isCancelled, !isUserDragging, (!hasUserInteracted || isNearBottom) else { return }
+            guard !Task.isCancelled, !isUserDragging, (!hasUserInteracted || scrollHUD.isNearBottom) else { return }
             scrollToBottom(proxy: proxy, animated: false)
         }
     }

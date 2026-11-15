@@ -1,4 +1,19 @@
 import SwiftUI
+import Observation
+
+@Observable
+@MainActor
+final class ChatScrollHUDState {
+    var stepperOpacity: Double = 0.0
+    var currentVisibleTurnIndex: Int = 1
+    var isNearBottom: Bool = true
+    @ObservationIgnored var lastAnchorMaxY: CGFloat = 0
+    @ObservationIgnored var lastStepperScheduleAt: Date = .distantPast
+    @ObservationIgnored var stepperDimTask: Task<Void, Never>? = nil
+    @ObservationIgnored var stepperHideTask: Task<Void, Never>? = nil
+    @ObservationIgnored var lastVisibleMessageGeometries: [VisibleMessageGeometry] = []
+    @ObservationIgnored var lockedTurnIndex: Int? = nil
+}
 
 struct ChatBottomAnchorOffsetPreferenceKey: PreferenceKey {
     static var defaultValue: CGFloat = .infinity

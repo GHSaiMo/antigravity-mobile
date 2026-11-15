@@ -13,19 +13,15 @@ public struct ChatView: View {
     /// 进入子代理等子页面再返回时，保持原滚动位置，不重新对齐到底部。
     @State var preserveScrollOnReturn = false
     @State var hasUserInteracted = false
-    @State var isNearBottom = true
+    @State var scrollHUD = ChatScrollHUDState()
     @State var messagesContentHeight: CGFloat = 0
     @State var currentViewportHeight: CGFloat = 0
     @State var cardToggleTrigger = 0
     @State var isUserDragging = false
-    @State var stepperOpacity: Double = 0.0
-    @State var lastAnchorMaxY: CGFloat = 0
-    @State var stepperDimTask: Task<Void, Never>? = nil
-    @State var stepperHideTask: Task<Void, Never>? = nil
     @State var blankHealTask: Task<Void, Never>? = nil
     /// 最后一条消息的行当前是否已被创建（LazyVStack 懒加载时可能迟迟不创建）。
     @State var lastRowMaterialized = false
-    /// 锁定当前会话列表容器类型（VStack vs LazyVStack），避免流式跨过第 100 条消息时整棵子树与 WKWebView 被销毁重建。
+    /// 锁定当前会话列表容器类型（VStack vs LazyVStack），避免流式跨过阈值瞬间整棵子树与 WKWebView 被销毁重建。
     @State var useLazyMessagesStack = false
     @State var lastFollowScrollAt: Date = .distantPast
     @State var showCameraPicker = false
@@ -53,9 +49,6 @@ public struct ChatView: View {
     @State var modelPickerState = ModelSlidePickerState()
     @State var workflowPickerState = WorkflowSlidePickerState()
     @State var selectedSubagentDetail: SubagentItem? = nil
-    @State var currentVisibleTurnIndex: Int = 1
-    @State var lockedTurnIndex: Int? = nil
-    @State var lastVisibleMessageGeometries: [VisibleMessageGeometry] = []
     @State var isSlashPickerDismissed: Bool = false
     @State var highlightedTurnMessageId: String? = nil
     @State var targetScrollTurnId: String? = nil
@@ -97,7 +90,7 @@ public struct ChatView: View {
                     conversationStatus: conversation.status
                 )
                 _viewModel = State(initialValue: vm)
-                _useLazyMessagesStack = State(initialValue: vm.messages.count > 100)
+                _useLazyMessagesStack = State(initialValue: Self.shouldUseLazyStack(for: vm.messages))
             }
         } else {
             let isNewOrEmpty = isNewConversation || conversation.stepCount == 0
@@ -111,8 +104,26 @@ public struct ChatView: View {
                 conversationStatus: conversation.status
             )
             _viewModel = State(initialValue: vm)
-            _useLazyMessagesStack = State(initialValue: vm.messages.count > 100)
+            _useLazyMessagesStack = State(initialValue: Self.shouldUseLazyStack(for: vm.messages))
         }
+    }
+
+    /// 根据消息数量、文本总字符数与工具调用总数判定是否启用 LazyVStack，
+    /// 避免“消息条数不多但工具批次与长文极大”的会话误用非懒加载 VStack。
+    static func shouldUseLazyStack(for messages: [ChatMessage]) -> Bool {
+        if messages.count > 40 {
+            return true
+        }
+        var totalChars = 0
+        var totalTools = 0
+        for msg in messages {
+            totalChars += msg.content.count
+            totalTools += msg.toolCount
+            if totalChars > 15_000 || totalTools > 60 {
+                return true
+            }
+        }
+        return false
     }
     
     public init(draftSession: LocalDraftSession) {
@@ -226,67 +237,18 @@ public struct ChatView: View {
             }
             
             ToolbarItem(placement: .principal) {
-                if viewModel.turns.count >= 2 {
-                    VStack(spacing: 2) {
-                        Button(action: {
-                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                            showNavigatorSheet = true
-                        }) {
-                            Text(viewModel.currentTitle)
-                                .font(.system(size: 14.5, weight: .semibold))
-                                .foregroundColor(.primary)
-                                .lineLimit(1)
-                        }
-                        .buttonStyle(.plain)
-
-                        HStack(spacing: 10) {
-                            Button(action: {
-                                UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                                showNavigatorSheet = true
-                            }) {
-                                HStack(spacing: 3) {
-                                    Text("第 \(currentVisibleTurnIndex)/\(viewModel.turns.count) 轮")
-                                        .font(.system(size: 10, weight: .semibold))
-                                        .foregroundColor(.indigo)
-                                    Image(systemName: "chevron.down")
-                                        .font(.system(size: 7.5, weight: .bold))
-                                        .foregroundColor(.indigo.opacity(0.8))
-                                }
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 1.5)
-                                .background(Color.indigo.opacity(0.09))
-                                .clipShape(Capsule())
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("当前第 \(currentVisibleTurnIndex) 轮，共 \(viewModel.turns.count) 轮，点击打开步骤大纲")
-
-                            if let meter = viewModel.contextMeter {
-                                ContextRingCapsuleView(
-                                    meter: meter,
-                                    isRunning: viewModel.isRunning || viewModel.isAwaitingResponse
-                                ) {
-                                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                                    showContextAuditSheet = true
-                                }
-                            }
-                        }
+                ChatToolbarPrincipalView(
+                    viewModel: viewModel,
+                    scrollHUD: scrollHUD,
+                    onOpenNavigator: {
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        showNavigatorSheet = true
+                    },
+                    onOpenContextAudit: {
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        showContextAuditSheet = true
                     }
-                } else {
-                    VStack(spacing: 2) {
-                        Text(viewModel.currentTitle)
-                            .font(.system(size: 15.5, weight: .semibold))
-                            .lineLimit(1)
-                        if let meter = viewModel.contextMeter {
-                            ContextRingCapsuleView(
-                                meter: meter,
-                                isRunning: viewModel.isRunning || viewModel.isAwaitingResponse
-                            ) {
-                                UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                                showContextAuditSheet = true
-                            }
-                        }
-                    }
-                }
+                )
             }
             
             ToolbarItem(placement: .topBarTrailing) {
@@ -453,24 +415,24 @@ public struct ChatView: View {
             ConversationNavigatorSheet(
                 turns: viewModel.turns,
                 chapters: viewModel.chapters,
-                currentTurnIndex: currentVisibleTurnIndex,
+                currentTurnIndex: scrollHUD.currentVisibleTurnIndex,
                 isLoadingChapterTitles: viewModel.isLoadingChapterTitles,
                 onSelectTurn: { turn in
-                    lockedTurnIndex = turn.turnIndex
-                    currentVisibleTurnIndex = turn.turnIndex
+                    scrollHUD.lockedTurnIndex = turn.turnIndex
+                    scrollHUD.currentVisibleTurnIndex = turn.turnIndex
                     targetScrollTurnId = turn.firstMessageId
                 },
                 onJumpToTop: {
                     if let firstId = viewModel.messages.first?.id {
-                        lockedTurnIndex = 1
-                        currentVisibleTurnIndex = 1
+                        scrollHUD.lockedTurnIndex = 1
+                        scrollHUD.currentVisibleTurnIndex = 1
                         targetScrollTurnId = firstId
                     }
                 },
                 onJumpToBottom: {
                     let lastTurn = viewModel.turns.last?.turnIndex ?? 1
-                    lockedTurnIndex = nil
-                    currentVisibleTurnIndex = lastTurn
+                    scrollHUD.lockedTurnIndex = nil
+                    scrollHUD.currentVisibleTurnIndex = lastTurn
                     targetScrollTurnId = "BOTTOM_ANCHOR"
                 }
             )
@@ -732,10 +694,14 @@ public struct ChatView: View {
         } else {
             hasInitiallyAligned = false
             hasUserInteracted = false
-            isNearBottom = true
+            scrollHUD.isNearBottom = true
             messagesContentHeight = 0
             currentViewportHeight = 0
         }
+        scrollHUD.stepperDimTask?.cancel()
+        scrollHUD.stepperDimTask = nil
+        scrollHUD.stepperHideTask?.cancel()
+        scrollHUD.stepperHideTask = nil
         autoFocusTask?.cancel()
         autoFocusTask = nil
         if voiceCall.isInCall {
@@ -1004,6 +970,71 @@ struct ContextAuditSheetView: View {
         VStack(alignment: .leading, spacing: 2) {
             Text(label).font(.system(size: 10)).foregroundColor(.secondary)
             Text(value).font(.system(size: 13, weight: .semibold, design: .monospaced))
+        }
+    }
+}
+
+/// 独立观察 `scrollHUD.currentVisibleTurnIndex` 的顶部导航栏标题组件，
+/// 避免滚动切换可见轮次时触发 `ChatView.body` 与整条消息列表重新求值。
+private struct ChatToolbarPrincipalView: View {
+    let viewModel: ChatViewModel
+    let scrollHUD: ChatScrollHUDState
+    let onOpenNavigator: () -> Void
+    let onOpenContextAudit: () -> Void
+
+    var body: some View {
+        if viewModel.turns.count >= 2 {
+            VStack(spacing: 2) {
+                Button(action: onOpenNavigator) {
+                    Text(viewModel.currentTitle)
+                        .font(.system(size: 14.5, weight: .semibold))
+                        .foregroundColor(.primary)
+                        .lineLimit(1)
+                }
+                .buttonStyle(.plain)
+
+                HStack(spacing: 10) {
+                    Button(action: onOpenNavigator) {
+                        HStack(spacing: 3) {
+                            Text("第 \(scrollHUD.currentVisibleTurnIndex)/\(viewModel.turns.count) 轮")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundColor(.indigo)
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 7.5, weight: .bold))
+                                .foregroundColor(.indigo.opacity(0.8))
+                        }
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 1.5)
+                        .background(Color.indigo.opacity(0.09))
+                        .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("当前第 \(scrollHUD.currentVisibleTurnIndex) 轮，共 \(viewModel.turns.count) 轮，点击打开步骤大纲")
+
+                    if let meter = viewModel.contextMeter {
+                        ContextRingCapsuleView(
+                            meter: meter,
+                            isRunning: viewModel.isRunning || viewModel.isAwaitingResponse
+                        ) {
+                            onOpenContextAudit()
+                        }
+                    }
+                }
+            }
+        } else {
+            VStack(spacing: 2) {
+                Text(viewModel.currentTitle)
+                    .font(.system(size: 15.5, weight: .semibold))
+                    .lineLimit(1)
+                if let meter = viewModel.contextMeter {
+                    ContextRingCapsuleView(
+                        meter: meter,
+                        isRunning: viewModel.isRunning || viewModel.isAwaitingResponse
+                    ) {
+                        onOpenContextAudit()
+                    }
+                }
+            }
         }
     }
 }
