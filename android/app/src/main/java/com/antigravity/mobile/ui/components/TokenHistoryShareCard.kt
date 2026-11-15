@@ -79,8 +79,10 @@ fun TokenHistoryShareCard(
 
 @Composable
 private fun HeaderSection(colors: AppColors) {
-    val dateStr = remember {
-        val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
+    val dateStr = remember(TimeZone.getDefault().id) {
+        val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).apply {
+            timeZone = TimeZone.getDefault()
+        }
         sdf.format(Date())
     }
 
@@ -499,8 +501,12 @@ private fun FooterSection(
             color = colors.textSecondary
         )
         if (tokenHistory.updatedAt > 0) {
-            val timeFmt = remember { SimpleDateFormat("HH:mm:ss", Locale.getDefault()) }
-            val timeStr = timeFmt.format(Date(tokenHistory.updatedAt * 1000))
+            val timeFmt = remember(TimeZone.getDefault().id) {
+                SimpleDateFormat("HH:mm:ss", Locale.US).apply {
+                    timeZone = TimeZone.getDefault()
+                }
+            }
+            val timeStr = timeFmt.format(Date(tokenHistory.updatedAtEpochMs))
             Text(
                 text = "本地数据扫描于 $timeStr",
                 fontSize = 9.5.sp,

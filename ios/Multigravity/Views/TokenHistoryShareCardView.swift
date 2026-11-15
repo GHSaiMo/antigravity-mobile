@@ -307,8 +307,7 @@ public struct TokenHistoryShareCardView: View {
                 .font(.system(size: 10, weight: .medium))
                 .foregroundColor(secondaryTextColor.opacity(0.85))
             if history.updatedAt > 0 {
-                let scanDate = Date(timeIntervalSince1970: Double(history.updatedAt))
-                Text("本地数据扫描于 \(Self.scanTimeFormatter.string(from: scanDate))")
+                Text("本地数据扫描于 \(Self.scanTimeFormatter.string(from: history.updatedAtDate))")
                     .font(.system(size: 9.5))
                     .foregroundColor(secondaryTextColor.opacity(0.6))
             }
@@ -357,12 +356,16 @@ public struct TokenHistoryShareCardView: View {
 
     private static let dateFormatter: DateFormatter = {
         let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = .autoupdatingCurrent
         f.dateFormat = "yyyy-MM-dd HH:mm"
         return f
     }()
 
     private static let scanTimeFormatter: DateFormatter = {
         let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = .autoupdatingCurrent
         f.dateFormat = "HH:mm:ss"
         return f
     }()

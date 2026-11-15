@@ -188,14 +188,16 @@ internal fun ChatViewModel.prepareSession(
             canProceed = cached.canProceed ?: false,
             proceedArtifactUri = cached.proceedArtifactUri,
             pendingInteraction = cached.pendingInteraction,
-            activeModel = if (!isDraft) {
+            activeModel = cached.activeModel?.takeIf { it.isNotBlank() } ?: if (!isDraft) {
                 val desktop = prefs?.cachedModelCatalog?.desktopActiveModel?.takeIf { it.isNotBlank() }
-                ModelDefaults.resolveActive(desktop, cached.activeModel ?: favoriteModel1, favoriteModel1, favoriteModel2)
+                ModelDefaults.resolveActive(desktop, favoriteModel1, favoriteModel1, favoriteModel2)
             } else {
-                cached.activeModel ?: favoriteModel1
+                favoriteModel1
             },
-            activeModelName = if (!isDraft && !prefs?.cachedModelCatalog?.desktopActiveModel.isNullOrBlank()) {
-                prefs?.cachedModelCatalog?.desktopActiveModelName ?: cached.activeModelName ?: _uiState.value.activeModelName
+            activeModelName = if (!cached.activeModel.isNullOrBlank()) {
+                cached.activeModelName ?: _uiState.value.activeModelName
+            } else if (!isDraft && !prefs?.cachedModelCatalog?.desktopActiveModel.isNullOrBlank()) {
+                prefs?.cachedModelCatalog?.desktopActiveModelName ?: _uiState.value.activeModelName
             } else {
                 cached.activeModelName ?: _uiState.value.activeModelName
             },
@@ -319,14 +321,16 @@ internal fun ChatViewModel.initSession(
                 canProceed = cached.canProceed ?: false,
                 proceedArtifactUri = cached.proceedArtifactUri,
                 pendingInteraction = cached.pendingInteraction,
-                activeModel = if (!isDraft) {
+                activeModel = cached.activeModel?.takeIf { it.isNotBlank() } ?: if (!isDraft) {
                     val desktop = prefs?.cachedModelCatalog?.desktopActiveModel?.takeIf { it.isNotBlank() }
-                    ModelDefaults.resolveActive(desktop, cached.activeModel ?: favoriteModel1, favoriteModel1, favoriteModel2)
+                    ModelDefaults.resolveActive(desktop, favoriteModel1, favoriteModel1, favoriteModel2)
                 } else {
-                    cached.activeModel ?: favoriteModel1
+                    favoriteModel1
                 },
-                activeModelName = if (!isDraft && !prefs?.cachedModelCatalog?.desktopActiveModel.isNullOrBlank()) {
-                    prefs?.cachedModelCatalog?.desktopActiveModelName ?: cached.activeModelName ?: _uiState.value.activeModelName
+                activeModelName = if (!cached.activeModel.isNullOrBlank()) {
+                    cached.activeModelName ?: _uiState.value.activeModelName
+                } else if (!isDraft && !prefs?.cachedModelCatalog?.desktopActiveModel.isNullOrBlank()) {
+                    prefs?.cachedModelCatalog?.desktopActiveModelName ?: _uiState.value.activeModelName
                 } else {
                     cached.activeModelName ?: _uiState.value.activeModelName
                 },
@@ -470,11 +474,18 @@ internal fun ChatViewModel.initSession(
                         proceedArtifactUri = payload.proceedArtifactUri,
                         pendingInteraction = payload.pendingInteraction,
                         activeModel = if (hasUserManuallySelectedModel) _uiState.value.activeModel else {
-                            val serverModel = if (!isDraft && !payload.desktopActiveModel.isNullOrBlank()) payload.desktopActiveModel else payload.activeModel
+                            val serverModel = payload.activeModel?.takeIf { it.isNotBlank() }
+                                ?: (if (!isDraft) payload.desktopActiveModel?.takeIf { it.isNotBlank() } else null)
                             ModelDefaults.resolveActive(serverModel, _uiState.value.activeModel, favoriteModel1, favoriteModel2)
                         },
                         activeModelName = if (hasUserManuallySelectedModel) _uiState.value.activeModelName else {
-                            val serverName = if (!isDraft && !payload.desktopActiveModel.isNullOrBlank()) payload.desktopActiveModelName else payload.activeModelName
+                            val serverName = if (!payload.activeModel.isNullOrBlank()) {
+                                payload.activeModelName
+                            } else if (!isDraft) {
+                                payload.desktopActiveModelName
+                            } else {
+                                payload.activeModelName
+                            }
                             serverName ?: _uiState.value.activeModelName
                         },
                         startedAt = payload.startedAt ?: _uiState.value.startedAt,
@@ -614,11 +625,18 @@ internal fun ChatViewModel.ensureWebSocketObserving() {
                     proceedArtifactUri = payload.proceedArtifactUri,
                     pendingInteraction = payload.pendingInteraction,
                     activeModel = if (hasUserManuallySelectedModel) _uiState.value.activeModel else {
-                        val serverModel = if (!isCurrentDraft && !payload.desktopActiveModel.isNullOrBlank()) payload.desktopActiveModel else payload.activeModel
+                        val serverModel = payload.activeModel?.takeIf { it.isNotBlank() }
+                            ?: (if (!isCurrentDraft) payload.desktopActiveModel?.takeIf { it.isNotBlank() } else null)
                         ModelDefaults.resolveActive(serverModel, _uiState.value.activeModel, favoriteModel1, favoriteModel2)
                     },
                     activeModelName = if (hasUserManuallySelectedModel) _uiState.value.activeModelName else {
-                        val serverName = if (!isCurrentDraft && !payload.desktopActiveModel.isNullOrBlank()) payload.desktopActiveModelName else payload.activeModelName
+                        val serverName = if (!payload.activeModel.isNullOrBlank()) {
+                            payload.activeModelName
+                        } else if (!isCurrentDraft) {
+                            payload.desktopActiveModelName
+                        } else {
+                            payload.activeModelName
+                        }
                         serverName ?: _uiState.value.activeModelName
                     },
                     startedAt = payload.startedAt ?: _uiState.value.startedAt,

@@ -986,8 +986,7 @@ extension AccountQuotaSheet {
                 }
 
                 if history.updatedAt > 0 {
-                    let date = Date(timeIntervalSince1970: Double(history.updatedAt))
-                    Text("本地历史扫描于 \(date.formatted(date: .omitted, time: .standard))")
+                    Text("本地历史扫描于 \(history.updatedAtDate.formatted(date: .omitted, time: .standard))")
                         .font(.system(size: 11))
                         .foregroundColor(.secondary.opacity(0.7))
                         .padding(.top, 2)

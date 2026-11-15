@@ -345,7 +345,7 @@ public struct ChatView: View {
             if let url = AppSettings.shared.serverURL {
                 Task { @MainActor in
                     await ModelCatalogStore.shared.refreshIfNeeded(settings: AppSettings.shared, baseURL: url)
-                    if !viewModel.isDraftConversation && !viewModel.hasUserManuallySelectedModel,
+                    if !viewModel.isDraftConversation && !viewModel.hasUserManuallySelectedModel && !viewModel.hasResolvedSessionModel,
                        let desktopModel = ModelCatalogStore.shared.catalog?.desktopActiveModel,
                        !desktopModel.isEmpty {
                         viewModel.syncModel(from: desktopModel)

@@ -34,4 +34,8 @@ data class TokenHistoryResponse(
     @SerialName("updated_at") val updatedAt: Long = 0,
     val summary: TokenHistorySummary = TokenHistorySummary(),
     @SerialName("daily_matrix") val dailyMatrix: List<DailyTokenRecord> = emptyList()
-)
+) {
+    /** 后端下发毫秒级 Unix 时间戳；兼容秒级历史结构并转为毫秒 */
+    val updatedAtEpochMs: Long
+        get() = if (updatedAt in 1 until 10_000_000_000L) updatedAt * 1000L else updatedAt
+}
