@@ -13,7 +13,7 @@ public struct MessageBubbleView: View {
     let onSelectSubagent: ((SubagentItem) -> Void)?
     let onFork: ((ChatMessage) -> Void)?
     let onNarrate: ((String) -> Void)?
-    let shareContext: ShareCardContext?
+    let makeShareContext: (() -> ShareCardContext)?
     @State var showShareCard: Bool = false
     @State var isThinkingExpanded: Bool = false
     
@@ -31,7 +31,7 @@ public struct MessageBubbleView: View {
         onSelectSubagent: ((SubagentItem) -> Void)? = nil,
         onFork: ((ChatMessage) -> Void)? = nil,
         onNarrate: ((String) -> Void)? = nil,
-        shareContext: ShareCardContext? = nil
+        makeShareContext: (() -> ShareCardContext)? = nil
     ) {
         self.message = message
         self.isActiveToolBatch = isActiveToolBatch
@@ -43,7 +43,7 @@ public struct MessageBubbleView: View {
         self.onSelectSubagent = onSelectSubagent
         self.onFork = onFork
         self.onNarrate = onNarrate
-        self.shareContext = shareContext
+        self.makeShareContext = makeShareContext
     }
     
     public var body: some View {
@@ -112,7 +112,7 @@ public struct MessageBubbleView: View {
         .sheet(isPresented: $showShareCard) {
             MessageShareCardSheet(
                 message: message,
-                context: shareContext ?? ShareCardContext(sessionTitle: "", modelName: nil, previousMessage: nil),
+                context: makeShareContext?() ?? ShareCardContext(sessionTitle: "", modelName: nil, previousMessage: nil),
                 extraImages: shareCardImages
             )
             .presentationDetents([.large])

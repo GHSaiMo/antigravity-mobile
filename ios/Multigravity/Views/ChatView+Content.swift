@@ -17,31 +17,24 @@ extension ChatView {
                             messagesScrollView(proxy: proxy, viewportWidth: geometry.size.width, viewportHeight: geometry.size.height)
                             
                             // 浮动跳跃双钮导航条 (Prompt Jump Stepper)
-                            if stepperOpacity > 0.01 {
-                                PromptJumpStepperView(
-                                    currentTurn: currentVisibleTurnIndex,
-                                    totalTurns: viewModel.turns.count,
-                                    isAtTop: currentVisibleTurnIndex <= 1,
-                                    isAtLastTurn: currentVisibleTurnIndex >= viewModel.turns.count,
-                                    onJumpPrevious: {
-                                        wakeStepper()
-                                        jumpToPreviousTurn()
-                                    },
-                                    onJumpNextOrBottom: {
-                                        wakeStepper()
-                                        jumpToNextTurnOrBottom()
-                                    },
-                                    onForceJumpBottom: {
-                                        wakeStepper()
-                                        forceJumpToBottom()
-                                    }
-                                )
-                                .opacity(stepperOpacity)
-                                .allowsHitTesting(stepperOpacity > 0.05)
-                                .padding(.trailing, 14)
-                                .padding(.bottom, 12)
-                                .transition(.opacity)
-                            }
+                            ChatStepperOverlayView(
+                                scrollHUD: scrollHUD,
+                                totalTurns: viewModel.turns.count,
+                                onJumpPrevious: {
+                                    wakeStepper()
+                                    jumpToPreviousTurn()
+                                },
+                                onJumpNextOrBottom: {
+                                    wakeStepper()
+                                    jumpToNextTurnOrBottom()
+                                },
+                                onForceJumpBottom: {
+                                    wakeStepper()
+                                    forceJumpToBottom()
+                                }
+                            )
+                            .padding(.trailing, 14)
+                            .padding(.bottom, 12)
                         }
                         .onAppear {
                             currentViewportHeight = geometry.size.height
@@ -51,7 +44,7 @@ extension ChatView {
                             if newHeight != oldHeight {
                                 if !hasInitiallyAligned {
                                     alignMessages(proxy: proxy, animated: false)
-                                } else if isNearBottom && !hasUserInteracted {
+                                } else if scrollHUD.isNearBottom && !hasUserInteracted {
                                     scrollToBottom(proxy: proxy, animated: true)
                                 }
                             }
@@ -168,15 +161,15 @@ extension ChatView {
             if near && hasUserInteracted {
                 hasUserInteracted = false
             }
-            if near != isNearBottom {
-                isNearBottom = near
+            if near != scrollHUD.isNearBottom {
+                scrollHUD.isNearBottom = near
                 updateCurrentVisibleTurn(viewportHeight: viewportHeight)
             }
             scheduleBlankSpaceHeal(anchorMaxY: anchorMaxY, viewportHeight: viewportHeight, proxy: proxy)
             handleStepperScrollProgress(anchorMaxY: anchorMaxY, isNear: near)
         }
         .onPreferenceChange(ChatVisibleMessagesPreferenceKey.self) { visibleGeometries in
-            lastVisibleMessageGeometries = visibleGeometries
+            scrollHUD.lastVisibleMessageGeometries = visibleGeometries
             updateCurrentVisibleTurn(viewportHeight: viewportHeight)
         }
         .onChange(of: viewModel.turns.count) { _, _ in
@@ -201,8 +194,8 @@ extension ChatView {
                     .onChanged { _ in
                         hasUserInteracted = true
                         isUserDragging = true
-                        if lockedTurnIndex != nil {
-                            lockedTurnIndex = nil
+                        if scrollHUD.lockedTurnIndex != nil {
+                            scrollHUD.lockedTurnIndex = nil
                         }
                     }
                     .onEnded { _ in isUserDragging = false }
@@ -241,7 +234,7 @@ extension ChatView {
         content
             .onChange(of: viewModel.isLoading) { _, loading in
                 if !loading {
-                    if !useLazyMessagesStack && !hasInitiallyAligned && viewModel.messages.count > 100 {
+                    if !useLazyMessagesStack && !hasInitiallyAligned && ChatView.shouldUseLazyStack(for: viewModel.messages) {
                         useLazyMessagesStack = true
                     }
                     // 网络会话历史同步结算后校准对齐
@@ -254,7 +247,7 @@ extension ChatView {
                 }
             }
             .onChange(of: viewModel.isLoadingOlder) { _, loadingOlder in
-                if !loadingOlder && !useLazyMessagesStack && !viewModel.isActivelyRunning && viewModel.messages.count > 250 {
+                if !loadingOlder && !useLazyMessagesStack && !viewModel.isActivelyRunning && ChatView.shouldUseLazyStack(for: viewModel.messages) {
                     useLazyMessagesStack = true
                 }
             }
@@ -263,7 +256,7 @@ extension ChatView {
             }
             .onChange(of: viewModel.runningTasks.count) { oldVal, newVal in
                 if newVal != oldVal && hasInitiallyAligned {
-                    if isNearBottom || !hasUserInteracted {
+                    if scrollHUD.isNearBottom || !hasUserInteracted {
                         scrollToBottom(proxy: proxy, animated: true)
                     }
                 }
@@ -284,7 +277,7 @@ extension ChatView {
                     alignMessages(proxy: proxy, animated: false)
                     return
                 }
-                if !hasUserInteracted || isNearBottom {
+                if !hasUserInteracted || scrollHUD.isNearBottom {
                     // 新 Agent 气泡进入流式传输时无动画贴底，避免与 PacedAgentRow 的 followStreamGrowth 动画冲突抖动
                     let shouldAnimate = !(viewModel.messages.last?.isAgent == true && viewModel.isActivelyRunning)
                     scrollToBottom(proxy: proxy, animated: shouldAnimate)
@@ -295,13 +288,13 @@ extension ChatView {
                 guard hasInitiallyAligned else { return }
                 // 新消息 ID 切换已由上方 last?.id 处理；同一条 Agent 消息的文本增长由 PacedAgentRow 按节奏驱动滚动
                 guard oldMsg?.id == lastMsg.id, !lastMsg.isAgent else { return }
-                if !hasUserInteracted || isNearBottom {
+                if !hasUserInteracted || scrollHUD.isNearBottom {
                     scrollToBottom(proxy: proxy, animated: true)
                 }
             }
             .onChange(of: viewModel.queuedMessages) { oldVal, newVal in
                 if newVal != oldVal && hasInitiallyAligned {
-                    if isNearBottom || !hasUserInteracted {
+                    if scrollHUD.isNearBottom || !hasUserInteracted {
                         scrollToBottom(proxy: proxy, animated: true)
                     }
                 }
@@ -329,13 +322,13 @@ extension ChatView {
                 guard let targetId = targetId else { return }
                 if targetId == "BOTTOM_ANCHOR" {
                     hasUserInteracted = false
-                    isNearBottom = true
+                    scrollHUD.isNearBottom = true
                     withAnimation(.easeOut(duration: 0.2)) {
                         proxy.scrollTo("BOTTOM_ANCHOR", anchor: .bottom)
                     }
                 } else {
                     hasUserInteracted = true
-                    isNearBottom = false
+                    scrollHUD.isNearBottom = false
                     blankHealTask?.cancel()
                     blankHealTask = nil
 
@@ -374,9 +367,9 @@ extension ChatView {
         return viewModel.messages.isEmpty && viewModel.stepCount == 0
     }
     
-    /// 消息不多时用普通 VStack：LazyVStack 在程序化大幅跳转或滚到底后可能不创建行，整屏空白。
-    /// 通过锁存的 `useLazyMessagesStack` 控制容器身份，仅在会话初始载入超过 100 条或空闲态翻阅超长历史 (>250) 时启用 LazyVStack，
-    /// 绝不在流式输出跨过第 100 条消息的瞬间切换容器，防止整屏视图与内嵌 WKWebView 销毁重挂载。
+    /// 消息极少且内容轻量时用普通 VStack：LazyVStack 在程序化大幅跳转或滚到底后可能不创建行，整屏空白。
+    /// 通过锁存的 `useLazyMessagesStack` 控制容器身份（综合消息条数、总文本量、工具调用数），
+    /// 绝不在流式输出跨过阈值瞬间切换容器，防止整屏视图与内嵌 WKWebView 销毁重挂载。
     @ViewBuilder
     func messagesStack<C: View>(@ViewBuilder _ content: () -> C) -> some View {
         if !useLazyMessagesStack {
@@ -388,6 +381,13 @@ extension ChatView {
 
     @ViewBuilder
     func messagesList(proxy: ScrollViewProxy) -> some View {
+        let lastId = viewModel.messages.last?.id
+        let isStreamingOrRunning = viewModel.isRunning || viewModel.isAwaitingResponse
+        let shouldTrackVisibility = viewModel.turns.count >= 2
+        let canRevert = GatewayCompatStore.shared.isAvailable(GatewayFeature.revert)
+        let canExport = GatewayCompatStore.shared.isAvailable(GatewayFeature.export)
+        let highlightedId = highlightedTurnMessageId
+
         messagesStack {
             Color.clear
                 .frame(maxWidth: .infinity)
@@ -403,7 +403,16 @@ extension ChatView {
             }
             
             ForEach(viewModel.messages) { message in
-                messageRow(message: message, proxy: proxy)
+                messageRow(
+                    message: message,
+                    isLast: message.id == lastId,
+                    isActive: (message.id == lastId) && isStreamingOrRunning,
+                    isHighlighted: highlightedId == message.id,
+                    shouldTrackVisibility: shouldTrackVisibility,
+                    canRevert: canRevert,
+                    canExport: canExport,
+                    proxy: proxy
+                )
             }
             
             if shouldShowThinkingBubble {
@@ -418,9 +427,10 @@ extension ChatView {
                 .id("BOTTOM_ANCHOR")
                 .background(
                     GeometryReader { geo in
+                        let qMaxY = (geo.frame(in: .named("ChatScrollViewSpace")).maxY / 16).rounded() * 16
                         Color.clear.preference(
                             key: ChatBottomAnchorOffsetPreferenceKey.self,
-                            value: geo.frame(in: .named("ChatScrollViewSpace")).maxY
+                            value: qMaxY
                         )
                     }
                 )
@@ -443,115 +453,105 @@ extension ChatView {
     }
     
     @ViewBuilder
-    func messageRow(message: ChatMessage, proxy: ScrollViewProxy) -> some View {
-        let isLast = (message.id == viewModel.messages.last?.id)
-        let isActive = isLast && (viewModel.isRunning || viewModel.isAwaitingResponse)
-        let shareCtx = shareContext(for: message)
-        let bubble: (ChatMessage) -> MessageBubbleView = { msg in
-            MessageBubbleView(
-                message: msg,
-                isActiveToolBatch: isActive,
-                onUndo: GatewayCompatStore.shared.isAvailable(GatewayFeature.revert)
-                    ? { msg in viewModel.requestUndo(for: msg) }
-                    : nil,
-                onExportMarkdown: GatewayCompatStore.shared.isAvailable(GatewayFeature.export)
-                    ? { viewModel.exportMarkdown() }
-                    : nil,
-                onCompact: {
-                    Task {
-                        _ = await viewModel.sendMessage(text: "/compact")
-                    }
-                },
-                onStartNewSession: {
-                    NotificationCenter.default.post(
-                        name: .startNewSessionForWorkspace,
-                        object: viewModel.workspaceName
-                    )
-                },
-                onStopWorkflow: {
-                    Task {
-                        await viewModel.cancelTask()
-                    }
-                },
-                onSelectSubagent: { sa in
-                    selectedSubagentDetail = sa
-                },
-                onFork: { target in
-                    if let stepIdx = target.effectiveStepIndex {
-                        Task { await viewModel.forkConversation(at: stepIdx, createWorktree: false) }
-                    }
-                },
-                onNarrate: { text in
-                    narrationPlayer.play(text: text, baseURL: AppSettings.shared.gatewayURL)
-                },
-                shareContext: shareCtx
-            )
-        }
-        Group {
-            if message.isAgent {
-                // 流式文本按稳定速度播放，并在播放过程中平滑跟随到底部
-                PacedAgentRow(message: message, onGrow: { followStreamGrowth(proxy: proxy) }, content: bubble)
-            } else {
-                bubble(message)
-            }
-        }
+    func messageRow(
+        message: ChatMessage,
+        isLast: Bool,
+        isActive: Bool,
+        isHighlighted: Bool,
+        shouldTrackVisibility: Bool,
+        canRevert: Bool,
+        canExport: Bool,
+        proxy: ScrollViewProxy
+    ) -> some View {
+        EquatableMessageRow(
+            message: message,
+            isActive: isActive,
+            isHighlighted: isHighlighted,
+            canRevert: canRevert,
+            canExport: canExport,
+            onFollowStreamGrowth: { followStreamGrowth(proxy: proxy) },
+            onUndo: { msg in viewModel.requestUndo(for: msg) },
+            onExportMarkdown: { viewModel.exportMarkdown() },
+            onCompact: {
+                Task {
+                    _ = await viewModel.sendMessage(text: "/compact")
+                }
+            },
+            onStartNewSession: {
+                NotificationCenter.default.post(
+                    name: .startNewSessionForWorkspace,
+                    object: viewModel.workspaceName
+                )
+            },
+            onStopWorkflow: {
+                Task {
+                    await viewModel.cancelTask()
+                }
+            },
+            onSelectSubagent: { sa in
+                selectedSubagentDetail = sa
+            },
+            onFork: { target in
+                if let stepIdx = target.effectiveStepIndex {
+                    Task { await viewModel.forkConversation(at: stepIdx, createWorktree: false) }
+                }
+            },
+            onNarrate: { text in
+                narrationPlayer.play(text: text, baseURL: AppSettings.shared.gatewayURL)
+            },
+            makeShareContext: { shareContext(for: message) }
+        )
+        .equatable()
         .id(message.id)
         .background(
-            GeometryReader { geo in
-                let frame = geo.frame(in: .named("ChatScrollViewSpace"))
-                let isPossiblyVisible = frame.maxY >= -40 && frame.minY <= 1600
-                let qMinY = (frame.minY / 8).rounded() * 8
-                let qMaxY = (frame.maxY / 8).rounded() * 8
-                Color.clear.preference(
-                    key: ChatVisibleMessagesPreferenceKey.self,
-                    value: isPossiblyVisible ? [VisibleMessageGeometry(id: message.id, minY: qMinY, maxY: qMaxY)] : []
-                )
-            }
-        )
-        .overlay(
             Group {
-                if highlightedTurnMessageId == message.id {
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .stroke(Color.indigo, lineWidth: 2)
-                        .shadow(color: Color.indigo.opacity(0.35), radius: 6)
-                        .padding(.horizontal, 2)
-                        .transition(.opacity)
+                if shouldTrackVisibility {
+                    GeometryReader { geo in
+                        let frame = geo.frame(in: .named("ChatScrollViewSpace"))
+                        let isPossiblyVisible = frame.maxY >= -40 && frame.minY <= 1600
+                        let qMinY = (frame.minY / 32).rounded() * 32
+                        let qMaxY = (frame.maxY / 32).rounded() * 32
+                        Color.clear.preference(
+                            key: ChatVisibleMessagesPreferenceKey.self,
+                            value: isPossiblyVisible ? [VisibleMessageGeometry(id: message.id, minY: qMinY, maxY: qMaxY)] : []
+                        )
+                    }
                 }
             }
         )
         .onAppear {
-            if message.id == viewModel.messages.last?.id { lastRowMaterialized = true }
+            if isLast { lastRowMaterialized = true }
         }
-        .onDisappear { if message.id == viewModel.messages.last?.id { lastRowMaterialized = false } }
+        .onDisappear { if isLast { lastRowMaterialized = false } }
     }
     
     func updateCurrentVisibleTurn(viewportHeight: CGFloat) {
         let turns = viewModel.turns
         guard !turns.isEmpty else {
-            if currentVisibleTurnIndex != 1 { currentVisibleTurnIndex = 1 }
+            if scrollHUD.currentVisibleTurnIndex != 1 { scrollHUD.currentVisibleTurnIndex = 1 }
             return
         }
         
         // 1. 若用户刚从大纲导轨手动点选了某一轮，且尚未手动拖动滚动条，保持所选轮次
-        if let locked = lockedTurnIndex, turns.contains(where: { $0.turnIndex == locked }) {
-            if currentVisibleTurnIndex != locked {
-                currentVisibleTurnIndex = locked
+        if let locked = scrollHUD.lockedTurnIndex, turns.contains(where: { $0.turnIndex == locked }) {
+            if scrollHUD.currentVisibleTurnIndex != locked {
+                scrollHUD.currentVisibleTurnIndex = locked
             }
             return
         }
         
         // 2. 若初始尚未完成滚动对齐，或当前位于会话底部区域，直接对应最新一轮
-        if !hasInitiallyAligned || isNearBottom {
+        if !hasInitiallyAligned || scrollHUD.isNearBottom {
             let lastIdx = turns.last?.turnIndex ?? 1
-            if currentVisibleTurnIndex != lastIdx {
-                currentVisibleTurnIndex = lastIdx
+            if scrollHUD.currentVisibleTurnIndex != lastIdx {
+                scrollHUD.currentVisibleTurnIndex = lastIdx
             }
             return
         }
         
         // 3. 根据当前视口内可见的消息几何位置，计算处于阅读视觉重心处的消息所属轮次
         let effectiveHeight = viewportHeight > 0 ? viewportHeight : (currentViewportHeight > 0 ? currentViewportHeight : 600)
-        let visibleInViewport = lastVisibleMessageGeometries.filter { $0.maxY > 8 && $0.minY < effectiveHeight - 8 }
+        let visibleInViewport = scrollHUD.lastVisibleMessageGeometries.filter { $0.maxY > 8 && $0.minY < effectiveHeight - 8 }
         guard !visibleInViewport.isEmpty else { return }
         
         // 若首条消息已在视口顶部附近，判定为第 1 轮
@@ -559,8 +559,8 @@ extension ChatView {
            let firstGeo = visibleInViewport.first(where: { $0.id == firstMsgId }),
            firstGeo.minY >= -24 {
             let firstIdx = turns.first?.turnIndex ?? 1
-            if currentVisibleTurnIndex != firstIdx {
-                currentVisibleTurnIndex = firstIdx
+            if scrollHUD.currentVisibleTurnIndex != firstIdx {
+                scrollHUD.currentVisibleTurnIndex = firstIdx
             }
             return
         }
@@ -578,8 +578,8 @@ extension ChatView {
         
         if let targetId = bestGeo?.id,
            let matchedTurn = turns.first(where: { $0.messages.contains(where: { $0.id == targetId }) }) {
-            if currentVisibleTurnIndex != matchedTurn.turnIndex {
-                currentVisibleTurnIndex = matchedTurn.turnIndex
+            if scrollHUD.currentVisibleTurnIndex != matchedTurn.turnIndex {
+                scrollHUD.currentVisibleTurnIndex = matchedTurn.turnIndex
             }
         }
     }
@@ -682,12 +682,12 @@ extension ChatView {
     func handleStepperScrollProgress(anchorMaxY: CGFloat, isNear: Bool) {
         if isNear || isInputFocused || viewModel.turns.count < 2 {
             hideStepperImmediately()
-            lastAnchorMaxY = anchorMaxY
+            scrollHUD.lastAnchorMaxY = anchorMaxY
             return
         }
         
-        let delta = anchorMaxY - lastAnchorMaxY
-        lastAnchorMaxY = anchorMaxY
+        let delta = anchorMaxY - scrollHUD.lastAnchorMaxY
+        scrollHUD.lastAnchorMaxY = anchorMaxY
         
         // 初始或极端跳变防护
         guard abs(delta) < 500, abs(delta) > 2 else { return }
@@ -702,62 +702,73 @@ extension ChatView {
     }
     
     func wakeStepper() {
-        guard viewModel.turns.count >= 2, !isNearBottom, !isInputFocused else { return }
-        if stepperOpacity < 0.99 {
+        guard viewModel.turns.count >= 2, !scrollHUD.isNearBottom, !isInputFocused else { return }
+        let needsReveal = scrollHUD.stepperOpacity < 0.99
+        if needsReveal {
             withAnimation(.easeInOut(duration: 0.2)) {
-                stepperOpacity = 1.0
+                scrollHUD.stepperOpacity = 1.0
             }
         }
-        scheduleStepperTimers()
+        let now = Date()
+        if needsReveal || now.timeIntervalSince(scrollHUD.lastStepperScheduleAt) >= 0.35 {
+            scrollHUD.lastStepperScheduleAt = now
+            scheduleStepperTimers()
+        }
     }
     
     func dimStepperOnScrollDown() {
-        guard viewModel.turns.count >= 2, !isNearBottom, !isInputFocused else { return }
-        if stepperOpacity > 0.3 {
+        guard viewModel.turns.count >= 2, !scrollHUD.isNearBottom, !isInputFocused else { return }
+        let needsDim = scrollHUD.stepperOpacity > 0.3
+        if needsDim {
             withAnimation(.easeInOut(duration: 0.25)) {
-                stepperOpacity = 0.3
+                scrollHUD.stepperOpacity = 0.3
             }
         }
-        stepperDimTask?.cancel()
-        stepperHideTask?.cancel()
-        stepperHideTask = Task { @MainActor in
+        let now = Date()
+        guard needsDim || scrollHUD.stepperHideTask == nil || now.timeIntervalSince(scrollHUD.lastStepperScheduleAt) >= 0.35 else {
+            return
+        }
+        scrollHUD.lastStepperScheduleAt = now
+        scrollHUD.stepperDimTask?.cancel()
+        scrollHUD.stepperHideTask?.cancel()
+        scrollHUD.stepperHideTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: 10_000_000_000)
             guard !Task.isCancelled else { return }
             withAnimation(.easeInOut(duration: 0.35)) {
-                stepperOpacity = 0.0
+                scrollHUD.stepperOpacity = 0.0
             }
         }
     }
     
     func scheduleStepperTimers() {
-        stepperDimTask?.cancel()
-        stepperHideTask?.cancel()
+        scrollHUD.stepperDimTask?.cancel()
+        scrollHUD.stepperHideTask?.cancel()
         
         // 停止滑动 3s 后，渐隐至 30% 半隐藏
-        stepperDimTask = Task { @MainActor in
+        scrollHUD.stepperDimTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: 3_000_000_000)
             guard !Task.isCancelled else { return }
             withAnimation(.easeInOut(duration: 0.35)) {
-                stepperOpacity = 0.3
+                scrollHUD.stepperOpacity = 0.3
             }
         }
         
         // 停止滑动 10s 后，完全隐藏 (0.0)
-        stepperHideTask = Task { @MainActor in
+        scrollHUD.stepperHideTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: 10_000_000_000)
             guard !Task.isCancelled else { return }
             withAnimation(.easeInOut(duration: 0.35)) {
-                stepperOpacity = 0.0
+                scrollHUD.stepperOpacity = 0.0
             }
         }
     }
     
     func hideStepperImmediately() {
-        stepperDimTask?.cancel()
-        stepperHideTask?.cancel()
-        if stepperOpacity > 0 {
+        scrollHUD.stepperDimTask?.cancel()
+        scrollHUD.stepperHideTask?.cancel()
+        if scrollHUD.stepperOpacity > 0 {
             withAnimation(.easeInOut(duration: 0.2)) {
-                stepperOpacity = 0.0
+                scrollHUD.stepperOpacity = 0.0
             }
         }
     }
@@ -765,9 +776,9 @@ extension ChatView {
     private func jumpToPreviousTurn() {
         let turns = viewModel.turns
         guard !turns.isEmpty else { return }
-        let targetIdx = max(1, currentVisibleTurnIndex - 1)
-        lockedTurnIndex = targetIdx
-        currentVisibleTurnIndex = targetIdx
+        let targetIdx = max(1, scrollHUD.currentVisibleTurnIndex - 1)
+        scrollHUD.lockedTurnIndex = targetIdx
+        scrollHUD.currentVisibleTurnIndex = targetIdx
         if let match = turns.first(where: { $0.turnIndex == targetIdx }) {
             targetScrollTurnId = match.firstMessageId
         }
@@ -777,10 +788,10 @@ extension ChatView {
         let turns = viewModel.turns
         guard !turns.isEmpty else { return }
         let lastIdx = turns.last?.turnIndex ?? 1
-        if currentVisibleTurnIndex < lastIdx {
-            let targetIdx = currentVisibleTurnIndex + 1
-            lockedTurnIndex = targetIdx
-            currentVisibleTurnIndex = targetIdx
+        if scrollHUD.currentVisibleTurnIndex < lastIdx {
+            let targetIdx = scrollHUD.currentVisibleTurnIndex + 1
+            scrollHUD.lockedTurnIndex = targetIdx
+            scrollHUD.currentVisibleTurnIndex = targetIdx
             if let match = turns.first(where: { $0.turnIndex == targetIdx }) {
                 targetScrollTurnId = match.firstMessageId
             }
@@ -790,7 +801,99 @@ extension ChatView {
     }
     
     private func forceJumpToBottom() {
-        lockedTurnIndex = nil
+        scrollHUD.lockedTurnIndex = nil
         targetScrollTurnId = "BOTTOM_ANCHOR"
+    }
+}
+
+/// 独立观察 `scrollHUD` 的浮动跳轮条容器，避免 `stepperOpacity` / `currentVisibleTurnIndex` 变化触发整页消息列表重算。
+private struct ChatStepperOverlayView: View {
+    let scrollHUD: ChatScrollHUDState
+    let totalTurns: Int
+    let onJumpPrevious: () -> Void
+    let onJumpNextOrBottom: () -> Void
+    let onForceJumpBottom: () -> Void
+
+    var body: some View {
+        let opacity = scrollHUD.stepperOpacity
+        let currentTurn = scrollHUD.currentVisibleTurnIndex
+        if opacity > 0.01 {
+            PromptJumpStepperView(
+                currentTurn: currentTurn,
+                totalTurns: totalTurns,
+                isAtTop: currentTurn <= 1,
+                isAtLastTurn: currentTurn >= totalTurns,
+                onJumpPrevious: onJumpPrevious,
+                onJumpNextOrBottom: onJumpNextOrBottom,
+                onForceJumpBottom: onForceJumpBottom
+            )
+            .opacity(opacity)
+            .allowsHitTesting(opacity > 0.05)
+            .transition(.opacity)
+        }
+    }
+}
+
+/// 通过 `Equatable` 隔离每条历史消息行：滚动、输入框打字或顶部状态变更时，内容未变的消息行跳过 body 重建与 Markdown 块求值。
+private struct EquatableMessageRow: View, Equatable {
+    let message: ChatMessage
+    let isActive: Bool
+    let isHighlighted: Bool
+    let canRevert: Bool
+    let canExport: Bool
+    let onFollowStreamGrowth: () -> Void
+    let onUndo: (ChatMessage) -> Void
+    let onExportMarkdown: () -> Void
+    let onCompact: () -> Void
+    let onStartNewSession: () -> Void
+    let onStopWorkflow: () -> Void
+    let onSelectSubagent: (SubagentItem) -> Void
+    let onFork: (ChatMessage) -> Void
+    let onNarrate: (String) -> Void
+    let makeShareContext: () -> ShareCardContext
+
+    static func == (lhs: EquatableMessageRow, rhs: EquatableMessageRow) -> Bool {
+        lhs.message == rhs.message
+            && lhs.isActive == rhs.isActive
+            && lhs.isHighlighted == rhs.isHighlighted
+            && lhs.canRevert == rhs.canRevert
+            && lhs.canExport == rhs.canExport
+    }
+
+    var body: some View {
+        let bubble: (ChatMessage) -> MessageBubbleView = { msg in
+            MessageBubbleView(
+                message: msg,
+                isActiveToolBatch: isActive,
+                onUndo: canRevert ? onUndo : nil,
+                onExportMarkdown: canExport ? onExportMarkdown : nil,
+                onCompact: onCompact,
+                onStartNewSession: onStartNewSession,
+                onStopWorkflow: onStopWorkflow,
+                onSelectSubagent: onSelectSubagent,
+                onFork: onFork,
+                onNarrate: onNarrate,
+                makeShareContext: makeShareContext
+            )
+        }
+        Group {
+            if message.isAgent {
+                // 流式文本按稳定速度播放，并在播放过程中平滑跟随到底部
+                PacedAgentRow(message: message, onGrow: onFollowStreamGrowth, content: bubble)
+            } else {
+                bubble(message)
+            }
+        }
+        .overlay(
+            Group {
+                if isHighlighted {
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .stroke(Color.indigo, lineWidth: 2)
+                        .shadow(color: Color.indigo.opacity(0.35), radius: 6)
+                        .padding(.horizontal, 2)
+                        .transition(.opacity)
+                }
+            }
+        )
     }
 }
