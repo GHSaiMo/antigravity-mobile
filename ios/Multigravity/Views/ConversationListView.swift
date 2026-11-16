@@ -69,6 +69,7 @@ public struct ConversationListView: View {
             if !settings.isPaired && !isPairingInProgress {
                 OnboardingGuideView(
                     onScanTapped: { showQRScanner = true },
+                    onManualInputTapped: { showManualInput = true },
                     onDemoTapped: {
                         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                         settings.enterDemoMode()

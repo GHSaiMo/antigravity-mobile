@@ -54,6 +54,11 @@ extension ChatView {
                             viewModel.openMentionPicker()
                         }
                     )
+                    .accessibilityLabel("添加附件")
+                    .accessibilityHint("轻点选择照片、文件、录音或拍照；长按打开 @ 上下文引用")
+                    .accessibilityAction(named: String(localized: "打开 @ 上下文引用")) {
+                        viewModel.openMentionPicker()
+                    }
                     
                     // 2. Model Switch Button (Tap to cycle Gemini/Claude/Orchestrator, Long-press + slide up/right for custom menu)
                     ModelSwitchChipButton(
@@ -656,6 +661,17 @@ private struct VoiceModeButton: View {
                 }
         )
         .accessibilityLabel(isDictating ? String(localized: "正在流式听写，松开结束") : String(localized: "实时语音对话，按住流式听写"))
+        .accessibilityHint("短按开始实时语音对话，按住说话可进行流式听写")
+        .accessibilityAction(named: String(localized: "实时语音对话")) {
+            onStartVoiceCall()
+        }
+        .accessibilityAction(named: isDictating ? String(localized: "停止语音听写") : String(localized: "开始语音听写")) {
+            if isDictating {
+                onStopDictation()
+            } else {
+                onStartDictation()
+            }
+        }
     }
 }
 

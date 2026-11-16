@@ -44,6 +44,10 @@ public struct McpSkillsSheet: View {
     @State private var newAutoSchedule: String = "0 9 * * *"
     @State private var newAutoPrompt: String = ""
     @State private var isCreatingAutomation: Bool = false
+    @State private var pendingDeleteAutomation: AutomationSidecarItem? = nil
+    @State private var showStopAllTasksConfirm: Bool = false
+    @State private var pendingStopDaemonTask: GlobalBackgroundTaskItem? = nil
+    @State private var actionErrorMessage: String? = nil
     
     private let currentConversationId: String?
     private let hasActiveSwarm: Bool
@@ -127,6 +131,11 @@ public struct McpSkillsSheet: View {
             }
             .navigationTitle("工具与任务看板")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完成") { dismiss() }
+                }
+            }
             .sheet(item: $viewingSkill) { skill in
                 skillDetailSheet(skill)
             }
@@ -153,6 +162,65 @@ public struct McpSkillsSheet: View {
                 }
             } message: { item in
                 Text("确定要删除「\(item.title)」吗？这会同时删除电脑端对应的规则或记忆文件。")
+            }
+            .confirmationDialog(
+                "确认删除定时任务？",
+                isPresented: Binding(
+                    get: { pendingDeleteAutomation != nil },
+                    set: { if !$0 { pendingDeleteAutomation = nil } }
+                ),
+                titleVisibility: .visible,
+                presenting: pendingDeleteAutomation
+            ) { item in
+                Button("删除", role: .destructive) {
+                    deleteAutomationItem(item)
+                    pendingDeleteAutomation = nil
+                }
+                Button("取消", role: .cancel) {
+                    pendingDeleteAutomation = nil
+                }
+            } message: { item in
+                Text("确定要删除定时任务「\(item.name)」吗？删除后将停止调度并移除该任务配置。")
+            }
+            .confirmationDialog(
+                "停止全部后台任务？",
+                isPresented: $showStopAllTasksConfirm,
+                titleVisibility: .visible
+            ) {
+                Button("全部停止", role: .destructive) {
+                    let list = filteredBackgroundTasks
+                    Task { await stopAllBackgroundTasks(list) }
+                }
+                Button("取消", role: .cancel) {}
+            } message: {
+                Text("将终止当前列表中所有会话的运行命令与常驻守护进程，未保存的运行状态可能会中断。")
+            }
+            .confirmationDialog(
+                "停止常驻服务？",
+                isPresented: Binding(
+                    get: { pendingStopDaemonTask != nil },
+                    set: { if !$0 { pendingStopDaemonTask = nil } }
+                ),
+                titleVisibility: .visible,
+                presenting: pendingStopDaemonTask
+            ) { task in
+                Button("停止服务", role: .destructive) {
+                    Task { await stopSingleTask(task) }
+                    pendingStopDaemonTask = nil
+                }
+                Button("取消", role: .cancel) {
+                    pendingStopDaemonTask = nil
+                }
+            } message: { task in
+                Text("「\(task.displayTitle)」为常驻守护任务，终止后对应本地服务或监听端口将下线。")
+            }
+            .alert("操作失败", isPresented: Binding(
+                get: { actionErrorMessage != nil },
+                set: { if !$0 { actionErrorMessage = nil } }
+            )) {
+                Button("确定", role: .cancel) { actionErrorMessage = nil }
+            } message: {
+                Text(actionErrorMessage ?? "")
             }
             .task {
                 await loadData()
@@ -841,12 +909,13 @@ public struct McpSkillsSheet: View {
                                 .disabled(managingAutomationNames.contains(sidecar.id))
 
                                 Button(role: .destructive) {
-                                    deleteAutomationItem(sidecar)
+                                    pendingDeleteAutomation = sidecar
                                 } label: {
                                     Image(systemName: "trash")
                                         .font(.system(size: 12))
                                 }
                                 .buttonStyle(.bordered)
+                                .accessibilityLabel(String(localized: "删除定时任务 \(sidecar.name)"))
                                 .disabled(managingAutomationNames.contains(sidecar.id))
                             }
 
@@ -930,12 +999,16 @@ public struct McpSkillsSheet: View {
         managingAutomationNames.insert(sidecar.id)
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         Task {
-            _ = try? await APIClient.shared.manageAutomation(action: action, sidecarId: sidecar.id, baseURL: url)
-            if let refreshed = try? await APIClient.shared.fetchAutomations(baseURL: url) {
-                self.automations = refreshed.automations
-                self.automationEvents = refreshed.events
+            defer { managingAutomationNames.remove(sidecar.id) }
+            do {
+                _ = try await APIClient.shared.manageAutomation(action: action, sidecarId: sidecar.id, baseURL: url)
+                if let refreshed = try? await APIClient.shared.fetchAutomations(baseURL: url) {
+                    self.automations = refreshed.automations
+                    self.automationEvents = refreshed.events
+                }
+            } catch {
+                actionErrorMessage = error.localizedDescription
             }
-            managingAutomationNames.remove(sidecar.id)
         }
     }
 
@@ -944,12 +1017,16 @@ public struct McpSkillsSheet: View {
         managingAutomationNames.insert(sidecar.id)
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         Task {
-            _ = try? await APIClient.shared.manageAutomation(action: "run_now", sidecarId: sidecar.id, baseURL: url)
-            if let refreshed = try? await APIClient.shared.fetchAutomations(baseURL: url) {
-                self.automations = refreshed.automations
-                self.automationEvents = refreshed.events
+            defer { managingAutomationNames.remove(sidecar.id) }
+            do {
+                _ = try await APIClient.shared.manageAutomation(action: "run_now", sidecarId: sidecar.id, baseURL: url)
+                if let refreshed = try? await APIClient.shared.fetchAutomations(baseURL: url) {
+                    self.automations = refreshed.automations
+                    self.automationEvents = refreshed.events
+                }
+            } catch {
+                actionErrorMessage = error.localizedDescription
             }
-            managingAutomationNames.remove(sidecar.id)
         }
     }
 
@@ -1005,7 +1082,7 @@ public struct McpSkillsSheet: View {
                 Section {
                     Button(role: .destructive) {
                         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                        Task { await stopAllBackgroundTasks(list) }
+                        showStopAllTasksConfirm = true
                     } label: {
                         HStack {
                             Image(systemName: "stop.circle.fill")
@@ -1078,7 +1155,11 @@ public struct McpSkillsSheet: View {
 
                 Button {
                     UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                    Task { await stopSingleTask(task) }
+                    if task.isDaemon {
+                        pendingStopDaemonTask = task
+                    } else {
+                        Task { await stopSingleTask(task) }
+                    }
                 } label: {
                     if isStopping {
                         ProgressView().controlSize(.small)
@@ -1089,6 +1170,7 @@ public struct McpSkillsSheet: View {
                     }
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel(String(localized: "停止任务 \(task.displayTitle)"))
                 .disabled(isStopping)
             }
 
@@ -1256,17 +1338,21 @@ public struct McpSkillsSheet: View {
         guard let url = settings.serverURL else { return }
         stoppingTaskIds.insert(task.id)
         defer { stoppingTaskIds.remove(task.id) }
-        try? await APIClient.shared.stopTask(
-            cascadeId: task.conversationId,
-            stepIndex: task.stepIndex,
-            taskId: task.taskId,
-            baseURL: url
-        )
-        backgroundTasks.removeAll { $0.id == task.id }
-        onTasksChanged?(backgroundTasks)
-        if let refreshed = try? await APIClient.shared.fetchGlobalBackgroundTasks(baseURL: url) {
-            backgroundTasks = refreshed
-            onTasksChanged?(refreshed)
+        do {
+            try await APIClient.shared.stopTask(
+                cascadeId: task.conversationId,
+                stepIndex: task.stepIndex,
+                taskId: task.taskId,
+                baseURL: url
+            )
+            backgroundTasks.removeAll { $0.id == task.id }
+            onTasksChanged?(backgroundTasks)
+            if let refreshed = try? await APIClient.shared.fetchGlobalBackgroundTasks(baseURL: url) {
+                backgroundTasks = refreshed
+                onTasksChanged?(refreshed)
+            }
+        } catch {
+            actionErrorMessage = error.localizedDescription
         }
     }
 
@@ -1275,20 +1361,29 @@ public struct McpSkillsSheet: View {
         for t in tasks {
             stoppingTaskIds.insert(t.id)
         }
+        var firstError: Error? = nil
         for t in tasks {
-            try? await APIClient.shared.stopTask(
-                cascadeId: t.conversationId,
-                stepIndex: t.stepIndex,
-                taskId: t.taskId,
-                baseURL: url
-            )
+            do {
+                try await APIClient.shared.stopTask(
+                    cascadeId: t.conversationId,
+                    stepIndex: t.stepIndex,
+                    taskId: t.taskId,
+                    baseURL: url
+                )
+            } catch {
+                if firstError == nil { firstError = error }
+            }
         }
         stoppingTaskIds.removeAll()
-        backgroundTasks.removeAll()
-        onTasksChanged?([])
         if let refreshed = try? await APIClient.shared.fetchGlobalBackgroundTasks(baseURL: url) {
             backgroundTasks = refreshed
             onTasksChanged?(refreshed)
+        } else if firstError == nil {
+            backgroundTasks.removeAll()
+            onTasksChanged?([])
+        }
+        if let firstError {
+            actionErrorMessage = firstError.localizedDescription
         }
     }
 
@@ -1464,10 +1559,14 @@ public struct McpSkillsSheet: View {
         togglingMcpNames.insert(name)
         Task {
             defer { togglingMcpNames.remove(name) }
-            try? await APIClient.shared.toggleMcpServer(serverName: name, enabled: enabled, baseURL: url)
-            if let refreshed = try? await APIClient.shared.fetchMcpServerStates(baseURL: url) {
-                self.mcpServers = refreshed
-                CacheManager.shared.saveMcpServers(refreshed)
+            do {
+                try await APIClient.shared.toggleMcpServer(serverName: name, enabled: enabled, baseURL: url)
+                if let refreshed = try? await APIClient.shared.fetchMcpServerStates(baseURL: url) {
+                    self.mcpServers = refreshed
+                    CacheManager.shared.saveMcpServers(refreshed)
+                }
+            } catch {
+                actionErrorMessage = error.localizedDescription
             }
         }
     }
@@ -1475,8 +1574,11 @@ public struct McpSkillsSheet: View {
     private func deleteMemoryItem(_ item: MemoryRuleItem) {
         guard let url = settings.gatewayURL else { return }
         Task {
-            if let updated = try? await APIClient.shared.deleteMemory(path: item.path, baseURL: url) {
+            do {
+                let updated = try await APIClient.shared.deleteMemory(path: item.path, baseURL: url)
                 memories = updated
+            } catch {
+                actionErrorMessage = error.localizedDescription
             }
         }
     }
@@ -1489,15 +1591,18 @@ public struct McpSkillsSheet: View {
         isSavingMemory = true
         Task {
             defer { isSavingMemory = false }
-            if let updated = try? await APIClient.shared.upsertMemory(
-                scope: memScope,
-                title: title,
-                content: content,
-                path: editingMemory?.path,
-                baseURL: url
-            ) {
+            do {
+                let updated = try await APIClient.shared.upsertMemory(
+                    scope: memScope,
+                    title: title,
+                    content: content,
+                    path: editingMemory?.path,
+                    baseURL: url
+                )
                 memories = updated
                 showMemoryEditor = false
+            } catch {
+                actionErrorMessage = error.localizedDescription
             }
         }
     }
@@ -1507,10 +1612,14 @@ public struct McpSkillsSheet: View {
         managingAutomationNames.insert(item.id)
         Task {
             defer { managingAutomationNames.remove(item.id) }
-            try? await APIClient.shared.deleteAutomation(name: item.name, baseURL: url)
-            if let refreshed = try? await APIClient.shared.fetchAutomations(baseURL: url) {
-                automations = refreshed.automations
-                automationEvents = refreshed.events
+            do {
+                try await APIClient.shared.deleteAutomation(name: item.name, baseURL: url)
+                if let refreshed = try? await APIClient.shared.fetchAutomations(baseURL: url) {
+                    automations = refreshed.automations
+                    automationEvents = refreshed.events
+                }
+            } catch {
+                actionErrorMessage = error.localizedDescription
             }
         }
     }
@@ -1524,12 +1633,16 @@ public struct McpSkillsSheet: View {
         isCreatingAutomation = true
         Task {
             defer { isCreatingAutomation = false }
-            try? await APIClient.shared.createAutomation(name: name, schedule: schedule, prompt: prompt, baseURL: url)
-            if let refreshed = try? await APIClient.shared.fetchAutomations(baseURL: url) {
-                automations = refreshed.automations
-                automationEvents = refreshed.events
+            do {
+                try await APIClient.shared.createAutomation(name: name, schedule: schedule, prompt: prompt, baseURL: url)
+                if let refreshed = try? await APIClient.shared.fetchAutomations(baseURL: url) {
+                    automations = refreshed.automations
+                    automationEvents = refreshed.events
+                }
+                showCreateAutomation = false
+            } catch {
+                actionErrorMessage = error.localizedDescription
             }
-            showCreateAutomation = false
         }
     }
 

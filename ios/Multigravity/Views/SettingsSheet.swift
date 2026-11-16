@@ -14,6 +14,10 @@ public struct SettingsSheet: View {
     @State private var showPrivacyPolicySheet: Bool = false
     @State private var showLicensesSheet: Bool = false
     @State private var permissionPreset: String = "strict"
+    @State private var confirmedPermissionPreset: String = "strict"
+    @State private var showAutoPermissionConfirm: Bool = false
+    @State private var permissionErrorMessage: String? = nil
+    @State private var probeTask: Task<Void, Never>? = nil
     
     public init() {}
     
@@ -77,9 +81,7 @@ public struct SettingsSheet: View {
                             .onChange(of: lanAddress) { _, newValue in
                                 let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
                                 settings.lanServerURL = trimmed.isEmpty ? nil : trimmed
-                                Task {
-                                    await connectionManager.probeEndpoints()
-                                }
+                                scheduleProbeEndpoints()
                             }
                     }
                     .padding(.vertical, 2)
@@ -96,9 +98,7 @@ public struct SettingsSheet: View {
                             .onChange(of: customAddress) { _, newValue in
                                 let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
                                 settings.customServerURL = trimmed.isEmpty ? nil : trimmed
-                                Task {
-                                    await connectionManager.probeEndpoints()
-                                }
+                                scheduleProbeEndpoints()
                             }
                     }
                     .padding(.vertical, 2)
@@ -122,7 +122,7 @@ public struct SettingsSheet: View {
                 // MARK: - 4. 扩展与能力
                 Section(
                     header: Text("扩展与能力"),
-                    footer: Text("在此配置默认权限并查看 MCP 工具与技能；进入会话后，长按右上角工具按钮也可以随时改变该会话的权限。")
+                    footer: Text("在此配置电脑端全局默认权限并查看 MCP 工具与技能；进入会话后长按右上角工具按钮也可随时切换该全局权限。")
                 ) {
                     Picker("Agent 权限模式", selection: $permissionPreset) {
                         Text("严格审批").tag("strict")
@@ -130,11 +130,11 @@ public struct SettingsSheet: View {
                         Text("全自动放行").tag("auto")
                     }
                     .onChange(of: permissionPreset) { _, next in
-                        guard let url = settings.gatewayURL else { return }
-                        Task {
-                            if let state = try? await APIClient.shared.updatePermissionPreset(preset: next, baseURL: url) {
-                                NotificationCenter.default.post(name: .permissionPresetDidChange, object: state)
-                            }
+                        guard next != confirmedPermissionPreset else { return }
+                        if next == "auto" {
+                            showAutoPermissionConfirm = true
+                        } else {
+                            applyPermissionPreset(next)
                         }
                     }
                     Button(action: {
@@ -306,12 +306,20 @@ public struct SettingsSheet: View {
             }
             .navigationTitle("设置")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完成") { dismiss() }
+                }
+            }
             .presentationDragIndicator(.visible)
         }
         .presentationDragIndicator(.visible)
         .onAppear {
             lanAddress = settings.lanServerURL ?? ""
             customAddress = settings.customServerURL ?? ""
+        }
+        .onDisappear {
+            probeTask?.cancel()
         }
         .task {
             await connectionManager.probeEndpoints()
@@ -322,13 +330,33 @@ public struct SettingsSheet: View {
             }
             if let gwUrl = settings.gatewayURL,
                let state = try? await APIClient.shared.fetchPermissionSettings(baseURL: gwUrl) {
+                confirmedPermissionPreset = state.preset
                 permissionPreset = state.preset
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .permissionPresetDidChange)) { notif in
             if let state = notif.object as? PermissionStateResponse {
+                confirmedPermissionPreset = state.preset
                 permissionPreset = state.preset
             }
+        }
+        .alert("开启全自动放行？", isPresented: $showAutoPermissionConfirm) {
+            Button("取消", role: .cancel) {
+                permissionPreset = confirmedPermissionPreset
+            }
+            Button("确认开启", role: .destructive) {
+                applyPermissionPreset("auto")
+            }
+        } message: {
+            Text("开启后 Agent 将自动执行终端命令并访问工作区外文件（同步作用于桌面端全部会话）。建议仅在可信或隔离环境中使用。")
+        }
+        .alert("权限设置更新失败", isPresented: Binding(
+            get: { permissionErrorMessage != nil },
+            set: { if !$0 { permissionErrorMessage = nil } }
+        )) {
+            Button("确定", role: .cancel) { permissionErrorMessage = nil }
+        } message: {
+            Text(permissionErrorMessage ?? "")
         }
         .alert(settings.isDemoMode ? String(localized: "确定退出演示模式？") : String(localized: "确定解除设备配对？"), isPresented: $showUnpairAlert) {
             Button("取消", role: .cancel) {}
@@ -384,6 +412,33 @@ public struct SettingsSheet: View {
         }
         .sheet(isPresented: $showLicensesSheet) {
             OpenSourceLicensesSheet()
+        }
+    }
+
+    private func scheduleProbeEndpoints() {
+        probeTask?.cancel()
+        probeTask = Task {
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            guard !Task.isCancelled else { return }
+            await connectionManager.probeEndpoints()
+        }
+    }
+
+    private func applyPermissionPreset(_ preset: String) {
+        guard let url = settings.gatewayURL else {
+            permissionPreset = confirmedPermissionPreset
+            return
+        }
+        Task {
+            do {
+                let state = try await APIClient.shared.updatePermissionPreset(preset: preset, baseURL: url)
+                confirmedPermissionPreset = state.preset
+                permissionPreset = state.preset
+                NotificationCenter.default.post(name: .permissionPresetDidChange, object: state)
+            } catch {
+                permissionPreset = confirmedPermissionPreset
+                permissionErrorMessage = error.localizedDescription
+            }
         }
     }
 

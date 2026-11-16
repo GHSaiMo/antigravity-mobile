@@ -40,7 +40,14 @@ nonisolated public struct AgentActivityAttributes: ActivityAttributes, Sendable 
         public var activeTaskTitle: String?    // Primary running task summary or action (e.g. "编译 iOS 原生客户端")
         public var activeTaskCommand: String?  // Primary running task command snippet (e.g. "xcodebuild ...")
         public var hasPendingAction: Bool      // Waiting for user approval/interaction
+        public var pendingStepIndex: Int?      // Step index bound to the pending approval (prevents blind approval if step changes)
+        public var pendingActionKind: String?  // e.g. "run_command", "permission", "ask_question", "workflow_approval", "proceed"
         public var lastUpdated: Date
+
+        public var requiresInAppReview: Bool {
+            guard hasPendingAction, let kind = pendingActionKind?.lowercased() else { return false }
+            return kind == "ask_question" || kind == "workflow_approval" || kind == "elicitation"
+        }
         
         enum CodingKeys: String, CodingKey {
             case conversationTitle
@@ -52,6 +59,8 @@ nonisolated public struct AgentActivityAttributes: ActivityAttributes, Sendable 
             case activeTaskTitle
             case activeTaskCommand
             case hasPendingAction
+            case pendingStepIndex
+            case pendingActionKind
             case lastUpdated
         }
         
@@ -65,6 +74,8 @@ nonisolated public struct AgentActivityAttributes: ActivityAttributes, Sendable 
             activeTaskTitle: String? = nil,
             activeTaskCommand: String? = nil,
             hasPendingAction: Bool = false,
+            pendingStepIndex: Int? = nil,
+            pendingActionKind: String? = nil,
             lastUpdated: Date = Date()
         ) {
             self.conversationTitle = conversationTitle
@@ -76,6 +87,8 @@ nonisolated public struct AgentActivityAttributes: ActivityAttributes, Sendable 
             self.activeTaskTitle = activeTaskTitle ?? runningTasks.first?.title
             self.activeTaskCommand = activeTaskCommand ?? runningTasks.first?.command
             self.hasPendingAction = hasPendingAction
+            self.pendingStepIndex = pendingStepIndex
+            self.pendingActionKind = pendingActionKind
             self.lastUpdated = lastUpdated
         }
         
@@ -90,6 +103,8 @@ nonisolated public struct AgentActivityAttributes: ActivityAttributes, Sendable 
             self.activeTaskTitle = try container.decodeIfPresent(String.self, forKey: .activeTaskTitle) ?? self.runningTasks.first?.title
             self.activeTaskCommand = try container.decodeIfPresent(String.self, forKey: .activeTaskCommand) ?? self.runningTasks.first?.command
             self.hasPendingAction = try container.decodeIfPresent(Bool.self, forKey: .hasPendingAction) ?? false
+            self.pendingStepIndex = try container.decodeIfPresent(Int.self, forKey: .pendingStepIndex)
+            self.pendingActionKind = try container.decodeIfPresent(String.self, forKey: .pendingActionKind)
             self.lastUpdated = try container.decodeIfPresent(Date.self, forKey: .lastUpdated) ?? Date()
         }
     }

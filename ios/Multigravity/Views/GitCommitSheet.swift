@@ -24,6 +24,12 @@ public struct GitCommitSheet: View {
     @State private var newBranchName: String = ""
     @State private var fileToDiscard: GitFileStatus? = nil
     @State private var isMutatingGit: Bool = false
+    @State private var showPushConfirm: Bool = false
+    @State private var pendingPushMessage: String = ""
+    @State private var pendingPushPaths: [String] = []
+    @State private var pendingPushBranch: String = ""
+    @State private var pendingPushCount: Int = 0
+    @State private var gitErrorMessage: String? = nil
 
     public init(viewModel: ChatViewModel, onDelegateToAgent: @escaping () -> Void) {
         self.viewModel = viewModel
@@ -41,6 +47,11 @@ public struct GitCommitSheet: View {
             }
             .navigationTitle("提交改动")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完成") { dismiss() }
+                }
+            }
         }
         .presentationDetents([.medium, .large], selection: $detent)
         .presentationDragIndicator(.visible)
@@ -71,6 +82,29 @@ public struct GitCommitSheet: View {
         } message: {
             Text(fileToDiscard?.path ?? "")
         }
+        .confirmationDialog(
+            "确认提交并推送？",
+            isPresented: $showPushConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("确认提交并推送") {
+                viewModel.commitGit(message: pendingPushMessage, paths: pendingPushPaths, push: true)
+            }
+            Button("仅本地提交") {
+                viewModel.commitGit(message: pendingPushMessage, paths: pendingPushPaths, push: false)
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("将提交 \(pendingPushCount) 个文件的改动并推送到分支 \(pendingPushBranch) 的远程仓库。")
+        }
+        .alert("Git 操作失败", isPresented: Binding(
+            get: { gitErrorMessage != nil },
+            set: { if !$0 { gitErrorMessage = nil } }
+        )) {
+            Button("确定", role: .cancel) { gitErrorMessage = nil }
+        } message: {
+            Text(gitErrorMessage ?? "")
+        }
     }
 
     private func loadBranches() async {
@@ -85,14 +119,18 @@ public struct GitCommitSheet: View {
         isMutatingGit = true
         Task {
             defer { isMutatingGit = false }
-            _ = try? await APIClient.shared.gitCheckoutBranch(
-                cascadeId: viewModel.cascadeId,
-                branch: branch,
-                create: create,
-                baseURL: gwUrl
-            )
-            await loadBranches()
-            viewModel.refreshGitStatus()
+            do {
+                _ = try await APIClient.shared.gitCheckoutBranch(
+                    cascadeId: viewModel.cascadeId,
+                    branch: branch,
+                    create: create,
+                    baseURL: gwUrl
+                )
+                await loadBranches()
+                viewModel.refreshGitStatus()
+            } catch {
+                gitErrorMessage = error.localizedDescription
+            }
         }
     }
 
@@ -101,12 +139,16 @@ public struct GitCommitSheet: View {
         isMutatingGit = true
         Task {
             defer { isMutatingGit = false }
-            try? await APIClient.shared.gitDiscardFile(
-                cascadeId: viewModel.cascadeId,
-                path: file.path,
-                baseURL: gwUrl
-            )
-            viewModel.refreshGitStatus()
+            do {
+                try await APIClient.shared.gitDiscardFile(
+                    cascadeId: viewModel.cascadeId,
+                    path: file.path,
+                    baseURL: gwUrl
+                )
+                viewModel.refreshGitStatus()
+            } catch {
+                gitErrorMessage = error.localizedDescription
+            }
         }
     }
 
@@ -206,7 +248,11 @@ public struct GitCommitSheet: View {
                         .disabled(!canCommit)
 
                         Button {
-                            viewModel.commitGit(message: message, paths: pathsArg, push: true)
+                            pendingPushMessage = message
+                            pendingPushPaths = pathsArg
+                            pendingPushBranch = status.branch
+                            pendingPushCount = selected.count
+                            showPushConfirm = true
                         } label: {
                             Text(state.isWorking ? String(localized: "处理中...") : String(localized: "提交并推送")).frame(maxWidth: .infinity)
                         }

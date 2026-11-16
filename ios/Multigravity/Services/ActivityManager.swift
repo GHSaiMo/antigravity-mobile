@@ -80,7 +80,9 @@ public final class ActivityManager {
         runningTasks: [AgentTaskSnapshot] = [],
         activeTaskTitle: String? = nil,
         activeTaskCommand: String? = nil,
-        hasPendingAction: Bool = false
+        hasPendingAction: Bool = false,
+        pendingStepIndex: Int? = nil,
+        pendingActionKind: String? = nil
     ) {
         guard isLiveActivityEnabled else { return }
         
@@ -96,7 +98,9 @@ public final class ActivityManager {
                 runningTasks: runningTasks,
                 activeTaskTitle: activeTaskTitle,
                 activeTaskCommand: activeTaskCommand,
-                hasPendingAction: hasPendingAction
+                hasPendingAction: hasPendingAction,
+                pendingStepIndex: pendingStepIndex,
+                pendingActionKind: pendingActionKind
             )
             cleanUpOrphanedActivities(keepingId: existing.id)
             return
@@ -117,6 +121,8 @@ public final class ActivityManager {
             activeTaskTitle: activeTaskTitle,
             activeTaskCommand: activeTaskCommand,
             hasPendingAction: hasPendingAction,
+            pendingStepIndex: pendingStepIndex,
+            pendingActionKind: pendingActionKind,
             lastUpdated: Date()
         )
         
@@ -141,7 +147,9 @@ public final class ActivityManager {
         runningTasks: [AgentTaskSnapshot] = [],
         activeTaskTitle: String? = nil,
         activeTaskCommand: String? = nil,
-        hasPendingAction: Bool = false
+        hasPendingAction: Bool = false,
+        pendingStepIndex: Int? = nil,
+        pendingActionKind: String? = nil
     ) {
         guard let activity = currentActivity, activity.activityState == .active else { return }
         
@@ -175,6 +183,8 @@ public final class ActivityManager {
             activeTaskTitle: activeTaskTitle,
             activeTaskCommand: activeTaskCommand,
             hasPendingAction: hasPendingAction,
+            pendingStepIndex: hasPendingAction ? pendingStepIndex : nil,
+            pendingActionKind: hasPendingAction ? pendingActionKind : nil,
             lastUpdated: Date()
         )
         
@@ -194,7 +204,9 @@ public final class ActivityManager {
             runningTasks: activity.content.state.runningTasks,
             activeTaskTitle: activity.content.state.activeTaskTitle,
             activeTaskCommand: activity.content.state.activeTaskCommand,
-            hasPendingAction: activity.content.state.hasPendingAction
+            hasPendingAction: activity.content.state.hasPendingAction,
+            pendingStepIndex: activity.content.state.pendingStepIndex,
+            pendingActionKind: activity.content.state.pendingActionKind
         )
     }
     

@@ -26,16 +26,19 @@ final class RecentPhotosModel: NSObject, ObservableObject, PHPhotoLibraryChangeO
     
     var hasAccess: Bool { authorization == .authorized || authorization == .limited }
     
+    /// 仅在已获得相册权限时静默加载最近照片；未授权时不自动弹窗，避免打断只想用文件/录音/拍照的用户。
     func start() {
-        if authorization == .notDetermined {
-            PHPhotoLibrary.requestAuthorization(for: .readWrite) { [weak self] status in
-                Task { @MainActor in
-                    self?.authorization = status
-                    self?.reload()
-                }
-            }
-        } else {
+        authorization = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+        if hasAccess {
             reload()
+        }
+    }
+
+    func requestAccess() {
+        Task { @MainActor in
+            let status = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
+            self.authorization = status
+            self.reload()
         }
     }
     
@@ -353,27 +356,35 @@ struct AttachmentPickerSheet: View {
     }
     
     private var permissionTile: some View {
-        Button {
+        let isDenied = photos.authorization == .denied || photos.authorization == .restricted
+        return Button {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
             if photos.authorization == .notDetermined {
-                photos.start()
+                photos.requestAccess()
             } else if let url = URL(string: UIApplication.openSettingsURLString) {
                 UIApplication.shared.open(url)
             }
         } label: {
             VStack(spacing: 4) {
-                Image(systemName: "photo.on.rectangle")
+                Image(systemName: isDenied ? "gearshape" : "photo.on.rectangle")
                     .font(.system(size: 22))
-                Text("允许访问照片")
-                    .font(.system(size: 11))
+                Text(isDenied ? String(localized: "开启相册权限") : String(localized: "访问最近照片"))
+                    .font(.system(size: 11, weight: .medium))
                     .multilineTextAlignment(.center)
+                    .padding(.horizontal, 4)
             }
-            .foregroundColor(.secondary)
+            .foregroundColor(.indigo)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color(uiColor: .secondarySystemBackground))
+            .background(Color.indigo.opacity(0.08))
             .aspectRatio(1, contentMode: .fit)
             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(Color.indigo.opacity(0.22), lineWidth: 1)
+            )
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(isDenied ? String(localized: "前往系统设置开启相册权限") : String(localized: "授权访问相册以选择最近照片"))
     }
     
     private var footer: some View {

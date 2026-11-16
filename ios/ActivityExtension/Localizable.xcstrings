@@ -225,6 +225,22 @@
         }
       }
     },
+    "审批内容已更新，请重新确认": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Approval changed — please review again"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "审批内容已更新，请重新确认"
+          }
+        }
+      }
+    },
     "已允许，继续执行中...": {
       "localizations": {
         "en": {
@@ -465,6 +481,38 @@
         }
       }
     },
+    "请打开 App 查看完整详情并确认": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open app to review full details"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请打开 App 查看完整详情并确认"
+          }
+        }
+      }
+    },
+    "轻点进入 App 查看详情并确认": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap to review & confirm in app"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "轻点进入 App 查看详情并确认"
+          }
+        }
+      }
+    },
     "运行中": {
       "localizations": {
         "en": {
@@ -477,6 +525,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "运行中"
+          }
+        }
+      }
+    },
+    "进 App 确认": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Review in App"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "进 App 确认"
           }
         }
       }
