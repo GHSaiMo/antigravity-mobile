@@ -74,14 +74,20 @@ mgy
 
 <table>
   <tr>
-    <td align="center" valign="top" width="25%"><img src="images/screen_list.jpg" alt="会话列表" /><br/><b>全局视野</b><br/><sub>状态徽标一目了然，额度常驻顶部</sub></td>
-    <td align="center" valign="top" width="25%"><img src="images/screen_question.jpg" alt="多题交互决策" /><br/><b>一触即决</b><br/><sub>多题点选一次提交，高危命令一键审批</sub></td>
-    <td align="center" valign="top" width="25%"><img src="images/screen_plan.jpg" alt="方案预览与 Proceed" /><br/><b>方案放行</b><br/><sub>方案原生预览，一键 Proceed 开工</sub></td>
-    <td align="center" valign="top" width="25%"><img src="images/screen_pdf.jpg" alt="交付物预览" /><br/><b>交付物直接看</b><br/><sub>文档与图片原生预览，翻页缩放</sub></td>
+    <td align="center" valign="top" width="25%"><img src="images/screen_list.jpg" alt="会话列表与后台任务" /><br/><b>全局视野</b><br/><sub>状态徽标、后台任务胶囊与额度均速刻度</sub></td>
+    <td align="center" valign="top" width="25%"><img src="images/screen_question.jpg" alt="多题交互决策" /><br/><b>一触即决</b><br/><sub>上下文水位速率可见，多题点选一次提交</sub></td>
+    <td align="center" valign="top" width="25%"><img src="images/screen_plan.jpg" alt="方案预览与 Proceed" /><br/><b>方案放行</b><br/><sub>Mermaid 流程图与方案同屏预览，一键 Proceed</sub></td>
+    <td align="center" valign="top" width="25%"><img src="images/screen_pdf.jpg" alt="交付物预览" /><br/><b>交付物直接看</b><br/><sub>销售表格、原生柱状图与 PDF 产物直接览</sub></td>
+  </tr>
+  <tr>
+    <td align="center" valign="top" width="25%"><img src="images/screen_workflow.jpg" alt="动态多智能体工作流" /><br/><b>多智能体工作流</b><br/><sub>阶段流水线、并发子代理与日志实时穿透</sub></td>
+    <td align="center" valign="top" width="25%"><img src="images/screen_approval.jpg" alt="Workflow 脚本安全审批" /><br/><b>安全审批门禁</b><br/><sub>精准拦截编排脚本，支持源码预览与细粒度放行</sub></td>
+    <td align="center" valign="top" width="25%"><img src="images/screen_quota.jpg" alt="账户与配额看板" /><br/><b>账户与配额</b><br/><sub>5h / 每周额度均速刻度、Token 历史与热切账号</sub></td>
+    <td align="center" valign="top" width="25%"><img src="images/screen_tasks.jpg" alt="工具与任务看板" /><br/><b>工具与任务看板</b><br/><sub>MCP、技能、插件、定时任务与守护进程全掌控</sub></td>
   </tr>
 </table>
 
-> 以上截图来自客户端内置**演示模式**，未配对时即可直接体验。
+> 以上截图来自客户端内置**演示模式**（v1.1.7 最新中文界面），未配对时即可直接体验。
 
 ---
 
