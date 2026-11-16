@@ -131,11 +131,7 @@ public struct McpSkillsSheet: View {
             }
             .navigationTitle("工具与任务看板")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("完成") { dismiss() }
-                }
-            }
+            .presentationDragIndicator(.visible)
             .sheet(item: $viewingSkill) { skill in
                 skillDetailSheet(skill)
             }
