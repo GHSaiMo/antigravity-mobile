@@ -45,6 +45,7 @@ public struct ChatView: View {
     @State var showSwarmSheet = false
     @State var showContextAuditSheet = false
     @State var showWorkflowTemplateSheet = false
+    @State var showAutoPermissionConfirm = false
     @State var workflowSheetStartInEditMode = false
     @State var modelPickerState = ModelSlidePickerState()
     @State var workflowPickerState = WorkflowSlidePickerState()
@@ -269,8 +270,9 @@ public struct ChatView: View {
             }
             
             ToolbarItem(placement: .topBarTrailing) {
+                let isAutoPermission = viewModel.permissionState.preset == "auto"
                 Menu {
-                    Section("权限放行模式 (\(viewModel.permissionState.localizedLabel))") {
+                    Section("全局权限放行模式 (\(viewModel.permissionState.localizedLabel))") {
                         Button {
                             Task { await viewModel.updatePermissionPreset("strict") }
                         } label: {
@@ -282,9 +284,13 @@ public struct ChatView: View {
                             Label("离席沙箱放行", systemImage: viewModel.permissionState.preset == "sandbox" ? "checkmark" : "shield.lefthalf.filled")
                         }
                         Button {
-                            Task { await viewModel.updatePermissionPreset("auto") }
+                            if isAutoPermission {
+                                Task { await viewModel.updatePermissionPreset("auto") }
+                            } else {
+                                showAutoPermissionConfirm = true
+                            }
                         } label: {
-                            Label("全自动放行", systemImage: viewModel.permissionState.preset == "auto" ? "checkmark" : "bolt.shield")
+                            Label("全自动放行", systemImage: isAutoPermission ? "checkmark" : "bolt.shield")
                         }
                     }
                     Divider()
@@ -294,14 +300,20 @@ public struct ChatView: View {
                         Label("打开工具与任务看板", systemImage: "wrench.and.screwdriver")
                     }
                 } label: {
-                    Image(systemName: viewModel.hasAnyBackgroundTasks ? "terminal" : "wrench.and.screwdriver")
+                    let iconName: String = {
+                        if viewModel.hasAnyBackgroundTasks { return "terminal" }
+                        return isAutoPermission ? "bolt.shield.fill" : "wrench.and.screwdriver"
+                    }()
+                    Image(systemName: iconName)
                         .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(.indigo)
+                        .foregroundColor(isAutoPermission ? .orange : .indigo)
                 } primaryAction: {
                     UIImpactFeedbackGenerator(style: .light).impactOccurred()
                     showMcpSkillsSheet = true
                 }
                 .accessibilityLabel(viewModel.hasAnyBackgroundTasks ? String(localized: "打开后台任务与工具看板") : String(localized: "打开已连接工具与技能看板"))
+                .accessibilityValue(viewModel.permissionState.localizedLabel)
+                .accessibilityHint("短按打开工具与任务看板，长按切换全局权限模式")
             }
         }
         .background(SwipeBackEnabler())
@@ -585,6 +597,14 @@ public struct ChatView: View {
         } message: {
             Text("当前有正在运行的后台命令或子代理。立即发送将提前触发下一轮对话，可能会导致后台任务被中断或产生冲突。确定仍要立即发送吗？")
         }
+        .alert("开启全自动放行？", isPresented: $showAutoPermissionConfirm) {
+            Button("取消", role: .cancel) {}
+            Button("确认开启", role: .destructive) {
+                Task { await viewModel.updatePermissionPreset("auto") }
+            }
+        } message: {
+            Text("开启后 Agent 将自动执行终端命令并访问工作区外文件（同步作用于桌面端全部会话）。建议仅在可信或隔离环境中使用。")
+        }
     }
     
     private func checkPendingLiveRecording() {
@@ -805,16 +825,33 @@ struct ContextRingCapsuleView: View {
     let meter: ContextMeterItem
     let isRunning: Bool
     let onTap: () -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isPulsing = false
 
     private var clampedPct: Double {
         min(max(meter.percentage, 0), 100)
     }
 
+    private var shouldPulse: Bool {
+        !reduceMotion && isRunning && (meter.isOverflow == true || clampedPct >= 90)
+    }
+
     private var ringColor: Color {
         if meter.isOverflow == true || clampedPct >= 90 { return .red }
         if clampedPct >= 70 { return .orange }
         return .green
+    }
+
+    private func syncPulseAnimation() {
+        if shouldPulse {
+            withAnimation(.easeInOut(duration: 0.7).repeatForever(autoreverses: true)) {
+                isPulsing = true
+            }
+        } else {
+            withAnimation(.default) {
+                isPulsing = false
+            }
+        }
     }
 
     var body: some View {
@@ -853,16 +890,12 @@ struct ContextRingCapsuleView: View {
                 Capsule().stroke(ringColor.opacity(0.35), lineWidth: 0.6)
             )
             .clipShape(Capsule())
-            .opacity(isRunning && (meter.isOverflow == true || clampedPct >= 90) && isPulsing ? 0.55 : 1.0)
-            .onAppear {
-                if isRunning && (meter.isOverflow == true || clampedPct >= 90) {
-                    withAnimation(.easeInOut(duration: 0.7).repeatForever(autoreverses: true)) {
-                        isPulsing = true
-                    }
-                }
-            }
+            .opacity(shouldPulse && isPulsing ? 0.55 : 1.0)
+            .onAppear { syncPulseAnimation() }
+            .onChange(of: shouldPulse) { _, _ in syncPulseAnimation() }
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(String(localized: "上下文占用 \(Int(clampedPct))%，点击查看详情与压缩"))
     }
 }
 

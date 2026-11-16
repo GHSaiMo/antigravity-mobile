@@ -12,6 +12,7 @@ public struct RunningTasksCardView: View {
     @State private var expandedCommandIds: Set<String> = []
     @State private var copiedCommandId: String? = nil
     @State private var showTerminalPanel: Bool = false
+    @State private var pendingStopDaemonTask: RunningTaskItem? = nil
     
     public init(
         cascadeId: String = "",
@@ -73,13 +74,19 @@ public struct RunningTasksCardView: View {
                 } else if items.count == 1, let singleTask = items.first {
                     Button(action: {
                         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                        onStop(singleTask)
+                        if singleTask.isDaemon == true {
+                            pendingStopDaemonTask = singleTask
+                        } else {
+                            onStop(singleTask)
+                        }
                     }) {
                         Image(systemName: "stop.circle.fill")
                             .font(.system(size: 20))
                             .foregroundColor(.red.opacity(0.9))
                     }
                     .buttonStyle(.plain)
+                    .padding(.trailing, 6)
+                    .accessibilityLabel("终止任务")
                     .help("终止任务")
                 }
                 
@@ -97,6 +104,7 @@ public struct RunningTasksCardView: View {
                         .frame(width: 28, height: 28)
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel(isCardExpanded ? String(localized: "折叠任务") : String(localized: "展开任务"))
                 .help(isCardExpanded ? String(localized: "折叠任务") : String(localized: "展开任务"))
             }
             .zIndex(10)
@@ -147,6 +155,26 @@ public struct RunningTasksCardView: View {
         .onChange(of: cascadeId) { _, _ in
             isCardExpanded = !settings.shouldCollapseRunningTasks
         }
+        .confirmationDialog(
+            "停止常驻服务？",
+            isPresented: Binding(
+                get: { pendingStopDaemonTask != nil },
+                set: { if !$0 { pendingStopDaemonTask = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: pendingStopDaemonTask
+        ) { item in
+            Button("停止服务", role: .destructive) {
+                onStop(item)
+                pendingStopDaemonTask = nil
+            }
+            Button("取消", role: .cancel) {
+                pendingStopDaemonTask = nil
+            }
+        } message: { item in
+            let title = item.toolSummary ?? item.toolAction ?? ToolLocalization.localizedName(for: item.toolName)
+            Text("「\(title)」为常驻服务任务，终止后对应本地端口或开发服务将下线。")
+        }
     }
     
     @ViewBuilder
@@ -187,13 +215,18 @@ public struct RunningTasksCardView: View {
                 // Stop Task Button
                 Button(action: {
                     UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                    onStop(item)
+                    if item.isDaemon == true {
+                        pendingStopDaemonTask = item
+                    } else {
+                        onStop(item)
+                    }
                 }) {
                     Image(systemName: "stop.circle.fill")
                         .font(.system(size: 20))
                         .foregroundColor(.red.opacity(0.9))
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("终止任务")
                 .help("终止任务")
             }
             
@@ -457,7 +490,7 @@ struct InteractiveTerminalPanelView: View {
             }
             .frame(maxHeight: 130)
             .padding(8)
-            .background(Color.black.opacity(0.08))
+            .background(Color(uiColor: .tertiarySystemBackground))
             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
 
             HStack(spacing: 6) {

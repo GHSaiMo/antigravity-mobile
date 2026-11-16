@@ -7,16 +7,22 @@ import Foundation
 nonisolated public struct ApproveAgentActionIntent: LiveActivityIntent {
     public static let title: LocalizedStringResource = "允许执行"
     public static let openAppWhenRun: Bool = false
+    public static var authenticationPolicy: IntentAuthenticationPolicy { .requiresAuthentication }
 
     @Parameter(title: "Cascade ID")
     public var cascadeId: String
 
+    @Parameter(title: "Expected Step Index", default: -1)
+    public var expectedStepIndex: Int
+
     public init() {
         self.cascadeId = ""
+        self.expectedStepIndex = -1
     }
 
-    public init(cascadeId: String) {
+    public init(cascadeId: String, expectedStepIndex: Int = -1) {
         self.cascadeId = cascadeId
+        self.expectedStepIndex = expectedStepIndex
     }
 
     @MainActor
@@ -27,6 +33,37 @@ nonisolated public struct ApproveAgentActionIntent: LiveActivityIntent {
         }
         let snap = try? await APIClient.shared.fetchMessages(cascadeId: cascadeId, limit: 5, baseURL: baseURL)
         if let interaction = snap?.pendingInteraction {
+            // 1. 校验步骤序号，防止在解锁/等待期间审批内容发生切换导致盲批
+            if expectedStepIndex >= 0 && interaction.stepIndex != expectedStepIndex {
+                if ActivityManager.shared.findActiveActivity(for: cascadeId) != nil {
+                    ActivityManager.shared.updateActivity(
+                        title: snap?.title,
+                        status: "WAITING_APPROVAL",
+                        stepCount: max(1, snap?.totalSteps ?? 1),
+                        latestAction: String(localized: "审批内容已更新，请重新确认"),
+                        hasPendingAction: true,
+                        pendingStepIndex: interaction.stepIndex,
+                        pendingActionKind: interaction.type
+                    )
+                }
+                return .result()
+            }
+            // 2. 多题问答、工作流编排脚本、表单等需审阅详情，禁止在锁屏后台盲目放行
+            let kind = interaction.type.lowercased()
+            if kind == "ask_question" || kind == "workflow_approval" || kind == "elicitation" || (interaction.questions?.isEmpty == false) {
+                if ActivityManager.shared.findActiveActivity(for: cascadeId) != nil {
+                    ActivityManager.shared.updateActivity(
+                        title: snap?.title,
+                        status: "WAITING_APPROVAL",
+                        stepCount: max(1, snap?.totalSteps ?? 1),
+                        latestAction: String(localized: "请打开 App 查看完整详情并确认"),
+                        hasPendingAction: true,
+                        pendingStepIndex: interaction.stepIndex,
+                        pendingActionKind: interaction.type
+                    )
+                }
+                return .result()
+            }
             let approveOpt = interaction.options.first(where: {
                 $0.isDeny != true && $0.id != "5" && $0.id != "__write_in__"
             }) ?? interaction.options.first
@@ -61,7 +98,9 @@ nonisolated public struct ApproveAgentActionIntent: LiveActivityIntent {
                 status: "RUNNING",
                 stepCount: max(1, snap?.totalSteps ?? 1),
                 latestAction: String(localized: "已允许，继续执行中..."),
-                hasPendingAction: false
+                hasPendingAction: false,
+                pendingStepIndex: nil,
+                pendingActionKind: nil
             )
         }
         #endif
@@ -76,12 +115,17 @@ nonisolated public struct RejectAgentActionIntent: LiveActivityIntent {
     @Parameter(title: "Cascade ID")
     public var cascadeId: String
 
+    @Parameter(title: "Expected Step Index", default: -1)
+    public var expectedStepIndex: Int
+
     public init() {
         self.cascadeId = ""
+        self.expectedStepIndex = -1
     }
 
-    public init(cascadeId: String) {
+    public init(cascadeId: String, expectedStepIndex: Int = -1) {
         self.cascadeId = cascadeId
+        self.expectedStepIndex = expectedStepIndex
     }
 
     @MainActor
@@ -92,6 +136,20 @@ nonisolated public struct RejectAgentActionIntent: LiveActivityIntent {
         }
         let snap = try? await APIClient.shared.fetchMessages(cascadeId: cascadeId, limit: 5, baseURL: baseURL)
         if let interaction = snap?.pendingInteraction {
+            if expectedStepIndex >= 0 && interaction.stepIndex != expectedStepIndex {
+                if ActivityManager.shared.findActiveActivity(for: cascadeId) != nil {
+                    ActivityManager.shared.updateActivity(
+                        title: snap?.title,
+                        status: "WAITING_APPROVAL",
+                        stepCount: max(1, snap?.totalSteps ?? 1),
+                        latestAction: String(localized: "审批内容已更新，请重新确认"),
+                        hasPendingAction: true,
+                        pendingStepIndex: interaction.stepIndex,
+                        pendingActionKind: interaction.type
+                    )
+                }
+                return .result()
+            }
             let denyOpt = interaction.options.first(where: { $0.isDeny == true || $0.id == "5" })
             try? await APIClient.shared.submitInteraction(
                 cascadeId: cascadeId,
@@ -114,7 +172,9 @@ nonisolated public struct RejectAgentActionIntent: LiveActivityIntent {
                 status: "RUNNING",
                 stepCount: max(1, snap?.totalSteps ?? 1),
                 latestAction: String(localized: "已拒绝该操作"),
-                hasPendingAction: false
+                hasPendingAction: false,
+                pendingStepIndex: nil,
+                pendingActionKind: nil
             )
         }
         #endif

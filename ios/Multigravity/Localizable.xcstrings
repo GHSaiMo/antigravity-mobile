@@ -1601,6 +1601,22 @@
         }
       }
     },
+    "Git 操作失败": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Git Operation Failed"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Git 操作失败"
+          }
+        }
+      }
+    },
     "GitHub": {
       "localizations": {
         "en": {
@@ -2801,6 +2817,38 @@
         }
       }
     },
+    "「%@」为常驻守护任务，终止后对应本地服务或监听端口将下线。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\"%@\" is a standing daemon. Stopping it will shut down its local service or listening port."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」为常驻守护任务，终止后对应本地服务或监听端口将下线。"
+          }
+        }
+      }
+    },
+    "「%@」为常驻服务任务，终止后对应本地端口或开发服务将下线。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\"%@\" is a standing service. Stopping it will shut down its local port or dev server."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」为常驻服务任务，终止后对应本地端口或开发服务将下线。"
+          }
+        }
+      }
+    },
     "一条消息最多附带 %lld 个文件": {
       "localizations": {
         "en": {
@@ -2957,6 +3005,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "上一张照片"
+          }
+        }
+      }
+    },
+    "上下文占用 %lld%%，点击查看详情与压缩": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Context usage %lld%%. Tap to view details or compact"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上下文占用 %lld%%，点击查看详情与压缩"
           }
         }
       }
@@ -3277,6 +3341,38 @@
           "stringUnit": {
             "state": "translated",
             "value": "亮紫"
+          }
+        }
+      }
+    },
+    "仅只读分析与调度": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Read-only & Orchestration"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅只读分析与调度"
+          }
+        }
+      }
+    },
+    "仅本地提交": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Commit Locally Only"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅本地提交"
           }
         }
       }
@@ -3937,6 +4033,54 @@
         }
       }
     },
+    "停止任务 %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stop Task %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停止任务 %@"
+          }
+        }
+      }
+    },
+    "停止全部后台任务？": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stop All Background Tasks?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停止全部后台任务？"
+          }
+        }
+      }
+    },
+    "停止常驻服务？": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stop Standing Service?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停止常驻服务？"
+          }
+        }
+      }
+    },
     "停止当前任务": {
       "localizations": {
         "en": {
@@ -3949,6 +4093,38 @@
           "stringUnit": {
             "state": "translated",
             "value": "停止当前任务"
+          }
+        }
+      }
+    },
+    "停止服务": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stop Service"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停止服务"
+          }
+        }
+      }
+    },
+    "停止语音听写": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stop Voice Dictation"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停止语音听写"
           }
         }
       }
@@ -4001,6 +4177,22 @@
         }
       }
     },
+    "允许": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许"
+          }
+        }
+      }
+    },
     "允许执行": {
       "localizations": {
         "en": {
@@ -4013,6 +4205,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "允许执行"
+          }
+        }
+      }
+    },
+    "允许本次执行": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow Once"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许本次执行"
           }
         }
       }
@@ -4113,6 +4321,22 @@
         }
       }
     },
+    "全局权限放行模式 (%@)": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Global Permission Mode (%@)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全局权限放行模式 (%@)"
+          }
+        }
+      }
+    },
     "全局规则": {
       "localizations": {
         "en": {
@@ -4205,6 +4429,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "全部丢弃"
+          }
+        }
+      }
+    },
+    "全部停止": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stop All"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全部停止"
           }
         }
       }
@@ -5041,6 +5281,22 @@
         }
       }
     },
+    "删除定时任务 %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete Automation %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "删除定时任务 %@"
+          }
+        }
+      }
+    },
     "删除文件": {
       "localizations": {
         "en": {
@@ -5117,6 +5373,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "刷新配额失败"
+          }
+        }
+      }
+    },
+    "前往系统设置开启相册权限": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open System Settings to enable Photo Library access"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "前往系统设置开启相册权限"
           }
         }
       }
@@ -5649,6 +5921,38 @@
         }
       }
     },
+    "可修改或写入文件": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "May Edit or Write Files"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "可修改或写入文件"
+          }
+        }
+      }
+    },
+    "可执行本地命令": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "May Run Shell Commands"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "可执行本地命令"
+          }
+        }
+      }
+    },
     "可点击右上角 + 开启新会话，或下拉刷新同步": {
       "localizations": {
         "en": {
@@ -6034,6 +6338,22 @@
         }
       }
     },
+    "在此配置电脑端全局默认权限并查看 MCP 工具与技能；进入会话后长按右上角工具按钮也可随时切换该全局权限。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configure default global permissions for your computer and inspect MCP tools and skills. Long-press the tools icon in any chat to switch this global preset."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在此配置电脑端全局默认权限并查看 MCP 工具与技能；进入会话后长按右上角工具按钮也可随时切换该全局权限。"
+          }
+        }
+      }
+    },
     "在此配置默认权限并查看 MCP 工具与技能；进入会话后，长按右上角工具按钮也可以随时改变该会话的权限。": {
       "localizations": {
         "en": {
@@ -6318,6 +6638,38 @@
           "stringUnit": {
             "state": "translated",
             "value": "复制源码"
+          }
+        }
+      }
+    },
+    "复制结构化产物": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Schema Output"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "复制结构化产物"
+          }
+        }
+      }
+    },
+    "复制脚本源码": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Script Source"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "复制脚本源码"
           }
         }
       }
@@ -6882,6 +7234,22 @@
         }
       }
     },
+    "审批内容已更新，请重新确认": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Approval changed — please review again"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "审批内容已更新，请重新确认"
+          }
+        }
+      }
+    },
     "对准电脑终端中的配对二维码": {
       "localizations": {
         "en": {
@@ -6978,6 +7346,22 @@
         }
       }
     },
+    "将提交 %lld 个文件的改动并推送到分支 %@ 的远程仓库。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Commit %lld file(s) and push to remote branch %@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将提交 %lld 个文件的改动并推送到分支 %@ 的远程仓库。"
+          }
+        }
+      }
+    },
     "将检索与命令步骤收起为单行摘要": {
       "localizations": {
         "en": {
@@ -6990,6 +7374,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "将检索与命令步骤收起为单行摘要"
+          }
+        }
+      }
+    },
+    "将终止当前列表中所有会话的运行命令与常驻守护进程，未保存的运行状态可能会中断。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This will terminate running commands and standing daemons across all sessions in the list. Unsaved progress may be lost."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将终止当前列表中所有会话的运行命令与常驻守护进程，未保存的运行状态可能会中断。"
           }
         }
       }
@@ -8275,6 +8675,38 @@
         }
       }
     },
+    "开启全自动放行？": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable Full Auto-Approve?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "开启全自动放行？"
+          }
+        }
+      }
+    },
+    "开启后 Agent 将自动执行终端命令并访问工作区外文件（同步作用于桌面端全部会话）。建议仅在可信或隔离环境中使用。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Agent will automatically run terminal commands and access files outside the workspace across all desktop sessions. Use only in trusted or isolated environments."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "开启后 Agent 将自动执行终端命令并访问工作区外文件（同步作用于桌面端全部会话）。建议仅在可信或隔离环境中使用。"
+          }
+        }
+      }
+    },
     "开启后，在聊天栏长按 Workflow 按钮向上滑动即可直接快速填入该模板。": {
       "localizations": {
         "en": {
@@ -8355,6 +8787,22 @@
         }
       }
     },
+    "开启相册权限": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable Photos"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "开启相册权限"
+          }
+        }
+      }
+    },
     "开始执行任务...": {
       "localizations": {
         "en": {
@@ -8367,6 +8815,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "开始执行任务..."
+          }
+        }
+      }
+    },
+    "开始语音听写": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start Voice Dictation"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "开始语音听写"
           }
         }
       }
@@ -8787,6 +9251,22 @@
         }
       }
     },
+    "待审批: %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pending approval: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "待审批: %@"
+          }
+        }
+      }
+    },
     "必填": {
       "localizations": {
         "en": {
@@ -8963,6 +9443,22 @@
         }
       }
     },
+    "手动输入网关地址或配对链接": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter Gateway URL or Pairing Link"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手动输入网关地址或配对链接"
+          }
+        }
+      }
+    },
     "手动输入配对信息": {
       "localizations": {
         "en": {
@@ -9007,6 +9503,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "手机端需配合运行在 Mac、Linux 或 Windows 电脑上的开源本地网关协同工作，打通安全直连。"
+          }
+        }
+      }
+    },
+    "打开 @ 上下文引用": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open @ Context Mentions"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开 @ 上下文引用"
           }
         }
       }
@@ -9379,6 +9891,22 @@
         }
       }
     },
+    "拒绝": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deny"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拒绝"
+          }
+        }
+      }
+    },
     "拒绝执行": {
       "localizations": {
         "en": {
@@ -9551,6 +10079,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "按住流式听写中，松开结束..."
+          }
+        }
+      }
+    },
+    "授权访问相册以选择最近照片": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow Photo Library access to pick recent photos"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "授权访问相册以选择最近照片"
           }
         }
       }
@@ -10767,6 +11311,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "新建记忆条目"
+          }
+        }
+      }
+    },
+    "方案待确认，可点击 Proceed": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan ready — tap Proceed to continue"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "方案待确认，可点击 Proceed"
           }
         }
       }
@@ -12195,6 +12755,22 @@
         }
       }
     },
+    "权限设置更新失败": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to Update Permissions"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "权限设置更新失败"
+          }
+        }
+      }
+    },
     "来自插件市场，安装后自动续聊恢复任务。": {
       "localizations": {
         "en": {
@@ -13331,6 +13907,22 @@
         }
       }
     },
+    "添加附件": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add Attachment"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加附件"
+          }
+        }
+      }
+    },
     "清空": {
       "localizations": {
         "en": {
@@ -13891,6 +14483,38 @@
         }
       }
     },
+    "短按开始实时语音对话，按住说话可进行流式听写": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap for live voice conversation, or press and hold for streaming dictation"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "短按开始实时语音对话，按住说话可进行流式听写"
+          }
+        }
+      }
+    },
+    "短按打开工具与任务看板，长按切换全局权限模式": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap to open Tools & Tasks board; long-press to switch global permission mode"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "短按打开工具与任务看板，长按切换全局权限模式"
+          }
+        }
+      }
+    },
     "确定": {
       "localizations": {
         "en": {
@@ -14019,6 +14643,22 @@
         }
       }
     },
+    "确定要删除定时任务「%@」吗？删除后将停止调度并移除该任务配置。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete automation \"%@\"? Its schedule will stop and its configuration will be removed."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "确定要删除定时任务「%@」吗？删除后将停止调度并移除该任务配置。"
+          }
+        }
+      }
+    },
     "确定要撤回到该消息吗？": {
       "localizations": {
         "en": {
@@ -14083,6 +14723,22 @@
         }
       }
     },
+    "确认删除定时任务？": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete Automation?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "确认删除定时任务？"
+          }
+        }
+      }
+    },
     "确认删除记忆条目？": {
       "localizations": {
         "en": {
@@ -14095,6 +14751,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "确认删除记忆条目？"
+          }
+        }
+      }
+    },
+    "确认开启": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "确认开启"
           }
         }
       }
@@ -14127,6 +14799,38 @@
           "stringUnit": {
             "state": "translated",
             "value": "确认执行 (Proceed)"
+          }
+        }
+      }
+    },
+    "确认提交并推送": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Commit & Push"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "确认提交并推送"
+          }
+        }
+      }
+    },
+    "确认提交并推送？": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Commit & Push?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "确认提交并推送？"
           }
         }
       }
@@ -14735,6 +15439,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "经 @all"
+          }
+        }
+      }
+    },
+    "结构化产物": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schema Output"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "结构化产物"
           }
         }
       }
@@ -15747,6 +16467,22 @@
         }
       }
     },
+    "访问最近照片": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Access Recent Photos"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "访问最近照片"
+          }
+        }
+      }
+    },
     "询问用户": {
       "localizations": {
         "en": {
@@ -16131,6 +16867,22 @@
         }
       }
     },
+    "请打开 App 查看完整详情并确认": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open app to review full details"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请打开 App 查看完整详情并确认"
+          }
+        }
+      }
+    },
     "请确认这是你自己的电脑网关，不要配对来历不明的链接。": {
       "localizations": {
         "en": {
@@ -16451,6 +17203,38 @@
         }
       }
     },
+    "轻点进入 App 查看详情并确认": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap to review & confirm in app"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "轻点进入 App 查看详情并确认"
+          }
+        }
+      }
+    },
+    "轻点选择照片、文件、录音或拍照；长按打开 @ 上下文引用": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap to attach photos, files, audio, or camera; long-press for @ context mentions"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "轻点选择照片、文件、录音或拍照；长按打开 @ 上下文引用"
+          }
+        }
+      }
+    },
     "轻触穿透查看": {
       "localizations": {
         "en": {
@@ -16735,6 +17519,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "近 7 日"
+          }
+        }
+      }
+    },
+    "进 App 确认": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Review in App"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "进 App 确认"
           }
         }
       }

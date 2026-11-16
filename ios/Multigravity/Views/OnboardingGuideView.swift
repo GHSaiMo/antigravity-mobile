@@ -331,6 +331,23 @@ public struct OnboardingGuideView: View {
                             .shadow(color: Color.indigo.opacity(0.25), radius: 6, x: 0, y: 3)
                         }
                         .padding(.top, 2)
+
+                        if let onManualInputTapped {
+                            Button(action: onManualInputTapped) {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "keyboard")
+                                        .font(.system(size: 13.5, weight: .medium))
+                                    Text("手动输入网关地址或配对链接")
+                                        .font(.system(size: 13.5, weight: .medium))
+                                }
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 10)
+                                .foregroundColor(.primary)
+                                .background(Color(uiColor: .tertiarySystemFill).opacity(0.7))
+                                .cornerRadius(10)
+                            }
+                            .buttonStyle(.plain)
+                        }
                     }
                     .padding(16)
                     .background(Color(uiColor: .secondarySystemBackground))

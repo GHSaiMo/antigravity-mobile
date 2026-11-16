@@ -34,9 +34,17 @@ extension ChatViewModel {
                 status = "RUNNING"
             }
             
+            let pendingStepIndex: Int? = self.pendingInteraction?.stepIndex ?? (self.canProceed ? self.stepCount : nil)
+            let pendingActionKind: String? = self.pendingInteraction?.type ?? (self.canProceed ? "proceed" : nil)
+
             var actionText = ""
-            if hasPendingAction {
-                actionText = String(localized: "等待用户审批操作")
+            if let interaction = self.pendingInteraction {
+                let target = interaction.target?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let title = interaction.title.trimmingCharacters(in: .whitespacesAndNewlines)
+                let summary = !target.isEmpty ? target : title
+                actionText = summary.isEmpty ? String(localized: "等待用户审批操作") : String(localized: "待审批: \(summary)")
+            } else if self.canProceed {
+                actionText = String(localized: "方案待确认，可点击 Proceed")
             } else if let title = taskTitle, !title.isEmpty {
                 actionText = title
             } else if let lastMsg = self.messages.last, !lastMsg.content.isEmpty {
@@ -68,7 +76,9 @@ extension ChatViewModel {
                     runningTasks: taskSnapshots,
                     activeTaskTitle: taskTitle,
                     activeTaskCommand: taskCommand,
-                    hasPendingAction: hasPendingAction
+                    hasPendingAction: hasPendingAction,
+                    pendingStepIndex: pendingStepIndex,
+                    pendingActionKind: pendingActionKind
                 )
             } else {
                 activityManager.startActivity(
@@ -81,7 +91,9 @@ extension ChatViewModel {
                     runningTasks: taskSnapshots,
                     activeTaskTitle: taskTitle,
                     activeTaskCommand: taskCommand,
-                    hasPendingAction: hasPendingAction
+                    hasPendingAction: hasPendingAction,
+                    pendingStepIndex: pendingStepIndex,
+                    pendingActionKind: pendingActionKind
                 )
             }
         } else {

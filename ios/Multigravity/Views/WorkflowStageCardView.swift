@@ -11,6 +11,7 @@ public struct WorkflowStageCardView: View {
     @State private var selectedPhaseIndex: Int = 0
     @State private var isLogsExpanded: Bool = false
     @State private var isStopping: Bool = false
+    @State private var isResultCopied: Bool = false
 
     public init(
         workflow: WorkflowItem,
@@ -306,8 +307,12 @@ public struct WorkflowStageCardView: View {
                                     .foregroundColor(.primary)
                                     .frame(maxWidth: .infinity, alignment: .leading)
                                     .padding(8)
-                                    .background(Color.black.opacity(0.3))
+                                    .background(Color(uiColor: .tertiarySystemBackground))
                                     .cornerRadius(8)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 8)
+                                            .stroke(Color(uiColor: .separator).opacity(0.45), lineWidth: 0.6)
+                                    )
                             }
                         }
                     }
@@ -320,19 +325,25 @@ public struct WorkflowStageCardView: View {
                                     Image(systemName: "curlybraces")
                                         .font(.system(size: 11, weight: .bold))
                                         .foregroundColor(.orange)
-                                    Text("结构化产物 (Schema Output)")
+                                    Text("结构化产物")
                                         .font(.system(size: 10.5, weight: .bold))
                                         .foregroundColor(.orange)
                                 }
                                 Spacer()
                                 Button(action: {
                                     UIPasteboard.general.string = resultJson
+                                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                    isResultCopied = true
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                                        isResultCopied = false
+                                    }
                                 }) {
-                                    Image(systemName: "doc.on.doc")
+                                    Image(systemName: isResultCopied ? "checkmark" : "doc.on.doc")
                                         .font(.system(size: 10))
-                                        .foregroundColor(.secondary)
+                                        .foregroundColor(isResultCopied ? .green : .secondary)
                                 }
                                 .buttonStyle(.plain)
+                                .accessibilityLabel("复制结构化产物")
                             }
 
                             Text(resultJson)
@@ -340,11 +351,11 @@ public struct WorkflowStageCardView: View {
                                 .foregroundColor(.primary)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(8)
-                                .background(Color.black.opacity(0.35))
+                                .background(Color(uiColor: .tertiarySystemBackground))
                                 .cornerRadius(8)
                                 .overlay(
                                     RoundedRectangle(cornerRadius: 8)
-                                        .stroke(Color.white.opacity(0.08), lineWidth: 0.5)
+                                        .stroke(Color(uiColor: .separator).opacity(0.45), lineWidth: 0.6)
                                 )
                         }
                     }

@@ -8,6 +8,7 @@ public struct WorkflowApprovalCardView: View {
     public let onSubmit: (String, String?) -> Void
     
     @State private var isCodeExpanded: Bool = false
+    @State private var isScriptCopied: Bool = false
     @State private var showFeedbackInput: Bool = false
     @State private var feedbackText: String = ""
     
@@ -27,6 +28,34 @@ public struct WorkflowApprovalCardView: View {
     
     private var scriptContent: String {
         approval?.script?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    }
+
+    /// 静态提取工作流脚本的关键权限风险，无需展开通读全部源码即可预判边界。
+    private var scriptCapabilityTags: [(icon: String, label: String, color: Color)] {
+        guard !scriptContent.isEmpty else { return [] }
+        let lower = scriptContent.lowercased()
+        var tags: [(String, String, Color)] = []
+        let canWrite = lower.contains("enablewritetools=true")
+            || lower.contains("enablewritetools = true")
+            || lower.contains("write_file")
+            || lower.contains("edit_file")
+            || lower.contains("shutil.")
+            || lower.contains("os.remove")
+            || lower.contains("unlink(")
+        let canRunCommand = lower.contains("run_command")
+            || lower.contains("subprocess")
+            || lower.contains("os.system")
+            || lower.contains("popen(")
+        if canWrite {
+            tags.append(("pencil.and.outline", String(localized: "可修改或写入文件"), .orange))
+        }
+        if canRunCommand {
+            tags.append(("terminal.fill", String(localized: "可执行本地命令"), .red))
+        }
+        if tags.isEmpty {
+            tags.append(("eye", String(localized: "仅只读分析与调度"), .green))
+        }
+        return tags
     }
     
     public var body: some View {
@@ -121,6 +150,26 @@ public struct WorkflowApprovalCardView: View {
             // Python Script Code Preview (Collapsible)
             if !scriptContent.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
+                    if !scriptCapabilityTags.isEmpty {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 6) {
+                                ForEach(Array(scriptCapabilityTags.enumerated()), id: \.offset) { _, tag in
+                                    HStack(spacing: 4) {
+                                        Image(systemName: tag.icon)
+                                            .font(.system(size: 10, weight: .semibold))
+                                        Text(tag.label)
+                                            .font(.system(size: 11, weight: .semibold))
+                                    }
+                                    .foregroundColor(tag.color)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 3.5)
+                                    .background(tag.color.opacity(0.12))
+                                    .clipShape(Capsule())
+                                }
+                            }
+                        }
+                    }
+
                     HStack {
                         Button(action: {
                             withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
@@ -146,16 +195,22 @@ public struct WorkflowApprovalCardView: View {
                         
                         Button(action: {
                             UIPasteboard.general.string = scriptContent
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            isScriptCopied = true
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                                isScriptCopied = false
+                            }
                         }) {
                             HStack(spacing: 3) {
-                                Image(systemName: "doc.on.doc")
+                                Image(systemName: isScriptCopied ? "checkmark" : "doc.on.doc")
                                     .font(.system(size: 10))
-                                Text("复制")
+                                Text(isScriptCopied ? String(localized: "已复制") : String(localized: "复制"))
                                     .font(.system(size: 10.5))
                             }
-                            .foregroundColor(.secondary)
+                            .foregroundColor(isScriptCopied ? .green : .secondary)
                         }
                         .buttonStyle(.plain)
+                        .accessibilityLabel("复制脚本源码")
                     }
                     
                     if isCodeExpanded {
@@ -167,11 +222,11 @@ public struct WorkflowApprovalCardView: View {
                                 .padding(8)
                         }
                         .frame(maxHeight: 180)
-                        .background(Color.black.opacity(0.35))
+                        .background(Color(uiColor: .tertiarySystemBackground))
                         .cornerRadius(8)
                         .overlay(
                             RoundedRectangle(cornerRadius: 8)
-                                .stroke(Color.white.opacity(0.08), lineWidth: 0.5)
+                                .stroke(Color(uiColor: .separator).opacity(0.45), lineWidth: 0.6)
                         )
                     }
                 }
@@ -220,7 +275,7 @@ public struct WorkflowApprovalCardView: View {
                         }
                         Image(systemName: "checkmark.circle.fill")
                             .font(.system(size: 13, weight: .bold))
-                        Text("允许本次执行 (Allow Once)")
+                        Text("允许本次执行")
                             .font(.system(size: 13.5, weight: .bold))
                     }
                     .frame(maxWidth: .infinity)
