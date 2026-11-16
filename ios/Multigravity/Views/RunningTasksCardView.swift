@@ -7,7 +7,8 @@ public struct RunningTasksCardView: View {
     public let onSendToBackground: (@MainActor @Sendable (RunningTaskItem) -> Void)?
     public let onToggleExpand: (@MainActor @Sendable (Bool) -> Void)?
     
-    @State private var isCardExpanded: Bool = true
+    @State private var settings = AppSettings.shared
+    @State private var isCardExpanded: Bool
     @State private var expandedCommandIds: Set<String> = []
     @State private var copiedCommandId: String? = nil
     @State private var showTerminalPanel: Bool = false
@@ -24,6 +25,7 @@ public struct RunningTasksCardView: View {
         self.onStop = onStop
         self.onSendToBackground = onSendToBackground
         self.onToggleExpand = onToggleExpand
+        _isCardExpanded = State(initialValue: !AppSettings.shared.shouldCollapseRunningTasks)
     }
     
     public var body: some View {
@@ -49,24 +51,37 @@ public struct RunningTasksCardView: View {
                 
                 Spacer()
 
-                Button {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        showTerminalPanel.toggle()
+                if isCardExpanded || !settings.shouldCollapseRunningTasks {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            showTerminalPanel.toggle()
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "terminal")
+                                .font(.system(size: 11, weight: .semibold))
+                            Text(showTerminalPanel ? "收起终端" : "终端交互")
+                                .font(.system(size: 11, weight: .medium))
+                        }
+                        .foregroundColor(showTerminalPanel ? .white : .indigo)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(showTerminalPanel ? Color.indigo : Color.indigo.opacity(0.12))
+                        .clipShape(Capsule())
                     }
-                } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "terminal")
-                            .font(.system(size: 11, weight: .semibold))
-                        Text(showTerminalPanel ? "收起终端" : "终端交互")
-                            .font(.system(size: 11, weight: .medium))
+                    .buttonStyle(.plain)
+                } else if items.count == 1, let singleTask = items.first {
+                    Button(action: {
+                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                        onStop(singleTask)
+                    }) {
+                        Image(systemName: "stop.circle.fill")
+                            .font(.system(size: 20))
+                            .foregroundColor(.red.opacity(0.9))
                     }
-                    .foregroundColor(showTerminalPanel ? .white : .indigo)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(showTerminalPanel ? Color.indigo : Color.indigo.opacity(0.12))
-                    .clipShape(Capsule())
+                    .buttonStyle(.plain)
+                    .help("终止任务")
                 }
-                .buttonStyle(.plain)
                 
                 // Expand / Collapse Card Toggle
                 Button(action: {
@@ -124,6 +139,14 @@ public struct RunningTasksCardView: View {
         .shadow(color: Color.black.opacity(0.12), radius: 10, x: 0, y: 4)
         .padding(.horizontal, 12)
         .padding(.bottom, 6)
+        .onChange(of: settings.shouldCollapseRunningTasks) { _, shouldCollapse in
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                isCardExpanded = !shouldCollapse
+            }
+        }
+        .onChange(of: cascadeId) { _, _ in
+            isCardExpanded = !settings.shouldCollapseRunningTasks
+        }
     }
     
     @ViewBuilder
@@ -144,27 +167,6 @@ public struct RunningTasksCardView: View {
                 }
                 
                 Spacer()
-                
-                // Copy Command Button
-                Button(action: {
-                    copyCommand(item.commandLine, id: item.id)
-                }) {
-                    HStack(spacing: 3) {
-                        Image(systemName: isCopied ? "checkmark" : "doc.on.doc")
-                            .font(.system(size: 11, weight: .medium))
-                        if isCopied {
-                            Text("已复制")
-                                .font(.system(size: 10, weight: .medium))
-                        }
-                    }
-                    .foregroundColor(isCopied ? .green : .secondary)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 3)
-                    .background(Color(uiColor: .tertiarySystemFill))
-                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-                }
-                .buttonStyle(.plain)
-                .help("复制完整命令行")
 
                 if item.isDaemon != true, let onSendToBackground {
                     Button {
@@ -195,7 +197,7 @@ public struct RunningTasksCardView: View {
                 .help("终止任务")
             }
             
-            // Terminal-style command block
+            // Terminal-style command block (长按复制命令行，减少常驻按钮噪点)
             VStack(alignment: .leading, spacing: 4) {
                 Text(highlightCommand(item.commandLine))
                     .font(.system(size: 11, design: .monospaced))
@@ -231,6 +233,34 @@ public struct RunningTasksCardView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Color(uiColor: .tertiarySystemFill).opacity(0.8))
             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay(alignment: .topTrailing) {
+                if isCopied {
+                    HStack(spacing: 3) {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 9, weight: .bold))
+                        Text("已复制")
+                            .font(.system(size: 10, weight: .semibold))
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2.5)
+                    .background(Color.green.opacity(0.9))
+                    .clipShape(Capsule())
+                    .padding(4)
+                    .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                }
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .onLongPressGesture(minimumDuration: 0.4) {
+                copyCommand(item.commandLine, id: item.id)
+            }
+            .contextMenu {
+                Button {
+                    copyCommand(item.commandLine, id: item.id)
+                } label: {
+                    Label("复制完整命令", systemImage: "doc.on.doc")
+                }
+            }
         }
         .padding(.vertical, 2)
     }

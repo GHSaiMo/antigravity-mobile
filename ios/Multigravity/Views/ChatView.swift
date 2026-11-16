@@ -294,17 +294,9 @@ public struct ChatView: View {
                         Label("打开工具与任务看板", systemImage: "wrench.and.screwdriver")
                     }
                 } label: {
-                    ZStack(alignment: .topTrailing) {
-                        Image(systemName: viewModel.hasAnyBackgroundTasks ? "terminal" : "wrench.and.screwdriver")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundColor(.indigo)
-                        if viewModel.permissionState.isUnlocked {
-                            Circle()
-                                .fill(Color.orange)
-                                .frame(width: 7, height: 7)
-                                .offset(x: 4, y: -3)
-                        }
-                    }
+                    Image(systemName: viewModel.hasAnyBackgroundTasks ? "terminal" : "wrench.and.screwdriver")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(.indigo)
                 } primaryAction: {
                     UIImpactFeedbackGenerator(style: .light).impactOccurred()
                     showMcpSkillsSheet = true
@@ -874,6 +866,26 @@ struct ContextRingCapsuleView: View {
     }
 }
 
+/// 客户端风格的上下收缩双箭头图标（一键压缩）
+public struct CompactChevronsIcon: View {
+    var size: CGFloat = 8
+    var weight: Font.Weight = .bold
+
+    public init(size: CGFloat = 8, weight: Font.Weight = .bold) {
+        self.size = size
+        self.weight = weight
+    }
+
+    public var body: some View {
+        VStack(spacing: 1.5) {
+            Image(systemName: "chevron.down")
+                .font(.system(size: size, weight: weight))
+            Image(systemName: "chevron.up")
+                .font(.system(size: size, weight: weight))
+        }
+    }
+}
+
 struct ContextAuditSheetView: View {
     @Environment(\.dismiss) private var dismiss
     let meter: ContextMeterItem
@@ -895,7 +907,7 @@ struct ContextAuditSheetView: View {
         VStack(spacing: 16) {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("实时上下文水位")
+                    Text("实时上下文")
                         .font(.system(size: 17, weight: .bold))
                     Text("\(AccountQuotaSheet.formatTokensCompact(meter.usedTokens)) / \(AccountQuotaSheet.formatTokensCompact(meter.maxTokens)) Tokens")
                         .font(.system(size: 12, design: .monospaced))
@@ -944,10 +956,13 @@ struct ContextAuditSheetView: View {
                         dismiss()
                         onCompact()
                     }) {
-                        Label("一键压缩", systemImage: "arrow.down.right.and.arrow.up.left")
-                            .font(.system(size: 13, weight: .semibold))
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 8)
+                        HStack(spacing: 6) {
+                            CompactChevronsIcon(size: 8, weight: .bold)
+                            Text("一键压缩")
+                        }
+                        .font(.system(size: 13, weight: .semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
                     }
                     .buttonStyle(.borderedProminent)
                     .tint(.orange)
@@ -998,6 +1013,7 @@ private struct ChatToolbarPrincipalView: View {
     let scrollHUD: ChatScrollHUDState
     let onOpenNavigator: () -> Void
     let onOpenContextAudit: () -> Void
+    @State private var settings = AppSettings.shared
 
     var body: some View {
         if viewModel.turns.count >= 2 {
@@ -1028,7 +1044,7 @@ private struct ChatToolbarPrincipalView: View {
                     .buttonStyle(.plain)
                     .accessibilityLabel("当前第 \(scrollHUD.currentVisibleTurnIndex) 轮，共 \(viewModel.turns.count) 轮，点击打开步骤大纲")
 
-                    if let meter = viewModel.contextMeter {
+                    if let meter = viewModel.contextMeter, settings.shouldShowContextMeter(meter) {
                         ContextRingCapsuleView(
                             meter: meter,
                             isRunning: viewModel.isRunning || viewModel.isAwaitingResponse
@@ -1043,7 +1059,7 @@ private struct ChatToolbarPrincipalView: View {
                 Text(viewModel.currentTitle)
                     .font(.system(size: 15.5, weight: .semibold))
                     .lineLimit(1)
-                if let meter = viewModel.contextMeter {
+                if let meter = viewModel.contextMeter, settings.shouldShowContextMeter(meter) {
                     ContextRingCapsuleView(
                         meter: meter,
                         isRunning: viewModel.isRunning || viewModel.isAwaitingResponse

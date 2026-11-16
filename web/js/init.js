@@ -221,6 +221,84 @@ function initApp() {
     });
   }
 
+  // Compact Mode & Progressive Disclosure Sub-options
+  window.CompactModePrefs = {
+    isEnabled() {
+      return localStorage.getItem("agy_knowledge_mode") === "true";
+    },
+    collapseTools() {
+      const v = localStorage.getItem("agy_compact_collapse_tools");
+      return v === null ? true : v === "true";
+    },
+    collapseTasks() {
+      const v = localStorage.getItem("agy_compact_collapse_tasks");
+      return v === null ? true : v === "true";
+    },
+    hideHealthyContext() {
+      return localStorage.getItem("agy_compact_hide_healthy_ctx") === "true";
+    },
+    shouldCollapseTools() {
+      return this.isEnabled() && this.collapseTools();
+    },
+    shouldCollapseTasks() {
+      return this.isEnabled() && this.collapseTasks();
+    },
+    shouldShowContextMeter(meter) {
+      if (!meter) return false;
+      if (!(this.isEnabled() && this.hideHealthyContext())) return true;
+      return Boolean(meter.isOverflow) || (Number(meter.percentage) || 0) >= 70;
+    }
+  };
+
+  const kmCheckbox = document.getElementById("settings-knowledge-mode");
+  const kmSubpanel = document.getElementById("settings-compact-subpanel");
+  const toolsCheckbox = document.getElementById("settings-compact-collapse-tools");
+  const tasksCheckbox = document.getElementById("settings-compact-collapse-tasks");
+  const ctxCheckbox = document.getElementById("settings-compact-hide-healthy-ctx");
+
+  const syncCompactUI = () => {
+    const enabled = window.CompactModePrefs.isEnabled();
+    if (kmCheckbox) kmCheckbox.checked = enabled;
+    if (kmSubpanel) kmSubpanel.classList.toggle("hidden", !enabled);
+    if (toolsCheckbox) toolsCheckbox.checked = window.CompactModePrefs.collapseTools();
+    if (tasksCheckbox) tasksCheckbox.checked = window.CompactModePrefs.collapseTasks();
+    if (ctxCheckbox) ctxCheckbox.checked = window.CompactModePrefs.hideHealthyContext();
+  };
+
+  const applyCompactLiveEffects = () => {
+    if (typeof currentContextMeter !== "undefined" && typeof updateContextMeterUI === "function") {
+      updateContextMeterUI(currentContextMeter);
+    }
+    if (typeof RunningTasksManager !== "undefined" && typeof RunningTasksManager.syncCompactDefault === "function") {
+      RunningTasksManager.syncCompactDefault();
+    }
+    if (typeof activeCascadeId !== "undefined" && activeCascadeId && typeof getSessionStepsCache === "function" && typeof renderMessages === "function") {
+      const cached = getSessionStepsCache(activeCascadeId);
+      if (cached && Array.isArray(cached.steps)) {
+        renderMessages(cached.steps, !!cached.isRunning);
+      }
+    }
+  };
+
+  syncCompactUI();
+  kmCheckbox?.addEventListener("change", (e) => {
+    localStorage.setItem("agy_knowledge_mode", e.target.checked ? "true" : "false");
+    syncCompactUI();
+    applyCompactLiveEffects();
+  });
+  toolsCheckbox?.addEventListener("change", (e) => {
+    localStorage.setItem("agy_compact_collapse_tools", e.target.checked ? "true" : "false");
+    applyCompactLiveEffects();
+  });
+  tasksCheckbox?.addEventListener("change", (e) => {
+    localStorage.setItem("agy_compact_collapse_tasks", e.target.checked ? "true" : "false");
+    applyCompactLiveEffects();
+  });
+  ctxCheckbox?.addEventListener("change", (e) => {
+    localStorage.setItem("agy_compact_hide_healthy_ctx", e.target.checked ? "true" : "false");
+    applyCompactLiveEffects();
+  });
+
   // Expand / Collapse Running Tasks Card
   document.getElementById("btn-tasks-expand")?.addEventListener("click", () => {
     RunningTasksManager.toggleExpand();

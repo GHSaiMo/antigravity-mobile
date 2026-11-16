@@ -219,6 +219,36 @@ class PreferencesManager(context: Context) {
     private val _knowledgeModeFlow = MutableStateFlow(isKnowledgeModeEnabled)
     val knowledgeModeFlow: StateFlow<Boolean> = _knowledgeModeFlow.asStateFlow()
 
+    var compactCollapseTools: Boolean
+        get() = prefs.getBoolean(KEY_COMPACT_COLLAPSE_TOOLS, true)
+        set(value) {
+            prefs.edit().putBoolean(KEY_COMPACT_COLLAPSE_TOOLS, value).apply()
+            _compactCollapseToolsFlow.value = value
+        }
+
+    private val _compactCollapseToolsFlow = MutableStateFlow(compactCollapseTools)
+    val compactCollapseToolsFlow: StateFlow<Boolean> = _compactCollapseToolsFlow.asStateFlow()
+
+    var compactCollapseTasks: Boolean
+        get() = prefs.getBoolean(KEY_COMPACT_COLLAPSE_TASKS, true)
+        set(value) {
+            prefs.edit().putBoolean(KEY_COMPACT_COLLAPSE_TASKS, value).apply()
+            _compactCollapseTasksFlow.value = value
+        }
+
+    private val _compactCollapseTasksFlow = MutableStateFlow(compactCollapseTasks)
+    val compactCollapseTasksFlow: StateFlow<Boolean> = _compactCollapseTasksFlow.asStateFlow()
+
+    var compactHideHealthyContext: Boolean
+        get() = prefs.getBoolean(KEY_COMPACT_HIDE_HEALTHY_CONTEXT, false)
+        set(value) {
+            prefs.edit().putBoolean(KEY_COMPACT_HIDE_HEALTHY_CONTEXT, value).apply()
+            _compactHideHealthyContextFlow.value = value
+        }
+
+    private val _compactHideHealthyContextFlow = MutableStateFlow(compactHideHealthyContext)
+    val compactHideHealthyContextFlow: StateFlow<Boolean> = _compactHideHealthyContextFlow.asStateFlow()
+
     private fun legacyFavorite1Seed(): String {
         val g = prefs.getString(KEY_DEFAULT_GEMINI_MODEL, null)?.takeIf { it.isNotBlank() } ?: ModelDefaults.FALLBACK_GEMINI
         val c = prefs.getString(KEY_DEFAULT_CLAUDE_MODEL, null)?.takeIf { it.isNotBlank() } ?: ModelDefaults.FALLBACK_CLAUDE
@@ -876,6 +906,9 @@ class PreferencesManager(context: Context) {
         private const val KEY_THEME_MODE = "theme_mode"
         private const val KEY_FONT_SIZE_SCALE = "font_size_scale"
         private const val KEY_KNOWLEDGE_MODE = "knowledge_mode_enabled"
+        private const val KEY_COMPACT_COLLAPSE_TOOLS = "compact_collapse_tools"
+        private const val KEY_COMPACT_COLLAPSE_TASKS = "compact_collapse_tasks"
+        private const val KEY_COMPACT_HIDE_HEALTHY_CONTEXT = "compact_hide_healthy_context"
         private const val KEY_FAVORITE_MODEL_1 = "favorite_model_1"
         private const val KEY_FAVORITE_MODEL_2 = "favorite_model_2"
         private const val KEY_DEFAULT_GEMINI_MODEL = "default_gemini_model"

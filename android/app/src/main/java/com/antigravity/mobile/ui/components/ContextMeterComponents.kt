@@ -21,7 +21,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontFamily
@@ -172,7 +174,7 @@ fun ContextAuditSheet(
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(
-                        text = "实时上下文水位",
+                        text = "实时上下文",
                         fontSize = 17.sp,
                         fontWeight = FontWeight.Bold,
                         color = colors.textPrimary
@@ -281,10 +283,9 @@ fun ContextAuditSheet(
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier.weight(1f)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Compress,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp)
+                        CompactChevronsIcon(
+                            modifier = Modifier.size(14.dp),
+                            tint = Color.White
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
@@ -440,6 +441,11 @@ fun RescueBubbleCard(
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                     modifier = Modifier.weight(1f)
                 ) {
+                    CompactChevronsIcon(
+                        modifier = Modifier.size(13.dp),
+                        tint = Color.White
+                    )
+                    Spacer(modifier = Modifier.width(5.dp))
                     Text("一键压缩 /compact", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                 }
             }
@@ -454,5 +460,44 @@ fun RescueBubbleCard(
                 }
             }
         }
+    }
+}
+
+/**
+ * 客户端风格的一键压缩上下收缩双箭头图标（chevron.down + chevron.up）
+ */
+@Composable
+fun CompactChevronsIcon(
+    modifier: Modifier = Modifier,
+    tint: Color = LocalContentColor.current
+) {
+    Canvas(modifier = modifier) {
+        val w = size.width
+        val h = size.height
+        val strokeWidth = 1.6f.dp.toPx()
+
+        // Top chevron pointing down (v)
+        val topPath = Path().apply {
+            moveTo(w * 0.16f, h * 0.22f)
+            lineTo(w * 0.5f, h * 0.44f)
+            lineTo(w * 0.84f, h * 0.22f)
+        }
+        drawPath(
+            path = topPath,
+            color = tint,
+            style = Stroke(width = strokeWidth, cap = StrokeCap.Round, join = StrokeJoin.Round)
+        )
+
+        // Bottom chevron pointing up (^)
+        val bottomPath = Path().apply {
+            moveTo(w * 0.16f, h * 0.78f)
+            lineTo(w * 0.5f, h * 0.56f)
+            lineTo(w * 0.84f, h * 0.78f)
+        }
+        drawPath(
+            path = bottomPath,
+            color = tint,
+            style = Stroke(width = strokeWidth, cap = StrokeCap.Round, join = StrokeJoin.Round)
+        )
     }
 }

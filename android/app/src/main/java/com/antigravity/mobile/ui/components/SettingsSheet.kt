@@ -9,6 +9,7 @@ import android.os.Build
 import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import androidx.compose.foundation.background
@@ -659,6 +660,9 @@ private fun MainSettingsContent(
         var weeklyPaceCursor by remember { mutableStateOf(prefs.weeklyPaceCursorEnabled) }
         val currentFontScale by prefs.fontSizeScaleFlow.collectAsState()
         var knowledgeMode by remember { mutableStateOf(prefs.isKnowledgeModeEnabled) }
+        var compactCollapseTools by remember { mutableStateOf(prefs.compactCollapseTools) }
+        var compactCollapseTasks by remember { mutableStateOf(prefs.compactCollapseTasks) }
+        var compactHideHealthyContext by remember { mutableStateOf(prefs.compactHideHealthyContext) }
         val themeOptions = remember {
             listOf(
                 PickerMenuOption("system", "跟随系统"),
@@ -675,7 +679,7 @@ private fun MainSettingsContent(
         }
         SettingsSection(
             title = "外观与主题",
-            footer = "选择浅色、深色模式与界面字号缩放；开启精简模式可收起工具执行细节、专注阅读正文；并可控制额度条上的时间均速刻度游标。"
+            footer = "选择浅色、深色模式与界面字号缩放；额度匀速指标独立控制首页与配额条上的时间均速游标；开启精简模式后可按需微调对话降噪子选项。"
         ) {
             Column(
                 modifier = Modifier
@@ -699,32 +703,6 @@ private fun MainSettingsContent(
                     options = fontScaleOptions,
                     onSelect = { prefs.fontSizeScale = it }
                 )
-                HorizontalDivider(color = colors.separator.copy(alpha = 0.4f), thickness = 0.5.dp)
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(
-                        text = "精简模式",
-                        color = colors.textPrimary,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Medium
-                    )
-                    Switch(
-                        checked = knowledgeMode,
-                        onCheckedChange = {
-                            knowledgeMode = it
-                            prefs.isKnowledgeModeEnabled = it
-                        },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = colors.surface,
-                            checkedTrackColor = colors.accentIndigo
-                        )
-                    )
-                }
                 HorizontalDivider(color = colors.separator.copy(alpha = 0.4f), thickness = 0.5.dp)
                 Row(
                     modifier = Modifier
@@ -762,6 +740,63 @@ private fun MainSettingsContent(
                             checkedTrackColor = colors.accentIndigo
                         )
                     )
+                }
+                HorizontalDivider(color = colors.separator.copy(alpha = 0.4f), thickness = 0.5.dp)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "精简模式",
+                        color = colors.textPrimary,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Switch(
+                        checked = knowledgeMode,
+                        onCheckedChange = {
+                            knowledgeMode = it
+                            prefs.isKnowledgeModeEnabled = it
+                        },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = colors.surface,
+                            checkedTrackColor = colors.accentIndigo
+                        )
+                    )
+                }
+                AnimatedVisibility(visible = knowledgeMode) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        CompactSubToggleRow(
+                            title = "折叠工具执行过程",
+                            subtitle = "将检索与命令步骤收起为单行摘要",
+                            checked = compactCollapseTools,
+                            onCheckedChange = {
+                                compactCollapseTools = it
+                                prefs.compactCollapseTools = it
+                            }
+                        )
+                        CompactSubToggleRow(
+                            title = "收起任务辅助栏",
+                            subtitle = "底部运行任务默认单行折叠，保留终止按钮",
+                            checked = compactCollapseTasks,
+                            onCheckedChange = {
+                                compactCollapseTasks = it
+                                prefs.compactCollapseTasks = it
+                            }
+                        )
+                        CompactSubToggleRow(
+                            title = "隐藏常规上下文",
+                            subtitle = "占用 < 70% 时隐藏顶栏胶囊，≥ 70% 自动恢复预警",
+                            checked = compactHideHealthyContext,
+                            onCheckedChange = {
+                                compactHideHealthyContext = it
+                                prefs.compactHideHealthyContext = it
+                            }
+                        )
+                    }
                 }
             }
         }
@@ -1071,4 +1106,53 @@ private fun FavoriteModelPickerRow(
         options = menuOptions,
         onSelect = onSelect
     )
+}
+
+@Composable
+private fun CompactSubToggleRow(
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    val colors = AntigravityTheme.colors
+    HorizontalDivider(
+        color = colors.separator.copy(alpha = 0.35f),
+        thickness = 0.5.dp,
+        modifier = Modifier.padding(start = 28.dp)
+    )
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 28.dp, end = 16.dp, top = 9.dp, bottom = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .padding(end = 12.dp)
+        ) {
+            Text(
+                text = title,
+                color = colors.textPrimary,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium
+            )
+            Text(
+                text = subtitle,
+                color = colors.textSecondary,
+                fontSize = 11.5.sp,
+                lineHeight = 15.sp
+            )
+        }
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = colors.surface,
+                checkedTrackColor = colors.accentIndigo
+            )
+        )
+    }
 }

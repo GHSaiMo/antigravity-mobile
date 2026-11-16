@@ -69,7 +69,6 @@
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
             <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path>
           </svg>
-          <span id="btn-tools-perm-dot" class="p3-amber-dot hidden" aria-hidden="true"></span>
         </button>
       </div>
     </header>
@@ -196,6 +195,7 @@
               <span id="tasks-badge-count" class="tasks-badge">1</span>
             </div>
             <div class="tasks-header-right">
+              <span id="tasks-header-quick-stop"></span>
               <button id="btn-tasks-expand" class="tasks-icon-btn" aria-label="折叠/展开任务" title="折叠/展开任务" data-testid="running-tasks-expand-button">
                 <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 -960 960 960" fill="currentColor" class="expand-arrow">
                   <path d="M480-345 240-585l43-43 197 197 197-197 43 43-240 240Z"></path>
@@ -501,7 +501,7 @@
           </div>
 
           <!-- 外观与主题 (Antigravity 2.31+) -->
-          <div class="quota-section-header" style="margin: 14px 4px 6px;">外观</div>
+          <div class="quota-section-header" style="margin: 14px 4px 6px;">外观与主题</div>
           <div class="ios-grouped-section">
             <div class="ios-cell between">
               <span class="cell-label">界面与代码字号</span>
@@ -511,7 +511,35 @@
                 <option value="comfortable">舒适 (大字号)</option>
               </select>
             </div>
+            <label class="ios-cell between" for="settings-knowledge-mode" style="cursor: pointer;">
+              <span class="cell-label">精简模式</span>
+              <input type="checkbox" id="settings-knowledge-mode" class="ios-switch-input" />
+            </label>
+            <div id="settings-compact-subpanel" class="compact-subpanel hidden">
+              <label class="ios-cell between compact-subcell" for="settings-compact-collapse-tools" style="cursor: pointer;">
+                <div class="compact-subtext">
+                  <span class="cell-label">折叠工具执行过程</span>
+                  <span class="compact-subdesc">将检索与命令步骤收起为单行摘要</span>
+                </div>
+                <input type="checkbox" id="settings-compact-collapse-tools" class="ios-switch-input" checked />
+              </label>
+              <label class="ios-cell between compact-subcell" for="settings-compact-collapse-tasks" style="cursor: pointer;">
+                <div class="compact-subtext">
+                  <span class="cell-label">收起任务辅助栏</span>
+                  <span class="compact-subdesc">底部运行任务默认单行折叠，保留终止按钮</span>
+                </div>
+                <input type="checkbox" id="settings-compact-collapse-tasks" class="ios-switch-input" checked />
+              </label>
+              <label class="ios-cell between compact-subcell" for="settings-compact-hide-healthy-ctx" style="cursor: pointer;">
+                <div class="compact-subtext">
+                  <span class="cell-label">隐藏常规上下文</span>
+                  <span class="compact-subdesc">占用 &lt; 70% 时隐藏顶栏胶囊，≥ 70% 自动恢复预警</span>
+                </div>
+                <input type="checkbox" id="settings-compact-hide-healthy-ctx" class="ios-switch-input" />
+              </label>
+            </div>
           </div>
+          <div class="settings-note" style="margin: 6px 4px 12px;">选择界面字号缩放；开启精简模式后可按需微调对话降噪子选项。</div>
 
           <!-- Section 3: 本地数据与缓存 -->
           <div class="ios-grouped-section">
@@ -726,7 +754,7 @@
         <div class="sheet-grabber"></div>
         <div class="sheet-header">
           <div class="sheet-title-group">
-            <h2 class="sheet-title">会话上下文与速度审计</h2>
+            <h2 class="sheet-title">实时上下文</h2>
             <span id="audit-session-subtitle" class="sheet-subtitle">实时监控与物理窗口分析</span>
           </div>
           <button id="btn-audit-close" class="sheet-header-btn primary">完成</button>
@@ -734,7 +762,7 @@
         <div class="sheet-body audit-sheet-body">
           <div class="audit-kpi-grid">
             <div class="audit-kpi-card">
-              <span class="audit-kpi-label">物理窗口水位</span>
+              <span class="audit-kpi-label">实时上下文</span>
               <div class="audit-kpi-val"><span id="audit-used-tokens">0</span> <span class="audit-kpi-unit">/ <span id="audit-max-tokens">200k</span></span></div>
               <div class="audit-progress-bar"><div id="audit-progress-fill" class="audit-progress-fill" style="width: 0%"></div></div>
             </div>
@@ -760,8 +788,8 @@
           </div>
           <div class="audit-actions-bar">
             <button id="btn-audit-compact" class="audit-action-btn primary" type="button">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 14h6m-6-4h6m8 4h-6m6-4h-6M4 4h16v16H4z"/></svg>
-              一键压缩会话 (/compact)
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M7 5l5 5 5-5"/><path d="M7 19l5-5 5 5"/></svg>
+              一键压缩
             </button>
           </div>
         </div>

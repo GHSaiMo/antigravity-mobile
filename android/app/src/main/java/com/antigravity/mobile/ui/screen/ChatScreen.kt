@@ -596,7 +596,18 @@ fun ChatScreen(
     val enableVoiceMode by voicePrefs.enableVoiceModeFlow.collectAsState()
     val fontSizeScaleSetting by voicePrefs.fontSizeScaleFlow.collectAsState()
     val isKnowledgeModeEnabled by voicePrefs.knowledgeModeFlow.collectAsState()
+    val compactCollapseTools by voicePrefs.compactCollapseToolsFlow.collectAsState()
+    val compactCollapseTasks by voicePrefs.compactCollapseTasksFlow.collectAsState()
+    val compactHideHealthyContext by voicePrefs.compactHideHealthyContextFlow.collectAsState()
     val modelCatalog by voicePrefs.modelCatalogFlow.collectAsState()
+
+    val shouldCollapseTools = isKnowledgeModeEnabled && compactCollapseTools
+    val shouldCollapseTasks = isKnowledgeModeEnabled && compactCollapseTasks
+    val shouldShowRealtimeContext = uiState.contextMeter?.let { meter ->
+        !(isKnowledgeModeEnabled && compactHideHealthyContext) ||
+            meter.isOverflow == true ||
+            meter.percentage >= 70.0
+    } ?: false
 
     LaunchedEffect(enableVoiceMode) {
         if (!enableVoiceMode && isInVoiceCall) {
@@ -1045,7 +1056,7 @@ fun ChatScreen(
         com.antigravity.mobile.ui.components.LocalMarkdownBodyScale provides com.antigravity.mobile.data.service.PreferencesManager.bodyScaleFactor(fontSizeScaleSetting),
         com.antigravity.mobile.ui.components.LocalMarkdownCodeScale provides com.antigravity.mobile.data.service.PreferencesManager.codeScaleFactor(fontSizeScaleSetting),
         com.antigravity.mobile.ui.components.LocalCurrentCascadeId provides uiState.cascadeId,
-        com.antigravity.mobile.ui.components.LocalKnowledgeModeEnabled provides isKnowledgeModeEnabled
+        com.antigravity.mobile.ui.components.LocalKnowledgeModeEnabled provides shouldCollapseTools
     ) {
     Box(
         modifier = Modifier
@@ -1112,14 +1123,16 @@ fun ChatScreen(
                                         modifier = Modifier.size(11.dp)
                                     )
                                 }
-                                ContextRingCapsule(
-                                    meter = uiState.contextMeter,
-                                    isRunning = uiState.isRunning || uiState.isAwaitingResponse,
-                                    onClick = {
-                                        haptic.light()
-                                        showContextAuditSheet = true
-                                    }
-                                )
+                                if (shouldShowRealtimeContext) {
+                                    ContextRingCapsule(
+                                        meter = uiState.contextMeter,
+                                        isRunning = uiState.isRunning || uiState.isAwaitingResponse,
+                                        onClick = {
+                                            haptic.light()
+                                            showContextAuditSheet = true
+                                        }
+                                    )
+                                }
                             }
                         }
                     } else {
@@ -1132,7 +1145,7 @@ fun ChatScreen(
                                 overflow = TextOverflow.Ellipsis,
                                 color = colors.textPrimary
                             )
-                            if (uiState.contextMeter != null) {
+                            if (shouldShowRealtimeContext && uiState.contextMeter != null) {
                                 Spacer(modifier = Modifier.height(2.dp))
                                 ContextRingCapsule(
                                     meter = uiState.contextMeter,
@@ -1195,16 +1208,6 @@ fun ChatScreen(
                                     imageVector = Icons.Default.Build,
                                     contentDescription = "MCP 工具与技能看板",
                                     tint = colors.accentBlue
-                                )
-                            }
-                            if (uiState.permissionState.isUnlocked) {
-                                Box(
-                                    modifier = Modifier
-                                        .align(Alignment.TopEnd)
-                                        .padding(top = 6.dp, end = 6.dp)
-                                        .size(7.dp)
-                                        .clip(CircleShape)
-                                        .background(Color(0xFFFF9F0A))
                                 )
                             }
                         }
@@ -1665,6 +1668,7 @@ fun ChatScreen(
                                 viewModel.sendTaskToBackground(task.stepIndex) { msg -> phase3Notice = msg }
                             },
                             cascadeId = uiState.cascadeId.ifBlank { cascadeId },
+                            compactMode = shouldCollapseTasks,
                             onToggleExpand = { isExpanded ->
                                 handleFloatingCardToggle(isExpanded)
                             },
