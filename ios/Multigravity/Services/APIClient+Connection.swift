@@ -46,7 +46,7 @@ extension APIClient {
             }
             
             guard httpResp.statusCode == 200 else {
-                throw APIError.networkError("网关未返回 200 (HTTP \(httpResp.statusCode))")
+                throw APIError.networkError(String(localized: "网关未返回 200 (HTTP \(httpResp.statusCode))"))
             }
             
             var decoded = try JSONDecoder().decode(GatewayStatusResponse.self, from: data)
@@ -67,7 +67,7 @@ extension APIClient {
         } catch {
             let desc = error.localizedDescription
             if desc.contains("SSL") || desc.contains("certificate") || desc.contains("TLS") || desc.contains("secure connection") {
-                throw APIError.networkError("SSL握手失败。网关默认运行在 HTTP 协议，请检查地址是否误填了 https://")
+                throw APIError.networkError(String(localized: "SSL握手失败。网关默认运行在 HTTP 协议，请检查地址是否误填了 https://"))
             }
             throw error
         }

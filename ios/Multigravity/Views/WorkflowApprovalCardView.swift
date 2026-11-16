@@ -131,9 +131,10 @@ public struct WorkflowApprovalCardView: View {
                                 Image(systemName: "chevron.right")
                                     .font(.system(size: 10.5, weight: .bold))
                                     .rotationEffect(.degrees(isCodeExpanded ? 90 : 0))
-                                Text(isCodeExpanded ? "收起 Python 脚本" : "查看 Python 脚本源码")
+                                let lineCount = scriptContent.components(separatedBy: "\n").count
+                                Text(isCodeExpanded ? String(localized: "收起 Python 脚本") : String(localized: "查看 Python 脚本源码"))
                                     .font(.system(size: 11.5, weight: .semibold))
-                                Text("(\(scriptContent.components(separatedBy: "\n").count) 行)")
+                                Text("(\(lineCount) 行)")
                                     .font(.system(size: 10.5, design: .monospaced))
                                     .foregroundColor(.secondary)
                             }
@@ -189,7 +190,7 @@ public struct WorkflowApprovalCardView: View {
                             .textFieldStyle(.roundedBorder)
                         
                         Button(action: {
-                            onSubmit("5", feedbackText.isEmpty ? "用户拒绝执行该工作流" : feedbackText)
+                            onSubmit("5", feedbackText.isEmpty ? String(localized: "用户拒绝执行该工作流") : feedbackText)
                         }) {
                             Text("发送打回")
                                 .font(.system(size: 12, weight: .bold))
@@ -269,7 +270,7 @@ public struct WorkflowApprovalCardView: View {
                             showFeedbackInput.toggle()
                         }
                     }) {
-                        Text(showFeedbackInput ? "收起反馈" : "补充反馈打回")
+                        Text(showFeedbackInput ? String(localized: "收起反馈") : String(localized: "补充反馈打回"))
                             .font(.system(size: 12, weight: .medium))
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 8)

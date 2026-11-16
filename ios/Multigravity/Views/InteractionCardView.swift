@@ -299,7 +299,7 @@ public struct InteractionCardView: View {
                         .clipShape(Circle())
                 }
                 .buttonStyle(.plain)
-                .help(isExpanded ? "收起为半屏" : "一键全屏")
+                .help(isExpanded ? String(localized: "收起为半屏") : String(localized: "一键全屏"))
             }
         }
         .contentShape(Rectangle())

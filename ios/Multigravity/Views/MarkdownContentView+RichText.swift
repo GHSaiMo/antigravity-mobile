@@ -81,7 +81,7 @@ extension MarkdownContentView {
                         let clean = rawPath.trimmingCharacters(in: CharacterSet(charactersIn: "`\"'()[]<>"))
                         let fn = (clean as NSString).lastPathComponent
                         let linkTarget = (clean.hasPrefix("file://") || clean.hasPrefix("http://") || clean.hasPrefix("https://")) ? clean : "file://\(clean)"
-                        let actionText = isVideoURL(clean) ? "点击预览并播放视频" : "点击放大查看图片"
+                        let actionText = isVideoURL(clean) ? String(localized: "点击预览并播放视频") : String(localized: "点击放大查看图片")
                         replaced += "\n[\(actionText) (\(fn))](\(linkTarget))"
                         lastEnd = match.range.location + match.range.length
                     }

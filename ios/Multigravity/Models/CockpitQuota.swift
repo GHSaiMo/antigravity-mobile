@@ -166,11 +166,11 @@ public struct CockpitQuotaBucket: Codable, Sendable {
         let deltaAbsStr = String(format: "%.1f%%", abs(delta))
         let status: String
         if isOver {
-            status = "消耗偏快 (-\(deltaAbsStr))"
+            status = String(localized: "消耗偏快 (-\(deltaAbsStr))")
         } else if abs(delta) <= 1.0 {
-            status = "匀速正常 (±\(deltaAbsStr))"
+            status = String(localized: "匀速正常 (±\(deltaAbsStr))")
         } else {
-            status = "节奏充裕 (+\(deltaAbsStr))"
+            status = String(localized: "节奏充裕 (+\(deltaAbsStr))")
         }
 
         return WeeklyPaceInfo(
@@ -182,7 +182,7 @@ public struct CockpitQuotaBucket: Codable, Sendable {
             isOverPacing: isOver,
             statusText: status,
             windowHours: totalWindowHours,
-            resetCountdownDisplay: resetFriendly ?? "计算中"
+            resetCountdownDisplay: resetFriendly ?? String(localized: "计算中")
         )
     }
 }
@@ -199,7 +199,7 @@ public struct WeeklyPaceInfo: Sendable {
     public let resetCountdownDisplay: String
     
     public var windowLabel: String {
-        windowHours <= 5.0 ? "5小时" : "7天"
+        windowHours <= 5.0 ? String(localized: "5小时") : String(localized: "7天")
     }
 }
 

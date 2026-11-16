@@ -177,11 +177,20 @@ public struct PermissionStateResponse: Codable, Hashable, Sendable {
     public let label: String
     public let isUnlocked: Bool
 
-    public init(ok: Bool? = true, preset: String = "strict", label: String = "严格审批", isUnlocked: Bool = false) {
+    public init(ok: Bool? = true, preset: String = "strict", label: String = String(localized: "严格审批"), isUnlocked: Bool = false) {
         self.ok = ok
         self.preset = preset
         self.label = label
         self.isUnlocked = isUnlocked
+    }
+
+    public var localizedLabel: String {
+        switch preset {
+        case "strict": return String(localized: "严格审批")
+        case "sandbox": return String(localized: "离席沙箱放行")
+        case "auto": return String(localized: "全自动放行")
+        default: return label
+        }
     }
 }
 

@@ -64,7 +64,7 @@ public struct TextSelectionSheet: View {
         let formatted = content.hasSuffix("\n") ? content : "\(content)\n"
         UIPasteboard.general.string = formatted
         UINotificationFeedbackGenerator().notificationOccurred(.success)
-        CopiedHUD.show("已复制全部文字")
+        CopiedHUD.show(String(localized: "已复制全部文字"))
     }
 }
 
@@ -110,6 +110,6 @@ final class CustomSelectableTextView: UITextView {
         let formatted = selectedText.hasSuffix("\n") ? selectedText : "\(selectedText)\n"
         UIPasteboard.general.string = formatted
         UINotificationFeedbackGenerator().notificationOccurred(.success)
-        CopiedHUD.show("已复制选中文本")
+        CopiedHUD.show(String(localized: "已复制选中文本"))
     }
 }

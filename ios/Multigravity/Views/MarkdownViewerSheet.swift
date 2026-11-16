@@ -141,7 +141,7 @@ public struct MarkdownViewerSheet: View {
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
             }
-            .navigationTitle(data.title.isEmpty ? "文档详情" : data.title)
+            .navigationTitle(data.title.isEmpty ? String(localized: "文档详情") : data.title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -171,7 +171,7 @@ public struct MarkdownViewerSheet: View {
                 if let url = shareURL {
                     DocumentExporterRepresentable(url: url) { _ in
                         UINotificationFeedbackGenerator().notificationOccurred(.success)
-                        toastSuccessMessage = "已保存至“文件”"
+                        toastSuccessMessage = String(localized: "已保存至“文件”")
                         DispatchQueue.main.asyncAfter(deadline: .now() + 2.6) {
                             toastSuccessMessage = nil
                         }

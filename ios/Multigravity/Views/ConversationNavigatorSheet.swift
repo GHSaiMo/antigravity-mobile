@@ -138,7 +138,7 @@ public struct ConversationNavigatorSheet: View {
             
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
-                    Text(chapters.count > 1 ? "共 \(chapters.count) 个章节 · \(turns.count) 轮问答" : "共 \(turns.count) 轮问答步骤")
+                    Text(chapters.count > 1 ? String(localized: "共 \(chapters.count) 个章节 · \(turns.count) 轮问答") : String(localized: "共 \(turns.count) 轮问答步骤"))
                         .font(.system(size: 14.5, weight: .semibold))
                         .foregroundColor(.primary)
                     if isLoadingChapterTitles {
@@ -168,7 +168,7 @@ public struct ConversationNavigatorSheet: View {
                     HStack(spacing: 4) {
                         Image(systemName: allCollapsed ? "chevron.down.2" : "chevron.up.2")
                             .font(.system(size: 10, weight: .semibold))
-                        Text(allCollapsed ? "展开全部" : "折叠全部")
+                        Text(allCollapsed ? String(localized: "展开全部") : String(localized: "折叠全部"))
                             .font(.system(size: 12, weight: .medium))
                     }
                     .foregroundColor(.indigo)

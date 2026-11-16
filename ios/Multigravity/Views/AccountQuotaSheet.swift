@@ -12,7 +12,7 @@ public struct AccountQuotaSheet: View {
     @State private var isSavingTokenHistory: Bool = false
     @State private var isSharingTokenHistory: Bool = false
     @State private var errorMessage: String? = nil
-    @State private var alertTitle: String = "操作失败"
+    @State private var alertTitle: String = String(localized: "操作失败")
     @State private var paceDetailItem: WeeklyPaceDetailItem? = nil
     @State private var selectedTab: Int = 0
     @State private var selectedHeatmapDate: String? = nil
@@ -317,7 +317,7 @@ public struct AccountQuotaSheet: View {
             UINotificationFeedbackGenerator().notificationOccurred(.success)
         } catch {
             UINotificationFeedbackGenerator().notificationOccurred(.error)
-            alertTitle = "刷新配额失败"
+            alertTitle = String(localized: "刷新配额失败")
             errorMessage = error.localizedDescription
         }
         isRefreshing = false
@@ -332,7 +332,7 @@ public struct AccountQuotaSheet: View {
             UINotificationFeedbackGenerator().notificationOccurred(.success)
         } catch {
             UINotificationFeedbackGenerator().notificationOccurred(.error)
-            alertTitle = "切换账号失败"
+            alertTitle = String(localized: "切换账号失败")
             errorMessage = error.localizedDescription
         }
         switchingAccountId = nil
@@ -849,13 +849,13 @@ private struct WeeklyPaceDetailSheet: View {
                         Circle()
                             .fill(item.info.isOverPacing ? Color.orange : Color.green)
                             .frame(width: 8, height: 8)
-                        Text(item.info.isOverPacing ? "⚠️ 消耗偏快 (超速透支)" : "✅ 节奏健康 (额度充裕)")
+                        Text(item.info.isOverPacing ? String(localized: "⚠️ 消耗偏快 (超速透支)") : String(localized: "✅ 节奏健康 (额度充裕)"))
                             .font(.system(size: 15, weight: .bold))
                             .foregroundColor(item.info.isOverPacing ? .orange : .green)
                     }
                     Text(item.info.isOverPacing
-                         ? "当前额度已消耗 \(String(format: "%.1f%%", item.info.usedPercent))，快于 \(item.info.windowLabel)时间匀速基准线 (\(String(format: "%.1f%%", item.info.expectedUsedPercent)))。若保持此速率可能在周期结束前提前耗尽。"
-                         : "当前额度已消耗 \(String(format: "%.1f%%", item.info.usedPercent))，低于或符合 \(item.info.windowLabel)时间匀速基准线 (\(String(format: "%.1f%%", item.info.expectedUsedPercent)))。剩余额度充足，无需担心断粮。")
+                         ? String(localized: "当前额度已消耗 \(String(format: "%.1f%%", item.info.usedPercent))，快于 \(item.info.windowLabel)时间匀速基准线 (\(String(format: "%.1f%%", item.info.expectedUsedPercent)))。若保持此速率可能在周期结束前提前耗尽。")
+                         : String(localized: "当前额度已消耗 \(String(format: "%.1f%%", item.info.usedPercent))，低于或符合 \(item.info.windowLabel)时间匀速基准线 (\(String(format: "%.1f%%", item.info.expectedUsedPercent)))。剩余额度充足，无需担心断粮。"))
                         .font(.system(size: 13))
                         .foregroundColor(.secondary)
                         .lineSpacing(2)

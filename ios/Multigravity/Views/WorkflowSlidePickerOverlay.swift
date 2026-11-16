@@ -227,7 +227,7 @@ public struct WorkflowSlidePickerOverlay: View {
                     onOpenSetup()
                 } label: {
                     HStack(spacing: 6) {
-                        Text(isHovered ? "暂未配置快捷模板 · 松手去设置" : "暂未配置快捷模板 · 点击去设置")
+                        Text(isHovered ? String(localized: "暂未配置快捷模板 · 松手去设置") : String(localized: "暂未配置快捷模板 · 点击去设置"))
                             .font(.system(size: 13, weight: isHovered ? .semibold : .medium))
                             .foregroundColor(.primary)
                             .lineLimit(1)

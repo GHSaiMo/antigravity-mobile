@@ -524,6 +524,18 @@ public struct WorkflowPhaseItem: Codable, Sendable, Hashable, Identifiable {
         self.subagents = subagents
         self.status = status
     }
+
+    enum CodingKeys: String, CodingKey {
+        case name, logs, subagents, status
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.name = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
+        self.logs = try c.decodeIfPresent([String].self, forKey: .logs) ?? []
+        self.subagents = try c.decodeIfPresent([SubagentItem].self, forKey: .subagents) ?? []
+        self.status = try c.decodeIfPresent(String.self, forKey: .status) ?? "done"
+    }
 }
 
 public struct WorkflowItem: Codable, Sendable, Hashable {
@@ -560,6 +572,24 @@ public struct WorkflowItem: Codable, Sendable, Hashable {
         self.status = status
         self.duration = duration
         self.error = error
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case description, scriptPath, script, phases, logs, output, resultJson, status, duration, error
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.description = try c.decodeIfPresent(String.self, forKey: .description)
+        self.scriptPath = try c.decodeIfPresent(String.self, forKey: .scriptPath)
+        self.script = try c.decodeIfPresent(String.self, forKey: .script)
+        self.phases = try c.decodeIfPresent([WorkflowPhaseItem].self, forKey: .phases) ?? []
+        self.logs = try c.decodeIfPresent([String].self, forKey: .logs) ?? []
+        self.output = try c.decodeIfPresent(String.self, forKey: .output)
+        self.resultJson = try c.decodeIfPresent(String.self, forKey: .resultJson)
+        self.status = try c.decodeIfPresent(String.self, forKey: .status) ?? "done"
+        self.duration = try c.decodeIfPresent(String.self, forKey: .duration)
+        self.error = try c.decodeIfPresent(String.self, forKey: .error)
     }
 }
 

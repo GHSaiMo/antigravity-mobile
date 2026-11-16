@@ -64,7 +64,7 @@ public struct SubagentDetailSheet: View {
                                     Circle()
                                         .fill(subagent.isRunning ? Color.green : Color.secondary)
                                         .frame(width: 6, height: 6)
-                                    Text(subagent.statusText.isEmpty ? (subagent.isRunning ? "运行中" : "已就绪") : subagent.statusText)
+                                    Text(subagent.statusText.isEmpty ? (subagent.isRunning ? String(localized: "运行中") : String(localized: "已就绪")) : subagent.statusText)
                                         .font(.system(size: 11.5))
                                         .foregroundColor(.secondary)
                                 }
@@ -122,7 +122,7 @@ public struct SubagentDetailSheet: View {
                                     .font(.system(size: 12))
                                     .foregroundColor(.secondary)
                                 Spacer()
-                                Text(subagent.conversationId.isEmpty ? "未生成" : subagent.conversationId)
+                                Text(subagent.conversationId.isEmpty ? String(localized: "未生成") : subagent.conversationId)
                                     .font(.system(size: 11, design: .monospaced))
                                     .foregroundColor(.primary)
                                     .lineLimit(1)
@@ -306,9 +306,9 @@ public struct SubagentDetailSheet: View {
                     baseURL: gwUrl
                 )
                 guidanceText = ""
-                guidanceFeedback = "指令已发送给子代理"
+                guidanceFeedback = String(localized: "指令已发送给子代理")
             } catch {
-                guidanceFeedback = "发送失败: \(error.localizedDescription)"
+                guidanceFeedback = String(localized: "发送失败: \(error.localizedDescription)")
             }
         }
     }
@@ -327,9 +327,9 @@ public struct SubagentDetailSheet: View {
             defer { isBrowserActionBusy = false }
             do {
                 try await APIClient.shared.whitelistBrowserUrl(url: url, baseURL: gwUrl)
-                browserFeedback = "已加入站点白名单"
+                browserFeedback = String(localized: "已加入站点白名单")
             } catch {
-                browserFeedback = "加白名单失败: \(error.localizedDescription)"
+                browserFeedback = String(localized: "加白名单失败: \(error.localizedDescription)")
             }
         }
     }
@@ -341,10 +341,10 @@ public struct SubagentDetailSheet: View {
             defer { isBrowserActionBusy = false }
             do {
                 try await APIClient.shared.skipBrowserSubagent(cascadeId: subagent.conversationId, baseURL: gwUrl)
-                browserFeedback = "已通知跳过当前浏览器拦截步骤"
+                browserFeedback = String(localized: "已通知跳过当前浏览器拦截步骤")
                 await loadBrowserSnapshot()
             } catch {
-                browserFeedback = "跳过失败: \(error.localizedDescription)"
+                browserFeedback = String(localized: "跳过失败: \(error.localizedDescription)")
             }
         }
     }

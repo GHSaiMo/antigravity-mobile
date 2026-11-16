@@ -561,9 +561,9 @@ enum VoiceTranscriptCleaner {
                 finishCurrent()
                 let matchedRole = String(content[groupRange]).lowercased()
                 if ["user", "human", "me", "用户", "我"].contains(matchedRole) {
-                    currentRole = "用户: "
+                    currentRole = String(localized: "用户: ")
                 } else {
-                    currentRole = "智能体: "
+                    currentRole = String(localized: "智能体: ")
                 }
                 let rem = String(content[rRange.upperBound...]).trimmingCharacters(in: .whitespaces)
                 let quoteCount = rem.filter { $0 == "\"" }.count
@@ -645,7 +645,7 @@ struct VoiceInteractionUserBubble: View {
                         isExpanded.toggle()
                     }
                 } label: {
-                    Label(isExpanded ? "折叠语音" : "展开详情", systemImage: isExpanded ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
+                    Label(isExpanded ? String(localized: "折叠语音") : String(localized: "展开详情"), systemImage: isExpanded ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
                 }
                 Button {
                     UIPasteboard.general.string = cleanedText

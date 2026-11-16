@@ -23,7 +23,7 @@ public struct SwarmBannerView: View {
 
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
-                        Text(brief.title.isEmpty ? "蜂群协同 (Swarm)" : brief.title)
+                        Text(brief.title.isEmpty ? String(localized: "蜂群协同 (Swarm)") : brief.title)
                             .font(.system(size: 13, weight: .semibold))
                             .foregroundColor(.primary)
                             .lineLimit(1)

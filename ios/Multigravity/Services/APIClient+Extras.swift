@@ -91,7 +91,7 @@ extension APIClient {
             path: "gateway/slash-commands",
             body: EmptyBody(),
             baseURL: baseURL,
-            failurePrefix: "获取斜杠命令失败"
+            failurePrefix: String(localized: "获取斜杠命令失败")
         )
         return resp.commands
     }
@@ -102,7 +102,7 @@ extension APIClient {
             body: CascadeChangesRequest(cascadeId: cascadeId, fromStepIndex: fromStepIndex),
             baseURL: baseURL,
             timeout: 30,
-            failurePrefix: "获取本会话改动失败"
+            failurePrefix: String(localized: "获取本会话改动失败")
         )
     }
 
@@ -112,7 +112,7 @@ extension APIClient {
             body: CascadeChaptersRequest(cascadeId: cascadeId, ranges: ranges),
             baseURL: baseURL,
             timeout: 12,
-            failurePrefix: "获取章节标题失败"
+            failurePrefix: String(localized: "获取章节标题失败")
         )
         return resp.chapters
     }
@@ -122,7 +122,7 @@ extension APIClient {
             path: "gateway/git/status",
             body: GitCascadeRequest(cascadeId: cascadeId),
             baseURL: baseURL,
-            failurePrefix: "获取 Git 状态失败"
+            failurePrefix: String(localized: "获取 Git 状态失败")
         )
     }
 
@@ -132,7 +132,7 @@ extension APIClient {
             body: GitCommitRequest(cascadeId: cascadeId, message: message, paths: paths, push: push),
             baseURL: baseURL,
             timeout: push ? 150 : 70,
-            failurePrefix: "提交失败"
+            failurePrefix: String(localized: "提交失败")
         )
     }
 
@@ -142,7 +142,7 @@ extension APIClient {
             body: GitCascadeRequest(cascadeId: cascadeId),
             baseURL: baseURL,
             timeout: 150,
-            failurePrefix: "推送失败"
+            failurePrefix: String(localized: "推送失败")
         )
     }
 
@@ -193,7 +193,7 @@ extension APIClient {
             body: EmptyBody(),
             baseURL: baseURL,
             timeout: 10,
-            failurePrefix: "获取后台任务失败"
+            failurePrefix: String(localized: "获取后台任务失败")
         )
         return resp.tasks
     }
@@ -210,7 +210,7 @@ extension APIClient {
             body: BackgroundTaskLogRequest(conversationId: conversationId, taskId: taskId, logUri: logUri),
             baseURL: baseURL,
             timeout: 10,
-            failurePrefix: "读取日志失败"
+            failurePrefix: String(localized: "读取日志失败")
         )
     }
 
@@ -233,7 +233,7 @@ extension APIClient {
         }
         guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
             let code = (response as? HTTPURLResponse)?.statusCode ?? -1
-            let msg = (try? JSONDecoder().decode(GatewayErrorBody.self, from: data))?.error ?? "获取 Swarm 快照失败"
+            let msg = (try? JSONDecoder().decode(GatewayErrorBody.self, from: data))?.error ?? String(localized: "获取 Swarm 快照失败")
             throw APIError.serverError(statusCode: code, message: msg)
         }
         do {
@@ -250,7 +250,7 @@ extension APIClient {
             body: SwarmFeedbackRequest(cascadeId: cascadeId, coordinatorId: coordinatorId, feedback: content),
             baseURL: baseURL,
             timeout: 15,
-            failurePrefix: "发送反馈失败"
+            failurePrefix: String(localized: "发送反馈失败")
         )
     }
 
@@ -261,7 +261,7 @@ extension APIClient {
             body: SwarmNudgeRequest(cascadeId: cascadeId, coordinatorId: coordinatorId, workerName: member),
             baseURL: baseURL,
             timeout: 15,
-            failurePrefix: "催促成员失败"
+            failurePrefix: String(localized: "催促成员失败")
         )
     }
 
@@ -335,7 +335,7 @@ extension APIClient {
             body: AutomationManageRequest(sidecarId: sidecarId, action: action),
             baseURL: baseURL,
             timeout: 15,
-            failurePrefix: "操作定时任务失败"
+            failurePrefix: String(localized: "操作定时任务失败")
         )
     }
 
@@ -389,7 +389,7 @@ extension APIClient {
             method: "GET",
             path: "gateway/workflow-templates",
             baseURL: baseURL,
-            failurePrefix: "获取 Workflow 模板失败"
+            failurePrefix: String(localized: "获取 Workflow 模板失败")
         )
     }
 
@@ -401,7 +401,7 @@ extension APIClient {
             path: "gateway/workflow-templates",
             bodyData: body,
             baseURL: baseURL,
-            failurePrefix: "保存 Workflow 模板失败"
+            failurePrefix: String(localized: "保存 Workflow 模板失败")
         )
     }
 
@@ -411,7 +411,7 @@ extension APIClient {
             method: "DELETE",
             path: "gateway/workflow-templates",
             baseURL: baseURL,
-            failurePrefix: "重置 Workflow 模板失败"
+            failurePrefix: String(localized: "重置 Workflow 模板失败")
         )
     }
 }

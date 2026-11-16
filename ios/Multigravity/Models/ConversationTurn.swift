@@ -261,9 +261,9 @@ public enum ConversationTurnBuilder {
         let dateYear = calendar.component(.year, from: date)
         let formatter = DateFormatter()
         if nowYear == dateYear {
-            formatter.dateFormat = "M月d日"
+            formatter.setLocalizedDateFormatFromTemplate("MMMd")
         } else {
-            formatter.dateFormat = "yyyy年M月d日"
+            formatter.setLocalizedDateFormatFromTemplate("yyyyMMMd")
         }
         return formatter.string(from: date)
     }
@@ -362,7 +362,7 @@ public enum ConversationTurnBuilder {
                 if currentDayTurns.count <= max(chunkSize, 8) {
                     let firstTurn = currentDayTurns.first?.turnIndex ?? 1
                     let lastTurn = currentDayTurns.last?.turnIndex ?? firstTurn
-                    let range = firstTurn == lastTurn ? "第 \(firstTurn) 轮" : "第 \(firstTurn)–\(lastTurn) 轮"
+                    let range = firstTurn == lastTurn ? String(localized: "第 \(firstTurn) 轮") : String(localized: "第 \(firstTurn)–\(lastTurn) 轮")
                     let title = "\(label) · \(range)"
                     dateChapters.append(ConversationChapter(
                         id: "chapter-date-\(chapterIdx)",

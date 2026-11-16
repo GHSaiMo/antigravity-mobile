@@ -72,7 +72,7 @@ public final class ShareInbox {
                 try fm.copyItem(at: url, to: target)
             } catch {
                 try? fm.removeItem(at: dir)
-                added.append(SharedFile(id: UUID().uuidString, name: name, size: 0, url: target, isImage: false, rejectReason: "无法读取文件：\(name)"))
+                added.append(SharedFile(id: UUID().uuidString, name: name, size: 0, url: target, isImage: false, rejectReason: String(localized: "无法读取文件：\(name)")))
                 continue
             }
             // The Inbox copy is ours to delete; anything else (in-place access) must be left alone.
@@ -81,7 +81,7 @@ public final class ShareInbox {
             let size = ((try? fm.attributesOfItem(atPath: target.path))?[.size] as? NSNumber)?.int64Value ?? 0
             let ext = (name as NSString).pathExtension.lowercased()
             let isImage = Self.imageExtensions.contains(ext)
-            let reason = isImage ? (size <= 0 ? "文件为空：\(name)" : nil) : AttachmentRules.validate(name: name, size: size, existing: [])
+            let reason = isImage ? (size <= 0 ? String(localized: "文件为空：\(name)") : nil) : AttachmentRules.validate(name: name, size: size, existing: [])
             if reason != nil { try? fm.removeItem(at: dir) }
             added.append(SharedFile(id: UUID().uuidString, name: name, size: size, url: target, isImage: isImage, rejectReason: reason))
         }

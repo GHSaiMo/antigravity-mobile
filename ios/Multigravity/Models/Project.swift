@@ -58,16 +58,18 @@ public struct ProjectItem: Identifiable, Hashable, Codable, Sendable {
         return String(localized: "\(Int(diff / 86400))天前")
     }
     
-    public static let pureChat = ProjectItem(
-        rawId: "outside-of-project",
-        name: "Chat",
-        uri: "",
-        path: "新对话 · 不关联任何工作区",
-        isWorkspace: false
-    )
+    public static var pureChat: ProjectItem {
+        ProjectItem(
+            rawId: "outside-of-project",
+            name: "Chat",
+            uri: "",
+            path: String(localized: "新对话 · 不关联任何工作区"),
+            isWorkspace: false
+        )
+    }
     
     public var isPureChat: Bool {
-        rawId == "outside-of-project" || name == "Chat" || (uri.isEmpty && path.contains("不关联任何工作区"))
+        rawId == "outside-of-project" || name == "Chat" || (uri.isEmpty && (path.contains("不关联任何工作区") || path == String(localized: "新对话 · 不关联任何工作区")))
     }
 }
 

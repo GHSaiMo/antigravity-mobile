@@ -58,7 +58,7 @@ enum ImageActions {
         switch await saveToPhotos(image, fileURL: fileURL) {
         case .saved:
             UINotificationFeedbackGenerator().notificationOccurred(.success)
-            CopiedHUD.show("已保存到相册")
+            CopiedHUD.show(String(localized: "已保存到相册"))
         case .denied:
             UINotificationFeedbackGenerator().notificationOccurred(.error)
             presentPermissionAlert()
@@ -91,7 +91,7 @@ enum ImageActions {
     static func copy(_ image: UIImage) {
         UIPasteboard.general.image = image
         UINotificationFeedbackGenerator().notificationOccurred(.success)
-        CopiedHUD.show("已拷贝图片")
+        CopiedHUD.show(String(localized: "已拷贝图片"))
     }
 
     // MARK: - Share
@@ -115,7 +115,7 @@ enum ImageActions {
     static func performSave(_ item: IdentifiableImage) {
         Task {
             guard let image = await loadImage(item) else {
-                CopiedHUD.show("图片尚未加载完成")
+                CopiedHUD.show(String(localized: "图片尚未加载完成"))
                 return
             }
             await saveWithFeedback(image, fileURL: item.url)
@@ -126,7 +126,7 @@ enum ImageActions {
     static func performShare(_ item: IdentifiableImage) {
         Task {
             guard let image = await loadImage(item) else {
-                CopiedHUD.show("图片尚未加载完成")
+                CopiedHUD.show(String(localized: "图片尚未加载完成"))
                 return
             }
             share(image)
@@ -137,7 +137,7 @@ enum ImageActions {
     static func performCopy(_ item: IdentifiableImage) {
         Task {
             guard let image = await loadImage(item) else {
-                CopiedHUD.show("图片尚未加载完成")
+                CopiedHUD.show(String(localized: "图片尚未加载完成"))
                 return
             }
             copy(image)

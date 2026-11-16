@@ -42,7 +42,7 @@ public struct ConfirmUndoSheet: View {
                                     .font(.system(size: 12, weight: .semibold))
                                     .foregroundColor(.secondary)
                                 
-                                Text(msg.content.isEmpty ? "（图片消息）" : msg.content)
+                                Text(msg.content.isEmpty ? String(localized: "（图片消息）") : msg.content)
                                     .font(.system(size: 14))
                                     .foregroundColor(.primary)
                                     .padding(12)
@@ -127,7 +127,7 @@ public struct ConfirmUndoSheet: View {
                                     .progressViewStyle(CircularProgressViewStyle(tint: .red))
                                     .scaleEffect(0.8)
                             }
-                            Text(viewModel.isReverting ? "正在撤回..." : "确认撤回")
+                            Text(viewModel.isReverting ? String(localized: "正在撤回...") : String(localized: "确认撤回"))
                                 .font(.system(size: 16, weight: .semibold))
                                 .foregroundColor(.red)
                         }

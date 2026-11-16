@@ -39,7 +39,7 @@ public final class AudioDictationManager {
             pathAndQuery: "gateway/audio/dictate?cascadeId=\(cid)&mimeType=\(mime)",
             baseURL: baseURL
         ) else {
-            onError("无法构建语音识别连接")
+            onError(String(localized: "无法构建语音识别连接"))
             return
         }
 
@@ -51,7 +51,7 @@ public final class AudioDictationManager {
             try session.setCategory(.playAndRecord, mode: .measurement, options: [.defaultToSpeaker, .allowBluetoothHFP])
             try session.setActive(true)
         } catch {
-            onError("无法配置音频会话: \(error.localizedDescription)")
+            onError(String(localized: "无法配置音频会话: \(error.localizedDescription)"))
             return
         }
 
@@ -64,11 +64,11 @@ public final class AudioDictationManager {
             channels: 1,
             interleaved: true
         ) else {
-            onError("不支持 16kHz PCM 音频格式")
+            onError(String(localized: "不支持 16kHz PCM 音频格式"))
             return
         }
         guard let converter = AVAudioConverter(from: hwFormat, to: targetFormat) else {
-            onError("音频采样率转换初始化失败")
+            onError(String(localized: "音频采样率转换初始化失败"))
             return
         }
 
@@ -113,7 +113,7 @@ public final class AudioDictationManager {
         do {
             try engine.start()
         } catch {
-            onError("启动麦克风失败: \(error.localizedDescription)")
+            onError(String(localized: "启动麦克风失败: \(error.localizedDescription)"))
             stop()
         }
     }
@@ -171,7 +171,7 @@ public final class AudioDictationManager {
                     s.receiveNextMessage()
                 case .failure(let error):
                     if s.isDictating {
-                        s.onError?("语音识别连接中断: \(error.localizedDescription)")
+                        s.onError?(String(localized: "语音识别连接中断: \(error.localizedDescription)"))
                     }
                     s.cleanupWebSocket()
                 }
@@ -262,7 +262,7 @@ public final class NarrationAudioPlayer: NSObject, AVAudioPlayerDelegate, AVSpee
         guard !cleaned.isEmpty else { return }
         stop()
         isPlaying = true
-        statusLabel = "正在合成语音…"
+        statusLabel = String(localized: "正在合成语音…")
 
         playTask = Task {
             if let baseURL,
@@ -274,7 +274,7 @@ public final class NarrationAudioPlayer: NSObject, AVAudioPlayerDelegate, AVSpee
                     let player = try AVAudioPlayer(data: audioData)
                     player.delegate = self
                     self.audioPlayer = player
-                    self.statusLabel = "语音播报中"
+                    self.statusLabel = String(localized: "语音播报中")
                     player.play()
                     return
                 } catch {
@@ -299,7 +299,7 @@ public final class NarrationAudioPlayer: NSObject, AVAudioPlayerDelegate, AVSpee
     }
 
     private func speakWithSystemTTS(_ text: String) {
-        statusLabel = "系统朗读中"
+        statusLabel = String(localized: "系统朗读中")
         try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio)
         try? AVAudioSession.sharedInstance().setActive(true)
         let synth = AVSpeechSynthesizer()

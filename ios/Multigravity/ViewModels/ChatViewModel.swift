@@ -297,7 +297,7 @@ public final class ChatViewModel {
     public var isRunning: Bool = false
     public var stepCount: Int = 0
     public var totalTools: Int = 0
-    public var duration: String = "0秒"
+    public var duration: String = String(localized: "0秒")
     public var hasMore: Bool = false
     public var nextOffset: Int = 0
     public var isLoadingOlder: Bool = false
@@ -793,7 +793,7 @@ public final class ChatViewModel {
         self.cacheManager.saveSession(CachedChatSession(
             cascadeId: self.cascadeId,
             status: "CASCADE_RUN_STATUS_IDLE",
-            duration: "0秒",
+            duration: String(localized: "0秒"),
             stepCount: 0,
             totalTools: 0,
             hasMore: false,
@@ -942,7 +942,7 @@ public final class ChatViewModel {
                         self.nextOffset = 0
                         self.stepCount = 0
                         self.totalTools = 0
-                        self.duration = "0秒"
+                        self.duration = String(localized: "0秒")
                         self.isNewConversation = true
                         self.currentTitle = self.emptyConversationTitle
                     }

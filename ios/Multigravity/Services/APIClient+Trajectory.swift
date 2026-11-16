@@ -175,7 +175,7 @@ extension APIClient {
             messages.append(ChatMessage(
                 id: toolId,
                 sender: .toolBatch(count: count, tools: allTools),
-                content: "已执行 \(count) 次工具调用",
+                content: String(localized: "已执行 \(count) 次工具调用"),
                 toolCount: count,
                 toolNames: allTools
             ))
@@ -313,7 +313,7 @@ extension APIClient {
                     ?? step.errorMessage?.shortError
                     ?? step.errorMessage?.message
                     ?? step.error?.message
-                    ?? "执行遇到错误"
+                    ?? String(localized: "执行遇到错误")
                 let trimmed = errText.trimmingCharacters(in: .whitespacesAndNewlines)
                 
                 let parsed = Self.parseAttemptError(trimmed)
@@ -322,7 +322,8 @@ extension APIClient {
                     if parsed.isAttempt && prevParsed.isAttempt && Self.normalizeErrKey(prevParsed.baseError) == Self.normalizeErrKey(parsed.baseError) {
                         let newAttempt = max(parsed.attempt, (last.attemptCount ?? prevParsed.attempt) + 1)
                         let maxAttempts = parsed.maxAttempts > 0 ? parsed.maxAttempts : (last.maxAttempts ?? 9)
-                        let formatted = "\(parsed.prefix) (attempt \(newAttempt)/\(maxAttempts) · 已重试 \(newAttempt) 次): \(parsed.baseError)"
+                        let retried = String(localized: "已重试 \(newAttempt) 次")
+                        let formatted = "\(parsed.prefix) (attempt \(newAttempt)/\(maxAttempts) · \(retried)): \(parsed.baseError)"
                         messages[messages.count - 1] = ChatMessage(
                             id: last.id,
                             sender: .error,
@@ -334,7 +335,8 @@ extension APIClient {
                         continue
                     } else if !parsed.isAttempt && !prevParsed.isAttempt && Self.normalizeErrKey(last.content) == Self.normalizeErrKey(trimmed) {
                         let count = (last.attemptCount ?? 1) + 1
-                        let formatted = "\(trimmed) (已重试 \(count) 次)"
+                        let retried = String(localized: "已重试 \(count) 次")
+                        let formatted = "\(trimmed) (\(retried))"
                         messages[messages.count - 1] = ChatMessage(
                             id: last.id,
                             sender: .error,
@@ -421,7 +423,7 @@ extension APIClient {
                         ?? step.errorMessage?.shortError
                         ?? step.errorMessage?.message
                         ?? step.error?.message
-                        ?? "执行遇到错误"
+                        ?? String(localized: "执行遇到错误")
                     lastErrInTurn = errText.trimmingCharacters(in: .whitespacesAndNewlines)
                 }
             } else if step.type == "CORTEX_STEP_TYPE_PLANNER_RESPONSE" {
@@ -444,7 +446,7 @@ extension APIClient {
         }
         
         // Calculate total duration
-        var durationString = "0秒"
+        var durationString = String(localized: "0秒")
         let firstCreated = steps.first(where: { $0.metadata?.createdAt != nil })?.metadata?.createdAt
         let lastCreated = steps.last(where: { $0.metadata?.createdAt != nil })?.metadata?.createdAt
         
@@ -462,11 +464,11 @@ extension APIClient {
                 let minutes = (diff % 3600) / 60
                 let secs = diff % 60
                 if hours > 0 {
-                    durationString = "\(hours)小时\(minutes)分"
+                    durationString = String(localized: "\(hours)小时\(minutes)分")
                 } else if minutes > 0 {
-                    durationString = "\(minutes)分\(secs)秒"
+                    durationString = String(localized: "\(minutes)分\(secs)秒")
                 } else {
-                    durationString = "\(secs)秒"
+                    durationString = String(localized: "\(secs)秒")
                 }
             }
         }

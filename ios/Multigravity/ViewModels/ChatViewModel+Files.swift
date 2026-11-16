@@ -40,7 +40,7 @@ extension ChatViewModel {
                 didCopy = (try? FileManager.default.copyItem(at: readURL, to: target)) != nil
             }
             guard didCopy else {
-                rejected.append("无法读取文件：\(name)")
+                rejected.append(String(localized: "无法读取文件：\(name)"))
                 continue
             }
             let size = ((try? FileManager.default.attributesOfItem(atPath: target.path))?[.size] as? NSNumber)?.int64Value ?? 0

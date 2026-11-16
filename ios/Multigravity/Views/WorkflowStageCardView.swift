@@ -78,7 +78,7 @@ public struct WorkflowStageCardView: View {
                         }
 
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(workflow.description?.isEmpty == false ? workflow.description! : "动态多智能体工作流")
+                            Text(workflow.description?.isEmpty == false ? workflow.description! : String(localized: "动态多智能体工作流"))
                                 .font(.system(size: 13.5, weight: .semibold))
                                 .foregroundColor(.primary)
                                 .lineLimit(1)
@@ -248,7 +248,7 @@ public struct WorkflowStageCardView: View {
                                                             .font(.system(size: 8.5, weight: .bold, design: .monospaced))
                                                             .foregroundColor(tier.lowercased() == "pro" ? .purple : .blue)
                                                     }
-                                                    Text(sa.isRunning ? "运行中" : "已就绪")
+                                                    Text(sa.isRunning ? String(localized: "运行中") : String(localized: "已就绪"))
                                                         .font(.system(size: 9.5))
                                                         .foregroundColor(.secondary)
                                                 }
@@ -289,7 +289,7 @@ public struct WorkflowStageCardView: View {
                                 HStack(spacing: 4) {
                                     Image(systemName: "terminal")
                                         .font(.system(size: 10))
-                                    Text(isLogsExpanded ? "收起日志输出" : "展开执行日志 (\(currentLogs.count) 行)")
+                                    Text(isLogsExpanded ? String(localized: "收起日志输出") : String(localized: "展开执行日志 (\(currentLogs.count) 行)"))
                                         .font(.system(size: 11, weight: .semibold))
                                     Spacer()
                                     Image(systemName: "chevron.right")
@@ -355,7 +355,7 @@ public struct WorkflowStageCardView: View {
                             Image(systemName: "exclamationmark.triangle.fill")
                                 .foregroundColor(.red)
                                 .font(.system(size: 12))
-                            Text(workflow.error?.isEmpty == false ? workflow.error! : "工作流在执行中遇到未捕获异常或单节点失败")
+                            Text(workflow.error?.isEmpty == false ? workflow.error! : String(localized: "工作流在执行中遇到未捕获异常或单节点失败"))
                                 .font(.system(size: 11))
                                 .foregroundColor(.red)
                                 .fixedSize(horizontal: false, vertical: true)

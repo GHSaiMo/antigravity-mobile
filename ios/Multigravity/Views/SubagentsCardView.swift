@@ -34,7 +34,7 @@ public struct SubagentsCardView: View {
                         .font(.system(size: 13))
                         .foregroundColor(.secondary)
                 }
-                Text(runningCount > 0 ? "\(runningCount) 个子代理运行中" : "\(items.count) 个子代理")
+                Text(runningCount > 0 ? String(localized: "\(runningCount) 个子代理运行中") : String(localized: "\(items.count) 个子代理"))
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundColor(.primary)
                 Text("\(items.count)")

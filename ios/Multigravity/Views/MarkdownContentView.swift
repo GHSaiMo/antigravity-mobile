@@ -49,13 +49,13 @@ public struct MarkdownContentView: View {
                 case .codeBlock(_, let lang, let code):
                     if lang.trimmingCharacters(in: .whitespaces).lowercased() == "mermaid" {
                         if isShareExport {
-                            shareExportPlaceholder("Mermaid 图表，请在 App 中查看")
+                            shareExportPlaceholder(String(localized: "Mermaid 图表，请在 App 中查看"))
                         } else {
                             MermaidDiagramView(code: code)
                         }
                     } else if isShareExport {
                         let lines = code.split(separator: "\n", omittingEmptySubsequences: false).count
-                        shareExportPlaceholder("代码块（\(lines) 行），请在 App 中查看")
+                        shareExportPlaceholder(String(localized: "代码块（\(lines) 行），请在 App 中查看"))
                     } else {
                         codeBlockView(lang: lang, code: code)
                     }
@@ -63,7 +63,7 @@ public struct MarkdownContentView: View {
                 case .table(_, let headers, let rows, let alignments):
                     let columns = max(headers.count, rows.map(\.count).max() ?? 0)
                     if isShareExport && (columns >= 4 || rows.count > 12) {
-                        shareExportPlaceholder("表格（\(rows.count) 行 × \(columns) 列），请在 App 中查看")
+                        shareExportPlaceholder(String(localized: "表格（\(rows.count) 行 × \(columns) 列），请在 App 中查看"))
                     } else {
                         tableView(headers: headers, rows: rows, alignments: alignments)
                     }
@@ -88,21 +88,21 @@ public struct MarkdownContentView: View {
                     
                 case .agentEmbed(_, let src):
                     if isShareExport {
-                        shareExportPlaceholder("交互内容，请在 App 中查看")
+                        shareExportPlaceholder(String(localized: "交互内容，请在 App 中查看"))
                     } else {
                         AgentEmbedView(src: src)
                     }
 
                 case .pluginCard(_, let catalogId):
                     if isShareExport {
-                        shareExportPlaceholder("推荐插件：\(catalogId)，请在 App 中查看")
+                        shareExportPlaceholder(String(localized: "推荐插件：\(catalogId)，请在 App 中查看"))
                     } else {
                         PluginCardBlockView(catalogId: catalogId, conversationId: currentCascadeId)
                     }
                     
                 case .carousel(_, let slides):
                     if isShareExport {
-                        shareExportPlaceholder("图片轮播（\(slides.count) 张），请在 App 中查看")
+                        shareExportPlaceholder(String(localized: "图片轮播（\(slides.count) 张），请在 App 中查看"))
                     } else {
                         MarkdownCarouselView(slides: slides, onImageTap: { url in
                             handleImageTap(url: url)

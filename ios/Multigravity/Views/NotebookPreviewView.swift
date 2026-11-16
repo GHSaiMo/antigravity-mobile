@@ -101,7 +101,7 @@ public struct NotebookPreviewView: View {
                             HStack(spacing: 3) {
                                 Image(systemName: copiedCellIndex == index ? "checkmark" : "doc.on.doc")
                                     .font(.system(size: 10))
-                                Text(copiedCellIndex == index ? "已复制" : "复制")
+                                Text(copiedCellIndex == index ? String(localized: "已复制") : String(localized: "复制"))
                                     .font(.system(size: 10.5))
                             }
                             .foregroundColor(.secondary)

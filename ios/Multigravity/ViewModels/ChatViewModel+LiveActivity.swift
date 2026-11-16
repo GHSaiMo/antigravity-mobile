@@ -36,15 +36,15 @@ extension ChatViewModel {
             
             var actionText = ""
             if hasPendingAction {
-                actionText = "等待用户审批操作"
+                actionText = String(localized: "等待用户审批操作")
             } else if let title = taskTitle, !title.isEmpty {
                 actionText = title
             } else if let lastMsg = self.messages.last, !lastMsg.content.isEmpty {
                 actionText = lastMsg.content
             } else if isAgentBusy {
-                actionText = "Agent 正在执行..."
+                actionText = String(localized: "Agent 正在执行...")
             } else {
-                actionText = "任务运行中..."
+                actionText = String(localized: "任务运行中...")
             }
             
             let taskSnapshots: [AgentTaskSnapshot] = blockingTasks.prefix(3).map { task in

@@ -25,7 +25,7 @@ extension ChatViewModel {
             permissionState = state
             NotificationCenter.default.post(name: .permissionPresetDidChange, object: state)
         } catch {
-            errorMessage = "权限模式切换失败: \(error.localizedDescription)"
+            errorMessage = String(localized: "权限模式切换失败: \(error.localizedDescription)")
         }
     }
 
@@ -123,10 +123,10 @@ extension ChatViewModel {
                 UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                 NotificationCenter.default.post(name: .openConversationById, object: newId)
             } else {
-                errorMessage = resp.error ?? "分叉会话失败"
+                errorMessage = resp.error ?? String(localized: "分叉会话失败")
             }
         } catch {
-            errorMessage = "分叉会话失败: \(error.localizedDescription)"
+            errorMessage = String(localized: "分叉会话失败: \(error.localizedDescription)")
         }
     }
 
@@ -137,7 +137,7 @@ extension ChatViewModel {
             _ = try await apiClient.sendStepsToBackground(cascadeId: cascadeId, stepIndices: stepIndices, baseURL: url)
             await loadMessages(isBackgroundPoll: true)
         } catch {
-            errorMessage = "转入后台失败: \(error.localizedDescription)"
+            errorMessage = String(localized: "转入后台失败: \(error.localizedDescription)")
         }
     }
 

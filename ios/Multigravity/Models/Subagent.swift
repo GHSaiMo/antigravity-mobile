@@ -62,7 +62,7 @@ public struct SubagentItem: Identifiable, Sendable, Codable, Hashable {
             title: displayName,
             status: isRunning ? .running : .idle,
             stepCount: stepCount ?? 0,
-            workspaceName: "子代理",
+            workspaceName: String(localized: "子代理"),
             isSubagent: true
         )
     }

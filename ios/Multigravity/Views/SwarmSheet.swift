@@ -34,6 +34,14 @@ public struct SwarmSheet: View {
         case members = "成员"
         case graph = "拓扑"
         public var id: String { rawValue }
+        public var localizedTitle: String {
+            switch self {
+            case .overview: return String(localized: "概览")
+            case .board: return String(localized: "协作板")
+            case .members: return String(localized: "成员")
+            case .graph: return String(localized: "拓扑")
+            }
+        }
     }
 
     public init(cascadeId: String, onSelectConversation: ((String) -> Void)? = nil) {
@@ -108,7 +116,7 @@ public struct SwarmSheet: View {
 
     private var swarmHeader: some View {
         HStack(alignment: .center, spacing: 10) {
-            Text(snapshot?.title.isEmpty == false ? snapshot!.title : "蜂群协同 (Swarm)")
+            Text(snapshot?.title.isEmpty == false ? snapshot!.title : String(localized: "蜂群协同 (Swarm)"))
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundColor(SwarmTheme.ink)
                 .lineLimit(2)
@@ -163,7 +171,7 @@ public struct SwarmSheet: View {
                 }) {
                     VStack(spacing: 7) {
                         HStack(spacing: 4) {
-                            Text(tab.rawValue)
+                            Text(tab.localizedTitle)
                                 .font(.system(size: 14, weight: isSelected ? .semibold : .medium))
                                 .foregroundColor(isSelected ? SwarmTheme.ink : SwarmTheme.muted)
 
@@ -199,7 +207,7 @@ public struct SwarmSheet: View {
             VStack(alignment: .leading, spacing: 14) {
                 VStack(alignment: .leading, spacing: 10) {
                     HStack {
-                        Text(snap.title.isEmpty ? "蜂群协同任务" : snap.title)
+                        Text(snap.title.isEmpty ? String(localized: "蜂群协同任务") : snap.title)
                             .font(.system(size: 16, weight: .bold))
                             .foregroundColor(SwarmTheme.ink)
 
@@ -493,7 +501,7 @@ public struct SwarmSheet: View {
                     Image(systemName: "bubble.left.and.bubble.right")
                         .font(.system(size: 36))
                         .foregroundColor(SwarmTheme.faint)
-                    Text(snap.messages.isEmpty ? "暂无协作留言" : "没有匹配筛选条件的消息")
+                    Text(snap.messages.isEmpty ? String(localized: "暂无协作留言") : String(localized: "没有匹配筛选条件的消息"))
                         .font(.system(size: 14, weight: .medium))
                         .foregroundColor(SwarmTheme.muted)
                     Spacer()
@@ -590,7 +598,7 @@ public struct SwarmSheet: View {
                             expandedSeqs.insert(msg.seq)
                         }
                     }) {
-                        Text(isExpanded ? "收起" : "展开更多")
+                        Text(isExpanded ? String(localized: "收起") : String(localized: "展开更多"))
                             .font(.system(size: 11.5, weight: .medium))
                             .foregroundColor(SwarmTheme.accent)
                     }

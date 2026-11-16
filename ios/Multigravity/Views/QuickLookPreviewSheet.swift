@@ -973,7 +973,7 @@ public struct HTMLPreviewSheet: View {
                 .sheet(isPresented: $isShowingDocumentPicker) {
                     DocumentExporterRepresentable(url: url) { _ in
                         UINotificationFeedbackGenerator().notificationOccurred(.success)
-                        toastSuccessMessage = "已保存至“文件”"
+                        toastSuccessMessage = String(localized: "已保存至“文件”")
                         DispatchQueue.main.asyncAfter(deadline: .now() + 2.6) {
                             toastSuccessMessage = nil
                         }
