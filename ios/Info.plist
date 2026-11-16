@@ -39,7 +39,7 @@
 			<key>CFBundleTypeRole</key>
 			<string>Editor</string>
 			<key>CFBundleURLName</key>
-			<string>com.taojiuzhen.antigravity</string>
+			<string>com.ghsaimo.antigravity</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>multigravity</string>
