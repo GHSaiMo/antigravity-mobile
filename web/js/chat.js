@@ -1642,7 +1642,10 @@ function generateItemHtml(item, isRunning, isLastItem) {
             <span style="opacity:0.75;font-size:11px;">${escapeHtml(item.text)}</span>
           </div>
           <div class="rescue-bubble-actions">
-            <button type="button" class="rescue-btn primary" onclick="sendCompactCommand()">一键压缩会话 (/compact)</button>
+            <button type="button" class="rescue-btn primary" onclick="sendCompactCommand()" style="display:inline-flex;align-items:center;justify-content:center;gap:5px;">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M7 5l5 5 5-5"/><path d="M7 19l5-5 5 5"/></svg>
+              一键压缩 /compact
+            </button>
             <button type="button" class="rescue-btn secondary" onclick="document.getElementById('btn-new')?.click()">开启新会话</button>
           </div>
         </div>
@@ -1799,6 +1802,11 @@ function generateItemHtml(item, isRunning, isLastItem) {
         ${s.duration ? `<span class="p3-step-dur">${escapeHtml(s.duration)}</span>` : ""}
       </div>
     `).join("");
+
+    if (window.CompactModePrefs?.shouldCollapseTools?.()) {
+      const totalOps = Math.max(toolCount, item.steps.length);
+      return `<div class="tool-batch-compact-line">📄 已完成 ${totalOps} 项检索与命令操作</div>`;
+    }
 
     const foldedTitle = toolCount === 0
       ? `💭 已深度思考${item.thinkingDuration ? ` (${escapeHtml(item.thinkingDuration)})` : ""}`
@@ -2173,7 +2181,16 @@ const RunningTasksManager = {
     }
     const expandedKey = `running-tasks-card-expanded-${cascadeId}`;
     const storedExpanded = localStorage.getItem(expandedKey);
-    this.isExpanded = (storedExpanded !== null) ? (storedExpanded === "true") : true;
+    const defaultExpanded = !window.CompactModePrefs?.shouldCollapseTasks?.();
+    this.isExpanded = (storedExpanded !== null) ? (storedExpanded === "true") : defaultExpanded;
+    this.render();
+  },
+
+  syncCompactDefault() {
+    this.isExpanded = !window.CompactModePrefs?.shouldCollapseTasks?.();
+    if (this.cascadeId) {
+      localStorage.removeItem(`running-tasks-card-expanded-${this.cascadeId}`);
+    }
     this.render();
   },
 
@@ -2248,15 +2265,33 @@ const RunningTasksManager = {
       arrowEl?.classList.add("collapsed");
     }
 
+    const quickStopEl = document.getElementById("tasks-header-quick-stop");
+    if (quickStopEl) {
+      if (!this.isExpanded && this.tasks.length === 1) {
+        const t = this.tasks[0];
+        const tIdEsc = escapeHtml(t.id || "");
+        quickStopEl.innerHTML = `
+          <button class="task-stop-btn" data-action="stop-task" data-step="${t.stepIndex}" data-id="${tIdEsc}" title="终止任务" aria-label="终止任务" onclick="event.stopPropagation(); RunningTasksManager.stopTask(${t.stepIndex}, '${tIdEsc}')">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 -960 960 960" fill="currentColor">
+              <path d="M330-330H630V-630H330v300ZM480.07-100q-78.84,0-148.2-29.92T211.18-211.13T129.93-331.76T100-479.93t29.92-148.2t81.21-120.68t120.63-81.25T479.93-860t148.2,29.92t120.68,81.21t81.25,120.63T860-480.07t-29.92,148.2T748.87-211.18T628.24-129.93T480.07-100ZM480-160q134,0 227-93t93-227T707-707T480-800T253-707T160-480t93,227t227,93Zm0-320Z"></path>
+            </svg>
+          </button>
+        `;
+      } else {
+        quickStopEl.innerHTML = "";
+      }
+    }
+
     listEl.innerHTML = this.tasks.map(task => {
       const desc = escapeHtml(task.toolSummary || task.toolAction || formatToolName(task.toolName) || "后台任务");
-      const cmd = escapeHtml(task.commandLine || "运行中...");
+      const rawCmd = task.commandLine || "运行中...";
+      const cmd = escapeHtml(rawCmd);
       const idEsc = escapeHtml(task.id || "");
       return `
         <div class="task-item-row" data-id="${idEsc}" data-step="${task.stepIndex}">
           <div class="task-item-body">
             <span class="task-item-desc">${desc}</span>
-            <span class="task-item-cmd" title="${cmd}">${cmd}</span>
+            <span class="task-item-cmd" data-cmd="${cmd}" title="点击复制命令: ${cmd}" onclick="copyTaskCommandEl(this)">${cmd}</span>
           </div>
           <div class="p3-btn-group">
             <button type="button" class="p3-mini-btn" onclick="window.Phase3?.sendTaskToBackground?.(${task.stepIndex})" title="转入后台">转后台</button>
@@ -2271,6 +2306,21 @@ const RunningTasksManager = {
     }).join("");
   }
 };
+
+function copyTaskCommandEl(el) {
+  if (!el) return;
+  const cmd = el.getAttribute("data-cmd") || el.textContent || "";
+  if (!cmd) return;
+  navigator.clipboard?.writeText(cmd).then(() => {
+    const prevText = el.textContent;
+    el.classList.add("copied");
+    el.textContent = "✓ 已复制命令";
+    setTimeout(() => {
+      el.classList.remove("copied");
+      el.textContent = prevText;
+    }, 1300);
+  }).catch(() => {});
+}
 
 // --- Local Message Queue Manager (Desktop Parity) ---
 const LocalQueueManager = {
@@ -3239,7 +3289,12 @@ function updateContextMeterUI(meter, isRunning = false) {
     return;
   }
 
-  ringBtn.classList.remove("hidden");
+  const shouldShow = window.CompactModePrefs ? window.CompactModePrefs.shouldShowContextMeter(meter) : true;
+  if (!shouldShow) {
+    ringBtn.classList.add("hidden");
+  } else {
+    ringBtn.classList.remove("hidden");
+  }
   const pct = Math.min(Math.max(meter.percentage || 0, 0), 100);
   if (ringCircle) {
     ringCircle.setAttribute("stroke-dasharray", `${pct.toFixed(1)}, 100`);

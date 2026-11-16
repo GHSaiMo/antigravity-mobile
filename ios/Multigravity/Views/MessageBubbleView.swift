@@ -62,7 +62,7 @@ public struct MessageBubbleView: View {
             case .toolBatch(let count, let tools):
                 if isActiveToolBatch {
                     activeToolBatchCard(count: count, tools: tools)
-                } else if AppSettings.shared.isKnowledgeModeEnabled {
+                } else if AppSettings.shared.shouldCollapseTools {
                     HStack(spacing: 6) {
                         Image(systemName: "doc.text.magnifyingglass")
                             .font(.system(size: 10.5))

@@ -43,6 +43,9 @@ public final class AppSettings {
     private let themeModeKey = "antigravity.theme_mode"
     private let fontSizeScaleKey = "antigravity.font_size_scale"
     private let knowledgeModeKey = "antigravity.knowledge_mode_enabled"
+    private let compactCollapseToolsKey = "antigravity.compact_collapse_tools"
+    private let compactCollapseTasksKey = "antigravity.compact_collapse_tasks"
+    private let compactHideHealthyContextKey = "antigravity.compact_hide_healthy_context"
     private let gatewayPlatformKey = "antigravity.gateway_platform"
     private let demoModeKey = "antigravity.demo_mode"
     private let workspaceNotesKey = "antigravity.workspace_notes"
@@ -244,11 +247,46 @@ public final class AppSettings {
         }
     }
 
-    /// 知识工作流模式（精简界面，突出阅读与文档生成）
+    /// 精简模式主开关（开启后可按需微调对话内降噪子选项）
     public var isKnowledgeModeEnabled: Bool {
         didSet {
             UserDefaults.standard.set(isKnowledgeModeEnabled, forKey: knowledgeModeKey)
         }
+    }
+
+    /// 精简模式子选项：折叠工具执行过程（默认开启）
+    public var compactCollapseTools: Bool {
+        didSet {
+            UserDefaults.standard.set(compactCollapseTools, forKey: compactCollapseToolsKey)
+        }
+    }
+
+    /// 精简模式子选项：收起底部运行任务辅助栏（默认开启）
+    public var compactCollapseTasks: Bool {
+        didSet {
+            UserDefaults.standard.set(compactCollapseTasks, forKey: compactCollapseTasksKey)
+        }
+    }
+
+    /// 精简模式子选项：隐藏常规实时上下文胶囊（默认关闭；仅 < 70% 健康区隐藏，≥ 70% 或溢出自动穿透预警）
+    public var compactHideHealthyContext: Bool {
+        didSet {
+            UserDefaults.standard.set(compactHideHealthyContext, forKey: compactHideHealthyContextKey)
+        }
+    }
+
+    public var shouldCollapseTools: Bool {
+        isKnowledgeModeEnabled && compactCollapseTools
+    }
+
+    public var shouldCollapseRunningTasks: Bool {
+        isKnowledgeModeEnabled && compactCollapseTasks
+    }
+
+    public func shouldShowContextMeter(_ meter: ContextMeterItem?) -> Bool {
+        guard let meter else { return false }
+        guard isKnowledgeModeEnabled && compactHideHealthyContext else { return true }
+        return meter.isOverflow == true || meter.percentage >= 70
     }
 
     public var colorScheme: ColorScheme? {
@@ -670,6 +708,17 @@ public final class AppSettings {
         let savedScale = UserDefaults.standard.string(forKey: fontSizeScaleKey) ?? "standard"
         self.fontSizeScale = FontSizeScale(rawValue: savedScale) ?? .standard
         self.isKnowledgeModeEnabled = UserDefaults.standard.bool(forKey: knowledgeModeKey)
+        if UserDefaults.standard.object(forKey: compactCollapseToolsKey) == nil {
+            self.compactCollapseTools = true
+        } else {
+            self.compactCollapseTools = UserDefaults.standard.bool(forKey: compactCollapseToolsKey)
+        }
+        if UserDefaults.standard.object(forKey: compactCollapseTasksKey) == nil {
+            self.compactCollapseTasks = true
+        } else {
+            self.compactCollapseTasks = UserDefaults.standard.bool(forKey: compactCollapseTasksKey)
+        }
+        self.compactHideHealthyContext = UserDefaults.standard.bool(forKey: compactHideHealthyContextKey)
         self.gatewayPlatform = UserDefaults.standard.string(forKey: gatewayPlatformKey)
         self.workspaceNotes = (UserDefaults.standard.dictionary(forKey: workspaceNotesKey) as? [String: String]) ?? [:]
     }

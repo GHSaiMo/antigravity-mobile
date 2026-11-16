@@ -148,10 +148,13 @@ extension MessageBubbleView {
             HStack(spacing: 8) {
                 if let onCompact {
                     Button(action: onCompact) {
-                        Text("一键压缩 /compact")
-                            .font(.system(size: 12, weight: .semibold))
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 7)
+                        HStack(spacing: 5) {
+                            CompactChevronsIcon(size: 7.5, weight: .bold)
+                            Text("一键压缩 /compact")
+                        }
+                        .font(.system(size: 12, weight: .semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 7)
                     }
                     .buttonStyle(.borderedProminent)
                     .tint(.orange)

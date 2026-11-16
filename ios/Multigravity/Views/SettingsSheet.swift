@@ -180,7 +180,7 @@ public struct SettingsSheet: View {
                 // MARK: - 5. 外观与主题
                 Section(
                     header: Text("外观与主题"),
-                    footer: Text("选择浅色、深色模式与界面字号缩放；开启精简模式可收起工具执行细节、专注阅读正文；并可控制额度条上的时间均速刻度游标。")
+                    footer: Text("选择浅色、深色模式与界面字号缩放；额度匀速指标独立控制首页与配额条上的时间均速游标；开启精简模式后可按需微调对话降噪子选项。")
                 ) {
                     Picker("外观模式", selection: $settings.themeMode) {
                         Text("跟随系统").tag("system")
@@ -203,15 +203,33 @@ public struct SettingsSheet: View {
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
                     }
 
-                    Toggle("精简模式", isOn: $settings.isKnowledgeModeEnabled)
-                        .onChange(of: settings.isKnowledgeModeEnabled) { _, _ in
-                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                        }
-
                     Toggle("额度匀速指标", isOn: $settings.weeklyPaceCursorEnabled)
                         .onChange(of: settings.weeklyPaceCursorEnabled) { _, _ in
                             UIImpactFeedbackGenerator(style: .light).impactOccurred()
                         }
+
+                    Toggle("精简模式", isOn: $settings.isKnowledgeModeEnabled.animation(.easeInOut(duration: 0.2)))
+                        .onChange(of: settings.isKnowledgeModeEnabled) { _, _ in
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        }
+
+                    if settings.isKnowledgeModeEnabled {
+                        compactSubToggle(
+                            title: "折叠工具执行过程",
+                            subtitle: "将检索与命令步骤收起为单行摘要",
+                            isOn: $settings.compactCollapseTools
+                        )
+                        compactSubToggle(
+                            title: "收起任务辅助栏",
+                            subtitle: "底部运行任务默认单行折叠，保留终止按钮",
+                            isOn: $settings.compactCollapseTasks
+                        )
+                        compactSubToggle(
+                            title: "隐藏常规上下文",
+                            subtitle: "占用 < 70% 时隐藏顶栏胶囊，≥ 70% 自动恢复预警",
+                            isOn: $settings.compactHideHealthyContext
+                        )
+                    }
                 }
 
                 // MARK: - 6. 存储 (整体下移一行，放在关于的上面)
@@ -366,6 +384,27 @@ public struct SettingsSheet: View {
         }
         .sheet(isPresented: $showLicensesSheet) {
             OpenSourceLicensesSheet()
+        }
+    }
+
+    @ViewBuilder
+    private func compactSubToggle(
+        title: LocalizedStringKey,
+        subtitle: LocalizedStringKey,
+        isOn: Binding<Bool>
+    ) -> some View {
+        Toggle(isOn: isOn) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(size: 14.5))
+                Text(subtitle)
+                    .font(.system(size: 11.5))
+                    .foregroundColor(.secondary)
+            }
+        }
+        .padding(.leading, 14)
+        .onChange(of: isOn.wrappedValue) { _, _ in
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
         }
     }
 }

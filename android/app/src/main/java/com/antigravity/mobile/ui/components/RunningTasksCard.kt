@@ -8,8 +8,10 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -49,18 +51,20 @@ import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import org.json.JSONObject
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun RunningTasksCard(
     tasks: List<RunningTaskItem>,
     onStopTask: (RunningTaskItem) -> Unit,
     onSendToBackground: ((RunningTaskItem) -> Unit)? = null,
     cascadeId: String = "",
+    compactMode: Boolean = false,
     onToggleExpand: ((Boolean) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     if (tasks.isEmpty()) return
 
-    var isCardExpanded by remember { mutableStateOf(true) }
+    var isCardExpanded by remember(cascadeId, compactMode) { mutableStateOf(!compactMode) }
     var expandedTaskIds by remember { mutableStateOf(setOf<String>()) }
     var activeTerminalTaskId by remember { mutableStateOf<String?>(null) }
     var terminalLog by remember { mutableStateOf("") }
@@ -169,14 +173,48 @@ fun RunningTasksCard(
                     }
                 }
 
-                Icon(
-                    imageVector = Icons.Default.KeyboardArrowDown,
-                    contentDescription = if (isCardExpanded) "折叠任务" else "展开任务",
-                    tint = colors.textSecondary,
-                    modifier = Modifier
-                        .size(20.dp)
-                        .graphicsLayer(rotationZ = arrowRotation)
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    if (!isCardExpanded && tasks.size == 1) {
+                        val singleTask = tasks.first()
+                        Box(
+                            modifier = Modifier
+                                .size(26.dp)
+                                .clip(CircleShape)
+                                .clickable {
+                                    haptic.medium()
+                                    onStopTask(singleTask)
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(19.dp)
+                                    .clip(CircleShape)
+                                    .background(colors.accentRed.copy(alpha = 0.9f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(6.5.dp)
+                                        .clip(RoundedCornerShape(1.dp))
+                                        .background(colors.surface)
+                                )
+                            }
+                        }
+                    }
+
+                    Icon(
+                        imageVector = Icons.Default.KeyboardArrowDown,
+                        contentDescription = if (isCardExpanded) "折叠任务" else "展开任务",
+                        tint = colors.textSecondary,
+                        modifier = Modifier
+                            .size(20.dp)
+                            .graphicsLayer(rotationZ = arrowRotation)
+                    )
+                }
             }
 
             AnimatedVisibility(
@@ -275,34 +313,6 @@ fun RunningTasksCard(
                                                 .padding(horizontal = 6.dp, vertical = 3.dp)
                                         )
                                     }
-                                    // Copy Command Button
-                                    Row(
-                                        modifier = Modifier
-                                            .clip(RoundedCornerShape(6.dp))
-                                            .background(colors.surfaceVariant)
-                                            .clickable {
-                                                haptic.light()
-                                                clipboardManager.setText(AnnotatedString(rawCmd))
-                                                copiedTaskId = task.id
-                                            }
-                                            .padding(horizontal = 6.dp, vertical = 3.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = if (isCopied) Icons.Default.Check else Icons.Outlined.ContentCopy,
-                                            contentDescription = "复制命令行",
-                                            tint = if (isCopied) Color(0xFF4CAF50) else colors.textSecondary,
-                                            modifier = Modifier.size(12.dp)
-                                        )
-                                        Text(
-                                            text = if (isCopied) "已复制" else "复制",
-                                            fontSize = 10.sp,
-                                            color = if (isCopied) Color(0xFF4CAF50) else colors.textSecondary,
-                                            fontWeight = FontWeight.Medium
-                                        )
-                                    }
-
                                     // Stop Task Button
                                     Box(
                                         modifier = Modifier
@@ -332,48 +342,85 @@ fun RunningTasksCard(
                                 }
                             }
 
-                            // Terminal-style command bubble
-                            Column(
+                            // Terminal-style command bubble (长按命令行复制，消除常驻复制按钮噪点)
+                            Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clip(RoundedCornerShape(8.dp))
                                     .background(colors.surfaceVariant.copy(alpha = 0.7f))
-                                    .padding(horizontal = 8.dp, vertical = 6.dp),
-                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                                    .combinedClickable(
+                                        onClick = {},
+                                        onLongClick = {
+                                            haptic.light()
+                                            clipboardManager.setText(AnnotatedString(rawCmd))
+                                            copiedTaskId = task.id
+                                        }
+                                    )
+                                    .padding(horizontal = 8.dp, vertical = 6.dp)
                             ) {
-                                Text(
-                                    text = highlightCommand(rawCmd, colors.accentIndigo, colors.textPrimary),
-                                    fontSize = 11.sp,
-                                    fontFamily = FontFamily.Monospace,
-                                    maxLines = if (isCmdExpanded) Int.MAX_VALUE else 3,
-                                    overflow = TextOverflow.Ellipsis
-                                )
+                                Column(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Text(
+                                        text = highlightCommand(rawCmd, colors.accentIndigo, colors.textPrimary),
+                                        fontSize = 11.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        maxLines = if (isCmdExpanded) Int.MAX_VALUE else 3,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
 
-                                if (isLong) {
+                                    if (isLong) {
+                                        Row(
+                                            modifier = Modifier
+                                                .clickable {
+                                                    expandedTaskIds = if (isCmdExpanded) {
+                                                        expandedTaskIds - task.id
+                                                    } else {
+                                                        expandedTaskIds + task.id
+                                                    }
+                                                }
+                                                .padding(top = 2.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(2.dp)
+                                        ) {
+                                            Text(
+                                                text = if (isCmdExpanded) "收起" else "展开完整命令",
+                                                color = colors.accentIndigo,
+                                                fontSize = 10.sp,
+                                                fontWeight = FontWeight.Medium
+                                            )
+                                            Icon(
+                                                imageVector = if (isCmdExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                                                contentDescription = null,
+                                                tint = colors.accentIndigo,
+                                                modifier = Modifier.size(12.dp)
+                                            )
+                                        }
+                                    }
+                                }
+
+                                if (isCopied) {
                                     Row(
                                         modifier = Modifier
-                                            .clickable {
-                                                expandedTaskIds = if (isCmdExpanded) {
-                                                    expandedTaskIds - task.id
-                                                } else {
-                                                    expandedTaskIds + task.id
-                                                }
-                                            }
-                                            .padding(top = 2.dp),
+                                            .align(Alignment.TopEnd)
+                                            .clip(RoundedCornerShape(999.dp))
+                                            .background(Color(0xFF4CAF50).copy(alpha = 0.92f))
+                                            .padding(horizontal = 6.dp, vertical = 2.dp),
                                         verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(2.dp)
+                                        horizontalArrangement = Arrangement.spacedBy(3.dp)
                                     ) {
-                                        Text(
-                                            text = if (isCmdExpanded) "收起" else "展开完整命令",
-                                            color = colors.accentIndigo,
-                                            fontSize = 10.sp,
-                                            fontWeight = FontWeight.Medium
-                                        )
                                         Icon(
-                                            imageVector = if (isCmdExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                                            imageVector = Icons.Default.Check,
                                             contentDescription = null,
-                                            tint = colors.accentIndigo,
-                                            modifier = Modifier.size(12.dp)
+                                            tint = Color.White,
+                                            modifier = Modifier.size(10.dp)
+                                        )
+                                        Text(
+                                            text = "已复制",
+                                            fontSize = 10.sp,
+                                            color = Color.White,
+                                            fontWeight = FontWeight.SemiBold
                                         )
                                     }
                                 }

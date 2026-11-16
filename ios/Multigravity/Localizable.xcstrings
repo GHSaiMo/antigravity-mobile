@@ -5329,6 +5329,22 @@
         }
       }
     },
+    "实时上下文": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live Context"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "实时上下文"
+          }
+        }
+      }
+    },
     "实时上下文水位": {
       "localizations": {
         "en": {
@@ -11501,6 +11517,118 @@
           "stringUnit": {
             "state": "translated",
             "value": "精简模式"
+          }
+        }
+      }
+    },
+    "折叠工具执行过程": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Collapse Tool Steps"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "折叠工具执行过程"
+          }
+        }
+      }
+    },
+    "将检索与命令步骤收起为单行摘要": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Summarize tool calls into a single line"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将检索与命令步骤收起为单行摘要"
+          }
+        }
+      }
+    },
+    "收起任务辅助栏": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Collapse Task Card"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "收起任务辅助栏"
+          }
+        }
+      }
+    },
+    "底部运行任务默认单行折叠，保留终止按钮": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep bottom running tasks as a single line with Stop button"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "底部运行任务默认单行折叠，保留终止按钮"
+          }
+        }
+      }
+    },
+    "隐藏常规上下文": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide Healthy Context"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隐藏常规上下文"
+          }
+        }
+      }
+    },
+    "占用 < 70% 时隐藏顶栏胶囊，≥ 70% 自动恢复预警": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide context capsule below 70%; auto-show at ≥ 70%"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "占用 < 70% 时隐藏顶栏胶囊，≥ 70% 自动恢复预警"
+          }
+        }
+      }
+    },
+    "复制完整命令": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Full Command"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "复制完整命令"
           }
         }
       }
