@@ -40,7 +40,7 @@ public struct VoiceCallCardView: View {
         VStack(alignment: .leading, spacing: 7) {
             if !effectiveTranscriptText.isEmpty {
                 HStack(alignment: .top, spacing: 6) {
-                    Text(effectiveTranscriptRole == .ai ? "AI" : "我")
+                    Text(effectiveTranscriptRole == .ai ? "AI" : String(localized: "我"))
                         .font(.system(size: 10, weight: .bold))
                         .foregroundColor(.white)
                         .padding(.horizontal, 5)
@@ -119,7 +119,7 @@ public struct VoiceCallCardView: View {
                             .clipShape(Circle())
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel(voiceCall.isMicMuted ? "取消静音麦克风" : "静音麦克风")
+                    .accessibilityLabel(voiceCall.isMicMuted ? String(localized: "取消静音麦克风") : String(localized: "静音麦克风"))
 
                     Button {
                         voiceCall.toggleSpeakerMute()
@@ -132,7 +132,7 @@ public struct VoiceCallCardView: View {
                             .clipShape(Circle())
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel(voiceCall.isSpeakerMuted ? "开启AI外放" : "静音AI外放")
+                    .accessibilityLabel(voiceCall.isSpeakerMuted ? String(localized: "开启AI外放") : String(localized: "静音AI外放"))
 
                     if isAgentRunning {
                         Button {

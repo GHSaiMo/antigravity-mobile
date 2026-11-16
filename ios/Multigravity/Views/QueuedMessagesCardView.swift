@@ -51,7 +51,7 @@ public struct QueuedMessagesCardView: View {
                         .frame(width: 6, height: 6)
                 }
 
-                Text(hasActiveBackgroundWork ? "后台任务运行中，完成后出列" : "当前任务完成后自动发送")
+                Text(hasActiveBackgroundWork ? String(localized: "后台任务运行中，完成后出列") : String(localized: "当前任务完成后自动发送"))
                     .font(.system(size: 12))
                     .foregroundColor(hasActiveBackgroundWork ? .orange : .secondary)
                     .lineLimit(1)
@@ -72,7 +72,7 @@ public struct QueuedMessagesCardView: View {
                         .frame(width: 28, height: 28)
                 }
                 .buttonStyle(.plain)
-                .help(isExpanded ? "折叠队列" : "展开队列")
+                .help(isExpanded ? String(localized: "折叠队列") : String(localized: "展开队列"))
             }
             .zIndex(10)
             
@@ -162,7 +162,7 @@ private struct QueuedMessageRowView: View {
             }
             
             let displayText = item.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            Text(displayText.isEmpty ? (item.hasAttachments ? "图片" : "") : item.text)
+            Text(displayText.isEmpty ? (item.hasAttachments ? String(localized: "图片") : "") : item.text)
                 .font(.system(size: 14))
                 .lineSpacing(2)
                 .foregroundColor(.primary)

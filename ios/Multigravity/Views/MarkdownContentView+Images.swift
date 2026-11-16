@@ -109,7 +109,7 @@ struct CachedMarkdownAsyncImageView: View {
                 .imageContextMenu(item: IdentifiableImage(image: uiImage, url: url)) {
                     onTap(url)
                 }
-                .accessibilityLabel(alt.isEmpty ? "图片" : alt)
+                .accessibilityLabel(alt.isEmpty ? String(localized: "图片") : alt)
             } else if hasFailed {
                 onFailure(alt)
             } else {
@@ -410,13 +410,13 @@ extension MarkdownContentView {
     func markdownImageFailure(alt: String) -> some View {
         HStack(spacing: 8) {
             Image(systemName: "photo")
-            Text(alt.isEmpty ? "图片加载失败" : alt)
+            Text(alt.isEmpty ? String(localized: "图片加载失败") : alt)
                 .lineLimit(2)
         }
         .font(.footnote)
         .foregroundColor(.secondary)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityLabel(alt.isEmpty ? "图片加载失败" : alt)
+        .accessibilityLabel(alt.isEmpty ? String(localized: "图片加载失败") : alt)
     }
     
 }

@@ -50,7 +50,7 @@ extension MarkdownContentView {
                     let formatted = code.hasSuffix("\n") ? code : "\(code)\n"
                     UIPasteboard.general.string = formatted
                     UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                    CopiedHUD.show("已复制代码")
+                    CopiedHUD.show(String(localized: "已复制代码"))
                 }) {
                     HStack(spacing: 4) {
                         Image(systemName: "doc.on.doc")

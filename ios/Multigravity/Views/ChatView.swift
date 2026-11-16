@@ -270,7 +270,7 @@ public struct ChatView: View {
             
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
-                    Section("权限放行模式 (\(viewModel.permissionState.label))") {
+                    Section("权限放行模式 (\(viewModel.permissionState.localizedLabel))") {
                         Button {
                             Task { await viewModel.updatePermissionPreset("strict") }
                         } label: {
@@ -301,7 +301,7 @@ public struct ChatView: View {
                     UIImpactFeedbackGenerator(style: .light).impactOccurred()
                     showMcpSkillsSheet = true
                 }
-                .accessibilityLabel(viewModel.hasAnyBackgroundTasks ? "打开后台任务与工具看板" : "打开已连接工具与技能看板")
+                .accessibilityLabel(viewModel.hasAnyBackgroundTasks ? String(localized: "打开后台任务与工具看板") : String(localized: "打开已连接工具与技能看板"))
             }
         }
         .background(SwipeBackEnabler())

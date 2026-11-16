@@ -105,7 +105,7 @@ extension ChatViewModel {
                         self.nextOffset = 0
                         self.stepCount = 0
                         self.totalTools = 0
-                        self.duration = "0秒"
+                        self.duration = String(localized: "0秒")
                         self.isNewConversation = true
                         self.currentTitle = self.emptyConversationTitle
                     }

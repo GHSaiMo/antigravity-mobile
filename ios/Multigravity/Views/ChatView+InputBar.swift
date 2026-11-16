@@ -566,7 +566,7 @@ private struct NarrationPlayerBar: View {
             Image(systemName: "speaker.wave.2.fill")
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundColor(.indigo)
-            Text(player.statusLabel.isEmpty ? "正在语音播报..." : player.statusLabel)
+            Text(player.statusLabel.isEmpty ? String(localized: "正在语音播报...") : player.statusLabel)
                 .font(.system(size: 12, weight: .medium))
                 .foregroundColor(.primary)
             Spacer()
@@ -655,7 +655,7 @@ private struct VoiceModeButton: View {
                     hasTriggeredDictation = false
                 }
         )
-        .accessibilityLabel(isDictating ? "正在流式听写，松开结束" : "实时语音对话，按住流式听写")
+        .accessibilityLabel(isDictating ? String(localized: "正在流式听写，松开结束") : String(localized: "实时语音对话，按住流式听写"))
     }
 }
 
@@ -881,7 +881,7 @@ private struct MentionPickerView: View {
                             .font(.system(size: 24))
                             .foregroundColor(.secondary.opacity(0.7))
                     }
-                    Text(viewModel.isLoadingMentions ? "正在检索工作区上下文..." : "暂无匹配的文件、目录或关联会话")
+                    Text(viewModel.isLoadingMentions ? String(localized: "正在检索工作区上下文...") : String(localized: "暂无匹配的文件、目录或关联会话"))
                         .font(.system(size: 13.5))
                         .foregroundColor(.secondary)
                 }
@@ -992,11 +992,11 @@ private struct MentionPickerView: View {
     private func mentionStyle(for type: String) -> (icon: String, color: Color, tag: String) {
         switch type {
         case "directory":
-            return ("folder.fill", .blue, "目录")
+            return ("folder.fill", .blue, String(localized: "目录"))
         case "conversation":
-            return ("bubble.left.and.bubble.right.fill", .teal, "会话")
+            return ("bubble.left.and.bubble.right.fill", .teal, String(localized: "会话"))
         default:
-            return ("doc.text.fill", .indigo, "文件")
+            return ("doc.text.fill", .indigo, String(localized: "文件"))
         }
     }
 }

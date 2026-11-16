@@ -68,7 +68,8 @@ extension ChatViewModel {
                 if parsed.isAttempt && prevParsed.isAttempt && APIClient.normalizeErrKey(prevParsed.baseError) == APIClient.normalizeErrKey(parsed.baseError) {
                     let newAttempt = max(parsed.attempt, (last.attemptCount ?? prevParsed.attempt) + 1)
                     let maxAttempts = parsed.maxAttempts > 0 ? parsed.maxAttempts : (last.maxAttempts ?? 9)
-                    let formatted = "\(parsed.prefix) (attempt \(newAttempt)/\(maxAttempts) · 已重试 \(newAttempt) 次): \(parsed.baseError)"
+                    let retried = String(localized: "已重试 \(newAttempt) 次")
+                    let formatted = "\(parsed.prefix) (attempt \(newAttempt)/\(maxAttempts) · \(retried)): \(parsed.baseError)"
                     result[result.count - 1] = ChatMessage(
                         id: last.id,
                         sender: .error,
@@ -84,7 +85,8 @@ extension ChatViewModel {
                 if parsed.isAttempt && APIClient.normalizeErrKey(last.content) == APIClient.normalizeErrKey(parsed.baseError) {
                     let newAttempt = max(parsed.attempt, (last.attemptCount ?? 1) + 1)
                     let maxAttempts = parsed.maxAttempts > 0 ? parsed.maxAttempts : 9
-                    let formatted = "\(parsed.prefix) (attempt \(newAttempt)/\(maxAttempts) · 已重试 \(newAttempt) 次): \(parsed.baseError)"
+                    let retried = String(localized: "已重试 \(newAttempt) 次")
+                    let formatted = "\(parsed.prefix) (attempt \(newAttempt)/\(maxAttempts) · \(retried)): \(parsed.baseError)"
                     result[result.count - 1] = ChatMessage(
                         id: last.id,
                         sender: .error,
@@ -99,7 +101,8 @@ extension ChatViewModel {
                 // Case 3: Both are non-attempt errors, but have identical normalized content (consecutive duplicate errors)
                 if !parsed.isAttempt && !prevParsed.isAttempt && APIClient.normalizeErrKey(last.content) == APIClient.normalizeErrKey(msg.content) {
                     let count = (last.attemptCount ?? 1) + 1
-                    let formatted = "\(msg.content) (已重试 \(count) 次)"
+                    let retried = String(localized: "已重试 \(count) 次")
+                    let formatted = "\(msg.content) (\(retried))"
                     result[result.count - 1] = ChatMessage(
                         id: last.id,
                         sender: .error,
@@ -128,7 +131,7 @@ extension ChatViewModel {
                     self.nextOffset = 0
                     self.stepCount = 0
                     self.totalTools = 0
-                    self.duration = "0秒"
+                    self.duration = String(localized: "0秒")
                     self.isNewConversation = true
                     self.currentTitle = self.emptyConversationTitle
                 }

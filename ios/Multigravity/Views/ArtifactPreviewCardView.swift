@@ -24,7 +24,7 @@ public struct ArtifactPreviewCardView: View {
                     Text(isVideo ? "🎬" : "📄")
                         .font(.system(size: 15))
                     
-                    Text(artifact.title.isEmpty ? "文档详情" : artifact.title)
+                    Text(artifact.title.isEmpty ? String(localized: "文档详情") : artifact.title)
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundColor(.primary)
                         .lineLimit(1)

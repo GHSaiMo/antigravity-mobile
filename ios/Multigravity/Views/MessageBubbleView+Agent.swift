@@ -40,7 +40,7 @@ extension MessageBubbleView {
                             Image(systemName: "brain.head.profile")
                                 .font(.system(size: 11, weight: .semibold))
                                 .foregroundColor(.indigo)
-                            Text("已深度思考\(message.thinkingDuration.map { " · \($0)" } ?? "")")
+                            Text(message.thinkingDuration.map { String(localized: "已深度思考 · \($0)") } ?? String(localized: "已深度思考"))
                                 .font(.system(size: 11.5, weight: .medium))
                                 .foregroundColor(.secondary)
                             Image(systemName: isThinkingExpanded ? "chevron.up" : "chevron.down")

@@ -496,13 +496,13 @@ public struct LocalDraftSession: Codable, Sendable, Identifiable, Hashable {
         if !firstLine.isEmpty {
             displayTitle = firstLine
         } else if isRecording {
-            displayTitle = isPure ? "[录音中] 新对话" : "[录音中] \(project.name)"
+            displayTitle = isPure ? String(localized: "[录音中] 新对话") : String(localized: "[录音中] \(project.name)")
         } else if hasImages {
-            displayTitle = isPure ? "[图片] 新对话" : "[图片] \(project.name)"
+            displayTitle = isPure ? String(localized: "[图片] 新对话") : String(localized: "[图片] \(project.name)")
         } else if hasFiles {
-            displayTitle = isPure ? "[文件] 新对话" : "[文件] \(project.name)"
+            displayTitle = isPure ? String(localized: "[文件] 新对话") : String(localized: "[文件] \(project.name)")
         } else {
-            displayTitle = isPure ? "新对话" : project.name
+            displayTitle = isPure ? String(localized: "新对话") : project.name
         }
         return ConversationItem(
             id: id,

@@ -333,7 +333,7 @@ public struct NewConversationSheet: View {
                     await refreshProjectsInBackground()
                 }
             } catch {
-                errorMessage = "创建 Worktree 失败: \(error.localizedDescription)"
+                errorMessage = String(localized: "创建 Worktree 失败: \(error.localizedDescription)")
             }
         }
     }
@@ -342,7 +342,7 @@ public struct NewConversationSheet: View {
         if AppSettings.shared.gatewayPlatform == "windows" {
             return #"C:\Users\...\project"#
         }
-        return "/Users/... 或 ~/Projects/..."
+        return String(localized: "/Users/... 或 ~/Projects/...")
     }
 
     private func startAddWorkspace(path: String) {
@@ -359,7 +359,7 @@ public struct NewConversationSheet: View {
                     baseURL: url
                 )
                 if resp.ok == false {
-                    errorMessage = resp.error ?? "添加工作区失败"
+                    errorMessage = resp.error ?? String(localized: "添加工作区失败")
                     return
                 }
                 await refreshProjectsInBackground()
@@ -381,7 +381,7 @@ public struct NewConversationSheet: View {
                 }
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
             } catch {
-                errorMessage = "添加工作区失败: \(error.localizedDescription)"
+                errorMessage = String(localized: "添加工作区失败: \(error.localizedDescription)")
             }
         }
     }
@@ -406,7 +406,7 @@ public struct NewConversationSheet: View {
                     errorMessage = err
                 }
             } catch {
-                errorMessage = "克隆仓库失败: \(error.localizedDescription)"
+                errorMessage = String(localized: "克隆仓库失败: \(error.localizedDescription)")
             }
         }
     }

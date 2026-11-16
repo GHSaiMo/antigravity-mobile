@@ -870,39 +870,57 @@ extension DemoGateway {
                     timestamp: isoAgo(minutes: 25),
                     workflow: [
                         "description": Self.t("发版前并行门禁流水线：安全扫描 + 压测定位 -> 单测补全", "Pre-release parallel gate: security + profiling -> test authoring"),
-                        "phaseCount": 2,
+                        "scriptPath": "scripts/quality_gate_workflow.py",
                         "phases": [
                             [
                                 "name": Self.t("Phase 1 · 深度审计与性能采样", "Phase 1 · Security Audit & Profiling"),
-                                "taskCount": 2,
-                                "tasks": [
+                                "status": "done",
+                                "logs": [
+                                    Self.t("[security-auditor] 参数化 SQL 与 RBAC 鉴权校验通过", "[security-auditor] Parameterized SQL & RBAC checks passed"),
+                                    Self.t("[perf-profiler] EvaluateRiskBatch P99 = 18.4ms @ 500 QPS", "[perf-profiler] EvaluateRiskBatch P99 = 18.4ms @ 500 QPS")
+                                ],
+                                "subagents": [
                                     [
-                                        "title": Self.t("安全审计：SQL 注入与越权", "Security: SQL Injection & AuthZ"),
-                                        "status": "completed",
                                         "conversationId": "demo-subagent-audit-1",
-                                        "duration": "14s"
+                                        "role": Self.t("安全审计：SQL 注入与越权", "Security: SQL Injection & AuthZ"),
+                                        "typeName": "security-auditor",
+                                        "modelTier": "pro",
+                                        "status": "done",
+                                        "stepCount": 3
                                     ],
                                     [
-                                        "title": Self.t("压测定位：P99 延迟火焰图", "Profiling: P99 Flamegraph"),
-                                        "status": "completed",
                                         "conversationId": "demo-subagent-perf-2",
-                                        "duration": "11s"
+                                        "role": Self.t("压测定位：P99 延迟火焰图", "Profiling: P99 Flamegraph"),
+                                        "typeName": "perf-profiler",
+                                        "modelTier": "flash",
+                                        "status": "done",
+                                        "stepCount": 3
                                     ]
                                 ]
                             ],
                             [
                                 "name": Self.t("Phase 2 · 回归单测自动补全", "Phase 2 · Automated Test Coverage"),
-                                "taskCount": 1,
-                                "tasks": [
+                                "status": "running",
+                                "logs": [
+                                    Self.t("[test-author] 正在写入 rule_eval_test.go 并运行 go test -race...", "[test-author] Writing rule_eval_test.go and running go test -race...")
+                                ],
+                                "subagents": [
                                     [
-                                        "title": Self.t("生成表驱动边界单测并运行 -race", "Write table-driven tests & run -race"),
-                                        "status": "running",
                                         "conversationId": "demo-subagent-live-3",
-                                        "duration": Self.t("进行中", "Running")
+                                        "role": Self.t("生成表驱动边界单测并运行 -race", "Write table-driven tests & run -race"),
+                                        "typeName": "test-author",
+                                        "modelTier": "inherit",
+                                        "status": "running",
+                                        "stepCount": 3
                                     ]
                                 ]
                             ]
-                        ]
+                        ],
+                        "logs": [
+                            Self.t("Phase 1 完成（2/2 子代理通过），正在推进 Phase 2...", "Phase 1 completed (2/2 passed); running Phase 2...")
+                        ],
+                        "status": "running",
+                        "duration": Self.t("进行中 · 25s", "Running · 25s")
                     ]
                 ),
                 Self.subagentMsg(
@@ -1478,7 +1496,7 @@ extension DemoGateway {
             title: Self.t("高危发布脚本审批（Workflow Approval）", "Production Script Approval Gate"),
             workspaceName: Self.t("部署脚本", "Deploy Scripts"),
             workspaceUri: "file:///Users/demo/Projects/deploy-scripts",
-            status: "CASCADE_RUN_STATUS_WAITING_FOR_USER",
+            status: "CASCADE_RUN_STATUS_RUNNING",
             duration: Self.t("等待审批", "Awaiting Approval"),
             messages: [
                 Self.userMsg(
@@ -1505,11 +1523,22 @@ extension DemoGateway {
                 "description": Self.t("该脚本将清理过期会话缓存前缀并触发生产网关配置重载。", "Cleans expired Redis session prefixes and hot-reloads production gateway."),
                 "commandLine": "bash scripts/prod_cleanup.sh --prefix 'v1:session:tmp:*' --reload-gateway",
                 "workflowApproval": [
-                    "workflowTitle": Self.t("生产网关滚动重载与前缀清理", "Canary Cache Cleanup & Gateway Reload"),
-                    "description": Self.t("预计影响 14,200 个临时键，网关配置平滑重载不中断活跃 SSE 连接。", "Affects ~14,200 TTL keys; active SSE streams stay connected."),
-                    "allowOnceOptionId": "1",
-                    "allowAlwaysOptionId": "2",
-                    "denyOptionId": "5"
+                    "description": Self.t("生产网关滚动重载与前缀清理 · 预计影响 14,200 个临时键，网关平滑重载不中断活跃 SSE 连接。", "Canary Cache Cleanup & Gateway Reload · Affects ~14,200 TTL keys; active SSE streams stay connected."),
+                    "scriptPath": "scripts/prod_cleanup.sh",
+                    "script": """
+                    #!/usr/bin/env python3
+                    from workflow import phase, run_command
+
+                    with phase("preflight"):
+                        run_command("redis-cli --scan --pattern 'v1:session:tmp:*' | wc -l")
+                    with phase("cleanup_and_reload"):
+                        run_command("bash scripts/prod_cleanup.sh --prefix 'v1:session:tmp:*' --reload-gateway")
+                    """,
+                    "estimatedPhases": [
+                        Self.t("Preflight 扫描 (14,200 keys)", "Preflight Scan (14,200 keys)"),
+                        Self.t("清理前缀并热重载", "Clean Keys & Reload")
+                    ],
+                    "maxConcurrency": 2
                 ],
                 "options": [
                     ["id": "1", "text": Self.t("允许本次执行", "Allow Once")],

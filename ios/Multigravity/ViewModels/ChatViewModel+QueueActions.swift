@@ -314,7 +314,7 @@ extension ChatViewModel {
         } catch {
             print("[ChatViewModel] stopSubagent failed: \(error)")
             self.subagents = previous
-            self.attachmentNotice = "关停子代理失败，请稍后重试"
+            self.attachmentNotice = String(localized: "关停子代理失败，请稍后重试")
         }
     }
 

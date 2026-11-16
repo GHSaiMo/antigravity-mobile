@@ -131,7 +131,7 @@ struct SlashCommandPickerView: View {
             if commands.isEmpty {
                 HStack(spacing: 10) {
                     if isLoading { ProgressView().scaleEffect(0.85) }
-                    Text(isLoading ? "正在读取命令与技能..." : "没有匹配的命令或技能")
+                    Text(isLoading ? String(localized: "正在读取命令与技能...") : String(localized: "没有匹配的命令或技能"))
                         .font(.system(size: 13.5))
                         .foregroundColor(.secondary)
                     Spacer()
@@ -204,7 +204,7 @@ struct SlashCommandPickerView: View {
                         .foregroundColor(.primary)
                         .lineLimit(1)
 
-                    Text(isSkill ? "技能" : "系统")
+                    Text(isSkill ? String(localized: "技能") : String(localized: "系统"))
                         .font(.system(size: 10.5, weight: .semibold))
                         .foregroundColor(accentColor)
                         .padding(.horizontal, 6)

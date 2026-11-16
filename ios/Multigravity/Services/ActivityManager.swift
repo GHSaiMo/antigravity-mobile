@@ -75,7 +75,7 @@ public final class ActivityManager {
         cascadeId: String,
         status: String = "RUNNING",
         stepCount: Int = 1,
-        latestAction: String = "开始执行任务...",
+        latestAction: String = String(localized: "开始执行任务..."),
         runningTaskCount: Int = 0,
         runningTasks: [AgentTaskSnapshot] = [],
         activeTaskTitle: String? = nil,
@@ -111,7 +111,7 @@ public final class ActivityManager {
             conversationTitle: title,
             status: status,
             stepCount: max(1, stepCount),
-            latestAction: latestAction.isEmpty ? (runningTaskCount > 0 ? "正在执行后台任务..." : "正在执行...") : latestAction,
+            latestAction: latestAction.isEmpty ? (runningTaskCount > 0 ? String(localized: "正在执行后台任务...") : String(localized: "正在执行...")) : latestAction,
             runningTaskCount: runningTaskCount,
             runningTasks: runningTasks,
             activeTaskTitle: activeTaskTitle,
@@ -149,11 +149,11 @@ public final class ActivityManager {
         if !latestAction.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             actionText = latestAction
         } else if runningTaskCount > 0 {
-            actionText = "正在执行后台任务..."
+            actionText = String(localized: "正在执行后台任务...")
         } else if stepCount > 0 {
-            actionText = "正在执行第 \(stepCount) 步..."
+            actionText = String(localized: "正在执行第 \(stepCount) 步...")
         } else {
-            actionText = "正在执行..."
+            actionText = String(localized: "正在执行...")
         }
         
         let resolvedTitle: String
@@ -211,13 +211,13 @@ public final class ActivityManager {
         let summary: String
         switch finalStatus {
         case "COMPLETED":
-            summary = "任务已完成"
+            summary = String(localized: "任务已完成")
         case "CANCELLED":
-            summary = "任务已终止"
+            summary = String(localized: "任务已终止")
         case "FAILED":
-            summary = "执行遇到错误"
+            summary = String(localized: "执行遇到错误")
         default:
-            summary = "执行已结束"
+            summary = String(localized: "执行已结束")
         }
         
         self._currentActivity = nil

@@ -77,7 +77,8 @@ public final class AudioRecorderManager: NSObject, ObservableObject, AVAudioReco
             let tempDir = FileManager.default.temporaryDirectory
             let formatter = DateFormatter()
             formatter.dateFormat = "yyyyMMdd_HHmmss"
-            let fileName = "录音_\(formatter.string(from: Date())).m4a"
+            let prefix = String(localized: "录音_")
+            let fileName = "\(prefix)\(formatter.string(from: Date())).m4a"
             let fileURL = tempDir.appendingPathComponent(fileName)
             self.currentFileURL = fileURL
             

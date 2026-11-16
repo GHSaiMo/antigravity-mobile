@@ -290,7 +290,7 @@ public final class WorkflowTemplateStore {
                     Self.saveCache(serverPartitioned)
                 }
             } catch {
-                syncError = "已保存本机缓存，网关同步失败：\(error.localizedDescription)"
+                syncError = String(localized: "已保存本机缓存，网关同步失败：\(error.localizedDescription)")
             }
         }
     }
@@ -328,7 +328,7 @@ public final class WorkflowTemplateStore {
                     Self.saveCache(serverPartitioned)
                 }
             } catch {
-                syncError = "已重置本机列表，网关同步失败：\(error.localizedDescription)"
+                syncError = String(localized: "已重置本机列表，网关同步失败：\(error.localizedDescription)")
             }
         }
     }
@@ -466,8 +466,8 @@ public struct WorkflowTemplateSheet: View {
                     } else {
                         // Section 1: 长按快捷菜单
                         sectionHeader(
-                            title: "长按快捷菜单",
-                            subtitle: isEditing ? "拖拽至此置入长按上滑菜单" : "长按聊天栏 Workflow 上滑直达",
+                            title: String(localized: "长按快捷菜单"),
+                            subtitle: isEditing ? String(localized: "拖拽至此置入长按上滑菜单") : String(localized: "长按聊天栏 Workflow 上滑直达"),
                             count: quickItems.count
                         )
 
@@ -490,8 +490,8 @@ public struct WorkflowTemplateSheet: View {
 
                         // Section 2: 更多模板
                         sectionHeader(
-                            title: "更多模板",
-                            subtitle: isEditing ? "点击卡片编辑，按住 ≡ 可拖入上方快捷菜单" : "点击模板直接填入输入框",
+                            title: String(localized: "更多模板"),
+                            subtitle: isEditing ? String(localized: "点击卡片编辑，按住 ≡ 可拖入上方快捷菜单") : String(localized: "点击模板直接填入输入框"),
                             count: moreItems.count
                         )
                         .padding(.top, 4)
@@ -579,7 +579,7 @@ public struct WorkflowTemplateSheet: View {
                         Image(systemName: isEditing ? "checkmark" : "pencil")
                             .font(.system(size: 15, weight: .semibold))
                     }
-                    .accessibilityLabel(isEditing ? "完成" : "编辑")
+                    .accessibilityLabel(isEditing ? String(localized: "完成") : String(localized: "编辑"))
                 }
 
                 ToolbarItem(placement: .topBarTrailing) {
@@ -642,10 +642,10 @@ public struct WorkflowTemplateSheet: View {
     @ViewBuilder
     private func emptyQuickMenuDropZone(isHighlighted: Bool) -> some View {
         let content = VStack(spacing: 5) {
-            Text(isEditing ? "按住下方模板左侧 ≡ 向上拖入此处" : "暂未添加快捷模板")
+            Text(isEditing ? String(localized: "按住下方模板左侧 ≡ 向上拖入此处") : String(localized: "暂未添加快捷模板"))
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundColor(isHighlighted ? .indigo : .primary)
-            Text(isEditing ? "拖入后即可在聊天栏长按 Workflow 上滑直达" : "点击进入编辑，或编辑单个模板开启「加入长按快捷菜单」")
+            Text(isEditing ? String(localized: "拖入后即可在聊天栏长按 Workflow 上滑直达") : String(localized: "点击进入编辑，或编辑单个模板开启「加入长按快捷菜单」"))
                 .font(.system(size: 11.5))
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
@@ -1334,7 +1334,7 @@ private struct WorkflowTemplateEditorSheet: View {
                     Text("支持任意 Prompt 或斜杠命令，可用 [占位符] 提示自己在发送前补充参数。")
                 }
             }
-            .navigationTitle(isNew ? "新增 Workflow" : "编辑 Workflow")
+            .navigationTitle(isNew ? String(localized: "新增 Workflow") : String(localized: "编辑 Workflow"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {

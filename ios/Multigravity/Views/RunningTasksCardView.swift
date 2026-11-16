@@ -60,7 +60,7 @@ public struct RunningTasksCardView: View {
                         HStack(spacing: 4) {
                             Image(systemName: "terminal")
                                 .font(.system(size: 11, weight: .semibold))
-                            Text(showTerminalPanel ? "收起终端" : "终端交互")
+                            Text(showTerminalPanel ? String(localized: "收起终端") : String(localized: "终端交互"))
                                 .font(.system(size: 11, weight: .medium))
                         }
                         .foregroundColor(showTerminalPanel ? .white : .indigo)
@@ -97,7 +97,7 @@ public struct RunningTasksCardView: View {
                         .frame(width: 28, height: 28)
                 }
                 .buttonStyle(.plain)
-                .help(isCardExpanded ? "折叠任务" : "展开任务")
+                .help(isCardExpanded ? String(localized: "折叠任务") : String(localized: "展开任务"))
             }
             .zIndex(10)
             
@@ -217,7 +217,7 @@ public struct RunningTasksCardView: View {
                         }
                     }) {
                         HStack(spacing: 2) {
-                            Text(isCmdExpanded ? "收起" : "展开完整命令")
+                            Text(isCmdExpanded ? String(localized: "收起") : String(localized: "展开完整命令"))
                                 .font(.system(size: 10, weight: .medium))
                             Image(systemName: isCmdExpanded ? "chevron.up" : "chevron.down")
                                 .font(.system(size: 8, weight: .bold))
@@ -423,7 +423,7 @@ struct InteractiveTerminalPanelView: View {
                         }
                     } label: {
                         HStack(spacing: 4) {
-                            Text(session.terminals.first(where: { $0.effectiveId == session.selectedTerminalId })?.displayTitle ?? "选择终端")
+                            Text(session.terminals.first(where: { $0.effectiveId == session.selectedTerminalId })?.displayTitle ?? String(localized: "选择终端"))
                                 .font(.system(size: 11, design: .monospaced))
                                 .lineLimit(1)
                             Image(systemName: "chevron.down")
@@ -449,7 +449,7 @@ struct InteractiveTerminalPanelView: View {
             }
 
             ScrollView {
-                Text(session.outputText.isEmpty ? (session.terminals.isEmpty ? "暂无活动终端输出" : "等待终端输出...") : session.outputText)
+                Text(session.outputText.isEmpty ? (session.terminals.isEmpty ? String(localized: "暂无活动终端输出") : String(localized: "等待终端输出...")) : session.outputText)
                     .font(.system(size: 10.5, design: .monospaced))
                     .foregroundColor(.primary.opacity(0.9))
                     .frame(maxWidth: .infinity, alignment: .leading)

@@ -61,7 +61,7 @@ public struct CascadeChangesSheet: View {
                 .padding(16)
             }
         } else {
-            notice("本会话没有产生文件改动", icon: "checkmark.circle.fill", tint: .green)
+            notice(String(localized: "本会话没有产生文件改动"), icon: "checkmark.circle.fill", tint: .green)
         }
     }
 

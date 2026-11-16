@@ -446,7 +446,7 @@ extension APIClient {
         let (data, response) = try await transport.send(request: request)
         guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode), !data.isEmpty else {
             let code = (response as? HTTPURLResponse)?.statusCode ?? -1
-            throw APIError.serverError(statusCode: code, message: "语音合成失败")
+            throw APIError.serverError(statusCode: code, message: String(localized: "语音合成失败"))
         }
         return data
     }

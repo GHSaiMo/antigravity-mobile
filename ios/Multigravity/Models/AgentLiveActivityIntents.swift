@@ -60,7 +60,7 @@ nonisolated public struct ApproveAgentActionIntent: LiveActivityIntent {
                 title: snap?.title,
                 status: "RUNNING",
                 stepCount: max(1, snap?.totalSteps ?? 1),
-                latestAction: "已允许，继续执行中...",
+                latestAction: String(localized: "已允许，继续执行中..."),
                 hasPendingAction: false
             )
         }
@@ -113,7 +113,7 @@ nonisolated public struct RejectAgentActionIntent: LiveActivityIntent {
                 title: snap?.title,
                 status: "RUNNING",
                 stepCount: max(1, snap?.totalSteps ?? 1),
-                latestAction: "已拒绝该操作",
+                latestAction: String(localized: "已拒绝该操作"),
                 hasPendingAction: false
             )
         }

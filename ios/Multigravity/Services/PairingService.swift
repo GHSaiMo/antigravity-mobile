@@ -229,7 +229,7 @@ public final class PairingService: Sendable {
             candidates = publicPaths + privateLAN
         }
         guard !candidates.isEmpty else {
-            throw PairingError.invalidURI("无可用网关端点地址")
+            throw PairingError.invalidURI(String(localized: "无可用网关端点地址"))
         }
         
         let deviceName = await MainActor.run { UIDevice.current.name }
@@ -243,7 +243,7 @@ public final class PairingService: Sendable {
         do {
             bodyData = try JSONSerialization.data(withJSONObject: payload)
         } catch {
-            throw PairingError.networkError("无法打包配对请求数据: \(error.localizedDescription)")
+            throw PairingError.networkError(String(localized: "无法打包配对请求数据: \(error.localizedDescription)"))
         }
         
         struct EndpointResp: Decodable {
@@ -367,10 +367,10 @@ public final class PairingService: Sendable {
             if let pairingErr = err as? PairingError {
                 throw pairingErr
             }
-            throw PairingError.networkError("所有网关端点连接均失败: \(err.localizedDescription)")
+            throw PairingError.networkError(String(localized: "所有网关端点连接均失败: \(err.localizedDescription)"))
         }
         
-        throw PairingError.networkError("连接网关失败")
+        throw PairingError.networkError(String(localized: "连接网关失败"))
     }
     
     /// Accept endpoints that match the QR hosts, the URL we just paired with, private/loopback addresses,

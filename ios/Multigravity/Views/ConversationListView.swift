@@ -379,8 +379,12 @@ public struct ConversationListView: View {
                     .foregroundColor(.indigo)
 
                 Text(daemonCount > 0
-                     ? String(localized: "\(count) 个后台任务运行中（\(daemonCount) 个常驻）")
-                     : String(localized: "\(count) 个后台任务运行中"))
+                     ? (daemonCount == 1
+                        ? String(localized: "\(count) 个后台任务运行中（1 个常驻）")
+                        : String(localized: "\(count) 个后台任务运行中（\(daemonCount) 个常驻）"))
+                     : (count == 1
+                        ? String(localized: "1 个后台任务运行中")
+                        : String(localized: "\(count) 个后台任务运行中")))
                     .font(.system(size: 12, weight: .medium))
                     .foregroundColor(.primary)
                     .lineLimit(1)
@@ -1488,7 +1492,7 @@ private struct SidebarToggleToolbarItem: ToolbarContent {
                 Image(systemName: "sidebar.left")
                     .font(.system(size: 16, weight: .semibold))
             }
-            .accessibilityLabel(isShown ? "收起侧栏" : "展开侧栏")
+            .accessibilityLabel(isShown ? String(localized: "收起侧栏") : String(localized: "展开侧栏"))
         }
     }
 }
@@ -1499,7 +1503,7 @@ private struct SidebarToggleToolbarItem: ToolbarContent {
 private struct ConversationSearch: ViewModifier {
     @Binding var text: String
     let usesBottomCapsule: Bool
-    private let prompt = "搜索会话或工作区..."
+    private let prompt = String(localized: "搜索会话或工作区...")
     
     func body(content: Content) -> some View {
         if usesBottomCapsule {

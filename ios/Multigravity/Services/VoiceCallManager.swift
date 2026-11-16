@@ -110,7 +110,7 @@ public final class VoiceCallManager: ObservableObject {
 
         let resolvedURL = baseURL ?? AppSettings.shared.serverURL
         guard let serverURL = resolvedURL else {
-            callState = .failed("未配置服务器地址")
+            callState = .failed(String(localized: "未配置服务器地址"))
             return
         }
 
@@ -140,7 +140,7 @@ public final class VoiceCallManager: ObservableObject {
             try setupAudioEngine()
         } catch {
             print("[VoiceCall] AudioEngine setup failed: \(error)")
-            callState = .failed("麦克风或音频引擎初始化失败")
+            callState = .failed(String(localized: "麦克风或音频引擎初始化失败"))
             endCall(preserveFailure: true)
             return
         }
@@ -222,7 +222,7 @@ public final class VoiceCallManager: ObservableObject {
 
     private func connectWebSocket(baseURL: URL, cascadeId: String, modelIdOrEnum: String?) {
         guard var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: true) else {
-            callState = .failed("无效的网关地址")
+            callState = .failed(String(localized: "无效的网关地址"))
             endCall(preserveFailure: true)
             return
         }
@@ -252,7 +252,7 @@ public final class VoiceCallManager: ObservableObject {
         ]
 
         guard let wsURL = components.url else {
-            callState = .failed("无法构建语音连接地址")
+            callState = .failed(String(localized: "无法构建语音连接地址"))
             endCall(preserveFailure: true)
             return
         }
@@ -294,7 +294,7 @@ public final class VoiceCallManager: ObservableObject {
             try? await Task.sleep(nanoseconds: 10_000_000_000)
             guard let self, !Task.isCancelled else { return }
             if !self.isSocketReady && !self.isIntentionallyClosed {
-                self.callState = .failed("语音连接超时")
+                self.callState = .failed(String(localized: "语音连接超时"))
                 self.endCall(preserveFailure: true)
             }
         }
@@ -322,7 +322,7 @@ public final class VoiceCallManager: ObservableObject {
     func handleSocketDidFail(error: Error) {
         if !isIntentionallyClosed {
             print("[VoiceCall] WS failed: \(error)")
-            callState = .failed("语音连接中断")
+            callState = .failed(String(localized: "语音连接中断"))
             endCall(preserveFailure: true)
         }
     }
@@ -354,7 +354,7 @@ public final class VoiceCallManager: ObservableObject {
                 case .failure(let error):
                     if !self.isIntentionallyClosed {
                         print("[VoiceCall] WS receive error: \(error)")
-                        self.callState = .failed("语音通话已断开")
+                        self.callState = .failed(String(localized: "语音通话已断开"))
                         self.endCall(preserveFailure: true)
                     }
                 }

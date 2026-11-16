@@ -153,12 +153,12 @@ public struct GitCommitSheet: View {
             }
             if status.clean {
                 Section {
-                    notice("工作区没有可提交的改动", icon: "checkmark.circle.fill", tint: .green)
+                    notice(String(localized: "工作区没有可提交的改动"), icon: "checkmark.circle.fill", tint: .green)
                     if status.ahead > 0, status.upstream != nil {
                         Button {
                             viewModel.retryGitPush()
                         } label: {
-                            Text(state.isWorking ? "推送中..." : "推送 \(status.ahead) 个未推送的提交")
+                            Text(state.isWorking ? String(localized: "推送中...") : String(localized: "推送 \(status.ahead) 个未推送的提交"))
                                 .frame(maxWidth: .infinity)
                         }
                         .buttonStyle(.glass)
@@ -208,7 +208,7 @@ public struct GitCommitSheet: View {
                         Button {
                             viewModel.commitGit(message: message, paths: pathsArg, push: true)
                         } label: {
-                            Text(state.isWorking ? "处理中..." : "提交并推送").frame(maxWidth: .infinity)
+                            Text(state.isWorking ? String(localized: "处理中...") : String(localized: "提交并推送")).frame(maxWidth: .infinity)
                         }
                         .buttonStyle(.glass)
                         .tint(.indigo)
@@ -403,11 +403,11 @@ public struct GitCommitSheet: View {
         return VStack(spacing: 14) {
             notice(line, icon: "checkmark.circle.fill", tint: .green)
             if let err = result.pushError ?? state.actionError {
-                notice("推送失败：\(err)", icon: "exclamationmark.triangle.fill", tint: .orange)
+                notice(String(localized: "推送失败：\(err)"), icon: "exclamationmark.triangle.fill", tint: .orange)
                 Button {
                     viewModel.retryGitPush()
                 } label: {
-                    Text(state.isWorking ? "推送中..." : "重试推送")
+                    Text(state.isWorking ? String(localized: "推送中...") : String(localized: "重试推送"))
                 }
                 .buttonStyle(.glass)
                 .disabled(state.isWorking)
@@ -420,9 +420,9 @@ public struct GitCommitSheet: View {
     }
 
     private func committedSummary(_ result: GitCommitResponse) -> String {
-        var line = "已提交"
+        var line = String(localized: "已提交")
         if let id = result.commitId, !id.isEmpty { line += " \(id)" }
-        if result.pushed { line += "，已推送" }
+        if result.pushed { line += String(localized: "，已推送") }
         return line
     }
 

@@ -8,6 +8,12 @@ public struct MermaidDiagramView: View {
         case diagram = "图表"
         case code = "代码"
         public var id: String { rawValue }
+        public var localizedTitle: String {
+            switch self {
+            case .diagram: return String(localized: "图表")
+            case .code: return String(localized: "代码")
+            }
+        }
     }
     
     @State private var viewMode: ViewMode = .diagram
@@ -45,7 +51,7 @@ public struct MermaidDiagramView: View {
                                 viewMode = mode
                             }
                         }) {
-                            Text(mode.rawValue)
+                            Text(mode.localizedTitle)
                                 .font(.system(size: 11, weight: viewMode == mode ? .semibold : .regular))
                                 .padding(.horizontal, 7)
                                 .padding(.vertical, 3)
@@ -91,7 +97,7 @@ public struct MermaidDiagramView: View {
                     HStack(spacing: 3) {
                         Image(systemName: isCopied ? "checkmark" : "doc.on.doc")
                             .font(.system(size: 10))
-                        Text(isCopied ? "已复制" : "复制")
+                        Text(isCopied ? String(localized: "已复制") : String(localized: "复制"))
                             .font(.system(size: 11))
                     }
                     .foregroundColor(isCopied ? .green : .secondary)
@@ -330,7 +336,7 @@ public struct MermaidFullscreenViewer: View {
                     }) {
                         HStack(spacing: 4) {
                             Image(systemName: isCopied ? "checkmark" : "doc.on.doc")
-                            Text(isCopied ? "已复制" : "复制源码")
+                            Text(isCopied ? String(localized: "已复制") : String(localized: "复制源码"))
                         }
                         .font(.system(size: 14))
                         .foregroundColor(isCopied ? .green : .blue)
@@ -417,7 +423,7 @@ private enum MermaidHTMLTemplate {
               
               if (typeof mermaid === 'undefined') {
                 if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.errorNotifier) {
-                  window.webkit.messageHandlers.errorNotifier.postMessage({ error: "未能加载 mermaid.min.js 引擎" });
+                  window.webkit.messageHandlers.errorNotifier.postMessage({ error: "\(String(localized: "未能加载 mermaid.min.js 引擎"))" });
                 }
                 return;
               }

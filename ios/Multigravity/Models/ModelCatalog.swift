@@ -457,7 +457,7 @@ public enum ModelDefaultsLogic {
             if opt.id.lowercased().contains("gpt-oss") { continue }
             let fullName = opt.name.isEmpty ? displayName(forID: opt.id, options: options) : normalizeDisplayName(opt.name)
             var familyName = fullName
-            var variantLabel = "默认"
+            var variantLabel = String(localized: "默认")
             
             if let openParen = fullName.lastIndex(of: "("),
                fullName.hasSuffix(")"),

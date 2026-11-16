@@ -131,7 +131,7 @@ extension APIClient {
         }
         guard httpResp.statusCode == 200 else {
             let msg = String(data: data, encoding: .utf8) ?? "HTTP \(httpResp.statusCode)"
-            throw APIError.networkError("提交选项失败: \(msg)")
+            throw APIError.networkError(String(localized: "提交选项失败: \(msg)"))
         }
     }
     

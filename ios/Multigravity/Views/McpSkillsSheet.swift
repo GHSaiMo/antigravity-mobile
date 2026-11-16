@@ -655,7 +655,7 @@ public struct McpSkillsSheet: View {
                         Text(provider.name)
                             .font(.system(size: 14, weight: .medium))
                         Spacer()
-                        Text(provider.signedIn ? "已登录" : "需重连")
+                        Text(provider.signedIn ? String(localized: "已登录") : String(localized: "需重连"))
                             .font(.system(size: 11.5, weight: .medium))
                             .foregroundColor(provider.signedIn ? .green : .orange)
                     }
@@ -685,7 +685,7 @@ public struct McpSkillsSheet: View {
                                 .font(.system(size: 15, weight: .bold))
 
                             if plugin.installed {
-                                Text(plugin.enabled ? "已启用" : "已停用")
+                                Text(plugin.enabled ? String(localized: "已启用") : String(localized: "已停用"))
                                     .font(.system(size: 11, weight: .medium))
                                     .foregroundColor(plugin.enabled ? .green : .secondary)
                                     .padding(.horizontal, 6)
@@ -808,7 +808,7 @@ public struct McpSkillsSheet: View {
                                 Text(sidecar.name)
                                     .font(.system(size: 15, weight: .bold))
 
-                                Text(sidecar.isRunning ? "运行中" : "已停止")
+                                Text(sidecar.isRunning ? String(localized: "运行中") : String(localized: "已停止"))
                                     .font(.system(size: 11, weight: .medium))
                                     .foregroundColor(sidecar.isRunning ? .green : .secondary)
                                     .padding(.horizontal, 6)
@@ -833,7 +833,7 @@ public struct McpSkillsSheet: View {
                                     if managingAutomationNames.contains(sidecar.id) {
                                         ProgressView().scaleEffect(0.7)
                                     } else {
-                                        Text(sidecar.isRunning ? "停止" : "启动")
+                                        Text(sidecar.isRunning ? String(localized: "停止") : String(localized: "启动"))
                                             .font(.system(size: 12, weight: .semibold))
                                     }
                                 }
@@ -986,7 +986,7 @@ public struct McpSkillsSheet: View {
                     Image(systemName: "terminal")
                         .font(.system(size: 32))
                         .foregroundColor(.secondary)
-                    Text(searchText.isEmpty ? "当前没有正在运行的后台任务" : "未找到匹配的后台任务")
+                    Text(searchText.isEmpty ? String(localized: "当前没有正在运行的后台任务") : String(localized: "未找到匹配的后台任务"))
                         .font(.system(size: 14, weight: .medium))
                         .foregroundColor(.secondary)
                     if searchText.isEmpty {
@@ -1029,7 +1029,7 @@ public struct McpSkillsSheet: View {
             }
 
             if !otherTasks.isEmpty {
-                Section(header: Text(currentConversationId != nil ? "其他会话任务 (\(otherTasks.count))" : "正在运行的后台任务 (\(otherTasks.count))")) {
+                Section(header: Text(currentConversationId != nil ? String(localized: "其他会话任务 (\(otherTasks.count))") : String(localized: "正在运行的后台任务 (\(otherTasks.count))"))) {
                     ForEach(otherTasks) { task in
                         backgroundTaskRow(task, isCurrentSession: false)
                     }
@@ -1048,7 +1048,7 @@ public struct McpSkillsSheet: View {
         VStack(alignment: .leading, spacing: 8) {
             // 1. Header: Type Badge + Title + Elapsed + Stop Button
             HStack(alignment: .center, spacing: 6) {
-                let badgeTitle = task.isDaemon ? "常驻守护" : (task.toolName == "schedule" ? "定时任务" : "后台命令")
+                let badgeTitle = task.isDaemon ? String(localized: "常驻守护") : (task.toolName == "schedule" ? String(localized: "定时任务") : String(localized: "后台命令"))
                 let badgeColor: Color = task.isDaemon ? .purple : (task.toolName == "schedule" ? .orange : .indigo)
 
                 Text(badgeTitle)
@@ -1159,7 +1159,7 @@ public struct McpSkillsSheet: View {
                             HStack(spacing: 3) {
                                 Image(systemName: isCopied ? "checkmark" : "doc.on.doc")
                                     .font(.system(size: 11))
-                                Text(isCopied ? "已复制命令" : "复制命令")
+                                Text(isCopied ? String(localized: "已复制命令") : String(localized: "复制命令"))
                                     .font(.system(size: 11.5, weight: .medium))
                             }
                             .foregroundColor(isCopied ? .green : .secondary)
@@ -1179,7 +1179,7 @@ public struct McpSkillsSheet: View {
                                 HStack(spacing: 3) {
                                     Image(systemName: "text.alignleft")
                                         .font(.system(size: 11))
-                                    Text(isLogExpanded ? "收起终端日志" : "查看最新终端日志")
+                                    Text(isLogExpanded ? String(localized: "收起终端日志") : String(localized: "查看最新终端日志"))
                                         .font(.system(size: 11.5, weight: .medium))
                                 }
                                 .foregroundColor(.indigo)
@@ -1221,7 +1221,7 @@ public struct McpSkillsSheet: View {
                     } else {
                         let logText = (taskLogs[task.id] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
                         ScrollView(.vertical, showsIndicators: true) {
-                            Text(logText.isEmpty ? "（暂无终端日志输出）" : logText)
+                            Text(logText.isEmpty ? String(localized: "（暂无终端日志输出）") : logText)
                                 .font(.system(size: 11, design: .monospaced))
                                 .foregroundColor(.primary.opacity(0.85))
                                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -1550,14 +1550,14 @@ public struct McpSkillsSheet: View {
                         .frame(minHeight: 160)
                 }
             }
-            .navigationTitle(editingMemory == nil ? "新建记忆条目" : "编辑记忆条目")
+            .navigationTitle(editingMemory == nil ? String(localized: "新建记忆条目") : String(localized: "编辑记忆条目"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("取消") { showMemoryEditor = false }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(isSavingMemory ? "保存中..." : "保存") {
+                    Button(isSavingMemory ? String(localized: "保存中...") : String(localized: "保存")) {
                         saveMemoryEditor()
                     }
                     .disabled(isSavingMemory || memTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || memContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -1593,7 +1593,7 @@ public struct McpSkillsSheet: View {
                     Button("取消") { showCreateAutomation = false }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(isCreatingAutomation ? "创建中..." : "创建") {
+                    Button(isCreatingAutomation ? String(localized: "创建中...") : String(localized: "创建")) {
                         submitCreateAutomation()
                     }
                     .disabled(isCreatingAutomation || newAutoName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || newAutoSchedule.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || newAutoPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)

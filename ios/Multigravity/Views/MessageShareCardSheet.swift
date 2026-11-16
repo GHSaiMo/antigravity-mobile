@@ -294,7 +294,7 @@ struct MessageShareCardView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(context.sessionTitle.isEmpty ? "Multigravity 会话" : context.sessionTitle)
+            Text(context.sessionTitle.isEmpty ? String(localized: "Multigravity 会话") : context.sessionTitle)
                 .font(.system(size: 24, weight: .bold))
                 .foregroundColor(.primary)
                 // 长图标题必须完整显示：不限行数、不截断，宽度占满后纵向按内容撑开
@@ -477,7 +477,7 @@ struct MessageShareCardSheet: View {
                     UIImpactFeedbackGenerator(style: .light).impactOccurred()
                     theme = theme == .dark ? .light : .dark
                 } label: {
-                    Label(theme == .dark ? "深色" : "浅色", systemImage: theme == .dark ? "moon.fill" : "sun.max.fill")
+                    Label(theme == .dark ? String(localized: "深色") : String(localized: "浅色"), systemImage: theme == .dark ? "moon.fill" : "sun.max.fill")
                         .font(.system(size: 15, weight: .semibold))
                         .padding(.horizontal, 16)
                         .frame(height: 44)
@@ -559,9 +559,9 @@ struct MessageShareCardSheet: View {
             renderer.scale = scale
             image = renderer.uiImage
             if let reduced = image, reduced.size.height * scale > maxPixelHeight {
-                renderNote = "内容很长，已降低清晰度导出"
+                renderNote = String(localized: "内容很长，已降低清晰度导出")
             } else {
-                renderNote = "内容较长，已适当降低清晰度"
+                renderNote = String(localized: "内容较长，已适当降低清晰度")
             }
         } else {
             renderNote = nil
