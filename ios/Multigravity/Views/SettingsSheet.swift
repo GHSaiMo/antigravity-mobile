@@ -306,11 +306,6 @@ public struct SettingsSheet: View {
             }
             .navigationTitle("设置")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("完成") { dismiss() }
-                }
-            }
             .presentationDragIndicator(.visible)
         }
         .presentationDragIndicator(.visible)
