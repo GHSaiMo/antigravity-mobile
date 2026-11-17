@@ -912,6 +912,49 @@ class ApiClient(
         }
     }
 
+    suspend fun fetchWeChatChatArchive(uri: String, cascadeId: String? = null): Result<WeChatChatArchive> = withContext(Dispatchers.IO) {
+        val baseUrl = currentBaseUrl?.trimEnd('/') ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
+        val cleanUri = normalizeUriForGateway(uri)
+        val encodedUri = URLEncoder.encode(cleanUri, "UTF-8")
+        val cidParam = cascadeId?.takeIf { it.isNotBlank() }?.let { "&cascade_id=${URLEncoder.encode(it, "UTF-8")}" } ?: ""
+        val url = "$baseUrl/api/v1/files/wechat-chat?uri=$encodedUri$cidParam"
+        try {
+            val req = buildAuthorizedRequest(url).get().build()
+            client.newCall(req).await().use { response ->
+                if (!response.isSuccessful) {
+                    return@withContext Result.failure(RuntimeException("解析聊天记录失败: HTTP ${response.code}"))
+                }
+                val bodyStr = response.body?.string() ?: "{}"
+                val parsed = json.decodeFromString<WeChatChatArchive>(bodyStr)
+                Result.success(parsed)
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    fun buildZipEntryUrl(uri: String, entry: String, cascadeId: String? = null, thumb: Boolean = false): String {
+        val baseUrl = currentBaseUrl?.trimEnd('/') ?: return ""
+        val cleanUri = normalizeUriForGateway(uri)
+        val encodedUri = URLEncoder.encode(cleanUri, "UTF-8")
+        val encodedEntry = URLEncoder.encode(entry, "UTF-8")
+        val cidParam = cascadeId?.takeIf { it.isNotBlank() }?.let { "&cascade_id=${URLEncoder.encode(it, "UTF-8")}" } ?: ""
+        val thumbParam = if (thumb) "&thumb=1" else ""
+        return "$baseUrl/api/v1/files/zip-entry?uri=$encodedUri&entry=$encodedEntry$cidParam$thumbParam"
+    }
+
+    private fun normalizeUriForGateway(raw: String): String {
+        var clean = raw.trim()
+        if (clean.startsWith("MEDIA:", ignoreCase = true)) {
+            clean = clean.substring(6).trim()
+        }
+        if (clean.startsWith("file://")) {
+            clean = clean.removePrefix("file://")
+        }
+        clean = clean.trim('`', '"', '\'', '(', ')', '[', ']', '<', '>')
+        return try { URLDecoder.decode(clean, "UTF-8") } catch (_: Exception) { clean }
+    }
+
     /**
      * Report session focus to gateway immediately on tap (0ms latency, fire-and-forget).
      * Synchronizes Mac desktop / hardware cascading cursor state.

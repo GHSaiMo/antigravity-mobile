@@ -1528,7 +1528,7 @@ private fun openInExternalApp(context: Context, file: File) {
     }
 }
 
-private fun shareDocument(context: Context, file: File, title: String) {
+internal fun shareDocument(context: Context, file: File, title: String) {
     try {
         val uri = FileProvider.getUriForFile(
             context,

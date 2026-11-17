@@ -105,7 +105,7 @@ struct ShareTargetSheet: View {
                         FileTypeBadge(fileName: f.name, size: 56)
                         VStack(alignment: .leading, spacing: 4) {
                             Text(f.name).font(.system(size: 15, weight: .medium)).lineLimit(2)
-                            Text(f.rejectReason ?? formatFileSize(f.size))
+                            Text(f.rejectReason ?? (FileIconResolver.isWeChatChatArchive(f.name) ? "微信聊天记录 · \(formatFileSize(f.size))" : formatFileSize(f.size)))
                                 .font(.system(size: 12))
                                 .foregroundColor(f.rejectReason == nil ? .secondary : .red)
                                 .lineLimit(2)

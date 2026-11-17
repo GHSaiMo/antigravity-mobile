@@ -15,7 +15,7 @@ extension APIClient {
         if clean.hasPrefix("http://") || clean.hasPrefix("https://") {
             if let remote = URL(string: clean),
                Self.isSameGatewayHost(remote, gateway: baseURL),
-               remote.path.contains("/api/v1/files/raw"),
+               (remote.path.contains("/api/v1/files/raw") || remote.path.contains("/api/v1/files/zip-entry")),
                !clean.contains("auth_token="),
                !clean.contains("token="),
                !token.isEmpty {
@@ -236,6 +236,69 @@ extension APIClient {
         }
         
         return (cachedURL, resolvedFileName)
+    }
+
+    public func fetchWeChatChatArchive(uri: String, cascadeId: String? = nil, baseURL: URL) async throws -> WeChatChatArchive {
+        var components = URLComponents(url: baseURL.appendingPathComponent("api/v1/files/wechat-chat"), resolvingAgainstBaseURL: false)
+        var queryItems: [URLQueryItem] = [URLQueryItem(name: "uri", value: normalizeFileURIForGateway(uri))]
+        if let cascadeId = cascadeId, !cascadeId.isEmpty {
+            queryItems.append(URLQueryItem(name: "cascade_id", value: cascadeId))
+        }
+        components?.queryItems = queryItems
+        guard let endpoint = components?.url else {
+            throw APIError.invalidURL
+        }
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 30.0
+
+        let (data, response) = try await transport.send(request: request)
+        guard let httpResp = response as? HTTPURLResponse else {
+            throw APIError.networkError("Invalid response type")
+        }
+        guard (200...299).contains(httpResp.statusCode) else {
+            if httpResp.statusCode == 401 {
+                NotificationCenter.default.post(name: .deviceTokenRevoked, object: nil)
+            }
+            let msg = String(data: data, encoding: .utf8) ?? "HTTP \(httpResp.statusCode)"
+            throw APIError.serverError(statusCode: httpResp.statusCode, message: msg)
+        }
+        do {
+            return try JSONDecoder().decode(WeChatChatArchive.self, from: data)
+        } catch {
+            throw APIError.decodingError(error.localizedDescription)
+        }
+    }
+
+    public func zipEntryURL(uri: String, entry: String, cascadeId: String? = nil, baseURL: URL, thumb: Bool = false) -> URL? {
+        var components = URLComponents(url: baseURL.appendingPathComponent("api/v1/files/zip-entry"), resolvingAgainstBaseURL: false)
+        var queryItems: [URLQueryItem] = [
+            URLQueryItem(name: "uri", value: normalizeFileURIForGateway(uri)),
+            URLQueryItem(name: "entry", value: entry)
+        ]
+        if let cascadeId = cascadeId, !cascadeId.isEmpty {
+            queryItems.append(URLQueryItem(name: "cascade_id", value: cascadeId))
+        }
+        if thumb {
+            queryItems.append(URLQueryItem(name: "thumb", value: "1"))
+        }
+        let token = KeychainHelper.shared.read(key: .deviceToken) ?? AppSettings.shared.deviceToken ?? ""
+        if !token.isEmpty {
+            queryItems.append(URLQueryItem(name: "auth_token", value: token))
+        }
+        components?.queryItems = queryItems
+        return components?.url
+    }
+
+    private func normalizeFileURIForGateway(_ uri: String) -> String {
+        var cleanPath = uri.trimmingCharacters(in: .whitespacesAndNewlines)
+        if cleanPath.hasPrefix("MEDIA:") {
+            cleanPath = String(cleanPath.dropFirst(6)).trimmingCharacters(in: .whitespaces)
+        }
+        if cleanPath.hasPrefix("file://") {
+            cleanPath = String(cleanPath.dropFirst(7))
+        }
+        return cleanPath.trimmingCharacters(in: CharacterSet(charactersIn: "`\"'()[]<>"))
     }
     
 }

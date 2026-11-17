@@ -1,0 +1,32 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="64dp"
+    android:height="64dp"
+    android:viewportWidth="64"
+    android:viewportHeight="64">
+    <path
+        android:fillColor="#07C160"
+        android:pathData="M14,0 L50,0 A14,14 0 0 1 64,14 L64,50 A14,14 0 0 1 50,64 L14,64 A14,14 0 0 1 0,50 L0,14 A14,14 0 0 1 14,0 Z" />
+    <!-- Back bubble -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M25.5,14 C16.39,14 9,20.04 9,27.5 C9,31.74 11.4,35.53 15.16,38 L13.62,42.65 L19.02,39.95 C21.02,40.49 23.2,40.8 25.5,40.8 C34.61,40.8 42,34.76 42,27.5 C42,20.04 34.61,14 25.5,14 Z" />
+    <path
+        android:fillColor="#07C160"
+        android:pathData="M20,22.1 A1.9,1.9 0 1 0 20,25.9 A1.9,1.9 0 1 0 20,22.1 Z" />
+    <path
+        android:fillColor="#07C160"
+        android:pathData="M31,22.1 A1.9,1.9 0 1 0 31,25.9 A1.9,1.9 0 1 0 31,22.1 Z" />
+    <!-- Front bubble with green cutout stroke -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:strokeColor="#07C160"
+        android:strokeWidth="2.6"
+        android:strokeLineJoin="round"
+        android:pathData="M41.2,28.5 C33.58,28.5 27.4,33.55 27.4,39.78 C27.4,46.01 33.58,51.06 41.2,51.06 C42.89,51.06 44.51,50.81 46.01,50.36 L50.39,52.54 L49.15,48.8 C52.08,46.74 54,43.72 54,39.78 C54,33.55 47.82,28.5 41.2,28.5 Z" />
+    <path
+        android:fillColor="#07C160"
+        android:pathData="M36.8,35.2 A1.6,1.6 0 1 0 36.8,38.4 A1.6,1.6 0 1 0 36.8,35.2 Z" />
+    <path
+        android:fillColor="#07C160"
+        android:pathData="M45.6,35.2 A1.6,1.6 0 1 0 45.6,38.4 A1.6,1.6 0 1 0 45.6,35.2 Z" />
+</vector>

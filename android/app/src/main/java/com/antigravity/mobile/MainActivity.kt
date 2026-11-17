@@ -97,7 +97,9 @@ class MainActivity : ComponentActivity() {
                 val request = chain.request()
                 val token = prefs.deviceToken
                 val path = request.url.encodedPath
-                val isGatewayRequest = path.startsWith("/api/v1/files/raw") || path.startsWith("/static/")
+                val isGatewayRequest = path.startsWith("/api/v1/files/raw") ||
+                    path.startsWith("/api/v1/files/zip-entry") ||
+                    path.startsWith("/static/")
                 if (!token.isNullOrBlank() && isGatewayRequest && request.header("Authorization") == null) {
                     val newRequest = request.newBuilder()
                         .header("Authorization", "Bearer $token")

@@ -33,6 +33,16 @@ function initApp() {
       if (origUrl) {
         ImageViewerManager.open(origUrl, title, thumbUrl);
       }
+    } else if (action === "open-attachment-file") {
+      const uri = btn.dataset.uri;
+      const name = btn.dataset.name || "";
+      if (uri) {
+        if (typeof isWeChatChatArchiveName === "function" && isWeChatChatArchiveName(name) && typeof WeChatArchiveModal !== "undefined") {
+          WeChatArchiveModal.open(uri, name);
+        } else if (typeof resolveMediaRawUrl === "function") {
+          window.open(resolveMediaRawUrl(uri), "_blank", "noopener");
+        }
+      }
     } else if (action === "stop-task") {
       RunningTasksManager.stopTask(Number(btn.dataset.step), btn.dataset.id);
     } else if (action === "queue-send") {

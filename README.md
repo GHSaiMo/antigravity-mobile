@@ -20,7 +20,7 @@
 </p>
 
 <p align="center">
-  🌐 <b>官网</b>：<a href="https://mgy.jiuge.space">mgy.jiuge.space</a> &nbsp;·&nbsp; 📦 <a href="https://github.com/GHSaiMo/antigravity-mobile/releases/latest">最新版 v1.1.7</a>
+  🌐 <b>官网</b>：<a href="https://mgy.jiuge.space">mgy.jiuge.space</a> &nbsp;·&nbsp; 📦 <a href="https://github.com/GHSaiMo/antigravity-mobile/releases/latest">最新版 v1.1.8</a>
 </p>
 
 https://github.com/user-attachments/assets/37360cde-3875-45bf-947e-7774e800094c
@@ -58,7 +58,7 @@ irm https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/scripts/in
 </details>
 
 ### 2. 安装或打开移动端
-- **Android**：前往 [GitHub Releases](https://github.com/GHSaiMo/antigravity-mobile/releases/latest) 直接下载安装 `Multigravity-v1.1.7.apk`（支持覆盖升级，请仅从官方 Releases 下载）。
+- **Android**：前往 [GitHub Releases](https://github.com/GHSaiMo/antigravity-mobile/releases/latest) 直接下载安装 `Multigravity-v1.1.8.apk`（支持覆盖升级，请仅从官方 Releases 下载）。
 - **iOS**：参考 [iOS 本地构建与真机调试指南](docs/ios_build_guide.md) 编译安装。
 - **PWA / Web**：无需安装 App，手机浏览器直接访问网关地址（或 `/?view=pwa`）即可添加到主屏幕。
 
@@ -87,7 +87,7 @@ mgy
   </tr>
 </table>
 
-> 以上截图来自客户端内置**演示模式**（v1.1.7 最新中文界面），未配对时即可直接体验。
+> 以上截图来自客户端内置**演示模式**（v1.1.8 最新中文界面），未配对时即可直接体验。
 
 ---
 
@@ -110,7 +110,7 @@ mgy
 
 ### 4. 全双工实时语音与多模态交互
 - **实时语音通话、听写与朗读**：四端支持 Antigravity 全双工实时语音协议（iOS 启用硬件级回声消除 AEC），支持原生流式语音听写（Dictation）、回答语音朗读（Narration）、实时字幕、打断与倍速播放。
-- **多模态输入与产出**：支持 `@` 上下文提及（文件/代码/对话）、任意类型附件（≤20MB 原生多模态直传，≤50MB 智能路径引用）、iOS 文稿扫描相机、AI 生图直出、WebM 录屏硬件加速播放与聊天长图海报分享。
+- **多模态输入与产出**：支持 `@` 上下文提及（文件/代码/对话）、任意类型附件（≤20MB 原生多模态直传，≤50MB 智能路径引用）、**微信转发聊天记录 ZIP 智能识别与原生排版预览（支持包内图文/视频流式查看与搜索）**、iOS 文稿扫描相机、AI 生图直出、WebM 录屏硬件加速播放与聊天长图海报分享。
 
 ### 5. 上下文水位、速率监控与配额仪表盘
 - **实时上下文水位与速率**：聊天顶栏实时展示上下文占用圆环与 `TTFT / TPS` 吐字速率，遇到上下文溢出自动升级为带「一键压缩 `/compact`」和「开启新会话」的救援卡片。

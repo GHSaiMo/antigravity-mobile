@@ -1084,7 +1084,12 @@ public enum FileIconResolver {
         str = str.trimmingCharacters(in: CharacterSet(charactersIn: "`'\" \t\n\r"))
         guard !str.isEmpty else { return nil }
 
-        let fileName = (str as NSString).lastPathComponent.lowercased()
+        let rawName = (str as NSString).lastPathComponent
+        if isWeChatChatArchive(rawName) {
+            return "file_icon_wechat"
+        }
+
+        let fileName = rawName.lowercased()
         if let icon = fileNames[fileName] {
             return icon
         }
@@ -1095,6 +1100,35 @@ public enum FileIconResolver {
         }
 
         return nil
+    }
+
+    private static let weChatTimestampZipRegex = try? NSRegularExpression(pattern: #"^聊天记录_\d{8}_\d{6}\.zip$"#, options: [.caseInsensitive])
+
+    /// Matches WeChat exported chat archive filenames (e.g. `聊天记录_20261118_003107.zip` or `聊天记录*.zip`),
+    /// stripping the gateway's optional `<16-hex>-` collision prefix first.
+    public static func isWeChatChatArchive(_ pathOrName: String) -> Bool {
+        var str = pathOrName.trimmingCharacters(in: CharacterSet(charactersIn: " \t\n\r`'\""))
+        guard !str.isEmpty else { return false }
+        if str.hasPrefix("file://") { str = String(str.dropFirst(7)) }
+        if let hashIdx = str.firstIndex(of: "#") { str = String(str[..<hashIdx]) }
+        if let queryIdx = str.firstIndex(of: "?") { str = String(str[..<queryIdx]) }
+        var base = (str as NSString).lastPathComponent
+        if base.count > 17 {
+            let idx = base.index(base.startIndex, offsetBy: 16)
+            let prefix = base[base.startIndex..<idx]
+            if base[idx] == "-" && prefix.allSatisfy({ $0.isHexDigit && !$0.isUppercase }) {
+                base = String(base[base.index(after: idx)...])
+            }
+        }
+        let lower = base.lowercased()
+        guard lower.hasSuffix(".zip") else { return false }
+        if let regex = weChatTimestampZipRegex {
+            let ns = base as NSString
+            if regex.firstMatch(in: base, range: NSRange(location: 0, length: ns.length)) != nil {
+                return true
+            }
+        }
+        return base.hasPrefix("聊天记录")
     }
 
     private static let imageExtensionsSet: Set<String> = [
