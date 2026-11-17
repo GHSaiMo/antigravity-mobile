@@ -65,7 +65,7 @@ go build -ldflags="-s -w -X 'main.Version=1.0.0'" -o "$HOME\.local\bin\mgy.exe" 
 
 ### 1.2 安装脚本底层执行逻辑
 
-安装脚本 [`scripts/install.sh`](file:///Users/hal9000/Projects/antigravity-mobile/scripts/install.sh) 与 [`scripts/install.ps1`](file:///Users/hal9000/Projects/antigravity-mobile/scripts/install.ps1) 做到**全平台自适应、零依赖、轻量化与高鲁棒性**，核心步骤如下：
+安装脚本 [`scripts/install.sh`](../scripts/install.sh) 与 [`scripts/install.ps1`](../scripts/install.ps1) 做到**全平台自适应、零依赖、轻量化与高鲁棒性**，核心步骤如下：
 
 ```mermaid
 flowchart TD
@@ -182,7 +182,7 @@ Multigravity 统一遵循行业标准的配置与数据隔离规范，全部数�
 1. 在 Mac / Linux / Windows 电脑上运行 `mgy`（或在已有服务运行时运行 `mgy pair`）：
    - 控制台会自动打印专属 HTTPS 域名与配对二维码：
      ```text
-     ☁️  Cloudflare 隧道公网就绪: https://xxxx.mgy.jiuge.space
+     ☁️  Cloudflare 隧道公网就绪: https://xxxx.mgy.example.com
      ```
 2. **拿手机验证**：
    - **关闭手机 Wi-Fi**，开启 5G/4G 蜂窝移动网络；
@@ -318,7 +318,7 @@ rm -rf ~/.multigravity
 
 ## 5. 官方版本发布规范与偏好准则 (Release Guidelines)
 
-为了保障生产与公开发布的纯净度与稳定性，项目建立并固化了以下发版准则（详细准则见 [`docs/release_preferences_and_workflow.md`](file:///Users/hal9000/Projects/antigravity-mobile/docs/release_preferences_and_workflow.md)）：
+为了保障生产与公开发布的纯净度与稳定性，项目建立并固化了以下发版准则：
 
 1. **严格限制发布平台（仅限充分实测平台）**：
    - 官方 Release 上架 6 个核心资产：
@@ -378,5 +378,5 @@ rm -rf ~/.multigravity
 - **排查顺口溜**：
   1. **同一 Wi-Fi 下**：确认手机与电脑（Mac / Linux / Windows）处于同一局域网（且路由器未开启 AP 隔离）；
   2. **外网 4G/5G 下**：手机关闭 Wi-Fi，检查 Cloudflare 专属隧道域名是否正常就绪与连通；
-  3. **无公网穿透时**：建议在 `~/.multigravity/.env` 中配置 FRP 云服务器中继（参考 [HTTPS 域名中继配置指南](docs/https_cloud_relay_guide.md)）。
+  3. **无公网穿透时**：建议在 `~/.multigravity/.env` 中配置 FRP 云服务器中继。
 
