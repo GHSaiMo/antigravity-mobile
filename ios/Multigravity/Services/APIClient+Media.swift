@@ -200,12 +200,13 @@ extension APIClient {
         session.finishTasksAndInvalidate()
         
         guard (200...299).contains(httpResp.statusCode) else {
+            let errData = (try? Data(contentsOf: tempDownloadedURL)) ?? Data()
             try? FileManager.default.removeItem(at: tempDownloadedURL)
             if httpResp.statusCode == 401 {
                 NotificationCenter.default.post(name: .deviceTokenRevoked, object: nil)
             }
-            let errData = (try? Data(contentsOf: tempDownloadedURL)) ?? Data()
-            let msg = String(data: errData, encoding: .utf8) ?? "HTTP \(httpResp.statusCode)"
+            let rawMsg = String(data: errData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let msg = rawMsg.isEmpty ? "HTTP \(httpResp.statusCode)" : rawMsg
             throw APIError.serverError(statusCode: httpResp.statusCode, message: msg)
         }
         
