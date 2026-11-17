@@ -96,12 +96,38 @@ object FileIconResolver {
         }
     }
 
+    private val weChatTimestampZipRegex = Regex("""^聊天记录_\d{8}_\d{6}\.zip$""", RegexOption.IGNORE_CASE)
+
+    /**
+     * Matches WeChat exported chat archive filenames (e.g. `聊天记录_20261118_003107.zip` or `聊天记录*.zip`),
+     * stripping the gateway's optional `<16-hex>-` collision prefix first.
+     */
+    fun isWeChatChatArchive(pathOrName: String): Boolean {
+        var str = pathOrName.trim().trim('`', '\'', '"')
+        if (str.isEmpty()) return false
+        if (str.startsWith("file://")) str = str.removePrefix("file://")
+        if (str.contains('#')) str = str.substringBefore('#')
+        if (str.contains('?')) str = str.substringBefore('?')
+        var base = str.substringAfterLast('/')
+        if (base.length > 17 && base[16] == '-' && base.substring(0, 16).all { it in '0'..'9' || it in 'a'..'f' }) {
+            base = base.substring(17)
+        }
+        val lower = base.lowercase()
+        if (!lower.endsWith(".zip")) return false
+        if (weChatTimestampZipRegex.matches(base)) return true
+        return base.startsWith("聊天记录")
+    }
+
     /**
      * Resolves the asset image name for a given file name, path, or URL (1:1 with iOS FileIconResolver.resolveIcon).
      */
     fun resolveIcon(pathOrName: String): String? {
         var str = pathOrName.trim().trim('`', '\'', '"')
         if (str.isEmpty()) return null
+
+        if (isWeChatChatArchive(str)) {
+            return "file_icon_wechat"
+        }
 
         val lower = str.lowercase()
         if (lower.contains("github.com") || lower.contains("raw.githubusercontent.com") || lower.startsWith("git@github.com:") || lower == "github" || lower == ".github" || lower == "github-issues") {

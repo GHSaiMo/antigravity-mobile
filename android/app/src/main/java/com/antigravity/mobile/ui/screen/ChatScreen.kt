@@ -1025,8 +1025,18 @@ fun ChatScreen(
         if (!com.antigravity.mobile.data.service.FileIconResolver.isScriptFile(clean) &&
             !com.antigravity.mobile.data.service.FileIconResolver.isScriptFile(decodedFileName)
         ) {
-            // 1. Office Documents, Presentations, PDFs & Images (matching iOS allPreviewExtensions)
-            if (com.antigravity.mobile.data.service.FileIconResolver.isPreviewableDocument(clean) ||
+            val isZipFile = lower.endsWith(".zip") || decodedFileName.lowercase().endsWith(".zip") ||
+                lower.contains(".zip?") || lower.contains(".zip#")
+            if (isZipFile) {
+                haptic.medium()
+                if (com.antigravity.mobile.data.service.FileIconResolver.isWeChatChatArchive(decodedFileName) ||
+                    com.antigravity.mobile.data.service.FileIconResolver.isWeChatChatArchive(clean)
+                ) {
+                    viewModel.openWeChatArchive(clean, decodedFileName)
+                } else {
+                    viewModel.downloadAndPreviewDocument(clean, decodedFileName)
+                }
+            } else if (com.antigravity.mobile.data.service.FileIconResolver.isPreviewableDocument(clean) ||
                 com.antigravity.mobile.data.service.FileIconResolver.isPreviewableDocument(decodedFileName)
             ) {
                 haptic.medium()
@@ -2451,6 +2461,19 @@ fun ChatScreen(
                 onDismiss = { viewModel.closeDocumentPreview() }
             )
         }
+    }
+
+    // WeChat Chat Archive Sheet
+    uiState.weChatArchiveItem?.let { archiveItem ->
+        WeChatChatArchiveSheet(
+            item = archiveItem,
+            apiClient = viewModel.apiClient,
+            cascadeId = uiState.cascadeId,
+            onFallbackToDocumentPreview = {
+                viewModel.downloadAndPreviewDocument(archiveItem.uri, archiveItem.fileName)
+            },
+            onDismiss = { viewModel.closeWeChatArchive() }
+        )
     }
 
     // 会话切换、Agent 运行状态翻转（跑完了）、提交/改动面板关闭后重新探测 Commit / Changes 是否该显示

@@ -217,6 +217,19 @@ extension ChatView {
             return fn.isEmpty ? String(localized: "文档详情") : fn
         }()
         
+        let uriLower = (uriParam ?? "").lowercased()
+        let isZipFile = lower.hasSuffix(".zip") || pathLower.hasSuffix(".zip") || uriLower.hasSuffix(".zip") ||
+            lower.contains(".zip?") || lower.contains(".zip#")
+        if isZipFile {
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            if FileIconResolver.isWeChatChatArchive(decodedFileName) || FileIconResolver.isWeChatChatArchive(unescaped) {
+                viewModel.openWeChatArchive(uri: unescaped, fileName: decodedFileName)
+            } else {
+                viewModel.downloadAndPreviewDocument(uri: unescaped, fileName: decodedFileName, isHTML: false)
+            }
+            return .handled
+        }
+
         // 1. Images, Presentations, Videos, Audio & Office documents (PNG, JPG, MP4, MOV, M4A, MP3, PPTX, PPT, KEY, DOCX, XLSX, PDF, HTML, etc.)
         let isHTML = lower.hasSuffix(".html") || lower.hasSuffix(".htm") || pathLower.hasSuffix(".html") || pathLower.hasSuffix(".htm")
         let documentExtensions = [".pptx", ".ppt", ".key", ".pdf", ".docx", ".doc", ".xlsx", ".xls", ".numbers", ".pages", ".ipynb", ".html", ".htm", ".txt", ".csv", ".json", ".log"]
@@ -225,7 +238,6 @@ extension ChatView {
         let audioExtensions = [".m4a", ".mp3", ".wav", ".aac", ".caf", ".flac", ".ogg", ".wma"]
         let allPreviewExtensions = documentExtensions + imageExtensions + videoExtensions + audioExtensions
         
-        let uriLower = (uriParam ?? "").lowercased()
         let isPreviewableFile = allPreviewExtensions.contains { ext in
             lower.hasSuffix(ext) || pathLower.hasSuffix(ext) || uriLower.hasSuffix(ext) || lower.contains(ext + "?") || lower.contains(ext + "#")
         }

@@ -519,8 +519,9 @@ fun MessageBubble(
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
+                                val typeLabel = if (FileIconResolver.isWeChatChatArchive(f.name)) "微信聊天记录" else f.ext.uppercase()
                                 Text(
-                                    text = "${f.ext.uppercase()} · ${f.sizeLabel}",
+                                    text = "$typeLabel · ${f.sizeLabel}",
                                     color = colors.textMuted,
                                     fontSize = 11.sp
                                 )

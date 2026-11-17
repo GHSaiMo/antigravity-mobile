@@ -109,6 +109,12 @@ func ResolveLocalFilePath(rawURI, cascadeID string) (string, error) {
 		if !IsSafeFilePath(cleanPath) {
 			return "", fmt.Errorf("access to file is restricted")
 		}
+		if _, err := os.Stat(cleanPath); err == nil {
+			return cleanPath, nil
+		}
+		if fallback, ok := resolveMovedInboxAttachment(home, cleanPath, cascadeID); ok {
+			return fallback, nil
+		}
 		return cleanPath, nil
 	}
 
@@ -134,6 +140,53 @@ func ResolveLocalFilePath(rawURI, cascadeID string) (string, error) {
 
 func isWindowsDriveLetter(b byte) bool {
 	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z')
+}
+
+// resolveMovedInboxAttachment locates an Inbox attachment that Antigravity moved into
+// ~/.gemini/antigravity/brain/<cascadeID>/.user_uploaded/<id16>-<name>.
+func resolveMovedInboxAttachment(home, cleanPath, cascadeID string) (string, bool) {
+	slashPath := filepath.ToSlash(cleanPath)
+	inboxDir, err := AttachmentInboxDir()
+	isInboxPath := strings.Contains(slashPath, "/Multigravity/Inbox/") ||
+		(err == nil && inboxDir != "" && strings.HasPrefix(cleanPath, filepath.Clean(inboxDir)+string(filepath.Separator)))
+	if !isInboxPath {
+		return "", false
+	}
+
+	base := filepath.Base(cleanPath)
+	if base == "" || base == "." || base == ".." {
+		return "", false
+	}
+	brainRoot := filepath.Join(home, ".gemini", "antigravity", "brain")
+
+	if cascadeID != "" {
+		candidate, err := joinUnder(brainRoot, filepath.Join(cascadeID, ".user_uploaded", base))
+		if err == nil {
+			if st, err := os.Stat(candidate); err == nil && st.Mode().IsRegular() && IsSafeFilePath(candidate) {
+				return candidate, true
+			}
+		}
+	}
+
+	// Fallback across brain sessions when base carries the unique 16-hex content prefix.
+	if len(base) > attachmentIDLen+1 && base[attachmentIDLen] == '-' && attachmentIDPattern.MatchString(base[:attachmentIDLen]) {
+		entries, err := os.ReadDir(brainRoot)
+		if err == nil {
+			for _, e := range entries {
+				if !e.IsDir() {
+					continue
+				}
+				candidate, err := joinUnder(brainRoot, filepath.Join(e.Name(), ".user_uploaded", base))
+				if err != nil {
+					continue
+				}
+				if st, err := os.Stat(candidate); err == nil && st.Mode().IsRegular() && IsSafeFilePath(candidate) {
+					return candidate, true
+				}
+			}
+		}
+	}
+	return "", false
 }
 
 func joinUnder(root, extra string) (string, error) {

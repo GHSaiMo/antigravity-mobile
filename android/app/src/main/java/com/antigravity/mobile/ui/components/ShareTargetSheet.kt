@@ -142,7 +142,11 @@ fun ShareTargetSheet(
                         Column(modifier = Modifier.weight(1f)) {
                             Text(f.name, fontSize = 13.sp, color = colors.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             Text(
-                                f.rejectReason ?: formatFileSize(f.size),
+                                f.rejectReason ?: if (com.antigravity.mobile.data.service.FileIconResolver.isWeChatChatArchive(f.name)) {
+                                    "微信聊天记录 · ${formatFileSize(f.size)}"
+                                } else {
+                                    formatFileSize(f.size)
+                                },
                                 fontSize = 11.sp,
                                 color = if (f.rejectReason != null) colors.accentRed else colors.textSecondary,
                                 maxLines = 2, overflow = TextOverflow.Ellipsis

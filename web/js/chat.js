@@ -1700,13 +1700,23 @@ function generateItemHtml(item, isRunning, isLastItem) {
           return `<img src="${escapeHtml(src)}" class="bubble-image" data-action="open-image" alt="上传图片" />`;
         }).join("") + `</div>`;
     }
-    const renderedUserText = item.text
-      ? (typeof renderUserTextWithSlashPills === "function"
-          ? renderUserTextWithSlashPills(item.text, item.slashCommands)
-          : escapeHtml(item.text))
+    const parsedUser = (typeof parseUserAttachmentBlock === "function" && item.text)
+      ? parseUserAttachmentBlock(item.text)
+      : { body: item.text || "", files: [] };
+    const filesHtml = (typeof buildUserAttachmentCardsHtml === "function" && parsedUser.files.length > 0)
+      ? buildUserAttachmentCardsHtml(parsedUser.files)
       : "";
-    const textHtml = renderedUserText ? `<div>${renderedUserText}</div>` : "";
-    return `<div class="bubble-col"><div class="bubble">${imagesHtml}${textHtml}</div>${buildMessageActionsHtml("user")}</div>`;
+    const renderedUserText = parsedUser.body
+      ? (typeof renderUserTextWithSlashPills === "function"
+          ? renderUserTextWithSlashPills(parsedUser.body, item.slashCommands)
+          : escapeHtml(parsedUser.body))
+      : "";
+    const bubbleInner = `${imagesHtml}${renderedUserText ? `<div>${renderedUserText}</div>` : ""}`;
+    if (!filesHtml) {
+      return `<div class="bubble-col"><div class="bubble">${bubbleInner}</div>${buildMessageActionsHtml("user")}</div>`;
+    }
+    const bubbleHtml = bubbleInner ? `<div class="bubble">${bubbleInner}</div>` : "";
+    return `<div class="bubble-col user-bubble-stack">${filesHtml}${bubbleHtml}${buildMessageActionsHtml("user")}</div>`;
   }
 
   if (item.type === "agent") {

@@ -34,7 +34,7 @@ import (
 )
 
 // Version represents the Multigravity Gateway release version.
-var Version = "1.1.7"
+var Version = "1.1.8"
 
 // envDisabled reports whether an opt-out switch is explicitly turned off ("0", "false", "off", "no").
 func envDisabled(name string) bool {
@@ -866,6 +866,8 @@ func buildRouter(
 	// Text previews (logs, source, JSON) compress well; images/PDF/video are skipped by GzipHandler.
 	rootMux.Handle("GET /api/v1/files/content", web.GzipHandler(http.HandlerFunc(p.HandleFileContent)))
 	rootMux.Handle("GET /api/v1/files/raw", web.GzipHandler(http.HandlerFunc(p.HandleFileRaw)))
+	rootMux.Handle("GET /api/v1/files/wechat-chat", web.GzipHandler(http.HandlerFunc(p.HandleWeChatChatArchive)))
+	rootMux.Handle("GET /api/v1/files/zip-entry", web.GzipHandler(http.HandlerFunc(p.HandleZipEntry)))
 	// Chat file attachments (documents, archives, source files) uploaded from mobile clients
 	rootMux.HandleFunc("POST /api/v1/attachments", p.HandleAttachmentUpload)
 

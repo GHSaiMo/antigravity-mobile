@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.components
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -25,10 +26,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.antigravity.mobile.R
 import com.antigravity.mobile.data.model.AttachmentFile
 import com.antigravity.mobile.data.model.UploadState
 import com.antigravity.mobile.data.service.FileIconResolver
@@ -40,9 +44,20 @@ internal fun formatFileSize(bytes: Long): String = when {
     else -> "$bytes B"
 }
 
-/** Square badge showing the file extension on a tinted background (shared by input chips and bubbles). */
+/** Square badge showing the WeChat icon for chat archives or file extension on a tinted background. */
 @Composable
 internal fun FileTypeBadge(fileName: String, size: androidx.compose.ui.unit.Dp = 36.dp) {
+    if (FileIconResolver.isWeChatChatArchive(fileName)) {
+        Image(
+            painter = painterResource(id = R.drawable.ic_file_wechat),
+            contentDescription = "微信聊天记录",
+            contentScale = ContentScale.Crop,
+            modifier = Modifier
+                .size(size)
+                .clip(RoundedCornerShape(8.dp))
+        )
+        return
+    }
     val info = FileIconResolver.resolve(fileName)
     val ext = fileName.substringAfterLast('.', "").take(4).uppercase().ifBlank { "FILE" }
     Box(
@@ -130,11 +145,13 @@ fun AttachmentFileChip(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
+                val sizeLabel = formatFileSize(file.size)
+                val baseSubtitle = if (FileIconResolver.isWeChatChatArchive(file.name)) "微信聊天记录 · $sizeLabel" else sizeLabel
                 Text(
                     text = when (file.state) {
                         UploadState.FAILED -> "上传失败，点按重试"
-                        UploadState.DONE -> formatFileSize(file.size)
-                        else -> "${formatFileSize(file.size)} · 上传中"
+                        UploadState.DONE -> baseSubtitle
+                        else -> "$baseSubtitle · 上传中"
                     },
                     color = if (file.state == UploadState.FAILED) colors.accentRed else colors.textMuted,
                     fontSize = 11.sp,

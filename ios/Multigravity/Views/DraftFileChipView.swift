@@ -13,7 +13,11 @@ struct FileTypeBadge: View {
     
     var body: some View {
         Group {
-            if let icon = FileIconResolver.resolveIcon(for: fileName), UIImage(named: icon) != nil {
+            if FileIconResolver.isWeChatChatArchive(fileName), UIImage(named: "file_icon_wechat") != nil {
+                Image("file_icon_wechat")
+                    .resizable()
+                    .scaledToFill()
+            } else if let icon = FileIconResolver.resolveIcon(for: fileName), UIImage(named: icon) != nil {
                 Image(icon)
                     .resizable()
                     .scaledToFit()
@@ -27,7 +31,7 @@ struct FileTypeBadge: View {
             }
         }
         .frame(width: size, height: size)
-        .background(Color.indigo.opacity(0.12))
+        .background(FileIconResolver.isWeChatChatArchive(fileName) ? Color(red: 0x07/255.0, green: 0xC1/255.0, blue: 0x60/255.0) : Color.indigo.opacity(0.12))
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
     
@@ -114,10 +118,12 @@ struct DraftFileChipView: View {
     }
     
     private var subtitle: String {
+        let sizeText = formatFileSize(file.size)
+        let prefix = FileIconResolver.isWeChatChatArchive(file.name) ? "微信聊天记录 · \(sizeText)" : sizeText
         switch file.state {
         case .failed: return String(localized: "上传失败，点按重试")
-        case .done: return formatFileSize(file.size)
-        default: return String(localized: "\(formatFileSize(file.size)) · 上传中")
+        case .done: return prefix
+        default: return String(localized: "\(prefix) · 上传中")
         }
     }
 }
@@ -126,6 +132,10 @@ struct DraftFileChipView: View {
 struct MessageFileCardView: View {
     let file: AttachmentRules.ParsedFile
     let onTap: () -> Void
+    
+    private var typeLabel: String {
+        FileIconResolver.isWeChatChatArchive(file.name) ? "微信聊天记录" : file.ext.uppercased()
+    }
     
     var body: some View {
         Button(action: onTap) {
@@ -137,7 +147,7 @@ struct MessageFileCardView: View {
                         .lineLimit(1)
                         .truncationMode(.middle)
                         .foregroundColor(.primary)
-                    Text("\(file.ext.uppercased()) · \(file.sizeLabel)")
+                    Text("\(typeLabel) · \(file.sizeLabel)")
                         .font(.system(size: 11))
                         .foregroundColor(.secondary)
                 }

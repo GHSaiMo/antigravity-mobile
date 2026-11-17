@@ -110,6 +110,7 @@ data class ChatUiState(
     val downloadProgress: Float = 0f,
     val previewDocumentFile: java.io.File? = null,
     val previewDocumentTitle: String = "",
+    val weChatArchiveItem: WeChatArchiveSessionItem? = null,
     val hasMore: Boolean = false,
     val nextOffset: Int = 0,
     val isLoadingOlder: Boolean = false,
@@ -409,6 +410,16 @@ class ChatViewModel(
 
     fun closeDocumentPreview() {
         _uiState.value = _uiState.value.copy(previewDocumentFile = null)
+    }
+
+    fun openWeChatArchive(uri: String, fileName: String) {
+        _uiState.value = _uiState.value.copy(
+            weChatArchiveItem = WeChatArchiveSessionItem(uri = uri, fileName = fileName)
+        )
+    }
+
+    fun closeWeChatArchive() {
+        _uiState.value = _uiState.value.copy(weChatArchiveItem = null)
     }
 
     fun cancelDocumentDownload() {

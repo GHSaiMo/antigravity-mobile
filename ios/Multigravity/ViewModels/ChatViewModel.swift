@@ -343,6 +343,7 @@ public final class ChatViewModel {
     public var quickLookTitle: String = ""
     public var htmlPreviewURL: URL? = nil
     public var htmlPreviewTitle: String = ""
+    public var weChatArchiveItem: WeChatArchiveSessionItem? = nil
     /// 应用内沉浸式安全浏览器 URL (SFSafariViewController)
     public var inAppBrowserURL: URL? = nil
 

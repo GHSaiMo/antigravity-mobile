@@ -649,6 +649,16 @@ extension ChatViewModel {
         self.htmlPreviewURL = nil
     }
 
+    @MainActor
+    public func openWeChatArchive(uri: String, fileName: String) {
+        self.weChatArchiveItem = WeChatArchiveSessionItem(uri: uri, fileName: fileName)
+    }
+
+    @MainActor
+    public func closeWeChatArchive() {
+        self.weChatArchiveItem = nil
+    }
+
 
     
     @MainActor

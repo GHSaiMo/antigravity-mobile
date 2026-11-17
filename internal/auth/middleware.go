@@ -57,7 +57,7 @@ func ExtractToken(r *http.Request) string {
 
 	isWS := strings.Contains(strings.ToLower(r.Header.Get("Upgrade")), "websocket") ||
 		isWebSocketPath(r.URL.Path)
-	isRawFile := strings.HasPrefix(r.URL.Path, "/api/v1/files/raw")
+	isRawFile := strings.HasPrefix(r.URL.Path, "/api/v1/files/raw") || strings.HasPrefix(r.URL.Path, "/api/v1/files/zip-entry")
 	if isWS || isRawFile {
 		token := strings.TrimSpace(r.URL.Query().Get("auth_token"))
 		if token == "" {
@@ -243,7 +243,7 @@ func AuthMiddlewareWithPolicy(store *AuthStore, next http.Handler, policy AuthPo
 		// to avoid putting long-lived device tokens into URLs/query strings.
 		isWS := strings.Contains(strings.ToLower(r.Header.Get("Upgrade")), "websocket") ||
 			isWebSocketPath(r.URL.Path)
-		isRawFile := strings.HasPrefix(r.URL.Path, "/api/v1/files/raw")
+		isRawFile := strings.HasPrefix(r.URL.Path, "/api/v1/files/raw") || strings.HasPrefix(r.URL.Path, "/api/v1/files/zip-entry")
 
 		if (isWS || isRawFile) && r.URL.Query().Get("ticket") != "" {
 			ticket := strings.TrimSpace(r.URL.Query().Get("ticket"))
