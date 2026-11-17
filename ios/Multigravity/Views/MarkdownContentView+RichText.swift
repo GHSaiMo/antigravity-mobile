@@ -487,6 +487,9 @@ extension MarkdownContentView {
         guard text.contains("*") || text.contains("_") || text.contains("~") else {
             return (text, false)
         }
+        guard !text.contains(codeSpanPlaceholder) && !text.contains(protectedSpanPlaceholder) else {
+            return (text, false)
+        }
         
         let segments = splitCodeSpans(in: text)
 
@@ -502,12 +505,8 @@ extension MarkdownContentView {
                 masked += segment.content
             }
         }
-        if !codeSpans.isEmpty && text.contains(codeSpanPlaceholder) {
-            return (text, false)
-        }
 
-        let normalized = normalizeBoldSpaces(in: masked)
-        let (processed, hasMarkers) = processDelimitersInSegment(normalized)
+        let (processed, hasMarkers) = processProtectedAndDelimiters(in: masked)
 
         var result = ""
         var index = 0
@@ -524,13 +523,195 @@ extension MarkdownContentView {
 
     /// Stand-in for an inline code span while delimiter fixing runs (private-use, treated as punctuation).
     static let codeSpanPlaceholder: Character = "\u{E000}"
+    /// Stand-in for Markdown links and URLs while delimiter fixing runs (private-use, treated as punctuation).
+    static let protectedSpanPlaceholder: Character = "\u{E001}"
+
+    /// Masks Markdown links `[label](destination)` and bare/autolink URLs (`http://`, `https://`, `file://`)
+    /// so emphasis regexes never insert markers into URLs or pair delimiters across link boundaries.
+    /// Link labels are still processed recursively so CJK bold/italic inside `[label]` continues to work.
+    private static func processProtectedAndDelimiters(in text: String) -> (String, Bool) {
+        let chars = Array(text)
+        var protectedSpans: [String] = []
+        var masked = ""
+        var anyInnerMarkers = false
+        var i = 0
+
+        while i < chars.count {
+            if chars[i] == "\\", i + 1 < chars.count {
+                masked.append(chars[i])
+                masked.append(chars[i + 1])
+                i += 2
+                continue
+            }
+
+            if chars[i] == "[", let linkMatch = scanMarkdownLink(in: chars, from: i) {
+                let (fixedLabel, labelMarkers) = processProtectedAndDelimiters(in: linkMatch.label)
+                if labelMarkers { anyInnerMarkers = true }
+                protectedSpans.append("[\(fixedLabel)]\(linkMatch.destinationWithParens)")
+                masked.append(protectedSpanPlaceholder)
+                i = linkMatch.nextIndex
+                continue
+            }
+
+            if chars[i] == "<", let autoEnd = scanAngleURL(in: chars, from: i) {
+                protectedSpans.append(String(chars[i..<autoEnd]))
+                masked.append(protectedSpanPlaceholder)
+                i = autoEnd
+                continue
+            }
+
+            if let bareEnd = scanBareURL(in: chars, from: i) {
+                protectedSpans.append(String(chars[i..<bareEnd]))
+                masked.append(protectedSpanPlaceholder)
+                i = bareEnd
+                continue
+            }
+
+            masked.append(chars[i])
+            i += 1
+        }
+
+        let normalized = normalizeBoldSpaces(in: masked)
+        let (processed, outerMarkers) = processDelimitersInSegment(normalized)
+
+        if protectedSpans.isEmpty {
+            return (processed, outerMarkers || anyInnerMarkers)
+        }
+
+        var restored = ""
+        var spanIdx = 0
+        for ch in processed {
+            if ch == protectedSpanPlaceholder, spanIdx < protectedSpans.count {
+                restored += protectedSpans[spanIdx]
+                spanIdx += 1
+            } else {
+                restored.append(ch)
+            }
+        }
+        return (restored, outerMarkers || anyInnerMarkers)
+    }
+
+    private static func scanMarkdownLink(
+        in chars: [Character],
+        from start: Int
+    ) -> (label: String, destinationWithParens: String, nextIndex: Int)? {
+        guard start < chars.count, chars[start] == "[" else { return nil }
+        var i = start + 1
+        var bracketDepth = 1
+        while i < chars.count {
+            let ch = chars[i]
+            if ch == "\\", i + 1 < chars.count {
+                i += 2
+                continue
+            }
+            if ch == "[" {
+                bracketDepth += 1
+            } else if ch == "]" {
+                bracketDepth -= 1
+                if bracketDepth == 0 {
+                    break
+                }
+            }
+            i += 1
+        }
+        guard bracketDepth == 0, i + 1 < chars.count, chars[i + 1] == "(" else {
+            return nil
+        }
+
+        let label = String(chars[(start + 1)..<i])
+        let destOpenIdx = i + 1
+        var j = destOpenIdx + 1
+        var parenDepth = 1
+        while j < chars.count {
+            let ch = chars[j]
+            if ch == "\\", j + 1 < chars.count {
+                j += 2
+                continue
+            }
+            if ch == "\n" || ch == "\r" {
+                return nil
+            }
+            if ch == "(" {
+                parenDepth += 1
+            } else if ch == ")" {
+                parenDepth -= 1
+                if parenDepth == 0 {
+                    let dest = String(chars[destOpenIdx...j])
+                    return (label, dest, j + 1)
+                }
+            }
+            j += 1
+        }
+        return nil
+    }
+
+    private static func scanAngleURL(in chars: [Character], from start: Int) -> Int? {
+        guard start < chars.count, chars[start] == "<" else { return nil }
+        let rest = String(chars[(start + 1)..<min(chars.count, start + 10)])
+        guard rest.hasPrefix("https://") || rest.hasPrefix("http://") || rest.hasPrefix("file://") else {
+            return nil
+        }
+        var i = start + 1
+        while i < chars.count {
+            let ch = chars[i]
+            if ch.isWhitespace || ch == "<" {
+                return nil
+            }
+            if ch == ">" {
+                return i + 1
+            }
+            i += 1
+        }
+        return nil
+    }
+
+    private static func scanBareURL(in chars: [Character], from start: Int) -> Int? {
+        if start > 0 {
+            let prev = chars[start - 1]
+            if prev.isLetter || prev.isNumber || prev == "_" {
+                return nil
+            }
+        }
+        let maxPrefix = min(chars.count, start + 8)
+        let prefix = String(chars[start..<maxPrefix])
+        let schemeLen: Int
+        if prefix.hasPrefix("https://") {
+            schemeLen = 8
+        } else if prefix.hasPrefix("http://") || prefix.hasPrefix("file://") {
+            schemeLen = 7
+        } else {
+            return nil
+        }
+        var i = start + schemeLen
+        var parenDepth = 0
+        var bracketDepth = 0
+        while i < chars.count {
+            let ch = chars[i]
+            if ch.isWhitespace || ch == "<" || ch == ">" {
+                break
+            }
+            if ch == "(" {
+                parenDepth += 1
+            } else if ch == ")" {
+                if parenDepth == 0 { break }
+                parenDepth -= 1
+            } else if ch == "[" {
+                bracketDepth += 1
+            } else if ch == "]" {
+                if bracketDepth == 0 { break }
+                bracketDepth -= 1
+            }
+            i += 1
+        }
+        return i > start + schemeLen ? i : nil
+    }
     
     static func processDelimitersInSegment(_ text: String) -> (String, Bool) {
         var hasMarkers = false
         var result = text
         
         func isPunctOrSymbol(_ c: Character) -> Bool {
-            return c.isPunctuation || c.isSymbol || c == codeSpanPlaceholder
+            return c.isPunctuation || c.isSymbol || c == codeSpanPlaceholder || c == protectedSpanPlaceholder
         }
         
         for regex in cjkDelimiterPatterns {
