@@ -143,9 +143,12 @@ public final class ConnectionManager {
     /// Routing Order: LAN (skip if cellular) -> Custom (skip if LAN on cellular) -> Primary Cloud Domain (final fallback).
     @discardableResult
     public func probeEndpoints() async -> String? {
-        guard !isProbing else { return AppSettings.shared.activeServerURL }
-        
         let settings = AppSettings.shared
+        if settings.isDemoMode {
+            return DemoGateway.baseURL.absoluteString
+        }
+        guard !isProbing else { return settings.activeServerURL }
+        
         let isCellularNow = self.isCellular || !self.isWifi
         
         var endpointsToTest: [String] = []

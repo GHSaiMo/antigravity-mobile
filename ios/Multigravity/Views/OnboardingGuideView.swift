@@ -92,6 +92,39 @@ public struct OnboardingGuideView: View {
                             .padding(.horizontal, 16)
                     }
                     .padding(.top, 4)
+
+                    // Demo mode: prominent CTA above the fold so users and reviewers can try without a desktop gateway
+                    if let onDemoTapped {
+                        Button(action: onDemoTapped) {
+                            HStack(spacing: 10) {
+                                Image(systemName: "play.circle.fill")
+                                    .font(.system(size: 20))
+                                    .foregroundColor(.indigo)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("体验演示模式（无需连接电脑）")
+                                        .font(.system(size: 14.5, weight: .semibold))
+                                        .foregroundColor(.primary)
+                                    Text("离线预览完整会话、任务流、终端与项目切换")
+                                        .font(.system(size: 11.5))
+                                        .foregroundColor(.secondary)
+                                }
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundColor(.indigo)
+                            }
+                            .padding(.vertical, 12)
+                            .padding(.horizontal, 14)
+                            .background(Color.indigo.opacity(0.08))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .stroke(Color.indigo.opacity(0.28), lineWidth: 1)
+                            )
+                            .cornerRadius(12)
+                        }
+                        .accessibilityIdentifier("demoModeButton")
+                        .padding(.horizontal, 18)
+                    }
                     
                     // Step 1: Download & Run Gateway
                     VStack(alignment: .leading, spacing: 12) {
@@ -353,38 +386,6 @@ public struct OnboardingGuideView: View {
                     .background(Color(uiColor: .secondarySystemBackground))
                     .cornerRadius(16)
                     .padding(.horizontal, 18)
-                    
-                    // Demo mode: prominent secondary CTA to explore without a desktop gateway (also used by App Review)
-                    if let onDemoTapped {
-                        Button(action: onDemoTapped) {
-                            HStack(spacing: 10) {
-                                Image(systemName: "play.circle.fill")
-                                    .font(.system(size: 20))
-                                    .foregroundColor(.indigo)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text("体验演示模式（无需连接电脑）")
-                                        .font(.system(size: 14.5, weight: .semibold))
-                                        .foregroundColor(.primary)
-                                    Text("离线预览完整会话、任务流、终端与项目切换")
-                                        .font(.system(size: 11.5))
-                                        .foregroundColor(.secondary)
-                                }
-                                Spacer()
-                                Image(systemName: "chevron.right")
-                                    .font(.system(size: 12, weight: .semibold))
-                                    .foregroundColor(.indigo)
-                            }
-                            .padding(.vertical, 12)
-                            .padding(.horizontal, 14)
-                            .background(Color.indigo.opacity(0.08))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 12)
-                                    .stroke(Color.indigo.opacity(0.28), lineWidth: 1)
-                            )
-                            .cornerRadius(12)
-                        }
-                        .accessibilityIdentifier("demoModeButton")
-                    }
                 }
                 .padding(.top, 16)
                 .padding(.bottom, 24)
