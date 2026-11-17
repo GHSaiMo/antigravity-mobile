@@ -17,6 +17,22 @@
         }
       }
     },
+    "演示模式暂不支持实时语音通话，请发送文字或体验离线演示对话": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live voice calls require a desktop gateway. Try sending messages or reviewing workflows in Demo Mode."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "演示模式暂不支持实时语音通话，请发送文字或体验离线演示对话"
+          }
+        }
+      }
+    },
     "#%lld": {
       "localizations": {
         "en": {

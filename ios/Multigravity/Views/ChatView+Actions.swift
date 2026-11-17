@@ -197,6 +197,10 @@ extension ChatView {
     }
 
     func handleStartVoiceCall() {
+        if AppSettings.shared.isDemoMode {
+            viewModel.errorMessage = String(localized: "演示模式暂不支持实时语音通话，请发送文字或体验离线演示对话")
+            return
+        }
         if audioRecorder.isRecording {
             audioRecorder.cancelRecording()
         }
