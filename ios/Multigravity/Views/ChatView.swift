@@ -5,8 +5,6 @@ import AVFoundation
 public struct ChatView: View {
     @Environment(\.dismiss) var dismiss
     @Environment(\.scenePhase) var scenePhase
-    @Environment(\.colorScheme) var colorScheme
-    @Environment(\.appThemePreset) var appThemePreset
     @State var viewModel: ChatViewModel
     @Environment(\.isSplitDetail) var isSplitDetail
     @Environment(\.horizontalSizeClass) var horizontalSizeClass
@@ -253,12 +251,6 @@ public struct ChatView: View {
         .navigationTitle(viewModel.currentTitle)
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(true)
-        .background {
-            let preset = appThemePreset ?? AppSettings.shared.activeThemePreset(for: colorScheme)
-            if !preset.isDefaultStyle {
-                preset.bg.ignoresSafeArea()
-            }
-        }
         .toolbar {
             chatToolbarContent
         }

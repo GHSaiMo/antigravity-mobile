@@ -16,24 +16,12 @@ struct MultigravityApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ThemedRootContainer(settings: settings)
+            ConversationListView()
+                .tint(.indigo)
+                .preferredColorScheme(settings.colorScheme)
+                .onAppear {
+                    settings.applyAppearance()
+                }
         }
-    }
-}
-
-private struct ThemedRootContainer: View {
-    @Environment(\.colorScheme) private var systemColorScheme
-    var settings: AppSettings
-
-    var body: some View {
-        let preset = settings.activeThemePreset(for: systemColorScheme)
-        ConversationListView()
-            .tint(preset.accent)
-            .preferredColorScheme(settings.colorScheme)
-            .background(preset.isDefaultStyle ? Color.clear : preset.bg)
-            .environment(\.appThemePreset, preset)
-            .onAppear {
-                settings.applyAppearance()
-            }
     }
 }

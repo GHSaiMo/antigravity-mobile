@@ -117,32 +117,17 @@ private fun buildMaterialScheme(appColors: AppColors): androidx.compose.material
 @Composable
 fun AntigravityTheme(
     themeMode: String = "system",
-    lightPresetId: String = "default",
-    darkPresetId: String = "default",
     content: @Composable () -> Unit
 ) {
     val isSystemDark = isSystemInDarkTheme()
-    val normMode = themeMode.lowercase()
-    val isLegacyNord = normMode == "nord"
-    val isDark = when (normMode) {
+    val isDark = when (themeMode.lowercase()) {
         "light" -> false
         "dark", "nord" -> true
         else -> isSystemDark
     }
 
-    val effectiveDarkPreset = if (isLegacyNord) "nord" else darkPresetId
-    val preset = ThemePresetCatalog.resolve(
-        isDark = isDark,
-        lightPresetId = lightPresetId,
-        darkPresetId = effectiveDarkPreset
-    )
-    val appColors = preset.appColors
-    val materialColors = when (preset.appColors.themeId) {
-        "default-light" -> LightMaterialColorScheme
-        "default-dark" -> DarkMaterialColorScheme
-        "nord" -> NordMaterialColorScheme
-        else -> buildMaterialScheme(appColors)
-    }
+    val appColors = if (isDark) DarkAppColors else LightAppColors
+    val materialColors = if (isDark) DarkMaterialColorScheme else LightMaterialColorScheme
 
     val view = LocalView.current
     if (!view.isInEditMode) {

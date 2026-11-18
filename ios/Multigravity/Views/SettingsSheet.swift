@@ -2,8 +2,6 @@ import SwiftUI
 
 public struct SettingsSheet: View {
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.appThemePreset) private var appThemePreset
     @State private var settings = AppSettings.shared
     @State private var connectionManager = ConnectionManager.shared
     @State private var showClearCacheAlert: Bool = false
@@ -182,7 +180,7 @@ public struct SettingsSheet: View {
                 // MARK: - 5. 外观与主题
                 Section(
                     header: Text("外观与主题"),
-                    footer: Text("独立选择浅色与深色配色，跟随系统时按昼夜自动切换；点进「精简模式」可自定义对话降噪选项。")
+                    footer: Text("选择浅色、深色模式与界面字号缩放；额度匀速指标独立控制首页与配额条上的时间均速游标；点进「精简模式」可自定义对话降噪选项。")
                 ) {
                     Picker("外观模式", selection: $settings.themeMode) {
                         Text("跟随系统").tag("system")
@@ -193,40 +191,6 @@ public struct SettingsSheet: View {
                     .onChange(of: settings.themeMode) { _, _ in
                         settings.applyAppearance()
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                    }
-
-                    if settings.themeMode != "dark" {
-                        let lightPreset = ThemePresetCatalog.findLight(settings.lightThemePreset)
-                        NavigationLink {
-                            ThemePresetPickerView(isDarkList: false)
-                        } label: {
-                            HStack(spacing: 8) {
-                                Text("浅色配色")
-                                Spacer()
-                                ThemeSwatchDotsView(preset: lightPreset)
-                                Text(lightPreset.name)
-                                    .font(.subheadline)
-                                    .foregroundColor(.secondary)
-                                    .lineLimit(1)
-                            }
-                        }
-                    }
-
-                    if settings.themeMode != "light" {
-                        let darkPreset = ThemePresetCatalog.findDark(settings.darkThemePreset)
-                        NavigationLink {
-                            ThemePresetPickerView(isDarkList: true)
-                        } label: {
-                            HStack(spacing: 8) {
-                                Text("深色配色")
-                                Spacer()
-                                ThemeSwatchDotsView(preset: darkPreset)
-                                Text(darkPreset.name)
-                                    .font(.subheadline)
-                                    .foregroundColor(.secondary)
-                                    .lineLimit(1)
-                            }
-                        }
                     }
 
                     Picker("字号缩放", selection: $settings.fontSizeScale) {
@@ -329,8 +293,6 @@ public struct SettingsSheet: View {
                     }
                 }
             }
-            .scrollContentBackground(activeTheme.isDefaultStyle ? .automatic : .hidden)
-            .background(activeTheme.isDefaultStyle ? Color.clear : activeTheme.bg)
             .navigationTitle("设置")
             .navigationBarTitleDisplayMode(.inline)
             .presentationDragIndicator(.visible)
@@ -464,10 +426,6 @@ public struct SettingsSheet: View {
         }
     }
 
-    private var activeTheme: ThemePreset {
-        appThemePreset ?? settings.activeThemePreset(for: colorScheme)
-    }
-
     private var compactModeSummary: String {
         guard settings.isKnowledgeModeEnabled else { return String(localized: "已关闭") }
         let count = [
@@ -479,150 +437,12 @@ public struct SettingsSheet: View {
     }
 }
 
-// MARK: - 外观配色二级页
-
-private struct ThemePresetPickerView: View {
-    let isDarkList: Bool
-    @State private var settings = AppSettings.shared
-    @Environment(\.colorScheme) private var colorScheme
-
-    private var presets: [ThemePreset] {
-        isDarkList ? ThemePresetCatalog.darkPresets : ThemePresetCatalog.lightPresets
-    }
-
-    private var selectedId: String {
-        isDarkList ? settings.darkThemePreset : settings.lightThemePreset
-    }
-
-    private var selectedPreset: ThemePreset {
-        isDarkList
-            ? ThemePresetCatalog.findDark(settings.darkThemePreset)
-            : ThemePresetCatalog.findLight(settings.lightThemePreset)
-    }
-
-    var body: some View {
-        let activeTheme = settings.activeThemePreset(for: colorScheme)
-        List {
-            Section {
-                ThemeLivePreviewCard(preset: selectedPreset)
-                    .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
-                    .listRowBackground(Color.clear)
-            }
-
-            Section("默认风格") {
-                ForEach(presets.filter { $0.isDefaultGroup }, id: \.storageKey) { preset in
-                    presetRow(preset)
-                }
-            }
-
-            Section("Antigravity 桌面端预设") {
-                ForEach(presets.filter { !$0.isDefaultGroup }, id: \.storageKey) { preset in
-                    presetRow(preset)
-                }
-            }
-        }
-        .scrollContentBackground(activeTheme.isDefaultStyle ? .automatic : .hidden)
-        .background(activeTheme.isDefaultStyle ? Color.clear : activeTheme.bg)
-        .navigationTitle(isDarkList ? "深色配色" : "浅色配色")
-        .navigationBarTitleDisplayMode(.inline)
-    }
-
-    private func presetRow(_ preset: ThemePreset) -> some View {
-        let isSelected = preset.id == selectedId
-        return Button {
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-            if isDarkList {
-                settings.darkThemePreset = preset.id
-            } else {
-                settings.lightThemePreset = preset.id
-            }
-        } label: {
-            HStack(spacing: 12) {
-                ThemeSwatchPillView(preset: preset)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(preset.name)
-                        .font(.system(size: 15, weight: .medium))
-                        .foregroundColor(.primary)
-                    Text(preset.description)
-                        .font(.system(size: 12))
-                        .foregroundColor(.secondary)
-                        .lineLimit(1)
-                }
-                Spacer()
-                if isSelected {
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(preset.accent)
-                }
-            }
-        }
-    }
-}
-
-private struct ThemeLivePreviewCard: View {
-    let preset: ThemePreset
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("检查一下这段配色代码")
-                .font(.system(size: 12.5, weight: .medium))
-                .foregroundColor(preset.userBubbleText)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 7)
-                .background(preset.userBubbleBg, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                .frame(maxWidth: .infinity, alignment: .trailing)
-
-            VStack(alignment: .leading, spacing: 7) {
-                Text("已应用 \(preset.name)，气泡与代码块同步配色：")
-                    .font(.system(size: 12.5))
-                    .foregroundColor(preset.isDefaultStyle ? .primary : preset.fg)
-
-                Text(highlightedSnippet)
-                    .font(.system(size: 11.5, design: .monospaced))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 8)
-                    .background(preset.codeBlockBg, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .stroke(preset.border, lineWidth: 0.6)
-                    )
-            }
-            .padding(10)
-            .background(preset.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(preset.border, lineWidth: 0.6)
-            )
-        }
-        .padding(12)
-        .background(preset.bg, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(preset.border, lineWidth: 0.8)
-        )
-        .environment(\.colorScheme, preset.isDark ? .dark : .light)
-    }
-
-    private var highlightedSnippet: AttributedString {
-        CodeSyntaxHighlighter.highlight(
-            code: "let theme = \"ready\" // ok",
-            language: "swift",
-            isDark: preset.isDark,
-            useNord: preset.id == "nord",
-            themeID: preset.storageKey
-        )
-    }
-}
-
 // MARK: - 精简模式二级页
 
 private struct CompactModeSettingsView: View {
     @State private var settings = AppSettings.shared
-    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        let activeTheme = settings.activeThemePreset(for: colorScheme)
         Form {
             Section(
                 footer: Text("开启后可折叠对话中的工具执行过程与底部任务辅助栏，让长对话阅读更聚焦。")
@@ -653,8 +473,6 @@ private struct CompactModeSettingsView: View {
             .disabled(!settings.isKnowledgeModeEnabled)
             .opacity(settings.isKnowledgeModeEnabled ? 1.0 : 0.48)
         }
-        .scrollContentBackground(activeTheme.isDefaultStyle ? .automatic : .hidden)
-        .background(activeTheme.isDefaultStyle ? Color.clear : activeTheme.bg)
         .navigationTitle("精简模式")
         .navigationBarTitleDisplayMode(.inline)
     }

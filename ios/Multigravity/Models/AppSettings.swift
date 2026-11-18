@@ -41,8 +41,7 @@ public final class AppSettings {
     private let weeklyPaceCursorKey = "antigravity.weekly_pace_cursor"
     private let selectedQuotaBucketKey = "antigravity.selected_quota_bucket"
     private let themeModeKey = "antigravity.theme_mode"
-    private let lightThemePresetKey = "antigravity.light_theme_preset"
-    private let darkThemePresetKey = "antigravity.dark_theme_preset"
+    private let shareCardSkinKey = "antigravity.share_card_skin_id"
     private let fontSizeScaleKey = "antigravity.font_size_scale"
     private let knowledgeModeKey = "antigravity.knowledge_mode_enabled"
     private let compactCollapseToolsKey = "antigravity.compact_collapse_tools"
@@ -239,7 +238,6 @@ public final class AppSettings {
         didSet {
             if themeMode == "nord" {
                 themeMode = "dark"
-                darkThemePreset = "nord"
                 return
             }
             UserDefaults.standard.set(themeMode, forKey: themeModeKey)
@@ -247,17 +245,10 @@ public final class AppSettings {
         }
     }
 
-    /// 浅色模式下的预设配色 ID（默认 "default"）
-    public var lightThemePreset: String {
+    /// 分享长图卡片（对话分享 & Token 历史分享共用）皮肤 ID；"auto" 表示跟随当前系统明暗
+    public var shareCardSkinID: String {
         didSet {
-            UserDefaults.standard.set(lightThemePreset, forKey: lightThemePresetKey)
-        }
-    }
-
-    /// 深色模式下的预设配色 ID（默认 "default"）
-    public var darkThemePreset: String {
-        didSet {
-            UserDefaults.standard.set(darkThemePreset, forKey: darkThemePresetKey)
+            UserDefaults.standard.set(shareCardSkinID, forKey: shareCardSkinKey)
         }
     }
 
@@ -310,43 +301,25 @@ public final class AppSettings {
         return meter.isOverflow == true || meter.percentage >= 70
     }
 
-    public func activeThemePreset(for systemScheme: ColorScheme) -> ThemePreset {
-        let isDark: Bool
+    public func resolvedShareCardSkin(for systemScheme: ColorScheme) -> ThemePreset {
+        let fallbackDark: Bool
         switch themeMode {
-        case "light": isDark = false
-        case "dark", "nord": isDark = true
-        default: isDark = (systemScheme == .dark)
+        case "light": fallbackDark = false
+        case "dark": fallbackDark = true
+        default: fallbackDark = (systemScheme == .dark)
         }
-        return ThemePresetCatalog.resolve(
-            isDark: isDark,
-            lightPresetId: lightThemePreset,
-            darkPresetId: darkThemePreset
-        )
+        if shareCardSkinID == "auto" || shareCardSkinID.isEmpty {
+            return fallbackDark ? ThemePresetCatalog.defaultDark : ThemePresetCatalog.defaultLight
+        }
+        return ThemePresetCatalog.findByThemeKey(shareCardSkinID, fallbackIsDark: fallbackDark)
     }
 
-    public var resolvedThemePreset: ThemePreset {
-        let isDark: Bool
-        switch themeMode {
-        case "light": isDark = false
-        case "dark", "nord": isDark = true
-        default:
-            isDark = UITraitCollection.current.userInterfaceStyle == .dark
-        }
-        return ThemePresetCatalog.resolve(
-            isDark: isDark,
-            lightPresetId: lightThemePreset,
-            darkPresetId: darkThemePreset
-        )
-    }
-
-    public var isNordTheme: Bool {
-        resolvedThemePreset.id == "nord"
-    }
+    public var isNordTheme: Bool { false }
 
     public var colorScheme: ColorScheme? {
         switch themeMode {
         case "light": return .light
-        case "dark", "nord": return .dark
+        case "dark": return .dark
         default: return nil
         }
     }
@@ -354,7 +327,7 @@ public final class AppSettings {
     public var userInterfaceStyle: UIUserInterfaceStyle {
         switch themeMode {
         case "light": return .light
-        case "dark", "nord": return .dark
+        case "dark": return .dark
         default: return .unspecified
         }
     }
@@ -759,20 +732,13 @@ public final class AppSettings {
         let savedQuotaBucket = UserDefaults.standard.string(forKey: selectedQuotaBucketKey) ?? QuotaBucketKind.gemini5h.rawValue
         self.selectedQuotaBucket = QuotaBucketKind(rawValue: savedQuotaBucket) ?? .gemini5h
         let rawThemeMode = UserDefaults.standard.string(forKey: themeModeKey) ?? "system"
-        let savedLightPreset = UserDefaults.standard.string(forKey: lightThemePresetKey) ?? "default"
-        let savedDarkPreset = UserDefaults.standard.string(forKey: darkThemePresetKey)
         if rawThemeMode == "nord" {
-            let resolvedDark = (savedDarkPreset?.isEmpty == false) ? savedDarkPreset! : "nord"
             self.themeMode = "dark"
-            self.lightThemePreset = savedLightPreset
-            self.darkThemePreset = resolvedDark
             UserDefaults.standard.set("dark", forKey: themeModeKey)
-            UserDefaults.standard.set(resolvedDark, forKey: darkThemePresetKey)
         } else {
             self.themeMode = rawThemeMode
-            self.lightThemePreset = savedLightPreset
-            self.darkThemePreset = (savedDarkPreset?.isEmpty == false) ? savedDarkPreset! : "default"
         }
+        self.shareCardSkinID = UserDefaults.standard.string(forKey: shareCardSkinKey) ?? "auto"
         let savedScale = UserDefaults.standard.string(forKey: fontSizeScaleKey) ?? "standard"
         self.fontSizeScale = FontSizeScale(rawValue: savedScale) ?? .standard
         self.isKnowledgeModeEnabled = UserDefaults.standard.bool(forKey: knowledgeModeKey)

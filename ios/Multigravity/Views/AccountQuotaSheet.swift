@@ -16,6 +16,7 @@ public struct AccountQuotaSheet: View {
     @State private var paceDetailItem: WeeklyPaceDetailItem? = nil
     @State private var selectedTab: Int = 0
     @State private var selectedHeatmapDate: String? = nil
+    @State private var showTokenHistoryShareSheet: Bool = false
     @Binding public var quotaResponse: CockpitQuotaResponse?
     public let tokenHistory: TokenHistoryResponse?
     public let isLoadingTokenHistory: Bool
@@ -302,6 +303,15 @@ public struct AccountQuotaSheet: View {
                 WeeklyPaceDetailSheet(item: item)
                     .presentationDetents([.fraction(0.48), .medium])
                     .presentationDragIndicator(.visible)
+            }
+            .sheet(isPresented: $showTokenHistoryShareSheet) {
+                if let history = tokenHistory {
+                    let activeDate = selectedHeatmapDate
+                        ?? history.dailyMatrix.last(where: { $0.total > 0 })?.date
+                        ?? history.dailyMatrix.last?.date
+                    let selectedRec = history.dailyMatrix.first(where: { $0.date == activeDate })
+                    TokenHistoryShareCardSheet(history: history, selectedRecord: selectedRec)
+                }
             }
         }
     }
@@ -1177,6 +1187,7 @@ extension AccountQuotaSheet {
             history: history,
             selectedRecord: selectedRec,
             colorScheme: colorScheme,
+            skin: AppSettings.shared.resolvedShareCardSkin(for: colorScheme),
             exportDate: Date()
         )
 
@@ -1208,14 +1219,7 @@ extension AccountQuotaSheet {
 
     @MainActor
     private func shareTokenHistory() {
-        guard !isSavingTokenHistory, !isSharingTokenHistory else { return }
-        isSharingTokenHistory = true
-        defer { isSharingTokenHistory = false }
-
-        guard let image = renderTokenHistoryImage(failureTitle: String(localized: "分享失败")) else {
-            return
-        }
-
-        ImageActions.share(image)
+        guard tokenHistory != nil, !isSavingTokenHistory, !isSharingTokenHistory else { return }
+        showTokenHistoryShareSheet = true
     }
 }
