@@ -20,6 +20,27 @@ function stripGatewayHexPrefix(fileName) {
   return fileName;
 }
 
+const WECHAT_DISPLAY_PREFIX_RE = /(?<![0-9a-fA-F])[0-9a-f]{16}-(聊天记录[^\s/`'"<>()\[\]，。；：、！？]*?\.zip)/gi;
+
+function stripWeChatDisplayPrefix(text) {
+  if (!text) return "";
+  const s = String(text);
+  if (!s.includes("聊天记录") || !s.includes("-")) return s;
+  if (isWeChatChatArchiveName(s)) {
+    const slashIdx = s.lastIndexOf("/");
+    if (slashIdx >= 0) {
+      const dir = s.slice(0, slashIdx + 1);
+      const base = s.slice(slashIdx + 1);
+      const stripped = stripGatewayHexPrefix(base);
+      if (stripped !== base) return dir + stripped;
+    } else {
+      const stripped = stripGatewayHexPrefix(s);
+      if (stripped !== s) return stripped;
+    }
+  }
+  return s.replace(WECHAT_DISPLAY_PREFIX_RE, "$1");
+}
+
 function isWeChatChatArchiveName(pathOrName) {
   if (!pathOrName) return false;
   let s = String(pathOrName).trim().replace(/^[`'"]+|[`'"]+$/g, "");
@@ -388,6 +409,7 @@ const WeChatArchiveModal = (() => {
 })();
 
 window.isWeChatChatArchiveName = isWeChatChatArchiveName;
+window.stripWeChatDisplayPrefix = stripWeChatDisplayPrefix;
 window.parseUserAttachmentBlock = parseUserAttachmentBlock;
 window.buildUserAttachmentCardsHtml = buildUserAttachmentCardsHtml;
 window.WeChatArchiveModal = WeChatArchiveModal;

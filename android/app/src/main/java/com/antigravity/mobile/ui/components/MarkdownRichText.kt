@@ -304,8 +304,9 @@ internal fun buildRichTextRenderData(
             isStrike: Boolean
         ) {
             if (plain.isEmpty()) return
+            val displayPlain = FileIconResolver.strippingWeChatDisplayPrefix(plain)
             val start = length
-            append(plain)
+            append(displayPlain)
             if (isBold || isItalic || isStrike) {
                 addStyle(
                     SpanStyle(
@@ -361,9 +362,10 @@ internal fun buildRichTextRenderData(
                     linkText != null && linkUrl != null -> {
                         val isInnerBold = (linkText.startsWith("**") && linkText.endsWith("**") && linkText.length >= 4) ||
                                 (linkText.startsWith("__") && linkText.endsWith("__") && linkText.length >= 4)
-                        val cleanTitle = linkText.trim('`', '\'', '"', '*', '_', ' ').ifEmpty {
+                        val rawCleanTitle = linkText.trim('`', '\'', '"', '*', '_', ' ').ifEmpty {
                             linkUrl.substringAfterLast('/').ifEmpty { linkText }
                         }
+                        val cleanTitle = FileIconResolver.strippingWeChatDisplayPrefix(rawCleanTitle)
                         val effectiveBold = isBold || isInnerBold
                         val isPlan = linkUrl.contains("implementation_plan") || linkUrl.contains("walkthrough")
                         val isScript = FileIconResolver.isScriptFile(linkUrl) || FileIconResolver.isScriptFile(cleanTitle)
@@ -424,10 +426,11 @@ internal fun buildRichTextRenderData(
                     }
 
                     inlineCode != null -> {
+                        val displayCode = FileIconResolver.strippingWeChatDisplayPrefix(inlineCode)
                         // Check if bare inline code is a file reference that has a known icon
-                        val isFileCode = (inlineCode.contains('.') || inlineCode.contains('/')) &&
-                                FileIconResolver.resolveIcon(inlineCode) != null
-                        val codeIcon = if (isFileCode) FileIconResolver.resolveIcon(inlineCode) else null
+                        val isFileCode = (displayCode.contains('.') || displayCode.contains('/')) &&
+                                FileIconResolver.resolveIcon(displayCode) != null
+                        val codeIcon = if (isFileCode) FileIconResolver.resolveIcon(displayCode) else null
 
                         if (codeIcon != null) {
                             val inlineId = "icon_${codeIcon}_${iconIndex++}"
@@ -447,7 +450,7 @@ internal fun buildRichTextRenderData(
                                 )
                             }
                             val start = length
-                            append(inlineCode)
+                            append(displayCode)
                             addStyle(
                                 style = SpanStyle(
                                     color = colors.accentBlue,
@@ -463,7 +466,7 @@ internal fun buildRichTextRenderData(
                         } else {
                             // Standard inline code symbol (e.g. rawTrajectorySignature, readBodyToPool) in Amber
                             val start = length
-                            append(inlineCode)
+                            append(displayCode)
                             addStyle(
                                 style = SpanStyle(
                                     color = codeColor,

@@ -724,6 +724,28 @@ function initMarkdownViewer() {
 
     const dataMdUrl = link.getAttribute("data-md-url");
     const href = link.getAttribute("href") || "";
+    const linkTitle = link.textContent.trim();
+    const lowerHref = href.toLowerCase();
+    const isHttpHref = lowerHref.startsWith("http://") || lowerHref.startsWith("https://");
+    const isExternalHref = isHttpHref && !lowerHref.includes(window.location.host);
+
+    if (!isExternalHref &&
+        typeof isWeChatChatArchiveName === "function" &&
+        typeof WeChatArchiveModal !== "undefined") {
+      let wxUri = href;
+      if (lowerHref.includes("/api/v1/files/raw")) {
+        try {
+          const u = new URL(href, window.location.origin);
+          wxUri = u.searchParams.get("uri") || href;
+        } catch (_) {}
+      }
+      if (isWeChatChatArchiveName(wxUri) || isWeChatChatArchiveName(linkTitle)) {
+        e.preventDefault();
+        e.stopPropagation();
+        WeChatArchiveModal.open(wxUri, linkTitle);
+        return;
+      }
+    }
 
     let isLocalMd = !!dataMdUrl || link.classList.contains("markdown-file-link");
     if (!isLocalMd) {
