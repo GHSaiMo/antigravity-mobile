@@ -188,7 +188,7 @@ function initApp() {
   const sendBtn = document.getElementById("btn-send");
   sendBtn?.addEventListener("click", () => {
     const isRunning = isCascadeRunning(activeCascadeId);
-    const hasContent = (document.getElementById("chat-input")?.value.trim().length > 0) || (pendingImages && pendingImages.length > 0) || !!getSelectedSlashCommand();
+    const hasContent = (document.getElementById("chat-input")?.value.trim().length > 0) || (pendingImages && pendingImages.length > 0) || (typeof pendingAttachments !== "undefined" && pendingAttachments.length > 0) || !!getSelectedSlashCommand();
     const inVoiceCall = typeof WebVoiceCallManager !== "undefined" && WebVoiceCallManager.isInCall;
     const voiceEnabled = typeof WebVoiceCallManager !== "undefined" && WebVoiceCallManager.isVoiceModeEnabled();
 

@@ -53,7 +53,9 @@ data class TrajectorySummary(
     val notFullyIdle: Boolean? = null,
     val backgroundTaskCount: Int? = null,
     /** Official project display name (alias or project.name) resolved by the gateway. */
-    val workspaceName: String? = null
+    val workspaceName: String? = null,
+    val currentBranch: String? = null,
+    val pullRequest: GitPullRequestItem? = null
 ) {
     val isSubagent: Boolean
         get() {
@@ -98,7 +100,9 @@ data class ConversationItem(
     val nestingDepth: Int = 0,
     val isPinned: Boolean = false,
     val hasRunningTasks: Boolean = false,
-    val hasRunningSubagents: Boolean = false
+    val hasRunningSubagents: Boolean = false,
+    val currentBranch: String? = null,
+    val pullRequest: GitPullRequestItem? = null
 ) {
     val displayTitle: String
         get() = title.ifBlank { "未命名会话" }
@@ -216,7 +220,9 @@ data class ConversationItem(
                 nestingDepth = depth,
                 isPinned = isPinned,
                 hasRunningTasks = hasRunningTasks,
-                hasRunningSubagents = hasRunningSubagents
+                hasRunningSubagents = hasRunningSubagents,
+                currentBranch = summary.currentBranch,
+                pullRequest = summary.pullRequest
             )
         }
 

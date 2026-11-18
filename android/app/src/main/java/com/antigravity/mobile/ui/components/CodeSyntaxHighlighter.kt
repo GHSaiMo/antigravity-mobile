@@ -56,6 +56,23 @@ object CodeSyntaxHighlighter {
         diffDel = Color(0xFFCF222E)
     )
 
+    // Official Antigravity 2.33.0 Nord Dark Palette
+    private val nordPalette = Palette(
+        keyword = Color(0xFF81A1C1),
+        string = Color(0xFFA3BE8C),
+        comment = Color(0xFF616E88),
+        number = Color(0xFFB48EAD),
+        typeName = Color(0xFF8FBCBB),
+        function = Color(0xFF88C0D0),
+        property = Color(0xFF8FBCBB),
+        diffAdd = Color(0xFFA3BE8C),
+        diffDel = Color(0xFFBF616A)
+    )
+
+    private val rRegex = Regex(
+        """(#[^\n]*)|("(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*')|(```\{[rR][^}]*\}|```)|\b(0x[0-9a-fA-F]+|\d+(?:\.\d+)?(?:[eE][+-]?\d+)?[iL]?)\b|(<-|->|<<-|->>|\|>|%>%)|\b(function|if|else|repeat|while|for|in|next|break|return|TRUE|FALSE|NULL|NA|NA_integer_|NA_real_|NA_character_|NA_complex_|Inf|NaN|library|require|source|switch|tryCatch|stop|warning|message)\b|\b([a-zA-Z.][a-zA-Z0-9._]*)(?=\s*\()"""
+    )
+
     private val jsonRegex = Regex(
         """("(?:\\.|[^"\\])*")\s*:|("(?:\\.|[^"\\])*")|\b(true|false|null)\b|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)"""
     )
@@ -73,7 +90,7 @@ object CodeSyntaxHighlighter {
         """(//[^\n]*|/\*[\s\S]*?\*/|#(?!!\[)[^\n]*)|("${'"'}${'"'}[\s\S]*?"${'"'}${'"'}|"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'|`(?:\\.|[^`\\])*`)|(@[A-Za-z_]\w*)|\b(0x[0-9a-fA-F_]+|0b[01_]+|\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)\b|\b(func|fn|fun|def|function|return|if|else|elif|when|for|while|loop|match|switch|case|default|break|continue|struct|class|enum|interface|trait|protocol|extension|impl|type|typealias|import|from|export|package|module|pub|public|private|internal|protected|static|final|const|let|var|val|mut|async|await|try|catch|throw|throws|defer|go|select|chan|range|in|as|is|nil|null|None|True|False|true|false|self|Self|super|this|new|guard|where|actor|nonisolated|some|any|override|open|suspend|data|sealed|companion|object)\b|\b([A-Z][A-Za-z0-9_]*)\b|\b([a-zA-Z_]\w*)(?=\s*\()"""
     )
 
-    fun highlight(code: String, language: String, isDark: Boolean): AnnotatedString {
+    fun highlight(code: String, language: String, isDark: Boolean, useNord: Boolean = false): AnnotatedString {
         if (code.isEmpty() || code.length > MAX_HIGHLIGHT_LENGTH) {
             return AnnotatedString(code)
         }
@@ -82,12 +99,17 @@ object CodeSyntaxHighlighter {
             return AnnotatedString(code)
         }
 
-        val key = "${if (isDark) 'd' else 'l'}:$normLang:${code.length}:${code.hashCode()}"
+        val themeTag = if (useNord) 'n' else if (isDark) 'd' else 'l'
+        val key = "$themeTag:$normLang:${code.length}:${code.hashCode()}"
         synchronized(cache) {
             cache.get(key)?.let { if (it.source == code) return it.annotated }
         }
 
-        val palette = if (isDark) darkPalette else lightPalette
+        val palette = when {
+            useNord -> nordPalette
+            isDark -> darkPalette
+            else -> lightPalette
+        }
         val result = buildAnnotatedString {
             append(code)
             when (normLang) {
@@ -103,6 +125,20 @@ object CodeSyntaxHighlighter {
                             '@' -> addStyle(SpanStyle(color = palette.function), idx, end)
                         }
                         idx = end
+                    }
+                }
+                "r" -> {
+                    for (m in rRegex.findAll(code)) {
+                        val g = m.groups
+                        when {
+                            g[1] != null -> addStyle(SpanStyle(color = palette.comment), g[1]!!.range.first, g[1]!!.range.last + 1)
+                            g[2] != null -> addStyle(SpanStyle(color = palette.string), g[2]!!.range.first, g[2]!!.range.last + 1)
+                            g[3] != null -> addStyle(SpanStyle(color = palette.property), g[3]!!.range.first, g[3]!!.range.last + 1)
+                            g[4] != null -> addStyle(SpanStyle(color = palette.number), g[4]!!.range.first, g[4]!!.range.last + 1)
+                            g[5] != null -> addStyle(SpanStyle(color = palette.keyword), g[5]!!.range.first, g[5]!!.range.last + 1)
+                            g[6] != null -> addStyle(SpanStyle(color = palette.keyword), g[6]!!.range.first, g[6]!!.range.last + 1)
+                            g[7] != null -> addStyle(SpanStyle(color = palette.function), g[7]!!.range.first, g[7]!!.range.last + 1)
+                        }
                     }
                 }
                 "json" -> {
@@ -168,6 +204,7 @@ object CodeSyntaxHighlighter {
         "yaml", "yml", "toml" -> "yaml"
         "diff", "patch" -> "diff"
         "html", "xml", "svg" -> "markup"
+        "r", "rmd", "rmarkdown", "rprofile", "renviron", "namespace" -> "r"
         else -> "code"
     }
 }

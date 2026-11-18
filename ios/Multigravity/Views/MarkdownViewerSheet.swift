@@ -16,6 +16,16 @@ public struct MarkdownViewerSheet: View {
     @State private var toastSuccessMessage: String? = nil
     @State private var previewQuickLookURL: URL? = nil
     @State private var previewQuickLookTitle: String = ""
+    @State private var showFindBar: Bool = false
+    @State private var findQuery: String = ""
+
+    private var matchingLines: [(lineNum: Int, text: String)] {
+        let q = findQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !q.isEmpty else { return [] }
+        return data.content.components(separatedBy: .newlines).enumerated().compactMap { idx, line in
+            line.localizedCaseInsensitiveContains(q) ? (idx + 1, line.trimmingCharacters(in: .whitespaces)) : nil
+        }
+    }
     
     public init(
         data: MarkdownFileViewerData,
@@ -49,7 +59,51 @@ public struct MarkdownViewerSheet: View {
     public var body: some View {
         NavigationStack {
             ZStack(alignment: .bottom) {
-                ScrollView {
+                VStack(spacing: 0) {
+                    if showFindBar {
+                        VStack(spacing: 6) {
+                            HStack(spacing: 8) {
+                                Image(systemName: "magnifyingglass")
+                                    .font(.system(size: 13))
+                                    .foregroundColor(.secondary)
+                                TextField("在文档中查找...", text: $findQuery)
+                                    .font(.system(size: 14))
+                                    .autocorrectionDisabled()
+                                    .textInputAutocapitalization(.never)
+                                if !findQuery.isEmpty {
+                                    Text("\(matchingLines.count) 行命中")
+                                        .font(.system(size: 11.5, weight: .semibold, design: .monospaced))
+                                        .foregroundColor(.secondary)
+                                    Button { findQuery = "" } label: {
+                                        Image(systemName: "xmark.circle.fill")
+                                            .foregroundColor(.secondary)
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                            if !matchingLines.isEmpty {
+                                ScrollView(.horizontal, showsIndicators: false) {
+                                    HStack(spacing: 6) {
+                                        ForEach(Array(matchingLines.prefix(12).enumerated()), id: \.offset) { _, hit in
+                                            Text("L\(hit.lineNum): \(hit.text)")
+                                                .font(.system(size: 11, design: .monospaced))
+                                                .lineLimit(1)
+                                                .frame(maxWidth: 220, alignment: .leading)
+                                                .padding(.horizontal, 8)
+                                                .padding(.vertical, 4)
+                                                .background(Color.yellow.opacity(0.22))
+                                                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(Color(uiColor: .secondarySystemBackground))
+                        Divider()
+                    }
+                    ScrollView {
                     VStack(alignment: .leading, spacing: 14) {
                         // Main Markdown Content Body
                         if data.isLoading {
@@ -98,6 +152,7 @@ public struct MarkdownViewerSheet: View {
                     .padding(.horizontal, 16)
                     .padding(.top, 14)
                     .padding(.bottom, data.canProceed ? 90 : 32)
+                }
                 }
                 
                 // Bottom Fixed Proceed Bar (when planning mode artifact needs approval)
@@ -157,7 +212,18 @@ public struct MarkdownViewerSheet: View {
                     .disabled(shareURL == nil)
                     .accessibilityLabel("存储到“文件”")
                 }
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    if !data.content.isEmpty {
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.15)) {
+                                showFindBar.toggle()
+                            }
+                        } label: {
+                            Image(systemName: "magnifyingglass")
+                                .font(.system(size: 15, weight: .semibold))
+                        }
+                        .accessibilityLabel("页内查找")
+                    }
                     if let url = shareURL {
                         ShareLink(item: url, preview: SharePreview(data.title.isEmpty ? String(localized: "文档详情") : data.title)) {
                             Image(systemName: "square.and.arrow.up")

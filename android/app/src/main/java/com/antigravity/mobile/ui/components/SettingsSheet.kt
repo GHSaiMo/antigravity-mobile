@@ -667,7 +667,8 @@ private fun MainSettingsContent(
             listOf(
                 PickerMenuOption("system", "跟随系统"),
                 PickerMenuOption("light", "浅色"),
-                PickerMenuOption("dark", "深色")
+                PickerMenuOption("dark", "深色"),
+                PickerMenuOption("nord", "Nord (极光深色)")
             )
         }
         val fontScaleOptions = remember {

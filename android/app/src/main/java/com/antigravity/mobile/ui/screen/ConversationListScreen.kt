@@ -1500,6 +1500,9 @@ fun ConversationCard(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
+                    conversation.pullRequest?.let { pr ->
+                        GitHubPRPillBadge(item = pr, compact = true)
+                    }
                 }
 
                 val timeStr = conversation.relativeTimeString

@@ -44,8 +44,11 @@ const SubagentManager = {
       return;
     }
     card.classList.remove("hidden");
+    const singleHeaderAttrs = running.length === 1
+      ? ` data-act="open" data-id="${escapeHtml(running[0].conversationId)}" style="cursor:pointer;"`
+      : "";
     card.innerHTML =
-      `<div class="subagents-header"><div class="ios-spinner subagents-spinner"></div><span>${running.length} 个子代理运行中</span></div>` +
+      `<div class="subagents-header"${singleHeaderAttrs}><div class="ios-spinner subagents-spinner"></div><span>${running.length} 个子代理运行中${running.length === 1 ? " · 点击查看 ›" : ""}</span></div>` +
       running
         .map(
           (s) => `<div class="subagents-row" data-id="${escapeHtml(s.conversationId)}">

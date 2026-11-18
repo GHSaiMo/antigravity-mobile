@@ -155,9 +155,12 @@ import com.antigravity.mobile.ui.viewmodel.forkConversationAt
 import com.antigravity.mobile.ui.viewmodel.openMentionPicker
 import com.antigravity.mobile.ui.viewmodel.prepareSession
 import com.antigravity.mobile.ui.viewmodel.refreshPermissionSettings
+import com.antigravity.mobile.ui.viewmodel.refreshProjectTrust
 import com.antigravity.mobile.ui.viewmodel.removeContextMention
 import com.antigravity.mobile.ui.viewmodel.searchContextMentions
 import com.antigravity.mobile.ui.viewmodel.sendTaskToBackground
+import com.antigravity.mobile.ui.viewmodel.trustCurrentProject
+import com.antigravity.mobile.data.service.startBtwSideQuestion
 import com.antigravity.mobile.ui.viewmodel.setPermissionPreset
 
 private val BracketPlaceholderRegex = Regex("\\[[^\\[\\]\\n]+\\]")
@@ -710,6 +713,9 @@ fun ChatScreen(
     val isNarrating by narrationPlayer.isPlaying.collectAsState()
     val narrationLabel by narrationPlayer.statusLabel.collectAsState()
     var showPermissionMenu by remember { mutableStateOf(false) }
+    var showBtwSheet by remember { mutableStateOf(false) }
+    var btwInitialQuote by remember { mutableStateOf<String?>(null) }
+    var selectedGitHubPRUrl by remember { mutableStateOf<String?>(null) }
     var phase3Notice by remember { mutableStateOf<String?>(null) }
     var dictationBaseText by remember { mutableStateOf("") }
 
@@ -825,6 +831,7 @@ fun ChatScreen(
     LaunchedEffect(cascadeId, isNewConversation) {
         enterSession()
         viewModel.refreshPermissionSettings()
+        viewModel.refreshProjectTrust()
         // Automatically focus the input field and pop up soft keyboard ONLY on new conversation creation without pending options
         if (isNewConversation && uiState.pendingInteraction == null) {
             delay(250)
@@ -1054,6 +1061,11 @@ fun ChatScreen(
                     else -> decodedFileName
                 }
                 viewModel.openMarkdownViewer(clean, docTitle)
+            } else if ((clean.startsWith("http://") || clean.startsWith("https://")) &&
+                GitHubPRLinkExtractor.parseUrl(clean) != null
+            ) {
+                haptic.light()
+                selectedGitHubPRUrl = clean
             } else if (clean.startsWith("http://") || clean.startsWith("https://")) {
                 // 3. External Web links (Open in immersive in-app Chrome Custom Tabs)
                 haptic.light()
@@ -1226,6 +1238,15 @@ fun ChatScreen(
                             expanded = showPermissionMenu,
                             onDismissRequest = { showPermissionMenu = false }
                         ) {
+                            DropdownMenuItem(
+                                text = { Text("/btw 旁路快问") },
+                                onClick = {
+                                    showPermissionMenu = false
+                                    btwInitialQuote = null
+                                    showBtwSheet = true
+                                }
+                            )
+                            HorizontalDivider(color = colors.border.copy(alpha = 0.4f))
                             listOf(
                                 Triple("strict", "严格审批", "每步高危命令需确认"),
                                 Triple("sandbox", "离席沙箱放行", "工作区安全操作自动放行"),
@@ -1270,6 +1291,16 @@ fun ChatScreen(
                     brief = swarm,
                     onClick = { showSwarmSheet = true },
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+                )
+            }
+
+            uiState.trustStatus?.takeIf { !it.isProjectTrusted }?.let { trust ->
+                WorkspaceTrustBanner(
+                    status = trust,
+                    isUpdating = uiState.isUpdatingTrust,
+                    onTrust = {
+                        viewModel.trustCurrentProject { msg -> phase3Notice = msg }
+                    }
                 )
             }
 
@@ -1419,6 +1450,10 @@ fun ChatScreen(
                                             }
                                         },
                                         onNarrateClick = { text -> narrationPlayer.play(text) },
+                                        onAskBtwClick = { quote ->
+                                            btwInitialQuote = quote
+                                            showBtwSheet = true
+                                        },
                                         onCompactClick = { viewModel.sendCompactCommand() },
                                         onStartNewSessionClick = onStartNewSession,
                                         onUndoClick = if (compat.isAvailable(com.antigravity.mobile.data.model.GatewayFeature.REVERT)) {
@@ -1838,6 +1873,13 @@ fun ChatScreen(
                                     workflowSheetStartEditing = true
                                     showWorkflowTemplateSheet = true
                                 },
+                                onOpenBtw = if (!uiState.cascadeId.startsWith("local_draft_") && uiState.cascadeId.isNotBlank()) {
+                                    {
+                                        dismissKeyboard()
+                                        btwInitialQuote = null
+                                        showBtwSheet = true
+                                    }
+                                } else null,
                                 showChanges = uiState.hasSessionChanges,
                                 showContinue = uiState.isLatestMessageError,
                                 onContinue = {
@@ -2196,7 +2238,30 @@ fun ChatScreen(
                                             )
                                             .clickable(enabled = isEnabled) {
                                                 dismissKeyboard()
-                                                viewModel.sendCurrentMessage()
+                                                val trimmedSend = inputText.trim()
+                                                if (uiState.selectedImages.isEmpty() && uiState.selectedFiles.isEmpty() && uiState.selectedSlashCommand == null &&
+                                                    (trimmedSend == "/btw" || trimmedSend.startsWith("/btw "))
+                                                ) {
+                                                    val q = trimmedSend.drop(4).trim()
+                                                    viewModel.onInputTextChanged("")
+                                                    val cid = uiState.cascadeId
+                                                    if (q.isEmpty() || cid.isBlank() || cid.startsWith("local_draft_")) {
+                                                        btwInitialQuote = null
+                                                        showBtwSheet = true
+                                                    } else {
+                                                        coroutineScope.launch {
+                                                            com.antigravity.mobile.data.service.ApiClient.defaultInstance?.startBtwSideQuestion(
+                                                                parentCascadeId = cid,
+                                                                question = q,
+                                                                model = uiState.activeModel
+                                                            )
+                                                            btwInitialQuote = null
+                                                            showBtwSheet = true
+                                                        }
+                                                    }
+                                                } else {
+                                                    viewModel.sendCurrentMessage()
+                                                }
                                             },
                                         contentAlignment = Alignment.Center
                                     ) {
@@ -2632,6 +2697,44 @@ fun ChatScreen(
             onDismissRequest = { selectedWorkflowSubagent = null },
             onStopSubagent = { item ->
                 viewModel.stopSubagent(item.conversationId)
+            },
+            onAskBtw = { quote ->
+                btwInitialQuote = quote
+                showBtwSheet = true
+            }
+        )
+    }
+
+    selectedGitHubPRUrl?.let { prUrl ->
+        GitHubPRDetailBottomSheet(
+            prUrl = prUrl,
+            onDismiss = { selectedGitHubPRUrl = null },
+            onOpenInBrowser = { targetUrl ->
+                com.antigravity.mobile.ui.util.InAppBrowserUtils.openUrl(context, targetUrl)
+            }
+        )
+    }
+
+    if (showBtwSheet) {
+        BtwSideQuestionBottomSheet(
+            parentCascadeId = uiState.cascadeId,
+            activeModel = uiState.activeModel,
+            initialQuote = btwInitialQuote,
+            onInsertIntoMain = { inserted ->
+                val cur = inputText.trim()
+                viewModel.onInputTextChanged(if (cur.isEmpty()) inserted else "$cur\n\n$inserted")
+            },
+            onOpenStandalone = { targetId ->
+                viewModel.prepareSession(
+                    cascadeId = targetId,
+                    initialTitle = "旁路快问",
+                    isNewConversation = false,
+                    workspaceName = uiState.workspaceName
+                )
+            },
+            onDismiss = {
+                showBtwSheet = false
+                btwInitialQuote = null
             }
         )
     }

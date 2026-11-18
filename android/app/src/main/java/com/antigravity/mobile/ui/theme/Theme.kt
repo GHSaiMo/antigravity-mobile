@@ -10,6 +10,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 
@@ -58,20 +59,47 @@ private val DarkMaterialColorScheme = darkColorScheme(
     outline = DarkBorder
 )
 
+private val NordMaterialColorScheme = darkColorScheme(
+    primary = NordFrostAccent,
+    onPrimary = NordBackground,
+    secondary = Color(0xFFA3BE8C),
+    error = Color(0xFFBF616A),
+    background = NordBackground,
+    onBackground = NordForeground,
+    surface = NordSurface,
+    onSurface = NordForeground,
+    surfaceVariant = NordSurfaceVariant,
+    onSurfaceVariant = NordSecondaryForeground,
+    surfaceContainer = NordSurfaceVariant,
+    surfaceContainerLow = NordBackground,
+    surfaceContainerHigh = NordSurface,
+    outline = NordBorder
+)
+
 @Composable
 fun AntigravityTheme(
     themeMode: String = "system",
     content: @Composable () -> Unit
 ) {
     val isSystemDark = isSystemInDarkTheme()
-    val isDark = when (themeMode.lowercase()) {
+    val normMode = themeMode.lowercase()
+    val isNord = normMode == "nord"
+    val isDark = when (normMode) {
         "light" -> false
-        "dark" -> true
+        "dark", "nord" -> true
         else -> isSystemDark
     }
 
-    val appColors = if (isDark) DarkAppColors else LightAppColors
-    val materialColors = if (isDark) DarkMaterialColorScheme else LightMaterialColorScheme
+    val appColors = when {
+        isNord -> NordAppColors
+        isDark -> DarkAppColors
+        else -> LightAppColors
+    }
+    val materialColors = when {
+        isNord -> NordMaterialColorScheme
+        isDark -> DarkMaterialColorScheme
+        else -> LightMaterialColorScheme
+    }
 
     val view = LocalView.current
     if (!view.isInEditMode) {

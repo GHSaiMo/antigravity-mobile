@@ -145,7 +145,9 @@ data class ChatUiState(
     val mentionQuery: String = "",
     val isLoadingMentions: Boolean = false,
     val showMentionPicker: Boolean = false,
-    val permissionState: PermissionStateResponse = PermissionStateResponse()
+    val permissionState: PermissionStateResponse = PermissionStateResponse(),
+    val trustStatus: ProjectTrustStatusResponse? = null,
+    val isUpdatingTrust: Boolean = false
 )
 
 class ChatViewModel(

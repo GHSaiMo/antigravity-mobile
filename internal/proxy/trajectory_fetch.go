@@ -610,6 +610,8 @@ func (p *Proxy) FetchRawCascadeSummariesWithMaxAge(maxAge time.Duration) (map[st
 				}
 			}
 			delete(summaries, id)
+		} else if isSideQuestionTrajectoryMap(s, id) {
+			delete(summaries, id)
 		}
 	}
 

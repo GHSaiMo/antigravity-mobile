@@ -289,10 +289,14 @@ public final class AppSettings {
         return meter.isOverflow == true || meter.percentage >= 70
     }
 
+    public var isNordTheme: Bool {
+        themeMode == "nord"
+    }
+
     public var colorScheme: ColorScheme? {
         switch themeMode {
         case "light": return .light
-        case "dark": return .dark
+        case "dark", "nord": return .dark
         default: return nil
         }
     }
@@ -300,7 +304,7 @@ public final class AppSettings {
     public var userInterfaceStyle: UIUserInterfaceStyle {
         switch themeMode {
         case "light": return .light
-        case "dark": return .dark
+        case "dark", "nord": return .dark
         default: return .unspecified
         }
     }

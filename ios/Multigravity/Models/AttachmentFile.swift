@@ -68,19 +68,32 @@ public struct AttachmentRef: Codable, Sendable {
 /// source of truth.
 public enum AttachmentRules {
     public static let maxFileBytes: Int64 = 50 * 1024 * 1024
+    public static let maxMediaFileBytes: Int64 = 200 * 1024 * 1024
     public static let maxFilesPerMessage = 5
     public static let maxTotalBytes: Int64 = 100 * 1024 * 1024
+    public static let maxMediaTotalBytes: Int64 = 400 * 1024 * 1024
     public static let blockHeader = "📎 附件（已上传到本机，可直接读取）："
+
+    private static let largeMediaExtensions: Set<String> = [
+        "mp3", "m4a", "wav", "aac", "flac", "ogg", "oga", "opus", "aif", "aiff", "wma", "amr", "caf",
+        "mp4", "mov", "m4v", "webm", "mkv", "avi", "flv", "wmv", "3gp"
+    ]
+
+    public static func isLargeMediaName(_ name: String) -> Bool {
+        let ext = (name as NSString).pathExtension.lowercased()
+        return largeMediaExtensions.contains(ext)
+    }
     
     private static let allowedExtensions: Set<String> = [
         // documents
-        "doc", "docx", "dot", "dotx", "rtf", "odt", "pages", "pdf", "md", "markdown", "txt", "log", "epub",
+        "doc", "docx", "dot", "dotx", "rtf", "odt", "pages", "pdf", "md", "markdown", "rmd", "rmarkdown", "txt", "log", "epub",
         // spreadsheets
         "xls", "xlsx", "xlsm", "csv", "tsv", "ods", "numbers",
         // presentations
         "ppt", "pptx", "pps", "ppsx", "odp", "key",
-        // audio
+        // audio & video
         "mp3", "m4a", "wav", "aac", "flac", "ogg", "oga", "opus", "aif", "aiff", "wma", "amr", "caf",
+        "mp4", "mov", "m4v", "webm", "mkv", "avi", "flv", "wmv", "3gp",
         // archives
         "zip", "tar", "gz", "tgz", "7z",
         // source & config
@@ -99,10 +112,13 @@ public enum AttachmentRules {
     public static func validate(name: String, size: Int64, existing: [DraftFile]) -> String? {
         if name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return String(localized: "文件名无效") }
         if size <= 0 { return String(localized: "文件为空：\(name)") }
-        if size > maxFileBytes { return String(localized: "文件超过 \(maxFileBytes / 1024 / 1024)MB：\(name)") }
+        let fileCap = isLargeMediaName(name) ? maxMediaFileBytes : maxFileBytes
+        if size > fileCap { return String(localized: "文件超过 \(fileCap / 1024 / 1024)MB：\(name)") }
         if existing.count >= maxFilesPerMessage { return String(localized: "一条消息最多附带 \(maxFilesPerMessage) 个文件") }
-        if existing.reduce(0, { $0 + $1.size }) + size > maxTotalBytes {
-            return String(localized: "附件总大小超过 \(maxTotalBytes / 1024 / 1024)MB")
+        let hasMedia = isLargeMediaName(name) || existing.contains { isLargeMediaName($0.name) }
+        let totalCap = hasMedia ? maxMediaTotalBytes : maxTotalBytes
+        if existing.reduce(0, { $0 + $1.size }) + size > totalCap {
+            return String(localized: "附件总大小超过 \(totalCap / 1024 / 1024)MB")
         }
         return nil
     }

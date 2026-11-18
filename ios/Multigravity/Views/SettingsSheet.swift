@@ -186,6 +186,7 @@ public struct SettingsSheet: View {
                         Text("跟随系统").tag("system")
                         Text("浅色").tag("light")
                         Text("深色").tag("dark")
+                        Text("Nord (极光深色)").tag("nord")
                     }
                     .pickerStyle(.menu)
                     .onChange(of: settings.themeMode) { _, _ in

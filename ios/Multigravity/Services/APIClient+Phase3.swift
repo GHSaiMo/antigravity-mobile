@@ -450,4 +450,63 @@ extension APIClient {
         }
         return data
     }
+
+    // MARK: - Workspace Trust (Antigravity 2.33.0)
+
+    public func fetchProjectTrustStatus(cascadeId: String? = nil, projectId: String? = nil, baseURL: URL) async throws -> ProjectTrustStatusResponse {
+        var params: [String] = []
+        if let projectId, !projectId.isEmpty {
+            let q = projectId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? projectId
+            params.append("projectId=\(q)")
+        }
+        if let cascadeId, !cascadeId.isEmpty {
+            let q = cascadeId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? cascadeId
+            params.append("cascadeId=\(q)")
+        }
+        let path = params.isEmpty ? "gateway/projects/trust" : "gateway/projects/trust?\(params.joined(separator: "&"))"
+        return try await p3Get(pathAndQuery: path, baseURL: baseURL, timeout: 10)
+    }
+
+    public func setWorkspaceTrust(cascadeId: String? = nil, projectId: String? = nil, trusted: Bool = true, baseURL: URL) async throws -> ProjectTrustStatusResponse {
+        var payload: [String: JSONValue] = ["trusted": .bool(trusted)]
+        if let projectId, !projectId.isEmpty { payload["projectId"] = .string(projectId) }
+        if let cascadeId, !cascadeId.isEmpty { payload["cascadeId"] = .string(cascadeId) }
+        return try await p3PostJSON(path: "gateway/projects/trust", payload: payload, baseURL: baseURL, timeout: 15)
+    }
+
+    // MARK: - GitHub Pull Requests Lookup
+
+    public func fetchGitHubPullRequests(urls: [String], baseURL: URL) async throws -> [GitPullRequestItem] {
+        guard !urls.isEmpty else { return [] }
+        let res: GitHubPullRequestsBatchResponse = try await p3PostJSON(
+            path: "gateway/github/pull-requests",
+            payload: ["urls": .array(urls.map { .string($0) })],
+            baseURL: baseURL,
+            timeout: 10
+        )
+        return res.pullRequests ?? []
+    }
+
+    // MARK: - /btw Side Questions
+
+    public func startBtwSideQuestion(parentCascadeId: String, question: String, quote: String? = nil, model: String? = nil, baseURL: URL) async throws -> BtwStartResponse {
+        var payload: [String: JSONValue] = [
+            "parentCascadeId": .string(parentCascadeId),
+            "question": .string(question)
+        ]
+        if let quote, !quote.isEmpty { payload["quote"] = .string(quote) }
+        if let model, !model.isEmpty { payload["model"] = .string(model) }
+        return try await p3PostJSON(path: "gateway/btw/start", payload: payload, baseURL: baseURL, timeout: 20)
+    }
+
+    public func listBtwSideQuestions(cascadeId: String, baseURL: URL) async throws -> [BtwSideQuestionEntry] {
+        let q = cascadeId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? cascadeId
+        let res: BtwListResponse = try await p3Get(pathAndQuery: "gateway/btw/list?cascadeId=\(q)", baseURL: baseURL, timeout: 10)
+        return res.items ?? []
+    }
+
+    public func fetchBtwStatus(cascadeId: String, baseURL: URL) async throws -> BtwStatusResponse {
+        let q = cascadeId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? cascadeId
+        return try await p3Get(pathAndQuery: "gateway/btw/status?cascadeId=\(q)", baseURL: baseURL, timeout: 15)
+    }
 }

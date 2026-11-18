@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -26,6 +27,19 @@ func (p *Proxy) upstreamClient() *http.Client {
 		return p.shortClient
 	}
 	return p.streamingHTTPClient()
+}
+
+func isTransientPooledConnErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return errors.Is(err, io.EOF) ||
+		errors.Is(err, io.ErrUnexpectedEOF) ||
+		strings.Contains(msg, "eof") ||
+		strings.Contains(msg, "connection reset by peer") ||
+		strings.Contains(msg, "broken pipe") ||
+		strings.Contains(msg, "client connection lost")
 }
 
 // callUpstreamRPC performs a unary LanguageServerService POST request and returns raw response bytes.
@@ -52,17 +66,26 @@ func (p *Proxy) callUpstreamRPC(ctx context.Context, method string, payload inte
 	}
 
 	endpoint := fmt.Sprintf("https://127.0.0.1:%d/exa.language_server_pb.LanguageServerService/%s", port, method)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(bodyBytes))
-	if err != nil {
-		return nil, http.StatusInternalServerError, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Connect-Protocol-Version", "1")
-	if token != "" {
-		req.Header.Set("x-codeium-csrf-token", token)
+	doOnce := func() (*http.Response, error) {
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(bodyBytes))
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Connect-Protocol-Version", "1")
+		if token != "" {
+			req.Header.Set("x-codeium-csrf-token", token)
+		}
+		return p.upstreamClient().Do(req)
 	}
 
-	resp, err := p.upstreamClient().Do(req)
+	resp, err := doOnce()
+	if err != nil && isTransientPooledConnErr(err) && ctx.Err() == nil {
+		if p.transport != nil {
+			p.transport.CloseIdleConnections()
+		}
+		resp, err = doOnce()
+	}
 	if err != nil {
 		return nil, http.StatusBadGateway, err
 	}

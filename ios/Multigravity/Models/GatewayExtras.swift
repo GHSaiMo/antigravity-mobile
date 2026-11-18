@@ -40,6 +40,9 @@ public struct GitHubBranchTarget: Codable, Sendable, Hashable {
 
 public struct GitPullRequestItem: Codable, Sendable, Identifiable, Hashable {
     public var id: String { "\(number)-\(url)" }
+    public let host: String?
+    public let owner: String?
+    public let repo: String?
     public let number: Int
     public let title: String
     public let url: String
@@ -48,6 +51,75 @@ public struct GitPullRequestItem: Codable, Sendable, Identifiable, Hashable {
     public let authorLogin: String?
     public let headRefName: String?
     public let baseRefName: String?
+    public let body: String?
+    public let error: String?
+}
+
+public struct GitHubPullRequestsBatchResponse: Codable, Sendable {
+    public let pullRequests: [GitPullRequestItem]?
+}
+
+// MARK: - Workspace Trust (Antigravity 2.33.0 GetProjectTrustStatus / SetWorkspaceTrust)
+
+public struct TrustFolderItem: Codable, Sendable, Identifiable, Hashable {
+    public var id: String { folderUri ?? path ?? UUID().uuidString }
+    public let folderUri: String?
+    public let path: String?
+    public let trusted: Bool
+    public let trustedVia: String?
+}
+
+public struct ProjectTrustStatusResponse: Codable, Sendable, Equatable {
+    public let ok: Bool?
+    public let projectId: String?
+    public let isProjectTrusted: Bool
+    public let hasBlockedItems: Bool?
+    public let folders: [TrustFolderItem]?
+    public let message: String?
+}
+
+// MARK: - /btw Side Questions (Antigravity 2.33.0 CORTEX_TRAJECTORY_TYPE_SIDE_QUESTION)
+
+public struct BtwSideQuestionEntry: Codable, Sendable, Identifiable, Hashable {
+    public var id: String { cascadeId }
+    public let cascadeId: String
+    public let parentCascadeId: String?
+    public let title: String?
+    public let question: String?
+    public let quote: String?
+    public let status: String?
+    public let createdAt: String?
+}
+
+public struct BtwStartResponse: Codable, Sendable {
+    public let ok: Bool?
+    public let cascadeId: String
+    public let parentCascadeId: String?
+    public let title: String?
+    public let question: String?
+    public let quote: String?
+    public let createdAt: String?
+}
+
+public struct BtwListResponse: Codable, Sendable {
+    public let parentCascadeId: String?
+    public let items: [BtwSideQuestionEntry]?
+}
+
+public struct BtwStatusResponse: Codable, Sendable {
+    public let cascadeId: String
+    public let parentCascadeId: String?
+    public let status: String?
+    public let isRunning: Bool?
+    public let hasError: Bool?
+    public let errorMessage: String?
+    public let title: String?
+    public let question: String?
+    public let quote: String?
+    public let thinking: String?
+    public let answer: String?
+    public let insertText: String?
+    public let totalSteps: Int?
 }
 
 public struct GitStatusResponse: Codable, Sendable {

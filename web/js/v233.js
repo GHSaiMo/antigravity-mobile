@@ -1,0 +1,921 @@
+// Antigravity 2.33.0 Feature Pack for Web & PWA
+// Covers: Nord Theme & Color-Scheme toggle, R/Rmd syntax highlighting,
+// GitHub PR pills + detail <dialog>, Workspace Trust banner, /btw side-questions,
+// Find-in-Page (<dialog popover="manual"> + TreeWalker + CSS.highlights),
+// and 200 MB Audio/Video/.amr & PDF/Code modal preview.
+
+(function () {
+  const MAX_GENERAL_UPLOAD_BYTES = 50 * 1024 * 1024;
+  const MAX_MEDIA_UPLOAD_BYTES = 200 * 1024 * 1024;
+
+  const AUDIO_EXTS = new Set(["mp3", "m4a", "wav", "aac", "flac", "ogg", "oga", "opus", "aif", "aiff", "wma", "amr", "caf"]);
+  const VIDEO_EXTS = new Set(["mp4", "mov", "mkv", "webm", "avi", "flv", "wmv", "m4v", "3gp"]);
+  const R_LANGS = new Set(["r", "rscript", "rmd", "rmarkdown", "rprofile", "renviron", "namespace"]);
+
+  const PR_URL_RE = /https?:\/\/([^/\s]+)\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)\/pull\/(\d+)(?:[/?#][^\s)\]"'<>]*)?/gi;
+
+  const prCache = new Map();
+  const prInFlight = new Set();
+  const dismissedTrust = new Set();
+
+  let currentFindRoot = null;
+  let currentFindMatches = [];
+  let currentFindIndex = -1;
+  let fallbackMarks = [];
+
+  let activeBtwParentId = "";
+  let activeBtwCascadeId = "";
+  let activeBtwQuote = "";
+  let activeBtwInsertText = "";
+  let btwPollTimer = 0;
+
+  function fileExt(nameOrUrl) {
+    const clean = String(nameOrUrl || "").split("?")[0].split("#")[0].toLowerCase();
+    const dot = clean.lastIndexOf(".");
+    return dot >= 0 ? clean.slice(dot + 1) : "";
+  }
+
+  function isAudioOrVideoFile(file) {
+    const t = String(file?.type || "").toLowerCase();
+    if (t.startsWith("audio/") || t.startsWith("video/")) return true;
+    const ext = fileExt(file?.name);
+    return AUDIO_EXTS.has(ext) || VIDEO_EXTS.has(ext);
+  }
+
+  function maxUploadBytesForFile(file) {
+    return isAudioOrVideoFile(file) ? MAX_MEDIA_UPLOAD_BYTES : MAX_GENERAL_UPLOAD_BYTES;
+  }
+
+  // --- 1. Theme & Color Scheme (system | light | dark | nord) ---
+  function applyTheme(mode) {
+    const theme = ["system", "light", "dark", "nord"].includes(mode) ? mode : "system";
+    try {
+      localStorage.setItem("antigravity_theme", theme);
+    } catch (_) {}
+
+    const root = document.documentElement;
+    const csMeta = document.querySelector('meta[name="color-scheme"]');
+    const tcMeta = document.getElementById("meta-theme-color");
+
+    if (theme === "system") {
+      root.removeAttribute("data-theme");
+      if (csMeta) csMeta.setAttribute("content", "light dark");
+      if (tcMeta) {
+        const isLight = window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches;
+        tcMeta.setAttribute("content", isLight ? "#f2f2f7" : "#0f172a");
+      }
+    } else if (theme === "nord") {
+      root.setAttribute("data-theme", "nord");
+      if (csMeta) csMeta.setAttribute("content", "dark");
+      if (tcMeta) tcMeta.setAttribute("content", "#2E3440");
+    } else {
+      root.setAttribute("data-theme", theme);
+      if (csMeta) csMeta.setAttribute("content", theme);
+      if (tcMeta) tcMeta.setAttribute("content", theme === "light" ? "#f2f2f7" : "#0f172a");
+    }
+  }
+
+  function initThemeSettings() {
+    const sel = document.getElementById("settings-theme-mode");
+    const saved = (() => {
+      try {
+        return localStorage.getItem("antigravity_theme") || "system";
+      } catch (_) {
+        return "system";
+      }
+    })();
+    applyTheme(saved);
+    if (sel) {
+      sel.value = saved;
+      sel.addEventListener("change", (e) => applyTheme(e.target.value));
+    }
+    window.addEventListener("storage", (e) => {
+      if (e.key === "antigravity_theme") {
+        const next = e.newValue || "system";
+        applyTheme(next);
+        if (sel) sel.value = next;
+      }
+    });
+  }
+
+  // --- 2. R & R Markdown Syntax Highlighting ---
+  const R_KEYWORDS = new Set([
+    "if", "else", "repeat", "while", "function", "for", "in", "next", "break",
+    "TRUE", "FALSE", "NULL", "Inf", "NaN", "NA", "NA_integer_", "NA_real_",
+    "NA_complex_", "NA_character_", "library", "require", "source", "return",
+    "switch", "tryCatch", "stop", "warning", "message", "local", "with"
+  ]);
+
+  function escapeHtmlLocal(s) {
+    return String(s || "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  function highlightRCode(rawCode) {
+    const tokenRe = /(#[^\n]*)|("(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*'|`[^`\n]+`)|(<<-|->|->>|<-|%>%|\|>|%[A-Za-z0-9_.]+%|:::?|\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?[Li]?\b|\b(?:0x[0-9a-fA-F]+)\b)|(\b[A-Za-z_.][A-Za-z0-9_.]*)(?=\s*\()|(\b[A-Za-z_.][A-Za-z0-9_.]*\b)/g;
+    let out = "";
+    let last = 0;
+    let m;
+    while ((m = tokenRe.exec(rawCode)) !== null) {
+      if (m.index > last) out += escapeHtmlLocal(rawCode.slice(last, m.index));
+      const [full, cmt, str, opOrNum, fnName, ident] = m;
+      if (cmt) {
+        out += `<span style="color:var(--tok-cmt);">${escapeHtmlLocal(cmt)}</span>`;
+      } else if (str) {
+        out += `<span style="color:var(--tok-str);">${escapeHtmlLocal(str)}</span>`;
+      } else if (opOrNum) {
+        const isOp = opOrNum.startsWith("<") || opOrNum.startsWith("-") || opOrNum.startsWith("|") || opOrNum.startsWith("%") || opOrNum.startsWith(":");
+        const color = isOp ? "var(--tok-kw)" : "var(--tok-num)";
+        out += `<span style="color:${color};">${escapeHtmlLocal(opOrNum)}</span>`;
+      } else if (fnName) {
+        const color = R_KEYWORDS.has(fnName) ? "var(--tok-kw)" : "var(--tok-fn)";
+        out += `<span style="color:${color};">${escapeHtmlLocal(fnName)}</span>`;
+      } else if (ident) {
+        if (R_KEYWORDS.has(ident)) {
+          out += `<span style="color:var(--tok-kw);font-weight:600;">${escapeHtmlLocal(ident)}</span>`;
+        } else {
+          out += escapeHtmlLocal(ident);
+        }
+      } else {
+        out += escapeHtmlLocal(full);
+      }
+      last = tokenRe.lastIndex;
+    }
+    if (last < rawCode.length) out += escapeHtmlLocal(rawCode.slice(last));
+    return out;
+  }
+
+  function highlightRmdCode(rawCode) {
+    const lines = String(rawCode || "").split("\n");
+    let inChunk = false;
+    let inYaml = false;
+    const out = [];
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const trimmed = line.trim();
+      if (i === 0 && trimmed === "---") {
+        inYaml = true;
+        out.push(`<span style="color:var(--tok-meta);">${escapeHtmlLocal(line)}</span>`);
+        continue;
+      }
+      if (inYaml) {
+        if (trimmed === "---" || trimmed === "...") {
+          inYaml = false;
+          out.push(`<span style="color:var(--tok-meta);">${escapeHtmlLocal(line)}</span>`);
+        } else {
+          out.push(`<span style="color:var(--tok-attr);">${escapeHtmlLocal(line)}</span>`);
+        }
+        continue;
+      }
+      if (/^```\{[rR]\b[^}]*\}\s*$/.test(trimmed)) {
+        inChunk = true;
+        out.push(`<span style="color:var(--tok-meta);font-weight:600;">${escapeHtmlLocal(line)}</span>`);
+        continue;
+      }
+      if (inChunk && /^```\s*$/.test(trimmed)) {
+        inChunk = false;
+        out.push(`<span style="color:var(--tok-meta);font-weight:600;">${escapeHtmlLocal(line)}</span>`);
+        continue;
+      }
+      if (inChunk) {
+        out.push(highlightRCode(line));
+      } else if (/^#{1,6}\s/.test(trimmed)) {
+        out.push(`<span style="color:var(--tok-kw);font-weight:700;">${escapeHtmlLocal(line)}</span>`);
+      } else {
+        out.push(escapeHtmlLocal(line));
+      }
+    }
+    return out.join("\n");
+  }
+
+  function installRHighlighter() {
+    if (typeof window.highlightCodeHtml !== "function" || window.highlightCodeHtml.__v233Wrapped) return;
+    const orig = window.highlightCodeHtml;
+    const wrapped = function (rawCode, langClean) {
+      const lang = String(langClean || "").trim().toLowerCase();
+      if (lang === "rmd" || lang === "rmarkdown") {
+        return highlightRmdCode(rawCode);
+      }
+      if (R_LANGS.has(lang)) {
+        return highlightRCode(rawCode);
+      }
+      return orig(rawCode, langClean);
+    };
+    wrapped.__v233Wrapped = true;
+    window.highlightCodeHtml = wrapped;
+    if (typeof highlightCodeHtml === "function") {
+      try {
+        highlightCodeHtml = wrapped;
+      } catch (_) {}
+    }
+  }
+
+  // --- 3. GitHub Pull Request Pills & Detail <dialog> ---
+  function normalizePrUrl(raw) {
+    PR_URL_RE.lastIndex = 0;
+    const m = PR_URL_RE.exec(String(raw || ""));
+    if (!m) return "";
+    return `https://${m[1].toLowerCase()}/${m[2]}/${m[3]}/pull/${m[4]}`;
+  }
+
+  function prStateTone(state) {
+    const s = String(state || "OPEN").toUpperCase();
+    if (s === "MERGED") return "merged";
+    if (s === "DRAFT") return "draft";
+    if (s === "CLOSED") return "closed";
+    return "open";
+  }
+
+  function renderPrPillsForBubble(bubble, urls) {
+    const resolved = urls.map((u) => prCache.get(u)).filter(Boolean);
+    if (!resolved.length) return;
+    let row = bubble.querySelector(".v233-pr-pills-row");
+    const sig = resolved.map((p) => `${p.url}:${p.state}:${p.title}`).join("|");
+    if (row && row.getAttribute("data-pr-sig") === sig) return;
+    if (!row) {
+      row = document.createElement("div");
+      row.className = "v233-pr-pills-row";
+      bubble.appendChild(row);
+    }
+    row.setAttribute("data-pr-sig", sig);
+    row.innerHTML = resolved
+      .map((pr) => {
+        const st = String(pr.state || "OPEN").toUpperCase();
+        const tone = prStateTone(st);
+        const key = encodeURIComponent(pr.url || "");
+        return `<button type="button" class="v233-pr-pill" data-pr-url="${key}" title="${escapeHtmlLocal(pr.title || "")}">
+          <span class="git-pr-badge ${tone}">${escapeHtmlLocal(st)}</span>
+          <span class="git-pr-num">#${Number(pr.number) || ""}</span>
+          <span class="v233-pr-pill-title">${escapeHtmlLocal(pr.title || `${pr.owner}/${pr.repo}`)}</span>
+        </button>`;
+      })
+      .join("");
+  }
+
+  async function hydrateChatPRPills(containerEl) {
+    const root = containerEl || document.getElementById("messages-stream");
+    if (!root) return;
+    const bubbles = Array.from(root.querySelectorAll(".bubble"));
+    const urlsToFetch = [];
+
+    for (const bubble of bubbles) {
+      const links = Array.from(bubble.querySelectorAll("a[href]"));
+      const prUrls = [];
+      for (const a of links) {
+        const norm = normalizePrUrl(a.getAttribute("href"));
+        if (norm && !prUrls.includes(norm)) {
+          prUrls.push(norm);
+        }
+      }
+      if (!prUrls.length) continue;
+      renderPrPillsForBubble(bubble, prUrls);
+      for (const u of prUrls) {
+        if (!prCache.has(u) && !prInFlight.has(u)) {
+          prInFlight.add(u);
+          urlsToFetch.push(u);
+        }
+      }
+    }
+
+    if (!urlsToFetch.length) return;
+    try {
+      const res = await fetch("/gateway/github/pull-requests", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ urls: urlsToFetch.slice(0, 12) }),
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      const list = Array.isArray(data.pullRequests) ? data.pullRequests : [];
+      for (const pr of list) {
+        const norm = normalizePrUrl(pr.url);
+        if (norm) prCache.set(norm, { ...pr, url: norm });
+      }
+      // Re-pass to mount pills now that cache is warm
+      for (const bubble of Array.from((document.getElementById("messages-stream") || root).querySelectorAll(".bubble"))) {
+        const prUrls = [];
+        for (const a of bubble.querySelectorAll("a[href]")) {
+          const norm = normalizePrUrl(a.getAttribute("href"));
+          if (norm && !prUrls.includes(norm)) prUrls.push(norm);
+        }
+        if (prUrls.length) renderPrPillsForBubble(bubble, prUrls);
+      }
+    } catch (_) {
+    } finally {
+      urlsToFetch.forEach((u) => prInFlight.delete(u));
+    }
+  }
+
+  function openPRDetailModal(pr) {
+    const dlg = document.getElementById("dialog-github-pr");
+    if (!dlg || !pr) return;
+    const stateEl = document.getElementById("pr-dialog-state");
+    const titleEl = document.getElementById("pr-dialog-title");
+    const bodyEl = document.getElementById("pr-dialog-body");
+    const extEl = document.getElementById("pr-dialog-open-ext");
+    const askBtn = document.getElementById("btn-pr-dialog-ask");
+
+    const st = String(pr.state || "OPEN").toUpperCase();
+    if (stateEl) {
+      stateEl.className = `git-pr-badge ${prStateTone(st)}`;
+      stateEl.textContent = st;
+    }
+    if (titleEl) {
+      titleEl.textContent = `#${Number(pr.number) || ""} ${pr.title || ""}`.trim();
+    }
+    if (extEl) {
+      extEl.href = pr.url || "#";
+    }
+    if (bodyEl) {
+      const repoLabel = pr.owner && pr.repo ? `${pr.owner}/${pr.repo}` : "";
+      const refLabel = pr.headRefName && pr.baseRefName ? `${pr.headRefName} → ${pr.baseRefName}` : "";
+      const author = pr.authorLogin ? `@${pr.authorLogin}` : "";
+      const bodyText = String(pr.body || "").trim();
+      bodyEl.innerHTML = `
+        <div class="v233-pr-meta-row">
+          ${repoLabel ? `<span>📦 ${escapeHtmlLocal(repoLabel)}</span>` : ""}
+          ${author ? `<span>👤 ${escapeHtmlLocal(author)}</span>` : ""}
+          ${refLabel ? `<span>🌿 ${escapeHtmlLocal(refLabel)}</span>` : ""}
+        </div>
+        ${bodyText ? `<div class="v233-pr-body-pre">${escapeHtmlLocal(bodyText)}</div>` : `<div style="color:var(--ios-secondary-label);">无 Pull Request 描述正文</div>`}
+      `;
+    }
+    if (askBtn) {
+      askBtn.onclick = () => {
+        dlg.close();
+        const quote = `PR #${pr.number || ""} (${pr.state || "OPEN"}): ${pr.title || ""}\n${pr.url || ""}`;
+        openBtwModal({ parentCascadeId: activeCascadeId || "", quote });
+      };
+    }
+    if (typeof dlg.showModal === "function") dlg.showModal();
+  }
+
+  // --- 4. Workspace Trust Gate ---
+  let currentTrustPayload = null;
+
+  async function checkWorkspaceTrust(cascadeId, workspaceUri) {
+    const banner = document.getElementById("workspace-trust-banner");
+    if (!banner) return;
+
+    let ws = String(workspaceUri || "").trim();
+    if (!ws && cascadeId && typeof currentTrajectories === "object") {
+      ws = currentTrajectories[cascadeId]?.workspaceUris?.[0] || "";
+    }
+    if (!ws && typeof activeDraftSession === "object" && activeDraftSession && !activeDraftSession.isPure) {
+      ws = activeDraftSession.uri || activeDraftSession.path || "";
+    }
+    if (!ws || ws === "outside-of-project" || dismissedTrust.has(ws)) {
+      banner.classList.add("hidden");
+      currentTrustPayload = null;
+      return;
+    }
+
+    try {
+      const qs = new URLSearchParams();
+      if (cascadeId) qs.set("cascadeId", cascadeId);
+      if (ws) qs.set("workspaceUri", ws);
+      const res = await fetch(`/gateway/projects/trust?${qs.toString()}`);
+      if (!res.ok) return;
+      const st = await res.json();
+      if (st && st.ok && (st.isProjectTrusted === false || st.hasBlockedItems === true)) {
+        currentTrustPayload = { cascadeId, workspaceUri: ws, projectId: st.projectId || "" };
+        const desc = document.getElementById("wtb-workspace-path");
+        if (desc) desc.textContent = ws.replace(/^file:\/\//, "");
+        banner.classList.remove("hidden");
+      } else {
+        currentTrustPayload = null;
+        banner.classList.add("hidden");
+      }
+    } catch (_) {
+      banner.classList.add("hidden");
+    }
+  }
+
+  function initTrustBanner() {
+    document.getElementById("btn-dismiss-trust")?.addEventListener("click", () => {
+      if (currentTrustPayload?.workspaceUri) dismissedTrust.add(currentTrustPayload.workspaceUri);
+      document.getElementById("workspace-trust-banner")?.classList.add("hidden");
+    });
+
+    document.getElementById("btn-trust-workspace")?.addEventListener("click", async () => {
+      if (!currentTrustPayload) return;
+      const btn = document.getElementById("btn-trust-workspace");
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = "授权中…";
+      }
+      try {
+        const res = await fetch("/gateway/projects/trust", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...currentTrustPayload, trust: true }),
+        });
+        const d = await res.json().catch(() => ({}));
+        if (!res.ok || d.ok === false) throw new Error(d.error || "设置失败");
+        document.getElementById("workspace-trust-banner")?.classList.add("hidden");
+        currentTrustPayload = null;
+        window.showToast?.("已信任当前工作区");
+      } catch (err) {
+        window.showToast?.("信任设置失败: " + (err.message || "未知错误"), 2800);
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = "信任工作区";
+        }
+      }
+    });
+  }
+
+  // --- 5. /btw Side-Question Loop ---
+  function stopBtwPoll() {
+    if (btwPollTimer) {
+      clearInterval(btwPollTimer);
+      btwPollTimer = 0;
+    }
+  }
+
+  function renderBtwQuote() {
+    const card = document.getElementById("btw-quote-card");
+    const txt = document.getElementById("btw-quote-text");
+    if (!card || !txt) return;
+    if (activeBtwQuote) {
+      txt.textContent = activeBtwQuote;
+      card.classList.remove("hidden");
+    } else {
+      txt.textContent = "";
+      card.classList.add("hidden");
+    }
+  }
+
+  function renderBtwStatusView(st) {
+    const statusArea = document.getElementById("btw-status-area");
+    const insertWrap = document.getElementById("btw-insert-actions");
+    if (!statusArea) return;
+    if (!st) {
+      statusArea.innerHTML = `<div style="color:var(--ios-secondary-label);">在下方输入临时问题，独立旁路求解；解答完成后可一键插入主对话或作为独立会话继续。</div>`;
+      insertWrap?.classList.add("hidden");
+      return;
+    }
+    const thinkingHtml = st.thinking
+      ? `<details class="thought-box" style="margin-bottom:10px;"><summary>🧠 推理过程 (${st.thinking.length} 字)</summary><div class="thought-content">${escapeHtmlLocal(st.thinking)}</div></details>`
+      : "";
+    const answerHtml = st.answer && typeof window.renderMarkdown === "function"
+      ? `<div class="markdown-body">${window.renderMarkdown(st.answer)}</div>`
+      : st.isRunning
+      ? `<div style="display:flex;align-items:center;gap:8px;color:var(--ios-secondary-label);"><div class="ios-spinner small"></div><span>正在思考旁问…</span></div>`
+      : st.errorMessage
+      ? `<div style="color:var(--ios-red);">${escapeHtmlLocal(st.errorMessage)}</div>`
+      : "";
+    statusArea.innerHTML = `
+      ${st.question ? `<div style="font-weight:600;margin-bottom:8px;">Q: ${escapeHtmlLocal(st.question)}</div>` : ""}
+      ${thinkingHtml}
+      ${answerHtml}
+    `;
+    if (st.answer) {
+      activeBtwInsertText = st.insertText || `> ${st.question || ""}\n\n${st.answer}`;
+      insertWrap?.classList.remove("hidden");
+    } else if (!st.isRunning && activeBtwCascadeId) {
+      insertWrap?.classList.remove("hidden");
+    } else {
+      insertWrap?.classList.add("hidden");
+    }
+  }
+
+  async function pollBtwStatus(cascadeId) {
+    if (!cascadeId) return;
+    try {
+      const res = await fetch(`/gateway/btw/status?cascadeId=${encodeURIComponent(cascadeId)}`);
+      if (!res.ok) return;
+      const st = await res.json();
+      if (cascadeId !== activeBtwCascadeId) return;
+      renderBtwStatusView(st);
+      if (!st.isRunning) {
+        stopBtwPoll();
+      }
+    } catch (_) {}
+  }
+
+  async function refreshBtwHistory(parentId) {
+    const bar = document.getElementById("btw-history-bar");
+    if (!bar || !parentId) {
+      bar?.classList.add("hidden");
+      return;
+    }
+    try {
+      const res = await fetch(`/gateway/btw/list?cascadeId=${encodeURIComponent(parentId)}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      const items = Array.isArray(data.items) ? data.items : [];
+      if (!items.length) {
+        bar.classList.add("hidden");
+        bar.innerHTML = "";
+        return;
+      }
+      bar.classList.remove("hidden");
+      bar.innerHTML = items
+        .map((it) => {
+          const cid = escapeHtmlLocal(it.cascadeId || "");
+          const title = escapeHtmlLocal(it.title || it.question || cid.slice(0, 8));
+          const active = it.cascadeId === activeBtwCascadeId ? " active" : "";
+          return `<button type="button" class="v233-btw-hist-chip${active}" data-btw-id="${cid}">${title}</button>`;
+        })
+        .join("");
+      bar.querySelectorAll("[data-btw-id]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const cid = btn.getAttribute("data-btw-id");
+          if (!cid) return;
+          activeBtwCascadeId = cid;
+          refreshBtwHistory(parentId);
+          stopBtwPoll();
+          pollBtwStatus(cid);
+          btwPollTimer = setInterval(() => pollBtwStatus(cid), 1200);
+        });
+      });
+    } catch (_) {}
+  }
+
+  async function startBtwQuestion(question) {
+    const q = String(question || "").trim();
+    if (!q || !activeBtwParentId) return;
+    const sendBtn = document.getElementById("btn-btw-send");
+    const input = document.getElementById("btw-question-input");
+    if (sendBtn) sendBtn.disabled = true;
+    try {
+      const res = await fetch("/gateway/btw/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          parentCascadeId: activeBtwParentId,
+          question: q,
+          quote: activeBtwQuote || "",
+          model: typeof activeModel !== "undefined" ? activeModel : "",
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.cascadeId) throw new Error(data.error || "发起 /btw 失败");
+      activeBtwCascadeId = data.cascadeId;
+      if (input) input.value = "";
+      renderBtwStatusView({ question: q, isRunning: true });
+      refreshBtwHistory(activeBtwParentId);
+      stopBtwPoll();
+      pollBtwStatus(data.cascadeId);
+      btwPollTimer = setInterval(() => pollBtwStatus(data.cascadeId), 1200);
+    } catch (err) {
+      window.showToast?.(err.message || "发起 /btw 失败", 2800);
+    } finally {
+      if (sendBtn) sendBtn.disabled = false;
+    }
+  }
+
+  function openBtwModal({ parentCascadeId, quote = "", initialQuestion = "" } = {}) {
+    const dlg = document.getElementById("dialog-btw");
+    if (!dlg) return;
+    const parentId = parentCascadeId || (typeof activeCascadeId !== "undefined" ? activeCascadeId : "");
+    if (!parentId) {
+      window.showToast?.("请先进入一个会话后再使用 /btw");
+      return;
+    }
+    activeBtwParentId = parentId;
+    activeBtwQuote = String(quote || "").trim();
+    activeBtwCascadeId = "";
+    activeBtwInsertText = "";
+    stopBtwPoll();
+
+    renderBtwQuote();
+    renderBtwStatusView(null);
+    refreshBtwHistory(parentId);
+
+    const input = document.getElementById("btw-question-input");
+    if (input) input.value = initialQuestion || "";
+    if (typeof dlg.showModal === "function" && !dlg.open) dlg.showModal();
+
+    if (initialQuestion && initialQuestion.trim()) {
+      startBtwQuestion(initialQuestion.trim());
+    } else {
+      setTimeout(() => input?.focus(), 60);
+    }
+  }
+
+  function initBtwDialog() {
+    const dlg = document.getElementById("dialog-btw");
+    document.getElementById("btn-btw-dialog-close")?.addEventListener("click", () => {
+      stopBtwPoll();
+      dlg?.close();
+    });
+    dlg?.addEventListener("close", stopBtwPoll);
+    document.getElementById("btn-btw-chip")?.addEventListener("click", () => {
+      const sel = window.getSelection?.()?.toString()?.trim() || "";
+      openBtwModal({ parentCascadeId: activeCascadeId, quote: sel });
+    });
+    document.getElementById("btn-btw-clear-quote")?.addEventListener("click", () => {
+      activeBtwQuote = "";
+      renderBtwQuote();
+    });
+    document.getElementById("btn-btw-send")?.addEventListener("click", () => {
+      const q = document.getElementById("btw-question-input")?.value || "";
+      startBtwQuestion(q);
+    });
+    document.getElementById("btw-question-input")?.addEventListener("keydown", (e) => {
+      if (e.isComposing || e.keyCode === 229) return;
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        startBtwQuestion(e.target.value);
+      }
+    });
+    document.getElementById("btn-btw-insert-main")?.addEventListener("click", () => {
+      const chatInput = document.getElementById("chat-input");
+      if (chatInput && activeBtwInsertText) {
+        const prefix = chatInput.value.trim() ? `${chatInput.value.trim()}\n\n` : "";
+        chatInput.value = prefix + activeBtwInsertText;
+        chatInput.style.height = "auto";
+        chatInput.style.height = Math.min(chatInput.scrollHeight, 120) + "px";
+        if (typeof updateChatControls === "function") {
+          updateChatControls(typeof isCascadeRunning === "function" ? isCascadeRunning(activeCascadeId) : false, null, false);
+        }
+      }
+      stopBtwPoll();
+      dlg?.close();
+      setTimeout(() => chatInput?.focus(), 60);
+    });
+    document.getElementById("btn-btw-open-session")?.addEventListener("click", () => {
+      if (!activeBtwCascadeId) return;
+      stopBtwPoll();
+      dlg?.close();
+      if (typeof navigateTo === "function") navigateTo("#c=" + activeBtwCascadeId);
+    });
+  }
+
+  // --- 6. In-App Find in Page (TreeWalker + CSS.highlights + <dialog popover="manual">) ---
+  function clearFindHighlights() {
+    if ("highlights" in CSS) {
+      // MANDATORY: Clear previous highlights before registering new ones.
+      CSS.highlights.clear();
+    }
+    if (fallbackMarks.length > 0) {
+      for (const mark of fallbackMarks) {
+        const parent = mark.parentNode;
+        if (parent) {
+          parent.replaceChild(document.createTextNode(mark.textContent || ""), mark);
+          parent.normalize();
+        }
+      }
+      fallbackMarks = [];
+    }
+    currentFindMatches = [];
+    currentFindIndex = -1;
+  }
+
+  function collectTextNodes(rootEl) {
+    // MANDATORY: Use TreeWalker to collect text nodes — do not manipulate innerHTML.
+    const walker = document.createTreeWalker(rootEl, NodeFilter.SHOW_TEXT);
+    const nodes = [];
+    let node;
+    while ((node = walker.nextNode())) {
+      if (node.nodeValue && node.nodeValue.length > 0) nodes.push(node);
+    }
+    return nodes;
+  }
+
+  function applyFindHighlights() {
+    if ("highlights" in CSS) {
+      // MANDATORY: Clear previous highlights before registering new ones.
+      CSS.highlights.clear();
+      if (currentFindMatches.length > 0) {
+        CSS.highlights.set("find-results", new Highlight(...currentFindMatches));
+        if (currentFindIndex >= 0 && currentFindMatches[currentFindIndex]) {
+          CSS.highlights.set("find-current", new Highlight(currentFindMatches[currentFindIndex]));
+        }
+      }
+    } else if (fallbackMarks.length > 0) {
+      fallbackMarks.forEach((m, idx) => m.classList.toggle("active", idx === currentFindIndex));
+    }
+
+    const countEl = document.getElementById("md-find-count");
+    if (countEl) {
+      countEl.textContent = currentFindMatches.length > 0 ? `${currentFindIndex + 1}/${currentFindMatches.length}` : "0/0";
+    }
+    if (currentFindIndex >= 0) {
+      const target = currentFindMatches[currentFindIndex];
+      const anchorEl = target?.startContainer?.parentElement || fallbackMarks[currentFindIndex];
+      anchorEl?.scrollIntoView?.({ block: "center", behavior: "smooth" });
+    }
+  }
+
+  function runFindQuery(query) {
+    clearFindHighlights();
+    const rootEl = currentFindRoot || document.getElementById("md-viewer-content");
+    const q = String(query || "").trim().toLowerCase();
+    if (!rootEl || !q) {
+      const countEl = document.getElementById("md-find-count");
+      if (countEl) countEl.textContent = "0/0";
+      return;
+    }
+
+    const nodes = collectTextNodes(rootEl);
+    for (const node of nodes) {
+      const lower = node.nodeValue.toLowerCase();
+      let pos = 0;
+      while ((pos = lower.indexOf(q, pos)) !== -1) {
+        const range = document.createRange();
+        range.setStart(node, pos);
+        range.setEnd(node, pos + q.length);
+        currentFindMatches.push(range);
+        pos += q.length;
+      }
+    }
+
+    if (!("highlights" in CSS) && currentFindMatches.length > 0) {
+      // Old browser fallback using Range.surroundContents backwards so offsets stay valid
+      for (let i = currentFindMatches.length - 1; i >= 0; i--) {
+        try {
+          const mark = document.createElement("mark");
+          mark.className = "md-find-mark";
+          currentFindMatches[i].surroundContents(mark);
+          fallbackMarks.unshift(mark);
+        } catch (_) {}
+      }
+      currentFindMatches = fallbackMarks;
+    }
+
+    if (currentFindMatches.length > 0) {
+      currentFindIndex = 0;
+    }
+    applyFindHighlights();
+  }
+
+  function stepFindMatch(delta) {
+    if (!currentFindMatches.length) return;
+    currentFindIndex = (currentFindIndex + delta + currentFindMatches.length) % currentFindMatches.length;
+    applyFindHighlights();
+  }
+
+  function openFindPopover(rootEl) {
+    currentFindRoot = rootEl || document.getElementById("md-viewer-content");
+    const pop = document.getElementById("md-find-dialog");
+    const input = document.getElementById("md-find-input");
+    if (!pop) return;
+    if (typeof pop.showPopover === "function") {
+      try {
+        if (!pop.matches(":popover-open")) pop.showPopover();
+      } catch (_) {
+        pop.classList.add("open");
+      }
+    } else {
+      pop.classList.add("open");
+    }
+    setTimeout(() => input?.focus(), 40);
+  }
+
+  function closeFindPopover() {
+    const pop = document.getElementById("md-find-dialog");
+    if (pop) {
+      if (typeof pop.hidePopover === "function") {
+        try {
+          if (pop.matches(":popover-open")) pop.hidePopover();
+        } catch (_) {}
+      }
+      pop.classList.remove("open");
+    }
+    clearFindHighlights();
+  }
+
+  function initFindInPage() {
+    document.getElementById("btn-md-viewer-find")?.addEventListener("click", () => {
+      openFindPopover(document.getElementById("md-viewer-content"));
+    });
+    document.getElementById("btn-md-viewer-close")?.addEventListener("click", () => {
+      closeFindPopover();
+      window.closeMarkdownViewer?.();
+    });
+    document.getElementById("btn-md-find-close")?.addEventListener("click", closeFindPopover);
+    document.getElementById("btn-md-find-prev")?.addEventListener("click", () => stepFindMatch(-1));
+    document.getElementById("btn-md-find-next")?.addEventListener("click", () => stepFindMatch(1));
+    document.getElementById("md-find-input")?.addEventListener("input", (e) => runFindQuery(e.target.value));
+    document.getElementById("md-find-input")?.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        stepFindMatch(e.shiftKey ? -1 : 1);
+      } else if (e.key === "Escape") {
+        closeFindPopover();
+      }
+    });
+  }
+
+  // --- 7. 200 MB Audio/Video/.amr & PDF/Code Preview Modal ---
+  function openMediaPreviewModal(uri, title) {
+    const dlg = document.getElementById("dialog-media-preview");
+    const bodyEl = document.getElementById("media-dialog-body");
+    const titleEl = document.getElementById("media-dialog-title");
+    const extLink = document.getElementById("media-dialog-open-ext");
+    const findBtn = document.getElementById("btn-media-dialog-find");
+    if (!dlg || !bodyEl) return false;
+
+    const ext = fileExt(uri || title);
+    const rawUrl = typeof window.resolveMediaRawUrl === "function" ? window.resolveMediaRawUrl(uri) : `/gateway/files/raw?uri=${encodeURIComponent(uri)}`;
+
+    if (titleEl) titleEl.textContent = title || (uri.split("/").pop() || "文件预览");
+    if (extLink) extLink.href = rawUrl;
+    findBtn?.classList.add("hidden");
+
+    if (AUDIO_EXTS.has(ext)) {
+      const amrHint = ext === "amr"
+        ? `<div style="font-size:12px;color:var(--ios-secondary-label);margin-top:8px;">若当前浏览器内核不支持直接解码 .amr，请点下方链接下载播放；网关已完整支持 200 MB 音频上传与识别。</div>`
+        : "";
+      bodyEl.innerHTML = `<audio class="v233-audio-player" controls autoplay src="${escapeHtmlLocal(rawUrl)}"></audio>${amrHint}`;
+    } else if (VIDEO_EXTS.has(ext)) {
+      bodyEl.innerHTML = `<video controls playsinline style="width:100%;max-height:58dvh;border-radius:10px;background:#000;" src="${escapeHtmlLocal(rawUrl)}"></video>`;
+    } else if (ext === "pdf") {
+      bodyEl.innerHTML = `<iframe loading="lazy" title="PDF Preview" src="${escapeHtmlLocal(rawUrl)}" style="width:100%;height:62dvh;border:none;border-radius:10px;background:#fff;"></iframe>`;
+    } else {
+      return false;
+    }
+
+    if (typeof dlg.showModal === "function") dlg.showModal();
+    return true;
+  }
+
+  function initMediaDialog() {
+    const dlg = document.getElementById("dialog-media-preview");
+    document.getElementById("btn-media-dialog-close")?.addEventListener("click", () => {
+      const body = document.getElementById("media-dialog-body");
+      if (body) body.innerHTML = "";
+      dlg?.close();
+    });
+    dlg?.addEventListener("close", () => {
+      const body = document.getElementById("media-dialog-body");
+      if (body) body.innerHTML = "";
+    });
+    document.getElementById("messages-stream")?.addEventListener("click", (e) => {
+      const attCard = e.target.closest('[data-action="open-attachment-file"]');
+      if (attCard) {
+        const uri = attCard.getAttribute("data-uri") || "";
+        const name = attCard.getAttribute("data-name") || "";
+        const ext = fileExt(name || uri);
+        if (AUDIO_EXTS.has(ext) || VIDEO_EXTS.has(ext) || ext === "pdf") {
+          e.preventDefault();
+          e.stopPropagation();
+          openMediaPreviewModal(uri, name || uri);
+          return;
+        }
+        if (ext === "r" || ext === "rmd" || ext === "rmarkdown" || ext === "rprofile") {
+          e.preventDefault();
+          e.stopPropagation();
+          window.openMarkdownViewer?.(uri, name || uri);
+          return;
+        }
+      }
+      const prBtn = e.target.closest(".v233-pr-pill");
+      if (prBtn) {
+        const u = decodeURIComponent(prBtn.getAttribute("data-pr-url") || "");
+        const pr = prCache.get(u);
+        if (pr) openPRDetailModal(pr);
+        return;
+      }
+      const link = e.target.closest("a[href]");
+      if (link && !link.classList.contains("markdown-file-link")) {
+        const href = link.getAttribute("href") || "";
+        const ext = fileExt(href);
+        if (AUDIO_EXTS.has(ext) || VIDEO_EXTS.has(ext) || ext === "pdf") {
+          e.preventDefault();
+          openMediaPreviewModal(href, link.textContent.trim());
+        }
+      }
+    }, true);
+    document.getElementById("btn-pr-dialog-close")?.addEventListener("click", () => {
+      document.getElementById("dialog-github-pr")?.close();
+    });
+  }
+
+  function init() {
+    initThemeSettings();
+    installRHighlighter();
+    initTrustBanner();
+    initBtwDialog();
+    initFindInPage();
+    initMediaDialog();
+  }
+
+  window.V233 = {
+    AUDIO_EXTS,
+    VIDEO_EXTS,
+    R_LANGS,
+    applyTheme,
+    isAudioOrVideoFile,
+    maxUploadBytesForFile,
+    hydrateChatPRPills,
+    checkWorkspaceTrust,
+    openBtwModal,
+    openFindPopover,
+    closeFindPopover,
+    openMediaPreviewModal,
+  };
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", init);
+  } else {
+    init();
+  }
+})();

@@ -13,6 +13,9 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+// streamRunningKeepaliveInterval bounds silent periods while RUNNING so proxies/tunnels stay alive across >5 min thinking.
+var streamRunningKeepaliveInterval = 25 * time.Second
+
 // StreamUpdatePayload represents a real-time event pushed over WebSocket.
 type StreamUpdatePayload struct {
 	Type               string               `json:"type"` // "init", "update", "noop", "error"
@@ -282,6 +285,7 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 	lastFingerprint := ""
 	lastRawSig := ""
 	firstPush := true
+	lastJSONWriteAt := time.Now()
 	var connStreamRev uint64
 	resumedFromRev := false
 	if wantDelta && sinceRev > 0 {
@@ -297,6 +301,11 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 	var lastDetails TrajectoryDetails
 	var lastSummarySig uint64
 	haveSummarySig := false
+
+	emitJSON := func(v interface{}) error {
+		lastJSONWriteAt = time.Now()
+		return writeJSON(v)
+	}
 
 	// fetchAndSend does one poll + send cycle. Returns false if the connection should close.
 	fetchAndSend := func() bool {
@@ -336,7 +345,7 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			if firstPush {
 				// Send empty init payload immediately so client never hangs spinning on load
-				_ = writeJSON(StreamUpdatePayload{
+				_ = emitJSON(StreamUpdatePayload{
 					Type:                   "init",
 					CascadeID:              cascadeID,
 					Title:                  streamTitle,
@@ -356,6 +365,17 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 		rawSig := rawTrajectorySignature(rawResp) + "|" + p.subagentLiveSignature(rawResp) + "|" + GetSwarmSignature(cascadeID) + "|" + desktopModel
 		if !firstPush && rawSig == lastRawSig && (time.Since(lastTitleLookupTime) < 2*time.Second || cachedStreamTitle != "") {
 			// Fast path: Upstream trajectory has not changed at all.
+			// Keep L7 stream alive across >5 minute silent thinking via lightweight JSON noop every 25s.
+			if lastDetails.Status == "CASCADE_RUN_STATUS_RUNNING" && time.Since(lastJSONWriteAt) >= streamRunningKeepaliveInterval {
+				if errKeepalive := emitJSON(StreamUpdatePayload{
+					Type:      "noop",
+					CascadeID: cascadeID,
+					Status:    lastDetails.Status,
+					Rev:       connStreamRev,
+				}); errKeepalive != nil {
+					return false
+				}
+			}
 			// Skip full steps scan, regex image extraction, and payload construction.
 			if lastDetails.Status == "CASCADE_RUN_STATUS_RUNNING" || len(lastDetails.QueuedMessages) > 0 {
 				if p.agentStateHub.IsLive(cascadeID) {
@@ -476,7 +496,7 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 		if firstPush && resumedFromRev && fp == lastFingerprint {
 			firstPush = false
 			resumedFromRev = false
-			if errWrite := writeJSON(StreamUpdatePayload{
+			if errWrite := emitJSON(StreamUpdatePayload{
 				Type:      "noop",
 				CascadeID: cascadeID,
 				Status:    payload.Status,
@@ -494,7 +514,7 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 			firstPush = false
 			resumedFromRev = false
 			t3 := time.Now()
-			errWrite := writeJSON(payload)
+			errWrite := emitJSON(payload)
 			if time.Since(t3) > 100*time.Millisecond {
 				slog.Debug("stream perf: slow writeJSON", "cascade_id", cascadeID, "took", time.Since(t3))
 			}

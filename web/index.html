@@ -5,16 +5,32 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="color-scheme" content="light dark" />
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem("antigravity_theme") || "system";
+        var m = document.querySelector('meta[name="color-scheme"]');
+        if (t === "nord") {
+          document.documentElement.setAttribute("data-theme", "nord");
+          if (m) m.setAttribute("content", "dark");
+        } else if (t === "dark" || t === "light") {
+          document.documentElement.setAttribute("data-theme", t);
+          if (m) m.setAttribute("content", t);
+        }
+      } catch (_) {}
+    })();
+  </script>
   <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f2f2f7" />
   <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0f172a" />
-  <meta name="theme-color" content="#0f172a" />
+  <meta name="theme-color" id="meta-theme-color" content="#0f172a" />
   <title>Multigravity</title>
   <link rel="icon" type="image/x-icon" href="/favicon.ico?v=4" />
   <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png?v=4" />
   <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png?v=4" />
   <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png?v=4" />
   <link rel="manifest" href="/manifest.json" />
-  <link rel="stylesheet" href="/style.css?v=53" />
+  <link rel="stylesheet" href="/style.css?v=54" />
 </head>
 <body>
   <div id="app">
@@ -161,6 +177,19 @@
 
       <!-- View 2: iOS Chat View -->
       <section id="view-chat" class="view">
+        <div id="workspace-trust-banner" class="workspace-trust-banner hidden" role="status">
+          <div class="wtb-main">
+            <span class="wtb-icon" aria-hidden="true">🛡️</span>
+            <div class="wtb-text">
+              <div class="wtb-title">当前工作区尚未设为完全信任</div>
+              <div class="wtb-desc" id="wtb-workspace-path">信任后可完整开放终端执行与项目分析能力</div>
+            </div>
+          </div>
+          <div class="wtb-actions">
+            <button id="btn-trust-workspace" class="wtb-btn primary" type="button">信任工作区</button>
+            <button id="btn-dismiss-trust" class="wtb-btn" type="button" aria-label="忽略">✕</button>
+          </div>
+        </div>
         <div id="messages-stream" class="messages-container">
           <div class="loading-state">
             <div class="ios-spinner"></div>
@@ -295,13 +324,13 @@
 
           <!-- Quick Action Chips (Add Image, Model Switch, Slash Command, Commit & Push, Proceed) -->
           <div class="quick-actions-chips" id="quick-actions-bar">
-            <button id="btn-add-image" class="chip-pill chip-add-image" type="button" title="添加图片" aria-label="添加图片">
+            <button id="btn-add-image" class="chip-pill chip-add-image" type="button" title="添加图片或附件 (音视频最高 200 MB)" aria-label="添加图片或附件">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                 <line x1="12" y1="5" x2="12" y2="19"></line>
                 <line x1="5" y1="12" x2="19" y2="12"></line>
               </svg>
             </button>
-            <input type="file" id="image-file-input" accept="image/*" multiple style="display: none;" />
+            <input type="file" id="image-file-input" accept="image/*,audio/*,video/*,.amr,.ogg,.oga,.opus,.m4a,.mp3,.wav,.flac,.aac,.caf,.r,.rmd,.rmarkdown,.pdf,.txt,.md,.json,.csv,.zip" multiple style="display: none;" />
 
             <button id="btn-model-switch" class="chip-pill chip-model-switch chip-gemini" type="button" title="短按快切首选与次选模型，长按或右键选择全部模型">
               <span id="model-switch-text" class="model-switch-text">Gemini</span>
@@ -309,6 +338,10 @@
 
             <button id="btn-workflow-templates" class="chip-pill" type="button" title="单击打开 Workflow 模板，长按上滑快捷输入">
               <span>Workflow</span>
+            </button>
+
+            <button id="btn-btw-chip" class="chip-pill chip-btw" type="button" title="不打断主线地发起 /btw 旁问">
+              <span>/btw</span>
             </button>
 
             <div id="slash-chip" class="slash-chip hidden" data-feature="slash"></div>
@@ -503,6 +536,15 @@
           <!-- 外观与主题 (Antigravity 2.31+) -->
           <div class="quota-section-header" style="margin: 14px 4px 6px;">外观与主题</div>
           <div class="ios-grouped-section">
+            <div class="ios-cell between">
+              <span class="cell-label">主题配色</span>
+              <select id="settings-theme-mode" class="settings-select" aria-label="主题配色">
+                <option value="system">跟随系统</option>
+                <option value="light">浅色 (Light)</option>
+                <option value="dark">深色 (Dark)</option>
+                <option value="nord">Nord 官方主题</option>
+              </select>
+            </div>
             <div class="ios-cell between">
               <span class="cell-label">界面与代码字号</span>
               <select id="settings-font-size-scale" style="background: transparent; color: var(--color-text-primary, #fff); border: none; font-size: 13px; font-weight: 500; outline: none; padding: 4px;">
@@ -807,7 +849,20 @@
             <h2 id="md-viewer-title" class="sheet-title md-viewer-title">Implementation Plan</h2>
             <span id="md-viewer-subtitle" class="sheet-subtitle md-viewer-subtitle"></span>
           </div>
+          <div class="md-viewer-header-actions">
+            <button id="btn-md-viewer-find" class="sheet-header-btn md-viewer-icon-btn" type="button" aria-label="在文档中查找" title="在文档中查找">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+            </button>
+            <button id="btn-md-viewer-close" class="sheet-header-btn primary" type="button">完成</button>
+          </div>
         </div>
+        <dialog id="md-find-dialog" popover="manual" class="md-find-popover" aria-label="在文档中查找">
+          <input id="md-find-input" class="md-find-input" type="search" placeholder="在页面中查找…" autocomplete="off" />
+          <span id="md-find-count" class="md-find-count">0/0</span>
+          <button id="btn-md-find-prev" class="md-find-nav" type="button" aria-label="上一个">↑</button>
+          <button id="btn-md-find-next" class="md-find-nav" type="button" aria-label="下一个">↓</button>
+          <button id="btn-md-find-close" class="md-find-nav" type="button" aria-label="关闭查找">✕</button>
+        </dialog>
         <div class="sheet-body md-viewer-sheet-body">
           <div id="md-viewer-loading" class="md-viewer-loading">
             <div class="loading-spinner"></div>
@@ -957,25 +1012,87 @@
     <input id="scan-file-gallery" type="file" accept="image/*" hidden>
   </div>
 
-  <script defer src="/js/core.js?v=40"></script>
-  <script defer src="/js/nav.js?v=45"></script>
+  <!-- Antigravity 2.33 Native Modals (<dialog>) -->
+  <dialog id="dialog-github-pr" class="v233-dialog" aria-labelledby="pr-dialog-title">
+    <div class="v233-dialog-head">
+      <div class="v233-dialog-title-wrap">
+        <span id="pr-dialog-state" class="git-pr-badge open">OPEN</span>
+        <h2 id="pr-dialog-title" class="v233-dialog-title">Pull Request</h2>
+      </div>
+      <button type="button" id="btn-pr-dialog-close" class="v233-dialog-close" aria-label="关闭">✕</button>
+    </div>
+    <div id="pr-dialog-body" class="v233-dialog-body"></div>
+    <div class="v233-dialog-foot">
+      <a id="pr-dialog-open-ext" class="v233-btn" href="#" target="_blank" rel="noopener noreferrer">在浏览器打开 ↗</a>
+      <button type="button" id="btn-pr-dialog-ask" class="v233-btn primary">引用 PR 提问</button>
+    </div>
+  </dialog>
+
+  <dialog id="dialog-btw" class="v233-dialog v233-btw-dialog" aria-labelledby="btw-dialog-title">
+    <div class="v233-dialog-head">
+      <div class="v233-dialog-title-wrap">
+        <span class="v233-btw-badge">/btw</span>
+        <h2 id="btw-dialog-title" class="v233-dialog-title">旁问对话 (不干扰主线)</h2>
+      </div>
+      <button type="button" id="btn-btw-dialog-close" class="v233-dialog-close" aria-label="关闭">✕</button>
+    </div>
+    <div id="btw-dialog-body" class="v233-dialog-body">
+      <div id="btw-quote-card" class="v233-btw-quote hidden">
+        <div class="v233-btw-quote-head">
+          <span>附带引用上下文</span>
+          <button type="button" id="btn-btw-clear-quote" class="v233-mini-link">清除</button>
+        </div>
+        <div id="btw-quote-text" class="v233-btw-quote-text"></div>
+      </div>
+      <div id="btw-history-bar" class="v233-btw-history hidden"></div>
+      <div id="btw-status-area" class="v233-btw-status">在下方输入临时问题，独立旁路求解；解答完成后可一键插入主对话或作为独立会话继续。</div>
+    </div>
+    <div class="v233-btw-footer">
+      <div id="btw-insert-actions" class="v233-dialog-foot hidden" style="padding:0 0 8px 0;">
+        <button type="button" id="btn-btw-open-session" class="v233-btn">在独立会话打开</button>
+        <button type="button" id="btn-btw-insert-main" class="v233-btn primary">插入主对话</button>
+      </div>
+      <div class="v233-btw-composer">
+        <textarea id="btw-question-input" class="v233-btw-input" rows="2" placeholder="输入想顺便确认的问题…"></textarea>
+        <button type="button" id="btn-btw-send" class="v233-btn primary">发送</button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog id="dialog-media-preview" class="v233-dialog" aria-labelledby="media-dialog-title">
+    <div class="v233-dialog-head">
+      <h2 id="media-dialog-title" class="v233-dialog-title">文件预览</h2>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <button type="button" id="btn-media-dialog-find" class="v233-btn hidden">查找</button>
+        <button type="button" id="btn-media-dialog-close" class="v233-dialog-close" aria-label="关闭">✕</button>
+      </div>
+    </div>
+    <div id="media-dialog-body" class="v233-dialog-body"></div>
+    <div class="v233-dialog-foot">
+      <a id="media-dialog-open-ext" class="v233-btn primary" href="#" target="_blank" rel="noopener noreferrer">新标签页打开 / 下载 ↗</a>
+    </div>
+  </dialog>
+
+  <script defer src="/js/core.js?v=41"></script>
+  <script defer src="/js/nav.js?v=46"></script>
   <script defer src="/js/wechat_archive.js?v=1"></script>
-  <script defer src="/js/chat.js?v=43"></script>
-  <script defer src="/js/actions.js?v=35"></script>
-  <script defer src="/js/media.js?v=34"></script>
+  <script defer src="/js/chat.js?v=44"></script>
+  <script defer src="/js/actions.js?v=36"></script>
+  <script defer src="/js/media.js?v=35"></script>
   <script defer src="/js/cockpit.js?v=32"></script>
   <script defer src="/js/scan.js?v=2"></script>
-  <script defer src="/js/msgmenu.js?v=4"></script>
-  <script defer src="/js/slash.js?v=2"></script>
+  <script defer src="/js/msgmenu.js?v=5"></script>
+  <script defer src="/js/slash.js?v=3"></script>
   <script defer src="/js/workflows.js?v=2"></script>
   <script defer src="/js/changes.js?v=1"></script>
   <script defer src="/js/git.js?v=3"></script>
   <script defer src="/js/models.js?v=1"></script>
-  <script defer src="/js/subagents.js?v=4"></script>
+  <script defer src="/js/subagents.js?v=5"></script>
   <script defer src="/js/swarm.js?v=2"></script>
   <script defer src="/js/egg.js?v=1"></script>
-  <script defer src="/js/phase3.js?v=1"></script>
+  <script defer src="/js/phase3.js?v=2"></script>
+  <script defer src="/js/v233.js?v=1"></script>
   <!-- init.js 必须最后加载：它在执行时就会调用 initApp()，依赖前面所有脚本里的函数 -->
-  <script defer src="/js/init.js?v=42"></script>
+  <script defer src="/js/init.js?v=43"></script>
 </body>
 </html>

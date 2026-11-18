@@ -14,6 +14,38 @@ internal fun ChatViewModel.refreshPermissionSettings() {
     }
 }
 
+internal fun ChatViewModel.refreshProjectTrust() {
+    val cid = _uiState.value.cascadeId
+    if (cid.isBlank() || cid.startsWith("local_draft_")) return
+    viewModelScope.launch {
+        apiClient.fetchProjectTrustStatus(cascadeId = cid).onSuccess { st ->
+            _uiState.value = _uiState.value.copy(trustStatus = st)
+        }
+    }
+}
+
+internal fun ChatViewModel.trustCurrentProject(onDone: ((String) -> Unit)? = null) {
+    val st = _uiState.value.trustStatus
+    val cid = _uiState.value.cascadeId
+    if (_uiState.value.isUpdatingTrust) return
+    _uiState.value = _uiState.value.copy(isUpdatingTrust = true)
+    viewModelScope.launch {
+        apiClient.setWorkspaceTrust(
+            cascadeId = cid.ifBlank { null },
+            projectId = st?.projectId,
+            trusted = true
+        ).onSuccess { updated ->
+            _uiState.value = _uiState.value.copy(trustStatus = updated, isUpdatingTrust = false)
+            onDone?.invoke("已信任工作区")
+        }.onFailure { err ->
+            _uiState.value = _uiState.value.copy(
+                isUpdatingTrust = false,
+                attachmentNotice = "授予工作区信任失败: ${err.message}"
+            )
+        }
+    }
+}
+
 internal fun ChatViewModel.setPermissionPreset(preset: String, onDone: ((String) -> Unit)? = null) {
     viewModelScope.launch {
         apiClient.updatePermissionPreset(preset).onSuccess { st ->

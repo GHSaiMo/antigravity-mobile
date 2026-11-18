@@ -148,20 +148,42 @@ data class ShareCardContext(
 
 enum class ShareCardTheme(val isDark: Boolean) {
     DARK(true),
+    NORD(true),
     LIGHT(false);
 
     val accent: Color
-        get() = if (isDark) Color(0xFF8C80FF) else Color(0xFF5856D6)
+        get() = when (this) {
+            DARK -> Color(0xFF8C80FF)
+            NORD -> Color(0xFF88C0D0)
+            LIGHT -> Color(0xFF5856D6)
+        }
 
     val background: Brush
-        get() = if (isDark) {
-            Brush.linearGradient(listOf(Color(0xFF0F121C), Color(0xFF1F1738)))
-        } else {
-            Brush.linearGradient(listOf(Color(0xFFFCFCFA), Color(0xFFF5F5F2)))
+        get() = when (this) {
+            DARK -> Brush.linearGradient(listOf(Color(0xFF0F121C), Color(0xFF1F1738)))
+            NORD -> Brush.linearGradient(listOf(Color(0xFF2E3440), Color(0xFF242933)))
+            LIGHT -> Brush.linearGradient(listOf(Color(0xFFFCFCFA), Color(0xFFF5F5F2)))
         }
 
     val questionBackground: Color
-        get() = if (isDark) Color.White.copy(alpha = 0.09f) else Color.Black.copy(alpha = 0.05f)
+        get() = when (this) {
+            DARK -> Color.White.copy(alpha = 0.09f)
+            NORD -> Color(0xFF3B4252).copy(alpha = 0.92f)
+            LIGHT -> Color.Black.copy(alpha = 0.05f)
+        }
+
+    val label: String
+        get() = when (this) {
+            DARK -> "深色"
+            NORD -> "Nord"
+            LIGHT -> "浅色"
+        }
+
+    fun next(): ShareCardTheme = when (this) {
+        DARK -> NORD
+        NORD -> LIGHT
+        LIGHT -> DARK
+    }
 }
 
 private val CARD_WIDTH = 390.dp
@@ -184,7 +206,16 @@ fun MessageShareCardSheet(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val systemDark = androidx.compose.foundation.isSystemInDarkTheme()
-    var theme by remember { mutableStateOf(if (systemDark) ShareCardTheme.DARK else ShareCardTheme.LIGHT) }
+    val activeUseNord = AntigravityTheme.colors.useNord
+    var theme by remember {
+        mutableStateOf(
+            when {
+                activeUseNord -> ShareCardTheme.NORD
+                systemDark -> ShareCardTheme.DARK
+                else -> ShareCardTheme.LIGHT
+            }
+        )
+    }
     var includeQuestion by remember { mutableStateOf(true) }
     var busy by remember { mutableStateOf(false) }
     val layer = rememberGraphicsLayer()
@@ -306,11 +337,15 @@ fun MessageShareCardSheet(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 ShareOptionPill(
-                    icon = if (theme == ShareCardTheme.DARK) Icons.Default.DarkMode else Icons.Default.LightMode,
-                    label = if (theme == ShareCardTheme.DARK) "深色" else "浅色",
+                    icon = when (theme) {
+                        ShareCardTheme.DARK -> Icons.Default.DarkMode
+                        ShareCardTheme.NORD -> Icons.Default.AutoAwesome
+                        ShareCardTheme.LIGHT -> Icons.Default.LightMode
+                    },
+                    label = theme.label,
                     selected = false,
                     onClick = {
-                        theme = if (theme == ShareCardTheme.DARK) ShareCardTheme.LIGHT else ShareCardTheme.DARK
+                        theme = theme.next()
                     }
                 )
                 Spacer(Modifier.weight(1f))
@@ -386,7 +421,11 @@ private fun MessageShareCard(
 ) {
     val dateText = remember(shareContext.startedAtIso) { ShareCardContext.formatStartedAt(shareContext.startedAtIso) }
     CompositionLocalProvider(
-        LocalAppColors provides (if (theme.isDark) DarkAppColors else LightAppColors),
+        LocalAppColors provides when (theme) {
+            ShareCardTheme.NORD -> com.antigravity.mobile.ui.theme.NordAppColors
+            ShareCardTheme.DARK -> DarkAppColors
+            ShareCardTheme.LIGHT -> LightAppColors
+        },
         LocalShareExport provides true
     ) {
         val colors = AntigravityTheme.colors

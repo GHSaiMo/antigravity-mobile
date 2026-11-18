@@ -2,6 +2,17 @@ import Foundation
 import SwiftUI
 import UIKit
 
+private struct ShareCardUseNordKey: EnvironmentKey {
+    static let defaultValue: Bool? = nil
+}
+
+extension EnvironmentValues {
+    public var shareCardUseNord: Bool? {
+        get { self[ShareCardUseNordKey.self] }
+        set { self[ShareCardUseNordKey.self] = newValue }
+    }
+}
+
 /// Zero-dependency offline code syntax highlighter with bounded LRU/NSCache memoization.
 /// Produces adaptive Light/Dark `AttributedString` values without WebViews or remote assets.
 public enum CodeSyntaxHighlighter {
@@ -56,7 +67,25 @@ public enum CodeSyntaxHighlighter {
             diffAdd: UIColor(red: 0.10, green: 0.50, blue: 0.22, alpha: 1.0),
             diffDel: UIColor(red: 0.81, green: 0.13, blue: 0.18, alpha: 1.0)
         )
+
+        // Official Antigravity 2.33.0 Nord Dark Palette
+        static let nord = Palette(
+            keyword: UIColor(red: 0x81 / 255.0, green: 0xA1 / 255.0, blue: 0xC1 / 255.0, alpha: 1.0),  // #81A1C1
+            string: UIColor(red: 0xA3 / 255.0, green: 0xBE / 255.0, blue: 0x8C / 255.0, alpha: 1.0),   // #A3BE8C
+            comment: UIColor(red: 0x61 / 255.0, green: 0x6E / 255.0, blue: 0x88 / 255.0, alpha: 1.0),  // #616E88
+            number: UIColor(red: 0xB4 / 255.0, green: 0x8E / 255.0, blue: 0xAD / 255.0, alpha: 1.0),   // #B48EAD
+            typeName: UIColor(red: 0x8F / 255.0, green: 0xBC / 255.0, blue: 0xBB / 255.0, alpha: 1.0), // #8FBCBB
+            function: UIColor(red: 0x88 / 255.0, green: 0xC0 / 255.0, blue: 0xD0 / 255.0, alpha: 1.0), // #88C0D0
+            property: UIColor(red: 0x8F / 255.0, green: 0xBC / 255.0, blue: 0xBB / 255.0, alpha: 1.0), // #8FBCBB
+            diffAdd: UIColor(red: 0xA3 / 255.0, green: 0xBE / 255.0, blue: 0x8C / 255.0, alpha: 1.0),  // #A3BE8C
+            diffDel: UIColor(red: 0xBF / 255.0, green: 0x61 / 255.0, blue: 0x6A / 255.0, alpha: 1.0)   // #BF616A
+        )
     }
+
+    private static let rRegex = try? NSRegularExpression(
+        pattern: #"(#[^\n]*)|("(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*')|(```\{[rR][^}]*\}|```)|\b(0x[0-9a-fA-F]+|\d+(?:\.\d+)?(?:[eE][+-]?\d+)?[iL]?)\b|(<-|->|<<-|->>|\|>|%>%)|\b(function|if|else|repeat|while|for|in|next|break|return|TRUE|FALSE|NULL|NA|NA_integer_|NA_real_|NA_character_|NA_complex_|Inf|NaN|library|require|source|switch|tryCatch|stop|warning|message)\b|\b([a-zA-Z.][a-zA-Z0-9._]*)(?=\s*\()"#,
+        options: []
+    )
 
     private static let jsonRegex = try? NSRegularExpression(
         pattern: #"("(?:\\.|[^"\\])*")\s*:|("(?:\\.|[^"\\])*")|\b(true|false|null)\b|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)"#,
@@ -78,7 +107,7 @@ public enum CodeSyntaxHighlighter {
         options: []
     )
 
-    public static func highlight(code: String, language: String, isDark: Bool) -> AttributedString {
+    public static func highlight(code: String, language: String, isDark: Bool, useNord: Bool = AppSettings.shared.isNordTheme) -> AttributedString {
         let utf16Len = (code as NSString).length
         guard utf16Len > 0, utf16Len <= maxHighlightUTF16Length else {
             return AttributedString(code)
@@ -89,18 +118,39 @@ public enum CodeSyntaxHighlighter {
             return AttributedString(code)
         }
 
-        let key = "\(isDark ? "d" : "l"):\(normLang):\(utf16Len):\(code.hashValue)" as NSString
+        let themeTag = useNord ? "n" : (isDark ? "d" : "l")
+        let key = "\(themeTag):\(normLang):\(utf16Len):\(code.hashValue)" as NSString
         if let hit = cache.object(forKey: key), hit.source == code {
             return hit.attributed
         }
 
-        let palette = isDark ? Palette.dark : Palette.light
+        let palette: Palette = useNord ? Palette.nord : (isDark ? Palette.dark : Palette.light)
         let nsAttr = NSMutableAttributedString(string: code)
         let fullRange = NSRange(location: 0, length: utf16Len)
 
         switch normLang {
         case "diff":
             highlightDiff(code: code, into: nsAttr, palette: palette)
+        case "r":
+            if let regex = rRegex {
+                for m in regex.matches(in: code, range: fullRange) {
+                    if m.range(at: 1).location != NSNotFound {
+                        nsAttr.addAttribute(.foregroundColor, value: palette.comment, range: m.range(at: 1))
+                    } else if m.range(at: 2).location != NSNotFound {
+                        nsAttr.addAttribute(.foregroundColor, value: palette.string, range: m.range(at: 2))
+                    } else if m.range(at: 3).location != NSNotFound {
+                        nsAttr.addAttribute(.foregroundColor, value: palette.property, range: m.range(at: 3))
+                    } else if m.range(at: 4).location != NSNotFound {
+                        nsAttr.addAttribute(.foregroundColor, value: palette.number, range: m.range(at: 4))
+                    } else if m.range(at: 5).location != NSNotFound {
+                        nsAttr.addAttribute(.foregroundColor, value: palette.keyword, range: m.range(at: 5))
+                    } else if m.range(at: 6).location != NSNotFound {
+                        nsAttr.addAttribute(.foregroundColor, value: palette.keyword, range: m.range(at: 6))
+                    } else if m.range(at: 7).location != NSNotFound {
+                        nsAttr.addAttribute(.foregroundColor, value: palette.function, range: m.range(at: 7))
+                    }
+                }
+            }
         case "json":
             if let regex = jsonRegex {
                 for m in regex.matches(in: code, range: fullRange) {
@@ -205,6 +255,8 @@ public enum CodeSyntaxHighlighter {
             return "diff"
         case "html", "xml", "svg":
             return "markup"
+        case "r", "rmd", "rmarkdown", "rprofile", "renviron", "namespace":
+            return "r"
         default:
             return "code"
         }

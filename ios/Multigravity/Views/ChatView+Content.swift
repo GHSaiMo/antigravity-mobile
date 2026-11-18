@@ -5,12 +5,22 @@ import AVFoundation
 extension ChatView {
     @ViewBuilder
     var contentArea: some View {
-        Group {
-            if viewModel.isLoading && viewModel.messages.isEmpty && !viewModel.isNewConversation {
-                loadingStateView
-            } else if let err = viewModel.errorMessage, viewModel.messages.isEmpty && !viewModel.isNewConversation {
-                errorStateView(err: err)
-            } else {
+        VStack(spacing: 0) {
+            if let trust = viewModel.trustStatus, !trust.isProjectTrusted {
+                WorkspaceTrustBanner(
+                    status: trust,
+                    isUpdating: viewModel.isUpdatingTrust,
+                    onTrust: {
+                        Task { await viewModel.trustCurrentProject() }
+                    }
+                )
+            }
+            Group {
+                if viewModel.isLoading && viewModel.messages.isEmpty && !viewModel.isNewConversation {
+                    loadingStateView
+                } else if let err = viewModel.errorMessage, viewModel.messages.isEmpty && !viewModel.isNewConversation {
+                    errorStateView(err: err)
+                } else {
                 GeometryReader { geometry in
                     ScrollViewReader { proxy in
                         ZStack(alignment: .bottomTrailing) {
@@ -53,6 +63,7 @@ extension ChatView {
                 }
             }
         }
+        }
         // 会话切换、Agent 运行状态翻转（跑完了）、提交/改动面板关闭后重新探测 Commit / Changes 是否该显示
         .task(id: "\(viewModel.cascadeId)|\(viewModel.isRunning)|\(viewModel.gitSheet == nil)") {
             await viewModel.refreshActionAvailability()
@@ -88,6 +99,10 @@ extension ChatView {
                 subagent: sa,
                 onStopSubagent: { item in
                     await viewModel.stopSubagent(item)
+                },
+                onAskBtw: { quote in
+                    btwInitialQuote = quote
+                    showBtwSheet = true
                 }
             )
         }
@@ -505,6 +520,10 @@ extension ChatView {
             onNarrate: { text in
                 narrationPlayer.play(text: text, baseURL: AppSettings.shared.gatewayURL)
             },
+            onAskBtw: { quote in
+                btwInitialQuote = quote
+                showBtwSheet = true
+            },
             makeShareContext: { shareContext(for: message) }
         )
         .equatable()
@@ -861,6 +880,7 @@ private struct EquatableMessageRow: View, Equatable {
     let onSelectSubagent: (SubagentItem) -> Void
     let onFork: (ChatMessage) -> Void
     let onNarrate: (String) -> Void
+    let onAskBtw: (String) -> Void
     let makeShareContext: () -> ShareCardContext
 
     static func == (lhs: EquatableMessageRow, rhs: EquatableMessageRow) -> Bool {
@@ -884,6 +904,7 @@ private struct EquatableMessageRow: View, Equatable {
                 onSelectSubagent: onSelectSubagent,
                 onFork: onFork,
                 onNarrate: onNarrate,
+                onAskBtw: onAskBtw,
                 makeShareContext: makeShareContext
             )
         }

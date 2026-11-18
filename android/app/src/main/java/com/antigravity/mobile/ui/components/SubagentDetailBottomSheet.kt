@@ -44,7 +44,8 @@ import kotlinx.coroutines.launch
 fun SubagentDetailBottomSheet(
     subagent: SubagentItem,
     onDismissRequest: () -> Unit,
-    onStopSubagent: (suspend (SubagentItem) -> Unit)? = null
+    onStopSubagent: (suspend (SubagentItem) -> Unit)? = null,
+    onAskBtw: ((String) -> Unit)? = null
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
     val colors = AntigravityTheme.colors
@@ -158,11 +159,28 @@ fun SubagentDetailBottomSheet(
             // Prompt Section
             subagent.prompt?.takeIf { it.isNotBlank() }?.let { prompt ->
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(
-                        text = "分配指令 (Initial Prompt)",
-                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                        color = colors.textSecondary
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "分配指令 (Initial Prompt)",
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                            color = colors.textSecondary
+                        )
+                        if (onAskBtw != null) {
+                            OutlinedButton(
+                                onClick = {
+                                    onDismissRequest()
+                                    onAskBtw(prompt)
+                                },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                            ) {
+                                Text("/btw 旁路快问", fontSize = 11.sp, color = colors.accentIndigo)
+                            }
+                        }
+                    }
 
                     Surface(
                         shape = RoundedCornerShape(10.dp),

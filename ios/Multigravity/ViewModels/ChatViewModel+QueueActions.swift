@@ -40,12 +40,10 @@ extension ChatViewModel {
             return Data(base64Encoded: cleaned)
         }
         
-        // Optimistic user chat bubble
+        // Optimistic user chat bubble (insert without bouncy animation so previous turn stays steady)
         let clientMessageId = UUID().uuidString
         let optId = "optimistic-\(clientMessageId)"
-        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-            self.messages.append(ChatMessage(id: optId, sender: .user, content: item.text, imageDataList: imgDataList, clientMessageId: clientMessageId))
-        }
+        self.messages.append(ChatMessage(id: optId, sender: .user, content: item.text, imageDataList: imgDataList, clientMessageId: clientMessageId))
         triggerScrollToBottom()
         self.pendingOptimisticMessageId = optId
         self.isAwaitingResponse = true

@@ -835,7 +835,7 @@ function updateChatControls(isRunning, wsUri, hasAction = false) {
     const iconStop = sendBtn.querySelector(".icon-stop");
     const iconVoice = sendBtn.querySelector(".icon-voice");
     const iconHangup = sendBtn.querySelector(".icon-hangup");
-    const hasContent = (chatInput && chatInput.value.trim().length > 0) || (pendingImages && pendingImages.length > 0) || !!getSelectedSlashCommand();
+    const hasContent = (chatInput && chatInput.value.trim().length > 0) || (pendingImages && pendingImages.length > 0) || (typeof pendingAttachments !== "undefined" && pendingAttachments.length > 0) || !!getSelectedSlashCommand();
     const inVoiceCall = typeof WebVoiceCallManager !== "undefined" && WebVoiceCallManager.isInCall;
     const voiceEnabled = typeof WebVoiceCallManager !== "undefined" && WebVoiceCallManager.isVoiceModeEnabled();
 
@@ -1023,6 +1023,9 @@ async function connectStreamWs(cascadeId) {
 
         const hasAction = !!(data.pendingInteraction || currentCanProceed);
         updateChatControls(isRunning, data.workspaceUri, hasAction);
+        if (data.type === "init" && data.workspaceUri) {
+          window.V233?.checkWorkspaceTrust?.(cascadeId, data.workspaceUri);
+        }
 
         if (data.title && document.getElementById("header-title")) {
           document.getElementById("header-title").textContent = data.title;
@@ -1131,6 +1134,7 @@ async function loadChat(cascadeId, isBackgroundPoll = false) {
     }
 
     updateChatControls(isRunning, wsUri);
+    window.V233?.checkWorkspaceTrust?.(cascadeId, wsUri);
     LocalQueueManager.init(cascadeId);
     RunningTasksManager.init(cascadeId);
     renderMessages(steps, isRunning);
@@ -2087,7 +2091,8 @@ function renderMessages(steps, isRunning = false) {
       } else {
         const newEl = document.createElement("div");
         newEl.id = item.id;
-        newEl.className = (isRunning && item.type === "agent") ? rowClass : (rowClass + " message-entering");
+        // Antigravity 2.33.0: avoid flashing/re-animating user messages or active turns on immediate send
+        newEl.className = (item.type === "user" || (isRunning && item.type === "agent")) ? rowClass : (rowClass + " message-entering");
         newEl.setAttribute("data-fp", fp);
         newEl.innerHTML = generateItemHtml(item, isRunning, isLastItem);
 
@@ -2139,6 +2144,7 @@ function renderMessages(steps, isRunning = false) {
     if (typeof hydrateAllAgentEmbeds === "function") {
       hydrateAllAgentEmbeds(streamEl);
     }
+    window.V233?.hydrateChatPRPills?.(streamEl);
   }
 
   // 1. First-time render on entering a conversation: align cleanly to bottom without whole-page jump

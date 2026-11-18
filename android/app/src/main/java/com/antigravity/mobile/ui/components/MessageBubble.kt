@@ -83,7 +83,8 @@ fun MessageBubble(
     onStopWorkflow: (() -> Unit)? = null,
     onSelectWorkflowSubagent: ((SubagentItem) -> Unit)? = null,
     onForkClick: ((GatewayMessageItem) -> Unit)? = null,
-    onNarrateClick: ((String) -> Unit)? = null
+    onNarrateClick: ((String) -> Unit)? = null,
+    onAskBtwClick: ((String) -> Unit)? = null
 ) {
     val colors = AntigravityTheme.colors
     val context = LocalContext.current
@@ -759,6 +760,10 @@ fun MessageBubble(
                                 onImageClick = { url -> onImageClick?.invoke(url, null) }
                             )
                         }
+                        InlineGitHubPRPillsSection(
+                            content = displayText,
+                            onOpenPR = { prUrl -> onPlanClick?.invoke(prUrl, "Pull Request") }
+                        )
                     }
 
                     DropdownMenu(
@@ -811,6 +816,17 @@ fun MessageBubble(
                                         showAgentMenu = false
                                         val plain = MarkdownPlainText.convert(displayText)
                                         onNarrateClick(plain.ifEmpty { displayText })
+                                    }
+                                )
+                            }
+                            if (onAskBtwClick != null) {
+                                DropdownMenuItem(
+                                    text = { Text("/btw 旁路快问") },
+                                    leadingIcon = { Icon(Icons.Default.AutoAwesome, contentDescription = "/btw 旁路快问") },
+                                    onClick = {
+                                        showAgentMenu = false
+                                        val plain = MarkdownPlainText.convert(displayText)
+                                        onAskBtwClick(plain.ifEmpty { displayText })
                                     }
                                 )
                             }

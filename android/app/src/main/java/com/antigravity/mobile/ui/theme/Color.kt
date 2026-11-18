@@ -89,7 +89,8 @@ data class AppColors(
     val codeBlockBg: Color,
     val searchBarBg: Color,
     val inputBarBg: Color,
-    val cardShadow: Color
+    val cardShadow: Color,
+    val useNord: Boolean = false
 )
 
 val LightAppColors = AppColors(
@@ -148,6 +149,46 @@ val DarkAppColors = AppColors(
     searchBarBg = Color(0xFF1C1C1E),
     inputBarBg = Color(0xFF121212),
     cardShadow = Color(0x33000000)
+)
+
+// Official Antigravity 2.33.0 Nord Dark Palette
+val NordBackground = Color(0xFF2E3440)
+val NordSurface = Color(0xFF3B4252)
+val NordSurfaceVariant = Color(0xFF434C5E)
+val NordBorder = Color(0xFF4C566A)
+val NordForeground = Color(0xFFD8DEE9)
+val NordSecondaryForeground = Color(0xFFB8C2D4)
+val NordMutedForeground = Color(0xFF616E88)
+val NordFrostAccent = Color(0xFF88C0D0)
+
+val NordAppColors = AppColors(
+    isDark = true,
+    background = NordBackground,
+    surface = NordSurface,
+    surfaceVariant = NordSurfaceVariant,
+    tertiaryBackground = Color(0xFF434C5E),
+    border = NordBorder,
+    separator = Color(0xFF4C566A),
+    textPrimary = NordForeground,
+    textSecondary = NordSecondaryForeground,
+    textMuted = NordMutedForeground,
+    userBubbleBg = Color(0xFF5E81AC),
+    userBubbleText = Color(0xFFECEFF4),
+    agentBubbleBg = NordSurface,
+    agentBubbleText = NordForeground,
+    accentBlue = NordFrostAccent,
+    accentIndigo = Color(0xFF81A1C1),
+    accentGreen = Color(0xFFA3BE8C),
+    accentOrange = Color(0xFFD08770),
+    accentRed = Color(0xFFBF616A),
+    accentYellow = Color(0xFFEBCB8B),
+    accentPurple = Color(0xFFB48EAD),
+    accentOrchestrator = Color(0xFF8FBCBB),
+    codeBlockBg = Color(0xFF272C36),
+    searchBarBg = Color(0xFF3B4252),
+    inputBarBg = Color(0xFF292E39),
+    cardShadow = Color(0x40000000),
+    useNord = true
 )
 
 /** 厂商专属强调色（Gemini 蓝 / Claude 橙 / Orchestrator 石墨钛灰 / Other 青）。 */

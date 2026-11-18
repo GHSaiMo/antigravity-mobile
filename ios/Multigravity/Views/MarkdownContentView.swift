@@ -19,6 +19,7 @@ public struct MarkdownContentView: View {
     @State var internalPreviewImage: IdentifiableImage? = nil
     @Environment(\.colorScheme) var colorScheme
     @Environment(\.isShareExport) var isShareExport
+    @Environment(\.shareCardUseNord) var shareCardUseNord
     @Environment(\.currentCascadeId) private var currentCascadeId
 
     private var fontScale: AppSettings.FontSizeScale {

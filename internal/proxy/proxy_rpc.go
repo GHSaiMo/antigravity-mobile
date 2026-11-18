@@ -669,6 +669,12 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 			continue
 		}
 
+		// Filter out /btw side-question sessions from the main conversation list
+		if isSideQuestionTrajectoryMap(s, id) {
+			delete(summaries, id)
+			continue
+		}
+
 		// Enrich missing title
 		hasTitle := false
 		if ann, ok := s["annotations"].(map[string]interface{}); ok {
@@ -776,6 +782,18 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 		}
 		if resolvedWSName != "" {
 			s["workspaceName"] = resolvedWSName
+		}
+		if len(wsURIs) > 0 {
+			br, pr, repoRoot, needsWarmup := cachedWorkspacePullRequest(wsURIs, port)
+			if br != "" {
+				s["currentBranch"] = br
+			}
+			if pr != nil {
+				s["pullRequest"] = pr
+			}
+			if needsWarmup && p.insp != nil {
+				p.scheduleWorkspacePRWarmup(repoRoot, br, port, token)
+			}
 		}
 
 		// Filter out stale empty drafts (0 steps, not running, older than 15 minutes, no custom title)

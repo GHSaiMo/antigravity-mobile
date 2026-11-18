@@ -24,6 +24,8 @@ public struct TrajectorySummary: Codable, Sendable {
     public let notFullyIdle: Bool?
     public let backgroundTaskCount: Int?
     public let workspaceName: String?
+    public let currentBranch: String?
+    public let pullRequest: GitPullRequestItem?
     
     public var isSubagent: Bool {
         if let parent = parentConversationId, !parent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -146,6 +148,8 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
     public let isPinned: Bool
     public let hasRunningTasks: Bool
     public let hasRunningSubagents: Bool
+    public let currentBranch: String?
+    public let pullRequest: GitPullRequestItem?
     
     public var isDraft: Bool {
         id.hasPrefix("local_draft_") || id.hasPrefix("draft_") || draftProject != nil
@@ -174,6 +178,8 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
         case isPinned
         case hasRunningTasks
         case hasRunningSubagents
+        case currentBranch
+        case pullRequest
     }
     
     public init(from decoder: Decoder) throws {
@@ -192,6 +198,8 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
         self.isPinned = try container.decodeIfPresent(Bool.self, forKey: .isPinned) ?? false
         self.hasRunningTasks = try container.decodeIfPresent(Bool.self, forKey: .hasRunningTasks) ?? false
         self.hasRunningSubagents = try container.decodeIfPresent(Bool.self, forKey: .hasRunningSubagents) ?? false
+        self.currentBranch = try container.decodeIfPresent(String.self, forKey: .currentBranch)
+        self.pullRequest = try container.decodeIfPresent(GitPullRequestItem.self, forKey: .pullRequest)
     }
     
     public func encode(to encoder: Encoder) throws {
@@ -210,6 +218,8 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
         try container.encode(isPinned, forKey: .isPinned)
         try container.encode(hasRunningTasks, forKey: .hasRunningTasks)
         try container.encode(hasRunningSubagents, forKey: .hasRunningSubagents)
+        try container.encodeIfPresent(currentBranch, forKey: .currentBranch)
+        try container.encodeIfPresent(pullRequest, forKey: .pullRequest)
     }
     
     public enum ConversationStatus: String, Sendable, Codable {
@@ -247,7 +257,9 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
             nestingDepth: self.nestingDepth,
             isPinned: self.isPinned,
             hasRunningTasks: self.hasRunningTasks,
-            hasRunningSubagents: self.hasRunningSubagents
+            hasRunningSubagents: self.hasRunningSubagents,
+            currentBranch: self.currentBranch,
+            pullRequest: self.pullRequest
         )
     }
 
@@ -266,7 +278,9 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
             nestingDepth: self.nestingDepth,
             isPinned: pinned,
             hasRunningTasks: self.hasRunningTasks,
-            hasRunningSubagents: self.hasRunningSubagents
+            hasRunningSubagents: self.hasRunningSubagents,
+            currentBranch: self.currentBranch,
+            pullRequest: self.pullRequest
         )
     }
     
@@ -376,6 +390,8 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
         } else {
             self.isPinned = CacheManager.shared.isPinned(cascadeId: id)
         }
+        self.currentBranch = summary.currentBranch
+        self.pullRequest = summary.pullRequest
     }
     
     public init(
@@ -392,7 +408,9 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
         nestingDepth: Int = 0,
         isPinned: Bool = false,
         hasRunningTasks: Bool = false,
-        hasRunningSubagents: Bool = false
+        hasRunningSubagents: Bool = false,
+        currentBranch: String? = nil,
+        pullRequest: GitPullRequestItem? = nil
     ) {
         self.id = id
         self.title = title
@@ -408,6 +426,8 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
         self.isPinned = isPinned
         self.hasRunningTasks = hasRunningTasks
         self.hasRunningSubagents = hasRunningSubagents
+        self.currentBranch = currentBranch
+        self.pullRequest = pullRequest
     }
     
     public var effectiveLastModified: Date {

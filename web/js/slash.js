@@ -238,6 +238,15 @@ async function ensureSlashCommands() {
     if (resp.ok) {
       const data = await resp.json();
       slashState.commands = Array.isArray(data.commands) ? data.commands : [];
+      if (!slashState.commands.some((c) => String(c.name || "").toLowerCase() === "btw")) {
+        slashState.commands.unshift({
+          name: "btw",
+          title: "旁问 (/btw)",
+          kind: "system",
+          icon: "chat_add_on",
+          description: "不打断主线任务地独立旁问",
+        });
+      }
       slashState.loaded = true;
     }
   } catch (_) {
@@ -317,6 +326,14 @@ function selectSlashCommand(name) {
       input.style.height = Math.min(input.scrollHeight, 120) + "px";
     }
     input.focus();
+  }
+  if (String(cmd.name || "").toLowerCase() === "btw") {
+    slashState.selected = null;
+    renderSlashPicker();
+    renderSlashChip();
+    const sel = window.getSelection?.()?.toString()?.trim() || "";
+    window.V233?.openBtwModal?.({ parentCascadeId: activeCascadeId, quote: sel });
+    return;
   }
   slashState.selected = {
     name: cmd.name,
