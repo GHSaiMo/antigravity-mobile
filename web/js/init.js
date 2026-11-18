@@ -266,13 +266,35 @@ function initApp() {
   const tasksCheckbox = document.getElementById("settings-compact-collapse-tasks");
   const ctxCheckbox = document.getElementById("settings-compact-hide-healthy-ctx");
 
+  const kmSummary = document.getElementById("settings-compact-summary");
+
   const syncCompactUI = () => {
     const enabled = window.CompactModePrefs.isEnabled();
+    const tools = window.CompactModePrefs.collapseTools();
+    const tasks = window.CompactModePrefs.collapseTasks();
+    const hideCtx = window.CompactModePrefs.hideHealthyContext();
     if (kmCheckbox) kmCheckbox.checked = enabled;
-    if (kmSubpanel) kmSubpanel.classList.toggle("hidden", !enabled);
-    if (toolsCheckbox) toolsCheckbox.checked = window.CompactModePrefs.collapseTools();
-    if (tasksCheckbox) tasksCheckbox.checked = window.CompactModePrefs.collapseTasks();
-    if (ctxCheckbox) ctxCheckbox.checked = window.CompactModePrefs.hideHealthyContext();
+    if (kmSubpanel) kmSubpanel.classList.toggle("compact-subpanel-disabled", !enabled);
+    if (toolsCheckbox) {
+      toolsCheckbox.checked = tools;
+      toolsCheckbox.disabled = !enabled;
+    }
+    if (tasksCheckbox) {
+      tasksCheckbox.checked = tasks;
+      tasksCheckbox.disabled = !enabled;
+    }
+    if (ctxCheckbox) {
+      ctxCheckbox.checked = hideCtx;
+      ctxCheckbox.disabled = !enabled;
+    }
+    if (kmSummary) {
+      if (!enabled) {
+        kmSummary.textContent = "已关闭";
+      } else {
+        const count = [tools, tasks, hideCtx].filter(Boolean).length;
+        kmSummary.textContent = `已开启 (${count}/3)`;
+      }
+    }
   };
 
   const applyCompactLiveEffects = () => {

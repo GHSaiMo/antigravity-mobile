@@ -1181,6 +1181,7 @@ async function clearWebCache() {
 }
 
 function openSettingsSheet() {
+  window.V233?.openSettingsSubpage?.(null);
   checkGatewayStatus();
   updateAuthUI();
   const sheet = document.getElementById("sheet-settings");
@@ -1188,6 +1189,7 @@ function openSettingsSheet() {
 }
 
 function closeSettingsSheet() {
+  window.V233?.openSettingsSubpage?.(null);
   const sheet = document.getElementById("sheet-settings");
   if (sheet) sheet.classList.add("hidden");
 }

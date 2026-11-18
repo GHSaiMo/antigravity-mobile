@@ -9069,64 +9069,213 @@ body.font-comfortable pre, body.font-comfortable code {
   background-color: rgba(248, 248, 250, 0.94);
 }
 
-/* Official Antigravity 2.33.0 Nord Theme */
-:root[data-theme="nord"] {
-  --ios-bg: #2E3440;
-  --ios-secondary-bg: #3B4252;
-  --ios-tertiary-bg: #434C5E;
-  --ios-quaternary-bg: #4C566A;
-  --ios-fill: rgba(76, 86, 106, 0.36);
-  --ios-separator: rgba(76, 86, 106, 0.72);
-  --ios-separator-subtle: rgba(76, 86, 106, 0.45);
-
-  --ios-label: #D8DEE9;
-  --ios-secondary-label: #9CA6B8;
-  --ios-tertiary-label: #616E88;
-  --ios-quaternary-label: #4C566A;
-
-  --ios-blue: #88C0D0;
-  --ios-green: #A3BE8C;
-  --ios-indigo: #81A1C1;
-  --ios-indigo-active: #5E81AC;
-  --ios-orange: #EBCB8B;
-  --ios-red: #BF616A;
-  --ios-purple: #B48EAD;
-  --ios-teal: #8FBCBB;
-  --orchestrator-slate: #434C5E;
-  --orchestrator-slate-rgb: 67, 76, 94;
-
-  --code-fg: #EBCB8B;
-  --code-bg: rgba(76, 86, 106, 0.32);
-  --code-border: rgba(136, 192, 208, 0.28);
-
-  --tok-kw: #81A1C1;
-  --tok-str: #A3BE8C;
-  --tok-cmt: #616E88;
-  --tok-num: #B48EAD;
-  --tok-type: #8FBCBB;
-  --tok-fn: #88C0D0;
-  --tok-attr: #81A1C1;
-  --tok-meta: #EBCB8B;
-  --tok-diff-add: #A3BE8C;
-  --tok-diff-del: #BF616A;
-
-  --user-bubble-bg: #5E81AC;
-  --user-bubble-text: #ECEFF4;
-  --agent-bubble-bg: #3B4252;
-  --agent-bubble-text: #D8DEE9;
+:root[data-theme-preset] .ios-navbar {
+  background-color: var(--navbar-bg, rgba(28, 28, 30, 0.88));
 }
 
-:root[data-theme="nord"] .ios-navbar {
-  background-color: rgba(46, 52, 64, 0.88);
+:root[data-theme-preset] .ios-alert-box {
+  background-color: var(--alert-bg, rgba(30, 30, 34, 0.96));
 }
 
-:root[data-theme="nord"] .ios-alert-box {
-  background-color: rgba(59, 66, 82, 0.96);
+:root[data-theme-preset] .code-block-card {
+  background-color: var(--code-card-bg, var(--ios-tertiary-bg));
+  border-color: var(--code-card-border, var(--ios-separator));
 }
 
-:root[data-theme="nord"] .code-block-card {
-  background-color: #2E3440;
-  border-color: #4C566A;
+/* Segmented Control, Swatch Dots & Settings Sub-pages */
+.settings-mode-row {
+  gap: 10px;
+}
+
+.settings-segmented {
+  display: inline-flex;
+  align-items: center;
+  background: var(--ios-fill);
+  border-radius: 9px;
+  padding: 2px;
+  gap: 2px;
+}
+
+.settings-seg-btn {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--ios-secondary-label);
+  font-size: 12.5px;
+  font-weight: 500;
+  padding: 5px 10px;
+  border-radius: 7px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 0.16s ease, color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.settings-seg-btn.active {
+  background: var(--ios-secondary-bg);
+  color: var(--ios-label);
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.16);
+}
+
+.settings-nav-row.hidden {
+  display: none;
+}
+
+.settings-nav-trailing {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.settings-chevron {
+  color: var(--ios-tertiary-label);
+  flex-shrink: 0;
+}
+
+.theme-swatch-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px 5px;
+  border-radius: 999px;
+  background: var(--ios-fill);
+  border: 0.5px solid var(--ios-separator-subtle);
+}
+
+.theme-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: 0.5px solid rgba(128, 128, 128, 0.35);
+}
+
+.settings-sub-back-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--ios-blue);
+  font-weight: 500;
+  padding-left: 0;
+}
+
+.theme-live-preview {
+  border-radius: 14px;
+  border: 1px solid var(--ios-separator);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.theme-preview-bubble-user {
+  align-self: flex-end;
+  padding: 7px 12px;
+  border-radius: 14px 14px 4px 14px;
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+.theme-preview-bubble-agent {
+  align-self: stretch;
+  padding: 9px 11px;
+  border-radius: 12px;
+  border: 0.5px solid var(--ios-separator-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.theme-preview-text {
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+
+.theme-preview-code {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 0.5px solid var(--ios-separator-subtle);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11.5px;
+  overflow-x: auto;
+}
+
+.theme-preset-row {
+  padding-top: 10px;
+  padding-bottom: 10px;
+}
+
+.theme-preset-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 11px;
+  min-width: 0;
+}
+
+.theme-preset-pill {
+  position: relative;
+  width: 34px;
+  height: 24px;
+  border-radius: 7px;
+  border: 1px solid var(--ios-separator);
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 5px;
+  flex-shrink: 0;
+}
+
+.theme-preset-bar {
+  width: 4px;
+  height: 14px;
+  border-radius: 2px;
+}
+
+.theme-preset-fg {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+
+.theme-preset-text {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  min-width: 0;
+  text-align: left;
+}
+
+.theme-preset-title {
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--ios-label);
+}
+
+.theme-preset-desc {
+  font-size: 11.5px;
+  color: var(--ios-secondary-label);
+}
+
+.theme-preset-check {
+  color: var(--ios-blue);
+  font-size: 15px;
+  font-weight: 700;
+  width: 20px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.compact-subpanel-disabled {
+  opacity: 0.48;
+  pointer-events: none;
+}
+
+.compact-subcell-page {
+  gap: 12px;
+  padding-top: 11px;
+  padding-bottom: 11px;
 }
 
 /* Native <dialog> Modals & Backdrop overscroll lock */

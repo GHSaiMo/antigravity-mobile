@@ -26,6 +26,24 @@ extension MarkdownContentView {
     @ViewBuilder
     func codeBlockView(lang: String, code: String) -> some View {
         let info = FileIconResolver.resolve(for: lang)
+        let activePreset: ThemePreset = {
+            if let themeID = shareCardThemeID, !themeID.isEmpty {
+                return ThemePresetCatalog.findByThemeKey(themeID, fallbackIsDark: colorScheme == .dark)
+            }
+            if shareCardUseNord == true {
+                return ThemePresetCatalog.findDark("nord")
+            }
+            return appThemePreset ?? AppSettings.shared.activeThemePreset(for: colorScheme)
+        }()
+        let headerBg = activePreset.isDefaultStyle
+            ? Color(uiColor: .tertiarySystemBackground).opacity(0.8)
+            : activePreset.surfaceVariant.opacity(0.72)
+        let cardBg = activePreset.isDefaultStyle
+            ? Color(uiColor: .tertiarySystemBackground).opacity(0.5)
+            : activePreset.codeBlockBg
+        let cardBorder = activePreset.isDefaultStyle
+            ? Color.secondary.opacity(0.2)
+            : activePreset.border
         
         return VStack(alignment: .leading, spacing: 0) {
             // Header bar
@@ -64,25 +82,32 @@ extension MarkdownContentView {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
-            .background(Color(uiColor: .tertiarySystemBackground).opacity(0.8))
+            .background(headerBg)
             
             Divider()
             
             // Code text
             let codeScale = isShareExport ? 1.0 : AppSettings.shared.fontSizeScale.codeScale
-            let highlighted = CodeSyntaxHighlighter.highlight(code: code, language: lang, isDark: colorScheme == .dark, useNord: shareCardUseNord ?? AppSettings.shared.isNordTheme)
+            let highlighted = CodeSyntaxHighlighter.highlight(
+                code: code,
+                language: lang,
+                isDark: activePreset.isDark,
+                useNord: activePreset.id == "nord",
+                themeID: activePreset.storageKey
+            )
             ExportAwareHorizontalScroll {
                 Text(highlighted)
                     .font(.system(size: 12.5 * codeScale, design: .monospaced))
+                    .foregroundColor(activePreset.isDefaultStyle ? .primary : activePreset.fg)
                     .padding(10)
             }
             .fixedSize(horizontal: false, vertical: true)
         }
-        .background(Color(uiColor: .tertiarySystemBackground).opacity(0.5))
+        .background(cardBg)
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
+                .stroke(cardBorder, lineWidth: 1)
         )
     }
     

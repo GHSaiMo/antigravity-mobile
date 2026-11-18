@@ -12,13 +12,12 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.DarkMode
-import androidx.compose.material.icons.filled.LightMode
-import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.FileDownload
+import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.UnfoldMore
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.HorizontalDivider
@@ -55,10 +54,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import androidx.compose.ui.graphics.lerp
 import com.antigravity.mobile.ui.theme.AntigravityTheme
-import com.antigravity.mobile.ui.theme.DarkAppColors
-import com.antigravity.mobile.ui.theme.LightAppColors
 import com.antigravity.mobile.ui.theme.LocalAppColors
+import com.antigravity.mobile.ui.theme.ThemePreset
+import com.antigravity.mobile.ui.theme.ThemePresetCatalog
 import com.antigravity.mobile.ui.util.ShareImageUtils
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -146,44 +146,27 @@ data class ShareCardContext(
     }
 }
 
-enum class ShareCardTheme(val isDark: Boolean) {
-    DARK(true),
-    NORD(true),
-    LIGHT(false);
-
-    val accent: Color
-        get() = when (this) {
-            DARK -> Color(0xFF8C80FF)
-            NORD -> Color(0xFF88C0D0)
-            LIGHT -> Color(0xFF5856D6)
-        }
+@Immutable
+data class ShareCardTheme(val preset: ThemePreset) {
+    val isDark: Boolean get() = preset.isDark
+    val accent: Color get() = preset.accent
+    val label: String get() = preset.name
 
     val background: Brush
-        get() = when (this) {
-            DARK -> Brush.linearGradient(listOf(Color(0xFF0F121C), Color(0xFF1F1738)))
-            NORD -> Brush.linearGradient(listOf(Color(0xFF2E3440), Color(0xFF242933)))
-            LIGHT -> Brush.linearGradient(listOf(Color(0xFFFCFCFA), Color(0xFFF5F5F2)))
+        get() = when (preset.appColors.themeId) {
+            "default-dark" -> Brush.linearGradient(listOf(Color(0xFF0F121C), Color(0xFF1F1738)))
+            "default-light" -> Brush.linearGradient(listOf(Color(0xFFFCFCFA), Color(0xFFF5F5F2)))
+            else -> Brush.linearGradient(
+                listOf(preset.bg, lerp(preset.bg, Color.Black, if (preset.isDark) 0.14f else 0.04f))
+            )
         }
 
     val questionBackground: Color
-        get() = when (this) {
-            DARK -> Color.White.copy(alpha = 0.09f)
-            NORD -> Color(0xFF3B4252).copy(alpha = 0.92f)
-            LIGHT -> Color.Black.copy(alpha = 0.05f)
+        get() = when (preset.appColors.themeId) {
+            "default-dark" -> Color.White.copy(alpha = 0.09f)
+            "default-light" -> Color.Black.copy(alpha = 0.05f)
+            else -> preset.appColors.surface.copy(alpha = 0.94f)
         }
-
-    val label: String
-        get() = when (this) {
-            DARK -> "深色"
-            NORD -> "Nord"
-            LIGHT -> "浅色"
-        }
-
-    fun next(): ShareCardTheme = when (this) {
-        DARK -> NORD
-        NORD -> LIGHT
-        LIGHT -> DARK
-    }
 }
 
 private val CARD_WIDTH = 390.dp
@@ -205,17 +188,12 @@ fun MessageShareCardSheet(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val systemDark = androidx.compose.foundation.isSystemInDarkTheme()
-    val activeUseNord = AntigravityTheme.colors.useNord
-    var theme by remember {
-        mutableStateOf(
-            when {
-                activeUseNord -> ShareCardTheme.NORD
-                systemDark -> ShareCardTheme.DARK
-                else -> ShareCardTheme.LIGHT
-            }
-        )
+    val activeColors = AntigravityTheme.colors
+    val initialPreset = remember(activeColors.themeId, activeColors.isDark) {
+        ThemePresetCatalog.findByThemeId(activeColors.themeId, activeColors.isDark)
     }
+    var theme by remember { mutableStateOf(ShareCardTheme(initialPreset)) }
+    var showSkinPicker by remember { mutableStateOf(false) }
     var includeQuestion by remember { mutableStateOf(true) }
     var busy by remember { mutableStateOf(false) }
     val layer = rememberGraphicsLayer()
@@ -329,24 +307,16 @@ fun MessageShareCardSheet(
                 }
             }
 
-            // 底部：左 = 浅/深色切换，右 = 是否包含上一条提问
+            // 底部：左 = 皮肤切换，右 = 是否包含上一条提问
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                ShareOptionPill(
-                    icon = when (theme) {
-                        ShareCardTheme.DARK -> Icons.Default.DarkMode
-                        ShareCardTheme.NORD -> Icons.Default.AutoAwesome
-                        ShareCardTheme.LIGHT -> Icons.Default.LightMode
-                    },
-                    label = theme.label,
-                    selected = false,
-                    onClick = {
-                        theme = theme.next()
-                    }
+                ShareSkinPickerPill(
+                    preset = theme.preset,
+                    onClick = { showSkinPicker = true }
                 )
                 Spacer(Modifier.weight(1f))
                 if (canIncludeQuestion) {
@@ -356,6 +326,155 @@ fun MessageShareCardSheet(
                         selected = includeQuestion,
                         onClick = { includeQuestion = !includeQuestion }
                     )
+                }
+            }
+        }
+    }
+
+    if (showSkinPicker) {
+        ShareCardSkinPickerSheet(
+            selectedPreset = theme.preset,
+            onSelect = { preset ->
+                theme = ShareCardTheme(preset)
+                showSkinPicker = false
+            },
+            onDismiss = { showSkinPicker = false }
+        )
+    }
+}
+
+@Composable
+private fun ShareSkinPickerPill(
+    preset: ThemePreset,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .height(44.dp)
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Row(horizontalArrangement = Arrangement.spacedBy(3.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(9.dp).clip(CircleShape).background(preset.bg).border(0.5.dp, Color.Gray.copy(alpha = 0.4f), CircleShape))
+            Box(Modifier.size(9.dp).clip(CircleShape).background(preset.fg).border(0.5.dp, Color.Gray.copy(alpha = 0.4f), CircleShape))
+            Box(Modifier.size(9.dp).clip(CircleShape).background(preset.accent).border(0.5.dp, Color.Gray.copy(alpha = 0.4f), CircleShape))
+        }
+        Text(
+            text = preset.name,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Icon(Icons.Default.UnfoldMore, contentDescription = null, modifier = Modifier.size(16.dp))
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ShareCardSkinPickerSheet(
+    selectedPreset: ThemePreset,
+    onSelect: (ThemePreset) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val colors = AntigravityTheme.colors
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        containerColor = colors.background
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxHeight(0.75f)
+                .navigationBarsPadding()
+        ) {
+            Text(
+                text = "选择长图皮肤",
+                color = colors.textPrimary,
+                fontWeight = FontWeight.Bold,
+                fontSize = 17.sp,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 12.dp),
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+            )
+            HorizontalDivider(thickness = 0.5.dp, color = colors.border)
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                SkinGroupSection("浅色皮肤", ThemePresetCatalog.lightPresets, selectedPreset, onSelect)
+                SkinGroupSection("深色皮肤", ThemePresetCatalog.darkPresets, selectedPreset, onSelect)
+                Spacer(Modifier.height(12.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun SkinGroupSection(
+    title: String,
+    presets: List<ThemePreset>,
+    selectedPreset: ThemePreset,
+    onSelect: (ThemePreset) -> Unit
+) {
+    val colors = AntigravityTheme.colors
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(
+            text = title,
+            color = colors.textSecondary,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(horizontal = 4.dp)
+        )
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(colors.surface)
+                .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
+        ) {
+            presets.forEachIndexed { idx, preset ->
+                if (idx > 0) {
+                    HorizontalDivider(color = colors.separator.copy(alpha = 0.35f), thickness = 0.5.dp, modifier = Modifier.padding(start = 58.dp))
+                }
+                val isSelected = preset.appColors.themeId == selectedPreset.appColors.themeId
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onSelect(preset) }
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .size(width = 34.dp, height = 24.dp)
+                            .clip(RoundedCornerShape(7.dp))
+                            .background(preset.bg)
+                            .border(0.8.dp, colors.border, RoundedCornerShape(7.dp))
+                            .padding(horizontal = 5.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Box(Modifier.size(width = 4.dp, height = 14.dp).clip(RoundedCornerShape(2.dp)).background(preset.accent))
+                        Box(Modifier.size(9.dp).clip(CircleShape).background(preset.fg))
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(preset.name, color = colors.textPrimary, fontSize = 14.5.sp, fontWeight = FontWeight.Medium)
+                        Text(preset.description, color = colors.textSecondary, fontSize = 11.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                    if (isSelected) {
+                        Icon(Icons.Default.Check, contentDescription = null, tint = colors.accentBlue, modifier = Modifier.size(18.dp))
+                    }
                 }
             }
         }
@@ -421,11 +540,7 @@ private fun MessageShareCard(
 ) {
     val dateText = remember(shareContext.startedAtIso) { ShareCardContext.formatStartedAt(shareContext.startedAtIso) }
     CompositionLocalProvider(
-        LocalAppColors provides when (theme) {
-            ShareCardTheme.NORD -> com.antigravity.mobile.ui.theme.NordAppColors
-            ShareCardTheme.DARK -> DarkAppColors
-            ShareCardTheme.LIGHT -> LightAppColors
-        },
+        LocalAppColors provides theme.preset.appColors,
         LocalShareExport provides true
     ) {
         val colors = AntigravityTheme.colors

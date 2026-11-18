@@ -20,6 +20,8 @@ public struct MarkdownContentView: View {
     @Environment(\.colorScheme) var colorScheme
     @Environment(\.isShareExport) var isShareExport
     @Environment(\.shareCardUseNord) var shareCardUseNord
+    @Environment(\.shareCardThemeID) var shareCardThemeID
+    @Environment(\.appThemePreset) var appThemePreset
     @Environment(\.currentCascadeId) private var currentCascadeId
 
     private var fontScale: AppSettings.FontSizeScale {

@@ -176,7 +176,13 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val themeMode by prefs.themeModeFlow.collectAsState()
-            AntigravityTheme(themeMode = themeMode) {
+            val lightThemePreset by prefs.lightThemePresetFlow.collectAsState()
+            val darkThemePreset by prefs.darkThemePresetFlow.collectAsState()
+            AntigravityTheme(
+                themeMode = themeMode,
+                lightPresetId = lightThemePreset,
+                darkPresetId = darkThemePreset
+            ) {
                 val navController = rememberNavController()
                 activeNavController = navController
 

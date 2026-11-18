@@ -16,13 +16,24 @@ struct MultigravityApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ConversationListView()
-                .tint(settings.isNordTheme ? NordTheme.accent : .indigo)
-                .preferredColorScheme(settings.colorScheme)
-                .background(settings.isNordTheme ? NordTheme.background : Color.clear)
-                .onAppear {
-                    settings.applyAppearance()
-                }
+            ThemedRootContainer(settings: settings)
         }
+    }
+}
+
+private struct ThemedRootContainer: View {
+    @Environment(\.colorScheme) private var systemColorScheme
+    var settings: AppSettings
+
+    var body: some View {
+        let preset = settings.activeThemePreset(for: systemColorScheme)
+        ConversationListView()
+            .tint(preset.accent)
+            .preferredColorScheme(settings.colorScheme)
+            .background(preset.isDefaultStyle ? Color.clear : preset.bg)
+            .environment(\.appThemePreset, preset)
+            .onAppear {
+                settings.applyAppearance()
+            }
     }
 }

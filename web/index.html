@@ -10,13 +10,28 @@
     (function () {
       try {
         var t = localStorage.getItem("antigravity_theme") || "system";
-        var m = document.querySelector('meta[name="color-scheme"]');
         if (t === "nord") {
-          document.documentElement.setAttribute("data-theme", "nord");
-          if (m) m.setAttribute("content", "dark");
-        } else if (t === "dark" || t === "light") {
+          t = "dark";
+          localStorage.setItem("antigravity_theme", "dark");
+          localStorage.setItem("antigravity_dark_preset", "nord");
+        }
+        var m = document.querySelector('meta[name="color-scheme"]');
+        if (t === "dark" || t === "light") {
           document.documentElement.setAttribute("data-theme", t);
           if (m) m.setAttribute("content", t);
+        }
+        var isDark = t === "dark" || (t === "system" && window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
+        var preset = localStorage.getItem(isDark ? "antigravity_dark_preset" : "antigravity_light_preset") || "default";
+        var bgMap = {
+          "legacy-light": "#F9F9F9", "desktop-light": "#FFFFFF", "catppuccin-light": "#EAECF0",
+          "everforest-light": "#F8F0DC", "gruvbox-light": "#F9F5D7", "one-light": "#F5F5F5", "solarized-light": "#FAF4E5",
+          "legacy-dark": "#101010", "desktop-dark": "#070708", "catppuccin-dark": "#24273A",
+          "dracula": "#282A36", "everforest-dark": "#2D353B", "gruvbox-dark": "#141617", "monokai": "#272822",
+          "nord": "#2E3440", "one-dark-pro": "#282C34", "tokyo-night": "#1A1B26", "solarized-dark": "#002B36", "vesper": "#101010"
+        };
+        if (preset !== "default" && bgMap[preset]) {
+          document.documentElement.style.setProperty("--ios-bg", bgMap[preset]);
+          document.documentElement.setAttribute("data-theme-preset", preset);
         }
       } catch (_) {}
     })();
@@ -30,7 +45,7 @@
   <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png?v=4" />
   <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png?v=4" />
   <link rel="manifest" href="/manifest.json" />
-  <link rel="stylesheet" href="/style.css?v=54" />
+  <link rel="stylesheet" href="/style.css?v=55" />
 </head>
 <body>
   <div id="app">
@@ -442,12 +457,22 @@
     <div id="sheet-settings" class="ios-sheet-overlay hidden">
       <div class="ios-sheet-card">
         <div class="sheet-grabber"></div>
-        <div class="sheet-header">
+        <div id="settings-header-main" class="sheet-header">
           <div style="width: 48px;"></div>
           <h2 class="sheet-title">设置</h2>
           <button id="btn-sheet-settings-close" class="sheet-header-btn primary" type="button">完成</button>
         </div>
-        <div class="sheet-body">
+        <div id="settings-header-sub" class="sheet-header hidden">
+          <button id="btn-settings-sub-back" class="sheet-header-btn settings-sub-back-btn" type="button">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <polyline points="15 18 9 12 15 6"></polyline>
+            </svg>
+            <span>设置</span>
+          </button>
+          <h2 id="settings-sub-title" class="sheet-title">外观配色</h2>
+          <button id="btn-sheet-settings-close-sub" class="sheet-header-btn primary" type="button">完成</button>
+        </div>
+        <div id="settings-main-body" class="sheet-body">
           <!-- Section 1: 设备配对鉴权 -->
           <div class="ios-grouped-section">
             <div class="ios-cell between">
@@ -529,55 +554,50 @@
             <div class="settings-note">开启后，输入框为空且空闲时右侧按钮支持单击实时双工语音通话、长按原生流式语音听写。</div>
           </div>
 
-          <!-- 外观与主题 (Antigravity 2.31+) -->
+          <!-- 外观与主题 (Antigravity 2.33+ 全预设支持) -->
           <div class="quota-section-header" style="margin: 14px 4px 6px;">外观与主题</div>
           <div class="ios-grouped-section">
-            <div class="ios-cell between">
-              <span class="cell-label">主题配色</span>
-              <select id="settings-theme-mode" class="settings-select" aria-label="主题配色">
-                <option value="system">跟随系统</option>
-                <option value="light">浅色 (Light)</option>
-                <option value="dark">深色 (Dark)</option>
-                <option value="nord">Nord 官方主题</option>
-              </select>
+            <div class="ios-cell between settings-mode-row">
+              <span class="cell-label">外观模式</span>
+              <div id="settings-theme-mode-seg" class="settings-segmented" role="radiogroup" aria-label="外观模式">
+                <button type="button" class="settings-seg-btn" data-theme-mode="system" aria-pressed="true">跟随系统</button>
+                <button type="button" class="settings-seg-btn" data-theme-mode="light" aria-pressed="false">浅色</button>
+                <button type="button" class="settings-seg-btn" data-theme-mode="dark" aria-pressed="false">深色</button>
+              </div>
             </div>
+            <button id="btn-open-light-themes" class="ios-cell-button between settings-nav-row" type="button">
+              <span class="cell-label">浅色配色</span>
+              <span class="settings-nav-trailing">
+                <span id="settings-light-swatch" class="theme-swatch-dots" aria-hidden="true"></span>
+                <span id="settings-light-preset-name" class="cell-value">Apple 默认</span>
+                <svg class="settings-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+              </span>
+            </button>
+            <button id="btn-open-dark-themes" class="ios-cell-button between settings-nav-row" type="button">
+              <span class="cell-label">深色配色</span>
+              <span class="settings-nav-trailing">
+                <span id="settings-dark-swatch" class="theme-swatch-dots" aria-hidden="true"></span>
+                <span id="settings-dark-preset-name" class="cell-value">Apple 默认</span>
+                <svg class="settings-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+              </span>
+            </button>
             <div class="ios-cell between">
               <span class="cell-label">界面与代码字号</span>
-              <select id="settings-font-size-scale" style="background: transparent; color: var(--color-text-primary, #fff); border: none; font-size: 13px; font-weight: 500; outline: none; padding: 4px;">
+              <select id="settings-font-size-scale" style="background: transparent; color: var(--ios-label, #fff); border: none; font-size: 13px; font-weight: 500; outline: none; padding: 4px;">
                 <option value="compact">紧凑 (小字号)</option>
                 <option value="default" selected>标准 (默认)</option>
                 <option value="comfortable">舒适 (大字号)</option>
               </select>
             </div>
-            <label class="ios-cell between" for="settings-knowledge-mode" style="cursor: pointer;">
+            <button id="btn-open-compact-settings" class="ios-cell-button between settings-nav-row" type="button">
               <span class="cell-label">精简模式</span>
-              <input type="checkbox" id="settings-knowledge-mode" class="ios-switch-input" />
-            </label>
-            <div id="settings-compact-subpanel" class="compact-subpanel hidden">
-              <label class="ios-cell between compact-subcell" for="settings-compact-collapse-tools" style="cursor: pointer;">
-                <div class="compact-subtext">
-                  <span class="cell-label">折叠工具执行过程</span>
-                  <span class="compact-subdesc">将检索与命令步骤收起为单行摘要</span>
-                </div>
-                <input type="checkbox" id="settings-compact-collapse-tools" class="ios-switch-input" checked />
-              </label>
-              <label class="ios-cell between compact-subcell" for="settings-compact-collapse-tasks" style="cursor: pointer;">
-                <div class="compact-subtext">
-                  <span class="cell-label">收起任务辅助栏</span>
-                  <span class="compact-subdesc">底部运行任务默认单行折叠，保留终止按钮</span>
-                </div>
-                <input type="checkbox" id="settings-compact-collapse-tasks" class="ios-switch-input" checked />
-              </label>
-              <label class="ios-cell between compact-subcell" for="settings-compact-hide-healthy-ctx" style="cursor: pointer;">
-                <div class="compact-subtext">
-                  <span class="cell-label">隐藏常规上下文</span>
-                  <span class="compact-subdesc">占用 &lt; 70% 时隐藏顶栏胶囊，≥ 70% 自动恢复预警</span>
-                </div>
-                <input type="checkbox" id="settings-compact-hide-healthy-ctx" class="ios-switch-input" />
-              </label>
-            </div>
+              <span class="settings-nav-trailing">
+                <span id="settings-compact-summary" class="cell-value">已关闭</span>
+                <svg class="settings-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+              </span>
+            </button>
           </div>
-          <div class="settings-note" style="margin: 6px 4px 12px;">选择界面字号缩放；开启精简模式后可按需微调对话降噪子选项。</div>
+          <div class="settings-note" style="margin: 6px 4px 12px;">独立选择浅色与深色预设，开启「跟随系统」时将自动按昼夜切换；点进「精简模式」可自定义对话降噪选项。</div>
 
           <!-- Section 3: 本地数据与缓存 -->
           <div class="ios-grouped-section">
@@ -599,6 +619,54 @@
             <div class="ios-cell between">
               <span class="cell-label">版本</span>
               <span id="settings-app-version" class="cell-value">--</span>
+            </div>
+          </div>
+        </div>
+        <div id="settings-sub-body" class="sheet-body hidden">
+          <div id="settings-sub-themes" class="hidden">
+            <div id="settings-theme-preview" class="theme-live-preview">
+              <div class="theme-preview-bubble-user">检查一下这段配色代码</div>
+              <div class="theme-preview-bubble-agent">
+                <div class="theme-preview-text">已应用 <strong id="theme-preview-name">Apple 默认</strong>，代码块与界面变量实时同步：</div>
+                <pre class="theme-preview-code"><code><span class="pv-kw">const</span> <span class="pv-fn">applyTheme</span> = (<span class="pv-var">mode</span>) <span class="pv-op">=&gt;</span> <span class="pv-str">"ready"</span>; <span class="pv-cmt">// ok</span></code></pre>
+              </div>
+            </div>
+            <div class="quota-section-header" style="margin: 14px 4px 6px;">默认风格</div>
+            <div id="settings-theme-list-default" class="ios-grouped-section"></div>
+            <div class="quota-section-header" style="margin: 14px 4px 6px;">Antigravity 桌面端预设</div>
+            <div id="settings-theme-list-presets" class="ios-grouped-section"></div>
+          </div>
+          <div id="settings-sub-compact" class="hidden">
+            <div class="ios-grouped-section">
+              <label class="ios-cell between" for="settings-knowledge-mode" style="cursor: pointer;">
+                <span class="cell-label">开启精简模式</span>
+                <input type="checkbox" id="settings-knowledge-mode" class="ios-switch-input" />
+              </label>
+            </div>
+            <div class="settings-note" style="margin: 6px 4px 14px;">开启后可折叠对话中的工具执行过程与底部任务辅助栏，让长对话阅读更聚焦。</div>
+            <div class="quota-section-header" style="margin: 6px 4px 6px;">降噪选项</div>
+            <div id="settings-compact-subpanel" class="ios-grouped-section compact-subpanel">
+              <label class="ios-cell between compact-subcell-page" for="settings-compact-collapse-tools" style="cursor: pointer;">
+                <div class="compact-subtext">
+                  <span class="cell-label">折叠工具执行过程</span>
+                  <span class="compact-subdesc">将检索与命令步骤收起为单行摘要</span>
+                </div>
+                <input type="checkbox" id="settings-compact-collapse-tools" class="ios-switch-input" checked />
+              </label>
+              <label class="ios-cell between compact-subcell-page" for="settings-compact-collapse-tasks" style="cursor: pointer;">
+                <div class="compact-subtext">
+                  <span class="cell-label">收起任务辅助栏</span>
+                  <span class="compact-subdesc">底部运行任务默认单行折叠，保留终止按钮</span>
+                </div>
+                <input type="checkbox" id="settings-compact-collapse-tasks" class="ios-switch-input" checked />
+              </label>
+              <label class="ios-cell between compact-subcell-page" for="settings-compact-hide-healthy-ctx" style="cursor: pointer;">
+                <div class="compact-subtext">
+                  <span class="cell-label">隐藏常规上下文</span>
+                  <span class="compact-subdesc">占用 &lt; 70% 时隐藏顶栏胶囊，≥ 70% 自动恢复预警</span>
+                </div>
+                <input type="checkbox" id="settings-compact-hide-healthy-ctx" class="ios-switch-input" />
+              </label>
             </div>
           </div>
         </div>
@@ -1087,8 +1155,8 @@
   <script defer src="/js/swarm.js?v=2"></script>
   <script defer src="/js/egg.js?v=1"></script>
   <script defer src="/js/phase3.js?v=2"></script>
-  <script defer src="/js/v233.js?v=1"></script>
+  <script defer src="/js/v233.js?v=2"></script>
   <!-- init.js 必须最后加载：它在执行时就会调用 initApp()，依赖前面所有脚本里的函数 -->
-  <script defer src="/js/init.js?v=43"></script>
+  <script defer src="/js/init.js?v=44"></script>
 </body>
 </html>

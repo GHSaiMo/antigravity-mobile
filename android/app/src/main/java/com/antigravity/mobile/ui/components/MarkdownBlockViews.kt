@@ -176,8 +176,8 @@ internal fun CodeBlockView(
         val codeScale = if (LocalShareExport.current) 1.0f else LocalMarkdownCodeScale.current
         val trimmedCode = remember(code) { code.trimEnd() }
         val isDark = colors.codeBlockBg.luminance() < 0.5f
-        val highlighted = remember(trimmedCode, lang, isDark, colors.useNord) {
-            CodeSyntaxHighlighter.highlight(trimmedCode, lang, isDark, colors.useNord)
+        val highlighted = remember(trimmedCode, lang, isDark, colors.themeId) {
+            CodeSyntaxHighlighter.highlight(trimmedCode, lang, isDark, colors.useNord, colors.themeId)
         }
         Box(
             modifier = Modifier

@@ -82,36 +82,32 @@ struct ShareCardContext: Equatable {
     }
 }
 
-enum ShareCardTheme: String {
-    case dark
-    case light
-    case nord
+struct ShareCardTheme: Equatable {
+    let preset: ThemePreset
 
-    var colorScheme: ColorScheme { self == .light ? .light : .dark }
+    static let `default` = ShareCardTheme(preset: ThemePresetCatalog.defaultDark)
 
-    var accent: Color {
-        switch self {
-        case .light: return Color.indigo
-        case .dark: return Color(red: 0.55, green: 0.50, blue: 1.0)
-        case .nord: return NordTheme.accent
-        }
-    }
+    var colorScheme: ColorScheme { preset.isDark ? .dark : .light }
+    var accent: Color { preset.accent }
+    var label: String { preset.name }
 
     var background: LinearGradient {
-        switch self {
-        case .dark:
+        switch preset.storageKey {
+        case "default-dark":
             return LinearGradient(
                 colors: [Color(red: 0.06, green: 0.07, blue: 0.11), Color(red: 0.12, green: 0.09, blue: 0.22)],
                 startPoint: .topLeading, endPoint: .bottomTrailing
             )
-        case .light:
+        case "default-light":
             return LinearGradient(
                 colors: [Color(red: 0.99, green: 0.99, blue: 0.98), Color(red: 0.96, green: 0.96, blue: 0.95)],
                 startPoint: .top, endPoint: .bottom
             )
-        case .nord:
+        default:
+            let bgUI = UIColor.fromHex(preset.bgHex)
+            let endUI = bgUI.mixed(with: .black, ratio: preset.isDark ? 0.14 : 0.04)
             return LinearGradient(
-                colors: [NordTheme.background, Color(red: 36.0 / 255.0, green: 41.0 / 255.0, blue: 51.0 / 255.0)],
+                colors: [preset.bg, Color(uiColor: endUI)],
                 startPoint: .topLeading, endPoint: .bottomTrailing
             )
         }
@@ -119,35 +115,23 @@ enum ShareCardTheme: String {
 
     /// 问答对中「提问」块的底色。
     var questionBackground: Color {
-        switch self {
-        case .light: return Color.black.opacity(0.05)
-        case .dark: return Color.white.opacity(0.09)
-        case .nord: return NordTheme.surface.opacity(0.92)
+        switch preset.storageKey {
+        case "default-dark": return Color.white.opacity(0.09)
+        case "default-light": return Color.black.opacity(0.05)
+        default: return preset.surface.opacity(0.94)
         }
     }
 
-    var next: ShareCardTheme {
-        switch self {
-        case .dark: return .nord
-        case .nord: return .light
-        case .light: return .dark
-        }
+    var primaryText: Color {
+        preset.isDefaultStyle ? .primary : preset.fg
     }
 
-    var label: String {
-        switch self {
-        case .dark: return String(localized: "深色")
-        case .nord: return "Nord"
-        case .light: return String(localized: "浅色")
-        }
+    var secondaryText: Color {
+        preset.isDefaultStyle ? .secondary : preset.secondaryFg
     }
 
-    var iconName: String {
-        switch self {
-        case .dark: return "moon.fill"
-        case .nord: return "snowflake"
-        case .light: return "sun.max.fill"
-        }
+    var borderColor: Color {
+        preset.isDefaultStyle ? Color.primary.opacity(0.10) : preset.border
     }
 }
 
@@ -236,7 +220,7 @@ struct MessageShareCardView: View {
                         if !cleaned.isEmpty {
                             Text(cleaned)
                                 .font(.system(size: 15))
-                                .foregroundColor(.primary)
+                                .foregroundColor(theme.primaryText)
                                 .lineSpacing(3)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
@@ -248,16 +232,17 @@ struct MessageShareCardView: View {
                         iconColor: UIColor.label.withAlphaComponent(0.8)
                     )
                     .font(.system(size: 15.5))
-                    .foregroundColor(.primary)
+                    .foregroundColor(theme.primaryText)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
             } else {
                 MarkdownContentView(content: content)
+                    .foregroundColor(theme.primaryText)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            Divider().overlay(Color.secondary.opacity(0.4))
+            Divider().overlay(theme.secondaryText.opacity(0.4))
             footer
         }
         .padding(.horizontal, 20)
@@ -267,6 +252,8 @@ struct MessageShareCardView: View {
         .background(theme.background)
         .environment(\.colorScheme, theme.colorScheme)
         .environment(\.isShareExport, true)
+        .environment(\.appThemePreset, theme.preset)
+        .environment(\.shareCardThemeID, theme.preset.storageKey)
     }
 
     /// 复刻电脑端的提问样式：图片 / 文件 / 文字整体放进一个带底色的圆角矩形，与下面的回答区分开。
@@ -315,28 +302,28 @@ struct MessageShareCardView: View {
                 if !cleaned.isEmpty {
                     Text(cleaned)
                         .font(.system(size: 15))
-                        .foregroundColor(.primary)
+                        .foregroundColor(theme.primaryText)
                         .lineSpacing(3)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             } else if !question.text.isEmpty {
                 Text(question.text)
                     .font(.system(size: 15.5))
-                    .foregroundColor(.primary)
+                    .foregroundColor(theme.primaryText)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(theme.questionBackground, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Color.primary.opacity(0.10), lineWidth: 0.8))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(theme.borderColor, lineWidth: 0.8))
     }
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(context.sessionTitle.isEmpty ? String(localized: "Multigravity 会话") : context.sessionTitle)
                 .font(.system(size: 24, weight: .bold))
-                .foregroundColor(.primary)
+                .foregroundColor(theme.primaryText)
                 // 长图标题必须完整显示：不限行数、不截断，宽度占满后纵向按内容撑开
                 .lineLimit(nil)
                 .multilineTextAlignment(.leading)
@@ -356,7 +343,7 @@ struct MessageShareCardView: View {
                 if let date {
                     Text(Self.dateFormatter.string(from: date))
                         .font(.system(size: 13, design: .monospaced))
-                        .foregroundColor(.secondary)
+                        .foregroundColor(theme.secondaryText)
                 }
             }
         }
@@ -373,7 +360,7 @@ struct MessageShareCardView: View {
                     .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Color.black.opacity(0.08), lineWidth: 0.5))
                 Text("Multigravity")
                     .font(.system(size: 20, weight: .bold))
-                    .foregroundColor(.primary)
+                    .foregroundColor(theme.primaryText)
             }
             Spacer()
             if let qr = Self.qrImage {
@@ -424,12 +411,13 @@ struct MessageShareCardSheet: View {
     @Environment(\.displayScale) private var displayScale
     @Environment(\.colorScheme) private var systemScheme
 
-    @State private var theme: ShareCardTheme = .dark
+    @State private var theme: ShareCardTheme = .default
     @State private var includeQuestion = true
     @State private var renderedImage: UIImage?
     @State private var isRendering = false
     @State private var renderNote: String?
     @State private var hasPickedTheme = false
+    @State private var showSkinPicker = false
 
     private var isUserMessage: Bool { message.sender == .user }
     private var canIncludeQuestion: Bool {
@@ -479,12 +467,20 @@ struct MessageShareCardSheet: View {
         }
         .onAppear {
             if !hasPickedTheme {
-                theme = AppSettings.shared.isNordTheme ? .nord : (systemScheme == .dark ? .dark : .light)
+                theme = ShareCardTheme(preset: AppSettings.shared.activeThemePreset(for: systemScheme))
                 hasPickedTheme = true
             }
         }
         .task(id: RenderKey(theme: theme, includeQuestion: includeQuestion)) {
             await render()
+        }
+        .sheet(isPresented: $showSkinPicker) {
+            ShareCardSkinPickerSheet(selectedPreset: theme.preset) { picked in
+                theme = ShareCardTheme(preset: picked)
+                showSkinPicker = false
+            }
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
         }
     }
 
@@ -509,18 +505,25 @@ struct MessageShareCardSheet: View {
         }
     }
 
-    /// 底部左右两枚原生毛玻璃胶囊：左 = 浅/深色切换，右 = 是否包含上一条提问。
+    /// 底部左右两枚原生毛玻璃胶囊：左 = 皮肤选择（含全部桌面端预设），右 = 是否包含上一条提问。
     private var bottomBar: some View {
         GlassEffectContainer(spacing: 12) {
             HStack {
                 Button {
                     UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                    theme = theme.next
+                    showSkinPicker = true
                 } label: {
-                    Label(theme.label, systemImage: theme.iconName)
-                        .font(.system(size: 15, weight: .semibold))
-                        .padding(.horizontal, 16)
-                        .frame(height: 44)
+                    HStack(spacing: 7) {
+                        ThemeSwatchDotsView(preset: theme.preset)
+                        Text(theme.label)
+                            .font(.system(size: 14, weight: .semibold))
+                            .lineLimit(1)
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.horizontal, 14)
+                    .frame(height: 44)
                 }
                 .buttonStyle(.plain)
                 .glassEffect(.regular.interactive(), in: .capsule)
@@ -586,7 +589,12 @@ struct MessageShareCardSheet: View {
             date: ShareCardContext.parseStartedAt(context.startedAtISO)
         )
 
-        let renderer = ImageRenderer(content: card.environment(\.shareCardUseNord, theme == .nord))
+        let renderer = ImageRenderer(
+            content: card
+                .environment(\.appThemePreset, theme.preset)
+                .environment(\.shareCardThemeID, theme.preset.storageKey)
+                .environment(\.shareCardUseNord, theme.preset.id == "nord")
+        )
         renderer.isOpaque = true
         var scale = max(displayScale, 2)
         renderer.scale = scale
@@ -631,5 +639,64 @@ struct MessageShareCardSheet: View {
             if let url = URL(string: resolved) { return url }
         }
         return URL(string: raw)
+    }
+}
+
+// MARK: - Share Card Skin Picker Sheet
+
+private struct ShareCardSkinPickerSheet: View {
+    let selectedPreset: ThemePreset
+    let onSelect: (ThemePreset) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section("浅色皮肤") {
+                    ForEach(ThemePresetCatalog.lightPresets, id: \.storageKey) { preset in
+                        skinRow(preset)
+                    }
+                }
+                Section("深色皮肤") {
+                    ForEach(ThemePresetCatalog.darkPresets, id: \.storageKey) { preset in
+                        skinRow(preset)
+                    }
+                }
+            }
+            .navigationTitle("选择长图皮肤")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("完成") { dismiss() }
+                }
+            }
+        }
+    }
+
+    private func skinRow(_ preset: ThemePreset) -> some View {
+        let isSelected = preset.storageKey == selectedPreset.storageKey
+        return Button {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            onSelect(preset)
+        } label: {
+            HStack(spacing: 12) {
+                ThemeSwatchPillView(preset: preset)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(preset.name)
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundColor(.primary)
+                    Text(preset.description)
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                }
+                Spacer()
+                if isSelected {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(.accentColor)
+                }
+            }
+        }
     }
 }
