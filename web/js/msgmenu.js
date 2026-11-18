@@ -195,11 +195,11 @@ function buildMessageActionsHtml(kind) {
     btw: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>',
   };
   let html = `<button type="button" class="msg-action-btn" data-msg-action="copy">${icon.copy}<span>复制</span></button>`;
-  html += `<button type="button" class="msg-action-btn" data-msg-action="btw">${icon.btw}<span>/btw</span></button>`;
+  html += `<button type="button" class="msg-action-btn" data-msg-action="btw">${icon.btw}<span>旁路快问</span></button>`;
   if (kind === "agent") {
     html += `<button type="button" class="msg-action-btn" data-msg-action="fork">${icon.fork}<span>分叉</span></button>`;
     html += `<button type="button" class="msg-action-btn" data-msg-action="narrate">${icon.narrate}<span>语音播报</span></button>`;
-    html += `<button type="button" class="msg-action-btn" data-msg-action="export" data-feature="export">${icon.export}<span>导出 MD</span></button>`;
+    html += `<button type="button" class="msg-action-btn" data-msg-action="export" data-feature="export">${icon.export}<span>导出MD</span></button>`;
   }
   return `<div class="msg-actions" data-msg-kind="${kind}">${html}</div>`;
 }

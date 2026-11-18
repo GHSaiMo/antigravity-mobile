@@ -314,7 +314,7 @@ public struct ChatView: View {
                     btwInitialQuote = nil
                     showBtwSheet = true
                 } label: {
-                    Label("/btw 旁路快问", systemImage: "bubble.left.and.exclamationmark.bubble.right")
+                    Label("旁路快问", systemImage: "bubble.left.and.exclamationmark.bubble.right")
                 }
                 Button {
                     showMcpSkillsSheet = true

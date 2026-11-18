@@ -53,29 +53,33 @@ extension MessageBubbleView {
         }
         .contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: 18, style: .continuous))
         .contextMenu {
-            if !parsed.body.isEmpty {
-                Button {
-                    copyWholeText(parsed.body)
-                } label: {
-                    Label("复制全文", systemImage: "doc.on.doc")
+            Section {
+                if !parsed.body.isEmpty {
+                    Button {
+                        copyWholeText(parsed.body)
+                    } label: {
+                        Label("复制全文", systemImage: "doc.on.doc")
+                    }
                 }
-            }
-            if let onExportMarkdown {
-                Button {
-                    onExportMarkdown()
-                } label: {
-                    Label("导出 MD", systemImage: "square.and.arrow.down")
+                if let onExportMarkdown {
+                    Button {
+                        onExportMarkdown()
+                    } label: {
+                        Label("导出MD", systemImage: "square.and.arrow.down")
+                    }
                 }
-            }
-            if !parsed.body.isEmpty || !userAttachmentItems.isEmpty {
-                shareLongImageButton
+                if !parsed.body.isEmpty || !userAttachmentItems.isEmpty {
+                    shareLongImageButton
+                }
             }
             // 当前 Antigravity 不支持撤回接口时，调用方传 nil，菜单里就不显示这一项
             if let onUndo {
-                Button(role: .destructive) {
-                    onUndo(message)
-                } label: {
-                    Label("撤回", systemImage: "arrow.uturn.backward")
+                Section {
+                    Button(role: .destructive) {
+                        onUndo(message)
+                    } label: {
+                        Label("撤回", systemImage: "arrow.uturn.backward")
+                    }
                 }
             }
         }

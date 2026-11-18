@@ -177,7 +177,7 @@ fun SubagentDetailBottomSheet(
                                 },
                                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
                             ) {
-                                Text("/btw 旁路快问", fontSize = 11.sp, color = colors.accentIndigo)
+                                Text("旁路快问", fontSize = 11.sp, color = colors.accentIndigo)
                             }
                         }
                     }

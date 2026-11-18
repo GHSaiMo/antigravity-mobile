@@ -606,10 +606,6 @@
       dlg?.close();
     });
     dlg?.addEventListener("close", stopBtwPoll);
-    document.getElementById("btn-btw-chip")?.addEventListener("click", () => {
-      const sel = window.getSelection?.()?.toString()?.trim() || "";
-      openBtwModal({ parentCascadeId: activeCascadeId, quote: sel });
-    });
     document.getElementById("btn-btw-clear-quote")?.addEventListener("click", () => {
       activeBtwQuote = "";
       renderBtwQuote();
