@@ -18,6 +18,31 @@ extension ChatView {
         let images = viewModel.selectedImageData
         let files = viewModel.selectedFiles
         let slash = viewModel.selectedSlashCommand
+        if images.isEmpty && files.isEmpty && slash == nil {
+            if text == "/btw" || text.hasPrefix("/btw ") {
+                let question = String(text.dropFirst(4)).trimmingCharacters(in: .whitespacesAndNewlines)
+                viewModel.inputText = ""
+                isInputFocused = false
+                if question.isEmpty || viewModel.isDraftConversation || viewModel.cascadeId.isEmpty {
+                    btwInitialQuote = nil
+                    showBtwSheet = true
+                } else if let baseURL = AppSettings.shared.gatewayURL {
+                    let parentId = viewModel.cascadeId
+                    let activeModel = viewModel.activeModel
+                    Task {
+                        _ = try? await APIClient.shared.startBtwSideQuestion(
+                            parentCascadeId: parentId,
+                            question: question,
+                            model: activeModel,
+                            baseURL: baseURL
+                        )
+                        btwInitialQuote = nil
+                        showBtwSheet = true
+                    }
+                }
+                return
+            }
+        }
         guard !text.isEmpty || !images.isEmpty || !files.isEmpty || slash != nil else { return }
         // Files are uploaded in the background; wait until they have all reached the gateway.
         guard files.allSatisfy({ $0.isUploaded }) else { return }

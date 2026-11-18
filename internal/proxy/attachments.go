@@ -32,14 +32,17 @@ import (
 // identical uploads deduplicate naturally.
 
 const (
-	defaultMaxUploadMB        = 50
-	defaultInboxQuotaMB       = 2048
-	defaultInboxTTLDays       = 30
-	maxAttachmentsPerMsg      = 5
-	maxAttachmentsTotal       = 100 * 1024 * 1024
-	maxAttachmentNameLen      = 120
-	attachmentIDLen           = 16
-	maxNativeAttachmentBytes  = 20 * 1024 * 1024 // 20 MB (Antigravity 2.28 native attachment threshold)
+	defaultMaxUploadMB         = 50
+	defaultMaxMediaUploadMB    = 200 // Antigravity 2.33.0 supports audio/video uploads up to 200 MB
+	defaultInboxQuotaMB        = 2048
+	defaultInboxTTLDays        = 30
+	maxAttachmentsPerMsg       = 5
+	maxAttachmentsTotal        = 100 * 1024 * 1024
+	maxMediaAttachmentsTotal   = 400 * 1024 * 1024
+	maxAttachmentNameLen       = 120
+	attachmentIDLen            = 16
+	maxNativeAttachmentBytes   = 20 * 1024 * 1024  // 20 MB (Antigravity 2.28 native attachment threshold)
+	maxNativeMediaAttachBytes  = 200 * 1024 * 1024 // 200 MB for supported audio/video media
 )
 
 var attachmentIDPattern = regexp.MustCompile(`^[0-9a-f]{16}$`)
@@ -64,7 +67,7 @@ func buildAttachmentExts() map[string]string {
 	add("archive", "zip", "tar", "gz", "tgz", "7z")
 	add("code",
 		"py", "js", "mjs", "cjs", "ts", "tsx", "jsx", "go", "rs", "java", "kt", "kts", "swift", "m", "mm",
-		"c", "cc", "cpp", "cxx", "h", "hpp", "cs", "rb", "php", "lua", "dart", "scala", "r", "pl",
+		"c", "cc", "cpp", "cxx", "h", "hpp", "cs", "rb", "php", "lua", "dart", "scala", "r", "rmd", "rmarkdown", "pl",
 		"sh", "bash", "zsh", "bat", "ps1", "sql", "vue", "svelte", "gradle", "proto",
 		"json", "jsonl", "yaml", "yml", "toml", "ini", "cfg", "conf", "xml", "html", "htm", "css", "scss",
 		"less", "ipynb", "dockerfile", "makefile")
@@ -195,8 +198,54 @@ func attachmentFromPath(path string) (Attachment, bool) {
 	}, true
 }
 
+var extraMimeTypes = map[string]string{
+	".amr":       "audio/amr",
+	".aac":       "audio/aac",
+	".ogg":       "audio/ogg",
+	".oga":       "audio/ogg",
+	".opus":      "audio/opus",
+	".flac":      "audio/flac",
+	".caf":       "audio/x-caf",
+	".wma":       "audio/x-ms-wma",
+	".m4a":       "audio/mp4",
+	".mp3":       "audio/mpeg",
+	".wav":       "audio/wav",
+	".mp4":       "video/mp4",
+	".webm":      "video/webm",
+	".mov":       "video/quicktime",
+	".m4v":       "video/x-m4v",
+	".mkv":       "video/x-matroska",
+	".avi":       "video/x-msvideo",
+	".3gp":       "video/3gpp",
+	".r":         "text/plain; charset=utf-8",
+	".rmd":       "text/markdown; charset=utf-8",
+	".rmarkdown": "text/markdown; charset=utf-8",
+}
+
+func isLargeMediaKind(kind string) bool {
+	return kind == "audio" || kind == "video"
+}
+
+func maxUploadBytesForKind(kind string) int64 {
+	if strings.TrimSpace(os.Getenv("MGY_MAX_UPLOAD_MB")) == "" && isLargeMediaKind(kind) {
+		return int64(defaultMaxMediaUploadMB) * 1024 * 1024
+	}
+	return int64(envInt("MGY_MAX_UPLOAD_MB", defaultMaxUploadMB)) * 1024 * 1024
+}
+
+func supportsNativeAttachment(a Attachment) bool {
+	if isLargeMediaKind(a.Kind) {
+		return a.Size <= maxNativeMediaAttachBytes
+	}
+	return a.Size <= maxNativeAttachmentBytes
+}
+
 func mimeForName(name string) string {
-	if t := mime.TypeByExtension(strings.ToLower(filepath.Ext(name))); t != "" {
+	ext := strings.ToLower(filepath.Ext(name))
+	if t, ok := extraMimeTypes[ext]; ok {
+		return t
+	}
+	if t := mime.TypeByExtension(ext); t != "" {
 		return t
 	}
 	return "application/octet-stream"
@@ -255,7 +304,7 @@ func (p *Proxy) HandleAttachmentUpload(w http.ResponseWriter, r *http.Request) {
 	name := sanitizeAttachmentName(rawName)
 	kind := attachmentKind(name)
 
-	maxBytes := int64(envInt("MGY_MAX_UPLOAD_MB", defaultMaxUploadMB)) * 1024 * 1024
+	maxBytes := maxUploadBytesForKind(kind)
 	if r.ContentLength > maxBytes {
 		writeAttachmentError(w, http.StatusRequestEntityTooLarge, "too_large",
 			fmt.Sprintf("文件超过 %dMB 上限", maxBytes/1024/1024))
@@ -375,6 +424,7 @@ func resolveAttachmentRefs(ids []string) ([]Attachment, error) {
 	}
 	var out []Attachment
 	var total int64
+	hasMedia := false
 	seen := map[string]bool{}
 	for _, id := range ids {
 		if seen[id] {
@@ -386,10 +436,17 @@ func resolveAttachmentRefs(ids []string) ([]Attachment, error) {
 			return nil, fmt.Errorf("附件不存在或已过期: %s", id)
 		}
 		total += a.Size
+		if isLargeMediaKind(a.Kind) {
+			hasMedia = true
+		}
 		out = append(out, a)
 	}
-	if total > maxAttachmentsTotal {
-		return nil, fmt.Errorf("附件总大小超过 %dMB", maxAttachmentsTotal/1024/1024)
+	totalLimit := int64(maxAttachmentsTotal)
+	if hasMedia {
+		totalLimit = maxMediaAttachmentsTotal
+	}
+	if total > totalLimit {
+		return nil, fmt.Errorf("附件总大小超过 %dMB", totalLimit/1024/1024)
 	}
 	return out, nil
 }
@@ -460,7 +517,7 @@ func applyAttachmentsToMessage(rawMap map[string]interface{}) (bool, error) {
 	var smallAtts []Attachment
 	var largeAtts []Attachment
 	for _, a := range atts {
-		if a.Size <= maxNativeAttachmentBytes {
+		if supportsNativeAttachment(a) {
 			smallAtts = append(smallAtts, a)
 		} else {
 			largeAtts = append(largeAtts, a)

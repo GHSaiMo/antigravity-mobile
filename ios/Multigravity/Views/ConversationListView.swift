@@ -1107,6 +1107,9 @@ public struct ConversationListView: View {
                         .frame(width: 15, height: 14)
                     Text(item.workspaceName)
                         .font(.system(size: 12, design: .monospaced))
+                    if let pr = item.pullRequest {
+                        GitHubPRPillBadge(item: pr, compact: true)
+                    }
                 }
                 .foregroundColor(.secondary)
                 

@@ -602,10 +602,36 @@ func (p *Proxy) HandleFileRaw(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "audio/wav")
 	case ".m4a":
 		w.Header().Set("Content-Type", "audio/mp4")
+	case ".amr":
+		w.Header().Set("Content-Type", "audio/amr")
+	case ".aac":
+		w.Header().Set("Content-Type", "audio/aac")
+	case ".ogg", ".oga":
+		w.Header().Set("Content-Type", "audio/ogg")
+	case ".opus":
+		w.Header().Set("Content-Type", "audio/opus")
+	case ".flac":
+		w.Header().Set("Content-Type", "audio/flac")
+	case ".caf":
+		w.Header().Set("Content-Type", "audio/x-caf")
+	case ".wma":
+		w.Header().Set("Content-Type", "audio/x-ms-wma")
 	case ".mp4":
 		w.Header().Set("Content-Type", "video/mp4")
 	case ".mov":
 		w.Header().Set("Content-Type", "video/quicktime")
+	case ".webm":
+		w.Header().Set("Content-Type", "video/webm")
+	case ".m4v":
+		w.Header().Set("Content-Type", "video/x-m4v")
+	case ".mkv":
+		w.Header().Set("Content-Type", "video/x-matroska")
+	case ".avi":
+		w.Header().Set("Content-Type", "video/x-msvideo")
+	case ".3gp":
+		w.Header().Set("Content-Type", "video/3gpp")
+	case ".r", ".rmd", ".rmarkdown":
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	}
 
 	encodedName := url.PathEscape(fileName)

@@ -51,6 +51,9 @@ public struct ChatView: View {
     @State var workflowPickerState = WorkflowSlidePickerState()
     @State var commitPickerState = CommitSlidePickerState()
     @State var selectedSubagentDetail: SubagentItem? = nil
+    @State var showBtwSheet: Bool = false
+    @State var btwInitialQuote: String? = nil
+    @State var selectedGitHubPRItem: IdentifiableURL? = nil
     @State var isSlashPickerDismissed: Bool = false
     @State var highlightedTurnMessageId: String? = nil
     @State var targetScrollTurnId: String? = nil
@@ -295,6 +298,12 @@ public struct ChatView: View {
                     }
                     Divider()
                     Button {
+                        btwInitialQuote = nil
+                        showBtwSheet = true
+                    } label: {
+                        Label("/btw 旁路快问", systemImage: "bubble.left.and.exclamationmark.bubble.right")
+                    }
+                    Button {
                         showMcpSkillsSheet = true
                     } label: {
                         Label("打开工具与任务看板", systemImage: "wrench.and.screwdriver")
@@ -343,6 +352,7 @@ public struct ChatView: View {
             }
             Task {
                 await viewModel.refreshPermissionSettings()
+                await viewModel.refreshProjectTrust()
             }
             await viewModel.loadMessages()
             viewModel.connectStream()
@@ -483,6 +493,31 @@ public struct ChatView: View {
                 viewModel.closeInAppBrowser()
             }
             .ignoresSafeArea()
+        }
+        .sheet(item: $selectedGitHubPRItem) { item in
+            GitHubPRDetailSheet(url: item.url) { browserURL in
+                viewModel.openInAppBrowser(url: browserURL)
+            }
+        }
+        .sheet(isPresented: $showBtwSheet, onDismiss: {
+            btwInitialQuote = nil
+        }) {
+            BtwSideQuestionSheet(
+                parentCascadeId: viewModel.cascadeId,
+                activeModel: viewModel.activeModel,
+                initialQuote: btwInitialQuote,
+                onInsertIntoMain: { inserted in
+                    let existing = viewModel.inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+                    viewModel.inputText = existing.isEmpty ? inserted : (existing + "\n\n" + inserted)
+                    viewModel.focusInputTrigger &+= 1
+                },
+                onOpenStandalone: { targetId in
+                    NotificationCenter.default.post(
+                        name: .openConversationFromTaskCenter,
+                        object: targetId
+                    )
+                }
+            )
         }
         .sheet(isPresented: $showMcpSkillsSheet) {
             McpSkillsSheet(

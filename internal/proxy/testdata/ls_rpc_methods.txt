@@ -1,5 +1,5 @@
 # language_server RPC baseline
-# generated: 2026-11-14 ide_version: 2.32.1 count: 374
+# generated: 2026-11-18 ide_version: 2.33.0 count: 377
 AcceptTermsOfService
 AcknowledgeCascadeCodeEdit
 AcknowledgeCodeActionStep
@@ -145,6 +145,7 @@ GetPatchAndCodeChange
 GetPermissionSettings
 GetPlugin
 GetProfileData
+GetProjectTrustStatus
 GetReferences
 GetRemoteControlInfo
 GetRepoInfos
@@ -197,6 +198,7 @@ HasAuthToken
 Heartbeat
 ImportFromCursor
 ImportProjectFromUrl
+IncludeBundleMember
 InitializeCascadePanelState
 InstallCascadePlugin
 InstallCustomization
@@ -319,6 +321,7 @@ SetPluginAuthAccountLabel
 SetUserInfo
 SetUserSettings
 SetWorkingDirectories
+SetWorkspaceTrust
 SetupJetskiChat
 SetupUniversitySandbox
 ShouldEnableUnleash

@@ -232,10 +232,10 @@ extension ChatView {
 
         // 1. Images, Presentations, Videos, Audio & Office documents (PNG, JPG, MP4, MOV, M4A, MP3, PPTX, PPT, KEY, DOCX, XLSX, PDF, HTML, etc.)
         let isHTML = lower.hasSuffix(".html") || lower.hasSuffix(".htm") || pathLower.hasSuffix(".html") || pathLower.hasSuffix(".htm")
-        let documentExtensions = [".pptx", ".ppt", ".key", ".pdf", ".docx", ".doc", ".xlsx", ".xls", ".numbers", ".pages", ".ipynb", ".html", ".htm", ".txt", ".csv", ".json", ".log"]
+        let documentExtensions = [".pptx", ".ppt", ".key", ".pdf", ".docx", ".doc", ".xlsx", ".xls", ".numbers", ".pages", ".ipynb", ".html", ".htm", ".txt", ".csv", ".json", ".log", ".r", ".rmd", ".rmarkdown"]
         let imageExtensions = [".png", ".jpg", ".jpeg", ".webp", ".gif", ".heic", ".heif", ".bmp", ".svg", ".ico", ".tiff", ".tif"]
         let videoExtensions = [".mp4", ".mov", ".m4v", ".webm", ".avi", ".mkv", ".3gp", ".ts", ".flv"]
-        let audioExtensions = [".m4a", ".mp3", ".wav", ".aac", ".caf", ".flac", ".ogg", ".wma"]
+        let audioExtensions = [".m4a", ".mp3", ".wav", ".aac", ".caf", ".flac", ".ogg", ".oga", ".opus", ".amr", ".wma"]
         let allPreviewExtensions = documentExtensions + imageExtensions + videoExtensions + audioExtensions
         
         let isPreviewableFile = allPreviewExtensions.contains { ext in
@@ -266,7 +266,15 @@ extension ChatView {
             return .handled
         }
         
-        // 3. External Web links (Open in immersive in-app Safari)
+        // 3. GitHub Pull Request links (live status + details before opening Safari)
+        if (url.scheme == "http" || url.scheme == "https"),
+           GitHubPRLinkExtractor.parse(url: url) != nil {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            selectedGitHubPRItem = IdentifiableURL(url: url)
+            return .handled
+        }
+
+        // 4. External Web links (Open in immersive in-app Safari)
         if url.scheme == "http" || url.scheme == "https" {
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
             viewModel.openInAppBrowser(url: url)

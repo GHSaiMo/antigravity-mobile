@@ -56,17 +56,27 @@ fun SubagentsCard(
         border = CardDefaults.outlinedCardBorder().copy(brush = SolidColor(colors.border.copy(alpha = 0.5f)))
     ) {
         Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+            val singleOpenable = items.singleOrNull()?.takeIf { !it.isGone }
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable {
-                        isExpanded = !isExpanded
-                        onToggleExpand?.invoke(isExpanded)
-                    },
+                modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable {
+                            if (singleOpenable != null) {
+                                haptic.light()
+                                onOpen(singleOpenable)
+                            } else {
+                                isExpanded = !isExpanded
+                                onToggleExpand?.invoke(isExpanded)
+                            }
+                        },
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
                     if (runningCount > 0) {
                         CircularProgressIndicator(
                             modifier = Modifier.size(16.dp),
@@ -76,26 +86,41 @@ fun SubagentsCard(
                         )
                     }
                     Text(
-                        text = if (runningCount > 0) "$runningCount 个子代理运行中" else "${items.size} 个子代理",
+                        text = when {
+                            singleOpenable != null -> "${singleOpenable.displayName} · 点按查看"
+                            runningCount > 0 -> "$runningCount 个子代理运行中"
+                            else -> "${items.size} 个子代理"
+                        },
                         color = colors.textPrimary,
                         fontSize = 14.sp,
-                        fontWeight = FontWeight.SemiBold
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1
                     )
-                    Box(
-                        modifier = Modifier
-                            .clip(CircleShape)
-                            .background(colors.surfaceVariant)
-                            .padding(horizontal = 7.dp, vertical = 2.5.dp)
-                    ) {
-                        Text(text = "${items.size}", color = colors.textSecondary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    if (singleOpenable == null) {
+                        Box(
+                            modifier = Modifier
+                                .clip(CircleShape)
+                                .background(colors.surfaceVariant)
+                                .padding(horizontal = 7.dp, vertical = 2.5.dp)
+                        ) {
+                            Text(text = "${items.size}", color = colors.textSecondary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
-                Icon(
-                    imageVector = Icons.Default.KeyboardArrowDown,
-                    contentDescription = if (isExpanded) "折叠子代理" else "展开子代理",
-                    tint = colors.textSecondary,
-                    modifier = Modifier.size(20.dp).rotate(if (isExpanded) 0f else 180f)
-                )
+                IconButton(
+                    onClick = {
+                        isExpanded = !isExpanded
+                        onToggleExpand?.invoke(isExpanded)
+                    },
+                    modifier = Modifier.size(28.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.KeyboardArrowDown,
+                        contentDescription = if (isExpanded) "折叠子代理" else "展开子代理",
+                        tint = colors.textSecondary,
+                        modifier = Modifier.size(20.dp).rotate(if (isExpanded) 0f else 180f)
+                    )
+                }
             }
 
             AnimatedVisibility(

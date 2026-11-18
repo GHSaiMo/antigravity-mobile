@@ -27,24 +27,52 @@ public struct SubagentsCardView: View {
     public var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
-                if runningCount > 0 {
-                    ProgressView().controlSize(.small).tint(.accentColor)
+                if items.count == 1, let single = items.first, !single.isGone {
+                    NavigationLink(value: single.conversationItem) {
+                        HStack(spacing: 8) {
+                            if runningCount > 0 {
+                                ProgressView().controlSize(.small).tint(.accentColor)
+                            } else {
+                                Image(systemName: "person.2.fill")
+                                    .font(.system(size: 13))
+                                    .foregroundColor(.secondary)
+                            }
+                            Text(single.displayName)
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundColor(.primary)
+                                .lineLimit(1)
+                            Text("运行中 · 点按进入")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundColor(.secondary)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
                 } else {
-                    Image(systemName: "person.2.fill")
-                        .font(.system(size: 13))
+                    if runningCount > 0 {
+                        ProgressView().controlSize(.small).tint(.accentColor)
+                    } else {
+                        Image(systemName: "person.2.fill")
+                            .font(.system(size: 13))
+                            .foregroundColor(.secondary)
+                    }
+                    Text(runningCount > 0 ? String(localized: "\(runningCount) 个子代理运行中") : String(localized: "\(items.count) 个子代理"))
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(.primary)
+                    Text("\(items.count)")
+                        .font(.system(size: 11, weight: .bold))
                         .foregroundColor(.secondary)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 2.5)
+                        .background(Color(uiColor: .tertiarySystemFill))
+                        .clipShape(Capsule())
+                    Spacer()
                 }
-                Text(runningCount > 0 ? String(localized: "\(runningCount) 个子代理运行中") : String(localized: "\(items.count) 个子代理"))
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(.primary)
-                Text("\(items.count)")
-                    .font(.system(size: 11, weight: .bold))
-                    .foregroundColor(.secondary)
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 2.5)
-                    .background(Color(uiColor: .tertiarySystemFill))
-                    .clipShape(Capsule())
-                Spacer()
                 Button(action: {
                     withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { isExpanded.toggle() }
                     onToggleExpand?(isExpanded)

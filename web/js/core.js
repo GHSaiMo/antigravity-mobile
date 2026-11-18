@@ -245,6 +245,7 @@ const DraftManager = {
 let activeModel = localStorage.getItem("agy_active_model") || (typeof getFavoriteModel === "function" ? getFavoriteModel(1) : "gemini-3.8-flash-high");
 let hasUserManuallySelectedModel = false;
 let pendingImages = []; // [{ id, name, mimeType, base64Data, previewUrl }]
+let pendingAttachments = []; // [{ id, name, size, kind }]
 
 // iOS Haptic Simulation & App Badge helpers
 function triggerHaptic(type = "light") {
@@ -342,11 +343,18 @@ function syncActiveModel(rawModel) {
 }
 
 
+function formatAttachmentBytes(bytes) {
+  if (!bytes || bytes <= 0) return "";
+  if (bytes >= 1048576) return `${(bytes / 1048576).toFixed(1)} MB`;
+  if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${bytes} B`;
+}
+
 function renderImagePreviews() {
   const bar = document.getElementById("image-previews-bar");
   if (!bar) return;
 
-  if (pendingImages.length === 0) {
+  if (pendingImages.length === 0 && pendingAttachments.length === 0) {
     bar.innerHTML = "";
     bar.classList.add("hidden");
     updateChatControls(isCascadeRunning(activeCascadeId));
@@ -354,12 +362,25 @@ function renderImagePreviews() {
   }
 
   bar.classList.remove("hidden");
-  bar.innerHTML = pendingImages.map(img => `
+  const imagesHtml = pendingImages.map(img => `
     <div class="image-preview-item" data-id="${img.id}">
       <img src="${img.previewUrl || img.dataUrl || ''}" alt="${escapeHtml(img.name || '图片')}" />
       <button class="image-preview-remove" type="button" aria-label="删除图片" onclick="removePendingImage('${img.id}')">✕</button>
     </div>
   `).join("");
+  const filesHtml = pendingAttachments.map(att => {
+    const icon = att.kind === "audio" ? "🎵" : att.kind === "video" ? "🎬" : "📎";
+    const meta = att.uploading ? "上传中…" : formatAttachmentBytes(att.size);
+    return `
+      <div class="v233-attachment-chip" data-id="${escapeHtml(att.id)}">
+        <span>${icon}</span>
+        <span class="v233-attachment-name">${escapeHtml(att.name)}</span>
+        ${meta ? `<span style="color:var(--ios-secondary-label);font-size:11px;flex-shrink:0;">${escapeHtml(meta)}</span>` : ""}
+        <button type="button" class="v233-mini-link" aria-label="删除附件" onclick="removePendingAttachment('${escapeHtml(att.id)}')">✕</button>
+      </div>
+    `;
+  }).join("");
+  bar.innerHTML = imagesHtml + filesHtml;
   updateChatControls(isCascadeRunning(activeCascadeId));
 }
 
@@ -369,6 +390,11 @@ function removePendingImage(id) {
     try { URL.revokeObjectURL(img.previewUrl); } catch (_) {}
   }
   pendingImages = pendingImages.filter(img => img.id !== id);
+  renderImagePreviews();
+}
+
+function removePendingAttachment(id) {
+  pendingAttachments = pendingAttachments.filter(att => att.id !== id);
   renderImagePreviews();
 }
 
@@ -408,25 +434,74 @@ async function shrinkImageForUpload(file) {
 function handleFilesSelected(files) {
   if (!files || !files.length) return;
   for (const file of Array.from(files)) {
-    if (!file.type.startsWith("image/")) continue;
-    const id = `img-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-    const previewUrl = URL.createObjectURL(file);
-    shrinkImageForUpload(file).then((upload) => {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const dataUrl = e.target.result;
-        const base64Data = dataUrl.split(",")[1];
-        pendingImages.push({
-          id,
-          name: file.name,
-          mimeType: upload.type || file.type || "image/jpeg",
-          base64Data,
-          previewUrl
-        });
-        renderImagePreviews();
-      };
-      reader.readAsDataURL(upload);
+    if (file.type && file.type.startsWith("image/")) {
+      const id = `img-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+      const previewUrl = URL.createObjectURL(file);
+      shrinkImageForUpload(file).then((upload) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const dataUrl = e.target.result;
+          const base64Data = dataUrl.split(",")[1];
+          pendingImages.push({
+            id,
+            name: file.name,
+            mimeType: upload.type || file.type || "image/jpeg",
+            base64Data,
+            previewUrl
+          });
+          renderImagePreviews();
+        };
+        reader.readAsDataURL(upload);
+      });
+      continue;
+    }
+
+    const maxBytes = window.V233?.maxUploadBytesForFile
+      ? window.V233.maxUploadBytesForFile(file)
+      : 50 * 1024 * 1024;
+    if (file.size > maxBytes) {
+      const limitMB = Math.round(maxBytes / (1024 * 1024));
+      if (typeof showToast === "function") showToast(`「${file.name}」超过 ${limitMB} MB 上传上限`, 3200);
+      else alert(`「${file.name}」超过 ${limitMB} MB 上传上限`);
+      continue;
+    }
+
+    const tempId = `att-up-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const isAV = window.V233?.isAudioOrVideoFile?.(file);
+    pendingAttachments.push({
+      id: tempId,
+      name: file.name,
+      size: file.size,
+      kind: isAV ? (String(file.type || "").startsWith("video/") ? "video" : "audio") : "file",
+      uploading: true
     });
+    renderImagePreviews();
+
+    fetch("/api/v1/attachments", {
+      method: "POST",
+      headers: { "X-File-Name": encodeURIComponent(file.name) },
+      body: file
+    })
+      .then(async (res) => {
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.id) throw new Error(data.message || data.error || `HTTP ${res.status}`);
+        const idx = pendingAttachments.findIndex((a) => a.id === tempId);
+        if (idx >= 0) {
+          pendingAttachments[idx] = {
+            id: data.id,
+            name: data.name || file.name,
+            size: data.size || file.size,
+            kind: data.kind || pendingAttachments[idx].kind,
+            uploading: false
+          };
+          renderImagePreviews();
+        }
+      })
+      .catch((err) => {
+        pendingAttachments = pendingAttachments.filter((a) => a.id !== tempId);
+        renderImagePreviews();
+        if (typeof showToast === "function") showToast(`上传失败: ${err.message}`, 3200);
+      });
   }
 }
 

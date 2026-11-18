@@ -355,6 +355,9 @@ public final class ChatViewModel {
     public var showMentionPicker: Bool = false
     public var mentionQuery: String = ""
     public var permissionState: PermissionStateResponse = PermissionStateResponse()
+    public var trustStatus: ProjectTrustStatusResponse? = nil
+    public var isUpdatingTrust: Bool = false
+    public var btwEntries: [BtwSideQuestionEntry] = []
     public var activeTerminals: [TerminalItem] = []
     public var isForkingConversation: Bool = false
     @ObservationIgnored var mentionSearchTask: Task<Void, Never>? = nil

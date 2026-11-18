@@ -8952,3 +8952,661 @@ body.font-comfortable pre, body.font-comfortable code {
   opacity: 1;
 }
 
+/* ============================================================================
+   Antigravity 2.33.0 Feature Pack & Official Nord Theme
+   ============================================================================ */
+
+/* Keep base root color-scheme adaptive; meta[name="color-scheme"] overrides per selection */
+:root {
+  color-scheme: light dark;
+}
+
+:root:has(> head > meta[name="color-scheme"][content="dark"]) {
+  --ios-bg: #000000;
+  --ios-secondary-bg: #1c1c1e;
+  --ios-tertiary-bg: #2c2c2e;
+  --ios-quaternary-bg: #3a3a3c;
+  --ios-fill: rgba(120, 120, 128, 0.24);
+  --ios-separator: rgba(84, 84, 88, 0.65);
+  --ios-separator-subtle: rgba(84, 84, 88, 0.36);
+
+  --ios-label: #ffffff;
+  --ios-secondary-label: #8e8e93;
+  --ios-tertiary-label: #636366;
+  --ios-quaternary-label: #48484a;
+
+  --ios-blue: #0a84ff;
+  --ios-green: #30d158;
+  --ios-indigo: #5e5ce6;
+  --ios-indigo-active: #4b49c9;
+  --ios-orange: #ff9f0a;
+  --ios-red: #ff453a;
+  --ios-purple: #bf5af2;
+  --ios-teal: #64d2ff;
+  --orchestrator-slate: #475569;
+  --orchestrator-slate-rgb: 71, 85, 105;
+
+  --code-fg: #fbbf24;
+  --code-bg: rgba(251, 191, 36, 0.12);
+  --code-border: rgba(251, 191, 36, 0.25);
+
+  --tok-kw: #ff7ab2;
+  --tok-str: #fc6a5d;
+  --tok-cmt: #7f8c98;
+  --tok-num: #d0bf69;
+  --tok-type: #9ef1dd;
+  --tok-fn: #67b7a4;
+  --tok-attr: #bf8555;
+  --tok-meta: #a167e6;
+  --tok-diff-add: #4ade80;
+  --tok-diff-del: #f87171;
+
+  --user-bubble-bg: var(--ios-indigo);
+  --user-bubble-text: #ffffff;
+  --agent-bubble-bg: var(--ios-secondary-bg);
+  --agent-bubble-text: #ffffff;
+}
+
+:root:has(> head > meta[name="color-scheme"][content="dark"]) .ios-navbar {
+  background-color: rgba(28, 28, 30, 0.86);
+}
+
+:root:has(> head > meta[name="color-scheme"][content="dark"]) .ios-alert-box {
+  background-color: rgba(30, 30, 34, 0.94);
+}
+
+:root:has(> head > meta[name="color-scheme"][content="light"]) {
+  --ios-bg: #f2f2f7;
+  --ios-secondary-bg: #ffffff;
+  --ios-tertiary-bg: #e5e5ea;
+  --ios-quaternary-bg: #d1d1d6;
+  --ios-fill: rgba(118, 118, 128, 0.12);
+  --ios-separator: rgba(60, 60, 67, 0.29);
+  --ios-separator-subtle: rgba(60, 60, 67, 0.14);
+
+  --ios-label: #000000;
+  --ios-secondary-label: #8a8a8e;
+  --ios-tertiary-label: #c7c7cc;
+  --ios-quaternary-label: #d1d1d6;
+
+  --ios-blue: #007aff;
+  --ios-green: #34c759;
+  --ios-indigo: #5856d6;
+  --ios-indigo-active: #423ea8;
+  --ios-orange: #ff9500;
+  --ios-red: #ff3b30;
+  --ios-purple: #af52de;
+  --ios-teal: #5ac8fa;
+  --orchestrator-slate: #334155;
+  --orchestrator-slate-rgb: 51, 65, 85;
+
+  --code-fg: #92400e;
+  --code-bg: rgba(180, 83, 9, 0.08);
+  --code-border: rgba(180, 83, 9, 0.18);
+
+  --tok-kw: #ad3da4;
+  --tok-str: #c41a16;
+  --tok-cmt: #6c7986;
+  --tok-num: #1c00cf;
+  --tok-type: #0b4f79;
+  --tok-fn: #326d74;
+  --tok-attr: #6f42c1;
+  --tok-meta: #8250df;
+  --tok-diff-add: #1a7f37;
+  --tok-diff-del: #cf222e;
+
+  --user-bubble-bg: var(--ios-indigo);
+  --user-bubble-text: #ffffff;
+  --agent-bubble-bg: #ffffff;
+  --agent-bubble-text: #000000;
+}
+
+:root:has(> head > meta[name="color-scheme"][content="light"]) .ios-navbar {
+  background-color: rgba(249, 249, 249, 0.88);
+}
+
+:root:has(> head > meta[name="color-scheme"][content="light"]) .ios-alert-box {
+  background-color: rgba(248, 248, 250, 0.94);
+}
+
+/* Official Antigravity 2.33.0 Nord Theme */
+:root[data-theme="nord"] {
+  --ios-bg: #2E3440;
+  --ios-secondary-bg: #3B4252;
+  --ios-tertiary-bg: #434C5E;
+  --ios-quaternary-bg: #4C566A;
+  --ios-fill: rgba(76, 86, 106, 0.36);
+  --ios-separator: rgba(76, 86, 106, 0.72);
+  --ios-separator-subtle: rgba(76, 86, 106, 0.45);
+
+  --ios-label: #D8DEE9;
+  --ios-secondary-label: #9CA6B8;
+  --ios-tertiary-label: #616E88;
+  --ios-quaternary-label: #4C566A;
+
+  --ios-blue: #88C0D0;
+  --ios-green: #A3BE8C;
+  --ios-indigo: #81A1C1;
+  --ios-indigo-active: #5E81AC;
+  --ios-orange: #EBCB8B;
+  --ios-red: #BF616A;
+  --ios-purple: #B48EAD;
+  --ios-teal: #8FBCBB;
+  --orchestrator-slate: #434C5E;
+  --orchestrator-slate-rgb: 67, 76, 94;
+
+  --code-fg: #EBCB8B;
+  --code-bg: rgba(76, 86, 106, 0.32);
+  --code-border: rgba(136, 192, 208, 0.28);
+
+  --tok-kw: #81A1C1;
+  --tok-str: #A3BE8C;
+  --tok-cmt: #616E88;
+  --tok-num: #B48EAD;
+  --tok-type: #8FBCBB;
+  --tok-fn: #88C0D0;
+  --tok-attr: #81A1C1;
+  --tok-meta: #EBCB8B;
+  --tok-diff-add: #A3BE8C;
+  --tok-diff-del: #BF616A;
+
+  --user-bubble-bg: #5E81AC;
+  --user-bubble-text: #ECEFF4;
+  --agent-bubble-bg: #3B4252;
+  --agent-bubble-text: #D8DEE9;
+}
+
+:root[data-theme="nord"] .ios-navbar {
+  background-color: rgba(46, 52, 64, 0.88);
+}
+
+:root[data-theme="nord"] .ios-alert-box {
+  background-color: rgba(59, 66, 82, 0.96);
+}
+
+:root[data-theme="nord"] .code-block-card {
+  background-color: #2E3440;
+  border-color: #4C566A;
+}
+
+/* Native <dialog> Modals & Backdrop overscroll lock */
+dialog:modal {
+  overscroll-behavior: contain;
+}
+
+dialog::backdrop {
+  overflow: hidden;
+  overscroll-behavior: contain;
+  background: rgba(0, 0, 0, 0.48);
+  backdrop-filter: blur(4px);
+}
+
+.v233-dialog {
+  margin: auto;
+  width: min(92vw, 520px);
+  max-height: min(82dvh, 720px);
+  border: 1px solid var(--ios-separator);
+  border-radius: 18px;
+  background: var(--ios-secondary-bg);
+  color: var(--ios-label);
+  padding: 0;
+  box-shadow: 0 22px 54px rgba(0, 0, 0, 0.45);
+  display: none;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.v233-dialog[open] {
+  display: flex;
+}
+
+.v233-dialog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 13px 16px;
+  border-bottom: 0.5px solid var(--ios-separator-subtle);
+}
+
+.v233-dialog-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.v233-dialog-title {
+  font-size: 15.5px;
+  font-weight: 600;
+  color: var(--ios-label);
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.v233-dialog-close {
+  border: none;
+  background: var(--ios-fill);
+  color: var(--ios-label);
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  font-size: 13px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.v233-dialog-body {
+  padding: 14px 16px;
+  overflow-y: auto;
+  flex: 1 1 auto;
+  font-size: 14px;
+  line-height: 1.5;
+  overscroll-behavior: contain;
+}
+
+.v233-dialog-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 10px 16px 14px;
+  border-top: 0.5px solid var(--ios-separator-subtle);
+}
+
+.v233-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 7px 14px;
+  border-radius: 999px;
+  border: 0.5px solid var(--ios-separator);
+  background: var(--ios-tertiary-bg);
+  color: var(--ios-label);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.v233-btn.primary {
+  background: var(--ios-blue);
+  border-color: transparent;
+  color: #ffffff;
+}
+
+:root[data-theme="nord"] .v233-btn.primary {
+  color: #2E3440;
+}
+
+/* Workspace Trust Banner */
+.workspace-trust-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 8px 12px 2px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(255, 159, 10, 0.14);
+  border: 0.5px solid rgba(255, 159, 10, 0.42);
+  color: var(--ios-label);
+  z-index: 4;
+}
+
+.workspace-trust-banner.hidden {
+  display: none;
+}
+
+.wtb-main {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  flex: 1;
+}
+
+.wtb-icon {
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.wtb-text {
+  min-width: 0;
+}
+
+.wtb-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.wtb-desc {
+  font-size: 11.5px;
+  color: var(--ios-secondary-label);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.wtb-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.wtb-btn {
+  border: none;
+  background: var(--ios-fill);
+  color: var(--ios-secondary-label);
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.wtb-btn.primary {
+  background: var(--ios-orange);
+  color: #1c1c1e;
+}
+
+/* Conversation List & Chat Inline GitHub PR Pills */
+.conv-pr-pill,
+.conv-branch-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 999px;
+  margin-left: 6px;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.conv-pr-pill.open { background: rgba(48, 209, 88, 0.16); color: var(--ios-green); }
+.conv-pr-pill.merged { background: rgba(191, 90, 242, 0.18); color: var(--ios-purple); }
+.conv-pr-pill.closed { background: rgba(255, 69, 58, 0.16); color: var(--ios-red); }
+.conv-pr-pill.draft { background: var(--ios-fill); color: var(--ios-secondary-label); }
+.conv-branch-pill { background: var(--ios-fill); color: var(--ios-secondary-label); }
+
+.v233-pr-pills-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.v233-pr-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 0.5px solid var(--ios-separator);
+  background: var(--ios-tertiary-bg);
+  color: var(--ios-label);
+  font-size: 12px;
+  font-weight: 500;
+  max-width: 100%;
+  cursor: pointer;
+}
+
+.v233-pr-pill-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 210px;
+}
+
+.v233-pr-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--ios-secondary-label);
+  margin-bottom: 10px;
+}
+
+.v233-pr-body-pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 13px;
+  background: var(--ios-tertiary-bg);
+  padding: 10px 12px;
+  border-radius: 10px;
+}
+
+/* /btw Side Question */
+.chip-pill.chip-btw {
+  color: var(--ios-teal);
+}
+
+#view-chat.subagent-readonly #btn-btw-chip {
+  display: none;
+}
+
+.v233-btw-badge {
+  background: rgba(100, 210, 255, 0.16);
+  color: var(--ios-teal);
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 6px;
+}
+
+.v233-btw-quote {
+  background: var(--ios-tertiary-bg);
+  border-left: 3px solid var(--ios-teal);
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin-bottom: 10px;
+}
+
+.v233-btw-quote.hidden { display: none; }
+
+.v233-btw-quote-head {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11.5px;
+  color: var(--ios-secondary-label);
+  margin-bottom: 4px;
+}
+
+.v233-mini-link {
+  border: none;
+  background: none;
+  color: var(--ios-blue);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.v233-btw-quote-text {
+  font-size: 12.5px;
+  color: var(--ios-label);
+  max-height: 84px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.v233-btw-history {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  margin-bottom: 10px;
+  padding-bottom: 4px;
+}
+
+.v233-btw-history.hidden { display: none; }
+
+.v233-btw-hist-chip {
+  border: 0.5px solid var(--ios-separator);
+  background: var(--ios-tertiary-bg);
+  color: var(--ios-label);
+  font-size: 11.5px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.v233-btw-hist-chip.active {
+  border-color: var(--ios-teal);
+  color: var(--ios-teal);
+}
+
+.v233-btw-footer {
+  padding: 10px 14px 14px;
+  border-top: 0.5px solid var(--ios-separator-subtle);
+}
+
+.v233-btw-composer {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+}
+
+.v233-btw-input {
+  flex: 1;
+  border-radius: 12px;
+  border: 0.5px solid var(--ios-separator);
+  background: var(--ios-tertiary-bg);
+  color: var(--ios-label);
+  padding: 8px 10px;
+  font-size: 14px;
+  font-family: inherit;
+  resize: none;
+}
+
+/* In-App Find in Page (<dialog popover="manual"> + Custom Highlight API) */
+.md-viewer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.md-viewer-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.md-viewer-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 8px;
+  border-radius: 999px;
+}
+
+.md-find-popover {
+  position: fixed;
+  top: calc(env(safe-area-inset-top, 0px) + 64px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(94vw, 440px);
+  margin: 0;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 0.5px solid var(--ios-separator);
+  background: var(--ios-secondary-bg);
+  color: var(--ios-label);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.32);
+  display: none;
+  align-items: center;
+  gap: 6px;
+  z-index: 1000;
+}
+
+.md-find-popover:popover-open,
+.md-find-popover.open {
+  display: flex;
+}
+
+.md-find-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: var(--ios-label);
+  font-size: 13.5px;
+  outline: none;
+}
+
+.md-find-count {
+  font-size: 11.5px;
+  color: var(--ios-secondary-label);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.md-find-nav {
+  border: none;
+  background: var(--ios-fill);
+  color: var(--ios-label);
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  font-size: 12px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+::highlight(find-results) {
+  background-color: rgba(255, 214, 10, 0.38);
+  color: inherit;
+}
+
+::highlight(find-current) {
+  background-color: rgba(255, 149, 0, 0.78);
+  color: #000000;
+}
+
+mark.md-find-mark {
+  background-color: rgba(255, 214, 10, 0.38);
+  color: inherit;
+  border-radius: 2px;
+}
+
+mark.md-find-mark.active {
+  background-color: rgba(255, 149, 0, 0.78);
+  color: #000000;
+}
+
+/* 200MB Audio/Video & Attachment Chips */
+.v233-attachment-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 12px;
+  background: var(--ios-tertiary-bg);
+  border: 0.5px solid var(--ios-separator);
+  color: var(--ios-label);
+  font-size: 12px;
+  max-width: 220px;
+}
+
+.v233-attachment-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.v233-audio-player {
+  width: 100%;
+  margin-top: 8px;
+}
+
+

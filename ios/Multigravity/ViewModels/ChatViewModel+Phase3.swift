@@ -148,4 +148,38 @@ extension ChatViewModel {
             activeTerminals = list
         }
     }
+
+    @MainActor
+    public func refreshProjectTrust() async {
+        guard let url = settings.gatewayURL, !isDraftConversation, !cascadeId.isEmpty else { return }
+        if let res = try? await apiClient.fetchProjectTrustStatus(cascadeId: cascadeId, baseURL: url) {
+            trustStatus = res
+        }
+    }
+
+    @MainActor
+    public func trustCurrentProject() async {
+        guard let url = settings.gatewayURL, !isUpdatingTrust else { return }
+        isUpdatingTrust = true
+        defer { isUpdatingTrust = false }
+        do {
+            trustStatus = try await apiClient.setWorkspaceTrust(
+                cascadeId: cascadeId.isEmpty ? nil : cascadeId,
+                projectId: trustStatus?.projectId,
+                trusted: true,
+                baseURL: url
+            )
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        } catch {
+            errorMessage = String(localized: "工作区信任授权失败: \(error.localizedDescription)")
+        }
+    }
+
+    @MainActor
+    public func refreshBtwList() async {
+        guard let url = settings.gatewayURL, !isDraftConversation, !cascadeId.isEmpty else { return }
+        if let list = try? await apiClient.listBtwSideQuestions(cascadeId: cascadeId, baseURL: url) {
+            btwEntries = list
+        }
+    }
 }

@@ -85,10 +85,17 @@ struct ShareCardContext: Equatable {
 enum ShareCardTheme: String {
     case dark
     case light
+    case nord
 
     var colorScheme: ColorScheme { self == .light ? .light : .dark }
 
-    var accent: Color { self == .light ? Color.indigo : Color(red: 0.55, green: 0.50, blue: 1.0) }
+    var accent: Color {
+        switch self {
+        case .light: return Color.indigo
+        case .dark: return Color(red: 0.55, green: 0.50, blue: 1.0)
+        case .nord: return NordTheme.accent
+        }
+    }
 
     var background: LinearGradient {
         switch self {
@@ -102,12 +109,45 @@ enum ShareCardTheme: String {
                 colors: [Color(red: 0.99, green: 0.99, blue: 0.98), Color(red: 0.96, green: 0.96, blue: 0.95)],
                 startPoint: .top, endPoint: .bottom
             )
+        case .nord:
+            return LinearGradient(
+                colors: [NordTheme.background, Color(red: 36.0 / 255.0, green: 41.0 / 255.0, blue: 51.0 / 255.0)],
+                startPoint: .topLeading, endPoint: .bottomTrailing
+            )
         }
     }
 
     /// 问答对中「提问」块的底色。
     var questionBackground: Color {
-        self == .light ? Color.black.opacity(0.05) : Color.white.opacity(0.09)
+        switch self {
+        case .light: return Color.black.opacity(0.05)
+        case .dark: return Color.white.opacity(0.09)
+        case .nord: return NordTheme.surface.opacity(0.92)
+        }
+    }
+
+    var next: ShareCardTheme {
+        switch self {
+        case .dark: return .nord
+        case .nord: return .light
+        case .light: return .dark
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .dark: return String(localized: "深色")
+        case .nord: return "Nord"
+        case .light: return String(localized: "浅色")
+        }
+    }
+
+    var iconName: String {
+        switch self {
+        case .dark: return "moon.fill"
+        case .nord: return "snowflake"
+        case .light: return "sun.max.fill"
+        }
     }
 }
 
@@ -439,7 +479,7 @@ struct MessageShareCardSheet: View {
         }
         .onAppear {
             if !hasPickedTheme {
-                theme = systemScheme == .dark ? .dark : .light
+                theme = AppSettings.shared.isNordTheme ? .nord : (systemScheme == .dark ? .dark : .light)
                 hasPickedTheme = true
             }
         }
@@ -475,9 +515,9 @@ struct MessageShareCardSheet: View {
             HStack {
                 Button {
                     UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                    theme = theme == .dark ? .light : .dark
+                    theme = theme.next
                 } label: {
-                    Label(theme == .dark ? String(localized: "深色") : String(localized: "浅色"), systemImage: theme == .dark ? "moon.fill" : "sun.max.fill")
+                    Label(theme.label, systemImage: theme.iconName)
                         .font(.system(size: 15, weight: .semibold))
                         .padding(.horizontal, 16)
                         .frame(height: 44)
@@ -546,7 +586,7 @@ struct MessageShareCardSheet: View {
             date: ShareCardContext.parseStartedAt(context.startedAtISO)
         )
 
-        let renderer = ImageRenderer(content: card)
+        let renderer = ImageRenderer(content: card.environment(\.shareCardUseNord, theme == .nord))
         renderer.isOpaque = true
         var scale = max(displayScale, 2)
         renderer.scale = scale

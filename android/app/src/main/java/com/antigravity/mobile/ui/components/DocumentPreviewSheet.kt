@@ -45,6 +45,9 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalTextToolbar
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -75,6 +78,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /**
@@ -197,11 +202,11 @@ fun DocumentPreviewSheet(
                     "png", "jpg", "jpeg", "webp", "gif" -> {
                         ImageDocumentViewer(file = file, colors = colors)
                     }
-                    "mp4", "mov", "m4v", "webm", "3gp", "mkv", "avi", "m4a", "mp3", "wav", "aac", "caf", "flac", "ogg", "wma" -> {
+                    "mp4", "mov", "m4v", "webm", "3gp", "mkv", "avi", "m4a", "mp3", "wav", "aac", "caf", "flac", "ogg", "oga", "opus", "amr", "wma" -> {
                         VideoDocumentViewer(file = file, colors = colors)
                     }
                     "html", "htm" -> {
-                        HtmlDocumentViewer(file = file)
+                        HtmlDocumentViewer(file = file, colors = colors)
                     }
                     "pptx", "ppt" -> {
                         PptxDocumentViewer(file = file, colors = colors)
@@ -209,7 +214,7 @@ fun DocumentPreviewSheet(
                     "pdf" -> {
                         PdfDocumentViewer(file = file, colors = colors)
                     }
-                    "txt", "json", "csv", "log", "xml", "yaml", "yml", "sh", "py", "js", "ts", "kt", "swift", "md" -> {
+                    "txt", "json", "csv", "log", "xml", "yaml", "yml", "sh", "py", "js", "ts", "kt", "swift", "md", "r", "rmd", "rmarkdown" -> {
                         TextDocumentViewer(file = file, colors = colors)
                     }
                     else -> {
@@ -743,14 +748,87 @@ private fun formatVideoTime(ms: Long): String {
 }
 
 @Composable
-private fun HtmlDocumentViewer(file: File) {
-    AndroidView(
-        modifier = Modifier.fillMaxSize(),
-        factory = { ctx ->
-            WebView(ctx).apply {
-                setBackgroundColor(android.graphics.Color.WHITE)
-                webViewClient = WebViewClient()
-                webChromeClient = WebChromeClient()
+private fun HtmlDocumentViewer(file: File, colors: AppColors = AntigravityTheme.colors) {
+    var webViewRef by remember { mutableStateOf<WebView?>(null) }
+    var showFindBar by remember { mutableStateOf(false) }
+    var findQuery by remember { mutableStateOf("") }
+    var matchCount by remember { mutableStateOf(0) }
+    var activeMatchIdx by remember { mutableStateOf(0) }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(colors.surfaceVariant)
+                .padding(horizontal = 12.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            if (showFindBar) {
+                OutlinedTextField(
+                    value = findQuery,
+                    onValueChange = { q ->
+                        findQuery = q
+                        if (q.isBlank()) {
+                            webViewRef?.clearMatches()
+                            matchCount = 0
+                            activeMatchIdx = 0
+                        } else {
+                            webViewRef?.findAllAsync(q)
+                        }
+                    },
+                    placeholder = { Text("页内查找...", fontSize = 12.5.sp) },
+                    singleLine = true,
+                    modifier = Modifier.weight(1f)
+                )
+                if (findQuery.isNotEmpty()) {
+                    Text(
+                        text = if (matchCount > 0) "${activeMatchIdx + 1}/$matchCount" else "0/0",
+                        color = colors.textSecondary,
+                        fontSize = 11.5.sp,
+                        fontFamily = FontFamily.Monospace
+                    )
+                    IconButton(onClick = { webViewRef?.findNext(false) }, modifier = Modifier.size(32.dp)) {
+                        Icon(Icons.Default.KeyboardArrowUp, contentDescription = "上一个", tint = colors.textPrimary)
+                    }
+                    IconButton(onClick = { webViewRef?.findNext(true) }, modifier = Modifier.size(32.dp)) {
+                        Icon(Icons.Default.KeyboardArrowDown, contentDescription = "下一个", tint = colors.textPrimary)
+                    }
+                }
+                IconButton(
+                    onClick = {
+                        showFindBar = false
+                        findQuery = ""
+                        webViewRef?.clearMatches()
+                    },
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(Icons.Default.Close, contentDescription = "关闭查找", tint = colors.textSecondary)
+                }
+            } else {
+                Spacer(Modifier.weight(1f))
+                TextButton(onClick = { showFindBar = true }, contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp)) {
+                    Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("页内查找", fontSize = 12.5.sp)
+                }
+            }
+        }
+
+        AndroidView(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f),
+            factory = { ctx ->
+                WebView(ctx).apply {
+                    webViewRef = this
+                    setBackgroundColor(android.graphics.Color.WHITE)
+                    webViewClient = WebViewClient()
+                    webChromeClient = WebChromeClient()
+                    setFindListener { activeOrdinal, numberOfMatches, _ ->
+                        activeMatchIdx = activeOrdinal
+                        matchCount = numberOfMatches
+                    }
                 settings.apply {
                     @Suppress("SetJavaScriptEnabled")
                     javaScriptEnabled = true
@@ -891,7 +969,8 @@ private fun HtmlDocumentViewer(file: File) {
                 }
             }
         }
-    )
+        )
+    }
 }
 
 private data class PptxSlide(
@@ -1292,34 +1371,69 @@ private fun unescapeXml(text: String): String {
         .replace("&#39;", "'")
 }
 
+private class LazyPdfHolder(
+    private val fileDescriptor: ParcelFileDescriptor,
+    private val renderer: PdfRenderer
+) {
+    val pageCount: Int = renderer.pageCount
+    private val mutex = Mutex()
+    private val pageCache = object : android.util.LruCache<Int, Bitmap>(12) {}
+
+    suspend fun getOrRenderPage(index: Int, highRes: Boolean): Bitmap? = withContext(Dispatchers.IO) {
+        val cacheKey = if (highRes) index + 100_000 else index
+        pageCache.get(cacheKey)?.let { if (!it.isRecycled) return@withContext it }
+        mutex.withLock {
+            pageCache.get(cacheKey)?.let { if (!it.isRecycled) return@withLock it }
+            if (index < 0 || index >= pageCount) return@withLock null
+            val page = renderer.openPage(index)
+            try {
+                val scale = if (highRes) 2f else 1.35f
+                val targetWidth = (page.width * scale).toInt().coerceIn(320, 1800)
+                val targetHeight = (page.height * (targetWidth.toFloat() / page.width.coerceAtLeast(1))).toInt().coerceAtLeast(320)
+                val bitmap = Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888)
+                bitmap.eraseColor(android.graphics.Color.WHITE)
+                page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                pageCache.put(cacheKey, bitmap)
+                bitmap
+            } finally {
+                page.close()
+            }
+        }
+    }
+
+    fun close() {
+        runCatching { renderer.close() }
+        runCatching { fileDescriptor.close() }
+        pageCache.evictAll()
+    }
+}
+
 @Composable
 private fun PdfDocumentViewer(file: File, colors: AppColors) {
-    var pages by remember { mutableStateOf<List<Bitmap>>(emptyList()) }
+    var holder by remember { mutableStateOf<LazyPdfHolder?>(null) }
     var isLoading by remember { mutableStateOf(true) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    var highResMode by remember { mutableStateOf(false) }
+
+    DisposableEffect(file) {
+        onDispose {
+            holder?.close()
+            holder = null
+        }
+    }
 
     LaunchedEffect(file) {
+        holder?.close()
+        holder = null
+        isLoading = true
+        errorMessage = null
         withContext(Dispatchers.IO) {
             try {
-                val fileDescriptor = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
-                val renderer = PdfRenderer(fileDescriptor)
-                val bitmaps = mutableListOf<Bitmap>()
-                val count = renderer.pageCount
-
-                for (i in 0 until count) {
-                    val page = renderer.openPage(i)
-                    val width = page.width * 2
-                    val height = page.height * 2
-                    val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-                    bitmap.eraseColor(android.graphics.Color.WHITE)
-                    page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                    page.close()
-                    bitmaps.add(bitmap)
-                }
-                renderer.close()
-                fileDescriptor.close()
+                val fd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+                val renderer = PdfRenderer(fd)
+                val h = LazyPdfHolder(fd, renderer)
                 withContext(Dispatchers.Main) {
-                    pages = bitmaps
+                    holder = h
                     isLoading = false
                 }
             } catch (e: Exception) {
@@ -1337,35 +1451,76 @@ private fun PdfDocumentViewer(file: File, colors: AppColors) {
         }
     } else if (errorMessage != null) {
         OfficeDocumentFallback(file = file, colors = colors, customMessage = errorMessage)
-    } else {
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(
-                start = 16.dp, top = 16.dp, end = 16.dp,
-                bottom = 16.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-            ),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            itemsIndexed(pages) { index, bitmap ->
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Image(
-                        bitmap = bitmap.asImageBitmap(),
-                        contentDescription = "Page ${index + 1}",
-                        contentScale = ContentScale.FillWidth,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp))
-                            .border(0.5.dp, colors.border, RoundedCornerShape(8.dp))
-                    )
-                    Text(
-                        text = "第 ${index + 1} / ${pages.size} 页",
-                        color = colors.textMuted,
-                        fontSize = 11.sp,
-                        modifier = Modifier.padding(top = 4.dp)
-                    )
+    } else if (holder != null) {
+        val activeHolder = holder!!
+        Column(modifier = Modifier.fillMaxSize()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(colors.surfaceVariant)
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = "共 ${activeHolder.pageCount} 页 · 按需懒加载",
+                    color = colors.textSecondary,
+                    fontSize = 12.sp
+                )
+                FilterChip(
+                    selected = highResMode,
+                    onClick = { highResMode = !highResMode },
+                    label = { Text(if (highResMode) "超清渲染中" else "标准流畅", fontSize = 11.5.sp) }
+                )
+            }
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                contentPadding = PaddingValues(
+                    start = 16.dp, top = 12.dp, end = 16.dp,
+                    bottom = 16.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+                ),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                items(activeHolder.pageCount) { index ->
+                    val bitmap by produceState<Bitmap?>(initialValue = null, index, highResMode, activeHolder) {
+                        value = activeHolder.getOrRenderPage(index, highResMode)
+                    }
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        if (bitmap != null && !bitmap!!.isRecycled) {
+                            Image(
+                                bitmap = bitmap!!.asImageBitmap(),
+                                contentDescription = "Page ${index + 1}",
+                                contentScale = ContentScale.FillWidth,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .border(0.5.dp, colors.border, RoundedCornerShape(8.dp))
+                            )
+                        } else {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(360.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(colors.surfaceVariant)
+                                    .border(0.5.dp, colors.border, RoundedCornerShape(8.dp)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp, color = colors.accentIndigo)
+                            }
+                        }
+                        Text(
+                            text = "第 ${index + 1} / ${activeHolder.pageCount} 页",
+                            color = colors.textMuted,
+                            fontSize = 11.sp,
+                            modifier = Modifier.padding(top = 4.dp)
+                        )
+                    }
                 }
             }
         }
@@ -1381,23 +1536,89 @@ private fun TextDocumentViewer(file: File, colors: AppColors) {
             "无法读取文件内容: ${e.message}"
         }
     }
+    var showFindBar by remember { mutableStateOf(false) }
+    var findQuery by remember { mutableStateOf("") }
 
-    SelectionContainer {
-        Box(
+    val (annotatedContent, matchCount) = remember(content, findQuery) {
+        val q = findQuery.trim()
+        if (q.isEmpty()) {
+            AnnotatedString(content) to 0
+        } else {
+            var count = 0
+            val annotated = buildAnnotatedString {
+                append(content)
+                var start = 0
+                while (start < content.length) {
+                    val found = content.indexOf(q, startIndex = start, ignoreCase = true)
+                    if (found < 0) break
+                    count++
+                    addStyle(SpanStyle(background = Color(0x66FFEB3B), color = colors.textPrimary), found, found + q.length)
+                    start = found + q.length.coerceAtLeast(1)
+                }
+            }
+            annotated to count
+        }
+    }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        Row(
             modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .horizontalScroll(rememberScrollState())
-                .padding(16.dp)
-                .navigationBarsPadding()
+                .fillMaxWidth()
+                .background(colors.surfaceVariant)
+                .padding(horizontal = 12.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Text(
-                text = content,
-                color = colors.textPrimary,
-                fontSize = 12.5.sp,
-                fontFamily = FontFamily.Monospace,
-                lineHeight = 18.sp
-            )
+            if (showFindBar) {
+                OutlinedTextField(
+                    value = findQuery,
+                    onValueChange = { findQuery = it },
+                    placeholder = { Text("在文本中查找...", fontSize = 12.5.sp) },
+                    singleLine = true,
+                    modifier = Modifier.weight(1f),
+                    trailingIcon = {
+                        if (findQuery.isNotEmpty()) {
+                            Text("$matchCount 处", color = colors.textSecondary, fontSize = 11.5.sp, modifier = Modifier.padding(end = 6.dp))
+                        }
+                    }
+                )
+                IconButton(
+                    onClick = {
+                        showFindBar = false
+                        findQuery = ""
+                    },
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(Icons.Default.Close, contentDescription = "关闭查找", tint = colors.textSecondary)
+                }
+            } else {
+                Spacer(Modifier.weight(1f))
+                TextButton(onClick = { showFindBar = true }, contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp)) {
+                    Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("页内查找", fontSize = 12.5.sp)
+                }
+            }
+        }
+
+        SelectionContainer {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState())
+                    .horizontalScroll(rememberScrollState())
+                    .padding(16.dp)
+                    .navigationBarsPadding()
+            ) {
+                Text(
+                    text = annotatedContent,
+                    color = colors.textPrimary,
+                    fontSize = 12.5.sp,
+                    fontFamily = FontFamily.Monospace,
+                    lineHeight = 18.sp
+                )
+            }
         }
     }
 }

@@ -39,13 +39,86 @@ data class GitHubBranchTarget(
 
 @Serializable
 data class GitPullRequestItem(
+    val host: String? = null,
+    val owner: String? = null,
+    val repo: String? = null,
     val number: Int = 0,
     val title: String = "",
     val url: String = "",
     val state: String = "OPEN", // OPEN / DRAFT / MERGED / CLOSED
     val authorLogin: String? = null,
     val headRefName: String? = null,
-    val baseRefName: String? = null
+    val baseRefName: String? = null,
+    val body: String? = null,
+    val error: String? = null
+)
+
+@Serializable
+data class GitHubPullRequestsBatchResponse(
+    val pullRequests: List<GitPullRequestItem> = emptyList()
+)
+
+@Serializable
+data class TrustFolderItem(
+    val folderUri: String? = null,
+    val path: String? = null,
+    val trusted: Boolean = false,
+    val trustedVia: String? = null
+)
+
+@Serializable
+data class ProjectTrustStatusResponse(
+    val ok: Boolean? = null,
+    val projectId: String? = null,
+    val isProjectTrusted: Boolean = true,
+    val hasBlockedItems: Boolean = false,
+    val folders: List<TrustFolderItem> = emptyList(),
+    val message: String? = null
+)
+
+@Serializable
+data class BtwSideQuestionEntry(
+    val cascadeId: String = "",
+    val parentCascadeId: String? = null,
+    val title: String? = null,
+    val question: String? = null,
+    val quote: String? = null,
+    val status: String? = null,
+    val createdAt: String? = null
+)
+
+@Serializable
+data class BtwStartResponse(
+    val ok: Boolean? = null,
+    val cascadeId: String = "",
+    val parentCascadeId: String? = null,
+    val title: String? = null,
+    val question: String? = null,
+    val quote: String? = null,
+    val createdAt: String? = null
+)
+
+@Serializable
+data class BtwListResponse(
+    val parentCascadeId: String? = null,
+    val items: List<BtwSideQuestionEntry> = emptyList()
+)
+
+@Serializable
+data class BtwStatusResponse(
+    val cascadeId: String = "",
+    val parentCascadeId: String? = null,
+    val status: String? = null,
+    val isRunning: Boolean = false,
+    val hasError: Boolean = false,
+    val errorMessage: String? = null,
+    val title: String? = null,
+    val question: String? = null,
+    val quote: String? = null,
+    val thinking: String? = null,
+    val answer: String? = null,
+    val insertText: String? = null,
+    val totalSteps: Int = 0
 )
 
 @Serializable

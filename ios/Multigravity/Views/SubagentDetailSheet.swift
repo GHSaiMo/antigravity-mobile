@@ -6,6 +6,7 @@ public struct SubagentDetailSheet: View {
     @Environment(\.dismiss) private var dismiss
     public let subagent: SubagentItem
     public let onStopSubagent: ((SubagentItem) async -> Void)?
+    public let onAskBtw: ((String) -> Void)?
     
     @State private var isStopping: Bool = false
     @State private var guidanceText: String = ""
@@ -23,10 +24,12 @@ public struct SubagentDetailSheet: View {
     
     public init(
         subagent: SubagentItem,
-        onStopSubagent: ((SubagentItem) async -> Void)? = nil
+        onStopSubagent: ((SubagentItem) async -> Void)? = nil,
+        onAskBtw: ((String) -> Void)? = nil
     ) {
         self.subagent = subagent
         self.onStopSubagent = onStopSubagent
+        self.onAskBtw = onAskBtw
     }
     
     public var body: some View {
@@ -86,13 +89,29 @@ public struct SubagentDetailSheet: View {
                     // Initial Prompt Section
                     if let prompt = subagent.prompt, !prompt.isEmpty {
                         VStack(alignment: .leading, spacing: 6) {
-                            Text("分配指令 (Initial Prompt)")
-                                .font(.system(size: 11.5, weight: .bold))
-                                .foregroundColor(.secondary)
+                            HStack {
+                                Text("分配指令 (Initial Prompt)")
+                                    .font(.system(size: 11.5, weight: .bold))
+                                    .foregroundColor(.secondary)
+                                Spacer()
+                                if let onAskBtw {
+                                    Button {
+                                        dismiss()
+                                        onAskBtw(prompt)
+                                    } label: {
+                                        Label("/btw 旁路快问", systemImage: "bubble.left.and.exclamationmark.bubble.right")
+                                            .font(.system(size: 11.5, weight: .semibold))
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .controlSize(.mini)
+                                    .tint(.indigo)
+                                }
+                            }
                             
                             Text(prompt)
                                 .font(.system(size: 13))
                                 .foregroundColor(.primary)
+                                .textSelection(.enabled)
                                 .padding(10)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .background(Color(uiColor: .tertiarySystemFill).opacity(0.6))

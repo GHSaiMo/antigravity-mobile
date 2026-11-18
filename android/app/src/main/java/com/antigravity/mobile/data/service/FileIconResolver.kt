@@ -39,7 +39,7 @@ object FileIconResolver {
     )
 
     private val audioExtensions = listOf(
-        ".m4a", ".mp3", ".wav", ".aac", ".caf", ".flac", ".ogg", ".wma"
+        ".m4a", ".mp3", ".wav", ".aac", ".caf", ".flac", ".ogg", ".oga", ".opus", ".amr", ".wma"
     )
 
     private val allPreviewExtensions = documentExtensions + imageExtensions + videoExtensions + audioExtensions

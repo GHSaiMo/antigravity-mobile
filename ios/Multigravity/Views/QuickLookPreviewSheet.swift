@@ -129,6 +129,9 @@ public struct QuickLookPreviewSheet: View {
                         .ignoresSafeArea(edges: .bottom)
                 } else if isNotebook(url: url) {
                     NotebookPreviewView(url: url)
+                } else if isPDF(url: url) {
+                    PdfDocumentPreviewView(url: url)
+                        .ignoresSafeArea(edges: .bottom)
                 } else {
                     QuickLookControllerRepresentable(url: url)
                         .ignoresSafeArea(edges: .bottom)
@@ -255,6 +258,16 @@ public struct QuickLookPreviewSheet: View {
         if let comps = URLComponents(url: url, resolvingAgainstBaseURL: false),
            let uri = comps.queryItems?.first(where: { $0.name == "uri" })?.value {
             return (uri as NSString).pathExtension.lowercased() == "ipynb"
+        }
+        return false
+    }
+
+    private func isPDF(url: URL) -> Bool {
+        let ext = url.pathExtension.lowercased()
+        if ext == "pdf" { return true }
+        if let comps = URLComponents(url: url, resolvingAgainstBaseURL: false),
+           let uri = comps.queryItems?.first(where: { $0.name == "uri" })?.value {
+            return (uri as NSString).pathExtension.lowercased() == "pdf"
         }
         return false
     }
@@ -937,6 +950,7 @@ public struct HTMLPreviewSheet: View {
     public let onDismiss: () -> Void
     @State private var isShowingDocumentPicker: Bool = false
     @State private var toastSuccessMessage: String? = nil
+    @State private var findTrigger: Int = 0
     
     public init(url: URL, title: String = "", onDismiss: @escaping () -> Void) {
         self.url = url
@@ -947,7 +961,7 @@ public struct HTMLPreviewSheet: View {
     
     public var body: some View {
         NavigationStack {
-            HTMLWebViewRepresentable(url: url)
+            HTMLWebViewRepresentable(url: url, findTrigger: findTrigger)
                 .ignoresSafeArea(edges: .bottom)
                 .navigationTitle(title)
                 .navigationBarTitleDisplayMode(.inline)
@@ -962,7 +976,15 @@ public struct HTMLPreviewSheet: View {
                         }
                         .accessibilityLabel("存储到“文件”")
                     }
-                    ToolbarItem(placement: .topBarTrailing) {
+                    ToolbarItemGroup(placement: .topBarTrailing) {
+                        Button {
+                            findTrigger &+= 1
+                        } label: {
+                            Image(systemName: "magnifyingglass")
+                                .font(.system(size: 15, weight: .semibold))
+                        }
+                        .accessibilityLabel("页内查找")
+
                         ShareLink(item: url, preview: SharePreview(title)) {
                             Image(systemName: "square.and.arrow.up")
                                 .font(.system(size: 16, weight: .semibold))
@@ -1056,6 +1078,13 @@ public struct DocumentExporterRepresentable: UIViewControllerRepresentable {
 
 public struct HTMLWebViewRepresentable: UIViewRepresentable {
     public let url: URL
+    public var findTrigger: Int = 0
+
+    public final class Coordinator {
+        var lastFindTrigger: Int = 0
+    }
+
+    public func makeCoordinator() -> Coordinator { Coordinator() }
     
     public func makeUIView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
@@ -1066,12 +1095,21 @@ public struct HTMLWebViewRepresentable: UIViewRepresentable {
         config.defaultWebpagePreferences = prefs
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.allowsBackForwardNavigationGestures = false
+        webView.isFindInteractionEnabled = true
         webView.scrollView.contentInsetAdjustmentBehavior = .automatic
         webView.loadFileURL(url, allowingReadAccessTo: url)
         return webView
     }
     
-    public func updateUIView(_ uiView: WKWebView, context: Context) {}
+    public func updateUIView(_ uiView: WKWebView, context: Context) {
+        if findTrigger != context.coordinator.lastFindTrigger {
+            context.coordinator.lastFindTrigger = findTrigger
+            DispatchQueue.main.async {
+                uiView.becomeFirstResponder()
+                uiView.findInteraction?.presentFindNavigator(showingReplace: false)
+            }
+        }
+    }
 }
 
 // MARK: - Activity View Controller for Sharing files

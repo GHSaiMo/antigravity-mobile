@@ -7,10 +7,29 @@ async function sendMessage() {
 
   const inputEl = document.getElementById("chat-input");
   const text = inputEl.value.trim();
+
+  // Antigravity 2.33.0: /btw side-question slash command in main composer
+  if (activeCascadeId && (text === "/btw" || /^\/btw\s+/i.test(text))) {
+    const q = text.replace(/^\/btw\s*/i, "").trim();
+    inputEl.value = "";
+    inputEl.style.height = "auto";
+    clearTimeout(draftDebounceTimer);
+    DraftManager.clear(activeCascadeId);
+    updateChatControls(isCascadeRunning(activeCascadeId), null, false);
+    const sel = window.getSelection?.()?.toString()?.trim() || "";
+    window.V233?.openBtwModal?.({ parentCascadeId: activeCascadeId, quote: sel, initialQuestion: q });
+    return;
+  }
+
   const hasImages = pendingImages.length > 0;
+  const hasAttachments = typeof pendingAttachments !== "undefined" && pendingAttachments.some(a => !a.uploading);
+  if (typeof pendingAttachments !== "undefined" && pendingAttachments.some(a => a.uploading)) {
+    if (typeof showToast === "function") showToast("附件正在上传，请稍候…");
+    return;
+  }
   const slashSelected = getSelectedSlashCommand();
   const hasContextItems = !!(window.Phase3?.contextItems?.length);
-  if (!text && !hasImages && !slashSelected && !hasContextItems) return;
+  if (!text && !hasImages && !hasAttachments && !slashSelected && !hasContextItems) return;
 
   if (!activeCascadeId && activeDraftSession) {
     isSendingMessage = true;
@@ -19,12 +38,15 @@ async function sendMessage() {
 
     const imagesToSend = [...pendingImages];
     pendingImages = [];
+    const attachmentsToSend = typeof pendingAttachments !== "undefined" ? [...pendingAttachments] : [];
+    if (typeof pendingAttachments !== "undefined") pendingAttachments = [];
     renderImagePreviews();
 
     const sentSlash = slashSelected;
     const ctxItems = window.Phase3?.consumeContextItems?.() || [];
-    const needsSeparateMessage = imagesToSend.length > 0 || !!sentSlash || ctxItems.length > 0;
-    const items = needsSeparateMessage ? buildSendItems(text) : null;
+    const needsSeparateMessage = imagesToSend.length > 0 || attachmentsToSend.length > 0 || !!sentSlash || ctxItems.length > 0;
+    const effectiveText = text || (attachmentsToSend.length > 0 && !imagesToSend.length ? "请查收附件" : "");
+    const items = needsSeparateMessage ? buildSendItems(effectiveText) : null;
     if (sentSlash) {
       clearSelectedSlash();
     }
@@ -78,6 +100,9 @@ async function sendMessage() {
         if (mediaPayload.length > 0) {
           sendPayload.media = mediaPayload;
         }
+        if (attachmentsToSend.length > 0) {
+          sendPayload.attachments = attachmentsToSend.map(a => ({ id: a.id }));
+        }
         await rpc("SendUserCascadeMessage", sendPayload);
       }
 
@@ -96,6 +121,7 @@ async function sendMessage() {
       activeDraftSession = sessionToCreate;
       inputEl.value = text;
       pendingImages = imagesToSend;
+      if (typeof pendingAttachments !== "undefined") pendingAttachments = attachmentsToSend;
       renderImagePreviews();
       if (sentSlash && typeof slashState !== "undefined") {
         slashState.selected = sentSlash;
@@ -134,6 +160,8 @@ async function sendMessage() {
 
   const imagesToSend = [...pendingImages];
   pendingImages = [];
+  const attachmentsToSend = typeof pendingAttachments !== "undefined" ? [...pendingAttachments] : [];
+  if (typeof pendingAttachments !== "undefined") pendingAttachments = [];
   renderImagePreviews();
 
   inputEl.value = "";
@@ -144,7 +172,8 @@ async function sendMessage() {
   updateProceedButton(false);
   updateContinueButton(false);
 
-  const items = buildSendItems(text);
+  const effectiveText = text || (attachmentsToSend.length > 0 && !imagesToSend.length ? "请查收附件" : "");
+  const items = buildSendItems(effectiveText);
   const ctxItems = window.Phase3?.consumeContextItems?.() || [];
   const displayText = slashDisplayText(text);
   const sentSlash = slashSelected;
@@ -158,7 +187,8 @@ async function sendMessage() {
 
   if (isRunning) {
     // Enqueue message while agent is running
-    LocalQueueManager.enqueue(displayText || (imagesToSend.length ? `[${imagesToSend.length} 张图片]` : ""));
+    const qLabel = displayText || (attachmentsToSend.length ? `[${attachmentsToSend.length} 个附件]` : (imagesToSend.length ? `[${imagesToSend.length} 张图片]` : ""));
+    LocalQueueManager.enqueue(qLabel);
     updateChatControls(true, null, false);
     try {
       const payload = {
@@ -172,6 +202,9 @@ async function sendMessage() {
       }
       if (mediaPayload.length > 0) {
         payload.media = mediaPayload;
+      }
+      if (attachmentsToSend.length > 0) {
+        payload.attachments = attachmentsToSend.map(a => ({ id: a.id }));
       }
       await rpc("SendUserCascadeMessage", payload);
     } catch (err) {
@@ -194,6 +227,12 @@ async function sendMessage() {
       }).join("") +
       `</div>`;
   }
+  let attPreviewHtml = "";
+  if (attachmentsToSend.length > 0) {
+    attPreviewHtml = `<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:4px;">` +
+      attachmentsToSend.map(a => `<span style="font-size:12px;opacity:0.85;">📎 ${escapeHtml(a.name)}</span>`).join("") +
+      `</div>`;
+  }
   const renderedDisplay = displayText
     ? (typeof renderUserTextWithSlashPills === "function"
         ? renderUserTextWithSlashPills(displayText, sentSlash ? [sentSlash] : [])
@@ -202,7 +241,7 @@ async function sendMessage() {
   const textHtml = renderedDisplay ? `<div>${renderedDisplay}</div>` : "";
   streamEl.insertAdjacentHTML("beforeend", `
     <div id="${tempId}" class="message-row user">
-      <div class="bubble">${imgHtml}${textHtml}</div>
+      <div class="bubble">${imgHtml}${attPreviewHtml}${textHtml}</div>
     </div>
   `);
   userIsNearBottom = true;
@@ -226,6 +265,9 @@ async function sendMessage() {
     if (mediaPayload.length > 0) {
       payload.media = mediaPayload;
     }
+    if (attachmentsToSend.length > 0) {
+      payload.attachments = attachmentsToSend.map(a => ({ id: a.id }));
+    }
 
     await rpc("SendUserCascadeMessage", payload);
 
@@ -244,6 +286,7 @@ async function sendMessage() {
     }
     inputEl.value = text;
     pendingImages = imagesToSend;
+    if (typeof pendingAttachments !== "undefined") pendingAttachments = attachmentsToSend;
     renderImagePreviews();
   } finally {
     isSendingMessage = false;
@@ -375,6 +418,14 @@ async function fetchFileContent(uri, cascadeId) {
   return resp.json();
 }
 
+function renderViewerDocumentText(content, filename) {
+  const lower = String(filename || "").toLowerCase();
+  if (lower.endsWith(".r") || lower.endsWith(".rprofile") || lower.endsWith(".renviron") || lower.endsWith(".namespace")) {
+    return renderMarkdown("```r\n" + (content || "") + "\n```");
+  }
+  return renderMarkdown(content || "");
+}
+
 async function openMarkdownViewer(uri, title) {
   const sheet = document.getElementById("sheet-markdown-viewer");
   if (!sheet) return;
@@ -428,7 +479,7 @@ async function openMarkdownViewer(uri, title) {
     if (loadingEl) loadingEl.classList.add("hidden");
     if (errorEl) errorEl.classList.add("hidden");
     if (contentEl) {
-      contentEl.innerHTML = renderMarkdown(cached.content || "");
+      contentEl.innerHTML = renderViewerDocumentText(cached.content || "", cached.filename || filename);
       renderAllMermaidDiagrams(contentEl);
       if (typeof hydrateAllAgentEmbeds === "function") hydrateAllAgentEmbeds(contentEl);
     }
@@ -483,7 +534,7 @@ async function openMarkdownViewer(uri, title) {
 
     // Render markdown content using chat's rich markdown parser
     if (contentEl) {
-      contentEl.innerHTML = renderMarkdown(data.content || "");
+      contentEl.innerHTML = renderViewerDocumentText(data.content || "", data.filename || filename);
       renderAllMermaidDiagrams(contentEl);
       if (typeof hydrateAllAgentEmbeds === "function") hydrateAllAgentEmbeds(contentEl);
     }
@@ -508,6 +559,7 @@ async function openMarkdownViewer(uri, title) {
 }
 
 function closeMarkdownViewer() {
+  window.V233?.closeFindPopover?.();
   const sheet = document.getElementById("sheet-markdown-viewer");
   if (sheet) {
     sheet.classList.add("hidden");
@@ -622,7 +674,9 @@ function isPreviewableBinary(url) {
   const binaryExts = [
     ".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg", ".bmp", ".ico", ".heic",
     ".pdf", ".pptx", ".ppt", ".key", ".docx", ".doc", ".xlsx", ".xls",
-    ".mp4", ".mov", ".m4v", ".webm", ".avi", ".zip", ".tar", ".gz"
+    ".mp4", ".mov", ".m4v", ".webm", ".avi", ".mkv", ".3gp",
+    ".mp3", ".m4a", ".wav", ".aac", ".flac", ".ogg", ".oga", ".opus", ".amr", ".caf", ".wma",
+    ".zip", ".tar", ".gz"
   ];
   return binaryExts.some(ext => clean.endsWith(ext));
 }
@@ -677,7 +731,7 @@ function initMarkdownViewer() {
       const isHttp = lower.startsWith("http://") || lower.startsWith("https://");
       const isExternal = isHttp && !lower.includes(window.location.host);
       if (!isExternal && !isPreviewableBinary(href)) {
-        if (lower.endsWith(".md") || lower.endsWith(".markdown") || lower.includes("/brain/") || lower.includes("/static/artifacts/")) {
+        if (lower.endsWith(".md") || lower.endsWith(".markdown") || lower.endsWith(".rmd") || lower.endsWith(".rmarkdown") || lower.endsWith(".r") || lower.endsWith(".rprofile") || lower.includes("/brain/") || lower.includes("/static/artifacts/")) {
           isLocalMd = true;
         }
       }

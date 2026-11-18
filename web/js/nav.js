@@ -169,6 +169,7 @@ function renderRoute() {
       Phase3.renderContextChips?.();
       Phase3.renderSuggestedResponses?.();
     }
+    window.V233?.checkWorkspaceTrust?.("", activeDraftSession?.isPure ? "" : (activeDraftSession?.uri || ""));
 
     if (titleText) titleText.textContent = activeDraftSession.isPure ? "新对话" : activeDraftSession.name;
     if (wsText) wsText.textContent = activeDraftSession.isPure ? "Chat" : `📁 ${activeDraftSession.name}`;
@@ -240,6 +241,7 @@ function renderRoute() {
       Phase3.renderContextChips?.();
       Phase3.renderSuggestedResponses?.();
     }
+    window.V233?.checkWorkspaceTrust?.("", "");
 
     loadConversations();
     startListEvents();
@@ -542,6 +544,22 @@ async function loadConversations(quiet = false) {
   }
 }
 
+function formatConvPrBadge(info) {
+  if (!info) return "";
+  const pr = info.pullRequest;
+  if (pr && (pr.number || pr.state)) {
+    const st = String(pr.state || "OPEN").toUpperCase();
+    const tone = st === "MERGED" ? "merged" : st === "DRAFT" ? "draft" : st === "CLOSED" ? "closed" : "open";
+    const num = pr.number ? `#${Number(pr.number)}` : "PR";
+    return `<span class="conv-pr-pill ${tone}" title="${escapeHtml(pr.title || "")}">${escapeHtml(num)} · ${escapeHtml(st)}</span>`;
+  }
+  const br = String(info.currentBranch || "").trim();
+  if (br && br !== "HEAD") {
+    return `<span class="conv-branch-pill">⎇ ${escapeHtml(br)}</span>`;
+  }
+  return "";
+}
+
 // 子代理会话不在列表里展示（与原生端一致）：有父会话 / 战斗模式分叉 / 子代理规格 / 嵌套深度 > 0。
 function isSubagentSummary(info) {
   const meta = info && info.trajectoryMetadata;
@@ -712,7 +730,7 @@ function renderConversationList(summaries, { forceReorder = false } = {}) {
                   : `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                       <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
                     </svg>`}
-                <span class="ws-name">${escapeHtml(wsName)}</span>
+                <span class="ws-name">${escapeHtml(wsName)}</span>${formatConvPrBadge(item)}
               </div>
               <span class="conv-steps-time">${item.stepCount || 0} 步骤 • ${timeStr}</span>
             </div>

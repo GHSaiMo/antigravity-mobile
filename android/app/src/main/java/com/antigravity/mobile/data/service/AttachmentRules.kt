@@ -10,19 +10,30 @@ import java.util.Locale
  */
 object AttachmentRules {
     const val MAX_FILE_BYTES: Long = 50L * 1024 * 1024
+    const val MAX_MEDIA_FILE_BYTES: Long = 200L * 1024 * 1024
     const val MAX_FILES_PER_MESSAGE = 5
     const val MAX_TOTAL_BYTES: Long = 100L * 1024 * 1024
+    const val MAX_MEDIA_TOTAL_BYTES: Long = 400L * 1024 * 1024
     const val BLOCK_HEADER = "📎 附件（已上传到本机，可直接读取）："
+
+    private val largeMediaExtensions: Set<String> = setOf(
+        "mp3", "m4a", "wav", "aac", "flac", "ogg", "oga", "opus", "aif", "aiff", "wma", "amr", "caf",
+        "mp4", "mov", "m4v", "webm", "mkv", "avi", "flv", "wmv", "3gp"
+    )
+
+    fun isLargeMediaName(name: String): Boolean =
+        largeMediaExtensions.contains(name.substringAfterLast('.', "").lowercase())
 
     private val allowedExtensions: Set<String> = setOf(
         // documents
-        "doc", "docx", "dot", "dotx", "rtf", "odt", "pages", "pdf", "md", "markdown", "txt", "log", "epub",
+        "doc", "docx", "dot", "dotx", "rtf", "odt", "pages", "pdf", "md", "markdown", "rmd", "rmarkdown", "txt", "log", "epub",
         // spreadsheets
         "xls", "xlsx", "xlsm", "csv", "tsv", "ods", "numbers",
         // presentations
         "ppt", "pptx", "pps", "ppsx", "odp", "key",
-        // audio
+        // audio & video
         "mp3", "m4a", "wav", "aac", "flac", "ogg", "oga", "opus", "aif", "aiff", "wma", "amr", "caf",
+        "mp4", "mov", "m4v", "webm", "mkv", "avi", "flv", "wmv", "3gp",
         // archives
         "zip", "tar", "gz", "tgz", "7z",
         // source & config
@@ -39,10 +50,13 @@ object AttachmentRules {
     fun validate(name: String, size: Long, existing: List<AttachmentFile>): String? {
         if (name.isBlank()) return "文件名无效"
         if (size <= 0) return "文件为空：$name"
-        if (size > MAX_FILE_BYTES) return "文件超过 ${MAX_FILE_BYTES / 1024 / 1024}MB：$name"
+        val fileCap = if (isLargeMediaName(name)) MAX_MEDIA_FILE_BYTES else MAX_FILE_BYTES
+        if (size > fileCap) return "文件超过 ${fileCap / 1024 / 1024}MB：$name"
         if (existing.size >= MAX_FILES_PER_MESSAGE) return "一条消息最多附带 $MAX_FILES_PER_MESSAGE 个文件"
-        if (existing.sumOf { it.size } + size > MAX_TOTAL_BYTES) {
-            return "附件总大小超过 ${MAX_TOTAL_BYTES / 1024 / 1024}MB"
+        val hasMedia = isLargeMediaName(name) || existing.any { isLargeMediaName(it.name) }
+        val totalCap = if (hasMedia) MAX_MEDIA_TOTAL_BYTES else MAX_TOTAL_BYTES
+        if (existing.sumOf { it.size } + size > totalCap) {
+            return "附件总大小超过 ${totalCap / 1024 / 1024}MB"
         }
         return null
     }

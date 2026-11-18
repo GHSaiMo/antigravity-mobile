@@ -2,6 +2,13 @@
 
 ### ✨ 核心新功能与重要更新
 
+- 🌌 **Antigravity 2.33.0 全端深度同步（Go 网关 + iOS + Android + Web 全端，不含 SSH 远程主机）**：
+  - **RPC 基线与工作区信任**：网关 RPC 契约对齐 Antigravity `2.33.0`（377 个方法），新增 `GET/POST /gateway/projects/trust`，进入未信任工作区时展示安全横幅并支持一键授信；
+  - **GitHub Pull Request 端到端闭环**：新增 `POST /gateway/github/pull-requests` 与会话摘要分支/PR 状态附带；聊天消息 PR 链接自动渲染状态胶囊与详情弹窗，会话列表同步展示关联 PR 与当前分支标签；
+  - **`/btw` 旁问独立闭环**：新增 `/gateway/btw/start|list|status` 路由，支持快捷栏 `/btw`、输入框 `/btw` 指令、消息操作栏与子代理详情等多入口发起独立旁问，答案可一键「插入主对话」或跳转独立会话；
+  - **200 MB 大音视频与 `.amr` 支持 + 高密度 PDF 优化**：音频/视频上传与原生附件支持提升至 `200 MB` 并补全 `.amr`（`audio/amr`）播放预览；iOS `PDFKit` 与 Android `LruCache` 改为按页懒加载渲染与按需高清文本选区开关；
+  - **页面内查找、R/R Markdown 高亮与 Nord 官方主题**：全端 Markdown/文本/文档查看器支持页内搜索跳转，新增 `R` / `R Markdown` 语法高亮，并上线官方 Nord 深色主题与分享卡 Nord 配色；
+  - **单子代理一步直达与长思考防断流**：仅 1 个子代理运行时点击浮条直接直达详情；立即发送/插队发送保持历史轮次稳态不闪烁；上游连接增加 25s TCP KeepAlive、流式静默期 25s `noop` 心跳帧及陈旧连接池单次重试。
 - 💬 **微信聊天记录压缩包识别与原生排版预览（Go 网关 + iOS + Android + Web 全端）**：
   - **特征识别与微信图标替换**：客户端自动匹配 `聊天记录_YYYYMMDD_HHMMSS.zip`（及 `聊天记录*.zip`）特征文件名（自动剥离网关防碰撞前缀），在消息气泡附件卡、草稿芯片与系统分享接收页同步渲染微信绿色图标与「微信聊天记录」标识；
   - **网关统一解析与按需流式读取**：Go 网关新增 `/api/v1/files/wechat-chat` 与 `/api/v1/files/zip-entry` 接口，兼容无 UTF-8 标志位的微信 ZIP 条目编码，支持 HTTP `Range` 分片流式读取与视频首帧/时长探测；同时升级文件解析器自动回溯 Antigravity 搬迁至 `.user_uploaded/` 目录的附件，避免已发送压缩包出现 404；

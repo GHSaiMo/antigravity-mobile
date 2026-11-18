@@ -13,6 +13,7 @@ public struct MessageBubbleView: View {
     let onSelectSubagent: ((SubagentItem) -> Void)?
     let onFork: ((ChatMessage) -> Void)?
     let onNarrate: ((String) -> Void)?
+    let onAskBtw: ((String) -> Void)?
     let makeShareContext: (() -> ShareCardContext)?
     @State var showShareCard: Bool = false
     @State var isThinkingExpanded: Bool = false
@@ -31,6 +32,7 @@ public struct MessageBubbleView: View {
         onSelectSubagent: ((SubagentItem) -> Void)? = nil,
         onFork: ((ChatMessage) -> Void)? = nil,
         onNarrate: ((String) -> Void)? = nil,
+        onAskBtw: ((String) -> Void)? = nil,
         makeShareContext: (() -> ShareCardContext)? = nil
     ) {
         self.message = message
@@ -43,6 +45,7 @@ public struct MessageBubbleView: View {
         self.onSelectSubagent = onSelectSubagent
         self.onFork = onFork
         self.onNarrate = onNarrate
+        self.onAskBtw = onAskBtw
         self.makeShareContext = makeShareContext
     }
     
@@ -121,7 +124,8 @@ public struct MessageBubbleView: View {
         .sheet(isPresented: $showTextSelectionSheet) {
             TextSelectionSheet(
                 title: String(localized: "选择文本"),
-                content: agentPlainText
+                content: agentPlainText,
+                onAskBtw: onAskBtw
             )
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)

@@ -733,6 +733,17 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		r.URL.Path == "/gateway/git/discard":
 		p.HandleGitExtra(w, r)
 		return
+	case r.URL.Path == "/gateway/projects/trust":
+		p.HandleProjectTrust(w, r)
+		return
+	case r.URL.Path == "/gateway/github/pull-requests":
+		p.HandleGitHubPullRequests(w, r)
+		return
+	case r.URL.Path == "/gateway/btw/start",
+		r.URL.Path == "/gateway/btw/list",
+		r.URL.Path == "/gateway/btw/status":
+		p.HandleBtw(w, r)
+		return
 	}
 
 	// WebSocket upgrade routes

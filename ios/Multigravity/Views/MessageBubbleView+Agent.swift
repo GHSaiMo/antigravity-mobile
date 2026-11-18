@@ -70,6 +70,7 @@ extension MessageBubbleView {
                 MarkdownContentView(content: message.content, onImageTap: { url in
                     previewGallery = ImageGalleryData(url: url)
                 })
+                InlineGitHubPRPillsSection(content: message.content)
             }
             
             if fallbackAgentImageURLs.count == 1, let url = URL(string: fallbackAgentImageURLs[0]) {
@@ -122,6 +123,13 @@ extension MessageBubbleView {
                     onNarrate(plainText)
                 } label: {
                     Label("语音播报", systemImage: "speaker.wave.2")
+                }
+            }
+            if !plainText.isEmpty, let onAskBtw {
+                Button {
+                    onAskBtw(plainText)
+                } label: {
+                    Label("/btw 旁路快问", systemImage: "bubble.left.and.exclamationmark.bubble.right")
                 }
             }
             if let onFork, message.effectiveStepIndex != nil {

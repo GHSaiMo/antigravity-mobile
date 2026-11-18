@@ -17,7 +17,9 @@ struct MultigravityApp: App {
     var body: some Scene {
         WindowGroup {
             ConversationListView()
-                .tint(.indigo)
+                .tint(settings.isNordTheme ? NordTheme.accent : .indigo)
+                .preferredColorScheme(settings.colorScheme)
+                .background(settings.isNordTheme ? NordTheme.background : Color.clear)
                 .onAppear {
                     settings.applyAppearance()
                 }

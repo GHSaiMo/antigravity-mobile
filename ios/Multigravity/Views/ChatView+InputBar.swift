@@ -106,7 +106,34 @@ extension ChatView {
                         }
                     )
 
-                    // 2c. 已选中的斜杠命令按钮（紧跟右侧，样式同高对齐，右上角带小叉）
+                    // 2c. /btw 旁路快问快捷按钮
+                    if !viewModel.isDraftConversation && !viewModel.cascadeId.isEmpty {
+                        Button {
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            isInputFocused = false
+                            btwInitialQuote = nil
+                            showBtwSheet = true
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "bubble.left.and.exclamationmark.bubble.right")
+                                    .font(.system(size: 11, weight: .semibold))
+                                Text("btw")
+                                    .font(.system(size: 12.5, weight: .semibold, design: .monospaced))
+                            }
+                            .foregroundColor(.indigo)
+                            .padding(.horizontal, 11)
+                            .frame(height: 32)
+                            .background(Color.indigo.opacity(0.10))
+                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    .stroke(Color.indigo.opacity(0.28), lineWidth: 1)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
+
+                    // 2d. 已选中的斜杠命令按钮（紧跟右侧，样式同高对齐，右上角带小叉）
                     if let command = viewModel.selectedSlashCommand {
                         SlashCommandChipView(command: command) {
                             UIImpactFeedbackGenerator(style: .light).impactOccurred()

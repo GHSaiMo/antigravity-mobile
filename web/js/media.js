@@ -703,7 +703,9 @@ function isPreviewableDocumentResource(url) {
   const clean = url.split("?")[0].split("#")[0].toLowerCase();
   const docExts = [
     ".pdf", ".pptx", ".ppt", ".key", ".docx", ".doc", ".xlsx", ".xls",
-    ".numbers", ".pages", ".mp4", ".mov", ".m4v", ".webm", ".avi", ".zip", ".tar", ".gz"
+    ".numbers", ".pages", ".mp4", ".mov", ".m4v", ".webm", ".avi", ".mkv", ".3gp",
+    ".mp3", ".m4a", ".wav", ".aac", ".flac", ".ogg", ".oga", ".opus", ".amr", ".caf", ".wma",
+    ".zip", ".tar", ".gz"
   ];
   return docExts.some(ext => clean.endsWith(ext));
 }
@@ -1146,6 +1148,10 @@ const LANGUAGE_REGISTRY = {
   r: { displayName: "R", color: "#276DC3", glyph: "" },
   rscript: { displayName: "R Script", color: "#276DC3", glyph: "" },
   rmd: { displayName: "R Markdown", color: "#276DC3", glyph: "" },
+  rmarkdown: { displayName: "R Markdown", color: "#276DC3", glyph: "" },
+  rprofile: { displayName: "R Profile", color: "#276DC3", glyph: "" },
+  renviron: { displayName: "R Environ", color: "#276DC3", glyph: "" },
+  namespace: { displayName: "R Namespace", color: "#276DC3", glyph: "" },
   julia: { displayName: "Julia", color: "#A270BA", glyph: "" },
   jl: { displayName: "Julia", color: "#A270BA", glyph: "" },
 

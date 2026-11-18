@@ -1269,11 +1269,17 @@
           <div class="p3-row-title">向子代理中途插话 / 指示</div>
           <textarea id="p3-sa-msg" class="p3-textarea" rows="3" placeholder="向正在运行的子代理发送补充指令…"></textarea>
           <div class="p3-form-actions">
+            <button type="button" class="p3-mini-btn" id="btn-sa-btw">/btw 旁问</button>
             <button type="button" class="p3-mini-btn" id="btn-sa-jump">只读查看完整对话</button>
             <button type="button" class="p3-mini-btn primary" id="btn-sa-send">发送消息</button>
           </div>
         </div>`;
 
+      document.getElementById("btn-sa-btw")?.addEventListener("click", () => {
+        sd.classList.add("hidden");
+        const quote = `子代理「${subagentDisplayName?.(sub) || cid.slice(0, 8)}」(${sub.status || "running"})`;
+        window.V233?.openBtwModal?.({ parentCascadeId: activeCascadeId, quote });
+      });
       document.getElementById("btn-sa-jump")?.addEventListener("click", () => {
         sd.classList.add("hidden");
         navigateTo?.(`#c=${cid}`);

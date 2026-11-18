@@ -68,6 +68,7 @@ var Features = []Feature{
 	{ID: "mcp_apps", RPCs: []string{"ToggleMcpServer", "RefreshMcpServers", "LaunchMcpApp", "GetMcpAppResource", "CallMcpAppTool"}},
 	{ID: "memories_rules", RPCs: []string{"GetAllRules", "GetCascadeMemories", "UpdateCascadeMemory", "DeleteCascadeMemory", "GetKnowledgeItems"}},
 	{ID: "git_discard", RPCs: []string{"DiscardFileChanges"}},
+	{ID: "workspace_trust", RPCs: []string{"GetProjectTrustStatus", "SetWorkspaceTrust"}},
 }
 
 // Compatibility is the result of comparing the running language_server with what the gateway needs.

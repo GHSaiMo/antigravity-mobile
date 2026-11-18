@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"time"
 )
 
 var tlsSessionCache = tls.NewLRUClientSessionCache(32)
@@ -32,7 +33,7 @@ func DialContext(ctx context.Context, network, addr string) (net.Conn, error) {
 	if !IsLoopbackHost(host) {
 		return nil, fmt.Errorf("refusing loopback-only connection to non-loopback address %s", addr)
 	}
-	var d net.Dialer
+	d := net.Dialer{KeepAlive: 25 * time.Second}
 	return d.DialContext(ctx, network, addr)
 }
 
@@ -46,7 +47,10 @@ func DialTLSContext(ctx context.Context, network, addr string) (net.Conn, error)
 	if !IsLoopbackHost(host) {
 		return nil, fmt.Errorf("refusing insecure TLS to non-loopback address %s", addr)
 	}
-	d := &tls.Dialer{Config: ClientConfig()}
+	d := &tls.Dialer{
+		NetDialer: &net.Dialer{KeepAlive: 25 * time.Second},
+		Config:    ClientConfig(),
+	}
 	return d.DialContext(ctx, network, addr)
 }
 

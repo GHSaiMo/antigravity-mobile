@@ -342,3 +342,65 @@ private inline fun kotlinx.serialization.json.JsonObjectBuilder.putJsonObject(
 ) {
     put(key, buildJsonObject(builderAction))
 }
+
+suspend fun ApiClient.fetchProjectTrustStatus(cascadeId: String? = null, projectId: String? = null): Result<ProjectTrustStatusResponse> {
+    val params = mutableListOf<String>()
+    if (!projectId.isNullOrBlank()) params.add("projectId=${URLEncoder.encode(projectId, "UTF-8")}")
+    if (!cascadeId.isNullOrBlank()) params.add("cascadeId=${URLEncoder.encode(cascadeId, "UTF-8")}")
+    val path = if (params.isEmpty()) "/gateway/projects/trust" else "/gateway/projects/trust?${params.joinToString("&")}"
+    return p3Get(path).mapCatching { body ->
+        json.decodeFromString<ProjectTrustStatusResponse>(body)
+    }
+}
+
+suspend fun ApiClient.setWorkspaceTrust(cascadeId: String? = null, projectId: String? = null, trusted: Boolean = true): Result<ProjectTrustStatusResponse> {
+    val payload = buildJsonObject {
+        put("trusted", trusted)
+        if (!projectId.isNullOrBlank()) put("projectId", projectId)
+        if (!cascadeId.isNullOrBlank()) put("cascadeId", cascadeId)
+    }
+    return p3PostJson("/gateway/projects/trust", payload).mapCatching { body ->
+        json.decodeFromString<ProjectTrustStatusResponse>(body)
+    }
+}
+
+suspend fun ApiClient.fetchGitHubPullRequests(urls: List<String>): Result<List<GitPullRequestItem>> {
+    if (urls.isEmpty()) return Result.success(emptyList())
+    val payload = buildJsonObject {
+        putJsonArray("urls") { urls.forEach { add(JsonPrimitive(it)) } }
+    }
+    return p3PostJson("/gateway/github/pull-requests", payload).mapCatching { body ->
+        json.decodeFromString<GitHubPullRequestsBatchResponse>(body).pullRequests
+    }
+}
+
+suspend fun ApiClient.startBtwSideQuestion(
+    parentCascadeId: String,
+    question: String,
+    quote: String? = null,
+    model: String? = null
+): Result<BtwStartResponse> {
+    val payload = buildJsonObject {
+        put("parentCascadeId", parentCascadeId)
+        put("question", question)
+        if (!quote.isNullOrBlank()) put("quote", quote)
+        if (!model.isNullOrBlank()) put("model", model)
+    }
+    return p3PostJson("/gateway/btw/start", payload).mapCatching { body ->
+        json.decodeFromString<BtwStartResponse>(body)
+    }
+}
+
+suspend fun ApiClient.listBtwSideQuestions(cascadeId: String): Result<List<BtwSideQuestionEntry>> {
+    val q = URLEncoder.encode(cascadeId, "UTF-8")
+    return p3Get("/gateway/btw/list?cascadeId=$q").mapCatching { body ->
+        json.decodeFromString<BtwListResponse>(body).items
+    }
+}
+
+suspend fun ApiClient.fetchBtwStatus(cascadeId: String): Result<BtwStatusResponse> {
+    val q = URLEncoder.encode(cascadeId, "UTF-8")
+    return p3Get("/gateway/btw/status?cascadeId=$q").mapCatching { body ->
+        json.decodeFromString<BtwStatusResponse>(body)
+    }
+}

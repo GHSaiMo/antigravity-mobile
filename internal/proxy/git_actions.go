@@ -62,6 +62,9 @@ type GitHubBranchTarget struct {
 
 // GitPullRequestItem represents a GitHub Pull Request associated with the workspace branch.
 type GitPullRequestItem struct {
+	Host        string `json:"host,omitempty"`
+	Owner       string `json:"owner,omitempty"`
+	Repo        string `json:"repo,omitempty"`
 	Number      int    `json:"number"`
 	Title       string `json:"title"`
 	URL         string `json:"url"`
@@ -69,6 +72,15 @@ type GitPullRequestItem struct {
 	AuthorLogin string `json:"authorLogin,omitempty"`
 	HeadRefName string `json:"headRefName,omitempty"`
 	BaseRefName string `json:"baseRefName,omitempty"`
+	Body        string `json:"body,omitempty"`
+	Error       string `json:"error,omitempty"`
+}
+
+type GitHubPullRequestRef struct {
+	Host   string `json:"host,omitempty"`
+	Owner  string `json:"owner"`
+	Repo   string `json:"repo"`
+	Number int    `json:"number"`
 }
 
 // GitStatusResponse is the response of POST /gateway/git/status.
@@ -895,4 +907,418 @@ func (p *Proxy) HandleGitPush(w http.ResponseWriter, r *http.Request) {
 	}
 	invalidateGitPRCache(repo)
 	writeGitJSON(w, GitCommitResponse{Pushed: true, Output: out})
+}
+
+type gitPRRefCacheEntry struct {
+	item      GitPullRequestItem
+	fetchedAt time.Time
+}
+
+var (
+	gitPRRefCacheMu   sync.Mutex
+	gitPRRefCache     = make(map[string]gitPRRefCacheEntry)
+	gitPRWarmupMu     sync.Mutex
+	gitPRWarmupLastAt = make(map[string]time.Time)
+)
+
+// ParseGitHubPRURL extracts host, owner, repo, and PR number from a GitHub pull request URL.
+func ParseGitHubPRURL(raw string) (GitHubPullRequestRef, bool) {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || u.Host == "" {
+		return GitHubPullRequestRef{}, false
+	}
+	host := strings.ToLower(u.Hostname())
+	segs := strings.Split(strings.Trim(u.Path, "/"), "/")
+	if len(segs) < 4 || segs[2] != "pull" {
+		return GitHubPullRequestRef{}, false
+	}
+	num, err := strconv.Atoi(segs[3])
+	if err != nil || num <= 0 || segs[0] == "" || segs[1] == "" {
+		return GitHubPullRequestRef{}, false
+	}
+	return GitHubPullRequestRef{
+		Host:   host,
+		Owner:  segs[0],
+		Repo:   segs[1],
+		Number: num,
+	}, true
+}
+
+func prRefCacheKey(ref GitHubPullRequestRef) string {
+	h := strings.ToLower(strings.TrimSpace(ref.Host))
+	if h == "" {
+		h = "github.com"
+	}
+	return fmt.Sprintf("%s/%s/%s#%d", h, strings.ToLower(strings.TrimSpace(ref.Owner)), strings.ToLower(strings.TrimSpace(ref.Repo)), ref.Number)
+}
+
+func truncatePRBody(raw string, maxRunes int) string {
+	s := strings.TrimSpace(raw)
+	if s == "" || maxRunes <= 0 {
+		return s
+	}
+	r := []rune(s)
+	if len(r) <= maxRunes {
+		return s
+	}
+	return string(r[:maxRunes]) + "..."
+}
+
+func lookupGitHubPRViaGH(ctx context.Context, ref GitHubPullRequestRef) (GitPullRequestItem, bool) {
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	repoSlug := ref.Owner + "/" + ref.Repo
+	if ref.Host != "" && !strings.EqualFold(ref.Host, "github.com") {
+		repoSlug = ref.Host + "/" + repoSlug
+	}
+	cmd := exec.CommandContext(ctx, "gh", "pr", "view", strconv.Itoa(ref.Number),
+		"--repo", repoSlug,
+		"--json", "number,title,url,state,isDraft,author,headRefName,baseRefName,body")
+	out, err := cmd.Output()
+	if err != nil || len(out) == 0 {
+		return GitPullRequestItem{}, false
+	}
+	var parsed struct {
+		Number      int    `json:"number"`
+		Title       string `json:"title"`
+		URL         string `json:"url"`
+		State       string `json:"state"`
+		IsDraft     bool   `json:"isDraft"`
+		HeadRefName string `json:"headRefName"`
+		BaseRefName string `json:"baseRefName"`
+		Body        string `json:"body"`
+		Author      struct {
+			Login string `json:"login"`
+		} `json:"author"`
+	}
+	if json.Unmarshal(out, &parsed) != nil || parsed.Number <= 0 {
+		return GitPullRequestItem{}, false
+	}
+	state := normalizeGitHubPRState(parsed.State)
+	if state == "OPEN" && parsed.IsDraft {
+		state = "DRAFT"
+	}
+	return GitPullRequestItem{
+		Host:        firstNonEmpty(ref.Host, "github.com"),
+		Owner:       ref.Owner,
+		Repo:        ref.Repo,
+		Number:      parsed.Number,
+		Title:       strings.TrimSpace(parsed.Title),
+		URL:         strings.TrimSpace(parsed.URL),
+		State:       state,
+		AuthorLogin: strings.TrimSpace(parsed.Author.Login),
+		HeadRefName: strings.TrimSpace(parsed.HeadRefName),
+		BaseRefName: strings.TrimSpace(parsed.BaseRefName),
+		Body:        truncatePRBody(parsed.Body, 400),
+	}, true
+}
+
+// HandleGitHubPullRequests handles POST /gateway/github/pull-requests to resolve live PR statuses.
+func (p *Proxy) HandleGitHubPullRequests(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		Refs []GitHubPullRequestRef `json:"refs"`
+		URLs []string               `json:"urls"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeRPCError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	var refs []GitHubPullRequestRef
+	seen := make(map[string]bool)
+	addRef := func(ref GitHubPullRequestRef) {
+		if ref.Owner == "" || ref.Repo == "" || ref.Number <= 0 {
+			return
+		}
+		if ref.Host == "" {
+			ref.Host = "github.com"
+		}
+		key := prRefCacheKey(ref)
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		refs = append(refs, ref)
+	}
+	for _, ref := range req.Refs {
+		addRef(ref)
+	}
+	for _, u := range req.URLs {
+		if ref, ok := ParseGitHubPRURL(u); ok {
+			addRef(ref)
+		}
+	}
+	if len(refs) == 0 {
+		writeJSONStatus(w, http.StatusOK, map[string]interface{}{"pullRequests": []GitPullRequestItem{}})
+		return
+	}
+	if len(refs) > 25 {
+		refs = refs[:25]
+	}
+
+	resultsByKey := make(map[string]GitPullRequestItem, len(refs))
+	var missing []GitHubPullRequestRef
+	gitPRRefCacheMu.Lock()
+	now := time.Now()
+	for _, ref := range refs {
+		key := prRefCacheKey(ref)
+		if entry, ok := gitPRRefCache[key]; ok && now.Sub(entry.fetchedAt) < gitPRTTL {
+			resultsByKey[key] = entry.item
+		} else {
+			missing = append(missing, ref)
+		}
+	}
+	gitPRRefCacheMu.Unlock()
+
+	if len(missing) > 0 {
+		port, token := p.ActiveUpstream()
+		if port > 0 {
+			ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+			defer cancel()
+			rpcBody, _ := json.Marshal(map[string]interface{}{"pullRequests": missing})
+			rpcURL := fmt.Sprintf("https://127.0.0.1:%d/exa.language_server_pb.LanguageServerService/GetGitHubPullRequests", port)
+			if httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, rpcURL, bytes.NewReader(rpcBody)); err == nil {
+				httpReq.Header.Set("Content-Type", "application/json")
+				httpReq.Header.Set("Connect-Protocol-Version", "1")
+				if token != "" {
+					httpReq.Header.Set("x-codeium-csrf-token", token)
+				}
+				client := p.shortClient
+				if client == nil {
+					client = p.upstreamClient()
+				}
+				if client != nil {
+					if resp, err := client.Do(httpReq); err == nil {
+						body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024*1024))
+						resp.Body.Close()
+						if resp.StatusCode == http.StatusOK {
+							var parsed struct {
+								Statuses []struct {
+									Ref struct {
+										Host   string `json:"host"`
+										Owner  string `json:"owner"`
+										Repo   string `json:"repo"`
+										Number int    `json:"number"`
+									} `json:"ref"`
+									URL         string      `json:"url"`
+									Title       string      `json:"title"`
+									State       interface{} `json:"state"`
+									AuthorLogin string      `json:"authorLogin"`
+									HeadRefName string      `json:"headRefName"`
+									BaseRefName string      `json:"baseRefName"`
+									Body        string      `json:"body"`
+									Error       *struct {
+										Message string `json:"message"`
+									} `json:"error"`
+								} `json:"statuses"`
+							}
+							if json.Unmarshal(body, &parsed) == nil {
+								for _, s := range parsed.Statuses {
+									ref := GitHubPullRequestRef{
+										Host:   firstNonEmpty(s.Ref.Host, "github.com"),
+										Owner:  s.Ref.Owner,
+										Repo:   s.Ref.Repo,
+										Number: s.Ref.Number,
+									}
+									if ref.Owner == "" && s.URL != "" {
+										if uRef, ok := ParseGitHubPRURL(s.URL); ok {
+											ref = uRef
+										}
+									}
+									if ref.Owner == "" || ref.Number <= 0 {
+										continue
+									}
+									errMsg := ""
+									if s.Error != nil {
+										errMsg = strings.TrimSpace(s.Error.Message)
+									}
+									prURL := strings.TrimSpace(s.URL)
+									if prURL == "" {
+										prURL = fmt.Sprintf("https://%s/%s/%s/pull/%d", ref.Host, ref.Owner, ref.Repo, ref.Number)
+									}
+									item := GitPullRequestItem{
+										Host:        ref.Host,
+										Owner:       ref.Owner,
+										Repo:        ref.Repo,
+										Number:      ref.Number,
+										Title:       strings.TrimSpace(s.Title),
+										URL:         prURL,
+										State:       normalizeGitHubPRState(s.State),
+										AuthorLogin: strings.TrimSpace(s.AuthorLogin),
+										HeadRefName: strings.TrimSpace(s.HeadRefName),
+										BaseRefName: strings.TrimSpace(s.BaseRefName),
+										Body:        truncatePRBody(s.Body, 400),
+										Error:       errMsg,
+									}
+									resultsByKey[prRefCacheKey(ref)] = item
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+
+		// Best-effort `gh pr view` fallback for unresolved items when gh is available on host.
+		if os.Getenv("MGY_DISABLE_GH_CLI") != "1" {
+			if _, err := exec.LookPath("gh"); err == nil {
+				for _, ref := range missing {
+					key := prRefCacheKey(ref)
+					existing, has := resultsByKey[key]
+					if !has || (existing.Title == "" && existing.Error == "") {
+						if ghItem, ok := lookupGitHubPRViaGH(r.Context(), ref); ok {
+							resultsByKey[key] = ghItem
+						}
+					}
+				}
+			}
+		}
+
+		gitPRRefCacheMu.Lock()
+		if len(gitPRRefCache) >= 256 {
+			for k, v := range gitPRRefCache {
+				if time.Since(v.fetchedAt) >= gitPRTTL {
+					delete(gitPRRefCache, k)
+				}
+			}
+		}
+		storeAt := time.Now()
+		for _, ref := range missing {
+			key := prRefCacheKey(ref)
+			if item, ok := resultsByKey[key]; ok {
+				gitPRRefCache[key] = gitPRRefCacheEntry{item: item, fetchedAt: storeAt}
+			}
+		}
+		gitPRRefCacheMu.Unlock()
+	}
+
+	out := make([]GitPullRequestItem, 0, len(refs))
+	for _, ref := range refs {
+		if item, ok := resultsByKey[prRefCacheKey(ref)]; ok {
+			out = append(out, item)
+		}
+	}
+	writeJSONStatus(w, http.StatusOK, map[string]interface{}{"pullRequests": out})
+}
+
+// findGitRepoRootFast walks up at most 4 parent directories looking for .git without spawning git.
+func findGitRepoRootFast(dir string) (string, string) {
+	cur := filepath.Clean(dir)
+	for i := 0; i < 4 && cur != "" && cur != string(filepath.Separator); i++ {
+		dotGit := filepath.Join(cur, ".git")
+		fi, err := os.Stat(dotGit)
+		if err == nil {
+			gitDir := dotGit
+			if !fi.IsDir() {
+				if raw, err := os.ReadFile(dotGit); err == nil {
+					line := strings.TrimSpace(string(raw))
+					if strings.HasPrefix(line, "gitdir:") {
+						target := strings.TrimSpace(strings.TrimPrefix(line, "gitdir:"))
+						if !filepath.IsAbs(target) {
+							target = filepath.Join(cur, target)
+						}
+						gitDir = filepath.Clean(target)
+					}
+				}
+			}
+			headBytes, err := os.ReadFile(filepath.Join(gitDir, "HEAD"))
+			if err != nil {
+				return cur, ""
+			}
+			head := strings.TrimSpace(string(headBytes))
+			branch := ""
+			if strings.HasPrefix(head, "ref: refs/heads/") {
+				branch = strings.TrimPrefix(head, "ref: refs/heads/")
+			}
+			return cur, branch
+		}
+		parent := filepath.Dir(cur)
+		if parent == cur {
+			break
+		}
+		cur = parent
+	}
+	return "", ""
+}
+
+func selectPrimaryPRForBranch(prs []GitPullRequestItem, branch string) *GitPullRequestItem {
+	if len(prs) == 0 {
+		return nil
+	}
+	var matching []GitPullRequestItem
+	for _, pr := range prs {
+		if branch != "" && pr.HeadRefName == branch {
+			matching = append(matching, pr)
+		}
+	}
+	pool := matching
+	if len(pool) == 0 {
+		return nil
+	}
+	for _, wantState := range []string{"OPEN", "DRAFT", "MERGED", "CLOSED"} {
+		for i := range pool {
+			if strings.EqualFold(pool[i].State, wantState) {
+				cp := pool[i]
+				return &cp
+			}
+		}
+	}
+	cp := pool[0]
+	return &cp
+}
+
+// cachedWorkspacePullRequest reads cached branch PR info synchronously (sub-millisecond) and returns
+// whether a non-blocking background warmup should be scheduled.
+func cachedWorkspacePullRequest(wsURIs []string, port int) (branch string, pr *GitPullRequestItem, repoRoot string, needsWarmup bool) {
+	if port <= 0 || len(wsURIs) == 0 {
+		return "", nil, "", false
+	}
+	for _, raw := range wsURIs {
+		dir, err := fileURIToLocalPath(raw)
+		if err != nil || dir == "" {
+			continue
+		}
+		root, br := findGitRepoRootFast(dir)
+		if root == "" {
+			continue
+		}
+		cacheKey := fmt.Sprintf("%d|%s|%s", port, filepath.Clean(root), br)
+		gitPRCacheMu.Lock()
+		entry, ok := gitPRCache[cacheKey]
+		fresh := ok && time.Since(entry.fetchedAt) < gitPRTTL
+		gitPRCacheMu.Unlock()
+		if fresh {
+			return br, selectPrimaryPRForBranch(entry.prs, br), root, false
+		}
+		return br, nil, root, true
+	}
+	return "", nil, "", false
+}
+
+func (p *Proxy) scheduleWorkspacePRWarmup(repoRoot, branch string, port int, token string) {
+	if p == nil || port <= 0 || repoRoot == "" {
+		return
+	}
+	key := fmt.Sprintf("%d|%s|%s", port, filepath.Clean(repoRoot), branch)
+	gitPRWarmupMu.Lock()
+	if last, ok := gitPRWarmupLastAt[key]; ok && time.Since(last) < 60*time.Second {
+		gitPRWarmupMu.Unlock()
+		return
+	}
+	gitPRWarmupLastAt[key] = time.Now()
+	gitPRWarmupMu.Unlock()
+
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		_, prs := p.fetchWorkspaceGitHubPullRequests(ctx, repoRoot, branch, port, token)
+		if len(prs) > 0 {
+			p.invalidateAllTrajectories()
+			p.events.requestCheck()
+		}
+	}()
 }
