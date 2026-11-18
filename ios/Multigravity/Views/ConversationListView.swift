@@ -3,6 +3,8 @@ import SwiftUI
 public struct ConversationListView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.appThemePreset) private var appThemePreset
     /// iPad: whether the conversation list column is shown next to the chat.
     @State private var showSidebar = true
     @State private var settings = AppSettings.shared
@@ -786,6 +788,16 @@ public struct ConversationListView: View {
             }
         }
         .listStyle(.plain)
+        .scrollContentBackground({
+            let preset = appThemePreset ?? settings.activeThemePreset(for: colorScheme)
+            return preset.isDefaultStyle ? .automatic : .hidden
+        }())
+        .background {
+            let preset = appThemePreset ?? settings.activeThemePreset(for: colorScheme)
+            if !preset.isDefaultStyle {
+                preset.bg.ignoresSafeArea()
+            }
+        }
         .animation(.spring(response: 0.42, dampingFraction: 0.72), value: viewModel.globalBackgroundTasks.isEmpty)
         .refreshable {
             await viewModel.fetchConversations()

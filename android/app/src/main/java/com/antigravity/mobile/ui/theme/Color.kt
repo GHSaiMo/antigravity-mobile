@@ -90,7 +90,8 @@ data class AppColors(
     val searchBarBg: Color,
     val inputBarBg: Color,
     val cardShadow: Color,
-    val useNord: Boolean = false
+    val useNord: Boolean = false,
+    val themeId: String = "default"
 )
 
 val LightAppColors = AppColors(
@@ -119,7 +120,8 @@ val LightAppColors = AppColors(
     codeBlockBg = LightCodeBlockBg,
     searchBarBg = Color(0xFFE3E3E8),
     inputBarBg = LightSecondarySystemGroupedBackground,
-    cardShadow = Color(0x0A000000)
+    cardShadow = Color(0x0A000000),
+    themeId = "default-light"
 )
 
 val DarkAppColors = AppColors(
@@ -148,7 +150,8 @@ val DarkAppColors = AppColors(
     codeBlockBg = DarkCodeBlockBg,
     searchBarBg = Color(0xFF1C1C1E),
     inputBarBg = Color(0xFF121212),
-    cardShadow = Color(0x33000000)
+    cardShadow = Color(0x33000000),
+    themeId = "default-dark"
 )
 
 // Official Antigravity 2.33.0 Nord Dark Palette
@@ -188,7 +191,8 @@ val NordAppColors = AppColors(
     searchBarBg = Color(0xFF3B4252),
     inputBarBg = Color(0xFF292E39),
     cardShadow = Color(0x40000000),
-    useNord = true
+    useNord = true,
+    themeId = "nord"
 )
 
 /** 厂商专属强调色（Gemini 蓝 / Claude 橙 / Orchestrator 石墨钛灰 / Other 青）。 */

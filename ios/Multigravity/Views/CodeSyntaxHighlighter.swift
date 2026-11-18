@@ -6,10 +6,19 @@ private struct ShareCardUseNordKey: EnvironmentKey {
     static let defaultValue: Bool? = nil
 }
 
+private struct ShareCardThemeIDKey: EnvironmentKey {
+    static let defaultValue: String? = nil
+}
+
 extension EnvironmentValues {
     public var shareCardUseNord: Bool? {
         get { self[ShareCardUseNordKey.self] }
         set { self[ShareCardUseNordKey.self] = newValue }
+    }
+
+    public var shareCardThemeID: String? {
+        get { self[ShareCardThemeIDKey.self] }
+        set { self[ShareCardThemeIDKey.self] = newValue }
     }
 }
 
@@ -33,54 +42,7 @@ public enum CodeSyntaxHighlighter {
 
     private static let maxHighlightUTF16Length = 24_000
 
-    private struct Palette {
-        let keyword: UIColor
-        let string: UIColor
-        let comment: UIColor
-        let number: UIColor
-        let typeName: UIColor
-        let function: UIColor
-        let property: UIColor
-        let diffAdd: UIColor
-        let diffDel: UIColor
-
-        static let dark = Palette(
-            keyword: UIColor(red: 1.00, green: 0.48, blue: 0.45, alpha: 1.0),   // #ff7b72
-            string: UIColor(red: 0.65, green: 0.84, blue: 1.00, alpha: 1.0),    // #a5d6ff
-            comment: UIColor(red: 0.55, green: 0.58, blue: 0.62, alpha: 1.0),   // #8b949e
-            number: UIColor(red: 0.47, green: 0.75, blue: 1.00, alpha: 1.0),    // #79c0ff
-            typeName: UIColor(red: 1.00, green: 0.65, blue: 0.34, alpha: 1.0),  // #ffa657
-            function: UIColor(red: 0.82, green: 0.66, blue: 1.00, alpha: 1.0),  // #d2a8ff
-            property: UIColor(red: 0.49, green: 0.91, blue: 0.53, alpha: 1.0),  // #7ee787
-            diffAdd: UIColor(red: 0.34, green: 0.83, blue: 0.39, alpha: 1.0),
-            diffDel: UIColor(red: 0.97, green: 0.32, blue: 0.29, alpha: 1.0)
-        )
-
-        static let light = Palette(
-            keyword: UIColor(red: 0.81, green: 0.13, blue: 0.18, alpha: 1.0),   // #cf222e
-            string: UIColor(red: 0.04, green: 0.19, blue: 0.41, alpha: 1.0),    // #0a3069
-            comment: UIColor(red: 0.43, green: 0.47, blue: 0.51, alpha: 1.0),   // #6e7781
-            number: UIColor(red: 0.02, green: 0.31, blue: 0.68, alpha: 1.0),    // #0550ae
-            typeName: UIColor(red: 0.58, green: 0.22, blue: 0.00, alpha: 1.0),  // #953800
-            function: UIColor(red: 0.51, green: 0.31, blue: 0.87, alpha: 1.0),  // #8250df
-            property: UIColor(red: 0.07, green: 0.39, blue: 0.16, alpha: 1.0),  // #116329
-            diffAdd: UIColor(red: 0.10, green: 0.50, blue: 0.22, alpha: 1.0),
-            diffDel: UIColor(red: 0.81, green: 0.13, blue: 0.18, alpha: 1.0)
-        )
-
-        // Official Antigravity 2.33.0 Nord Dark Palette
-        static let nord = Palette(
-            keyword: UIColor(red: 0x81 / 255.0, green: 0xA1 / 255.0, blue: 0xC1 / 255.0, alpha: 1.0),  // #81A1C1
-            string: UIColor(red: 0xA3 / 255.0, green: 0xBE / 255.0, blue: 0x8C / 255.0, alpha: 1.0),   // #A3BE8C
-            comment: UIColor(red: 0x61 / 255.0, green: 0x6E / 255.0, blue: 0x88 / 255.0, alpha: 1.0),  // #616E88
-            number: UIColor(red: 0xB4 / 255.0, green: 0x8E / 255.0, blue: 0xAD / 255.0, alpha: 1.0),   // #B48EAD
-            typeName: UIColor(red: 0x8F / 255.0, green: 0xBC / 255.0, blue: 0xBB / 255.0, alpha: 1.0), // #8FBCBB
-            function: UIColor(red: 0x88 / 255.0, green: 0xC0 / 255.0, blue: 0xD0 / 255.0, alpha: 1.0), // #88C0D0
-            property: UIColor(red: 0x8F / 255.0, green: 0xBC / 255.0, blue: 0xBB / 255.0, alpha: 1.0), // #8FBCBB
-            diffAdd: UIColor(red: 0xA3 / 255.0, green: 0xBE / 255.0, blue: 0x8C / 255.0, alpha: 1.0),  // #A3BE8C
-            diffDel: UIColor(red: 0xBF / 255.0, green: 0x61 / 255.0, blue: 0x6A / 255.0, alpha: 1.0)   // #BF616A
-        )
-    }
+    private typealias Palette = ThemeSyntaxPalette
 
     private static let rRegex = try? NSRegularExpression(
         pattern: #"(#[^\n]*)|("(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*')|(```\{[rR][^}]*\}|```)|\b(0x[0-9a-fA-F]+|\d+(?:\.\d+)?(?:[eE][+-]?\d+)?[iL]?)\b|(<-|->|<<-|->>|\|>|%>%)|\b(function|if|else|repeat|while|for|in|next|break|return|TRUE|FALSE|NULL|NA|NA_integer_|NA_real_|NA_character_|NA_complex_|Inf|NaN|library|require|source|switch|tryCatch|stop|warning|message)\b|\b([a-zA-Z.][a-zA-Z0-9._]*)(?=\s*\()"#,
@@ -107,7 +69,13 @@ public enum CodeSyntaxHighlighter {
         options: []
     )
 
-    public static func highlight(code: String, language: String, isDark: Bool, useNord: Bool = AppSettings.shared.isNordTheme) -> AttributedString {
+    public static func highlight(
+        code: String,
+        language: String,
+        isDark: Bool,
+        useNord: Bool = false,
+        themeID: String? = nil
+    ) -> AttributedString {
         let utf16Len = (code as NSString).length
         guard utf16Len > 0, utf16Len <= maxHighlightUTF16Length else {
             return AttributedString(code)
@@ -118,13 +86,20 @@ public enum CodeSyntaxHighlighter {
             return AttributedString(code)
         }
 
-        let themeTag = useNord ? "n" : (isDark ? "d" : "l")
-        let key = "\(themeTag):\(normLang):\(utf16Len):\(code.hashValue)" as NSString
-        if let hit = cache.object(forKey: key), hit.source == code {
+        let resolvedKey: String
+        if let themeID, !themeID.isEmpty {
+            resolvedKey = themeID
+        } else if useNord {
+            resolvedKey = "nord"
+        } else {
+            resolvedKey = AppSettings.shared.activeThemePreset(for: isDark ? .dark : .light).storageKey
+        }
+        let cacheKey = "\(resolvedKey):\(isDark ? 1 : 0):\(normLang):\(utf16Len):\(code.hashValue)" as NSString
+        if let hit = cache.object(forKey: cacheKey), hit.source == code {
             return hit.attributed
         }
 
-        let palette: Palette = useNord ? Palette.nord : (isDark ? Palette.dark : Palette.light)
+        let palette = ThemePresetCatalog.findByThemeKey(resolvedKey, fallbackIsDark: isDark).syntax
         let nsAttr = NSMutableAttributedString(string: code)
         let fullRange = NSRange(location: 0, length: utf16Len)
 
@@ -218,7 +193,7 @@ public enum CodeSyntaxHighlighter {
         }
 
         let result = (try? AttributedString(nsAttr, including: \.uiKit)) ?? AttributedString(code)
-        cache.setObject(Entry(source: code, attributed: result), forKey: key)
+        cache.setObject(Entry(source: code, attributed: result), forKey: cacheKey)
         return result
     }
 

@@ -76,29 +76,72 @@ private val NordMaterialColorScheme = darkColorScheme(
     outline = NordBorder
 )
 
+private fun buildMaterialScheme(appColors: AppColors): androidx.compose.material3.ColorScheme {
+    return if (appColors.isDark) {
+        darkColorScheme(
+            primary = appColors.accentIndigo,
+            onPrimary = appColors.userBubbleText,
+            secondary = appColors.accentGreen,
+            error = appColors.accentRed,
+            background = appColors.background,
+            onBackground = appColors.textPrimary,
+            surface = appColors.surface,
+            onSurface = appColors.textPrimary,
+            surfaceVariant = appColors.surfaceVariant,
+            onSurfaceVariant = appColors.textSecondary,
+            surfaceContainer = appColors.surfaceVariant,
+            surfaceContainerLow = appColors.background,
+            surfaceContainerHigh = appColors.surface,
+            outline = appColors.border
+        )
+    } else {
+        lightColorScheme(
+            primary = appColors.accentIndigo,
+            onPrimary = appColors.userBubbleText,
+            secondary = appColors.accentGreen,
+            error = appColors.accentRed,
+            background = appColors.background,
+            onBackground = appColors.textPrimary,
+            surface = appColors.surface,
+            onSurface = appColors.textPrimary,
+            surfaceVariant = appColors.surfaceVariant,
+            onSurfaceVariant = appColors.textSecondary,
+            surfaceContainer = appColors.surface,
+            surfaceContainerLow = appColors.background,
+            surfaceContainerHigh = appColors.surface,
+            outline = appColors.border
+        )
+    }
+}
+
 @Composable
 fun AntigravityTheme(
     themeMode: String = "system",
+    lightPresetId: String = "default",
+    darkPresetId: String = "default",
     content: @Composable () -> Unit
 ) {
     val isSystemDark = isSystemInDarkTheme()
     val normMode = themeMode.lowercase()
-    val isNord = normMode == "nord"
+    val isLegacyNord = normMode == "nord"
     val isDark = when (normMode) {
         "light" -> false
         "dark", "nord" -> true
         else -> isSystemDark
     }
 
-    val appColors = when {
-        isNord -> NordAppColors
-        isDark -> DarkAppColors
-        else -> LightAppColors
-    }
-    val materialColors = when {
-        isNord -> NordMaterialColorScheme
-        isDark -> DarkMaterialColorScheme
-        else -> LightMaterialColorScheme
+    val effectiveDarkPreset = if (isLegacyNord) "nord" else darkPresetId
+    val preset = ThemePresetCatalog.resolve(
+        isDark = isDark,
+        lightPresetId = lightPresetId,
+        darkPresetId = effectiveDarkPreset
+    )
+    val appColors = preset.appColors
+    val materialColors = when (preset.appColors.themeId) {
+        "default-light" -> LightMaterialColorScheme
+        "default-dark" -> DarkMaterialColorScheme
+        "nord" -> NordMaterialColorScheme
+        else -> buildMaterialScheme(appColors)
     }
 
     val view = LocalView.current

@@ -22,18 +22,25 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -47,9 +54,18 @@ import com.antigravity.mobile.data.service.PreferencesManager
 import com.antigravity.mobile.data.service.fetchPermissionSettings
 import com.antigravity.mobile.data.service.updatePermissionPreset
 import com.antigravity.mobile.ui.theme.AntigravityTheme
+import com.antigravity.mobile.ui.theme.ThemePreset
+import com.antigravity.mobile.ui.theme.ThemePresetCatalog
 import com.antigravity.mobile.ui.theme.modelProviderAccent
 import com.antigravity.mobile.ui.util.rememberHaptic
 import kotlinx.coroutines.launch
+
+private enum class SettingsSubpage(val title: String) {
+    MAIN("设置"),
+    LIGHT_THEMES("浅色配色"),
+    DARK_THEMES("深色配色"),
+    COMPACT("精简模式")
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -64,11 +80,14 @@ fun SettingsSheet(
     var showUnpairAlert by remember { mutableStateOf(false) }
     var showClearCacheAlert by remember { mutableStateOf(false) }
     var showMcpSkillsSheet by remember { mutableStateOf(false) }
+    var activeSubpage by remember { mutableStateOf(SettingsSubpage.MAIN) }
     val colors = AntigravityTheme.colors
     val context = LocalContext.current
     val connectionManager = remember { ConnectionManager(context) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val currentThemeMode by prefs.themeModeFlow.collectAsState()
+    val currentLightPreset by prefs.lightThemePresetFlow.collectAsState()
+    val currentDarkPreset by prefs.darkThemePresetFlow.collectAsState()
     val isNotificationPermissionGranted = remember {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
@@ -92,7 +111,11 @@ fun SettingsSheet(
     ) {
         TallSheetBody(containerColor = colors.background, onDismiss = onDismiss) {
         BackHandler {
-            onDismiss()
+            if (activeSubpage != SettingsSubpage.MAIN) {
+                activeSubpage = SettingsSubpage.MAIN
+            } else {
+                onDismiss()
+            }
         }
 
         Column(
@@ -104,7 +127,7 @@ fun SettingsSheet(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 10.dp, bottom = 18.dp),
+                    .padding(top = 10.dp, bottom = 14.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Box(
@@ -115,15 +138,39 @@ fun SettingsSheet(
                 )
             }
 
-            // Header title row: centered title, no "完成" button
+            // Header title row: back button when on subpage, centered title
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .padding(horizontal = 12.dp)
                     .padding(bottom = 12.dp),
                 contentAlignment = Alignment.Center
             ) {
+                if (activeSubpage != SettingsSubpage.MAIN) {
+                    Row(
+                        modifier = Modifier
+                            .align(Alignment.CenterStart)
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable { activeSubpage = SettingsSubpage.MAIN }
+                            .padding(horizontal = 4.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                            contentDescription = "返回设置",
+                            tint = colors.accentBlue,
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Text(
+                            text = "设置",
+                            color = colors.accentBlue,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
                 Text(
-                    text = "设置",
+                    text = activeSubpage.title,
                     fontWeight = FontWeight.Bold,
                     fontSize = 18.sp,
                     color = colors.textPrimary,
@@ -139,16 +186,34 @@ fun SettingsSheet(
                     .fillMaxWidth()
                     .weight(1f)
             ) {
-                MainSettingsContent(
-                    prefs = prefs,
-                    connectionManager = connectionManager,
-                    currentThemeMode = currentThemeMode,
-                    onThemeModeChange = onThemeModeChange,
-                    onPromptUnpair = { showUnpairAlert = true },
-                    onPromptClearCache = { showClearCacheAlert = true },
-                    onOpenMcpSkills = { showMcpSkillsSheet = true },
-                    onLoadModels = onLoadModels
-                )
+                when (activeSubpage) {
+                    SettingsSubpage.MAIN -> MainSettingsContent(
+                        prefs = prefs,
+                        connectionManager = connectionManager,
+                        currentThemeMode = currentThemeMode,
+                        currentLightPreset = currentLightPreset,
+                        currentDarkPreset = currentDarkPreset,
+                        onThemeModeChange = onThemeModeChange,
+                        onOpenLightThemes = { activeSubpage = SettingsSubpage.LIGHT_THEMES },
+                        onOpenDarkThemes = { activeSubpage = SettingsSubpage.DARK_THEMES },
+                        onOpenCompactSettings = { activeSubpage = SettingsSubpage.COMPACT },
+                        onPromptUnpair = { showUnpairAlert = true },
+                        onPromptClearCache = { showClearCacheAlert = true },
+                        onOpenMcpSkills = { showMcpSkillsSheet = true },
+                        onLoadModels = onLoadModels
+                    )
+                    SettingsSubpage.LIGHT_THEMES -> ThemePresetSubpageContent(
+                        isDarkList = false,
+                        selectedId = currentLightPreset,
+                        onSelect = { prefs.lightThemePreset = it }
+                    )
+                    SettingsSubpage.DARK_THEMES -> ThemePresetSubpageContent(
+                        isDarkList = true,
+                        selectedId = currentDarkPreset,
+                        onSelect = { prefs.darkThemePreset = it }
+                    )
+                    SettingsSubpage.COMPACT -> CompactModeSubpageContent(prefs = prefs)
+                }
             }
         }
             }
@@ -239,7 +304,12 @@ private fun MainSettingsContent(
     prefs: PreferencesManager,
     connectionManager: ConnectionManager,
     currentThemeMode: String,
+    currentLightPreset: String,
+    currentDarkPreset: String,
     onThemeModeChange: (String) -> Unit,
+    onOpenLightThemes: () -> Unit,
+    onOpenDarkThemes: () -> Unit,
+    onOpenCompactSettings: () -> Unit,
     onPromptUnpair: () -> Unit,
     onPromptClearCache: () -> Unit,
     onOpenMcpSkills: () -> Unit,
@@ -659,17 +729,18 @@ private fun MainSettingsContent(
         // MARK: - 5. 外观与主题
         var weeklyPaceCursor by remember { mutableStateOf(prefs.weeklyPaceCursorEnabled) }
         val currentFontScale by prefs.fontSizeScaleFlow.collectAsState()
-        var knowledgeMode by remember { mutableStateOf(prefs.isKnowledgeModeEnabled) }
-        var compactCollapseTools by remember { mutableStateOf(prefs.compactCollapseTools) }
-        var compactCollapseTasks by remember { mutableStateOf(prefs.compactCollapseTasks) }
-        var compactHideHealthyContext by remember { mutableStateOf(prefs.compactHideHealthyContext) }
-        val themeOptions = remember {
-            listOf(
-                PickerMenuOption("system", "跟随系统"),
-                PickerMenuOption("light", "浅色"),
-                PickerMenuOption("dark", "深色"),
-                PickerMenuOption("nord", "Nord (极光深色)")
-            )
+        val knowledgeMode by prefs.knowledgeModeFlow.collectAsState()
+        val compactCollapseTools by prefs.compactCollapseToolsFlow.collectAsState()
+        val compactCollapseTasks by prefs.compactCollapseTasksFlow.collectAsState()
+        val compactHideHealthyContext by prefs.compactHideHealthyContextFlow.collectAsState()
+        val lightPresetObj = remember(currentLightPreset) { ThemePresetCatalog.findLight(currentLightPreset) }
+        val darkPresetObj = remember(currentDarkPreset) { ThemePresetCatalog.findDark(currentDarkPreset) }
+        val compactSummary = remember(knowledgeMode, compactCollapseTools, compactCollapseTasks, compactHideHealthyContext) {
+            if (!knowledgeMode) "已关闭"
+            else {
+                val activeCount = listOf(compactCollapseTools, compactCollapseTasks, compactHideHealthyContext).count { it }
+                "已开启 ($activeCount/3)"
+            }
         }
         val fontScaleOptions = remember {
             listOf(
@@ -680,7 +751,7 @@ private fun MainSettingsContent(
         }
         SettingsSection(
             title = "外观与主题",
-            footer = "选择浅色、深色模式与界面字号缩放；额度匀速指标独立控制首页与配额条上的时间均速游标；开启精简模式后可按需微调对话降噪子选项。"
+            footer = "独立选择浅色与深色配色，跟随系统时按昼夜自动切换；点进「精简模式」可自定义对话降噪选项。"
         ) {
             Column(
                 modifier = Modifier
@@ -689,13 +760,26 @@ private fun MainSettingsContent(
                     .background(colors.surface)
                     .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
             ) {
-                SettingsMenuPickerRow(
-                    label = "外观模式",
-                    selectedLabel = themeOptions.firstOrNull { it.id == currentThemeMode }?.label ?: "跟随系统",
-                    selectedId = currentThemeMode,
-                    options = themeOptions,
-                    onSelect = onThemeModeChange
+                ThemeModeSegmentedRow(
+                    selectedMode = currentThemeMode,
+                    onSelectMode = onThemeModeChange
                 )
+                if (currentThemeMode != "dark") {
+                    HorizontalDivider(color = colors.separator.copy(alpha = 0.4f), thickness = 0.5.dp)
+                    ThemePresetEntryRow(
+                        label = "浅色配色",
+                        preset = lightPresetObj,
+                        onClick = onOpenLightThemes
+                    )
+                }
+                if (currentThemeMode != "light") {
+                    HorizontalDivider(color = colors.separator.copy(alpha = 0.4f), thickness = 0.5.dp)
+                    ThemePresetEntryRow(
+                        label = "深色配色",
+                        preset = darkPresetObj,
+                        onClick = onOpenDarkThemes
+                    )
+                }
                 HorizontalDivider(color = colors.separator.copy(alpha = 0.4f), thickness = 0.5.dp)
                 SettingsMenuPickerRow(
                     label = "字号缩放",
@@ -746,7 +830,8 @@ private fun MainSettingsContent(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                        .clickable { onOpenCompactSettings() }
+                        .padding(horizontal = 16.dp, vertical = 14.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
@@ -756,46 +841,20 @@ private fun MainSettingsContent(
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Medium
                     )
-                    Switch(
-                        checked = knowledgeMode,
-                        onCheckedChange = {
-                            knowledgeMode = it
-                            prefs.isKnowledgeModeEnabled = it
-                        },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = colors.surface,
-                            checkedTrackColor = colors.accentIndigo
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(
+                            text = compactSummary,
+                            color = colors.textSecondary,
+                            fontSize = 14.sp
                         )
-                    )
-                }
-                AnimatedVisibility(visible = knowledgeMode) {
-                    Column(modifier = Modifier.fillMaxWidth()) {
-                        CompactSubToggleRow(
-                            title = "折叠工具执行过程",
-                            subtitle = "将检索与命令步骤收起为单行摘要",
-                            checked = compactCollapseTools,
-                            onCheckedChange = {
-                                compactCollapseTools = it
-                                prefs.compactCollapseTools = it
-                            }
-                        )
-                        CompactSubToggleRow(
-                            title = "收起任务辅助栏",
-                            subtitle = "底部运行任务默认单行折叠，保留终止按钮",
-                            checked = compactCollapseTasks,
-                            onCheckedChange = {
-                                compactCollapseTasks = it
-                                prefs.compactCollapseTasks = it
-                            }
-                        )
-                        CompactSubToggleRow(
-                            title = "隐藏常规上下文",
-                            subtitle = "占用 < 70% 时隐藏顶栏胶囊，≥ 70% 自动恢复预警",
-                            checked = compactHideHealthyContext,
-                            onCheckedChange = {
-                                compactHideHealthyContext = it
-                                prefs.compactHideHealthyContext = it
-                            }
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                            contentDescription = null,
+                            tint = colors.textMuted,
+                            modifier = Modifier.size(18.dp)
                         )
                     }
                 }
@@ -1110,22 +1169,440 @@ private fun FavoriteModelPickerRow(
 }
 
 @Composable
-private fun CompactSubToggleRow(
-    title: String,
-    subtitle: String,
-    checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit
+private fun ThemeModeSegmentedRow(
+    selectedMode: String,
+    onSelectMode: (String) -> Unit
 ) {
     val colors = AntigravityTheme.colors
-    HorizontalDivider(
-        color = colors.separator.copy(alpha = 0.35f),
-        thickness = 0.5.dp,
-        modifier = Modifier.padding(start = 28.dp)
-    )
+    val haptic = rememberHaptic()
+    val items = remember {
+        listOf("system" to "跟随系统", "light" to "浅色", "dark" to "深色")
+    }
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 28.dp, end = 16.dp, top = 9.dp, bottom = 9.dp),
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(
+            text = "外观模式",
+            color = colors.textPrimary,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.Medium
+        )
+        Row(
+            modifier = Modifier
+                .clip(RoundedCornerShape(9.dp))
+                .background(colors.surfaceVariant)
+                .padding(2.dp),
+            horizontalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            items.forEach { (id, label) ->
+                val selected = selectedMode == id
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(7.dp))
+                        .background(if (selected) colors.surface else Color.Transparent)
+                        .clickable {
+                            haptic.light()
+                            onSelectMode(id)
+                        }
+                        .padding(horizontal = 10.dp, vertical = 5.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = label,
+                        color = if (selected) colors.textPrimary else colors.textSecondary,
+                        fontSize = 12.5.sp,
+                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ThemePresetEntryRow(
+    label: String,
+    preset: ThemePreset,
+    onClick: () -> Unit
+) {
+    val colors = AntigravityTheme.colors
+    val haptic = rememberHaptic()
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable {
+                haptic.light()
+                onClick()
+            }
+            .padding(horizontal = 16.dp, vertical = 13.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(
+            text = label,
+            color = colors.textPrimary,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.Medium
+        )
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(7.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .clip(CircleShape)
+                    .background(colors.surfaceVariant)
+                    .border(0.5.dp, colors.border, CircleShape)
+                    .padding(horizontal = 6.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(3.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(Modifier.size(9.dp).clip(CircleShape).background(preset.bg).border(0.5.dp, Color.Gray.copy(alpha = 0.4f), CircleShape))
+                Box(Modifier.size(9.dp).clip(CircleShape).background(preset.fg).border(0.5.dp, Color.Gray.copy(alpha = 0.4f), CircleShape))
+                Box(Modifier.size(9.dp).clip(CircleShape).background(preset.accent).border(0.5.dp, Color.Gray.copy(alpha = 0.4f), CircleShape))
+            }
+            Text(
+                text = preset.name,
+                color = colors.textSecondary,
+                fontSize = 14.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = null,
+                tint = colors.textMuted,
+                modifier = Modifier.size(18.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun ThemePresetSubpageContent(
+    isDarkList: Boolean,
+    selectedId: String,
+    onSelect: (String) -> Unit
+) {
+    val colors = AntigravityTheme.colors
+    val haptic = rememberHaptic()
+    val list = remember(isDarkList) {
+        if (isDarkList) ThemePresetCatalog.darkPresets else ThemePresetCatalog.lightPresets
+    }
+    val selectedPreset = remember(list, selectedId) {
+        list.firstOrNull { it.id == selectedId } ?: list.first()
+    }
+    val defaultGroup = remember(list) { list.filter { it.isDefaultGroup } }
+    val desktopGroup = remember(list) { list.filter { !it.isDefaultGroup } }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(18.dp)
+    ) {
+        ThemeLivePreviewCard(preset = selectedPreset)
+
+        ThemePresetGroup(
+            title = "默认风格",
+            presets = defaultGroup,
+            selectedId = selectedId,
+            onSelect = {
+                haptic.light()
+                onSelect(it)
+            }
+        )
+
+        ThemePresetGroup(
+            title = "Antigravity 桌面端预设",
+            presets = desktopGroup,
+            selectedId = selectedId,
+            onSelect = {
+                haptic.light()
+                onSelect(it)
+            }
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+    }
+}
+
+@Composable
+private fun ThemeLivePreviewCard(preset: ThemePreset) {
+    val pColors = preset.appColors
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(pColors.background)
+            .border(0.8.dp, pColors.border, RoundedCornerShape(14.dp))
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .align(Alignment.End)
+                .clip(RoundedCornerShape(14.dp, 14.dp, 4.dp, 14.dp))
+                .background(pColors.userBubbleBg)
+                .padding(horizontal = 12.dp, vertical = 7.dp)
+        ) {
+            Text(
+                text = "检查一下这段配色代码",
+                color = pColors.userBubbleText,
+                fontSize = 12.5.sp,
+                fontWeight = FontWeight.Medium
+            )
+        }
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(pColors.surface)
+                .border(0.5.dp, pColors.border, RoundedCornerShape(12.dp))
+                .padding(10.dp),
+            verticalArrangement = Arrangement.spacedBy(7.dp)
+        ) {
+            Text(
+                text = "已应用 ${preset.name}，气泡与代码块同步配色：",
+                color = pColors.textPrimary,
+                fontSize = 12.5.sp
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(pColors.codeBlockBg)
+                    .border(0.5.dp, pColors.border, RoundedCornerShape(8.dp))
+                    .padding(horizontal = 10.dp, vertical = 8.dp)
+            ) {
+                val snippet = remember(preset) {
+                    buildAnnotatedString {
+                        withStyle(SpanStyle(color = preset.syntax.keyword)) { append("val ") }
+                        withStyle(SpanStyle(color = preset.syntax.function)) { append("theme") }
+                        withStyle(SpanStyle(color = pColors.textPrimary)) { append(" = ") }
+                        withStyle(SpanStyle(color = preset.syntax.string)) { append("\"ready\"") }
+                        withStyle(SpanStyle(color = preset.syntax.comment)) { append(" // ok") }
+                    }
+                }
+                Text(
+                    text = snippet,
+                    fontSize = 12.sp,
+                    fontFamily = FontFamily.Monospace
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ThemePresetGroup(
+    title: String,
+    presets: List<ThemePreset>,
+    selectedId: String,
+    onSelect: (String) -> Unit
+) {
+    val colors = AntigravityTheme.colors
+    SettingsSection(title = title) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(colors.surface)
+                .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
+        ) {
+            presets.forEachIndexed { idx, preset ->
+                if (idx > 0) {
+                    HorizontalDivider(
+                        color = colors.separator.copy(alpha = 0.35f),
+                        thickness = 0.5.dp,
+                        modifier = Modifier.padding(start = 60.dp)
+                    )
+                }
+                val isSelected = preset.id == selectedId
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onSelect(preset.id) }
+                        .padding(horizontal = 14.dp, vertical = 11.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .size(width = 34.dp, height = 24.dp)
+                            .clip(RoundedCornerShape(7.dp))
+                            .background(preset.bg)
+                            .border(0.8.dp, colors.border, RoundedCornerShape(7.dp))
+                            .padding(horizontal = 5.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Box(
+                            Modifier
+                                .size(width = 4.dp, height = 14.dp)
+                                .clip(RoundedCornerShape(2.dp))
+                                .background(preset.accent)
+                        )
+                        Box(
+                            Modifier
+                                .size(9.dp)
+                                .clip(CircleShape)
+                                .background(preset.fg)
+                        )
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = preset.name,
+                            color = colors.textPrimary,
+                            fontSize = 14.5.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            text = preset.description,
+                            color = colors.textSecondary,
+                            fontSize = 11.5.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    if (isSelected) {
+                        Icon(
+                            imageVector = Icons.Default.Check,
+                            contentDescription = "已选中",
+                            tint = colors.accentBlue,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CompactModeSubpageContent(prefs: PreferencesManager) {
+    val colors = AntigravityTheme.colors
+    val haptic = rememberHaptic()
+    val knowledgeMode by prefs.knowledgeModeFlow.collectAsState()
+    val compactCollapseTools by prefs.compactCollapseToolsFlow.collectAsState()
+    val compactCollapseTasks by prefs.compactCollapseTasksFlow.collectAsState()
+    val compactHideHealthyContext by prefs.compactHideHealthyContextFlow.collectAsState()
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(20.dp)
+    ) {
+        SettingsSection(
+            title = "精简模式",
+            footer = "开启后可折叠对话中的工具执行过程与底部任务辅助栏，让长对话阅读更聚焦。"
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(colors.surface)
+                    .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = "开启精简模式",
+                    color = colors.textPrimary,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Medium
+                )
+                Switch(
+                    checked = knowledgeMode,
+                    onCheckedChange = {
+                        haptic.light()
+                        prefs.isKnowledgeModeEnabled = it
+                    },
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = colors.surface,
+                        checkedTrackColor = colors.accentIndigo
+                    )
+                )
+            }
+        }
+
+        SettingsSection(title = "降噪选项") {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(colors.surface)
+                    .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
+                    .alpha(if (knowledgeMode) 1f else 0.48f)
+            ) {
+                CompactSubpageToggleRow(
+                    title = "折叠工具执行过程",
+                    subtitle = "将检索与命令步骤收起为单行摘要",
+                    checked = compactCollapseTools,
+                    enabled = knowledgeMode,
+                    onCheckedChange = {
+                        haptic.light()
+                        prefs.compactCollapseTools = it
+                    }
+                )
+                HorizontalDivider(
+                    color = colors.separator.copy(alpha = 0.35f),
+                    thickness = 0.5.dp,
+                    modifier = Modifier.padding(start = 16.dp)
+                )
+                CompactSubpageToggleRow(
+                    title = "收起任务辅助栏",
+                    subtitle = "底部运行任务默认单行折叠，保留终止按钮",
+                    checked = compactCollapseTasks,
+                    enabled = knowledgeMode,
+                    onCheckedChange = {
+                        haptic.light()
+                        prefs.compactCollapseTasks = it
+                    }
+                )
+                HorizontalDivider(
+                    color = colors.separator.copy(alpha = 0.35f),
+                    thickness = 0.5.dp,
+                    modifier = Modifier.padding(start = 16.dp)
+                )
+                CompactSubpageToggleRow(
+                    title = "隐藏常规上下文",
+                    subtitle = "占用 < 70% 时隐藏顶栏胶囊，≥ 70% 自动恢复预警",
+                    checked = compactHideHealthyContext,
+                    enabled = knowledgeMode,
+                    onCheckedChange = {
+                        haptic.light()
+                        prefs.compactHideHealthyContext = it
+                    }
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+    }
+}
+
+@Composable
+private fun CompactSubpageToggleRow(
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    enabled: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    val colors = AntigravityTheme.colors
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
@@ -1137,7 +1614,7 @@ private fun CompactSubToggleRow(
             Text(
                 text = title,
                 color = colors.textPrimary,
-                fontSize = 14.sp,
+                fontSize = 14.5.sp,
                 fontWeight = FontWeight.Medium
             )
             Text(
@@ -1149,6 +1626,7 @@ private fun CompactSubToggleRow(
         }
         Switch(
             checked = checked,
+            enabled = enabled,
             onCheckedChange = onCheckedChange,
             colors = SwitchDefaults.colors(
                 checkedThumbColor = colors.surface,
