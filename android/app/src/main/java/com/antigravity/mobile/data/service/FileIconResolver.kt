@@ -97,6 +97,17 @@ object FileIconResolver {
     }
 
     private val weChatTimestampZipRegex = Regex("""^聊天记录_\d{8}_\d{6}\.zip$""", RegexOption.IGNORE_CASE)
+    private val weChatHashPrefixInlineRegex = Regex(
+        """(?<![0-9a-fA-F])[0-9a-f]{16}-(聊天记录[^\s/`'"<>\(\)\[\]，。；：、！？]*?\.zip)""",
+        RegexOption.IGNORE_CASE
+    )
+
+    private fun stripHexCollisionPrefix(name: String): String {
+        if (name.length > 17 && name[16] == '-' && name.substring(0, 16).all { it in '0'..'9' || it in 'a'..'f' }) {
+            return name.substring(17)
+        }
+        return name
+    }
 
     /**
      * Matches WeChat exported chat archive filenames (e.g. `聊天记录_20261118_003107.zip` or `聊天记录*.zip`),
@@ -108,14 +119,32 @@ object FileIconResolver {
         if (str.startsWith("file://")) str = str.removePrefix("file://")
         if (str.contains('#')) str = str.substringBefore('#')
         if (str.contains('?')) str = str.substringBefore('?')
-        var base = str.substringAfterLast('/')
-        if (base.length > 17 && base[16] == '-' && base.substring(0, 16).all { it in '0'..'9' || it in 'a'..'f' }) {
-            base = base.substring(17)
-        }
+        val base = stripHexCollisionPrefix(str.substringAfterLast('/'))
         val lower = base.lowercase()
         if (!lower.endsWith(".zip")) return false
         if (weChatTimestampZipRegex.matches(base)) return true
         return base.startsWith("聊天记录")
+    }
+
+    /**
+     * Strips the gateway's `<16-hex>-` collision prefix from WeChat chat archive display references
+     * without altering underlying link destination URLs.
+     */
+    fun strippingWeChatDisplayPrefix(text: String): String {
+        if (!text.contains("聊天记录") || !text.contains('-')) return text
+        if (isWeChatChatArchive(text)) {
+            val slashIdx = text.lastIndexOf('/')
+            if (slashIdx >= 0) {
+                val dir = text.substring(0, slashIdx + 1)
+                val base = text.substring(slashIdx + 1)
+                val stripped = stripHexCollisionPrefix(base)
+                if (stripped != base) return dir + stripped
+            } else {
+                val stripped = stripHexCollisionPrefix(text)
+                if (stripped != text) return stripped
+            }
+        }
+        return weChatHashPrefixInlineRegex.replace(text, "$1")
     }
 
     /**

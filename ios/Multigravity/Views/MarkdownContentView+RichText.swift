@@ -798,18 +798,88 @@ extension MarkdownContentView {
         return renderInlineMarkdownNormalized(unwrappedText, size: size, weight: weight)
     }
 
+    /// Strips `<16-hex>-` prefixes from WeChat chat archive display references in link labels,
+    /// inline code, and prose, while keeping link destination URLs and bare/angle URLs intact.
+    static func stripWeChatDisplayPrefixes(in text: String) -> String {
+        guard text.contains("聊天记录"), text.contains("-") else { return text }
+
+        func stripInNonCodeSegment(_ segment: String) -> String {
+            let chars = Array(segment)
+            var out = ""
+            var plainBuffer = ""
+            var i = 0
+
+            func flushPlain() {
+                if !plainBuffer.isEmpty {
+                    out += FileIconResolver.strippingWeChatDisplayPrefix(in: plainBuffer)
+                    plainBuffer = ""
+                }
+            }
+
+            while i < chars.count {
+                if chars[i] == "\\", i + 1 < chars.count {
+                    plainBuffer.append(chars[i])
+                    plainBuffer.append(chars[i + 1])
+                    i += 2
+                    continue
+                }
+                if chars[i] == "[", let linkMatch = scanMarkdownLink(in: chars, from: i) {
+                    flushPlain()
+                    let cleanedLabel = stripWeChatDisplayPrefixes(in: linkMatch.label)
+                    out += "[\(cleanedLabel)]\(linkMatch.destinationWithParens)"
+                    i = linkMatch.nextIndex
+                    continue
+                }
+                if chars[i] == "<", let autoEnd = scanAngleURL(in: chars, from: i) {
+                    flushPlain()
+                    out += String(chars[i..<autoEnd])
+                    i = autoEnd
+                    continue
+                }
+                if let bareEnd = scanBareURL(in: chars, from: i) {
+                    flushPlain()
+                    out += String(chars[i..<bareEnd])
+                    i = bareEnd
+                    continue
+                }
+                plainBuffer.append(chars[i])
+                i += 1
+            }
+            flushPlain()
+            return out
+        }
+
+        guard text.contains("`") else {
+            return stripInNonCodeSegment(text)
+        }
+
+        return splitCodeSpans(in: text).map { segment in
+            if segment.isCode {
+                let tickCount = segment.content.prefix { $0 == "`" }.count
+                guard tickCount > 0 && segment.content.count >= tickCount * 2 else {
+                    return FileIconResolver.strippingWeChatDisplayPrefix(in: segment.content)
+                }
+                let ticks = String(repeating: "`", count: tickCount)
+                let inner = String(segment.content.dropFirst(tickCount).dropLast(tickCount))
+                return ticks + FileIconResolver.strippingWeChatDisplayPrefix(in: inner) + ticks
+            }
+            return stripInNonCodeSegment(segment.content)
+        }.joined()
+    }
+
     private static func renderInlineMarkdownNormalized(_ unwrappedText: String, size: CGFloat = 15, weight: Font.Weight = .regular) -> AttributedString {
-        let cacheKey = unwrappedText.hashValue ^ (Int(size * 100) << 2) ^ weight.hashValue
+        let displayCleaned = stripWeChatDisplayPrefixes(in: unwrappedText)
+        let cacheKey = displayCleaned.hashValue ^ (Int(size * 100) << 2) ^ weight.hashValue
         if let cached = InlineMarkdownCache.shared.get(cacheKey) {
             return cached
         }
         
-        let (preprocessedText, hasMarkers) = fixCJKDelimiters(in: unwrappedText)
+        let (preprocessedText, hasMarkers) = fixCJKDelimiters(in: displayCleaned)
         
         var options = AttributedString.MarkdownParsingOptions()
         options.interpretedSyntax = .inlineOnlyPreservingWhitespace
         guard var attr = try? AttributedString(markdown: preprocessedText, options: options) else {
-            let fallback = AttributedString(unwrappedText)
+            let fallback = AttributedString(displayCleaned)
             InlineMarkdownCache.shared.set(cacheKey, value: fallback)
             return fallback
         }

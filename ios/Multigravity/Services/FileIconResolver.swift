@@ -1103,6 +1103,20 @@ public enum FileIconResolver {
     }
 
     private static let weChatTimestampZipRegex = try? NSRegularExpression(pattern: #"^聊天记录_\d{8}_\d{6}\.zip$"#, options: [.caseInsensitive])
+    private static let weChatHashPrefixInlineRegex = try? NSRegularExpression(
+        pattern: #"(?<![0-9a-fA-F])[0-9a-f]{16}-(聊天记录[^\s/`'"<>\(\)\[\]，。；：、！？]*?\.zip)"#,
+        options: [.caseInsensitive]
+    )
+
+    private static func stripHexCollisionPrefix(_ name: String) -> String {
+        guard name.count > 17 else { return name }
+        let idx = name.index(name.startIndex, offsetBy: 16)
+        let prefix = name[name.startIndex..<idx]
+        if name[idx] == "-" && prefix.allSatisfy({ $0.isHexDigit && !$0.isUppercase }) {
+            return String(name[name.index(after: idx)...])
+        }
+        return name
+    }
 
     /// Matches WeChat exported chat archive filenames (e.g. `聊天记录_20261118_003107.zip` or `聊天记录*.zip`),
     /// stripping the gateway's optional `<16-hex>-` collision prefix first.
@@ -1112,14 +1126,7 @@ public enum FileIconResolver {
         if str.hasPrefix("file://") { str = String(str.dropFirst(7)) }
         if let hashIdx = str.firstIndex(of: "#") { str = String(str[..<hashIdx]) }
         if let queryIdx = str.firstIndex(of: "?") { str = String(str[..<queryIdx]) }
-        var base = (str as NSString).lastPathComponent
-        if base.count > 17 {
-            let idx = base.index(base.startIndex, offsetBy: 16)
-            let prefix = base[base.startIndex..<idx]
-            if base[idx] == "-" && prefix.allSatisfy({ $0.isHexDigit && !$0.isUppercase }) {
-                base = String(base[base.index(after: idx)...])
-            }
-        }
+        let base = stripHexCollisionPrefix((str as NSString).lastPathComponent)
         let lower = base.lowercased()
         guard lower.hasSuffix(".zip") else { return false }
         if let regex = weChatTimestampZipRegex {
@@ -1129,6 +1136,30 @@ public enum FileIconResolver {
             }
         }
         return base.hasPrefix("聊天记录")
+    }
+
+    /// Strips the gateway's `<16-hex>-` collision prefix from WeChat chat archive display strings
+    /// without altering raw URLs passed elsewhere.
+    public static func strippingWeChatDisplayPrefix(in text: String) -> String {
+        guard text.contains("聊天记录"), text.contains("-") else { return text }
+        if isWeChatChatArchive(text) {
+            if let slashIdx = text.lastIndex(of: "/") {
+                let dir = String(text[...slashIdx])
+                let base = String(text[text.index(after: slashIdx)...])
+                let stripped = stripHexCollisionPrefix(base)
+                if stripped != base {
+                    return dir + stripped
+                }
+            } else {
+                let stripped = stripHexCollisionPrefix(text)
+                if stripped != text {
+                    return stripped
+                }
+            }
+        }
+        guard let regex = weChatHashPrefixInlineRegex else { return text }
+        let ns = text as NSString
+        return regex.stringByReplacingMatches(in: text, range: NSRange(location: 0, length: ns.length), withTemplate: "$1")
     }
 
     private static let imageExtensionsSet: Set<String> = [

@@ -81,6 +81,9 @@ const fileIconFallback = {
 
 function resolveFileIcon(nameOrUrl) {
   if (!nameOrUrl) return null;
+  if (typeof isWeChatChatArchiveName === "function" && isWeChatChatArchiveName(nameOrUrl)) {
+    return "wechat";
+  }
   let clean = nameOrUrl.trim().replace(/^file:\/\//, "");
   let filename = clean.split("/").pop().toLowerCase();
 
@@ -1077,30 +1080,37 @@ function renderInlineMarkdown(text) {
   });
 
   // 4. Markdown links with file icon support (only allow safe URL protocols)
+  const cleanWxText = (s) => (typeof stripWeChatDisplayPrefix === "function" ? stripWeChatDisplayPrefix(s) : s);
   html = html.replace(/(?<!\!)\[([^\]]+)\]\(([^)]+)\)/g, (_, linkText, url) => {
     const rawUrl = htmlUnescape(url);
-    if (!isSafeURL(rawUrl)) return `${linkText}`;
+    const displayLinkText = cleanWxText(linkText);
+    if (!isSafeURL(rawUrl)) return `${displayLinkText}`;
     if (isImageResource(rawUrl)) {
-      return buildImageThumbnailCard(rawUrl, null, htmlUnescape(linkText));
+      return buildImageThumbnailCard(rawUrl, null, htmlUnescape(displayLinkText));
     }
-    const icon = resolveFileIcon(htmlUnescape(linkText)) || resolveFileIcon(rawUrl);
+    const icon = resolveFileIcon(htmlUnescape(displayLinkText)) || resolveFileIcon(rawUrl);
     const lower = rawUrl.toLowerCase();
     const isDoc = isPreviewableDocumentResource(rawUrl);
     const isMd = !isDoc && (lower.endsWith(".md") || lower.endsWith(".markdown") || lower.includes("/brain/") || lower.includes("implementation_plan") || lower.includes("walkthrough"));
-    const isPlan = !isDoc && (lower.includes("implementation_plan") || linkText.toLowerCase().includes("implementation_plan") || lower.includes("walkthrough") || linkText.toLowerCase().includes("walkthrough"));
+    const isPlan = !isDoc && (lower.includes("implementation_plan") || displayLinkText.toLowerCase().includes("implementation_plan") || lower.includes("walkthrough") || displayLinkText.toLowerCase().includes("walkthrough"));
     const extraClass = isPlan ? " plan-btn-link" : (isMd ? " markdown-file-link" : "");
     const arrowSvg = isPlan ? '<svg class="plan-btn-arrow" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>' : '';
     const href = protectMdAttr(escapeHtml(rawUrl));
-    const titleAttr = protectMdAttr(escapeHtml(linkText));
+    const titleAttr = protectMdAttr(escapeHtml(displayLinkText));
     const mdAttrs = isMd ? ` data-md-url="${href}" data-md-title="${titleAttr}"` : "";
     if (icon) {
-      return `<a href="${href}" class="file-link${extraClass}"${mdAttrs}><img src="/icons/files/${icon}.svg" class="file-icon" alt="" /><span>${linkText}</span>${arrowSvg}</a>`;
+      return `<a href="${href}" class="file-link${extraClass}"${mdAttrs}><img src="/icons/files/${icon}.svg" class="file-icon" alt="" /><span>${displayLinkText}</span>${arrowSvg}</a>`;
     }
-    return `<a href="${href}" class="text-link${extraClass}"${mdAttrs}><span>${linkText}</span>${arrowSvg}</a>`;
+    return `<a href="${href}" class="text-link${extraClass}"${mdAttrs}><span>${displayLinkText}</span>${arrowSvg}</a>`;
   });
 
   // Inline code (e.g. `foo`)
-  html = html.replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>');
+  html = html.replace(/`([^`]+)`/g, (_, code) => `<code class="inline-code">${cleanWxText(code)}</code>`);
+
+  // Strip gateway hash prefix in plain text nodes without touching HTML tag attributes (href, src, data-*)
+  if (html.includes("聊天记录") && html.includes("-")) {
+    html = html.split(/(<[^>]+>)/g).map((part, idx) => (idx % 2 === 1 ? part : cleanWxText(part))).join("");
+  }
 
   // Bold + Italic, Bold, Italic
   html = html.replace(/\*\*\*((?:[^*]|\*(?!\*\*))+?)\*\*\*/g, '<strong><em>$1</em></strong>');
