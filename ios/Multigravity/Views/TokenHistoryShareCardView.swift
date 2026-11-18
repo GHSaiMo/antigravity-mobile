@@ -5,6 +5,7 @@ public struct TokenHistoryShareCardView: View {
     public let history: TokenHistoryResponse
     public let selectedRecord: DailyTokenRecord?
     public let colorScheme: ColorScheme
+    public let skin: ThemePreset?
     public let exportDate: Date
 
     public static let designWidth: CGFloat = 390
@@ -13,40 +14,71 @@ public struct TokenHistoryShareCardView: View {
         history: TokenHistoryResponse,
         selectedRecord: DailyTokenRecord? = nil,
         colorScheme: ColorScheme = .dark,
+        skin: ThemePreset? = nil,
         exportDate: Date = Date()
     ) {
         self.history = history
         self.selectedRecord = selectedRecord
         self.colorScheme = colorScheme
+        self.skin = skin
         self.exportDate = exportDate
     }
 
-    private var isDark: Bool {
-        colorScheme == .dark
+    private var resolvedSkin: ThemePreset {
+        skin ?? (colorScheme == .dark ? ThemePresetCatalog.defaultDark : ThemePresetCatalog.defaultLight)
     }
 
-    private var backgroundColor: Color {
-        isDark ? Color(red: 0.08, green: 0.09, blue: 0.13) : Color(red: 0.95, green: 0.96, blue: 0.98)
+    private var effectiveColorScheme: ColorScheme {
+        skin != nil ? (resolvedSkin.isDark ? .dark : .light) : colorScheme
+    }
+
+    private var isDark: Bool {
+        effectiveColorScheme == .dark
+    }
+
+    @ViewBuilder
+    private var backgroundView: some View {
+        if resolvedSkin.isDefaultStyle {
+            isDark ? Color(red: 0.08, green: 0.09, blue: 0.13) : Color(red: 0.95, green: 0.96, blue: 0.98)
+        } else {
+            ShareCardTheme(preset: resolvedSkin).background
+        }
     }
 
     private var cardBackground: Color {
-        isDark ? Color(red: 0.13, green: 0.14, blue: 0.20) : Color.white
+        if resolvedSkin.isDefaultStyle {
+            return isDark ? Color(red: 0.13, green: 0.14, blue: 0.20) : Color.white
+        }
+        return resolvedSkin.surface.opacity(isDark ? 0.92 : 0.96)
     }
 
     private var cardBorderColor: Color {
-        isDark ? Color.white.opacity(0.08) : Color.black.opacity(0.06)
+        if resolvedSkin.isDefaultStyle {
+            return isDark ? Color.white.opacity(0.08) : Color.black.opacity(0.06)
+        }
+        return resolvedSkin.border
     }
 
     private var primaryTextColor: Color {
-        isDark ? Color.white : Color(red: 0.10, green: 0.11, blue: 0.14)
+        if resolvedSkin.isDefaultStyle {
+            return isDark ? Color.white : Color(red: 0.10, green: 0.11, blue: 0.14)
+        }
+        return resolvedSkin.fg
     }
 
     private var secondaryTextColor: Color {
-        isDark ? Color.white.opacity(0.65) : Color(red: 0.45, green: 0.47, blue: 0.52)
+        if resolvedSkin.isDefaultStyle {
+            return isDark ? Color.white.opacity(0.65) : Color(red: 0.45, green: 0.47, blue: 0.52)
+        }
+        return resolvedSkin.secondaryFg
     }
 
     private var accentBlue: Color {
-        Color.blue
+        resolvedSkin.isDefaultStyle ? Color.blue : resolvedSkin.accent
+    }
+
+    private var secondaryRatioAccent: Color {
+        (resolvedSkin.isDefaultStyle ? Color.purple : Color(uiColor: resolvedSkin.syntax.keyword)).opacity(0.6)
     }
 
     public var body: some View {
@@ -62,8 +94,8 @@ public struct TokenHistoryShareCardView: View {
         }
         .padding(16)
         .frame(width: Self.designWidth)
-        .background(backgroundColor)
-        .environment(\.colorScheme, colorScheme)
+        .background(backgroundView)
+        .environment(\.colorScheme, effectiveColorScheme)
     }
 
     // MARK: - Header
@@ -166,10 +198,10 @@ public struct TokenHistoryShareCardView: View {
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
                     RoundedRectangle(cornerRadius: 3)
-                        .fill(Color.purple.opacity(0.6))
+                        .fill(secondaryRatioAccent)
                         .frame(height: 6)
                     RoundedRectangle(cornerRadius: 3)
-                        .fill(Color.blue)
+                        .fill(accentBlue)
                         .frame(width: geo.size.width * CGFloat(desktopPct) / 100.0, height: 6)
                 }
             }
@@ -226,7 +258,7 @@ public struct TokenHistoryShareCardView: View {
                                     .frame(width: 12, height: 12)
                                     .overlay(
                                         RoundedRectangle(cornerRadius: 2.5)
-                                            .stroke(isSel ? Color.blue : Color.clear, lineWidth: 1.5)
+                                            .stroke(isSel ? accentBlue : Color.clear, lineWidth: 1.5)
                                     )
                             } else {
                                 Color.clear.frame(width: 12, height: 12)
@@ -369,4 +401,150 @@ public struct TokenHistoryShareCardView: View {
         f.dateFormat = "HH:mm:ss"
         return f
     }()
+}
+
+// MARK: - Token History Share Sheet (with curated skin switcher)
+
+public struct TokenHistoryShareCardSheet: View {
+    public let history: TokenHistoryResponse
+    public let selectedRecord: DailyTokenRecord?
+
+    @Environment(\.colorScheme) private var systemScheme
+    @Environment(\.displayScale) private var displayScale
+
+    @State private var selectedSkin: ThemePreset = ThemePresetCatalog.defaultDark
+    @State private var hasInitializedSkin = false
+    @State private var showSkinPicker = false
+    @State private var renderedImage: UIImage?
+    @State private var isRendering = false
+    @State private var renderFailed = false
+
+    public init(history: TokenHistoryResponse, selectedRecord: DailyTokenRecord? = nil) {
+        self.history = history
+        self.selectedRecord = selectedRecord
+    }
+
+    public var body: some View {
+        NavigationStack {
+            VStack(spacing: 8) {
+                ScrollView {
+                    Group {
+                        if let renderedImage {
+                            Image(uiImage: renderedImage)
+                                .resizable()
+                                .scaledToFit()
+                                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                                .shadow(color: .black.opacity(0.15), radius: 8, y: 2)
+                                .opacity(isRendering ? 0.5 : 1)
+                        } else if renderFailed {
+                            Text("长图生成失败，请稍后重试")
+                                .font(.footnote)
+                                .foregroundColor(.secondary)
+                                .frame(maxWidth: .infinity, minHeight: 240)
+                        } else {
+                            ProgressView()
+                                .frame(maxWidth: .infinity, minHeight: 240)
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+                    .padding(.bottom, 80)
+                }
+            }
+            .safeAreaInset(edge: .bottom) {
+                GlassEffectContainer(spacing: 12) {
+                    HStack {
+                        Button {
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            showSkinPicker = true
+                        } label: {
+                            HStack(spacing: 7) {
+                                ThemeSwatchDotsView(preset: selectedSkin)
+                                Text(selectedSkin.name)
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .lineLimit(1)
+                                Image(systemName: "chevron.up.chevron.down")
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundColor(.secondary)
+                            }
+                            .padding(.horizontal, 14)
+                            .frame(height: 44)
+                        }
+                        .buttonStyle(.plain)
+                        .glassEffect(.regular.interactive(), in: .capsule)
+
+                        Spacer()
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 8)
+                }
+            }
+            .navigationTitle("分享 Token 报告")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        guard let image = renderedImage else { return }
+                        Task { await ImageActions.saveWithFeedback(image) }
+                    } label: {
+                        Image(systemName: "square.and.arrow.down")
+                    }
+                    .accessibilityLabel("保存到相册")
+                    .disabled(renderedImage == nil || isRendering)
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        guard let image = renderedImage else { return }
+                        ImageActions.share(image)
+                    } label: {
+                        Image(systemName: "square.and.arrow.up")
+                    }
+                    .accessibilityLabel("分享")
+                    .disabled(renderedImage == nil || isRendering)
+                }
+            }
+        }
+        .onAppear {
+            if !hasInitializedSkin {
+                selectedSkin = AppSettings.shared.resolvedShareCardSkin(for: systemScheme)
+                hasInitializedSkin = true
+            }
+        }
+        .task(id: selectedSkin.storageKey) {
+            await render()
+        }
+        .sheet(isPresented: $showSkinPicker) {
+            ShareCardSkinPickerSheet(selectedPreset: selectedSkin) { picked in
+                AppSettings.shared.shareCardSkinID = picked.id
+                selectedSkin = picked
+                showSkinPicker = false
+            }
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+        }
+    }
+
+    @MainActor
+    private func render() async {
+        isRendering = true
+        renderFailed = false
+        defer { isRendering = false }
+
+        let card = TokenHistoryShareCardView(
+            history: history,
+            selectedRecord: selectedRecord,
+            colorScheme: systemScheme,
+            skin: selectedSkin,
+            exportDate: Date()
+        )
+        let renderer = ImageRenderer(content: card)
+        renderer.isOpaque = true
+        renderer.scale = max(displayScale, 2.0)
+
+        if let uiImage = renderer.uiImage {
+            renderedImage = uiImage
+        } else {
+            renderFailed = true
+        }
+    }
 }

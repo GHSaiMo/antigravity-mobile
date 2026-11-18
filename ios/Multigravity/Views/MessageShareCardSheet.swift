@@ -252,7 +252,6 @@ struct MessageShareCardView: View {
         .background(theme.background)
         .environment(\.colorScheme, theme.colorScheme)
         .environment(\.isShareExport, true)
-        .environment(\.appThemePreset, theme.preset)
         .environment(\.shareCardThemeID, theme.preset.storageKey)
     }
 
@@ -467,7 +466,7 @@ struct MessageShareCardSheet: View {
         }
         .onAppear {
             if !hasPickedTheme {
-                theme = ShareCardTheme(preset: AppSettings.shared.activeThemePreset(for: systemScheme))
+                theme = ShareCardTheme(preset: AppSettings.shared.resolvedShareCardSkin(for: systemScheme))
                 hasPickedTheme = true
             }
         }
@@ -476,6 +475,7 @@ struct MessageShareCardSheet: View {
         }
         .sheet(isPresented: $showSkinPicker) {
             ShareCardSkinPickerSheet(selectedPreset: theme.preset) { picked in
+                AppSettings.shared.shareCardSkinID = picked.id
                 theme = ShareCardTheme(preset: picked)
                 showSkinPicker = false
             }
@@ -591,7 +591,6 @@ struct MessageShareCardSheet: View {
 
         let renderer = ImageRenderer(
             content: card
-                .environment(\.appThemePreset, theme.preset)
                 .environment(\.shareCardThemeID, theme.preset.storageKey)
                 .environment(\.shareCardUseNord, theme.preset.id == "nord")
         )
@@ -642,61 +641,4 @@ struct MessageShareCardSheet: View {
     }
 }
 
-// MARK: - Share Card Skin Picker Sheet
 
-private struct ShareCardSkinPickerSheet: View {
-    let selectedPreset: ThemePreset
-    let onSelect: (ThemePreset) -> Void
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        NavigationStack {
-            List {
-                Section("浅色皮肤") {
-                    ForEach(ThemePresetCatalog.lightPresets, id: \.storageKey) { preset in
-                        skinRow(preset)
-                    }
-                }
-                Section("深色皮肤") {
-                    ForEach(ThemePresetCatalog.darkPresets, id: \.storageKey) { preset in
-                        skinRow(preset)
-                    }
-                }
-            }
-            .navigationTitle("选择长图皮肤")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("完成") { dismiss() }
-                }
-            }
-        }
-    }
-
-    private func skinRow(_ preset: ThemePreset) -> some View {
-        let isSelected = preset.storageKey == selectedPreset.storageKey
-        return Button {
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-            onSelect(preset)
-        } label: {
-            HStack(spacing: 12) {
-                ThemeSwatchPillView(preset: preset)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(preset.name)
-                        .font(.system(size: 15, weight: .medium))
-                        .foregroundColor(.primary)
-                    Text(preset.description)
-                        .font(.system(size: 12))
-                        .foregroundColor(.secondary)
-                        .lineLimit(1)
-                }
-                Spacer()
-                if isSelected {
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(.accentColor)
-                }
-            }
-        }
-    }
-}

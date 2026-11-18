@@ -54,16 +54,12 @@ import com.antigravity.mobile.data.service.PreferencesManager
 import com.antigravity.mobile.data.service.fetchPermissionSettings
 import com.antigravity.mobile.data.service.updatePermissionPreset
 import com.antigravity.mobile.ui.theme.AntigravityTheme
-import com.antigravity.mobile.ui.theme.ThemePreset
-import com.antigravity.mobile.ui.theme.ThemePresetCatalog
 import com.antigravity.mobile.ui.theme.modelProviderAccent
 import com.antigravity.mobile.ui.util.rememberHaptic
 import kotlinx.coroutines.launch
 
 private enum class SettingsSubpage(val title: String) {
     MAIN("设置"),
-    LIGHT_THEMES("浅色配色"),
-    DARK_THEMES("深色配色"),
     COMPACT("精简模式")
 }
 
@@ -86,8 +82,6 @@ fun SettingsSheet(
     val connectionManager = remember { ConnectionManager(context) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val currentThemeMode by prefs.themeModeFlow.collectAsState()
-    val currentLightPreset by prefs.lightThemePresetFlow.collectAsState()
-    val currentDarkPreset by prefs.darkThemePresetFlow.collectAsState()
     val isNotificationPermissionGranted = remember {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
@@ -191,26 +185,12 @@ fun SettingsSheet(
                         prefs = prefs,
                         connectionManager = connectionManager,
                         currentThemeMode = currentThemeMode,
-                        currentLightPreset = currentLightPreset,
-                        currentDarkPreset = currentDarkPreset,
                         onThemeModeChange = onThemeModeChange,
-                        onOpenLightThemes = { activeSubpage = SettingsSubpage.LIGHT_THEMES },
-                        onOpenDarkThemes = { activeSubpage = SettingsSubpage.DARK_THEMES },
                         onOpenCompactSettings = { activeSubpage = SettingsSubpage.COMPACT },
                         onPromptUnpair = { showUnpairAlert = true },
                         onPromptClearCache = { showClearCacheAlert = true },
                         onOpenMcpSkills = { showMcpSkillsSheet = true },
                         onLoadModels = onLoadModels
-                    )
-                    SettingsSubpage.LIGHT_THEMES -> ThemePresetSubpageContent(
-                        isDarkList = false,
-                        selectedId = currentLightPreset,
-                        onSelect = { prefs.lightThemePreset = it }
-                    )
-                    SettingsSubpage.DARK_THEMES -> ThemePresetSubpageContent(
-                        isDarkList = true,
-                        selectedId = currentDarkPreset,
-                        onSelect = { prefs.darkThemePreset = it }
                     )
                     SettingsSubpage.COMPACT -> CompactModeSubpageContent(prefs = prefs)
                 }
@@ -304,11 +284,7 @@ private fun MainSettingsContent(
     prefs: PreferencesManager,
     connectionManager: ConnectionManager,
     currentThemeMode: String,
-    currentLightPreset: String,
-    currentDarkPreset: String,
     onThemeModeChange: (String) -> Unit,
-    onOpenLightThemes: () -> Unit,
-    onOpenDarkThemes: () -> Unit,
     onOpenCompactSettings: () -> Unit,
     onPromptUnpair: () -> Unit,
     onPromptClearCache: () -> Unit,
@@ -733,8 +709,6 @@ private fun MainSettingsContent(
         val compactCollapseTools by prefs.compactCollapseToolsFlow.collectAsState()
         val compactCollapseTasks by prefs.compactCollapseTasksFlow.collectAsState()
         val compactHideHealthyContext by prefs.compactHideHealthyContextFlow.collectAsState()
-        val lightPresetObj = remember(currentLightPreset) { ThemePresetCatalog.findLight(currentLightPreset) }
-        val darkPresetObj = remember(currentDarkPreset) { ThemePresetCatalog.findDark(currentDarkPreset) }
         val compactSummary = remember(knowledgeMode, compactCollapseTools, compactCollapseTasks, compactHideHealthyContext) {
             if (!knowledgeMode) "已关闭"
             else {
@@ -751,7 +725,7 @@ private fun MainSettingsContent(
         }
         SettingsSection(
             title = "外观与主题",
-            footer = "独立选择浅色与深色配色，跟随系统时按昼夜自动切换；点进「精简模式」可自定义对话降噪选项。"
+            footer = "选择全局浅色/深色/跟随系统外观；点进「精简模式」可自定义对话降噪选项。"
         ) {
             Column(
                 modifier = Modifier
@@ -764,22 +738,6 @@ private fun MainSettingsContent(
                     selectedMode = currentThemeMode,
                     onSelectMode = onThemeModeChange
                 )
-                if (currentThemeMode != "dark") {
-                    HorizontalDivider(color = colors.separator.copy(alpha = 0.4f), thickness = 0.5.dp)
-                    ThemePresetEntryRow(
-                        label = "浅色配色",
-                        preset = lightPresetObj,
-                        onClick = onOpenLightThemes
-                    )
-                }
-                if (currentThemeMode != "light") {
-                    HorizontalDivider(color = colors.separator.copy(alpha = 0.4f), thickness = 0.5.dp)
-                    ThemePresetEntryRow(
-                        label = "深色配色",
-                        preset = darkPresetObj,
-                        onClick = onOpenDarkThemes
-                    )
-                }
                 HorizontalDivider(color = colors.separator.copy(alpha = 0.4f), thickness = 0.5.dp)
                 SettingsMenuPickerRow(
                     label = "字号缩放",
@@ -1217,267 +1175,6 @@ private fun ThemeModeSegmentedRow(
                         fontSize = 12.5.sp,
                         fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium
                     )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ThemePresetEntryRow(
-    label: String,
-    preset: ThemePreset,
-    onClick: () -> Unit
-) {
-    val colors = AntigravityTheme.colors
-    val haptic = rememberHaptic()
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable {
-                haptic.light()
-                onClick()
-            }
-            .padding(horizontal = 16.dp, vertical = 13.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        Text(
-            text = label,
-            color = colors.textPrimary,
-            fontSize = 15.sp,
-            fontWeight = FontWeight.Medium
-        )
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(7.dp)
-        ) {
-            Row(
-                modifier = Modifier
-                    .clip(CircleShape)
-                    .background(colors.surfaceVariant)
-                    .border(0.5.dp, colors.border, CircleShape)
-                    .padding(horizontal = 6.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(3.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(Modifier.size(9.dp).clip(CircleShape).background(preset.bg).border(0.5.dp, Color.Gray.copy(alpha = 0.4f), CircleShape))
-                Box(Modifier.size(9.dp).clip(CircleShape).background(preset.fg).border(0.5.dp, Color.Gray.copy(alpha = 0.4f), CircleShape))
-                Box(Modifier.size(9.dp).clip(CircleShape).background(preset.accent).border(0.5.dp, Color.Gray.copy(alpha = 0.4f), CircleShape))
-            }
-            Text(
-                text = preset.name,
-                color = colors.textSecondary,
-                fontSize = 14.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Icon(
-                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                contentDescription = null,
-                tint = colors.textMuted,
-                modifier = Modifier.size(18.dp)
-            )
-        }
-    }
-}
-
-@Composable
-private fun ThemePresetSubpageContent(
-    isDarkList: Boolean,
-    selectedId: String,
-    onSelect: (String) -> Unit
-) {
-    val colors = AntigravityTheme.colors
-    val haptic = rememberHaptic()
-    val list = remember(isDarkList) {
-        if (isDarkList) ThemePresetCatalog.darkPresets else ThemePresetCatalog.lightPresets
-    }
-    val selectedPreset = remember(list, selectedId) {
-        list.firstOrNull { it.id == selectedId } ?: list.first()
-    }
-    val defaultGroup = remember(list) { list.filter { it.isDefaultGroup } }
-    val desktopGroup = remember(list) { list.filter { !it.isDefaultGroup } }
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp, vertical = 14.dp),
-        verticalArrangement = Arrangement.spacedBy(18.dp)
-    ) {
-        ThemeLivePreviewCard(preset = selectedPreset)
-
-        ThemePresetGroup(
-            title = "默认风格",
-            presets = defaultGroup,
-            selectedId = selectedId,
-            onSelect = {
-                haptic.light()
-                onSelect(it)
-            }
-        )
-
-        ThemePresetGroup(
-            title = "Antigravity 桌面端预设",
-            presets = desktopGroup,
-            selectedId = selectedId,
-            onSelect = {
-                haptic.light()
-                onSelect(it)
-            }
-        )
-
-        Spacer(modifier = Modifier.height(16.dp))
-    }
-}
-
-@Composable
-private fun ThemeLivePreviewCard(preset: ThemePreset) {
-    val pColors = preset.appColors
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .background(pColors.background)
-            .border(0.8.dp, pColors.border, RoundedCornerShape(14.dp))
-            .padding(12.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        Box(
-            modifier = Modifier
-                .align(Alignment.End)
-                .clip(RoundedCornerShape(14.dp, 14.dp, 4.dp, 14.dp))
-                .background(pColors.userBubbleBg)
-                .padding(horizontal = 12.dp, vertical = 7.dp)
-        ) {
-            Text(
-                text = "检查一下这段配色代码",
-                color = pColors.userBubbleText,
-                fontSize = 12.5.sp,
-                fontWeight = FontWeight.Medium
-            )
-        }
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(12.dp))
-                .background(pColors.surface)
-                .border(0.5.dp, pColors.border, RoundedCornerShape(12.dp))
-                .padding(10.dp),
-            verticalArrangement = Arrangement.spacedBy(7.dp)
-        ) {
-            Text(
-                text = "已应用 ${preset.name}，气泡与代码块同步配色：",
-                color = pColors.textPrimary,
-                fontSize = 12.5.sp
-            )
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(pColors.codeBlockBg)
-                    .border(0.5.dp, pColors.border, RoundedCornerShape(8.dp))
-                    .padding(horizontal = 10.dp, vertical = 8.dp)
-            ) {
-                val snippet = remember(preset) {
-                    buildAnnotatedString {
-                        withStyle(SpanStyle(color = preset.syntax.keyword)) { append("val ") }
-                        withStyle(SpanStyle(color = preset.syntax.function)) { append("theme") }
-                        withStyle(SpanStyle(color = pColors.textPrimary)) { append(" = ") }
-                        withStyle(SpanStyle(color = preset.syntax.string)) { append("\"ready\"") }
-                        withStyle(SpanStyle(color = preset.syntax.comment)) { append(" // ok") }
-                    }
-                }
-                Text(
-                    text = snippet,
-                    fontSize = 12.sp,
-                    fontFamily = FontFamily.Monospace
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun ThemePresetGroup(
-    title: String,
-    presets: List<ThemePreset>,
-    selectedId: String,
-    onSelect: (String) -> Unit
-) {
-    val colors = AntigravityTheme.colors
-    SettingsSection(title = title) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(12.dp))
-                .background(colors.surface)
-                .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
-        ) {
-            presets.forEachIndexed { idx, preset ->
-                if (idx > 0) {
-                    HorizontalDivider(
-                        color = colors.separator.copy(alpha = 0.35f),
-                        thickness = 0.5.dp,
-                        modifier = Modifier.padding(start = 60.dp)
-                    )
-                }
-                val isSelected = preset.id == selectedId
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { onSelect(preset.id) }
-                        .padding(horizontal = 14.dp, vertical = 11.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .size(width = 34.dp, height = 24.dp)
-                            .clip(RoundedCornerShape(7.dp))
-                            .background(preset.bg)
-                            .border(0.8.dp, colors.border, RoundedCornerShape(7.dp))
-                            .padding(horizontal = 5.dp, vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Box(
-                            Modifier
-                                .size(width = 4.dp, height = 14.dp)
-                                .clip(RoundedCornerShape(2.dp))
-                                .background(preset.accent)
-                        )
-                        Box(
-                            Modifier
-                                .size(9.dp)
-                                .clip(CircleShape)
-                                .background(preset.fg)
-                        )
-                    }
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = preset.name,
-                            color = colors.textPrimary,
-                            fontSize = 14.5.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                        Text(
-                            text = preset.description,
-                            color = colors.textSecondary,
-                            fontSize = 11.5.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                    if (isSelected) {
-                        Icon(
-                            imageVector = Icons.Default.Check,
-                            contentDescription = "已选中",
-                            tint = colors.accentBlue,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
                 }
             }
         }

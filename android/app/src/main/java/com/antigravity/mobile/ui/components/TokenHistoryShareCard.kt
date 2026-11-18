@@ -1,22 +1,46 @@
 package com.antigravity.mobile.ui.components
 
+import android.graphics.Bitmap
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BarChart
+import androidx.compose.material.icons.filled.FileDownload
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.graphics.drawscope.scale
+import androidx.compose.ui.graphics.layer.drawLayer
+import androidx.compose.ui.graphics.rememberGraphicsLayer
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -24,12 +48,22 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.antigravity.mobile.data.model.DailyTokenRecord
 import com.antigravity.mobile.data.model.TokenHistoryResponse
+import com.antigravity.mobile.data.service.PreferencesManager
 import com.antigravity.mobile.ui.theme.AntigravityTheme
 import com.antigravity.mobile.ui.theme.AppColors
+import com.antigravity.mobile.ui.theme.DarkAppColors
+import com.antigravity.mobile.ui.theme.LightAppColors
+import com.antigravity.mobile.ui.theme.LocalAppColors
+import com.antigravity.mobile.ui.theme.ThemePreset
+import com.antigravity.mobile.ui.theme.ThemePresetCatalog
+import com.antigravity.mobile.ui.util.ShareImageUtils
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
+import kotlin.math.roundToInt
 
 val TOKEN_HISTORY_SHARE_CARD_WIDTH = 390.dp
+private const val TOKEN_HISTORY_MAX_PIXEL_HEIGHT = 8192
 
 /**
  * Token 历史长图海报组件（专为图形图层录制与高清长图导出设计）
@@ -38,42 +72,60 @@ val TOKEN_HISTORY_SHARE_CARD_WIDTH = 390.dp
 fun TokenHistoryShareCard(
     tokenHistory: TokenHistoryResponse,
     selectedRecord: DailyTokenRecord?,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    skin: ThemePreset? = null
 ) {
-    val colors = AntigravityTheme.colors
+    val baseColors = AntigravityTheme.colors
+    val resolvedSkin = skin ?: if (baseColors.isDark) ThemePresetCatalog.defaultDark else ThemePresetCatalog.defaultLight
+    val cardColors = remember(skin, baseColors, resolvedSkin) {
+        when {
+            skin == null -> baseColors
+            resolvedSkin.id == "default-dark" -> DarkAppColors
+            resolvedSkin.id == "default-light" -> LightAppColors
+            else -> resolvedSkin.appColors.copy(surface = resolvedSkin.appColors.surface.copy(alpha = 0.94f))
+        }
+    }
     val summary = tokenHistory.summary
     val matrix = tokenHistory.dailyMatrix
 
-    Column(
-        modifier = modifier
-            .width(TOKEN_HISTORY_SHARE_CARD_WIDTH)
-            .background(colors.background)
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
-    ) {
-        // 1. Header
-        HeaderSection(colors = colors)
+    val cardBgModifier = if (skin != null && !resolvedSkin.isDefaultGroup) {
+        Modifier.background(ShareCardTheme(resolvedSkin).background)
+    } else {
+        Modifier.background(cardColors.background)
+    }
 
-        // 2. KPI 4-grid
-        KpiGridSection(summary = summary, colors = colors)
+    CompositionLocalProvider(LocalAppColors provides cardColors) {
+        Column(
+            modifier = modifier
+                .width(TOKEN_HISTORY_SHARE_CARD_WIDTH)
+                .then(cardBgModifier)
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            // 1. Header
+            HeaderSection(colors = cardColors)
 
-        // 3. Source ratio bar
-        SourceRatioSection(summary = summary, colors = colors)
+            // 2. KPI 4-grid
+            KpiGridSection(summary = summary, colors = cardColors)
 
-        // 4. Heatmap (近 18 周活跃区)
-        HeatmapCardSection(
-            dailyMatrix = matrix,
-            selectedDate = selectedRecord?.date,
-            colors = colors
-        )
+            // 3. Source ratio bar
+            SourceRatioSection(summary = summary, colors = cardColors)
 
-        // 5. Inspector card (选定日期)
-        if (selectedRecord != null) {
-            InspectorCardSection(record = selectedRecord, colors = colors)
+            // 4. Heatmap (近 18 周活跃区)
+            HeatmapCardSection(
+                dailyMatrix = matrix,
+                selectedDate = selectedRecord?.date,
+                colors = cardColors
+            )
+
+            // 5. Inspector card (选定日期)
+            if (selectedRecord != null) {
+                InspectorCardSection(record = selectedRecord, colors = cardColors)
+            }
+
+            // 6. Footer
+            FooterSection(tokenHistory = tokenHistory, colors = cardColors)
         }
-
-        // 6. Footer
-        FooterSection(tokenHistory = tokenHistory, colors = colors)
     }
 }
 
@@ -275,7 +327,7 @@ private fun SourceRatioSection(
                 .fillMaxWidth()
                 .height(6.dp)
                 .clip(RoundedCornerShape(3.dp))
-                .background(Color(0xFF8B5CF6).copy(alpha = 0.5f))
+                .background((if (colors.themeId.startsWith("default")) Color(0xFF8B5CF6) else colors.accentPurple).copy(alpha = 0.55f))
         ) {
             Box(
                 modifier = Modifier
@@ -551,4 +603,149 @@ private fun buildWeeks(dailyMatrix: List<DailyTokenRecord>): List<List<DailyToke
         idx = end
     }
     return weeks
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun TokenHistoryShareCardSheet(
+    tokenHistory: TokenHistoryResponse,
+    selectedRecord: DailyTokenRecord?,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val prefs = remember(context) { PreferencesManager(context) }
+    val isSystemDark = isSystemInDarkTheme()
+    var selectedSkin by remember { mutableStateOf(prefs.resolvedShareCardSkin(isSystemDark)) }
+    var showSkinPicker by remember { mutableStateOf(false) }
+    var busy by remember { mutableStateOf(false) }
+    val layer = rememberGraphicsLayer()
+    val scaledLayer = rememberGraphicsLayer()
+    val density = LocalDensity.current
+
+    suspend fun capture(): Bitmap? {
+        return try {
+            val size = layer.size
+            if (size.width <= 0 || size.height <= 0) return null
+            if (size.height > TOKEN_HISTORY_MAX_PIXEL_HEIGHT) {
+                val ratio = TOKEN_HISTORY_MAX_PIXEL_HEIGHT.toFloat() / size.height
+                val target = androidx.compose.ui.unit.IntSize(
+                    (size.width * ratio).roundToInt().coerceAtLeast(1),
+                    TOKEN_HISTORY_MAX_PIXEL_HEIGHT
+                )
+                scaledLayer.record(density, androidx.compose.ui.unit.LayoutDirection.Ltr, target) {
+                    scale(ratio, pivot = Offset.Zero) {
+                        drawLayer(layer)
+                    }
+                }
+                scaledLayer.toImageBitmap().asAndroidBitmap()
+            } else {
+                layer.toImageBitmap().asAndroidBitmap()
+            }
+        } catch (t: Throwable) {
+            android.util.Log.e("TokenHistoryShareCard", "capture bitmap failed", t)
+            null
+        }
+    }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        sheetMaxWidth = androidx.compose.ui.unit.Dp.Unspecified,
+        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxHeight(0.92f)
+                .navigationBarsPadding()
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(
+                    onClick = {
+                        scope.launch {
+                            busy = true
+                            ShareImageUtils.saveBitmapToGallery(context, capture())
+                            busy = false
+                        }
+                    },
+                    enabled = !busy
+                ) {
+                    Icon(Icons.Default.FileDownload, contentDescription = "保存到相册")
+                }
+                Text(
+                    text = "分享 Token 报告",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.weight(1f),
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                )
+                IconButton(
+                    onClick = {
+                        scope.launch {
+                            busy = true
+                            ShareImageUtils.shareBitmap(context, capture())
+                            busy = false
+                        }
+                    },
+                    enabled = !busy
+                ) {
+                    Icon(Icons.Default.Share, contentDescription = "分享")
+                }
+            }
+
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp, vertical = 4.dp)
+            ) {
+                ScaledToFitWidth(designWidth = TOKEN_HISTORY_SHARE_CARD_WIDTH) {
+                    Box(
+                        modifier = Modifier.drawWithContent {
+                            layer.record { this@drawWithContent.drawContent() }
+                            drawLayer(layer)
+                        }
+                    ) {
+                        TokenHistoryShareCard(
+                            tokenHistory = tokenHistory,
+                            selectedRecord = selectedRecord,
+                            skin = selectedSkin
+                        )
+                    }
+                }
+            }
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                ShareSkinPickerPill(
+                    preset = selectedSkin,
+                    onClick = { showSkinPicker = true }
+                )
+                Spacer(Modifier.weight(1f))
+            }
+        }
+    }
+
+    if (showSkinPicker) {
+        ShareCardSkinPickerSheet(
+            selectedPreset = selectedSkin,
+            onSelect = { preset ->
+                prefs.shareCardSkinId = preset.id
+                selectedSkin = preset
+                showSkinPicker = false
+            },
+            onDismiss = { showSkinPicker = false }
+        )
+    }
 }

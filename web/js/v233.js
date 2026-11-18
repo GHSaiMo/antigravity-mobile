@@ -46,353 +46,37 @@
     return isAudioOrVideoFile(file) ? MAX_MEDIA_UPLOAD_BYTES : MAX_GENERAL_UPLOAD_BYTES;
   }
 
-  // --- 1. Theme & Color Scheme (system | light | dark + independent Light/Dark presets) ---
+  // --- 1. Theme & Color Scheme (system | light | dark) ---
   const THEME_STORAGE_KEY = "antigravity_theme";
-  const LIGHT_PRESET_KEY = "antigravity_light_preset";
-  const DARK_PRESET_KEY = "antigravity_dark_preset";
+  let activeSettingsSubpage = null; // null | "compact"
 
-  const LIGHT_PRESETS = [
-    { id: "default", name: "Apple 默认", desc: "原生浅灰与极简白卡片", group: "default", isDefaultStyle: true,
-      bg: "#F2F2F7", surface: "#FFFFFF", fg: "#000000", accent: "#007AFF", accentFg: "#FFFFFF",
-      tok: { kw: "#ad3da4", str: "#c41a16", cmt: "#6c7986", num: "#1c00cf", type: "#0b4f79", fn: "#326d74", attr: "#6f42c1", meta: "#8250df", diffAdd: "#1a7f37", diffDel: "#cf222e" } },
-    { id: "desktop-light", name: "Default Light", desc: "Antigravity 桌面默认浅色", group: "default",
-      bg: "#FFFFFF", fg: "#0A0A0C", accent: "#2F75C3", accentFg: "#FFFFFF",
-      tok: { kw: "#07a", str: "#5c8a00", cmt: "#708090", num: "#905", type: "#dd4a68", fn: "#dd4a68", attr: "#5c8a00", meta: "#9a6e3a", diffAdd: "#5c8a00", diffDel: "#905" } },
-    { id: "legacy-light", name: "Legacy Light", desc: "经典浅灰高对比工作区", group: "default",
-      bg: "#F9F9F9", fg: "#101010", accent: "#007ACC", accentFg: "#FFFFFF",
-      tok: { kw: "#07a", str: "#5c8a00", cmt: "#708090", num: "#905", type: "#dd4a68", fn: "#dd4a68", attr: "#5c8a00", meta: "#9a6e3a", diffAdd: "#5c8a00", diffDel: "#905" } },
-    { id: "catppuccin-light", name: "Catppuccin", desc: "Latte 柔和薰衣草粉紫", group: "desktop",
-      bg: "#EAECF0", fg: "#4C4F69", accent: "#8839EF", accentFg: "#FFFFFF",
-      tok: { kw: "#8839EF", str: "#40A02B", cmt: "#7C7F93", num: "#FE640B", type: "#DF8E1D", fn: "#1E66F5", attr: "#DF8E1D", meta: "#EA76CB", diffAdd: "#40A02B", diffDel: "#D20F39" } },
-    { id: "everforest-light", name: "Everforest", desc: "护眼暖米纸张与苔藓绿", group: "desktop",
-      bg: "#F8F0DC", fg: "#5C6A72", accent: "#4E7525", accentFg: "#F8F0DC", codeFg: "#2D7A58",
-      tok: { kw: "#d13835", str: "#547300", cmt: "#708073", num: "#b84692", type: "#a67200", fn: "#247a58", attr: "#a67200", meta: "#c75b12", diffAdd: "#547300", diffDel: "#d13835" } },
-    { id: "gruvbox-light", name: "Gruvbox Material", desc: "复古暖羊皮纸与琥珀橙", group: "desktop",
-      bg: "#F9F5D7", fg: "#4F3829", accent: "#C35E0A", accentFg: "#FFFFFF",
-      tok: { kw: "#c14a4a", str: "#6c782e", cmt: "#928374", num: "#945e80", type: "#b47109", fn: "#6c782e", attr: "#b47109", meta: "#4c7a5d", diffAdd: "#6c782e", diffDel: "#c14a4a" } },
-    { id: "one-light", name: "One Light", desc: "经典 Atom 素净浅灰", group: "desktop",
-      bg: "#F5F5F5", fg: "#383A42", accent: "#4078F2", accentFg: "#FFFFFF",
-      tok: { kw: "#A626A4", str: "#449344", cmt: "#A0A1A7", num: "#986801", type: "#C18401", fn: "#4078F2", attr: "#986801", meta: "#0184BC", diffAdd: "#449344", diffDel: "#E45649" } },
-    { id: "solarized-light", name: "Solarized Light", desc: "经典低眩光暖沙色", group: "desktop",
-      bg: "#FAF4E5", fg: "#435155", accent: "#CB4B16", accentFg: "#FFFFFF",
-      tok: { kw: "#859900", str: "#2AA198", cmt: "#93A1A1", num: "#D33682", type: "#B58900", fn: "#268BD2", attr: "#93A1A1", meta: "#CB4B16", diffAdd: "#859900", diffDel: "#DC322F" } }
-  ];
-
-  const DARK_PRESETS = [
-    { id: "default", name: "Apple 默认", desc: "纯黑 OLED 与深灰分层", group: "default", isDefaultStyle: true,
-      bg: "#000000", surface: "#1C1C1E", fg: "#FFFFFF", accent: "#5E5CE6", accentFg: "#FFFFFF",
-      tok: { kw: "#ff7ab2", str: "#fc6a5d", cmt: "#7f8c98", num: "#d0bf69", type: "#6bdfff", fn: "#67b7a4", attr: "#a167e6", meta: "#fd8f3f", diffAdd: "#30d158", diffDel: "#ff453a" } },
-    { id: "desktop-dark", name: "Default Dark", desc: "Antigravity 桌面默认深邃黑", group: "default",
-      bg: "#070708", fg: "#FFFFFF", accent: "#2F71E3", accentFg: "#FFFFFF",
-      tok: { kw: "#66d9ef", str: "#a6e22e", cmt: "#8292a2", num: "#ae81ff", type: "#e6db74", fn: "#e6db74", attr: "#a6e22e", meta: "#fd971f", diffAdd: "#a6e22e", diffDel: "#f92672" } },
-    { id: "legacy-dark", name: "Legacy Dark", desc: "经典炭黑高可读性", group: "default",
-      bg: "#101010", fg: "#CCCCCC", accent: "#007ACC", accentFg: "#FFFFFF",
-      tok: { kw: "#66d9ef", str: "#a6e22e", cmt: "#8292a2", num: "#ae81ff", type: "#e6db74", fn: "#e6db74", attr: "#a6e22e", meta: "#fd971f", diffAdd: "#a6e22e", diffDel: "#f92672" } },
-    { id: "tokyo-night", name: "Tokyo Night", desc: "东京夜色深靛蓝与霓虹蓝", group: "desktop",
-      bg: "#1A1B26", fg: "#A9B1D6", accent: "#7AA2F7", accentFg: "#1A1B26",
-      tok: { kw: "#BB9AF7", str: "#9ECE6A", cmt: "#565F89", num: "#FF9E64", type: "#2AC3DE", fn: "#7AA2F7", attr: "#7AA2F7", meta: "#89DDFF", diffAdd: "#9ECE6A", diffDel: "#F7768E" } },
-    { id: "nord", name: "Nord", desc: "极地冰蓝冷调暗色", group: "desktop",
-      bg: "#2E3440", surface: "#3B4252", surfaceVariant: "#434C5E", border: "#4C566A", fg: "#D8DEE9", accent: "#88C0D0", accentFg: "#2E3440", userBubbleBg: "#5E81AC", userBubbleText: "#ECEFF4", codeBlockBg: "#2E3440",
-      tok: { kw: "#81A1C1", str: "#A3BE8C", cmt: "#616E88", num: "#B48EAD", type: "#8FBCBB", fn: "#88C0D0", attr: "#81A1C1", meta: "#EBCB8B", diffAdd: "#A3BE8C", diffDel: "#BF616A" } },
-    { id: "catppuccin-dark", name: "Catppuccin", desc: "Macchiato 柔和粉紫暮色", group: "desktop",
-      bg: "#24273A", fg: "#CAD3F5", accent: "#C6A0F6", accentFg: "#24273A",
-      tok: { kw: "#C6A0F6", str: "#A6DA95", cmt: "#939AB7", num: "#F5A97F", type: "#EED49F", fn: "#8AADF4", attr: "#EED49F", meta: "#F5BDE6", diffAdd: "#A6DA95", diffDel: "#ED8796" } },
-    { id: "dracula", name: "Dracula", desc: "德古拉经典暗紫夜色", group: "desktop",
-      bg: "#282A36", fg: "#F8F8F2", accent: "#BD93F9", accentFg: "#282A36",
-      tok: { kw: "#FF79C6", str: "#F1FA8C", cmt: "#6272A4", num: "#BD93F9", type: "#8BE9FD", fn: "#50FA7B", attr: "#50FA7B", meta: "#FF79C6", diffAdd: "#50FA7B", diffDel: "#FF5555" } },
-    { id: "everforest-dark", name: "Everforest", desc: "松林暗绿与柔光暖字", group: "desktop",
-      bg: "#2D353B", fg: "#D3C6AA", accent: "#A7C080", accentFg: "#232A2E", codeFg: "#A7C080",
-      tok: { kw: "#e67e80", str: "#a7c080", cmt: "#9aa69d", num: "#d699b6", type: "#dbbc7f", fn: "#83c092", attr: "#dbbc7f", meta: "#e69875", diffAdd: "#a7c080", diffDel: "#e67e80" } },
-    { id: "gruvbox-dark", name: "Gruvbox Material", desc: "复古炭黑与暖橘琥珀", group: "desktop",
-      bg: "#141617", fg: "#D4BE98", accent: "#E78A4E", accentFg: "#141617", codeFg: "#A9B665",
-      tok: { kw: "#ea6962", str: "#a9b665", cmt: "#7c6f64", num: "#d3869b", type: "#d8a657", fn: "#a9b665", attr: "#d8a657", meta: "#89b482", diffAdd: "#a9b665", diffDel: "#ea6962" } },
-    { id: "monokai", name: "Monokai", desc: "高对比经典亮粉代码风", group: "desktop",
-      bg: "#272822", fg: "#F8F8F2", accent: "#F92672", accentFg: "#FFFFFF",
-      tok: { kw: "#F92672", str: "#E6DB74", cmt: "#75715E", num: "#AE81FF", type: "#A6E22E", fn: "#A6E22E", attr: "#A6E22E", meta: "#FD971F", diffAdd: "#A6E22E", diffDel: "#F92672" } },
-    { id: "one-dark-pro", name: "One Dark Pro", desc: "Atom / VS Code 经典灰蓝", group: "desktop",
-      bg: "#282C34", fg: "#ABB2BF", accent: "#61AFEF", accentFg: "#1E222A",
-      tok: { kw: "#C678DD", str: "#98C379", cmt: "#5C6370", num: "#D19A66", type: "#E5C07B", fn: "#61AFEF", attr: "#D19A66", meta: "#56B6C2", diffAdd: "#98C379", diffDel: "#E06C75" } },
-    { id: "solarized-dark", name: "Solarized Dark", desc: "深青绿护眼学术配色", group: "desktop",
-      bg: "#002B36", fg: "#93A1A1", accent: "#268BD2", accentFg: "#FFFFFF",
-      tok: { kw: "#859900", str: "#2AA198", cmt: "#586E75", num: "#D33682", type: "#B58900", fn: "#268BD2", attr: "#586E75", meta: "#CB4B16", diffAdd: "#859900", diffDel: "#DC322F" } },
-    { id: "vesper", name: "Vesper", desc: "极简纯黑与暖杏桃点缀", group: "desktop",
-      bg: "#101010", fg: "#FFFFFF", accent: "#FFC799", accentFg: "#101010",
-      tok: { kw: "#FBADFF", str: "#99FFE4", cmt: "#7C7C7C", num: "#FFC799", type: "#FFC799", fn: "#FFC799", attr: "#FFC799", meta: "#A0A0A0", diffAdd: "#99FFE4", diffDel: "#F85149" } }
-  ];
-
-  const DYNAMIC_CSS_VARS = [
-    "--ios-bg", "--ios-secondary-bg", "--ios-tertiary-bg", "--ios-quaternary-bg",
-    "--ios-fill", "--ios-separator", "--ios-separator-subtle",
-    "--ios-label", "--ios-secondary-label", "--ios-tertiary-label", "--ios-quaternary-label",
-    "--ios-blue", "--ios-green", "--ios-indigo", "--ios-indigo-active", "--ios-orange", "--ios-red", "--ios-purple", "--ios-teal",
-    "--orchestrator-slate", "--orchestrator-slate-rgb",
-    "--code-fg", "--code-bg", "--code-border",
-    "--tok-kw", "--tok-str", "--tok-cmt", "--tok-num", "--tok-type", "--tok-fn", "--tok-attr", "--tok-meta", "--tok-diff-add", "--tok-diff-del",
-    "--user-bubble-bg", "--user-bubble-text", "--agent-bubble-bg", "--agent-bubble-text",
-    "--navbar-bg", "--alert-bg", "--code-card-bg", "--code-card-border"
-  ];
-
-  function parseHexRgb(hex) {
-    const clean = String(hex || "").replace(/^#/, "");
-    const full = clean.length === 3 ? clean.split("").map((c) => c + c).join("") : clean;
-    if (!/^[0-9a-fA-F]{6}$/.test(full)) return [128, 128, 128];
-    return [parseInt(full.slice(0, 2), 16), parseInt(full.slice(2, 4), 16), parseInt(full.slice(4, 6), 16)];
-  }
-
-  function mixHex(hexA, hexB, weightA) {
-    const [r1, g1, b1] = parseHexRgb(hexA);
-    const [r2, g2, b2] = parseHexRgb(hexB);
-    const r = Math.round(r1 * weightA + r2 * (1 - weightA));
-    const g = Math.round(g1 * weightA + g2 * (1 - weightA));
-    const b = Math.round(b1 * weightA + b2 * (1 - weightA));
-    return `#${[r, g, b].map((x) => Math.max(0, Math.min(255, x)).toString(16).padStart(2, "0")).join("")}`;
-  }
-
-  function hexAlpha(hex, alpha) {
-    const [r, g, b] = parseHexRgb(hex);
-    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-  }
-
-  function migrateThemeStorage() {
+  function getNormalizedThemeMode() {
     try {
       let mode = localStorage.getItem(THEME_STORAGE_KEY) || "system";
       if (mode === "nord") {
         mode = "dark";
         localStorage.setItem(THEME_STORAGE_KEY, "dark");
-        if (!localStorage.getItem(DARK_PRESET_KEY)) {
-          localStorage.setItem(DARK_PRESET_KEY, "nord");
-        }
       }
-      if (!["system", "light", "dark"].includes(mode)) {
-        mode = "system";
-        localStorage.setItem(THEME_STORAGE_KEY, "system");
-      }
-    } catch (_) {}
-  }
-
-  function getThemeState() {
-    migrateThemeStorage();
-    let mode = "system";
-    let lightPreset = "default";
-    let darkPreset = "default";
-    try {
-      mode = localStorage.getItem(THEME_STORAGE_KEY) || "system";
-      lightPreset = localStorage.getItem(LIGHT_PRESET_KEY) || "default";
-      darkPreset = localStorage.getItem(DARK_PRESET_KEY) || "default";
-    } catch (_) {}
-    if (!LIGHT_PRESETS.some((p) => p.id === lightPreset)) lightPreset = "default";
-    if (!DARK_PRESETS.some((p) => p.id === darkPreset)) darkPreset = "default";
-    return { mode, lightPreset, darkPreset };
-  }
-
-  function resolveEffectiveAppearance() {
-    const { mode, lightPreset, darkPreset } = getThemeState();
-    const systemDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
-    const isDark = mode === "dark" || (mode === "system" && systemDark);
-    const list = isDark ? DARK_PRESETS : LIGHT_PRESETS;
-    const presetId = isDark ? darkPreset : lightPreset;
-    const preset = list.find((p) => p.id === presetId) || list[0];
-    return { mode, isDark, lightPreset, darkPreset, preset };
-  }
-
-  function applyPresetVariables(preset, isDark) {
-    const rootStyle = document.documentElement.style;
-    if (preset.isDefaultStyle) {
-      for (const k of DYNAMIC_CSS_VARS) rootStyle.removeProperty(k);
-      document.documentElement.removeAttribute("data-theme-preset");
-      return;
-    }
-
-    document.documentElement.setAttribute("data-theme-preset", preset.id);
-    const bg = preset.bg;
-    const fg = preset.fg;
-    const accent = preset.accent;
-    const accentFg = preset.accentFg || "#FFFFFF";
-    const surface = preset.surface || (isDark ? mixHex("#FFFFFF", bg, 0.065) : mixHex("#FFFFFF", bg, 0.72));
-    const surfaceVar = preset.surfaceVariant || (isDark ? mixHex("#FFFFFF", bg, 0.12) : mixHex(fg, bg, 0.08));
-    const quatBg = isDark ? mixHex("#FFFFFF", bg, 0.17) : mixHex(fg, bg, 0.14);
-    const borderHex = preset.border || mixHex(fg, bg, isDark ? 0.22 : 0.16);
-    const secLabel = isDark ? mixHex(fg, bg, 0.72) : mixHex(fg, bg, 0.70);
-    const tertLabel = mixHex(fg, bg, 0.48);
-    const quatLabel = mixHex(fg, bg, 0.30);
-    const codeBgHex = preset.codeBlockBg || (isDark ? mixHex("#000000", bg, 0.16) : mixHex(fg, bg, 0.055));
-    const codeFgHex = preset.codeFg || preset.tok.meta || accent;
-    const [orchR, orchG, orchB] = parseHexRgb(surfaceVar);
-
-    const vars = {
-      "--ios-bg": bg,
-      "--ios-secondary-bg": surface,
-      "--ios-tertiary-bg": surfaceVar,
-      "--ios-quaternary-bg": quatBg,
-      "--ios-fill": hexAlpha(fg, isDark ? 0.11 : 0.08),
-      "--ios-separator": hexAlpha(borderHex, 0.78),
-      "--ios-separator-subtle": hexAlpha(borderHex, 0.45),
-      "--ios-label": fg,
-      "--ios-secondary-label": secLabel,
-      "--ios-tertiary-label": tertLabel,
-      "--ios-quaternary-label": quatLabel,
-      "--ios-blue": accent,
-      "--ios-green": preset.tok.diffAdd,
-      "--ios-indigo": accent,
-      "--ios-indigo-active": mixHex("#000000", accent, 0.18),
-      "--ios-orange": preset.tok.meta,
-      "--ios-red": preset.tok.diffDel,
-      "--ios-purple": preset.tok.num,
-      "--ios-teal": preset.tok.type,
-      "--orchestrator-slate": surfaceVar,
-      "--orchestrator-slate-rgb": `${orchR}, ${orchG}, ${orchB}`,
-      "--code-fg": codeFgHex,
-      "--code-bg": hexAlpha(accent, isDark ? 0.14 : 0.09),
-      "--code-border": hexAlpha(accent, 0.26),
-      "--tok-kw": preset.tok.kw,
-      "--tok-str": preset.tok.str,
-      "--tok-cmt": preset.tok.cmt,
-      "--tok-num": preset.tok.num,
-      "--tok-type": preset.tok.type,
-      "--tok-fn": preset.tok.fn,
-      "--tok-attr": preset.tok.attr,
-      "--tok-meta": preset.tok.meta,
-      "--tok-diff-add": preset.tok.diffAdd,
-      "--tok-diff-del": preset.tok.diffDel,
-      "--user-bubble-bg": preset.userBubbleBg || accent,
-      "--user-bubble-text": preset.userBubbleText || accentFg,
-      "--agent-bubble-bg": surface,
-      "--agent-bubble-text": fg,
-      "--navbar-bg": hexAlpha(bg, 0.88),
-      "--alert-bg": hexAlpha(surface, 0.95),
-      "--code-card-bg": codeBgHex,
-      "--code-card-border": hexAlpha(borderHex, 0.82)
-    };
-    for (const [k, v] of Object.entries(vars)) {
-      rootStyle.setProperty(k, v);
+      return ["system", "light", "dark"].includes(mode) ? mode : "system";
+    } catch (_) {
+      return "system";
     }
   }
 
-  let activeSettingsSubpage = null; // null | "light-themes" | "dark-themes" | "compact"
-
-  function renderSwatchDots(preset) {
-    return `<span class="theme-dot" style="background:${preset.bg}"></span><span class="theme-dot" style="background:${preset.fg}"></span><span class="theme-dot" style="background:${preset.accent}"></span>`;
-  }
-
-  function updateThemeSettingsUI() {
-    const { mode, lightPreset, darkPreset } = getThemeState();
+  function updateThemeSegmentedUI(mode) {
     document.querySelectorAll("#settings-theme-mode-seg .settings-seg-btn").forEach((btn) => {
       const active = btn.getAttribute("data-theme-mode") === mode;
       btn.classList.toggle("active", active);
       btn.setAttribute("aria-pressed", active ? "true" : "false");
     });
-
-    const lightBtn = document.getElementById("btn-open-light-themes");
-    const darkBtn = document.getElementById("btn-open-dark-themes");
-    if (lightBtn) lightBtn.classList.toggle("hidden", mode === "dark");
-    if (darkBtn) darkBtn.classList.toggle("hidden", mode === "light");
-
-    const lObj = LIGHT_PRESETS.find((p) => p.id === lightPreset) || LIGHT_PRESETS[0];
-    const dObj = DARK_PRESETS.find((p) => p.id === darkPreset) || DARK_PRESETS[0];
-    const lNameEl = document.getElementById("settings-light-preset-name");
-    const dNameEl = document.getElementById("settings-dark-preset-name");
-    const lSwatchEl = document.getElementById("settings-light-swatch");
-    const dSwatchEl = document.getElementById("settings-dark-swatch");
-    if (lNameEl) lNameEl.textContent = lObj.name;
-    if (dNameEl) dNameEl.textContent = dObj.name;
-    if (lSwatchEl) lSwatchEl.innerHTML = renderSwatchDots(lObj);
-    if (dSwatchEl) dSwatchEl.innerHTML = renderSwatchDots(dObj);
-
-    if (activeSettingsSubpage === "light-themes" || activeSettingsSubpage === "dark-themes") {
-      renderThemePickerSubpage(activeSettingsSubpage === "dark-themes");
-    }
-  }
-
-  function renderThemePickerSubpage(isDarkList) {
-    const list = isDarkList ? DARK_PRESETS : LIGHT_PRESETS;
-    const state = getThemeState();
-    const selectedId = isDarkList ? state.darkPreset : state.lightPreset;
-    const selectedPreset = list.find((p) => p.id === selectedId) || list[0];
-
-    const pvCard = document.getElementById("settings-theme-preview");
-    const pvName = document.getElementById("theme-preview-name");
-    if (pvName) pvName.textContent = selectedPreset.name;
-    if (pvCard) {
-      const surface = selectedPreset.surface || (isDarkList ? mixHex("#FFFFFF", selectedPreset.bg, 0.065) : mixHex("#FFFFFF", selectedPreset.bg, 0.72));
-      const codeBg = selectedPreset.codeBlockBg || (isDarkList ? mixHex("#000000", selectedPreset.bg, 0.16) : mixHex(selectedPreset.fg, selectedPreset.bg, 0.055));
-      const border = selectedPreset.border || mixHex(selectedPreset.fg, selectedPreset.bg, isDarkList ? 0.22 : 0.16);
-      pvCard.style.background = selectedPreset.bg;
-      pvCard.style.borderColor = border;
-      const uBubble = pvCard.querySelector(".theme-preview-bubble-user");
-      const aBubble = pvCard.querySelector(".theme-preview-bubble-agent");
-      const codePre = pvCard.querySelector(".theme-preview-code");
-      if (uBubble) {
-        uBubble.style.background = selectedPreset.userBubbleBg || selectedPreset.accent;
-        uBubble.style.color = selectedPreset.userBubbleText || selectedPreset.accentFg || "#FFFFFF";
-      }
-      if (aBubble) {
-        aBubble.style.background = surface;
-        aBubble.style.color = selectedPreset.fg;
-        aBubble.style.borderColor = border;
-      }
-      if (codePre) {
-        codePre.style.background = codeBg;
-        codePre.style.borderColor = border;
-        codePre.style.color = selectedPreset.fg;
-      }
-      const setTok = (cls, col) => {
-        const el = pvCard.querySelector(cls);
-        if (el) el.style.color = col;
-      };
-      setTok(".pv-kw", selectedPreset.tok.kw);
-      setTok(".pv-fn", selectedPreset.tok.fn);
-      setTok(".pv-var", selectedPreset.fg);
-      setTok(".pv-op", selectedPreset.tok.meta);
-      setTok(".pv-str", selectedPreset.tok.str);
-      setTok(".pv-cmt", selectedPreset.tok.cmt);
-    }
-
-    const defBox = document.getElementById("settings-theme-list-default");
-    const presetBox = document.getElementById("settings-theme-list-presets");
-    const buildRows = (items) => items.map((p) => {
-      const checked = p.id === selectedId;
-      return `<button type="button" class="ios-cell-button between theme-preset-row${checked ? " selected" : ""}" data-preset-id="${p.id}">
-        <span class="theme-preset-main">
-          <span class="theme-preset-pill" style="background:${p.bg};border-color:${p.border || hexAlpha(p.fg, 0.22)};">
-            <span class="theme-preset-bar" style="background:${p.accent};"></span>
-            <span class="theme-preset-fg" style="background:${p.fg};"></span>
-          </span>
-          <span class="theme-preset-text">
-            <span class="theme-preset-title">${escapeHtmlLocal(p.name)}</span>
-            <span class="theme-preset-desc">${escapeHtmlLocal(p.desc)}</span>
-          </span>
-        </span>
-        <span class="theme-preset-check">${checked ? "✓" : ""}</span>
-      </button>`;
-    }).join("");
-
-    if (defBox) defBox.innerHTML = buildRows(list.filter((p) => p.group === "default"));
-    if (presetBox) presetBox.innerHTML = buildRows(list.filter((p) => p.group !== "default"));
-
-    const bindContainer = (box) => {
-      box?.querySelectorAll(".theme-preset-row").forEach((row) => {
-        row.addEventListener("click", () => {
-          const id = row.getAttribute("data-preset-id");
-          if (!id) return;
-          if (isDarkList) {
-            setDarkPreset(id);
-          } else {
-            setLightPreset(id);
-          }
-        });
-      });
-    };
-    bindContainer(defBox);
-    bindContainer(presetBox);
   }
 
   function openSettingsSubpage(kind) {
-    activeSettingsSubpage = kind || null;
+    activeSettingsSubpage = kind === "compact" ? "compact" : null;
     const headerMain = document.getElementById("settings-header-main");
     const headerSub = document.getElementById("settings-header-sub");
     const mainBody = document.getElementById("settings-main-body");
     const subBody = document.getElementById("settings-sub-body");
-    const subThemes = document.getElementById("settings-sub-themes");
     const subCompact = document.getElementById("settings-sub-compact");
     const subTitle = document.getElementById("settings-sub-title");
 
@@ -401,7 +85,6 @@
       headerSub?.classList.add("hidden");
       mainBody?.classList.remove("hidden");
       subBody?.classList.add("hidden");
-      subThemes?.classList.add("hidden");
       subCompact?.classList.add("hidden");
       return;
     }
@@ -411,93 +94,53 @@
     mainBody?.classList.add("hidden");
     subBody?.classList.remove("hidden");
     if (subBody) subBody.scrollTop = 0;
-
-    if (activeSettingsSubpage === "compact") {
-      if (subTitle) subTitle.textContent = "精简模式";
-      subThemes?.classList.add("hidden");
-      subCompact?.classList.remove("hidden");
-    } else {
-      const isDarkList = activeSettingsSubpage === "dark-themes";
-      if (subTitle) subTitle.textContent = isDarkList ? "深色配色" : "浅色配色";
-      subCompact?.classList.add("hidden");
-      subThemes?.classList.remove("hidden");
-      renderThemePickerSubpage(isDarkList);
-    }
+    if (subTitle) subTitle.textContent = "精简模式";
+    subCompact?.classList.remove("hidden");
   }
 
   function applyTheme(mode) {
-    if (mode !== undefined) {
-      const normalized = mode === "nord" ? "dark" : (["system", "light", "dark"].includes(mode) ? mode : "system");
-      try {
-        localStorage.setItem(THEME_STORAGE_KEY, normalized);
-        if (mode === "nord") localStorage.setItem(DARK_PRESET_KEY, "nord");
-      } catch (_) {}
-    }
+    const theme = mode === "nord"
+      ? "dark"
+      : (["system", "light", "dark"].includes(mode) ? mode : getNormalizedThemeMode());
+    try {
+      localStorage.setItem(THEME_STORAGE_KEY, theme);
+    } catch (_) {}
 
-    const eff = resolveEffectiveAppearance();
     const root = document.documentElement;
     const csMeta = document.querySelector('meta[name="color-scheme"]');
     const tcMeta = document.getElementById("meta-theme-color");
 
-    if (eff.mode === "system") {
+    if (theme === "system") {
       root.removeAttribute("data-theme");
       if (csMeta) csMeta.setAttribute("content", "light dark");
+      if (tcMeta) {
+        const isLight = window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches;
+        tcMeta.setAttribute("content", isLight ? "#f2f2f7" : "#0f172a");
+      }
     } else {
-      root.setAttribute("data-theme", eff.mode);
-      if (csMeta) csMeta.setAttribute("content", eff.mode);
+      root.setAttribute("data-theme", theme);
+      if (csMeta) csMeta.setAttribute("content", theme);
+      if (tcMeta) tcMeta.setAttribute("content", theme === "light" ? "#f2f2f7" : "#0f172a");
     }
-
-    applyPresetVariables(eff.preset, eff.isDark);
-    if (tcMeta) {
-      tcMeta.setAttribute("content", eff.preset.isDefaultStyle ? (eff.isDark ? "#0f172a" : "#f2f2f7") : eff.preset.bg);
-    }
-    updateThemeSettingsUI();
-  }
-
-  function setLightPreset(id) {
-    if (!LIGHT_PRESETS.some((p) => p.id === id)) return;
-    try { localStorage.setItem(LIGHT_PRESET_KEY, id); } catch (_) {}
-    applyTheme();
-  }
-
-  function setDarkPreset(id) {
-    if (!DARK_PRESETS.some((p) => p.id === id)) return;
-    try { localStorage.setItem(DARK_PRESET_KEY, id); } catch (_) {}
-    applyTheme();
+    updateThemeSegmentedUI(theme);
   }
 
   function initThemeSettings() {
     applyTheme();
-
     document.querySelectorAll("#settings-theme-mode-seg .settings-seg-btn").forEach((btn) => {
       btn.addEventListener("click", () => {
         const mode = btn.getAttribute("data-theme-mode");
         if (mode) applyTheme(mode);
       });
     });
-
-    document.getElementById("btn-open-light-themes")?.addEventListener("click", () => openSettingsSubpage("light-themes"));
-    document.getElementById("btn-open-dark-themes")?.addEventListener("click", () => openSettingsSubpage("dark-themes"));
     document.getElementById("btn-open-compact-settings")?.addEventListener("click", () => openSettingsSubpage("compact"));
     document.getElementById("btn-settings-sub-back")?.addEventListener("click", () => openSettingsSubpage(null));
     document.getElementById("btn-sheet-settings-close-sub")?.addEventListener("click", () => {
       openSettingsSubpage(null);
       if (typeof closeSettingsSheet === "function") closeSettingsSheet();
     });
-
-    const mql = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)");
-    if (mql) {
-      const onMediaChange = () => {
-        if (getThemeState().mode === "system") applyTheme();
-      };
-      if (typeof mql.addEventListener === "function") mql.addEventListener("change", onMediaChange);
-      else if (typeof mql.addListener === "function") mql.addListener(onMediaChange);
-    }
-
     window.addEventListener("storage", (e) => {
-      if (e.key === THEME_STORAGE_KEY || e.key === LIGHT_PRESET_KEY || e.key === DARK_PRESET_KEY) {
-        applyTheme();
-      }
+      if (e.key === THEME_STORAGE_KEY) applyTheme();
     });
   }
 
@@ -1301,11 +944,7 @@
     AUDIO_EXTS,
     VIDEO_EXTS,
     R_LANGS,
-    LIGHT_PRESETS,
-    DARK_PRESETS,
     applyTheme,
-    setLightPreset,
-    setDarkPreset,
     openSettingsSubpage,
     isAudioOrVideoFile,
     maxUploadBytesForFile,

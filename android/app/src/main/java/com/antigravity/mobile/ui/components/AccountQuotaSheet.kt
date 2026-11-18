@@ -84,11 +84,14 @@ fun AccountQuotaSheet(
     var selectedTab by remember { mutableIntStateOf(0) }
     var isSavingTokenHistory by remember { mutableStateOf(false) }
     var isSharingTokenHistory by remember { mutableStateOf(false) }
+    var showTokenHistoryShareSheet by remember { mutableStateOf(false) }
     var selectedHeatmapDate by remember { mutableStateOf<String?>(null) }
     var pendingSwitchAccount by remember { mutableStateOf<CockpitAccountQuota?>(null) }
     var paceDetailTitleAndInfo by remember { mutableStateOf<Pair<String, com.antigravity.mobile.data.model.WeeklyPaceInfo>?>(null) }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    val prefs = remember(context) { com.antigravity.mobile.data.service.PreferencesManager(context) }
+    val isSystemDark = androidx.compose.foundation.isSystemInDarkTheme()
     val density = LocalDensity.current
     val cardGraphicsLayer = rememberGraphicsLayer()
     val scaledCardLayer = rememberGraphicsLayer()
@@ -270,17 +273,7 @@ fun AccountQuotaSheet(
                     IconButton(
                         onClick = {
                             if (tokenHistory == null || isSavingTokenHistory || isSharingTokenHistory) return@IconButton
-                            scope.launch {
-                                isSharingTokenHistory = true
-                                try {
-                                    ShareImageUtils.shareBitmap(context, captureTokenHistoryBitmap())
-                                } catch (e: Throwable) {
-                                    android.util.Log.e("AccountQuotaSheet", "Share token history failed", e)
-                                    Toast.makeText(context, "长图生成失败: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
-                                } finally {
-                                    isSharingTokenHistory = false
-                                }
-                            }
+                            showTokenHistoryShareSheet = true
                         },
                         enabled = tokenHistory != null && !isLoadingTokenHistory && !isSavingTokenHistory && !isSharingTokenHistory,
                         modifier = Modifier
@@ -534,7 +527,8 @@ fun AccountQuotaSheet(
                 ) {
                     TokenHistoryShareCard(
                         tokenHistory = tokenHistory,
-                        selectedRecord = selectedRecord
+                        selectedRecord = selectedRecord,
+                        skin = prefs.resolvedShareCardSkin(isSystemDark)
                     )
                 }
             }
@@ -587,6 +581,14 @@ fun AccountQuotaSheet(
             title = title,
             info = info,
             onDismiss = { paceDetailTitleAndInfo = null }
+        )
+    }
+
+    if (showTokenHistoryShareSheet && tokenHistory != null) {
+        TokenHistoryShareCardSheet(
+            tokenHistory = tokenHistory,
+            selectedRecord = selectedRecord,
+            onDismiss = { showTokenHistoryShareSheet = false }
         )
     }
 }

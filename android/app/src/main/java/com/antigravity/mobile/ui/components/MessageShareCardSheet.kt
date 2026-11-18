@@ -188,10 +188,9 @@ fun MessageShareCardSheet(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val activeColors = AntigravityTheme.colors
-    val initialPreset = remember(activeColors.themeId, activeColors.isDark) {
-        ThemePresetCatalog.findByThemeId(activeColors.themeId, activeColors.isDark)
-    }
+    val prefs = remember(context) { com.antigravity.mobile.data.service.PreferencesManager(context) }
+    val isSystemDark = androidx.compose.foundation.isSystemInDarkTheme()
+    val initialPreset = remember { prefs.resolvedShareCardSkin(isSystemDark) }
     var theme by remember { mutableStateOf(ShareCardTheme(initialPreset)) }
     var showSkinPicker by remember { mutableStateOf(false) }
     var includeQuestion by remember { mutableStateOf(true) }
@@ -335,6 +334,7 @@ fun MessageShareCardSheet(
         ShareCardSkinPickerSheet(
             selectedPreset = theme.preset,
             onSelect = { preset ->
+                prefs.shareCardSkinId = preset.id
                 theme = ShareCardTheme(preset)
                 showSkinPicker = false
             },
@@ -344,7 +344,7 @@ fun MessageShareCardSheet(
 }
 
 @Composable
-private fun ShareSkinPickerPill(
+internal fun ShareSkinPickerPill(
     preset: ThemePreset,
     onClick: () -> Unit
 ) {
@@ -376,7 +376,7 @@ private fun ShareSkinPickerPill(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ShareCardSkinPickerSheet(
+internal fun ShareCardSkinPickerSheet(
     selectedPreset: ThemePreset,
     onSelect: (ThemePreset) -> Unit,
     onDismiss: () -> Unit
@@ -411,8 +411,8 @@ private fun ShareCardSkinPickerSheet(
                     .padding(horizontal = 16.dp, vertical = 14.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                SkinGroupSection("浅色皮肤", ThemePresetCatalog.lightPresets, selectedPreset, onSelect)
-                SkinGroupSection("深色皮肤", ThemePresetCatalog.darkPresets, selectedPreset, onSelect)
+                SkinGroupSection("基础风格", ThemePresetCatalog.defaultSkins, selectedPreset, onSelect)
+                SkinGroupSection("精选桌面端配色", ThemePresetCatalog.desktopSkins, selectedPreset, onSelect)
                 Spacer(Modifier.height(12.dp))
             }
         }
@@ -507,7 +507,7 @@ private fun ShareOptionPill(
 
 /** 以 [designWidth] 排版内容，宽度不足时等比缩小并同步缩小占位高度。 */
 @Composable
-private fun ScaledToFitWidth(designWidth: androidx.compose.ui.unit.Dp, content: @Composable () -> Unit) {
+internal fun ScaledToFitWidth(designWidth: androidx.compose.ui.unit.Dp, content: @Composable () -> Unit) {
     Box(
         modifier = Modifier.layout { measurable, constraints ->
             val designPx = designWidth.roundToPx()

@@ -43,12 +43,6 @@ class PreferencesManager(context: Context) {
     private val _themeModeFlow = MutableStateFlow(themeMode)
     val themeModeFlow: StateFlow<String> = _themeModeFlow.asStateFlow()
 
-    private val _lightThemePresetFlow = MutableStateFlow(lightThemePreset)
-    val lightThemePresetFlow: StateFlow<String> = _lightThemePresetFlow.asStateFlow()
-
-    private val _darkThemePresetFlow = MutableStateFlow(darkThemePreset)
-    val darkThemePresetFlow: StateFlow<String> = _darkThemePresetFlow.asStateFlow()
-
     private val _gatewayPlatformFlow = MutableStateFlow(gatewayPlatform)
     val gatewayPlatformFlow: StateFlow<String?> = _gatewayPlatformFlow.asStateFlow()
 
@@ -204,31 +198,35 @@ class PreferencesManager(context: Context) {
             return if (raw == "nord") "dark" else raw
         }
         set(value) {
-            val normalized = if (value == "nord") {
-                darkThemePreset = "nord"
-                "dark"
-            } else value
+            val normalized = if (value == "nord") "dark" else value
             prefs.edit().putString(KEY_THEME_MODE, normalized).apply()
             _themeModeFlow.value = normalized
         }
 
-    var lightThemePreset: String
-        get() = prefs.getString(KEY_LIGHT_THEME_PRESET, "default") ?: "default"
+    var shareCardSkinId: String
+        get() = prefs.getString(KEY_SHARE_CARD_SKIN_ID, "auto") ?: "auto"
         set(value) {
-            prefs.edit().putString(KEY_LIGHT_THEME_PRESET, value).apply()
-            _lightThemePresetFlow.value = value
+            prefs.edit().putString(KEY_SHARE_CARD_SKIN_ID, value).apply()
         }
 
-    var darkThemePreset: String
-        get() {
-            val saved = prefs.getString(KEY_DARK_THEME_PRESET, null)
-            if (!saved.isNullOrBlank()) return saved
-            return if (prefs.getString(KEY_THEME_MODE, "system") == "nord") "nord" else "default"
+    fun resolvedShareCardSkin(isSystemDark: Boolean): com.antigravity.mobile.ui.theme.ThemePreset {
+        val saved = shareCardSkinId
+        if (saved != "auto") {
+            com.antigravity.mobile.ui.theme.ThemePresetCatalog.curatedSkins
+                .firstOrNull { it.id == saved }
+                ?.let { return it }
         }
-        set(value) {
-            prefs.edit().putString(KEY_DARK_THEME_PRESET, value).apply()
-            _darkThemePresetFlow.value = value
+        val followDark = when (themeMode.lowercase()) {
+            "dark" -> true
+            "light" -> false
+            else -> isSystemDark
         }
+        return if (followDark) {
+            com.antigravity.mobile.ui.theme.ThemePresetCatalog.defaultDark
+        } else {
+            com.antigravity.mobile.ui.theme.ThemePresetCatalog.defaultLight
+        }
+    }
 
     var fontSizeScale: String
         get() = prefs.getString(KEY_FONT_SIZE_SCALE, "standard") ?: "standard"
@@ -899,8 +897,6 @@ class PreferencesManager(context: Context) {
         memMcpServers = null
         memSkills = null
         _themeModeFlow.value = "system"
-        _lightThemePresetFlow.value = "default"
-        _darkThemePresetFlow.value = "default"
         _gatewayPlatformFlow.value = null
         _modelCatalogFlow.value = null
         _favoriteModel1Flow.value = ModelDefaults.FALLBACK_GEMINI
@@ -937,8 +933,7 @@ class PreferencesManager(context: Context) {
         private const val KEY_DEVICE_TOKEN = "device_token"
         private const val KEY_DEVICE_ID = "device_id"
         private const val KEY_THEME_MODE = "theme_mode"
-        private const val KEY_LIGHT_THEME_PRESET = "light_theme_preset"
-        private const val KEY_DARK_THEME_PRESET = "dark_theme_preset"
+        private const val KEY_SHARE_CARD_SKIN_ID = "share_card_skin_id"
         private const val KEY_FONT_SIZE_SCALE = "font_size_scale"
         private const val KEY_KNOWLEDGE_MODE = "knowledge_mode_enabled"
         private const val KEY_COMPACT_COLLAPSE_TOOLS = "compact_collapse_tools"

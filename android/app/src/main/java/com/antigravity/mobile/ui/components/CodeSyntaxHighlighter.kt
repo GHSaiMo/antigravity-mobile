@@ -24,11 +24,10 @@ object CodeSyntaxHighlighter {
     private val cache = object : LruCache<String, CacheEntry>(256) {}
 
     private fun paletteFor(isDark: Boolean, themeId: String): ThemeSyntaxPalette {
-        val resolvedId = when (themeId) {
-            "default" -> if (isDark) "default-dark" else "default-light"
-            else -> themeId
+        return when (themeId) {
+            "", "default", "default-light", "default-dark" -> ThemePresetCatalog.appleSyntax(isDark)
+            else -> ThemePresetCatalog.findByThemeId(themeId, isDark).syntax
         }
-        return ThemePresetCatalog.findByThemeId(resolvedId, isDark).syntax
     }
 
     private val rRegex = Regex(

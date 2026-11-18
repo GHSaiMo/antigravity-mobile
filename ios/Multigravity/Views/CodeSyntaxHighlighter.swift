@@ -92,7 +92,7 @@ public enum CodeSyntaxHighlighter {
         } else if useNord {
             resolvedKey = "nord"
         } else {
-            resolvedKey = AppSettings.shared.activeThemePreset(for: isDark ? .dark : .light).storageKey
+            resolvedKey = isDark ? "default-dark" : "default-light"
         }
         let cacheKey = "\(resolvedKey):\(isDark ? 1 : 0):\(normLang):\(utf16Len):\(code.hashValue)" as NSString
         if let hit = cache.object(forKey: cacheKey), hit.source == code {
