@@ -3489,6 +3489,38 @@
         }
       }
     },
+    "分叉会话": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fork Chat"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分叉会话"
+          }
+        }
+      }
+    },
+    "旁路快问": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Side Question"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "旁路快问"
+          }
+        }
+      }
+    },
     "从此步分叉会话": {
       "localizations": {
         "en": {
@@ -4861,6 +4893,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "分享"
+          }
+        }
+      }
+    },
+    "分享长图": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Share as Image"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分享长图"
           }
         }
       }
@@ -7310,6 +7358,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "对话大纲与步骤导轨"
+          }
+        }
+      }
+    },
+    "导出MD": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Export MD"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "导出MD"
           }
         }
       }

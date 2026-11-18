@@ -1239,7 +1239,7 @@ fun ChatScreen(
                             onDismissRequest = { showPermissionMenu = false }
                         ) {
                             DropdownMenuItem(
-                                text = { Text("/btw 旁路快问") },
+                                text = { Text("旁路快问") },
                                 onClick = {
                                     showPermissionMenu = false
                                     btwInitialQuote = null
@@ -1873,13 +1873,6 @@ fun ChatScreen(
                                     workflowSheetStartEditing = true
                                     showWorkflowTemplateSheet = true
                                 },
-                                onOpenBtw = if (!uiState.cascadeId.startsWith("local_draft_") && uiState.cascadeId.isNotBlank()) {
-                                    {
-                                        dismissKeyboard()
-                                        btwInitialQuote = null
-                                        showBtwSheet = true
-                                    }
-                                } else null,
                                 showChanges = uiState.hasSessionChanges,
                                 showContinue = uiState.isLatestMessageError,
                                 onContinue = {

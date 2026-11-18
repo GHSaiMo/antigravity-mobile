@@ -20,6 +20,7 @@ import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -691,8 +692,8 @@ fun MessageBubble(
                         )
                         if (onExportMarkdownClick != null) {
                             DropdownMenuItem(
-                                text = { Text("导出 MD") },
-                                leadingIcon = { Icon(Icons.Default.FileDownload, contentDescription = "导出 MD") },
+                                text = { Text("导出MD") },
+                                leadingIcon = { Icon(Icons.Default.FileDownload, contentDescription = "导出MD") },
                                 onClick = {
                                     showContextMenu = false
                                     onExportMarkdownClick()
@@ -700,8 +701,8 @@ fun MessageBubble(
                             )
                         }
                         DropdownMenuItem(
-                            text = { Text("分享为长图") },
-                            leadingIcon = { Icon(Icons.Default.Share, contentDescription = "分享为长图") },
+                            text = { Text("分享长图") },
+                            leadingIcon = { Icon(Icons.Default.Share, contentDescription = "分享长图") },
                             onClick = {
                                 showContextMenu = false
                                 shareCardRequest = ShareCardRequest(userBodyText, true, allUserImages)
@@ -709,6 +710,7 @@ fun MessageBubble(
                         )
                         // 当前 Antigravity 不支持撤回接口时，调用方传 null，菜单里就不显示这一项
                         if (onUndoClick != null) {
+                            HorizontalDivider(color = colors.border.copy(alpha = 0.4f))
                             DropdownMenuItem(
                                 text = { Text("撤回") },
                                 leadingIcon = {
@@ -771,6 +773,47 @@ fun MessageBubble(
                         onDismissRequest = { showAgentMenu = false }
                     ) {
                         if (displayText.isNotBlank()) {
+                            val hasGroup1 = onNarrateClick != null
+                            val hasGroup2 = onForkClick != null || onAskBtwClick != null
+
+                            if (hasGroup1) {
+                                DropdownMenuItem(
+                                    text = { Text("语音播报") },
+                                    leadingIcon = { Icon(Icons.Default.VolumeUp, contentDescription = "语音播报") },
+                                    onClick = {
+                                        showAgentMenu = false
+                                        val plain = MarkdownPlainText.convert(displayText)
+                                        onNarrateClick?.invoke(plain.ifEmpty { displayText })
+                                    }
+                                )
+                                HorizontalDivider(color = colors.border.copy(alpha = 0.4f))
+                            }
+
+                            if (hasGroup2) {
+                                if (onForkClick != null) {
+                                    DropdownMenuItem(
+                                        text = { Text("分叉会话") },
+                                        leadingIcon = { Icon(Icons.Default.CallSplit, contentDescription = "分叉会话") },
+                                        onClick = {
+                                            showAgentMenu = false
+                                            onForkClick(message)
+                                        }
+                                    )
+                                }
+                                if (onAskBtwClick != null) {
+                                    DropdownMenuItem(
+                                        text = { Text("旁路快问") },
+                                        leadingIcon = { Icon(Icons.Default.AutoAwesome, contentDescription = "旁路快问") },
+                                        onClick = {
+                                            showAgentMenu = false
+                                            val plain = MarkdownPlainText.convert(displayText)
+                                            onAskBtwClick(plain.ifEmpty { displayText })
+                                        }
+                                    )
+                                }
+                                HorizontalDivider(color = colors.border.copy(alpha = 0.4f))
+                            }
+
                             DropdownMenuItem(
                                 text = { Text("复制全文") },
                                 leadingIcon = { Icon(Icons.Default.ContentCopy, contentDescription = "复制全文") },
@@ -782,8 +825,8 @@ fun MessageBubble(
                             )
                             if (onExportMarkdownClick != null) {
                                 DropdownMenuItem(
-                                    text = { Text("导出 MD") },
-                                    leadingIcon = { Icon(Icons.Default.FileDownload, contentDescription = "导出 MD") },
+                                    text = { Text("导出MD") },
+                                    leadingIcon = { Icon(Icons.Default.FileDownload, contentDescription = "导出MD") },
                                     onClick = {
                                         showAgentMenu = false
                                         onExportMarkdownClick()
@@ -791,45 +834,13 @@ fun MessageBubble(
                                 )
                             }
                             DropdownMenuItem(
-                                text = { Text("分享为长图") },
-                                leadingIcon = { Icon(Icons.Default.Share, contentDescription = "分享为长图") },
+                                text = { Text("分享长图") },
+                                leadingIcon = { Icon(Icons.Default.Share, contentDescription = "分享长图") },
                                 onClick = {
                                     showAgentMenu = false
                                     shareCardRequest = ShareCardRequest(displayText, false, emptyList())
                                 }
                             )
-                            if (onForkClick != null) {
-                                DropdownMenuItem(
-                                    text = { Text("分叉会话") },
-                                    leadingIcon = { Icon(Icons.Default.CallSplit, contentDescription = "分叉会话") },
-                                    onClick = {
-                                        showAgentMenu = false
-                                        onForkClick(message)
-                                    }
-                                )
-                            }
-                            if (onNarrateClick != null) {
-                                DropdownMenuItem(
-                                    text = { Text("语音播报") },
-                                    leadingIcon = { Icon(Icons.Default.VolumeUp, contentDescription = "语音播报") },
-                                    onClick = {
-                                        showAgentMenu = false
-                                        val plain = MarkdownPlainText.convert(displayText)
-                                        onNarrateClick(plain.ifEmpty { displayText })
-                                    }
-                                )
-                            }
-                            if (onAskBtwClick != null) {
-                                DropdownMenuItem(
-                                    text = { Text("/btw 旁路快问") },
-                                    leadingIcon = { Icon(Icons.Default.AutoAwesome, contentDescription = "/btw 旁路快问") },
-                                    onClick = {
-                                        showAgentMenu = false
-                                        val plain = MarkdownPlainText.convert(displayText)
-                                        onAskBtwClick(plain.ifEmpty { displayText })
-                                    }
-                                )
-                            }
                         }
                     }
 

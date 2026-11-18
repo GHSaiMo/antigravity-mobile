@@ -99,7 +99,7 @@ public struct SubagentDetailSheet: View {
                                         dismiss()
                                         onAskBtw(prompt)
                                     } label: {
-                                        Label("/btw 旁路快问", systemImage: "bubble.left.and.exclamationmark.bubble.right")
+                                        Label("旁路快问", systemImage: "bubble.left.and.exclamationmark.bubble.right")
                                             .font(.system(size: 11.5, weight: .semibold))
                                     }
                                     .buttonStyle(.bordered)

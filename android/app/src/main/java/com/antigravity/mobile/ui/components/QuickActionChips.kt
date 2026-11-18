@@ -62,7 +62,6 @@ fun QuickActionChips(
     workflowTemplates: List<WorkflowTemplateRecord> = emptyList(),
     onSelectWorkflowPrompt: (String) -> Unit = {},
     onOpenWorkflowSetup: () -> Unit = {},
-    onOpenBtw: (() -> Unit)? = null,
     showContinue: Boolean,
     onContinue: () -> Unit,
     showProceed: Boolean,
@@ -243,30 +242,6 @@ fun QuickActionChips(
                     color = colors.textPrimary,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Medium
-                )
-            }
-        }
-
-        if (onOpenBtw != null) {
-            Box(
-                modifier = Modifier
-                    .height(32.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(colors.accentIndigo.copy(alpha = 0.11f))
-                    .border(1.dp, colors.accentIndigo.copy(alpha = 0.28f), RoundedCornerShape(10.dp))
-                    .clickable {
-                        haptic.light()
-                        onOpenBtw()
-                    }
-                    .padding(horizontal = 12.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = "btw",
-                    color = colors.accentIndigo,
-                    fontSize = 12.5.sp,
-                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                    fontWeight = FontWeight.SemiBold
                 )
             }
         }

@@ -144,7 +144,7 @@ extension MessageBubbleView {
         Button {
             showShareCard = true
         } label: {
-            Label("分享为长图", systemImage: "photo.badge.plus")
+            Label("分享长图", systemImage: "photo.badge.plus")
         }
     }
     

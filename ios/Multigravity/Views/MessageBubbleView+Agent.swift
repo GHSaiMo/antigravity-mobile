@@ -95,48 +95,61 @@ extension MessageBubbleView {
         .contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: 18, style: .continuous))
         .contextMenu {
             let plainText = agentPlainText
-            if !plainText.isEmpty {
-                Button {
-                    showTextSelectionSheet = true
-                } label: {
-                    Label("选择文本", systemImage: "selection.pin.in.out")
-                }
-
-                Button {
-                    copyWholeText(plainText)
-                } label: {
-                    Label("复制全文", systemImage: "doc.on.doc")
-                }
-            }
-            if let onExportMarkdown {
-                Button {
-                    onExportMarkdown()
-                } label: {
-                    Label("导出 MD", systemImage: "square.and.arrow.down")
-                }
-            }
-            if !plainText.isEmpty || !message.imageUrls.isEmpty {
-                shareLongImageButton
-            }
             if !plainText.isEmpty, let onNarrate {
-                Button {
-                    onNarrate(plainText)
-                } label: {
-                    Label("语音播报", systemImage: "speaker.wave.2")
+                Section {
+                    Button {
+                        onNarrate(plainText)
+                    } label: {
+                        Label("语音播报", systemImage: "speaker.wave.2")
+                    }
                 }
             }
-            if !plainText.isEmpty, let onAskBtw {
-                Button {
-                    onAskBtw(plainText)
-                } label: {
-                    Label("/btw 旁路快问", systemImage: "bubble.left.and.exclamationmark.bubble.right")
+
+            if (onFork != nil && message.effectiveStepIndex != nil) || (!plainText.isEmpty && onAskBtw != nil) {
+                Section {
+                    if let onFork, message.effectiveStepIndex != nil {
+                        Button {
+                            onFork(message)
+                        } label: {
+                            Label("分叉会话", systemImage: "arrow.triangle.branch")
+                        }
+                    }
+                    if !plainText.isEmpty, let onAskBtw {
+                        Button {
+                            onAskBtw(plainText)
+                        } label: {
+                            Label("旁路快问", systemImage: "bubble.left.and.exclamationmark.bubble.right")
+                        }
+                    }
                 }
             }
-            if let onFork, message.effectiveStepIndex != nil {
-                Button {
-                    onFork(message)
-                } label: {
-                    Label("从此步分叉会话", systemImage: "arrow.triangle.branch")
+
+            if !plainText.isEmpty || onExportMarkdown != nil || !message.imageUrls.isEmpty {
+                Section {
+                    if !plainText.isEmpty {
+                        Button {
+                            copyWholeText(plainText)
+                        } label: {
+                            Label("复制全文", systemImage: "doc.on.doc")
+                        }
+                    }
+                    if let onExportMarkdown {
+                        Button {
+                            onExportMarkdown()
+                        } label: {
+                            Label("导出MD", systemImage: "square.and.arrow.down")
+                        }
+                    }
+                    if !plainText.isEmpty || !message.imageUrls.isEmpty {
+                        shareLongImageButton
+                    }
+                    if !plainText.isEmpty {
+                        Button {
+                            showTextSelectionSheet = true
+                        } label: {
+                            Label("选择文本", systemImage: "selection.pin.in.out")
+                        }
+                    }
                 }
             }
         }
