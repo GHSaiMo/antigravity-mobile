@@ -152,6 +152,13 @@ public struct ChatView: View {
     }
     
     public var body: some View {
+        applyPresentationModifiers(
+            applyLifecycleModifiers(rootChatLayout)
+        )
+    }
+
+    @ViewBuilder
+    private var rootChatLayout: some View {
         VStack(spacing: 0) {
             ZStack(alignment: .bottom) {
                 VStack(spacing: 0) {
@@ -245,416 +252,445 @@ public struct ChatView: View {
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(true)
         .toolbar {
-            // In the iPad split view the detail column has no back navigation.
-            if !isSplitDetail {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button(action: {
-                        dismiss()
-                    }) {
-                        Image(systemName: "chevron.left")
-                            .font(.system(size: 16, weight: .semibold))
-                    }
+            chatToolbarContent
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var chatToolbarContent: some ToolbarContent {
+        // In the iPad split view the detail column has no back navigation.
+        if !isSplitDetail {
+            ToolbarItem(placement: .topBarLeading) {
+                Button(action: {
+                    dismiss()
+                }) {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 16, weight: .semibold))
                 }
             }
-            
-            ToolbarItem(placement: .principal) {
-                ChatToolbarPrincipalView(
-                    viewModel: viewModel,
-                    scrollHUD: scrollHUD,
-                    onOpenNavigator: {
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                        showNavigatorSheet = true
-                    },
-                    onOpenContextAudit: {
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                        showContextAuditSheet = true
-                    }
-                )
-            }
-            
-            ToolbarItem(placement: .topBarTrailing) {
-                let isAutoPermission = viewModel.permissionState.preset == "auto"
-                Menu {
-                    Section("全局权限放行模式 (\(viewModel.permissionState.localizedLabel))") {
-                        Button {
-                            Task { await viewModel.updatePermissionPreset("strict") }
-                        } label: {
-                            Label("严格审批", systemImage: viewModel.permissionState.preset == "strict" ? "checkmark" : "lock.shield")
-                        }
-                        Button {
-                            Task { await viewModel.updatePermissionPreset("sandbox") }
-                        } label: {
-                            Label("离席沙箱放行", systemImage: viewModel.permissionState.preset == "sandbox" ? "checkmark" : "shield.lefthalf.filled")
-                        }
-                        Button {
-                            if isAutoPermission {
-                                Task { await viewModel.updatePermissionPreset("auto") }
-                            } else {
-                                showAutoPermissionConfirm = true
-                            }
-                        } label: {
-                            Label("全自动放行", systemImage: isAutoPermission ? "checkmark" : "bolt.shield")
-                        }
-                    }
-                    Divider()
-                    Button {
-                        btwInitialQuote = nil
-                        showBtwSheet = true
-                    } label: {
-                        Label("/btw 旁路快问", systemImage: "bubble.left.and.exclamationmark.bubble.right")
-                    }
-                    Button {
-                        showMcpSkillsSheet = true
-                    } label: {
-                        Label("打开工具与任务看板", systemImage: "wrench.and.screwdriver")
-                    }
-                } label: {
-                    let iconName: String = {
-                        if viewModel.hasAnyBackgroundTasks { return "terminal" }
-                        return isAutoPermission ? "bolt.shield.fill" : "wrench.and.screwdriver"
-                    }()
-                    Image(systemName: iconName)
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(isAutoPermission ? .orange : .indigo)
-                } primaryAction: {
+        }
+
+        ToolbarItem(placement: .principal) {
+            ChatToolbarPrincipalView(
+                viewModel: viewModel,
+                scrollHUD: scrollHUD,
+                onOpenNavigator: {
                     UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                    showMcpSkillsSheet = true
+                    showNavigatorSheet = true
+                },
+                onOpenContextAudit: {
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    showContextAuditSheet = true
                 }
-                .accessibilityLabel(viewModel.hasAnyBackgroundTasks ? String(localized: "打开后台任务与工具看板") : String(localized: "打开已连接工具与技能看板"))
-                .accessibilityValue(viewModel.permissionState.localizedLabel)
-                .accessibilityHint("短按打开工具与任务看板，长按切换全局权限模式")
-            }
+            )
         }
-        .background(SwipeBackEnabler())
-        .onChange(of: ShareInbox.shared.deliveryTick) { _, _ in
-            consumeSharedFiles()
-        }
-        .onAppear {
-            handleViewAppear()
-        }
-        .task {
-            ChatViewModel.activeCascadeId = viewModel.cascadeId
-            if let url = AppSettings.shared.serverURL {
-                Task { @MainActor in
-                    await ModelCatalogStore.shared.refreshIfNeeded(settings: AppSettings.shared, baseURL: url)
-                    if !viewModel.isDraftConversation && !viewModel.hasUserManuallySelectedModel && !viewModel.hasResolvedSessionModel,
-                       let desktopModel = ModelCatalogStore.shared.catalog?.desktopActiveModel,
-                       !desktopModel.isEmpty {
-                        viewModel.syncModel(from: desktopModel)
-                        if let dName = ModelCatalogStore.shared.catalog?.desktopActiveModelName, !dName.isEmpty {
-                            viewModel.activeModelName = dName
+
+        ToolbarItem(placement: .topBarTrailing) {
+            let isAutoPermission = viewModel.permissionState.preset == "auto"
+            Menu {
+                Section("全局权限放行模式 (\(viewModel.permissionState.localizedLabel))") {
+                    Button {
+                        Task { await viewModel.updatePermissionPreset("strict") }
+                    } label: {
+                        Label("严格审批", systemImage: viewModel.permissionState.preset == "strict" ? "checkmark" : "lock.shield")
+                    }
+                    Button {
+                        Task { await viewModel.updatePermissionPreset("sandbox") }
+                    } label: {
+                        Label("离席沙箱放行", systemImage: viewModel.permissionState.preset == "sandbox" ? "checkmark" : "shield.lefthalf.filled")
+                    }
+                    Button {
+                        if isAutoPermission {
+                            Task { await viewModel.updatePermissionPreset("auto") }
+                        } else {
+                            showAutoPermissionConfirm = true
                         }
+                    } label: {
+                        Label("全自动放行", systemImage: isAutoPermission ? "checkmark" : "bolt.shield")
                     }
                 }
-                Task {
-                    await WorkflowTemplateStore.shared.refresh()
+                Divider()
+                Button {
+                    btwInitialQuote = nil
+                    showBtwSheet = true
+                } label: {
+                    Label("/btw 旁路快问", systemImage: "bubble.left.and.exclamationmark.bubble.right")
+                }
+                Button {
+                    showMcpSkillsSheet = true
+                } label: {
+                    Label("打开工具与任务看板", systemImage: "wrench.and.screwdriver")
+                }
+            } label: {
+                let iconName: String = {
+                    if viewModel.hasAnyBackgroundTasks { return "terminal" }
+                    return isAutoPermission ? "bolt.shield.fill" : "wrench.and.screwdriver"
+                }()
+                Image(systemName: iconName)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(isAutoPermission ? .orange : .indigo)
+            } primaryAction: {
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                showMcpSkillsSheet = true
+            }
+            .accessibilityLabel(viewModel.hasAnyBackgroundTasks ? String(localized: "打开后台任务与工具看板") : String(localized: "打开已连接工具与技能看板"))
+            .accessibilityValue(viewModel.permissionState.localizedLabel)
+            .accessibilityHint("短按打开工具与任务看板，长按切换全局权限模式")
+        }
+    }
+
+    private func runInitialChatTask() async {
+        ChatViewModel.activeCascadeId = viewModel.cascadeId
+        if let url = AppSettings.shared.serverURL {
+            Task { @MainActor in
+                await ModelCatalogStore.shared.refreshIfNeeded(settings: AppSettings.shared, baseURL: url)
+                if !viewModel.isDraftConversation && !viewModel.hasUserManuallySelectedModel && !viewModel.hasResolvedSessionModel,
+                   let desktopModel = ModelCatalogStore.shared.catalog?.desktopActiveModel,
+                   !desktopModel.isEmpty {
+                    viewModel.syncModel(from: desktopModel)
+                    if let dName = ModelCatalogStore.shared.catalog?.desktopActiveModelName, !dName.isEmpty {
+                        viewModel.activeModelName = dName
+                    }
                 }
             }
             Task {
-                await viewModel.refreshPermissionSettings()
-                await viewModel.refreshProjectTrust()
-            }
-            await viewModel.loadMessages()
-            viewModel.connectStream()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .permissionPresetDidChange)) { notif in
-            if let state = notif.object as? PermissionStateResponse {
-                viewModel.permissionState = state
+                await WorkflowTemplateStore.shared.refresh()
             }
         }
-        .onChange(of: viewModel.pendingInteraction != nil) { _, hasPending in
-            if hasPending {
-                isInputFocused = false
-                UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+        Task {
+            await viewModel.refreshPermissionSettings()
+            await viewModel.refreshProjectTrust()
+        }
+        await viewModel.loadMessages()
+        viewModel.connectStream()
+    }
+
+    @ViewBuilder
+    private func applyLifecycleModifiers<Content: View>(_ content: Content) -> some View {
+        content
+            .background(SwipeBackEnabler())
+            .onChange(of: ShareInbox.shared.deliveryTick) { _, _ in
+                consumeSharedFiles()
             }
-        }
-        .onChange(of: scenePhase) { _, newPhase in
-            handleScenePhaseChange(newPhase)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
-            handleAppDidBecomeActive()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
-            handleAppDidEnterBackground()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .audioRecordingDidFinishFromLiveActivity)) { notif in
-            handleLiveActivityRecordingFinished(notif)
-        }
-        .onDisappear {
-            handleViewDisappear()
-        }
-        .onChange(of: voiceCall.callState) { _, newState in
-            handleVoiceCallStateChange(newState)
-        }
-        .onChange(of: voiceCall.isInCall) { _, inCall in
-            if inCall { showVoiceTroubleshootBubble = false }
-        }
-        .onChange(of: viewModel.activeModel) { _, _ in
-            if voiceCall.isInCall {
-                voiceCall.updatePlanModel(viewModel.activeModelEnum)
-            }
-        }
-        .environment(\.openURL, OpenURLAction { url in
-            handleURLTap(url)
-        })
-        .environment(\.currentCascadeId, viewModel.cascadeId)
-        .sheet(isPresented: $showAttachmentSheet) {
-            AttachmentPickerSheet(
-                remainingImageSlots: max(0, 5 - viewModel.selectedImageData.count),
-                onPhotosPicked: { assets in handlePickedAssets(assets) },
-                onOpenAudioRecorder: {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { handleAudioRecordAction() }
-                },
-                onOpenCamera: {
-                    // Wait for the sheet to finish dismissing before presenting the camera.
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { handleCameraAction() }
-                },
-                onOpenDocumentScanner: {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { handleDocumentScannerAction() }
-                },
-                onFilesPicked: { urls in viewModel.addFiles(from: urls) }
-            )
-        }
-        .alert("无法添加文件", isPresented: isAttachmentNoticePresented) {
-            Button("好", role: .cancel) {}
-        } message: {
-            Text(viewModel.attachmentNotice ?? "")
-        }
-        .sheet(item: $viewModel.viewingMarkdownFile, onDismiss: {
-            viewModel.closeMarkdownViewer()
-        }) { (item: MarkdownFileViewerData) in
-            renderMarkdownViewer(data: item)
-                .presentationDragIndicator(.visible)
-        }
-        .sheet(isPresented: isQuickLookPresented) {
-            if let qlURL = viewModel.quickLookURL {
-                QuickLookPreviewSheet(url: qlURL, title: viewModel.quickLookTitle) {
-                    viewModel.closeQuickLook()
-                }
-                .presentationDragIndicator(.visible)
-            }
-        }
-        .sheet(isPresented: isHtmlPreviewPresented) {
-            if let htmlURL = viewModel.htmlPreviewURL {
-                HTMLPreviewSheet(url: htmlURL, title: viewModel.htmlPreviewTitle) {
-                    viewModel.closeHTMLPreview()
-                }
-                .presentationDragIndicator(.visible)
-            }
-        }
-        .sheet(item: $viewModel.weChatArchiveItem) { item in
-            WeChatChatArchiveSheet(
-                item: item,
-                apiClient: viewModel.apiClient,
-                baseURL: viewModel.settings.serverURL,
-                cascadeId: viewModel.cascadeId,
-                onFallbackToQuickLook: {
-                    viewModel.downloadAndPreviewDocument(uri: item.uri, fileName: item.fileName, isHTML: false)
-                },
-                onDismiss: {
-                    viewModel.closeWeChatArchive()
-                }
-            )
-            .presentationDragIndicator(.hidden)
-        }
-        .sheet(isPresented: $showNavigatorSheet) {
-            ConversationNavigatorSheet(
-                turns: viewModel.turns,
-                chapters: viewModel.chapters,
-                currentTurnIndex: scrollHUD.currentVisibleTurnIndex,
-                isLoadingChapterTitles: viewModel.isLoadingChapterTitles,
-                onSelectTurn: { turn in
-                    scrollHUD.lockedTurnIndex = turn.turnIndex
-                    scrollHUD.currentVisibleTurnIndex = turn.turnIndex
-                    targetScrollTurnId = turn.firstMessageId
-                },
-                onJumpToTop: {
-                    if let firstId = viewModel.messages.first?.id {
-                        scrollHUD.lockedTurnIndex = 1
-                        scrollHUD.currentVisibleTurnIndex = 1
-                        targetScrollTurnId = firstId
-                    }
-                },
-                onJumpToBottom: {
-                    let lastTurn = viewModel.turns.last?.turnIndex ?? 1
-                    scrollHUD.lockedTurnIndex = nil
-                    scrollHUD.currentVisibleTurnIndex = lastTurn
-                    targetScrollTurnId = "BOTTOM_ANCHOR"
-                }
-            )
             .onAppear {
-                viewModel.refreshChapterTitles()
+                handleViewAppear()
             }
-            .presentationDetents([.large])
-            .presentationDragIndicator(.visible)
-        }
-        .sheet(item: inAppBrowserItem) { item in
-            SafariWebViewSheet(url: item.url) {
-                viewModel.closeInAppBrowser()
+            .task {
+                await runInitialChatTask()
             }
-            .ignoresSafeArea()
-        }
-        .sheet(item: $selectedGitHubPRItem) { item in
-            GitHubPRDetailSheet(url: item.url) { browserURL in
-                viewModel.openInAppBrowser(url: browserURL)
+            .onReceive(NotificationCenter.default.publisher(for: .permissionPresetDidChange)) { notif in
+                if let state = notif.object as? PermissionStateResponse {
+                    viewModel.permissionState = state
+                }
             }
-        }
-        .sheet(isPresented: $showBtwSheet, onDismiss: {
-            btwInitialQuote = nil
-        }) {
-            BtwSideQuestionSheet(
-                parentCascadeId: viewModel.cascadeId,
-                activeModel: viewModel.activeModel,
-                initialQuote: btwInitialQuote,
-                onInsertIntoMain: { inserted in
-                    let existing = viewModel.inputText.trimmingCharacters(in: .whitespacesAndNewlines)
-                    viewModel.inputText = existing.isEmpty ? inserted : (existing + "\n\n" + inserted)
-                    viewModel.focusInputTrigger &+= 1
-                },
-                onOpenStandalone: { targetId in
-                    NotificationCenter.default.post(
-                        name: .openConversationFromTaskCenter,
-                        object: targetId
-                    )
+            .onChange(of: viewModel.pendingInteraction != nil) { _, hasPending in
+                if hasPending {
+                    isInputFocused = false
+                    UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
                 }
-            )
-        }
-        .sheet(isPresented: $showMcpSkillsSheet) {
-            McpSkillsSheet(
-                initialTab: viewModel.hasAnyBackgroundTasks ? .tasks : .mcp,
-                currentConversationId: viewModel.cascadeId,
-                hasActiveSwarm: viewModel.isSwarmActive,
-                onSelectConversation: { targetId in
-                    NotificationCenter.default.post(
-                        name: .openConversationFromTaskCenter,
-                        object: targetId
-                    )
-                },
-                onTasksChanged: { updated in
-                    viewModel.globalBackgroundTasks = updated
-                },
-                onOpenSwarm: {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-                        showSwarmSheet = true
-                    }
+            }
+            .onChange(of: scenePhase) { _, newPhase in
+                handleScenePhaseChange(newPhase)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+                handleAppDidBecomeActive()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
+                handleAppDidEnterBackground()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .audioRecordingDidFinishFromLiveActivity)) { notif in
+                handleLiveActivityRecordingFinished(notif)
+            }
+            .onDisappear {
+                handleViewDisappear()
+            }
+            .onChange(of: voiceCall.callState) { _, newState in
+                handleVoiceCallStateChange(newState)
+            }
+            .onChange(of: voiceCall.isInCall) { _, inCall in
+                if inCall { showVoiceTroubleshootBubble = false }
+            }
+            .onChange(of: viewModel.activeModel) { _, _ in
+                if voiceCall.isInCall {
+                    voiceCall.updatePlanModel(viewModel.activeModelEnum)
                 }
-            )
-            .presentationDetents([.large])
-            .presentationDragIndicator(.visible)
-        }
-        .sheet(isPresented: $showSwarmSheet) {
-            SwarmSheet(
-                cascadeId: viewModel.cascadeId,
-                onSelectConversation: { targetId in
-                    NotificationCenter.default.post(
-                        name: .openConversationFromTaskCenter,
-                        object: targetId
-                    )
-                }
-            )
-            .presentationDetents([.large])
-            .presentationDragIndicator(.visible)
-        }
-        .sheet(isPresented: $showContextAuditSheet) {
-            if let meter = viewModel.contextMeter {
-                ContextAuditSheetView(
-                    meter: meter,
-                    canCompact: !viewModel.cascadeId.hasPrefix("local_draft_") && !viewModel.isSubagentSession,
-                    onCompact: {
-                        Task { _ = await viewModel.sendMessage(text: "/compact") }
+            }
+            .environment(\.openURL, OpenURLAction { url in
+                handleURLTap(url)
+            })
+            .environment(\.currentCascadeId, viewModel.cascadeId)
+    }
+
+    @ViewBuilder
+    private func applyPresentationModifiers<Content: View>(_ content: Content) -> some View {
+        applySecondarySheetsAndAlerts(applyPrimarySheets(content))
+    }
+
+    @ViewBuilder
+    private func applyPrimarySheets<Content: View>(_ content: Content) -> some View {
+        content
+            .sheet(isPresented: $showAttachmentSheet) {
+                AttachmentPickerSheet(
+                    remainingImageSlots: max(0, 5 - viewModel.selectedImageData.count),
+                    onPhotosPicked: { assets in handlePickedAssets(assets) },
+                    onOpenAudioRecorder: {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { handleAudioRecordAction() }
                     },
-                    onStartNewSession: {
+                    onOpenCamera: {
+                        // Wait for the sheet to finish dismissing before presenting the camera.
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { handleCameraAction() }
+                    },
+                    onOpenDocumentScanner: {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { handleDocumentScannerAction() }
+                    },
+                    onFilesPicked: { urls in viewModel.addFiles(from: urls) }
+                )
+            }
+            .alert("无法添加文件", isPresented: isAttachmentNoticePresented) {
+                Button("好", role: .cancel) {}
+            } message: {
+                Text(viewModel.attachmentNotice ?? "")
+            }
+            .sheet(item: $viewModel.viewingMarkdownFile, onDismiss: {
+                viewModel.closeMarkdownViewer()
+            }) { (item: MarkdownFileViewerData) in
+                renderMarkdownViewer(data: item)
+                    .presentationDragIndicator(.visible)
+            }
+            .sheet(isPresented: isQuickLookPresented) {
+                if let qlURL = viewModel.quickLookURL {
+                    QuickLookPreviewSheet(url: qlURL, title: viewModel.quickLookTitle) {
+                        viewModel.closeQuickLook()
+                    }
+                    .presentationDragIndicator(.visible)
+                }
+            }
+            .sheet(isPresented: isHtmlPreviewPresented) {
+                if let htmlURL = viewModel.htmlPreviewURL {
+                    HTMLPreviewSheet(url: htmlURL, title: viewModel.htmlPreviewTitle) {
+                        viewModel.closeHTMLPreview()
+                    }
+                    .presentationDragIndicator(.visible)
+                }
+            }
+            .sheet(item: $viewModel.weChatArchiveItem) { item in
+                WeChatChatArchiveSheet(
+                    item: item,
+                    apiClient: viewModel.apiClient,
+                    baseURL: viewModel.settings.serverURL,
+                    cascadeId: viewModel.cascadeId,
+                    onFallbackToQuickLook: {
+                        viewModel.downloadAndPreviewDocument(uri: item.uri, fileName: item.fileName, isHTML: false)
+                    },
+                    onDismiss: {
+                        viewModel.closeWeChatArchive()
+                    }
+                )
+                .presentationDragIndicator(.hidden)
+            }
+            .sheet(isPresented: $showNavigatorSheet) {
+                ConversationNavigatorSheet(
+                    turns: viewModel.turns,
+                    chapters: viewModel.chapters,
+                    currentTurnIndex: scrollHUD.currentVisibleTurnIndex,
+                    isLoadingChapterTitles: viewModel.isLoadingChapterTitles,
+                    onSelectTurn: { turn in
+                        scrollHUD.lockedTurnIndex = turn.turnIndex
+                        scrollHUD.currentVisibleTurnIndex = turn.turnIndex
+                        targetScrollTurnId = turn.firstMessageId
+                    },
+                    onJumpToTop: {
+                        if let firstId = viewModel.messages.first?.id {
+                            scrollHUD.lockedTurnIndex = 1
+                            scrollHUD.currentVisibleTurnIndex = 1
+                            targetScrollTurnId = firstId
+                        }
+                    },
+                    onJumpToBottom: {
+                        let lastTurn = viewModel.turns.last?.turnIndex ?? 1
+                        scrollHUD.lockedTurnIndex = nil
+                        scrollHUD.currentVisibleTurnIndex = lastTurn
+                        targetScrollTurnId = "BOTTOM_ANCHOR"
+                    }
+                )
+                .onAppear {
+                    viewModel.refreshChapterTitles()
+                }
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+            }
+    }
+
+    @ViewBuilder
+    private func applySecondarySheetsAndAlerts<Content: View>(_ content: Content) -> some View {
+        content
+            .sheet(item: inAppBrowserItem) { item in
+                SafariWebViewSheet(url: item.url) {
+                    viewModel.closeInAppBrowser()
+                }
+                .ignoresSafeArea()
+            }
+            .sheet(item: $selectedGitHubPRItem) { item in
+                GitHubPRDetailSheet(url: item.url) { browserURL in
+                    viewModel.openInAppBrowser(url: browserURL)
+                }
+            }
+            .sheet(isPresented: $showBtwSheet, onDismiss: {
+                btwInitialQuote = nil
+            }) {
+                BtwSideQuestionSheet(
+                    parentCascadeId: viewModel.cascadeId,
+                    activeModel: viewModel.activeModel,
+                    initialQuote: btwInitialQuote,
+                    onInsertIntoMain: { inserted in
+                        let existing = viewModel.inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+                        viewModel.inputText = existing.isEmpty ? inserted : (existing + "\n\n" + inserted)
+                        viewModel.focusInputTrigger &+= 1
+                    },
+                    onOpenStandalone: { targetId in
                         NotificationCenter.default.post(
-                            name: .startNewSessionForWorkspace,
-                            object: viewModel.workspaceName
+                            name: .openConversationFromTaskCenter,
+                            object: targetId
                         )
                     }
                 )
-                .presentationDetents([.fraction(0.42), .medium])
+            }
+            .sheet(isPresented: $showMcpSkillsSheet) {
+                McpSkillsSheet(
+                    initialTab: viewModel.hasAnyBackgroundTasks ? .tasks : .mcp,
+                    currentConversationId: viewModel.cascadeId,
+                    hasActiveSwarm: viewModel.isSwarmActive,
+                    onSelectConversation: { targetId in
+                        NotificationCenter.default.post(
+                            name: .openConversationFromTaskCenter,
+                            object: targetId
+                        )
+                    },
+                    onTasksChanged: { updated in
+                        viewModel.globalBackgroundTasks = updated
+                    },
+                    onOpenSwarm: {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                            showSwarmSheet = true
+                        }
+                    }
+                )
+                .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
             }
-        }
-        .overlay {
-            if viewModel.isDownloadingDocument {
-                ZStack {
-                    Color.black.opacity(0.12)
-                        .ignoresSafeArea()
-                        .onTapGesture {
-                            viewModel.cancelDocumentDownload()
+            .sheet(isPresented: $showSwarmSheet) {
+                SwarmSheet(
+                    cascadeId: viewModel.cascadeId,
+                    onSelectConversation: { targetId in
+                        NotificationCenter.default.post(
+                            name: .openConversationFromTaskCenter,
+                            object: targetId
+                        )
+                    }
+                )
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+            }
+            .sheet(isPresented: $showContextAuditSheet) {
+                if let meter = viewModel.contextMeter {
+                    ContextAuditSheetView(
+                        meter: meter,
+                        canCompact: !viewModel.cascadeId.hasPrefix("local_draft_") && !viewModel.isSubagentSession,
+                        onCompact: {
+                            Task { _ = await viewModel.sendMessage(text: "/compact") }
+                        },
+                        onStartNewSession: {
+                            NotificationCenter.default.post(
+                                name: .startNewSessionForWorkspace,
+                                object: viewModel.workspaceName
+                            )
                         }
-                    
-                    VStack(spacing: 12) {
-                        Text("正在下载文件")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundColor(.primary)
-                        
-                        if viewModel.downloadBytesTotal > 0 {
-                            ProgressView(value: viewModel.downloadProgress)
-                                .progressViewStyle(.linear)
-                                .tint(.accentColor)
-                                .frame(width: 150)
-                        } else {
-                            ProgressView()
-                                .progressViewStyle(.circular)
+                    )
+                    .presentationDetents([.fraction(0.42), .medium])
+                    .presentationDragIndicator(.visible)
+                }
+            }
+            .overlay {
+                if viewModel.isDownloadingDocument {
+                    ZStack {
+                        Color.black.opacity(0.12)
+                            .ignoresSafeArea()
+                            .onTapGesture {
+                                viewModel.cancelDocumentDownload()
+                            }
+
+                        VStack(spacing: 12) {
+                            Text("正在下载文件")
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundColor(.primary)
+
+                            if viewModel.downloadBytesTotal > 0 {
+                                ProgressView(value: viewModel.downloadProgress)
+                                    .progressViewStyle(.linear)
+                                    .tint(.accentColor)
+                                    .frame(width: 150)
+                            } else {
+                                ProgressView()
+                                    .progressViewStyle(.circular)
+                            }
+                        }
+                        .padding(.horizontal, 24)
+                        .padding(.vertical, 16)
+                        .background(.ultraThinMaterial)
+                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
+                    }
+                    .transition(.opacity)
+                    .animation(.easeInOut(duration: 0.15), value: viewModel.isDownloadingDocument)
+                }
+            }
+            .fullScreenCover(isPresented: $showCameraPicker) {
+                CameraPickerView { capturedImage in
+                    handleCapturedImage(capturedImage)
+                }
+                .ignoresSafeArea()
+            }
+            .fullScreenCover(isPresented: $showDocumentScanner) {
+                DocumentScannerView(
+                    onScanned: { scannedImages in
+                        handleScannedImages(scannedImages)
+                    },
+                    onCancel: {
+                        showDocumentScanner = false
+                    }
+                )
+                .ignoresSafeArea()
+            }
+            .modifier(ChatPermissionAlertsModifier(
+                showCameraUnavailableAlert: $showCameraUnavailableAlert,
+                showCameraPermissionAlert: $showCameraPermissionAlert,
+                showMicrophonePermissionAlert: $showMicrophonePermissionAlert,
+                showOtherSessionRecordingAlert: $showOtherSessionRecordingAlert,
+                audioRecorder: audioRecorder
+            ))
+            .alert("后台任务正在执行", isPresented: $showSendQueuedNowConfirmAlert) {
+                Button("取消", role: .cancel) {
+                    queuedItemToSendNow = nil
+                }
+                Button("仍要立即发送", role: .destructive) {
+                    if let item = queuedItemToSendNow {
+                        Task {
+                            await viewModel.sendQueuedMessageNow(item: item)
                         }
                     }
-                    .padding(.horizontal, 24)
-                    .padding(.vertical, 16)
-                    .background(.ultraThinMaterial)
-                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                    .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
+                    queuedItemToSendNow = nil
                 }
-                .transition(.opacity)
-                .animation(.easeInOut(duration: 0.15), value: viewModel.isDownloadingDocument)
+            } message: {
+                Text("当前有正在运行的后台命令或子代理。立即发送将提前触发下一轮对话，可能会导致后台任务被中断或产生冲突。确定仍要立即发送吗？")
             }
-        }
-        .fullScreenCover(isPresented: $showCameraPicker) {
-            CameraPickerView { capturedImage in
-                handleCapturedImage(capturedImage)
-            }
-            .ignoresSafeArea()
-        }
-        .fullScreenCover(isPresented: $showDocumentScanner) {
-            DocumentScannerView(
-                onScanned: { scannedImages in
-                    handleScannedImages(scannedImages)
-                },
-                onCancel: {
-                    showDocumentScanner = false
+            .alert("开启全自动放行？", isPresented: $showAutoPermissionConfirm) {
+                Button("取消", role: .cancel) {}
+                Button("确认开启", role: .destructive) {
+                    Task { await viewModel.updatePermissionPreset("auto") }
                 }
-            )
-            .ignoresSafeArea()
-        }
-        .modifier(ChatPermissionAlertsModifier(
-            showCameraUnavailableAlert: $showCameraUnavailableAlert,
-            showCameraPermissionAlert: $showCameraPermissionAlert,
-            showMicrophonePermissionAlert: $showMicrophonePermissionAlert,
-            showOtherSessionRecordingAlert: $showOtherSessionRecordingAlert,
-            audioRecorder: audioRecorder
-        ))
-        .alert("后台任务正在执行", isPresented: $showSendQueuedNowConfirmAlert) {
-            Button("取消", role: .cancel) {
-                queuedItemToSendNow = nil
+            } message: {
+                Text("开启后 Agent 将自动执行终端命令并访问工作区外文件（同步作用于桌面端全部会话）。建议仅在可信或隔离环境中使用。")
             }
-            Button("仍要立即发送", role: .destructive) {
-                if let item = queuedItemToSendNow {
-                    Task {
-                        await viewModel.sendQueuedMessageNow(item: item)
-                    }
-                }
-                queuedItemToSendNow = nil
-            }
-        } message: {
-            Text("当前有正在运行的后台命令或子代理。立即发送将提前触发下一轮对话，可能会导致后台任务被中断或产生冲突。确定仍要立即发送吗？")
-        }
-        .alert("开启全自动放行？", isPresented: $showAutoPermissionConfirm) {
-            Button("取消", role: .cancel) {}
-            Button("确认开启", role: .destructive) {
-                Task { await viewModel.updatePermissionPreset("auto") }
-            }
-        } message: {
-            Text("开启后 Agent 将自动执行终端命令并访问工作区外文件（同步作用于桌面端全部会话）。建议仅在可信或隔离环境中使用。")
-        }
     }
     
     private func checkPendingLiveRecording() {
