@@ -365,27 +365,35 @@ public final class PushNotificationManager: NSObject {
 extension PushNotificationManager: UNUserNotificationCenterDelegate {
     nonisolated public func userNotificationCenter(
         _ center: UNUserNotificationCenter,
-        willPresent notification: UNNotification
-    ) async -> UNNotificationPresentationOptions {
-        let cid = Self.extractCascadeId(from: notification.request.content.userInfo)
-        let isViewingSame = await MainActor.run {
-            cid != nil && cid == PushNotificationManager.shared.activeViewingCascadeId
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        let userInfo = notification.request.content.userInfo
+        let cid = Self.extractCascadeId(from: userInfo)
+
+        DispatchQueue.main.async {
+            let isViewingSame = (cid != nil && cid == PushNotificationManager.shared.activeViewingCascadeId)
+            if isViewingSame {
+                completionHandler([])
+            } else {
+                completionHandler([.banner, .list, .sound])
+            }
         }
-        if isViewingSame {
-            return []
-        }
-        return [.banner, .list, .sound]
     }
 
     nonisolated public func userNotificationCenter(
         _ center: UNUserNotificationCenter,
-        didReceive response: UNNotificationResponse
-    ) async {
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
         let userInfo = response.notification.request.content.userInfo
-        if let cid = Self.extractCascadeId(from: userInfo) {
-            await MainActor.run {
+        let cid = Self.extractCascadeId(from: userInfo)
+
+        DispatchQueue.main.async {
+            if let cid {
                 PushNotificationManager.shared.routeToCascade(cid)
             }
+            completionHandler()
         }
     }
 }
