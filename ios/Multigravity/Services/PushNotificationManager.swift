@@ -1,3 +1,5 @@
+import AudioToolbox
+import AVFoundation
 import Foundation
 import Observation
 import UIKit
@@ -52,6 +54,7 @@ public final class PushNotificationManager: NSObject {
     private var lastSyncedAlertSignature: String?
     private var lastSyncedStartSignature: String?
     private var lastSyncedActivitySignatures: [String: String] = [:]
+    private var previewPlayer: AVAudioPlayer?
 
     private static var apnsEnvironment: String {
         #if DEBUG
@@ -153,9 +156,45 @@ public final class PushNotificationManager: NSObject {
                     "token_type": "preferences",
                     "notifications_enabled": settings.enablePushNotifications,
                     "live_activities_enabled": settings.enableLiveActivities,
+                    "sound_complete": settings.notificationCompleteSound,
+                    "sound_action": settings.notificationActionSound,
                     "device_id": settings.deviceID ?? ""
                 ]
             )
+        }
+    }
+
+    /// Plays a short audio preview for the selected notification sound in Settings.
+    public func previewNotificationSound(_ soundId: String) {
+        let clean = soundId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        previewPlayer?.stop()
+        previewPlayer = nil
+
+        if clean == "silence" || clean == "none" || clean.isEmpty {
+            return
+        }
+        if clean == "default" {
+            AudioServicesPlaySystemSound(1007)
+            return
+        }
+
+        let fileURL = Bundle.main.url(forResource: clean, withExtension: "caf")
+            ?? Bundle.main.url(forResource: clean, withExtension: "caf", subdirectory: "Sounds")
+        guard let url = fileURL else {
+            AudioServicesPlaySystemSound(1007)
+            return
+        }
+
+        do {
+            let session = AVAudioSession.sharedInstance()
+            try session.setCategory(.ambient, options: [.mixWithOthers])
+            try session.setActive(true)
+            let player = try AVAudioPlayer(contentsOf: url)
+            player.prepareToPlay()
+            player.play()
+            self.previewPlayer = player
+        } catch {
+            print("[APNs] Failed to preview sound \(clean): \(error.localizedDescription)")
         }
     }
 
@@ -240,7 +279,7 @@ public final class PushNotificationManager: NSObject {
         force: Bool
     ) async {
         let settings = AppSettings.shared
-        let signature = "\(baseURL.absoluteString)|\(tokenType)|\(token)|\(Self.apnsEnvironment)|\(settings.enablePushNotifications)|\(settings.enableLiveActivities)"
+        let signature = "\(baseURL.absoluteString)|\(tokenType)|\(token)|\(Self.apnsEnvironment)|\(settings.enablePushNotifications)|\(settings.enableLiveActivities)|\(settings.notificationCompleteSound)|\(settings.notificationActionSound)"
 
         if !force {
             switch tokenType {
@@ -263,6 +302,10 @@ public final class PushNotificationManager: NSObject {
             "notifications_enabled": settings.enablePushNotifications,
             "live_activities_enabled": settings.enableLiveActivities
         ]
+        if tokenType == "alert" {
+            body["sound_complete"] = settings.notificationCompleteSound
+            body["sound_action"] = settings.notificationActionSound
+        }
         if let cid = cascadeId, !cid.isEmpty {
             body["cascade_id"] = cid
         }

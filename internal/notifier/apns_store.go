@@ -29,14 +29,18 @@ type PushDeviceRecord struct {
 	ActivityUpdatedAt     map[string]int64  `json:"activity_updated_at,omitempty"`
 	NotificationsEnabled  bool              `json:"notifications_enabled"`
 	LiveActivitiesEnabled bool              `json:"live_activities_enabled"`
+	SoundComplete         string            `json:"sound_complete,omitempty"`
+	SoundAction           string            `json:"sound_action,omitempty"`
 	UpdatedAt             time.Time         `json:"updated_at"`
 }
 
 // APNsAlertTarget identifies a registered iOS device eligible for standard APNs alert notifications.
 type APNsAlertTarget struct {
-	DeviceID string
-	Token    string
-	Env      string
+	DeviceID      string
+	Token         string
+	Env           string
+	SoundComplete string
+	SoundAction   string
 }
 
 // APNsLiveActivityTarget identifies a registered iOS device Live Activity token (update or push-to-start).
@@ -234,6 +238,21 @@ func pruneActivityTokensLocked(rec *PushDeviceRecord) {
 	}
 }
 
+func normalizeSoundPreference(raw string) string {
+	clean := strings.ToLower(strings.TrimSpace(raw))
+	clean = strings.TrimSuffix(clean, ".caf")
+	if clean == "" {
+		return ""
+	}
+	for i := 0; i < len(clean); i++ {
+		c := clean[i]
+		if !((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_' || c == '-') {
+			return ""
+		}
+	}
+	return clean
+}
+
 // UpdatePreferences updates notification/live-activity opt-in toggles without requiring a new token.
 func (s *PushDeviceStore) UpdatePreferences(deviceID string, notifEnabled, liveEnabled *bool) error {
 	deviceID = strings.TrimSpace(deviceID)
@@ -251,6 +270,39 @@ func (s *PushDeviceStore) UpdatePreferences(deviceID string, notifEnabled, liveE
 	}
 	if liveEnabled != nil {
 		rec.LiveActivitiesEnabled = *liveEnabled
+	}
+	rec.UpdatedAt = time.Now()
+	return s.saveLocked()
+}
+
+// UpdateSoundPreferences updates per-device custom notification sound preferences.
+func (s *PushDeviceStore) UpdateSoundPreferences(deviceID, soundComplete, soundAction string) error {
+	deviceID = strings.TrimSpace(deviceID)
+	if deviceID == "" {
+		return nil
+	}
+	sc := normalizeSoundPreference(soundComplete)
+	sa := normalizeSoundPreference(soundAction)
+	if sc == "" && sa == "" {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	rec, ok := s.devices[deviceID]
+	if !ok {
+		return nil
+	}
+	changed := false
+	if sc != "" && rec.SoundComplete != sc {
+		rec.SoundComplete = sc
+		changed = true
+	}
+	if sa != "" && rec.SoundAction != sa {
+		rec.SoundAction = sa
+		changed = true
+	}
+	if !changed {
+		return nil
 	}
 	rec.UpdatedAt = time.Now()
 	return s.saveLocked()
@@ -335,9 +387,11 @@ func (s *PushDeviceStore) ListAlertTargets() []APNsAlertTarget {
 	for _, rec := range s.devices {
 		if rec.NotificationsEnabled && rec.APNSDeviceToken != "" {
 			out = append(out, APNsAlertTarget{
-				DeviceID: rec.DeviceID,
-				Token:    rec.APNSDeviceToken,
-				Env:      normalizeAPNSEnv(rec.APNSEnv),
+				DeviceID:      rec.DeviceID,
+				Token:         rec.APNSDeviceToken,
+				Env:           normalizeAPNSEnv(rec.APNSEnv),
+				SoundComplete: rec.SoundComplete,
+				SoundAction:   rec.SoundAction,
 			})
 		}
 	}

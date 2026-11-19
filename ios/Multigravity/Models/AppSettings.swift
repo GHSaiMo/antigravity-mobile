@@ -15,6 +15,35 @@ public struct ServerEndpointItem: Identifiable, Equatable, Sendable {
     }
 }
 
+public struct NotificationSoundOption: Identifiable, Hashable, Sendable {
+    public let id: String
+    public let displayName: String
+    public let subtitle: String
+
+    public static let completeOptions: [NotificationSoundOption] = [
+        NotificationSoundOption(id: "glass", displayName: String(localized: "玻璃清脆"), subtitle: String(localized: "默认 · 清脆叮叮声")),
+        NotificationSoundOption(id: "chime", displayName: String(localized: "清脆风铃"), subtitle: String(localized: "柔和双音风铃")),
+        NotificationSoundOption(id: "bell", displayName: String(localized: "经典铃铛"), subtitle: String(localized: "明亮单音提醒")),
+        NotificationSoundOption(id: "paymentsuccess", displayName: String(localized: "清脆双响"), subtitle: String(localized: "轻快确认音效")),
+        NotificationSoundOption(id: "fanfare", displayName: String(localized: "欢快号角"), subtitle: String(localized: "阶段性里程碑")),
+        NotificationSoundOption(id: "default", displayName: String(localized: "系统默认"), subtitle: String(localized: "跟随 iOS 系统提示音")),
+        NotificationSoundOption(id: "silence", displayName: String(localized: "静音"), subtitle: String(localized: "仅横幅提醒不发声")),
+    ]
+
+    public static let actionOptions: [NotificationSoundOption] = [
+        NotificationSoundOption(id: "alarm", displayName: String(localized: "急促滴嘟"), subtitle: String(localized: "默认 · 强提醒警报")),
+        NotificationSoundOption(id: "electronic", displayName: String(localized: "电子警示"), subtitle: String(localized: "科技感高频双音")),
+        NotificationSoundOption(id: "anticipate", displayName: String(localized: "温和期待"), subtitle: String(localized: "不刺耳的渐进提示")),
+        NotificationSoundOption(id: "horn", displayName: String(localized: "号角提醒"), subtitle: String(localized: "穿透力强")),
+        NotificationSoundOption(id: "default", displayName: String(localized: "系统默认"), subtitle: String(localized: "跟随 iOS 系统提示音")),
+        NotificationSoundOption(id: "silence", displayName: String(localized: "静音"), subtitle: String(localized: "仅横幅提醒不发声")),
+    ]
+
+    public static func displayName(for id: String, in options: [NotificationSoundOption]) -> String {
+        options.first(where: { $0.id == id })?.displayName ?? id
+    }
+}
+
 extension Notification.Name {
     public static let networkRoutingPreferenceChanged = Notification.Name("antigravity.network_routing_preference_changed")
 }
@@ -31,6 +60,8 @@ public final class AppSettings {
     private let activeServerURLKey = "antigravity.active_server_url"
     private let enableLiveActivityKey = "antigravity.enable_live_activity"
     private let enablePushNotificationsKey = "antigravity.enable_push_notifications"
+    private let notificationCompleteSoundKey = "antigravity.notification_complete_sound"
+    private let notificationActionSoundKey = "antigravity.notification_action_sound"
     private let activeModelKey = "antigravity.active_model"
     private let favoriteModel1Key = "antigravity.favorite_model_1"
     private let favoriteModel2Key = "antigravity.favorite_model_2"
@@ -210,6 +241,18 @@ public final class AppSettings {
     public var enablePushNotifications: Bool {
         didSet {
             UserDefaults.standard.set(enablePushNotifications, forKey: enablePushNotificationsKey)
+        }
+    }
+
+    public var notificationCompleteSound: String {
+        didSet {
+            UserDefaults.standard.set(notificationCompleteSound, forKey: notificationCompleteSoundKey)
+        }
+    }
+
+    public var notificationActionSound: String {
+        didSet {
+            UserDefaults.standard.set(notificationActionSound, forKey: notificationActionSoundKey)
         }
     }
     
@@ -712,6 +755,10 @@ public final class AppSettings {
         self.enableLiveActivities = savedLive
         let savedPush = UserDefaults.standard.object(forKey: enablePushNotificationsKey) as? Bool ?? true
         self.enablePushNotifications = savedPush
+        let savedCompleteSound = UserDefaults.standard.string(forKey: notificationCompleteSoundKey).flatMap { $0.isEmpty ? nil : $0 } ?? "glass"
+        self.notificationCompleteSound = NotificationSoundOption.completeOptions.contains(where: { $0.id == savedCompleteSound }) ? savedCompleteSound : "glass"
+        let savedActionSound = UserDefaults.standard.string(forKey: notificationActionSoundKey).flatMap { $0.isEmpty ? nil : $0 } ?? "alarm"
+        self.notificationActionSound = NotificationSoundOption.actionOptions.contains(where: { $0.id == savedActionSound }) ? savedActionSound : "alarm"
         
         let legacyGemini = UserDefaults.standard.string(forKey: defaultGeminiModelKey).flatMap { $0.isEmpty ? nil : $0 } ?? ModelDefaultsLogic.fallbackGemini
         let legacyClaude = UserDefaults.standard.string(forKey: defaultClaudeModelKey).flatMap { $0.isEmpty ? nil : $0 } ?? ModelDefaultsLogic.fallbackClaude

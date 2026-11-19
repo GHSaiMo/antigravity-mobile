@@ -233,6 +233,19 @@ public struct SettingsSheet: View {
                             }
                             pushManager.syncPreferencesWithGateway()
                         }
+
+                    NavigationLink {
+                        NotificationSoundSettingsView()
+                    } label: {
+                        HStack {
+                            Text("通知提示音")
+                            Spacer()
+                            Text(notificationSoundSummary)
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                        }
+                    }
                 }
                 
                 // MARK: - 5. 外观与主题
@@ -504,6 +517,124 @@ public struct SettingsSheet: View {
         ].filter { $0 }.count
         return String(localized: "已开启 (\(count)/3)")
     }
+
+    private var notificationSoundSummary: String {
+        let completeName = NotificationSoundOption.displayName(
+            for: settings.notificationCompleteSound,
+            in: NotificationSoundOption.completeOptions
+        )
+        let actionName = NotificationSoundOption.displayName(
+            for: settings.notificationActionSound,
+            in: NotificationSoundOption.actionOptions
+        )
+        return "\(completeName) · \(actionName)"
+    }
+}
+
+// MARK: - 通知提示音二级页
+
+private struct NotificationSoundSettingsView: View {
+    @State private var settings = AppSettings.shared
+    @State private var pushManager = PushNotificationManager.shared
+
+    var body: some View {
+        Form {
+            Section(
+                header: Text("任务完成"),
+                footer: Text("AI 完成全部步骤时播放。点击任意选项可立即试听并自动同步至网关。")
+            ) {
+                ForEach(NotificationSoundOption.completeOptions) { option in
+                    soundRow(
+                        option: option,
+                        isSelected: settings.notificationCompleteSound == option.id
+                    ) {
+                        selectCompleteSound(option.id)
+                    }
+                }
+            }
+
+            Section(
+                header: Text("需要确认"),
+                footer: Text("命令审批、文件权限或计划待确认时播放，建议使用辨识度较高的提醒音。")
+            ) {
+                ForEach(NotificationSoundOption.actionOptions) { option in
+                    soundRow(
+                        option: option,
+                        isSelected: settings.notificationActionSound == option.id
+                    ) {
+                        selectActionSound(option.id)
+                    }
+                }
+            }
+
+            if settings.notificationCompleteSound != "glass" || settings.notificationActionSound != "alarm" {
+                Section {
+                    Button {
+                        settings.notificationActionSound = "alarm"
+                        selectCompleteSound("glass")
+                    } label: {
+                        HStack {
+                            Spacer()
+                            Text("恢复默认提示音（叮叮 / 滴嘟）")
+                                .foregroundColor(.indigo)
+                            Spacer()
+                        }
+                    }
+                }
+            }
+        }
+        .navigationTitle("通知提示音")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    @ViewBuilder
+    private func soundRow(
+        option: NotificationSoundOption,
+        isSelected: Bool,
+        onTap: @escaping () -> Void
+    ) -> some View {
+        Button(action: onTap) {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(option.displayName)
+                        .font(.system(size: 15))
+                        .foregroundColor(.primary)
+                    Text(option.subtitle)
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                }
+
+                Spacer()
+
+                if option.id != "silence" {
+                    Image(systemName: isSelected ? "speaker.wave.2.fill" : "speaker.wave.2")
+                        .font(.system(size: 13))
+                        .foregroundColor(isSelected ? .indigo : .secondary.opacity(0.65))
+                }
+
+                Image(systemName: "checkmark")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(.indigo)
+                    .opacity(isSelected ? 1 : 0)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func selectCompleteSound(_ soundId: String) {
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        settings.notificationCompleteSound = soundId
+        pushManager.previewNotificationSound(soundId)
+        pushManager.syncPreferencesWithGateway()
+    }
+
+    private func selectActionSound(_ soundId: String) {
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        settings.notificationActionSound = soundId
+        pushManager.previewNotificationSound(soundId)
+        pushManager.syncPreferencesWithGateway()
+    }
 }
 
 // MARK: - 精简模式二级页
@@ -698,7 +829,8 @@ private struct OpenSourceLicensesSheet: View {
         ("Multigravity", "MIT License", "Copyright (c) 2026 Multigravity Contributors"),
         ("ZLPhotoBrowser", "MIT License", "Lightweight iOS photo picker framework used for attachment selection."),
         ("Mermaid", "MIT License", "Diagram and flowchart rendering engine bundled for offline preview."),
-        ("highlight.js", "BSD-3-Clause License", "Syntax highlighting library used in code and file preview.")
+        ("highlight.js", "BSD-3-Clause License", "Syntax highlighting library used in code and file preview."),
+        ("Bark Sounds", "MIT License", "Notification alert sound effects by Finb/Bark.")
     ]
 
     var body: some View {

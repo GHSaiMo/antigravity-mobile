@@ -156,7 +156,7 @@ func (c *APNsRelayClient) Send(ctx context.Context, payload PushPayload) error {
 				Env:               t.Env,
 				Title:             truncateString(payload.Title, 80),
 				Body:              truncateString(payload.Body, 240),
-				Sound:             "default",
+				Sound:             resolveAlertSound(t, payload),
 				InterruptionLevel: interruption,
 				ThreadID:          "multigravity",
 				CollapseID:        collapseID,
@@ -295,4 +295,55 @@ func extractCascadeIDFromURL(rawURL string) string {
 		rest = rest[:q]
 	}
 	return strings.TrimSpace(rest)
+}
+
+func resolveAlertSound(target APNsAlertTarget, payload PushPayload) string {
+	var raw string
+	switch payload.Category {
+	case "antigravity_action", "antigravity_proceed":
+		raw = target.SoundAction
+		if raw == "" {
+			raw = payload.Sound
+		}
+		if raw == "" {
+			raw = "alarm"
+		}
+	case "antigravity_complete":
+		raw = target.SoundComplete
+		if raw == "" {
+			raw = payload.Sound
+		}
+		if raw == "" {
+			raw = "glass"
+		}
+	case "quota_alert":
+		if strings.EqualFold(payload.Level, "timeSensitive") || strings.EqualFold(payload.Level, "time-sensitive") {
+			raw = target.SoundAction
+			if raw == "" {
+				raw = payload.Sound
+			}
+			if raw == "" {
+				raw = "alarm"
+			}
+		} else {
+			raw = payload.Sound
+		}
+	default:
+		raw = payload.Sound
+	}
+	return formatAPNSSound(raw)
+}
+
+func formatAPNSSound(raw string) string {
+	clean := normalizeSoundPreference(raw)
+	switch clean {
+	case "", "default":
+		return "default"
+	case "silence", "none":
+		return "silence.caf"
+	case "failure":
+		return "suspense.caf"
+	default:
+		return clean + ".caf"
+	}
 }

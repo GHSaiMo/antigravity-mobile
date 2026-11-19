@@ -235,6 +235,10 @@ func TestLiveActivityDispatcher_StartThrottleCriticalAndEnd(t *testing.T) {
 		mu.Unlock()
 		t.Fatalf("expected non-empty aps.alert on start event (required by iOS liveactivitiesd), got %+v", requests[0].Alert)
 	}
+	if requests[0].Alert.Sound != "" {
+		mu.Unlock()
+		t.Fatalf("expected empty sound on start event so Live Activity push-to-start is silent, got %q", requests[0].Alert.Sound)
+	}
 	if requests[0].ContentState.LastUpdated != float64(curTime.Unix()) {
 		mu.Unlock()
 		t.Fatalf("expected Unix epoch LastUpdated %.0f, got %.0f", float64(curTime.Unix()), requests[0].ContentState.LastUpdated)
@@ -299,5 +303,114 @@ func TestLiveActivityDispatcher_StartThrottleCriticalAndEnd(t *testing.T) {
 
 	if remaining := store.ListLiveActivityTargets("casc-live-1", false); len(remaining) != 0 {
 		t.Errorf("expected active cascade token to be cleared after EndSession, got %+v", remaining)
+	}
+}
+
+func TestAPNsRelayClient_SoundPreferences(t *testing.T) {
+	var (
+		mu       sync.Mutex
+		received []APNsRelayAlertRequest
+	)
+
+	relaySrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req APNsRelayAlertRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		mu.Lock()
+		received = append(received, req)
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(APNsRelayResponse{OK: true, Status: 200, APNsID: "apns-sound"})
+	}))
+	defer relaySrv.Close()
+
+	storePath := filepath.Join(t.TempDir(), "push_devices.json")
+	store, err := NewPushDeviceStore(storePath)
+	if err != nil {
+		t.Fatalf("NewPushDeviceStore failed: %v", err)
+	}
+	tok1 := sampleHexToken("1111")
+	tok2 := sampleHexToken("2222")
+	_ = store.UpsertAlertToken("dev-default", "ios", tok1, "production", nil, nil)
+	_ = store.UpsertAlertToken("dev-custom", "ios", tok2, "production", nil, nil)
+	if err := store.UpdateSoundPreferences("dev-custom", "chime", "electronic"); err != nil {
+		t.Fatalf("UpdateSoundPreferences failed: %v", err)
+	}
+
+	// Reload from disk to verify persistence of sound preferences
+	reloaded, err := NewPushDeviceStore(storePath)
+	if err != nil {
+		t.Fatalf("reload NewPushDeviceStore failed: %v", err)
+	}
+
+	apns := NewAPNsRelayClient(relaySrv.URL, reloaded)
+	notif := NewNotifier(config.NotificationConfig{
+		SoundAction:   "alarm",
+		SoundComplete: "glass",
+	})
+	notif.AttachAPNsClient(apns, true)
+
+	if err := notif.NotifyAction("casc-1", "Task 1", &proxy.PendingInteraction{Type: "run_command", StepIndex: 1, Target: "ls"}); err != nil {
+		t.Fatalf("NotifyAction failed: %v", err)
+	}
+	if err := notif.NotifyCompleted("casc-2", "Task 2", 3); err != nil {
+		t.Fatalf("NotifyCompleted failed: %v", err)
+	}
+	if err := notif.NotifyFailed("casc-3", "Task 3", 4); err != nil {
+		t.Fatalf("NotifyFailed failed: %v", err)
+	}
+
+	mu.Lock()
+	snap1 := append([]APNsRelayAlertRequest(nil), received...)
+	mu.Unlock()
+	if len(snap1) != 6 {
+		t.Fatalf("expected 6 requests (3 notifications x 2 devices), got %d", len(snap1))
+	}
+
+	soundByDeviceAndCat := make(map[string]string)
+	for _, r := range snap1 {
+		soundByDeviceAndCat[r.DeviceToken+"|"+r.Category] = r.Sound
+	}
+
+	if got := soundByDeviceAndCat[tok1+"|antigravity_action"]; got != "alarm.caf" {
+		t.Errorf("dev-default action sound = %q, want alarm.caf", got)
+	}
+	if got := soundByDeviceAndCat[tok1+"|antigravity_complete"]; got != "glass.caf" {
+		t.Errorf("dev-default complete sound = %q, want glass.caf", got)
+	}
+	if got := soundByDeviceAndCat[tok1+"|antigravity_error"]; got != "suspense.caf" {
+		t.Errorf("dev-default error sound = %q, want suspense.caf", got)
+	}
+	if got := soundByDeviceAndCat[tok2+"|antigravity_action"]; got != "electronic.caf" {
+		t.Errorf("dev-custom action sound = %q, want electronic.caf", got)
+	}
+	if got := soundByDeviceAndCat[tok2+"|antigravity_complete"]; got != "chime.caf" {
+		t.Errorf("dev-custom complete sound = %q, want chime.caf", got)
+	}
+
+	// Verify silence & default normalization
+	if err := reloaded.UpdateSoundPreferences("dev-custom", "silence", "default"); err != nil {
+		t.Fatalf("UpdateSoundPreferences silence/default failed: %v", err)
+	}
+	mu.Lock()
+	received = nil
+	mu.Unlock()
+	_ = notif.NotifyAction("casc-4", "Task 4", &proxy.PendingInteraction{Type: "run_command", StepIndex: 2, Target: "pwd"})
+	_ = notif.NotifyCompleted("casc-5", "Task 5", 5)
+
+	mu.Lock()
+	snap2 := append([]APNsRelayAlertRequest(nil), received...)
+	mu.Unlock()
+	soundByDeviceAndCat = make(map[string]string)
+	for _, r := range snap2 {
+		soundByDeviceAndCat[r.DeviceToken+"|"+r.Category] = r.Sound
+	}
+	if got := soundByDeviceAndCat[tok2+"|antigravity_action"]; got != "default" {
+		t.Errorf("dev-custom default action sound = %q, want default", got)
+	}
+	if got := soundByDeviceAndCat[tok2+"|antigravity_complete"]; got != "silence.caf" {
+		t.Errorf("dev-custom silence complete sound = %q, want silence.caf", got)
 	}
 }

@@ -755,6 +755,8 @@ func buildRouter(
 			DeviceID              string `json:"device_id"`
 			NotificationsEnabled  *bool  `json:"notifications_enabled"`
 			LiveActivitiesEnabled *bool  `json:"live_activities_enabled"`
+			SoundComplete         string `json:"sound_complete"`
+			SoundAction           string `json:"sound_action"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
@@ -798,12 +800,18 @@ func buildRouter(
 			switch tokenType {
 			case "alert":
 				err = store.UpsertAlertToken(deviceID, "ios", pushToken, req.APNSEnv, req.NotificationsEnabled, req.LiveActivitiesEnabled)
+				if err == nil && (req.SoundComplete != "" || req.SoundAction != "") {
+					err = store.UpdateSoundPreferences(deviceID, req.SoundComplete, req.SoundAction)
+				}
 			case "live_activity_start":
 				err = store.UpsertLiveActivityStartToken(deviceID, "ios", pushToken, req.APNSEnv, req.LiveActivitiesEnabled)
 			case "live_activity_update":
 				err = store.UpsertLiveActivityToken(deviceID, "ios", req.CascadeID, pushToken, req.APNSEnv)
 			case "preferences":
 				err = store.UpdatePreferences(deviceID, req.NotificationsEnabled, req.LiveActivitiesEnabled)
+				if err == nil && (req.SoundComplete != "" || req.SoundAction != "") {
+					err = store.UpdateSoundPreferences(deviceID, req.SoundComplete, req.SoundAction)
+				}
 			default:
 				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "unsupported token_type"})
 				return
