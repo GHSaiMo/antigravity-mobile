@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 extension APIClient {
     /// Uploads a local file to the gateway (POST /api/v1/attachments) as a raw streamed body.
@@ -23,11 +24,18 @@ extension APIClient {
         let data: Data
         let response: URLResponse
         if NetworkTransport.requiresCleartextATSBypass(endpoint) {
-            // App Transport Security blocks cleartext HTTP to public hosts; the shared transport
-            // routes those through Network.framework (no progress, body held in memory).
-            request.httpBody = try Data(contentsOf: fileURL, options: .mappedIfSafe)
-            (data, response) = try await transport.send(request: request)
-            onProgress?(1)
+            // App Transport Security blocks cleartext HTTP to Tailscale hosts; stream chunks over Network.framework.
+            do {
+                (data, response) = try await transport.uploadCleartextHTTP(
+                    request: request,
+                    fileURL: fileURL,
+                    onProgress: onProgress
+                )
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                throw APIError.networkError(error.localizedDescription)
+            }
         } else {
             let config = URLSessionConfiguration.default
             config.timeoutIntervalForRequest = 120
@@ -35,10 +43,10 @@ extension APIClient {
             config.httpShouldSetCookies = false
             config.protocolClasses = [DemoURLProtocol.self] + (config.protocolClasses ?? [])
             let delegate = UploadProgressDelegate(onProgress: onProgress)
-            let session = URLSession(configuration: config, delegate: delegate, delegateQueue: nil)
+            let session = URLSession(configuration: config)
             defer { session.finishTasksAndInvalidate() }
             do {
-                (data, response) = try await session.upload(for: request, fromFile: fileURL)
+                (data, response) = try await session.upload(for: request, fromFile: fileURL, delegate: delegate)
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
@@ -68,7 +76,8 @@ extension APIClient {
 }
 
 private final class UploadProgressDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
-    let onProgress: (@Sendable (Double) -> Void)?
+    private let onProgress: (@Sendable (Double) -> Void)?
+    private let lastPercent = OSAllocatedUnfairLock(initialState: -1)
     
     init(onProgress: (@Sendable (Double) -> Void)?) {
         self.onProgress = onProgress
@@ -76,6 +85,17 @@ private final class UploadProgressDelegate: NSObject, URLSessionTaskDelegate, @u
     
     func urlSession(_ session: URLSession, task: URLSessionTask, didSendBodyData bytesSent: Int64, totalBytesSent: Int64, totalBytesExpectedToSend: Int64) {
         guard totalBytesExpectedToSend > 0 else { return }
-        onProgress?(max(0, min(1, Double(totalBytesSent) / Double(totalBytesExpectedToSend))))
+        let progress = max(0, min(1, Double(totalBytesSent) / Double(totalBytesExpectedToSend)))
+        let percent = Int((progress * 100).rounded(.down))
+        let shouldEmit = lastPercent.withLock { last -> Bool in
+            if percent > last || (progress >= 1 && last < 100) {
+                last = progress >= 1 ? 100 : percent
+                return true
+            }
+            return false
+        }
+        if shouldEmit {
+            onProgress?(progress)
+        }
     }
 }

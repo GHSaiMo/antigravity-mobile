@@ -5,7 +5,7 @@ import Foundation
 /// therefore get none of its framing, keep-alive or content decoding for free.
 /// Pure Foundation so it can be compiled and tested on its own.
 enum HTTP11Codec {
-    static func buildRequest(_ request: URLRequest, url: URL, bareHost: String, keepAlive: Bool) -> Data {
+    static func buildRequestHead(_ request: URLRequest, url: URL, bareHost: String, keepAlive: Bool, contentLength: Int64) -> Data {
         var path = url.path.isEmpty ? "/" : url.path
         if let query = url.query, !query.isEmpty {
             path += "?" + query
@@ -40,12 +40,17 @@ enum HTTP11Codec {
         if !hasAcceptEncoding {
             lines.append("Accept-Encoding: gzip")
         }
-        let body = request.httpBody ?? Data()
         if request.value(forHTTPHeaderField: "Content-Length") == nil {
-            lines.append("Content-Length: \(body.count)")
+            lines.append("Content-Length: \(contentLength)")
         }
         var data = Data(lines.joined(separator: "\r\n").utf8)
         data.append(Data("\r\n\r\n".utf8))
+        return data
+    }
+
+    static func buildRequest(_ request: URLRequest, url: URL, bareHost: String, keepAlive: Bool) -> Data {
+        let body = request.httpBody ?? Data()
+        var data = buildRequestHead(request, url: url, bareHost: bareHost, keepAlive: keepAlive, contentLength: Int64(body.count))
         data.append(body)
         return data
     }

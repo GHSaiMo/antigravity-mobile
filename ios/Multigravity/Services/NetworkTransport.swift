@@ -382,6 +382,64 @@ public final class NetworkTransport: Sendable {
         throw URLError(.cannotConnectToHost)
     }
 
+    /// Streams a file upload over cleartext HTTP via `NWConnection` (for Tailscale ATS bypass),
+    /// reporting chunk-level upload progress (0...1) without buffering the entire file in memory.
+    public func uploadCleartextHTTP(
+        request: URLRequest,
+        fileURL: URL,
+        onProgress: (@Sendable (Double) -> Void)? = nil
+    ) async throws -> (Data, URLResponse) {
+        var req = request
+        guard let url = req.url else {
+            throw URLError(.badURL)
+        }
+        let bareHost = (url.host ?? "").trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+        guard !bareHost.isEmpty, Self.isLocalOrPrivateHost(bareHost), let port = NWEndpoint.Port(rawValue: UInt16(url.port ?? 80)) else {
+            throw URLError(.appTransportSecurityRequiresSecureConnection)
+        }
+        if let token = KeychainHelper.shared.read(key: .deviceToken), !token.isEmpty,
+           Self.isConfiguredOrLocalGatewayHost(bareHost),
+           req.value(forHTTPHeaderField: "Authorization") == nil {
+            req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+
+        let handle = try FileHandle(forReadingFrom: fileURL)
+        defer { try? handle.close() }
+        let totalBytes = Int64(try handle.seekToEnd())
+        try handle.seek(toOffset: 0)
+
+        let connection = NWConnection(host: NWEndpoint.Host(bareHost), port: port, using: .tcp)
+        try await Self.waitUntilReady(connection, timeout: req.timeoutInterval > 0 ? min(req.timeoutInterval, 15) : 15)
+        defer { connection.cancel() }
+
+        let head = HTTP11Codec.buildRequestHead(req, url: url, bareHost: bareHost, keepAlive: false, contentLength: totalBytes)
+        try await Self.sendAll(connection, head)
+
+        let chunkSize = 64 * 1024
+        var totalSent: Int64 = 0
+        var lastPercent = -1
+        while true {
+            try Task.checkCancellation()
+            guard let chunk = try handle.read(upToCount: chunkSize), !chunk.isEmpty else {
+                break
+            }
+            try await Self.sendAll(connection, chunk)
+            totalSent += Int64(chunk.count)
+            if totalBytes > 0 {
+                let progress = max(0, min(1, Double(totalSent) / Double(totalBytes)))
+                let percent = Int((progress * 100).rounded(.down))
+                if percent > lastPercent || (progress >= 1 && lastPercent < 100) {
+                    lastPercent = progress >= 1 ? 100 : percent
+                    onProgress?(progress)
+                }
+            }
+        }
+
+        let (raw, _) = try await Self.receiveHTTPMessage(connection, timeout: req.timeoutInterval > 0 ? max(req.timeoutInterval, 30) : 30)
+        let (data, response) = try HTTP11Codec.parseResponse(raw, url: url)
+        return (data, decorateResponse(response, url: req.url, forcedCellular: isCellular))
+    }
+
     private func sendCleartextHTTP(_ request: URLRequest) async throws -> (Data, URLResponse) {
         guard let url = request.url else {
             throw URLError(.badURL)
@@ -443,14 +501,18 @@ public final class NetworkTransport: Sendable {
     }
     
     private static func sendAll(_ connection: NWConnection, _ data: Data) async throws {
-        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
-            connection.send(content: data, completion: .contentProcessed { error in
-                if let error {
-                    cont.resume(throwing: error)
-                } else {
-                    cont.resume()
-                }
-            })
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+                connection.send(content: data, completion: .contentProcessed { error in
+                    if let error {
+                        cont.resume(throwing: error)
+                    } else {
+                        cont.resume()
+                    }
+                })
+            }
+        } onCancel: {
+            connection.cancel()
         }
     }
     

@@ -58,16 +58,11 @@ struct DraftFileChipView: View {
                         RoundedRectangle(cornerRadius: 8, style: .continuous)
                             .fill(Color.black.opacity(0.35))
                             .frame(width: 36, height: 36)
-                        if file.state == .uploading && file.progress > 0 {
-                            ProgressView(value: file.progress)
-                                .progressViewStyle(.circular)
-                                .tint(.white)
-                                .scaleEffect(0.7)
-                        } else {
-                            ProgressView()
-                                .tint(.white)
-                                .scaleEffect(0.7)
-                        }
+                        UploadProgressRing(
+                            progress: file.state == .uploading && file.progress > 0 ? file.progress : nil,
+                            size: 22,
+                            lineWidth: 2.5
+                        )
                     } else if file.state == .failed {
                         RoundedRectangle(cornerRadius: 8, style: .continuous)
                             .fill(Color.black.opacity(0.45))
@@ -124,6 +119,63 @@ struct DraftFileChipView: View {
         case .failed: return String(localized: "上传失败，点按重试")
         case .done: return prefix
         default: return String(localized: "\(prefix) · 上传中")
+        }
+    }
+}
+
+/// Circular upload progress ring aligned with Android's Material3 CircularProgressIndicator:
+/// - Determinate (`progress > 0`): translucent white track + clockwise white arc from 12 o'clock.
+/// - Indeterminate (`progress == nil` or `<= 0`): smoothly rotating white arc.
+private struct UploadProgressRing: View {
+    let progress: Double?
+    var size: CGFloat = 22
+    var lineWidth: CGFloat = 2.5
+
+    var body: some View {
+        if let progress, progress > 0 {
+            let clamped = min(max(progress, 0.04), 1.0)
+            ZStack {
+                Circle()
+                    .stroke(Color.white.opacity(0.3), lineWidth: lineWidth)
+                Circle()
+                    .trim(from: 0, to: clamped)
+                    .stroke(
+                        Color.white,
+                        style: StrokeStyle(lineWidth: lineWidth, lineCap: .round)
+                    )
+                    .rotationEffect(.degrees(-90))
+                    .animation(.linear(duration: 0.12), value: clamped)
+            }
+            .frame(width: size, height: size)
+        } else {
+            IndeterminateUploadRing(size: size, lineWidth: lineWidth)
+        }
+    }
+}
+
+private struct IndeterminateUploadRing: View {
+    let size: CGFloat
+    let lineWidth: CGFloat
+    @State private var rotation: Double = 0
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .stroke(Color.white.opacity(0.3), lineWidth: lineWidth)
+            Circle()
+                .trim(from: 0, to: 0.28)
+                .stroke(
+                    Color.white,
+                    style: StrokeStyle(lineWidth: lineWidth, lineCap: .round)
+                )
+                .rotationEffect(.degrees(rotation))
+        }
+        .frame(width: size, height: size)
+        .onAppear {
+            rotation = 0
+            withAnimation(.linear(duration: 0.9).repeatForever(autoreverses: false)) {
+                rotation = 360
+            }
         }
     }
 }

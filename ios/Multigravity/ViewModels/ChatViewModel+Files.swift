@@ -102,7 +102,10 @@ extension ChatViewModel {
                     baseURL: baseURL,
                     onProgress: { progress in
                         Task { @MainActor [weak self] in
-                            self?.updateFile(fileId, persist: false) { $0.progress = progress }
+                            self?.updateFile(fileId, persist: false) { file in
+                                guard file.state == .uploading else { return }
+                                file.progress = max(file.progress, progress)
+                            }
                         }
                     }
                 )
