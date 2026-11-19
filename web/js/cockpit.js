@@ -487,22 +487,63 @@ function renderQuotaSheet(data) {
       otherHeader.style.display = otherAccounts.length ? "" : "none";
     }
     if (data.cockpit_installed === false) {
-      // Cockpit 未配置:仅有当前账号实时额度,备用账号区域给出安装提示
+      // Cockpit 未配置:仅有当前账号实时额度,备用账号区域给出安装与配置指引
       if (otherHeader) {
-        otherHeader.textContent = "备用账号";
+        otherHeader.innerHTML = '<span>备用账号</span> <span style="font-size:11px;font-weight:normal;opacity:0.6;margin-left:6px;">多账号联动</span>';
         otherHeader.style.display = "";
       }
       const hint = document.createElement("div");
       hint.className = "quota-install-hint";
-      hint.style.cssText = "padding:14px;border-radius:14px;background:rgba(128,128,128,.12);font-size:13px;line-height:1.5;";
-      const title = document.createElement("div");
-      title.style.cssText = "font-weight:600;margin-bottom:6px;";
-      title.textContent = "未检测到 Cockpit Tools";
-      const body = document.createElement("div");
-      body.style.opacity = "0.7";
-      body.textContent = "请安装 Cockpit Tools,并在网关里用 mgy cockpit 进行配置,即可享受备用账号额度总览与一键切换等功能。";
-      hint.appendChild(title);
-      hint.appendChild(body);
+      hint.style.cssText = "padding:14px;border-radius:14px;background:rgba(128,128,128,.12);font-size:13px;line-height:1.6;";
+      hint.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+          <div style="font-weight:600;font-size:14px;display:flex;align-items:center;gap:6px;">
+            <span>未检测到 Cockpit Tools</span>
+          </div>
+          <span style="font-size:11px;background:rgba(128,128,128,0.2);padding:2px 6px;border-radius:4px;opacity:0.8;">可选功能</span>
+        </div>
+        <div style="font-size:12px;opacity:0.75;margin-bottom:10px;">
+          <div>• 单账号用户无需配置，当前额度已正常监控。</div>
+          <div>• 若需管理多个 Antigravity 账号并在控制台/手机上一键切号，可配合开源工具 Cockpit Tools 与网关联动。</div>
+        </div>
+        <div style="display:flex;gap:12px;margin-bottom:10px;font-size:12px;flex-wrap:wrap;">
+          <button type="button" class="btn-copy-cockpit-link" style="background:none;border:none;padding:0;color:var(--accent-color, #3b82f6);cursor:pointer;text-decoration:underline;">
+            复制 GitHub 链接
+          </button>
+          <button type="button" class="btn-copy-cockpit-cmd" style="background:none;border:none;padding:0;color:var(--text-secondary, #9ca3af);cursor:pointer;text-decoration:underline;">
+            复制 mgy cockpit 命令
+          </button>
+        </div>
+        <details style="font-size:11px;opacity:0.8;background:rgba(128,128,128,0.08);padding:8px 10px;border-radius:8px;cursor:pointer;">
+          <summary style="font-weight:500;user-select:none;">查看详细配置步骤</summary>
+          <div style="margin-top:6px;line-height:1.5;">
+            <div>1. 下载安装：从 <a href="https://github.com/jlcodes99/cockpit-tools/releases" target="_blank" rel="noopener" style="color:var(--accent-color,#3b82f6);">GitHub Releases</a> 下载 Cockpit Tools 桌面端并登录备用账号；</div>
+            <div>2. 网关联动：在网关宿主机终端运行 <code>mgy cockpit</code>，按回车一键开启 HTTP 报表服务与 Token 并重启；</div>
+            <div>3. 页面刷新：刷新配额面板，即可在此处查看所有账号额度并自由切换。</div>
+          </div>
+        </details>
+      `;
+
+      const linkBtn = hint.querySelector(".btn-copy-cockpit-link");
+      if (linkBtn) {
+        linkBtn.addEventListener("click", () => {
+          navigator.clipboard.writeText("https://github.com/jlcodes99/cockpit-tools").then(() => {
+            const originalText = linkBtn.textContent;
+            linkBtn.textContent = "已复制链接 ✓";
+            setTimeout(() => { linkBtn.textContent = originalText; }, 2000);
+          });
+        });
+      }
+      const cmdBtn = hint.querySelector(".btn-copy-cockpit-cmd");
+      if (cmdBtn) {
+        cmdBtn.addEventListener("click", () => {
+          navigator.clipboard.writeText("mgy cockpit").then(() => {
+            const originalText = cmdBtn.textContent;
+            cmdBtn.textContent = "已复制命令 ✓";
+            setTimeout(() => { cmdBtn.textContent = originalText; }, 2000);
+          });
+        });
+      }
       otherContainer.appendChild(hint);
     } else if (otherAccounts.length === 0) {
       otherContainer.innerHTML = "";

@@ -8039,7 +8039,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Command copied"
+            "value": "Command Copied"
           }
         },
         "zh-Hans": {
@@ -18847,6 +18847,198 @@
           "stringUnit": {
             "state": "translated",
             "value": "未开启"
+          }
+        }
+      }
+    },
+    "多账号联动": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Multi-Account Sync"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "多账号联动"
+          }
+        }
+      }
+    },
+    "可选功能": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Optional"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "可选功能"
+          }
+        }
+      }
+    },
+    "• 单账号用户无需配置，当前额度已正常监控。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "• Not needed for single-account users. Current quota is already monitored."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "• 单账号用户无需配置，当前额度已正常监控。"
+          }
+        }
+      }
+    },
+    "• 若需管理多个 Antigravity 账号并在手机上一键切号，可配合开源工具 Cockpit Tools 与网关联动。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "• To manage multiple Antigravity accounts and switch between them on mobile, link with Cockpit Tools."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "• 若需管理多个 Antigravity 账号并在手机上一键切号，可配合开源工具 Cockpit Tools 与网关联动。"
+          }
+        }
+      }
+    },
+    "复制 GitHub 链接": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy GitHub Link"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "复制 GitHub 链接"
+          }
+        }
+      }
+    },
+    "已复制链接": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Link Copied"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已复制链接"
+          }
+        }
+      }
+    },
+    "复制 mgy cockpit 命令": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy mgy cockpit"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "复制 mgy cockpit 命令"
+          }
+        }
+      }
+    },
+    "查看详细配置步骤": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "View Setup Steps"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "查看详细配置步骤"
+          }
+        }
+      }
+    },
+    "收起配置步骤": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide Setup Steps"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "收起配置步骤"
+          }
+        }
+      }
+    },
+    "1. 下载安装：从 GitHub Releases 下载 Cockpit Tools 桌面端，在应用中添加/登录备用账号；": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1. Download & Install: Get Cockpit Tools from GitHub Releases and sign into backup accounts;"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1. 下载安装：从 GitHub Releases 下载 Cockpit Tools 桌面端，在应用中添加/登录备用账号；"
+          }
+        }
+      }
+    },
+    "2. 网关联动：在网关电脑终端运行 mgy cockpit，按回车一键开启 HTTP 报表服务与 Token 并重启；": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2. Gateway Link: Run `mgy cockpit` in your gateway terminal, press Enter to enable HTTP report service & Token and restart;"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2. 网关联动：在网关电脑终端运行 mgy cockpit，按回车一键开启 HTTP 报表服务与 Token 并重启；"
+          }
+        }
+      }
+    },
+    "3. 手机刷新：在手机端下拉刷新，即可查看到所有备用账号的实时额度并自由切换。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3. Refresh Mobile: Pull to refresh on mobile to view all backup account quotas and switch freely."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3. 手机刷新：在手机端下拉刷新，即可查看到所有备用账号的实时额度并自由切换。"
           }
         }
       }

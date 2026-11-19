@@ -413,48 +413,144 @@ fun AccountQuotaSheet(
                     }
                 }
 
-                // Section 2: Cockpit 未配置时给出安装提示
+                // Section 2: Cockpit 未配置时给出安装提示与配置指引
                 if (quotaData?.needsCockpitInstall == true) {
                     val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+                    val context = LocalContext.current
+                    var isGuideExpanded by remember { mutableStateOf(false) }
+
                     Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
-                        Text(
-                            text = "备用账号",
-                            color = colors.textSecondary,
-                            fontSize = 13.sp,
-                            lineHeight = 16.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            style = tightTextStyle,
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
                             modifier = Modifier.padding(horizontal = 4.dp)
-                        )
+                        ) {
+                            Text(
+                                text = "备用账号",
+                                color = colors.textSecondary,
+                                fontSize = 13.sp,
+                                lineHeight = 16.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                style = tightTextStyle
+                            )
+                            Text(
+                                text = "多账号联动",
+                                color = colors.textMuted,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Normal
+                            )
+                        }
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(14.dp))
                                 .background(colors.textMuted.copy(alpha = 0.12f))
                                 .padding(14.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            Text(
-                                text = "未检测到 Cockpit Tools",
-                                color = colors.textSecondary,
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                            Text(
-                                text = "请安装 Cockpit Tools,并在网关里用 mgy cockpit 进行配置,即可享受备用账号额度总览与一键切换等功能。",
-                                color = colors.textMuted,
-                                fontSize = 13.sp,
-                                lineHeight = 18.sp
-                            )
-                            Text(
-                                text = "复制命令 mgy cockpit",
-                                color = colors.textSecondary,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Medium,
-                                modifier = Modifier.clickable {
-                                    clipboard.setText(androidx.compose.ui.text.AnnotatedString("mgy cockpit"))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "未检测到 Cockpit Tools",
+                                    color = colors.textSecondary,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(colors.textMuted.copy(alpha = 0.2f))
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Text(
+                                        text = "可选功能",
+                                        color = colors.textSecondary,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Medium
+                                    )
                                 }
+                            }
+
+                            Text(
+                                text = "• 单账号用户无需配置，当前额度已正常监控。\n• 若需管理多个 Antigravity 账号并在手机上一键切号，可配合开源工具 Cockpit Tools 与网关联动。",
+                                color = colors.textMuted,
+                                fontSize = 12.sp,
+                                lineHeight = 17.sp
                             )
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(14.dp)
+                            ) {
+                                Text(
+                                    text = "复制 GitHub 链接",
+                                    color = colors.accentBlue,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    modifier = Modifier.clickable {
+                                        clipboard.setText(androidx.compose.ui.text.AnnotatedString("https://github.com/jlcodes99/cockpit-tools"))
+                                        Toast.makeText(context, "GitHub 链接已复制", Toast.LENGTH_SHORT).show()
+                                    }
+                                )
+                                Text(
+                                    text = "复制 mgy cockpit 命令",
+                                    color = colors.textSecondary,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    modifier = Modifier.clickable {
+                                        clipboard.setText(androidx.compose.ui.text.AnnotatedString("mgy cockpit"))
+                                        Toast.makeText(context, "命令已复制: mgy cockpit", Toast.LENGTH_SHORT).show()
+                                    }
+                                )
+                            }
+
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                modifier = Modifier
+                                    .clickable { isGuideExpanded = !isGuideExpanded }
+                                    .padding(vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = if (isGuideExpanded) "收起配置步骤 ▲" else "查看详细配置步骤 ▼",
+                                    color = colors.textMuted,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+
+                            if (isGuideExpanded) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(colors.surface.copy(alpha = 0.5f))
+                                        .padding(10.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Text(
+                                        text = "1. 下载安装：从 GitHub Releases 下载 Cockpit Tools 桌面端，在应用中添加/登录备用账号；",
+                                        color = colors.textMuted,
+                                        fontSize = 11.sp,
+                                        lineHeight = 16.sp
+                                    )
+                                    Text(
+                                        text = "2. 网关联动：在网关电脑终端运行 mgy cockpit，按回车一键开启 HTTP 报表服务与 Token 并重启；",
+                                        color = colors.textMuted,
+                                        fontSize = 11.sp,
+                                        lineHeight = 16.sp
+                                    )
+                                    Text(
+                                        text = "3. 手机刷新：在手机端下拉刷新，即可查看到所有备用账号的实时额度并自由切换。",
+                                        color = colors.textMuted,
+                                        fontSize = 11.sp,
+                                        lineHeight = 16.sp
+                                    )
+                                }
+                            }
                         }
                     }
                 } else if (otherAccounts.isNotEmpty()) {

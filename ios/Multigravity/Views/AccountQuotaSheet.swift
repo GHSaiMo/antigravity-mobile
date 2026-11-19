@@ -17,6 +17,8 @@ public struct AccountQuotaSheet: View {
     @State private var selectedTab: Int = 0
     @State private var selectedHeatmapDate: String? = nil
     @State private var showTokenHistoryShareSheet: Bool = false
+    @State private var isCockpitGuideExpanded: Bool = false
+    @State private var copiedFeedbackText: String? = nil
     @Binding public var quotaResponse: CockpitQuotaResponse?
     public let tokenHistory: TokenHistoryResponse?
     public let isLoadingTokenHistory: Bool
@@ -66,19 +68,101 @@ public struct AccountQuotaSheet: View {
     
     private var cockpitInstallHintCard: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("备用账号")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundColor(.secondary)
-                .padding(.horizontal, 4)
-            VStack(alignment: .leading, spacing: 10) {
-                Label("未检测到 Cockpit Tools", systemImage: "info.circle")
-                    .font(.system(size: 14, weight: .semibold))
-                Text("请安装 Cockpit Tools,并在网关里用 mgy cockpit 进行配置,即可享受备用账号额度总览与一键切换等功能。")
-                    .font(.system(size: 13))
+            HStack(spacing: 6) {
+                Text("备用账号")
+                    .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(.secondary)
-                Button(action: { UIPasteboard.general.string = "mgy cockpit" }) {
-                    Label("复制命令 mgy cockpit", systemImage: "doc.on.doc")
-                        .font(.system(size: 12, weight: .medium))
+                Text("多账号联动")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary.opacity(0.8))
+            }
+            .padding(.horizontal, 4)
+            
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Label("未检测到 Cockpit Tools", systemImage: "info.circle")
+                        .font(.system(size: 14, weight: .semibold))
+                    Spacer()
+                    Text("可选功能")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(.secondary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color(uiColor: .tertiarySystemFill))
+                        .clipShape(RoundedRectangle(cornerRadius: 4))
+                }
+                
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("• 单账号用户无需配置，当前额度已正常监控。")
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                    Text("• 若需管理多个 Antigravity 账号并在手机上一键切号，可配合开源工具 Cockpit Tools 与网关联动。")
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                }
+                
+                HStack(spacing: 12) {
+                    Button(action: {
+                        UIPasteboard.general.string = "https://github.com/jlcodes99/cockpit-tools"
+                        let generator = UINotificationFeedbackGenerator()
+                        generator.notificationOccurred(.success)
+                        copiedFeedbackText = "github"
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                            if copiedFeedbackText == "github" {
+                                copiedFeedbackText = nil
+                            }
+                        }
+                    }) {
+                        Label(copiedFeedbackText == "github" ? "已复制链接" : "复制 GitHub 链接",
+                              systemImage: copiedFeedbackText == "github" ? "checkmark" : "link")
+                            .font(.system(size: 12, weight: .medium))
+                    }
+                    
+                    Button(action: {
+                        UIPasteboard.general.string = "mgy cockpit"
+                        let generator = UINotificationFeedbackGenerator()
+                        generator.notificationOccurred(.success)
+                        copiedFeedbackText = "cmd"
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                            if copiedFeedbackText == "cmd" {
+                                copiedFeedbackText = nil
+                            }
+                        }
+                    }) {
+                        Label(copiedFeedbackText == "cmd" ? "已复制命令" : "复制 mgy cockpit 命令",
+                              systemImage: copiedFeedbackText == "cmd" ? "checkmark" : "terminal")
+                            .font(.system(size: 12, weight: .medium))
+                    }
+                }
+                
+                Button(action: {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        isCockpitGuideExpanded.toggle()
+                    }
+                }) {
+                    HStack(spacing: 4) {
+                        Text(isCockpitGuideExpanded ? "收起配置步骤" : "查看详细配置步骤")
+                            .font(.system(size: 11, weight: .medium))
+                        Image(systemName: isCockpitGuideExpanded ? "chevron.up" : "chevron.down")
+                            .font(.system(size: 10, weight: .semibold))
+                    }
+                    .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+                
+                if isCockpitGuideExpanded {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("1. 下载安装：从 GitHub Releases 下载 Cockpit Tools 桌面端，在应用中添加/登录备用账号；")
+                        Text("2. 网关联动：在网关电脑终端运行 mgy cockpit，按回车一键开启 HTTP 报表服务与 Token 并重启；")
+                        Text("3. 手机刷新：在手机端下拉刷新，即可查看到所有备用账号的实时额度并自由切换。")
+                    }
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                    .lineSpacing(2)
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color(uiColor: .tertiarySystemGroupedBackground))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
