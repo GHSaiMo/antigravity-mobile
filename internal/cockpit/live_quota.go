@@ -177,14 +177,28 @@ func FetchLiveQuota(client *http.Client, baseURL, token string) (*AccountQuota, 
 // LiveQuotaClient returns the shared local-TLS HTTP client for language server calls.
 func LiveQuotaClient() *http.Client { return liveUserHTTPClient }
 
-// IsCockpitInstalled reports whether Cockpit Tools data exists (accounts.json present).
+// IsCockpitInstalled reports whether Cockpit Tools data exists.
+//
+// Two storage generations are accepted:
+//   - Cockpit Tools <= v1.3: <dataDir>/accounts.json (the file existing is enough,
+//     keeping the historical behaviour even when the list is empty)
+//   - Cockpit Tools >= v1.4: <dataDir>/antigravity_accounts.sqlite, which only
+//     counts as "installed" once it actually carries an Antigravity account row
+//     (the database also exists for other clients such as codex/cursor, so a
+//     bare file is not evidence enough).
 func IsCockpitInstalled() bool {
 	dir, err := GetCockpitDataDir()
 	if err != nil {
 		return false
 	}
-	_, statErr := os.Stat(filepath.Join(dir, "accounts.json"))
-	return statErr == nil
+	if _, statErr := os.Stat(filepath.Join(dir, legacyAccountsIndexName)); statErr == nil {
+		return true
+	}
+	idx, err := loadModernAccountIndex(dir)
+	if err != nil {
+		return false
+	}
+	return len(idx.Accounts) > 0
 }
 
 // BuildQuotaResponse assembles the /cockpit/quotas payload. When Cockpit is

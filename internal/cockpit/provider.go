@@ -487,31 +487,28 @@ func GetQuotas(activeEmails ...string) (*CockpitQuotaResponse, error) {
 		return nil, fmt.Errorf("failed to get cockpit data dir: %w", err)
 	}
 
-	accountsFile := filepath.Join(dataDir, "accounts.json")
-	accBytes, err := os.ReadFile(accountsFile)
+	// The index lives in accounts.json on Cockpit Tools <= v1.3 and in
+	// antigravity_accounts.sqlite on v1.4+. LoadAccountIndex hides the difference;
+	// an absent index yields an empty account list rather than an error.
+	idx, err := LoadAccountIndex(dataDir)
 	if err != nil {
-		if os.IsNotExist(err) {
-			emptyResp := &CockpitQuotaResponse{
-				Accounts:  []AccountQuota{},
-				UpdatedAt: time.Now().Unix(),
-			}
-			quotaCacheMu.Lock()
-			if len(quotaCacheByEmail) > 16 {
-				quotaCacheByEmail = make(map[string]*quotaCacheEntry)
-			}
-			quotaCacheByEmail[emailKey] = &quotaCacheEntry{
-				data:      emptyResp,
-				expiresAt: time.Now().Add(30 * time.Second),
-			}
-			quotaCacheMu.Unlock()
-			return emptyResp, nil
-		}
-		return nil, fmt.Errorf("failed to read accounts.json: %w", err)
+		return nil, err
 	}
-
-	var idx accountsIndex
-	if err := json.Unmarshal(accBytes, &idx); err != nil {
-		return nil, fmt.Errorf("failed to parse accounts.json: %w", err)
+	if len(idx.Accounts) == 0 {
+		emptyResp := &CockpitQuotaResponse{
+			Accounts:  []AccountQuota{},
+			UpdatedAt: time.Now().Unix(),
+		}
+		quotaCacheMu.Lock()
+		if len(quotaCacheByEmail) > 16 {
+			quotaCacheByEmail = make(map[string]*quotaCacheEntry)
+		}
+		quotaCacheByEmail[emailKey] = &quotaCacheEntry{
+			data:      emptyResp,
+			expiresAt: time.Now().Add(30 * time.Second),
+		}
+		quotaCacheMu.Unlock()
+		return emptyResp, nil
 	}
 
 	resolvedCurrentID := ""
