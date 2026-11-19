@@ -56,16 +56,16 @@ struct DraftFileChipView: View {
                     FileTypeBadge(fileName: file.name, size: 36)
                     if isBusy {
                         RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(Color.black.opacity(0.35))
+                            .fill(Color.black.opacity(0.50))
                             .frame(width: 36, height: 36)
                         UploadProgressRing(
                             progress: file.state == .uploading && file.progress > 0 ? file.progress : nil,
-                            size: 22,
-                            lineWidth: 2.5
+                            size: 24,
+                            lineWidth: 2.8
                         )
                     } else if file.state == .failed {
                         RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(Color.black.opacity(0.45))
+                            .fill(Color.black.opacity(0.50))
                             .frame(width: 36, height: 36)
                         Image(systemName: "arrow.clockwise")
                             .font(.system(size: 15, weight: .semibold))
@@ -80,6 +80,7 @@ struct DraftFileChipView: View {
                         .foregroundColor(.primary)
                     Text(subtitle)
                         .font(.system(size: 11))
+                        .monospacedDigit()
                         .foregroundColor(file.state == .failed ? .red : .secondary)
                         .lineLimit(1)
                 }
@@ -87,7 +88,7 @@ struct DraftFileChipView: View {
             }
             .padding(.horizontal, 8)
             .frame(height: 52)
-            .frame(maxWidth: 220, alignment: .leading)
+            .frame(maxWidth: 240, alignment: .leading)
             .background(Color(uiColor: .secondarySystemBackground))
             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             .overlay(
@@ -116,27 +117,33 @@ struct DraftFileChipView: View {
         let sizeText = formatFileSize(file.size)
         let prefix = FileIconResolver.isWeChatChatArchive(file.name) ? "微信聊天记录 · \(sizeText)" : sizeText
         switch file.state {
-        case .failed: return String(localized: "上传失败，点按重试")
-        case .done: return prefix
-        default: return String(localized: "\(prefix) · 上传中")
+        case .failed:
+            return String(localized: "上传失败，点按重试")
+        case .done:
+            return prefix
+        case .uploading where file.progress > 0:
+            let percent = max(1, min(99, Int((file.progress * 100).rounded())))
+            return "\(prefix) · \(percent)%"
+        default:
+            return String(localized: "\(prefix) · 上传中")
         }
     }
 }
 
 /// Circular upload progress ring aligned with Android's Material3 CircularProgressIndicator:
 /// - Determinate (`progress > 0`): translucent white track + clockwise white arc from 12 o'clock.
-/// - Indeterminate (`progress == nil` or `<= 0`): smoothly rotating white arc.
+/// - Indeterminate (`progress == nil` or `<= 0`): subtle track + smoothly rotating connecting arc.
 private struct UploadProgressRing: View {
     let progress: Double?
-    var size: CGFloat = 22
-    var lineWidth: CGFloat = 2.5
+    var size: CGFloat = 24
+    var lineWidth: CGFloat = 2.8
 
     var body: some View {
         if let progress, progress > 0 {
-            let clamped = min(max(progress, 0.04), 1.0)
+            let clamped = min(max(progress, 0.03), 1.0)
             ZStack {
                 Circle()
-                    .stroke(Color.white.opacity(0.3), lineWidth: lineWidth)
+                    .stroke(Color.white.opacity(0.28), lineWidth: lineWidth)
                 Circle()
                     .trim(from: 0, to: clamped)
                     .stroke(
@@ -144,7 +151,7 @@ private struct UploadProgressRing: View {
                         style: StrokeStyle(lineWidth: lineWidth, lineCap: .round)
                     )
                     .rotationEffect(.degrees(-90))
-                    .animation(.linear(duration: 0.12), value: clamped)
+                    .animation(.linear(duration: 0.10), value: clamped)
             }
             .frame(width: size, height: size)
         } else {
@@ -161,11 +168,11 @@ private struct IndeterminateUploadRing: View {
     var body: some View {
         ZStack {
             Circle()
-                .stroke(Color.white.opacity(0.3), lineWidth: lineWidth)
+                .stroke(Color.white.opacity(0.14), lineWidth: lineWidth)
             Circle()
-                .trim(from: 0, to: 0.28)
+                .trim(from: 0, to: 0.24)
                 .stroke(
-                    Color.white,
+                    Color.white.opacity(0.9),
                     style: StrokeStyle(lineWidth: lineWidth, lineCap: .round)
                 )
                 .rotationEffect(.degrees(rotation))

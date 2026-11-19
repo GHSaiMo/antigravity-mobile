@@ -383,7 +383,7 @@ public final class NetworkTransport: Sendable {
     }
 
     /// Streams a file upload over cleartext HTTP via `NWConnection` (for Tailscale ATS bypass),
-    /// reporting chunk-level upload progress (0...1) without buffering the entire file in memory.
+    /// reporting chunk-level upload progress (0...0.95) without buffering the entire file in memory.
     public func uploadCleartextHTTP(
         request: URLRequest,
         fileURL: URL,
@@ -403,19 +403,81 @@ public final class NetworkTransport: Sendable {
             req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
 
+        let connection = NWConnection(host: NWEndpoint.Host(bareHost), port: port, using: .tcp)
+        try await Self.waitUntilReady(connection, timeout: req.timeoutInterval > 0 ? min(req.timeoutInterval, 15) : 15)
+        defer { connection.cancel() }
+
+        let (data, response) = try await Self.streamFileUpload(
+            connection: connection,
+            request: req,
+            url: url,
+            bareHost: bareHost,
+            fileURL: fileURL,
+            onProgress: onProgress
+        )
+        return (data, decorateResponse(response, url: req.url, forcedCellular: isCellular))
+    }
+
+    /// Streams a file upload over HTTPS via Cloudflare Anycast acceleration (`NWConnection` + TLS + SNI),
+    /// reporting 32 KB chunk-level upload progress (0...0.95) without URLSession's 1–2 MB chunk buffering.
+    public func uploadCloudflareAcceleratedHTTPS(
+        request: URLRequest,
+        fileURL: URL,
+        onProgress: (@Sendable (Double) -> Void)? = nil
+    ) async throws -> (Data, URLResponse) {
+        var req = request
+        guard let url = req.url, url.scheme?.lowercased() == "https" else {
+            throw URLError(.badURL)
+        }
+        let bareHost = (url.host ?? "").trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+        guard !bareHost.isEmpty else {
+            throw URLError(.badURL)
+        }
+        if let token = KeychainHelper.shared.read(key: .deviceToken), !token.isEmpty,
+           Self.isConfiguredOrLocalGatewayHost(bareHost),
+           req.value(forHTTPHeaderField: "Authorization") == nil {
+            req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+
+        let tlsOptions = NWProtocolTLS.Options()
+        sec_protocol_options_set_tls_server_name(tlsOptions.securityProtocolOptions, bareHost)
+        let parameters = NWParameters(tls: tlsOptions)
+
+        let anycastIP = CloudflareAnycastAccelerator.primaryIP
+        let port = NWEndpoint.Port(rawValue: UInt16(url.port ?? 443)) ?? .https
+
+        let connection = NWConnection(host: NWEndpoint.Host(anycastIP), port: port, using: parameters)
+        try await Self.waitUntilReady(connection, timeout: req.timeoutInterval > 0 ? min(req.timeoutInterval, 10) : 10)
+        defer { connection.cancel() }
+
+        let (data, response) = try await Self.streamFileUpload(
+            connection: connection,
+            request: req,
+            url: url,
+            bareHost: bareHost,
+            fileURL: fileURL,
+            onProgress: onProgress
+        )
+        return (data, decorateResponse(response, url: req.url))
+    }
+
+    private static func streamFileUpload(
+        connection: NWConnection,
+        request: URLRequest,
+        url: URL,
+        bareHost: String,
+        fileURL: URL,
+        onProgress: (@Sendable (Double) -> Void)?
+    ) async throws -> (Data, URLResponse) {
         let handle = try FileHandle(forReadingFrom: fileURL)
         defer { try? handle.close() }
         let totalBytes = Int64(try handle.seekToEnd())
         try handle.seek(toOffset: 0)
 
-        let connection = NWConnection(host: NWEndpoint.Host(bareHost), port: port, using: .tcp)
-        try await Self.waitUntilReady(connection, timeout: req.timeoutInterval > 0 ? min(req.timeoutInterval, 15) : 15)
-        defer { connection.cancel() }
+        let head = HTTP11Codec.buildRequestHead(request, url: url, bareHost: bareHost, keepAlive: false, contentLength: totalBytes)
+        try await sendAll(connection, head)
 
-        let head = HTTP11Codec.buildRequestHead(req, url: url, bareHost: bareHost, keepAlive: false, contentLength: totalBytes)
-        try await Self.sendAll(connection, head)
-
-        let chunkSize = 64 * 1024
+        let chunkSize = 32 * 1024
         var totalSent: Int64 = 0
         var lastPercent = -1
         while true {
@@ -423,21 +485,22 @@ public final class NetworkTransport: Sendable {
             guard let chunk = try handle.read(upToCount: chunkSize), !chunk.isEmpty else {
                 break
             }
-            try await Self.sendAll(connection, chunk)
+            try await sendAll(connection, chunk)
             totalSent += Int64(chunk.count)
             if totalBytes > 0 {
-                let progress = max(0, min(1, Double(totalSent) / Double(totalBytes)))
-                let percent = Int((progress * 100).rounded(.down))
-                if percent > lastPercent || (progress >= 1 && lastPercent < 100) {
-                    lastPercent = progress >= 1 ? 100 : percent
-                    onProgress?(progress)
+                // Cap streaming progress at 0.95 until the gateway finishes persisting and returns 200 OK.
+                let rawProgress = max(0, min(1, Double(totalSent) / Double(totalBytes)))
+                let scaled = min(0.95, rawProgress * 0.95)
+                let percent = Int((scaled * 100).rounded(.down))
+                if percent > lastPercent {
+                    lastPercent = percent
+                    onProgress?(scaled)
                 }
             }
         }
 
-        let (raw, _) = try await Self.receiveHTTPMessage(connection, timeout: req.timeoutInterval > 0 ? max(req.timeoutInterval, 30) : 30)
-        let (data, response) = try HTTP11Codec.parseResponse(raw, url: url)
-        return (data, decorateResponse(response, url: req.url, forcedCellular: isCellular))
+        let (raw, _) = try await receiveHTTPMessage(connection, timeout: request.timeoutInterval > 0 ? max(request.timeoutInterval, 60) : 60)
+        return try HTTP11Codec.parseResponse(raw, url: url)
     }
 
     private func sendCleartextHTTP(_ request: URLRequest) async throws -> (Data, URLResponse) {
@@ -460,43 +523,47 @@ public final class NetworkTransport: Sendable {
     }
     
     private static func waitUntilReady(_ connection: NWConnection, timeout: TimeInterval) async throws {
-        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
-            let finished = OSAllocatedUnfairLock(initialState: false)
-            @Sendable func complete(_ result: Result<Void, Error>) {
-                let go = finished.withLock { flag -> Bool in
-                    if flag { return false }
-                    flag = true
-                    return true
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+                let finished = OSAllocatedUnfairLock(initialState: false)
+                @Sendable func complete(_ result: Result<Void, Error>) {
+                    let go = finished.withLock { flag -> Bool in
+                        if flag { return false }
+                        flag = true
+                        return true
+                    }
+                    guard go else { return }
+                    cont.resume(with: result)
                 }
-                guard go else { return }
-                cont.resume(with: result)
+                
+                connection.stateUpdateHandler = { state in
+                    switch state {
+                    case .ready:
+                        complete(.success(()))
+                    case .failed(let err):
+                        complete(.failure(err))
+                    case .cancelled:
+                        complete(.failure(URLError(.cancelled)))
+                    default:
+                        break
+                    }
+                }
+                connection.start(queue: DispatchQueue.global(qos: .userInitiated))
+                
+                DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + timeout) {
+                    let timedOut = finished.withLock { flag -> Bool in
+                        if flag { return false }
+                        flag = true
+                        return true
+                    }
+                    if timedOut {
+                        connection.cancel()
+                        cont.resume(throwing: URLError(.timedOut))
+                    }
+                }
             }
-            
-            connection.stateUpdateHandler = { state in
-                switch state {
-                case .ready:
-                    complete(.success(()))
-                case .failed(let err):
-                    complete(.failure(err))
-                case .cancelled:
-                    complete(.failure(URLError(.cancelled)))
-                default:
-                    break
-                }
-            }
-            connection.start(queue: DispatchQueue.global(qos: .userInitiated))
-            
-            DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + timeout) {
-                let timedOut = finished.withLock { flag -> Bool in
-                    if flag { return false }
-                    flag = true
-                    return true
-                }
-                if timedOut {
-                    connection.cancel()
-                    cont.resume(throwing: URLError(.timedOut))
-                }
-            }
+        } onCancel: {
+            connection.cancel()
         }
     }
     

@@ -12,9 +12,11 @@ public struct WeChatChatArchiveSheet: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.dismiss) private var dismiss
 
-    @State private var archive: WeChatChatArchive? = nil
-    @State private var isLoading: Bool = true
+    @State private var archive: WeChatChatArchive?
+    @State private var isLoading: Bool
+    @State private var isRefreshing: Bool = false
     @State private var errorMessage: String? = nil
+    @State private var mediaRefreshToken: Int = 0
 
     @State private var isSearching: Bool = false
     @State private var searchQuery: String = ""
@@ -25,6 +27,11 @@ public struct WeChatChatArchiveSheet: View {
     @State private var isDownloadingZip: Bool = false
     @State private var showDocumentExporter: Bool = false
     @State private var toastMessage: String? = nil
+
+    // Interactive left-edge swipe-back state
+    @State private var edgeSwipeOffset: CGFloat = 0
+    @State private var isEdgeSwiping: Bool = false
+    @State private var edgeSwipeRejected: Bool = false
 
     public init(
         item: WeChatArchiveSessionItem,
@@ -40,6 +47,9 @@ public struct WeChatChatArchiveSheet: View {
         self.cascadeId = cascadeId
         self.onFallbackToQuickLook = onFallbackToQuickLook
         self.onDismiss = onDismiss
+        let memCached = WeChatArchiveCacheManager.shared.cachedArchiveInMemory(uri: item.uri, cascadeId: cascadeId)
+        _archive = State(initialValue: memCached)
+        _isLoading = State(initialValue: memCached == nil)
     }
 
     private var isDark: Bool { colorScheme == .dark }
@@ -73,86 +83,129 @@ public struct WeChatChatArchiveSheet: View {
         }
     }
 
-    private var allImageEntries: [(msgId: Int, url: URL)] {
-        guard let baseURL, let msgs = archive?.messages else { return [] }
+    private var allImageEntries: [(msgId: Int, image: IdentifiableImage)] {
+        guard let msgs = archive?.messages else { return [] }
         return msgs.compactMap { msg in
-            guard msg.kind == "image", let entry = msg.mediaEntry,
-                  let url = apiClient.zipEntryURL(uri: item.uri, entry: entry, cascadeId: cascadeId, baseURL: baseURL) else {
+            guard msg.kind == "image", let entry = msg.mediaEntry else {
                 return nil
             }
-            return (msg.id, url)
+            let memImg = WeChatArchiveCacheManager.shared.cachedMediaImageInMemory(
+                uri: item.uri,
+                cascadeId: cascadeId,
+                entry: entry,
+                thumb: false
+            )
+            let localURL = WeChatArchiveCacheManager.shared.cachedMediaFileURL(
+                uri: item.uri,
+                cascadeId: cascadeId,
+                entry: entry,
+                thumb: false
+            )
+            let remoteURL = baseURL.flatMap {
+                apiClient.zipEntryURL(uri: item.uri, entry: entry, cascadeId: cascadeId, baseURL: $0)
+            }
+            guard memImg != nil || localURL != nil || remoteURL != nil else {
+                return nil
+            }
+            return (msg.id, IdentifiableImage(image: memImg, url: localURL ?? remoteURL))
         }
     }
 
     public var body: some View {
-        VStack(spacing: 0) {
-            topBar
+        GeometryReader { geo in
+            let screenWidth = max(1, geo.size.width)
+            let swipeProgress = min(1, max(0, edgeSwipeOffset / screenWidth))
 
-            if isSearching {
-                searchBar
-            }
-
-            Divider().overlay(dividerColor)
-
-            Group {
-                if isLoading {
-                    VStack(spacing: 12) {
-                        ProgressView()
-                        Text("正在解析微信聊天记录...")
-                            .font(.system(size: 13.5))
-                            .foregroundColor(textMuted)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(listBg)
-                } else if let errorMessage {
-                    VStack(spacing: 14) {
-                        Image(systemName: "exclamationmark.triangle")
-                            .font(.system(size: 36))
-                            .foregroundColor(.orange)
-                        Text(errorMessage)
-                            .font(.system(size: 14))
-                            .foregroundColor(textMuted)
-                            .multilineTextAlignment(.center)
-                            .padding(.horizontal, 32)
-                        HStack(spacing: 12) {
-                            Button("重试") {
-                                Task { await loadArchive() }
-                            }
-                            .buttonStyle(.borderedProminent)
-                            Button("改用系统预览") {
-                                onDismiss()
-                                onFallbackToQuickLook()
-                            }
-                            .buttonStyle(.bordered)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(listBg)
-                } else if filteredMessages.isEmpty {
-                    VStack(spacing: 10) {
-                        Image(systemName: isSearching ? "magnifyingglass" : "bubble.left.and.bubble.right")
-                            .font(.system(size: 32))
-                            .foregroundColor(textMuted)
-                        Text(isSearching ? "没有匹配的聊天记录" : "聊天记录为空")
-                            .font(.system(size: 14))
-                            .foregroundColor(textMuted)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(listBg)
-                } else {
-                    ScrollView {
-                        LazyVStack(spacing: 0) {
-                            ForEach(filteredMessages) { msg in
-                                messageRow(msg)
-                            }
-                        }
-                        .padding(.bottom, 24)
-                    }
-                    .background(listBg)
+            ZStack(alignment: .leading) {
+                if edgeSwipeOffset > 0 {
+                    Color.black
+                        .opacity(0.28 * (1 - swipeProgress))
+                        .ignoresSafeArea()
+                        .allowsHitTesting(false)
                 }
+
+                VStack(spacing: 0) {
+                    topBar
+
+                    if isSearching {
+                        searchBar
+                    }
+
+                    Rectangle()
+                        .fill(dividerColor)
+                        .frame(height: 0.5)
+
+                    Group {
+                        if isLoading {
+                            VStack(spacing: 12) {
+                                ProgressView()
+                                Text("正在解析微信聊天记录...")
+                                    .font(.system(size: 13.5))
+                                    .foregroundColor(textMuted)
+                            }
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .background(listBg)
+                        } else if let errorMessage {
+                            VStack(spacing: 14) {
+                                Image(systemName: "exclamationmark.triangle")
+                                    .font(.system(size: 36))
+                                    .foregroundColor(.orange)
+                                Text(errorMessage)
+                                    .font(.system(size: 14))
+                                    .foregroundColor(textMuted)
+                                    .multilineTextAlignment(.center)
+                                    .padding(.horizontal, 32)
+                                HStack(spacing: 12) {
+                                    Button("重试") {
+                                        Task { await loadArchive(forceRefresh: true) }
+                                    }
+                                    .buttonStyle(.borderedProminent)
+                                    Button("改用系统预览") {
+                                        dismiss()
+                                        onDismiss()
+                                        onFallbackToQuickLook()
+                                    }
+                                    .buttonStyle(.bordered)
+                                }
+                            }
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .background(listBg)
+                        } else if filteredMessages.isEmpty {
+                            VStack(spacing: 10) {
+                                Image(systemName: isSearching ? "magnifyingglass" : "bubble.left.and.bubble.right")
+                                    .font(.system(size: 32))
+                                    .foregroundColor(textMuted)
+                                Text(isSearching ? "没有匹配的聊天记录" : "聊天记录为空")
+                                    .font(.system(size: 14))
+                                    .foregroundColor(textMuted)
+                            }
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .background(listBg)
+                        } else {
+                            ScrollView {
+                                LazyVStack(spacing: 0) {
+                                    ForEach(filteredMessages) { msg in
+                                        messageRow(msg)
+                                    }
+                                }
+                                .padding(.bottom, 24)
+                            }
+                            .background(listBg)
+                        }
+                    }
+                    .background(listBg.ignoresSafeArea(edges: .bottom))
+                }
+                .background(listBg.ignoresSafeArea())
+                .offset(x: edgeSwipeOffset)
+                .shadow(
+                    color: edgeSwipeOffset > 0 ? Color.black.opacity(0.18) : .clear,
+                    radius: 12,
+                    x: -4,
+                    y: 0
+                )
+                .simultaneousGesture(edgeSwipeBackGesture(screenWidth: screenWidth))
             }
         }
-        .background(listBg.ignoresSafeArea())
         .overlay(alignment: .center) {
             if let toastMessage {
                 Text(toastMessage)
@@ -188,11 +241,59 @@ public struct WeChatChatArchiveSheet: View {
             }
         }
         .task(id: item.uri) {
-            await loadArchive()
+            await loadArchive(forceRefresh: false)
         }
         .onDisappear {
             onDismiss()
         }
+    }
+
+    private func edgeSwipeBackGesture(screenWidth: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 12, coordinateSpace: .global)
+            .onChanged { value in
+                guard value.startLocation.x <= 28 else { return }
+                let dx = value.translation.width
+                let dy = value.translation.height
+
+                if !isEdgeSwiping {
+                    if edgeSwipeRejected { return }
+                    if abs(dy) > abs(dx) && abs(dy) > 8 {
+                        edgeSwipeRejected = true
+                        return
+                    }
+                    if dx > 10 && dx > abs(dy) * 1.25 {
+                        isEdgeSwiping = true
+                    } else {
+                        return
+                    }
+                }
+                edgeSwipeOffset = max(0, dx)
+            }
+            .onEnded { value in
+                defer {
+                    edgeSwipeRejected = false
+                    isEdgeSwiping = false
+                }
+                guard isEdgeSwiping else { return }
+                let threshold = min(110, screenWidth * 0.3)
+                if edgeSwipeOffset > threshold || value.predictedEndTranslation.width > screenWidth * 0.45 {
+                    withAnimation(.easeOut(duration: 0.18)) {
+                        edgeSwipeOffset = screenWidth
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
+                        var transaction = Transaction()
+                        transaction.disablesAnimations = true
+                        withTransaction(transaction) {
+                            dismiss()
+                            onDismiss()
+                        }
+                    }
+                } else {
+                    withAnimation(.interactiveSpring(response: 0.28, dampingFraction: 0.86)) {
+                        edgeSwipeOffset = 0
+                    }
+                }
+            }
     }
 
     private var topBar: some View {
@@ -205,6 +306,7 @@ public struct WeChatChatArchiveSheet: View {
                     .font(.system(size: 18, weight: .medium))
                     .foregroundColor(textPrimary)
                     .frame(width: 36, height: 36)
+                    .contentShape(Rectangle())
             }
 
             Spacer(minLength: 4)
@@ -239,6 +341,13 @@ public struct WeChatChatArchiveSheet: View {
                     Label(isSearching ? "关闭搜索" : "搜索聊天记录", systemImage: "magnifyingglass")
                 }
 
+                Button {
+                    Task { await loadArchive(forceRefresh: true) }
+                } label: {
+                    Label(isRefreshing ? "正在刷新..." : "重新拉取", systemImage: "arrow.clockwise")
+                }
+                .disabled(isRefreshing || isLoading)
+
                 if let raw = archive?.rawText, !raw.isEmpty {
                     Button {
                         UIPasteboard.general.string = raw
@@ -268,11 +377,13 @@ public struct WeChatChatArchiveSheet: View {
                     .font(.system(size: 18, weight: .medium))
                     .foregroundColor(textPrimary)
                     .frame(width: 36, height: 36)
+                    .contentShape(Rectangle())
             }
         }
         .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .background(headerBg)
+        .padding(.top, 6)
+        .padding(.bottom, 10)
+        .background(headerBg.ignoresSafeArea(edges: .top))
     }
 
     private var searchBar: some View {
@@ -373,36 +484,29 @@ public struct WeChatChatArchiveSheet: View {
     private func messageBody(_ msg: WeChatChatMessage) -> some View {
         switch msg.kind {
         case "image":
-            if let baseURL, let entry = msg.mediaEntry,
-               let url = apiClient.zipEntryURL(uri: item.uri, entry: entry, cascadeId: cascadeId, baseURL: baseURL) {
+            if let entry = msg.mediaEntry {
                 Button {
                     UIImpactFeedbackGenerator(style: .light).impactOccurred()
                     let galleryItems = allImageEntries
                     let initialIdx = galleryItems.firstIndex(where: { $0.msgId == msg.id }) ?? 0
-                    previewGallery = ImageGalleryData(
-                        items: galleryItems.map { IdentifiableImage(url: $0.url) },
-                        initialIndex: initialIdx
-                    )
-                } label: {
-                    AsyncImage(url: url) { phase in
-                        switch phase {
-                        case .empty:
-                            RoundedRectangle(cornerRadius: 4, style: .continuous)
-                                .fill(cardBg)
-                                .frame(width: 140, height: 140)
-                                .overlay(ProgressView())
-                        case .success(let image):
-                            image
-                                .resizable()
-                                .scaledToFit()
-                                .frame(maxWidth: 190, maxHeight: 240, alignment: .leading)
-                                .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
-                        case .failure:
-                            missingImageBox(label: msg.mediaName ?? "图片加载失败")
-                        @unknown default:
-                            EmptyView()
-                        }
+                    if !galleryItems.isEmpty {
+                        previewGallery = ImageGalleryData(
+                            items: galleryItems.map { $0.image },
+                            initialIndex: initialIdx
+                        )
                     }
+                } label: {
+                    WeChatCachedImageView(
+                        uri: item.uri,
+                        cascadeId: cascadeId,
+                        entry: entry,
+                        apiClient: apiClient,
+                        baseURL: baseURL,
+                        refreshToken: mediaRefreshToken,
+                        placeholderBg: cardBg,
+                        failureLabel: msg.mediaName ?? "图片加载失败",
+                        textMuted: textMuted
+                    )
                 }
                 .buttonStyle(.plain)
             } else {
@@ -412,27 +516,20 @@ public struct WeChatChatArchiveSheet: View {
         case "video":
             if let baseURL, let entry = msg.mediaEntry,
                let videoURL = apiClient.zipEntryURL(uri: item.uri, entry: entry, cascadeId: cascadeId, baseURL: baseURL) {
-                let thumbURL = apiClient.zipEntryURL(uri: item.uri, entry: entry, cascadeId: cascadeId, baseURL: baseURL, thumb: true)
                 Button {
                     UIImpactFeedbackGenerator(style: .light).impactOccurred()
                     playingVideoURL = IdentifiableURL(url: videoURL)
                 } label: {
                     ZStack(alignment: .bottomTrailing) {
                         ZStack {
-                            if let thumbURL {
-                                AsyncImage(url: thumbURL) { phase in
-                                    switch phase {
-                                    case .success(let image):
-                                        image
-                                            .resizable()
-                                            .scaledToFill()
-                                    default:
-                                        Color(hex: 0x1C1C1E)
-                                    }
-                                }
-                            } else {
-                                Color(hex: 0x1C1C1E)
-                            }
+                            WeChatCachedVideoThumbView(
+                                uri: item.uri,
+                                cascadeId: cascadeId,
+                                entry: entry,
+                                apiClient: apiClient,
+                                baseURL: baseURL,
+                                refreshToken: mediaRefreshToken
+                            )
                             Circle()
                                 .fill(Color.black.opacity(0.42))
                                 .frame(width: 44, height: 44)
@@ -570,27 +667,65 @@ public struct WeChatChatArchiveSheet: View {
         return name
     }
 
-    private func loadArchive() async {
-        isLoading = true
-        errorMessage = nil
+    private func loadArchive(forceRefresh: Bool = false) async {
+        if !forceRefresh {
+            if let cached = await WeChatArchiveCacheManager.shared.loadArchive(uri: item.uri, cascadeId: cascadeId) {
+                archive = cached
+                errorMessage = nil
+                isLoading = false
+                return
+            }
+            isLoading = true
+            errorMessage = nil
+        } else {
+            if archive == nil {
+                isLoading = true
+                errorMessage = nil
+            } else {
+                isRefreshing = true
+            }
+        }
+
+        defer { isRefreshing = false }
+
         guard let baseURL else {
-            isLoading = false
-            errorMessage = "未连接到网关服务器"
+            if archive == nil {
+                isLoading = false
+                errorMessage = "未连接到网关服务器"
+            } else {
+                showToast("未连接到网关服务器")
+            }
             return
         }
+
         do {
             let res = try await apiClient.fetchWeChatChatArchive(uri: item.uri, cascadeId: cascadeId, baseURL: baseURL)
             if !res.isWeChatArchive {
+                WeChatArchiveCacheManager.shared.invalidateArchive(uri: item.uri, cascadeId: cascadeId)
                 dismiss()
                 onDismiss()
                 onFallbackToQuickLook()
                 return
             }
+            if forceRefresh {
+                WeChatArchiveCacheManager.shared.invalidateMedia(uri: item.uri, cascadeId: cascadeId)
+                mediaRefreshToken += 1
+            }
+            WeChatArchiveCacheManager.shared.saveArchive(res, uri: item.uri, cascadeId: cascadeId)
             archive = res
+            errorMessage = nil
             isLoading = false
+            if forceRefresh {
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+                showToast("已刷新聊天记录")
+            }
         } catch {
-            errorMessage = "解析聊天记录失败：\(error.localizedDescription)"
-            isLoading = false
+            if archive != nil && forceRefresh {
+                showToast("刷新失败：\(error.localizedDescription)")
+            } else {
+                errorMessage = "解析聊天记录失败：\(error.localizedDescription)"
+                isLoading = false
+            }
         }
     }
 
@@ -624,6 +759,216 @@ public struct WeChatChatArchiveSheet: View {
             if toastMessage == msg {
                 withAnimation { toastMessage = nil }
             }
+        }
+    }
+}
+
+private struct WeChatCachedImageView: View {
+    let uri: String
+    let cascadeId: String
+    let entry: String
+    let apiClient: APIClient
+    let baseURL: URL?
+    let refreshToken: Int
+    let placeholderBg: Color
+    let failureLabel: String
+    let textMuted: Color
+
+    @State private var image: UIImage?
+    @State private var hasFailed: Bool = false
+
+    init(
+        uri: String,
+        cascadeId: String,
+        entry: String,
+        apiClient: APIClient,
+        baseURL: URL?,
+        refreshToken: Int,
+        placeholderBg: Color,
+        failureLabel: String,
+        textMuted: Color
+    ) {
+        self.uri = uri
+        self.cascadeId = cascadeId
+        self.entry = entry
+        self.apiClient = apiClient
+        self.baseURL = baseURL
+        self.refreshToken = refreshToken
+        self.placeholderBg = placeholderBg
+        self.failureLabel = failureLabel
+        self.textMuted = textMuted
+        let mem = WeChatArchiveCacheManager.shared.cachedMediaImageInMemory(
+            uri: uri,
+            cascadeId: cascadeId,
+            entry: entry,
+            thumb: false
+        )
+        _image = State(initialValue: mem)
+    }
+
+    private var taskKey: String { "\(uri)|\(entry)|\(refreshToken)" }
+
+    var body: some View {
+        Group {
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(maxWidth: 190, maxHeight: 240, alignment: .leading)
+                    .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+            } else if hasFailed {
+                HStack(spacing: 8) {
+                    Image(systemName: "photo")
+                        .font(.system(size: 18))
+                        .foregroundColor(textMuted)
+                    Text("[图片] \(failureLabel)")
+                        .font(.system(size: 13))
+                        .foregroundColor(textMuted)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .background(placeholderBg)
+                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+            } else {
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    .fill(placeholderBg)
+                    .frame(width: 140, height: 140)
+                    .overlay(ProgressView())
+            }
+        }
+        .task(id: taskKey) {
+            await loadImage()
+        }
+    }
+
+    private func loadImage() async {
+        hasFailed = false
+        if let cached = await WeChatArchiveCacheManager.shared.loadMediaImage(
+            uri: uri,
+            cascadeId: cascadeId,
+            entry: entry,
+            thumb: false
+        ) {
+            image = cached
+            return
+        }
+        guard let baseURL else {
+            hasFailed = true
+            return
+        }
+        do {
+            let data = try await apiClient.fetchZipEntryData(
+                uri: uri,
+                entry: entry,
+                cascadeId: cascadeId,
+                baseURL: baseURL,
+                thumb: false
+            )
+            guard !Task.isCancelled else { return }
+            if let decoded = UIImage(data: data) {
+                WeChatArchiveCacheManager.shared.saveMediaData(
+                    data,
+                    image: decoded,
+                    uri: uri,
+                    cascadeId: cascadeId,
+                    entry: entry,
+                    thumb: false
+                )
+                image = decoded
+            } else {
+                hasFailed = true
+            }
+        } catch {
+            if !Task.isCancelled {
+                hasFailed = true
+            }
+        }
+    }
+}
+
+private struct WeChatCachedVideoThumbView: View {
+    let uri: String
+    let cascadeId: String
+    let entry: String
+    let apiClient: APIClient
+    let baseURL: URL?
+    let refreshToken: Int
+
+    @State private var image: UIImage?
+
+    init(
+        uri: String,
+        cascadeId: String,
+        entry: String,
+        apiClient: APIClient,
+        baseURL: URL?,
+        refreshToken: Int
+    ) {
+        self.uri = uri
+        self.cascadeId = cascadeId
+        self.entry = entry
+        self.apiClient = apiClient
+        self.baseURL = baseURL
+        self.refreshToken = refreshToken
+        let mem = WeChatArchiveCacheManager.shared.cachedMediaImageInMemory(
+            uri: uri,
+            cascadeId: cascadeId,
+            entry: entry,
+            thumb: true
+        )
+        _image = State(initialValue: mem)
+    }
+
+    private var taskKey: String { "\(uri)|\(entry)|thumb|\(refreshToken)" }
+
+    var body: some View {
+        Group {
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                Color(hex: 0x1C1C1E)
+            }
+        }
+        .task(id: taskKey) {
+            await loadThumb()
+        }
+    }
+
+    private func loadThumb() async {
+        if let cached = await WeChatArchiveCacheManager.shared.loadMediaImage(
+            uri: uri,
+            cascadeId: cascadeId,
+            entry: entry,
+            thumb: true
+        ) {
+            image = cached
+            return
+        }
+        guard let baseURL else { return }
+        do {
+            let data = try await apiClient.fetchZipEntryData(
+                uri: uri,
+                entry: entry,
+                cascadeId: cascadeId,
+                baseURL: baseURL,
+                thumb: true
+            )
+            guard !Task.isCancelled else { return }
+            if let decoded = UIImage(data: data) {
+                WeChatArchiveCacheManager.shared.saveMediaData(
+                    data,
+                    image: decoded,
+                    uri: uri,
+                    cascadeId: cascadeId,
+                    entry: entry,
+                    thumb: true
+                )
+                image = decoded
+            }
+        } catch {
+            // Keep dark fallback background
         }
     }
 }

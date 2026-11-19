@@ -162,5 +162,6 @@ public final class DocumentCacheManager: @unchecked Sendable {
     public func clearCache() {
         try? fileManager.removeItem(at: cacheDirectory)
         try? fileManager.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
+        WeChatArchiveCacheManager.shared.clearCache()
     }
 }

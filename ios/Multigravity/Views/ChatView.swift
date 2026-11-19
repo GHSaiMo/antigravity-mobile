@@ -481,20 +481,22 @@ public struct ChatView: View {
                     .presentationDragIndicator(.visible)
                 }
             }
-            .sheet(item: $viewModel.weChatArchiveItem) { item in
+            .fullScreenCover(item: $viewModel.weChatArchiveItem) { item in
                 WeChatChatArchiveSheet(
                     item: item,
                     apiClient: viewModel.apiClient,
                     baseURL: viewModel.settings.serverURL,
                     cascadeId: viewModel.cascadeId,
                     onFallbackToQuickLook: {
-                        viewModel.downloadAndPreviewDocument(uri: item.uri, fileName: item.fileName, isHTML: false)
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                            viewModel.downloadAndPreviewDocument(uri: item.uri, fileName: item.fileName, isHTML: false)
+                        }
                     },
                     onDismiss: {
                         viewModel.closeWeChatArchive()
                     }
                 )
-                .presentationDragIndicator(.hidden)
+                .presentationBackground(.clear)
             }
             .sheet(isPresented: $showNavigatorSheet) {
                 ConversationNavigatorSheet(

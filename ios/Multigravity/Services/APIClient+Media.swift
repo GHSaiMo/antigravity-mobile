@@ -290,6 +290,40 @@ extension APIClient {
         return components?.url
     }
 
+    public func fetchZipEntryData(
+        uri: String,
+        entry: String,
+        cascadeId: String? = nil,
+        baseURL: URL,
+        thumb: Bool = false
+    ) async throws -> Data {
+        guard let endpoint = zipEntryURL(
+            uri: uri,
+            entry: entry,
+            cascadeId: cascadeId,
+            baseURL: baseURL,
+            thumb: thumb
+        ) else {
+            throw APIError.invalidURL
+        }
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 25.0
+
+        let (data, response) = try await transport.send(request: request)
+        guard let httpResp = response as? HTTPURLResponse else {
+            throw APIError.networkError("Invalid response type")
+        }
+        guard (200...299).contains(httpResp.statusCode) else {
+            if httpResp.statusCode == 401 {
+                NotificationCenter.default.post(name: .deviceTokenRevoked, object: nil)
+            }
+            let msg = String(data: data, encoding: .utf8) ?? "HTTP \(httpResp.statusCode)"
+            throw APIError.serverError(statusCode: httpResp.statusCode, message: msg)
+        }
+        return data
+    }
+
     private func normalizeFileURIForGateway(_ uri: String) -> String {
         var cleanPath = uri.trimmingCharacters(in: .whitespacesAndNewlines)
         if cleanPath.hasPrefix("MEDIA:") {
