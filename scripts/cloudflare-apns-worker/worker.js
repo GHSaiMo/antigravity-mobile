@@ -230,6 +230,11 @@ async function handleLiveActivityPush(body, env) {
     }
     if (laAlert.title || laAlert.body) {
       aps.alert = laAlert;
+      // Silent alerts (no explicit sound), e.g. Push-to-Start when a message is sent: deliver passively
+      // so iOS shows the Live Activity without any chime or haptic.
+      if (!laSound && !aps["interruption-level"]) {
+        aps["interruption-level"] = "passive";
+      }
     }
   }
 
