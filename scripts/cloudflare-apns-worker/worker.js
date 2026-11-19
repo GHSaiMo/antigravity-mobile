@@ -218,13 +218,17 @@ async function handleLiveActivityPush(body, env) {
     aps["dismissal-date"] = Math.floor(body.dismissal_date);
   }
 
-  // Optional alert for Live Activity (only included if caller explicitly supplies title or body)
+  // Optional alert for Live Activity (only included if caller explicitly supplies title or body).
+  // Omit aps.alert.sound unless explicitly provided so Push-to-Start launches silently.
   if (body.alert && typeof body.alert === "object") {
     const laAlert = {};
     if (body.alert.title) laAlert.title = String(body.alert.title);
     if (body.alert.body) laAlert.body = String(body.alert.body);
+    const laSound = body.alert.sound ? String(body.alert.sound).trim() : "";
+    if (laSound) {
+      laAlert.sound = laSound;
+    }
     if (laAlert.title || laAlert.body) {
-      laAlert.sound = String(body.alert.sound || "default");
       aps.alert = laAlert;
     }
   }

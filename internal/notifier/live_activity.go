@@ -298,11 +298,11 @@ func (d *LiveActivityDispatcher) SyncFromDetails(ctx context.Context, details *p
 				ConversationTitle: state.ConversationTitle,
 				CascadeID:         cascadeID,
 			}
-			// Apple liveactivitiesd strictly requires an aps.alert dictionary on event="start" (Push-to-Start).
+			// Apple liveactivitiesd strictly requires an aps.alert dictionary on event="start" (Push-to-Start);
+			// omit Sound so starting a Live Activity stays silent and only completion/action alerts chime.
 			req.Alert = &APNsLiveActivityAlert{
 				Title: state.ConversationTitle,
 				Body:  state.LatestAction,
-				Sound: "default",
 			}
 			req.InputPushToken = true
 		}
