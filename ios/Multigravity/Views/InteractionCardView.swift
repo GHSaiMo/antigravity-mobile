@@ -7,9 +7,17 @@ private struct OptionsHeightKey: PreferenceKey {
     }
 }
 
+private struct HeaderHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
 public struct InteractionCardView: View {
     public let interaction: PendingInteraction
     public let isSubmitting: Bool
+    public let maxAvailableHeight: CGFloat?
     public let onSubmit: (String, String?, String?, [QuestionResponse]?) -> Void
     public let onSkip: ([QuestionResponse]?) -> Void
     public let onToggleExpand: (@MainActor @Sendable (Bool) -> Void)?
@@ -25,9 +33,10 @@ public struct InteractionCardView: View {
     @State private var selectedOptionsByQuestion: [Int: String] = [:]
     @State private var writeInByQuestion: [Int: String] = [:]
     
-    // Expandable card state (default: adaptive height up to half screen, expandable to full conversation area)
+    // Expandable card state (default: adaptive height up to ~half chat area, expandable to full chat area without overlapping nav bar)
     @State private var isExpanded: Bool = false
-    @State private var optionsContentHeight: CGFloat = 0
+    @State private var scrollContentHeight: CGFloat = 0
+    @State private var headerHeight: CGFloat = 28
     
     private var isPermissionType: Bool {
         interaction.type == "permission" || interaction.type == "file_permission"
@@ -39,45 +48,99 @@ public struct InteractionCardView: View {
         }
         return false
     }
-    
-    private var maxOptionsHalfHeight: CGFloat {
-        let screenH = UIScreen.main.bounds.height
-        return min(280, max(180, screenH * 0.32))
+
+    private var singleQuestionTitle: String {
+        interaction.title.isEmpty ? (interaction.description ?? String(localized: "需要用户审批操作")) : interaction.title
     }
-    
-    private var maxOptionsFullHeight: CGFloat {
-        let screenH = UIScreen.main.bounds.height
-        return max(maxOptionsHalfHeight + 100, screenH * 0.58)
+
+    /// 当单题问题描述较长（含换行或超过 48 字）时，将其移入统一的滚动区域，
+    /// 避免顶栏被撑爆而撞上导航栏或挤占选项空间。
+    private var isLongSingleQuestion: Bool {
+        !hasMultipleQuestions && (singleQuestionTitle.contains("\n") || singleQuestionTitle.count > 48)
     }
-    
-    private var exceedsHalfScreen: Bool {
-        optionsContentHeight > maxOptionsHalfHeight
+
+    private var compactCategoryTitle: String {
+        if interaction.permissionGrant != nil {
+            return String(localized: "权限确认")
+        }
+        switch interaction.type {
+        case "permission", "file_permission":
+            return String(localized: "权限确认")
+        case "browser_download":
+            return String(localized: "下载确认")
+        case "approval":
+            return String(localized: "操作确认")
+        case "ask_question":
+            return String(localized: "询问用户")
+        case "run_command":
+            return String(localized: "执行命令")
+        case "mcp":
+            return String(localized: "MCP 工具确认")
+        case "elicitation":
+            return String(localized: "补充信息")
+        default:
+            return String(localized: "需要确认")
+        }
     }
-    
+
+    private var effectiveAvailableHeight: CGFloat {
+        if let maxAvailableHeight, maxAvailableHeight > 0 {
+            return maxAvailableHeight
+        }
+        return max(320, UIScreen.main.bounds.height - 220)
+    }
+
+    /// 卡片固定壳层高度（顶栏 + 底部按钮栏 + 内外边距与分割线）
+    private var fixedChromeHeight: CGFloat {
+        max(headerHeight, 28) + 96
+    }
+
+    private var maxCardCollapsedHeight: CGFloat {
+        let preferred = min(440, max(260, effectiveAvailableHeight * 0.56))
+        return min(max(180, effectiveAvailableHeight - 16), preferred)
+    }
+
+    private var maxCardExpandedHeight: CGFloat {
+        max(maxCardCollapsedHeight, effectiveAvailableHeight - 16)
+    }
+
+    private var maxScrollCollapsedHeight: CGFloat {
+        max(72, maxCardCollapsedHeight - fixedChromeHeight)
+    }
+
+    private var maxScrollExpandedHeight: CGFloat {
+        max(maxScrollCollapsedHeight, maxCardExpandedHeight - fixedChromeHeight)
+    }
+
+    private var exceedsCollapsedHeight: Bool {
+        scrollContentHeight > maxScrollCollapsedHeight + 2
+    }
+
     private var canExpand: Bool {
-        isExpanded || exceedsHalfScreen || hasMultipleQuestions
+        isExpanded || (exceedsCollapsedHeight && maxScrollExpandedHeight > maxScrollCollapsedHeight + 24)
     }
-    
-    private var targetOptionsHeight: CGFloat {
-        if isExpanded {
-            return maxOptionsFullHeight
+
+    private var targetScrollHeight: CGFloat {
+        let maxH = isExpanded ? maxScrollExpandedHeight : maxScrollCollapsedHeight
+        if scrollContentHeight > 0 {
+            return min(scrollContentHeight, maxH)
         }
-        if optionsContentHeight > 0 {
-            return min(optionsContentHeight, maxOptionsHalfHeight)
-        }
-        let fallback = CGFloat(interaction.options.count * 55 + 15)
-        return min(fallback, maxOptionsHalfHeight)
+        let optionCount = hasMultipleQuestions ? (interaction.questions?.count ?? 1) * 2 : interaction.options.count
+        let fallback = CGFloat(optionCount * 55 + (isLongSingleQuestion ? 160 : 15))
+        return min(fallback, maxH)
     }
     
     public init(
         interaction: PendingInteraction,
         isSubmitting: Bool,
+        maxAvailableHeight: CGFloat? = nil,
         onSubmit: @escaping (String, String?, String?, [QuestionResponse]?) -> Void,
         onSkip: @escaping ([QuestionResponse]?) -> Void,
         onToggleExpand: (@MainActor @Sendable (Bool) -> Void)? = nil
     ) {
         self.interaction = interaction
         self.isSubmitting = isSubmitting
+        self.maxAvailableHeight = maxAvailableHeight
         self.onSubmit = onSubmit
         self.onSkip = onSkip
         self.onToggleExpand = onToggleExpand
@@ -261,25 +324,28 @@ public struct InteractionCardView: View {
     
     @ViewBuilder
     private var headerView: some View {
-        HStack(alignment: .top, spacing: 8) {
+        HStack(alignment: isLongSingleQuestion || hasMultipleQuestions ? .center : .top, spacing: 8) {
             Image(systemName: headerIconName)
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundColor(headerIconColor)
-                .padding(.top, 2)
+                .padding(.top, isLongSingleQuestion || hasMultipleQuestions ? 0 : 2)
             
             if hasMultipleQuestions, let count = interaction.questions?.count {
                 Text("需要确认规格 (\(count) 个问题)")
                     .font(.system(size: 14.5, weight: .semibold))
                     .foregroundColor(.primary)
-                    .lineSpacing(2)
-                    .multilineTextAlignment(.leading)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .lineLimit(1)
+            } else if isLongSingleQuestion {
+                Text(compactCategoryTitle)
+                    .font(.system(size: 14.5, weight: .semibold))
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
             } else {
-                let questionTitle = interaction.title.isEmpty ? (interaction.description ?? String(localized: "需要用户审批操作")) : interaction.title
-                Text(questionTitle)
+                Text(singleQuestionTitle)
                     .font(.system(size: 14.5, weight: .semibold))
                     .foregroundColor(.primary)
                     .lineSpacing(2.5)
+                    .lineLimit(3)
                     .multilineTextAlignment(.leading)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -291,17 +357,27 @@ public struct InteractionCardView: View {
                 Button {
                     toggleExpansion()
                 } label: {
-                    Image(systemName: isExpanded ? "chevron.down" : "chevron.up")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundColor(.secondary)
-                        .frame(width: 28, height: 28)
-                        .background(Color(uiColor: .tertiarySystemFill))
-                        .clipShape(Circle())
+                    HStack(spacing: 4) {
+                        Text(isExpanded ? String(localized: "收起") : String(localized: "展开"))
+                            .font(.system(size: 11.5, weight: .medium))
+                        Image(systemName: isExpanded ? "chevron.down" : "chevron.up")
+                            .font(.system(size: 11, weight: .semibold))
+                    }
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 5)
+                    .background(Color(uiColor: .tertiarySystemFill))
+                    .clipShape(Capsule())
                 }
                 .buttonStyle(.plain)
                 .help(isExpanded ? String(localized: "收起为半屏") : String(localized: "一键全屏"))
             }
         }
+        .background(
+            GeometryReader { geo in
+                Color.clear.preference(key: HeaderHeightKey.self, value: geo.size.height)
+            }
+        )
         .contentShape(Rectangle())
         .onTapGesture {
             if canExpand {
@@ -581,12 +657,29 @@ public struct InteractionCardView: View {
             .padding(.horizontal, 12)
             .padding(.bottom, 6)
         } else {
+            let showBottomDivider = exceedsCollapsedHeight || (isExpanded && scrollContentHeight > maxScrollExpandedHeight + 2)
             VStack(alignment: .leading, spacing: 8) {
                 headerView
-                targetBoxView
                 
-                ScrollView(.vertical, showsIndicators: exceedsHalfScreen || isExpanded) {
-                    VStack(spacing: 6) {
+                if isLongSingleQuestion {
+                    Divider().opacity(0.45)
+                }
+                
+                ScrollView(.vertical, showsIndicators: exceedsCollapsedHeight || isExpanded) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        if isLongSingleQuestion {
+                            Text(singleQuestionTitle)
+                                .font(.system(size: 13.5, weight: .medium))
+                                .foregroundColor(.primary)
+                                .lineSpacing(3)
+                                .multilineTextAlignment(.leading)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+
+                        targetBoxView
+
                         if hasMultipleQuestions, let questions = interaction.questions {
                             VStack(alignment: .leading, spacing: 14) {
                                 ForEach(Array(questions.enumerated()), id: \.offset) { qIdx, q in
@@ -597,13 +690,18 @@ public struct InteractionCardView: View {
                             singleQuestionOptions
                         }
                     }
+                    .padding(.vertical, 2)
                     .background(
                         GeometryReader { geo in
                             Color.clear.preference(key: OptionsHeightKey.self, value: geo.size.height)
                         }
                     )
                 }
-                .frame(height: targetOptionsHeight)
+                .frame(height: targetScrollHeight)
+                
+                if showBottomDivider {
+                    Divider().opacity(0.45)
+                }
                 
                 bottomActionBar
             }
@@ -621,8 +719,13 @@ public struct InteractionCardView: View {
             .padding(.bottom, 6)
             .animation(.spring(response: 0.35, dampingFraction: 0.82), value: isExpanded)
             .onPreferenceChange(OptionsHeightKey.self) { height in
-                if height > 0 {
-                    self.optionsContentHeight = height
+                if height > 0, abs(self.scrollContentHeight - height) > 0.5 {
+                    self.scrollContentHeight = height
+                }
+            }
+            .onPreferenceChange(HeaderHeightKey.self) { height in
+                if height > 0, abs(self.headerHeight - height) > 0.5 {
+                    self.headerHeight = height
                 }
             }
         }

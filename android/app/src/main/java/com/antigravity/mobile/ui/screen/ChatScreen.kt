@@ -72,7 +72,9 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -89,6 +91,7 @@ import androidx.compose.ui.text.style.TextAlign
 import java.net.URLDecoder
 
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.antigravity.mobile.ui.components.*
@@ -1278,12 +1281,22 @@ fun ChatScreen(
         },
         containerColor = colors.background
     ) { padding ->
+        val density = LocalDensity.current
+        var chatScaffoldBodyHeight by remember { mutableStateOf<Dp?>(null) }
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
                 .consumeWindowInsets(padding)
                 .imePadding()
+                .onSizeChanged { size ->
+                    if (size.height > 0) {
+                        val nextHeight = with(density) { size.height.toDp() }
+                        if (chatScaffoldBodyHeight != nextHeight) {
+                            chatScaffoldBodyHeight = nextHeight
+                        }
+                    }
+                }
         ) {
             val swarm = uiState.swarmBrief
             if (swarm != null && swarm.active) {
@@ -1760,6 +1773,10 @@ fun ChatScreen(
                     }
 
                     uiState.pendingInteraction?.let { interaction ->
+                        val bannerReserve = if (uiState.swarmBrief?.active == true) 52.dp else 0.dp
+                        val interactionMaxAvailableHeight = chatScaffoldBodyHeight?.let { bodyH ->
+                            (bodyH - 124.dp - bannerReserve).coerceAtLeast(220.dp)
+                        }
                         InteractionCard(
                             interaction = interaction,
                             onSubmit = { optId, writeIn, qResponses ->
@@ -1777,6 +1794,7 @@ fun ChatScreen(
                             onToggleExpand = { isExpanded ->
                                 handleFloatingCardToggle(isExpanded)
                             },
+                            maxAvailableHeight = interactionMaxAvailableHeight,
                             modifier = Modifier.fillMaxWidth()
                         )
                     }

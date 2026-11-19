@@ -128,9 +128,14 @@ extension ChatView {
         }
         
         if let interaction = viewModel.pendingInteraction {
+            let bannerReserve: CGFloat = (viewModel.swarmBrief?.active == true) ? 52 : 0
+            let availableInteractionHeight: CGFloat? = chatAreaHeight > 0
+                ? max(180, chatAreaHeight - bannerReserve)
+                : nil
             InteractionCardView(
                 interaction: interaction,
                 isSubmitting: viewModel.isSubmittingInteraction,
+                maxAvailableHeight: availableInteractionHeight,
                 onSubmit: { optionId, writeInText, target, questionResponses in
                     Task {
                         await viewModel.submitInteraction(optionId: optionId, writeInText: writeInText, target: target, questionResponses: questionResponses)
@@ -145,6 +150,7 @@ extension ChatView {
                     handleFloatingCardToggle(isExpanded: isExpanded)
                 }
             )
+            .id(interaction.id)
             .transition(.move(edge: .bottom).combined(with: .opacity))
         }
     }

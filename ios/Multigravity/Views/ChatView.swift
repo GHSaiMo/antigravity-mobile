@@ -57,6 +57,7 @@ public struct ChatView: View {
     @State var isSlashPickerDismissed: Bool = false
     @State var highlightedTurnMessageId: String? = nil
     @State var targetScrollTurnId: String? = nil
+    @State var chatAreaHeight: CGFloat = 0
     let shouldAutoFocus: Bool
     let initialConversation: ConversationItem?
     let initialIsUnread: Bool
@@ -180,6 +181,13 @@ public struct ChatView: View {
                 
                 floatingMentionPopup
                     .readableChatWidth(horizontalSizeClass == .regular)
+            }
+            .onGeometryChange(for: CGFloat.self) { proxy in
+                proxy.size.height
+            } action: { newHeight in
+                if newHeight > 0, abs(chatAreaHeight - newHeight) > 1 {
+                    chatAreaHeight = newHeight
+                }
             }
             if viewModel.isSubagentSession || initialConversation?.isSubagent == true {
                 SubagentReadOnlyBar(

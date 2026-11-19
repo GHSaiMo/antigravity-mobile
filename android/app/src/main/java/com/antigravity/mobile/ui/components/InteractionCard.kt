@@ -18,6 +18,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.HelpOutline
@@ -45,6 +46,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.antigravity.mobile.data.model.InteractionOption
@@ -59,6 +61,7 @@ fun InteractionCard(
     onSubmit: (optionId: String, writeInText: String?, questionResponses: List<QuestionResponse>?) -> Unit,
     onSkip: (questionResponses: List<QuestionResponse>?) -> Unit,
     onToggleExpand: ((Boolean) -> Unit)? = null,
+    maxAvailableHeight: Dp? = null,
     modifier: Modifier = Modifier
 ) {
     val colors = AntigravityTheme.colors
@@ -129,14 +132,34 @@ fun InteractionCard(
         else -> colors.accentOrange
     }
 
-    // 默认自适应高度，只有超出半屏才截断至半屏，支持一键扩展到会话全屏
-    var isExpanded by remember { mutableStateOf(false) }
+    val singleQuestionTitle = interaction.title.ifBlank { interaction.prompt ?: "需要用户审批操作" }
+    val isLongSingleQuestion = !hasMultipleQuestions && (singleQuestionTitle.contains("\n") || singleQuestionTitle.length > 48)
+    val compactCategoryTitle = when {
+        pg != null -> "权限确认"
+        interaction.type == "browser_download" -> "下载确认"
+        interaction.type == "approval" -> "操作确认"
+        interaction.type == "mcp" -> "MCP 工具确认"
+        interaction.type == "elicitation" -> "补充信息"
+        interaction.type == "permission" || interaction.type == "file_permission" -> "权限确认"
+        interaction.type == "ask_question" -> "询问用户"
+        interaction.type == "run_command" -> "执行命令"
+        else -> "需要确认"
+    }
+
+    // 默认自适应高度，只有超出半屏才截断至半屏，支持一键扩展到会话全屏（严格不超过可用高度，避免遮挡顶栏或挤没底部按钮）
+    val interactionKey = "${interaction.trajectoryId}:${interaction.stepIndex}:${interaction.title.hashCode()}"
+    var isExpanded by remember(interactionKey) { mutableStateOf(false) }
     val screenHeight = LocalConfiguration.current.screenHeightDp.dp
-    val halfHeight = (screenHeight * 0.46f).coerceIn(280.dp, 400.dp)
-    val fullHeight = (screenHeight * 0.72f).coerceAtLeast(halfHeight)
+    val effectiveAvailable = maxAvailableHeight ?: (screenHeight * 0.72f)
+    val maxAllowedHeight = (effectiveAvailable - 16.dp).coerceAtLeast(200.dp)
+    val halfHeight = (effectiveAvailable * 0.56f).coerceIn(240.dp, 420.dp).coerceAtMost(maxAllowedHeight)
+    val fullHeight = maxAllowedHeight.coerceAtLeast(halfHeight)
 
     val scrollState = rememberScrollState()
-    val canExpand = isExpanded || scrollState.maxValue > 0 || hasMultipleQuestions
+    LaunchedEffect(interactionKey) {
+        scrollState.scrollTo(0)
+    }
+    val canExpand = isExpanded || (scrollState.maxValue > 0 && fullHeight > halfHeight + 24.dp)
 
     val arrowRotation by animateFloatAsState(
         targetValue = if (isExpanded) 180f else 0f,
@@ -173,7 +196,7 @@ fun InteractionCard(
                 .padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // Header: Icon + Full Multi-line Question Title + Expand/Collapse Button (if expandable)
+            // Header: Compact pinned header + Expand/Collapse Pill (长问题正文移入统一滚动区，保证顶栏与底部按钮永远不被挤出)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -186,12 +209,12 @@ fun InteractionCard(
                             }
                         } else Modifier
                     ),
-                verticalAlignment = Alignment.Top,
+                verticalAlignment = if (hasMultipleQuestions || isLongSingleQuestion) Alignment.CenterVertically else Alignment.Top,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Row(
                     modifier = Modifier.weight(1f),
-                    verticalAlignment = Alignment.Top,
+                    verticalAlignment = if (hasMultipleQuestions || isLongSingleQuestion) Alignment.CenterVertically else Alignment.Top,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Icon(
@@ -199,129 +222,160 @@ fun InteractionCard(
                         contentDescription = null,
                         tint = headerColor,
                         modifier = Modifier
-                            .padding(top = 2.dp)
+                            .padding(top = if (hasMultipleQuestions || isLongSingleQuestion) 0.dp else 2.dp)
                             .size(20.dp)
                     )
                     Text(
-                        text = if (hasMultipleQuestions) {
-                            "需要确认规格 (${questions?.size} 个问题)"
-                        } else {
-                            interaction.title.ifBlank { interaction.prompt ?: "需要用户审批操作" }
+                        text = when {
+                            hasMultipleQuestions -> "需要确认规格 (${questions?.size} 个问题)"
+                            isLongSingleQuestion -> compactCategoryTitle
+                            else -> singleQuestionTitle
                         },
                         color = colors.textPrimary,
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Bold,
-                        lineHeight = 19.sp
+                        lineHeight = 19.sp,
+                        maxLines = if (hasMultipleQuestions || isLongSingleQuestion) 1 else 3,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
 
                 if (canExpand) {
-                    // 一键全屏 / 半屏切换按钮
-                    Box(
+                    Spacer(modifier = Modifier.width(6.dp))
+                    // 一键全屏 / 半屏切换胶囊
+                    Row(
                         modifier = Modifier
-                            .size(28.dp)
-                            .clip(CircleShape)
-                            .background(colors.surfaceVariant.copy(alpha = 0.7f)),
-                        contentAlignment = Alignment.Center
+                            .clip(RoundedCornerShape(50))
+                            .background(colors.surfaceVariant.copy(alpha = 0.7f))
+                            .padding(horizontal = 9.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(3.dp)
                     ) {
+                        Text(
+                            text = if (isExpanded) "收起" else "展开",
+                            color = colors.textSecondary,
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Medium
+                        )
                         Icon(
                             imageVector = Icons.Default.KeyboardArrowUp,
                             contentDescription = if (isExpanded) "收起为半屏" else "一键全屏",
                             tint = colors.textSecondary,
                             modifier = Modifier
-                                .size(20.dp)
+                                .size(16.dp)
                                 .graphicsLayer(rotationZ = arrowRotation)
                         )
                     }
                 }
             }
 
-            // Structured Permission Grant Preview (Antigravity 2.26+)
-            if (pg != null) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(colors.surfaceVariant.copy(alpha = 0.7f))
-                        .border(0.5.dp, colors.border, RoundedCornerShape(10.dp))
-                        .padding(10.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(4.dp))
-                                .background(colors.accentOrange.copy(alpha = 0.2f))
-                                .padding(horizontal = 6.dp, vertical = 2.dp)
-                        ) {
-                            Text(
-                                text = pg.binary.uppercase(),
-                                color = colors.accentOrange,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-
-                        Text(
-                            text = "操作: ${pg.action}",
-                            color = colors.textPrimary,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-
-                    if (!pg.repo.isNullOrBlank() || !pg.org.isNullOrBlank()) {
-                        val repoText = if (!pg.org.isNullOrBlank() && !pg.repo.isNullOrBlank()) "${pg.org}/${pg.repo}" else (pg.repo ?: "")
-                        Text(
-                            text = "仓库: $repoText",
-                            color = colors.textSecondary,
-                            fontSize = 11.5.sp,
-                            fontFamily = FontFamily.Monospace
-                        )
-                    }
-
-                    if (!pg.branch.isNullOrBlank()) {
-                        Text(
-                            text = "目标分支: ${pg.branch}",
-                            color = colors.textSecondary,
-                            fontSize = 11.5.sp,
-                            fontFamily = FontFamily.Monospace
-                        )
-                    }
-                }
-            } else {
-                // Target / Command Monospace Preview Box
-                val targetText = interaction.target ?: interaction.command
-                if (!targetText.isNullOrBlank()) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(colors.surfaceVariant)
-                            .padding(8.dp)
-                    ) {
-                        Text(
-                            text = targetText,
-                            color = colors.textPrimary,
-                            fontSize = 11.5.sp,
-                            fontFamily = FontFamily.Monospace,
-                            maxLines = if (isExpanded) 8 else 3
-                        )
-                    }
-                }
+            if (isLongSingleQuestion) {
+                HorizontalDivider(
+                    color = colors.separator.copy(alpha = 0.45f),
+                    thickness = 0.5.dp
+                )
             }
 
-            // Question Options Area (Adaptive height, scrollable when exceeding max height)
+            // Unified Scrollable Content Area: Long Question Text + Target/Permission Box + Options
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f, fill = false)
                     .verticalScroll(scrollState),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
+                if (isLongSingleQuestion) {
+                    SelectionContainer {
+                        Text(
+                            text = singleQuestionTitle,
+                            color = colors.textPrimary,
+                            fontSize = 13.5.sp,
+                            fontWeight = FontWeight.Medium,
+                            lineHeight = 20.sp,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
+
+                // Structured Permission Grant Preview (Antigravity 2.26+)
+                if (pg != null) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(colors.surfaceVariant.copy(alpha = 0.7f))
+                            .border(0.5.dp, colors.border, RoundedCornerShape(10.dp))
+                            .padding(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(colors.accentOrange.copy(alpha = 0.2f))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = pg.binary.uppercase(),
+                                    color = colors.accentOrange,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+
+                            Text(
+                                text = "操作: ${pg.action}",
+                                color = colors.textPrimary,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+
+                        if (!pg.repo.isNullOrBlank() || !pg.org.isNullOrBlank()) {
+                            val repoText = if (!pg.org.isNullOrBlank() && !pg.repo.isNullOrBlank()) "${pg.org}/${pg.repo}" else (pg.repo ?: "")
+                            Text(
+                                text = "仓库: $repoText",
+                                color = colors.textSecondary,
+                                fontSize = 11.5.sp,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+
+                        if (!pg.branch.isNullOrBlank()) {
+                            Text(
+                                text = "目标分支: ${pg.branch}",
+                                color = colors.textSecondary,
+                                fontSize = 11.5.sp,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                    }
+                } else {
+                    // Target / Command Monospace Preview Box
+                    val targetText = interaction.target ?: interaction.command
+                    if (!targetText.isNullOrBlank()) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(colors.surfaceVariant)
+                                .padding(8.dp)
+                        ) {
+                            Text(
+                                text = targetText,
+                                color = colors.textPrimary,
+                                fontSize = 11.5.sp,
+                                fontFamily = FontFamily.Monospace,
+                                maxLines = if (isExpanded) 12 else 4,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
+
                 if (hasMultipleQuestions) {
                     questions?.forEachIndexed { qIdx, q ->
                         QuestionSection(
@@ -375,6 +429,13 @@ fun InteractionCard(
                         }
                     }
                 }
+            }
+
+            if (scrollState.maxValue > 0) {
+                HorizontalDivider(
+                    color = colors.separator.copy(alpha = 0.45f),
+                    thickness = 0.5.dp
+                )
             }
 
             // Bottom Action Bar: Skip & Submit (Always pinned at the bottom)
