@@ -531,3 +531,71 @@ func TestLiveActivityDispatcher_NoDuplicateStartAcrossRestartAndConcurrentSessio
 	}
 	mu.Unlock()
 }
+
+func TestLiveActivityDispatcher_CapThreeCardsApprovalPriority(t *testing.T) {
+	var (
+		mu       sync.Mutex
+		requests []APNsLiveActivityRequest
+	)
+	relaySrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req APNsLiveActivityRequest
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		mu.Lock()
+		requests = append(requests, req)
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(APNsRelayResponse{OK: true, Status: 200})
+	}))
+	defer relaySrv.Close()
+
+	store, err := NewPushDeviceStore(filepath.Join(t.TempDir(), "push_devices.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = store.UpsertLiveActivityStartToken("dev-1", "ios", sampleHexToken("7777"), "production", nil)
+
+	curTime := time.Date(2026, 11, 19, 12, 0, 0, 0, time.UTC)
+	disp := NewLiveActivityDispatcher(NewAPNsRelayClient(relaySrv.URL, store), true)
+	disp.nowFunc = func() time.Time { return curTime }
+
+	mk := func(id string) *proxy.TrajectoryDetails {
+		return &proxy.TrajectoryDetails{CascadeID: id, Title: id, Status: "CASCADE_RUN_STATUS_RUNNING", TotalSteps: 3}
+	}
+	starts := func() map[string]bool {
+		mu.Lock()
+		defer mu.Unlock()
+		m := map[string]bool{}
+		for _, r := range requests {
+			if r.Event == "start" && r.Attributes != nil {
+				m[r.Attributes.CascadeID] = true
+			}
+		}
+		return m
+	}
+
+	// 5 working sessions -> only first 3 get a card
+	for _, id := range []string{"c1", "c2", "c3", "c4", "c5"} {
+		disp.SyncFromDetails(context.Background(), mk(id))
+		curTime = curTime.Add(time.Second)
+	}
+	if got := starts(); len(got) != 3 || !got["c1"] || !got["c2"] || !got["c3"] {
+		t.Fatalf("expected starts for c1..c3 only, got %v", got)
+	}
+
+	// c4 needs approval -> evicts least-recent non-pending (c1), c1 gets an end
+	pend := mk("c4")
+	pend.CanProceed = true
+	disp.SyncFromDetails(context.Background(), pend)
+	if got := starts(); len(got) != 4 || !got["c4"] {
+		t.Fatalf("expected c4 started after eviction, got %v", got)
+	}
+	if store.HasLiveActivityStateForCascade("c1") {
+		t.Errorf("evicted c1 state should be cleared")
+	}
+	// c1 stays denied while full
+	curTime = curTime.Add(10 * time.Second)
+	disp.SyncFromDetails(context.Background(), mk("c1"))
+	if len(starts()) != 4 {
+		t.Fatalf("c1 must not be re-started while cap is full")
+	}
+}

@@ -18,7 +18,17 @@ const (
 	liveActivityMinRoutineInterval = 18 * time.Second
 	liveActivityStaleTTL           = 30 * time.Minute
 	liveActivityEndDismissDelaySec = 15
+	// MaxLiveActivityCards caps concurrent Live Activity cards (WAITING_APPROVAL > most recently active).
+	MaxLiveActivityCards  = 3
+	liveActivityMemberTTL = 90 * time.Second
 )
+
+type liveActivityMember struct {
+	pending  bool
+	lastSeen time.Time
+	title    string
+	steps    int
+}
 
 // LiveActivityAttributes mirrors Swift AgentActivityAttributes static fields for push-to-start.
 type LiveActivityAttributes struct {
@@ -52,11 +62,11 @@ type LiveActivityContentState struct {
 }
 
 type liveActivityTrack struct {
-	lastHash     string
-	lastStatus   string
-	lastPending  bool
-	lastSentAt   time.Time
-	startedAt    map[string]time.Time // deviceID -> last push-to-start time for this cascade
+	lastHash    string
+	lastStatus  string
+	lastPending bool
+	lastSentAt  time.Time
+	startedAt   map[string]time.Time // deviceID -> last push-to-start time for this cascade
 }
 
 // LiveActivityDispatcher translates Antigravity trajectory states into throttled, budget-aware APNs Live Activity pushes.
@@ -65,9 +75,48 @@ type LiveActivityDispatcher struct {
 	client       *APNsRelayClient
 	enabled      bool
 	nowFunc      func() time.Time
-	tracks       map[string]*liveActivityTrack // cascadeID -> tracking state
-	endedAt      map[string]time.Time          // cascadeID -> recent EndSession timestamp
-	cascadeLocks map[string]*sync.Mutex        // per-cascade send serialization
+	tracks       map[string]*liveActivityTrack  // cascadeID -> tracking state
+	endedAt      map[string]time.Time           // cascadeID -> recent EndSession timestamp
+	cascadeLocks map[string]*sync.Mutex         // per-cascade send serialization
+	members      map[string]*liveActivityMember // cascades admitted to hold a card (cap MaxLiveActivityCards)
+}
+
+// admitLocked decides whether cascadeID may hold a card. Caller holds d.mu.
+// Returns the evicted cascade (if any) that must be ended.
+func (d *LiveActivityDispatcher) admitLocked(cascadeID string, pending bool, title string, steps int, now time.Time) (bool, string, *liveActivityMember) {
+	for cid, m := range d.members {
+		if cid != cascadeID && now.Sub(m.lastSeen) > liveActivityMemberTTL {
+			delete(d.members, cid)
+		}
+	}
+	if m, ok := d.members[cascadeID]; ok {
+		m.pending, m.lastSeen, m.title, m.steps = pending, now, title, steps
+		return true, "", nil
+	}
+	nm := &liveActivityMember{pending: pending, lastSeen: now, title: title, steps: steps}
+	if len(d.members) < MaxLiveActivityCards {
+		d.members[cascadeID] = nm
+		return true, "", nil
+	}
+	if !pending {
+		return false, "", nil
+	}
+	victim := ""
+	for cid, m := range d.members {
+		if m.pending {
+			continue
+		}
+		if victim == "" || m.lastSeen.Before(d.members[victim].lastSeen) {
+			victim = cid
+		}
+	}
+	if victim == "" {
+		return false, "", nil
+	}
+	vm := d.members[victim]
+	delete(d.members, victim)
+	d.members[cascadeID] = nm
+	return true, victim, vm
 }
 
 // NewLiveActivityDispatcher constructs a LiveActivityDispatcher backed by client.
@@ -79,6 +128,7 @@ func NewLiveActivityDispatcher(client *APNsRelayClient, enabled bool) *LiveActiv
 		tracks:       make(map[string]*liveActivityTrack),
 		endedAt:      make(map[string]time.Time),
 		cascadeLocks: make(map[string]*sync.Mutex),
+		members:      make(map[string]*liveActivityMember),
 	}
 }
 
@@ -271,6 +321,22 @@ func (d *LiveActivityDispatcher) SyncFromDetails(ctx context.Context, details *p
 	stateHash := hashContentState(state)
 
 	d.mu.Lock()
+	allowed, victim, vm := d.admitLocked(cascadeID, state.HasPendingAction, state.ConversationTitle, state.StepCount, now)
+	if !allowed {
+		d.mu.Unlock()
+		return
+	}
+	if victim != "" {
+		delete(d.tracks, victim)
+		d.endedAt[victim] = now
+	}
+	d.mu.Unlock()
+	if victim != "" {
+		d.client.Store().ClearLiveActivityStartedForCascade(victim)
+		d.sendEnd(ctx, victim, vm.title, "COMPLETED", vm.steps, "", now, true)
+	}
+
+	d.mu.Lock()
 	tr, exists := d.tracks[cascadeID]
 	if !exists {
 		tr = &liveActivityTrack{startedAt: make(map[string]time.Time)}
@@ -374,17 +440,23 @@ func (d *LiveActivityDispatcher) EndSession(ctx context.Context, cascadeID, titl
 
 	now := d.nowFunc()
 
-	// Only send "end" to devices that already hold an active update token (never push-to-start an ended session).
-	targets := d.client.Store().ListLiveActivityTargetsAt(cascadeID, false, now)
-
 	d.mu.Lock()
 	delete(d.tracks, cascadeID)
+	delete(d.members, cascadeID)
 	d.endedAt[cascadeID] = now
 	d.mu.Unlock()
 
 	// Clear persisted Push-to-Start run markers so a future working run in this conversation can Push-to-Start cleanly.
 	d.client.Store().ClearLiveActivityStartedForCascade(cascadeID)
 
+	summary := ""
+	d.sendEnd(ctx, cascadeID, title, finalStatus, stepCount, summary, now, false)
+}
+
+// sendEnd pushes an "end" event to every device holding an update token for cascadeID.
+// quiet=true dismisses immediately (used when a card is evicted by the cap).
+func (d *LiveActivityDispatcher) sendEnd(ctx context.Context, cascadeID, title, finalStatus string, stepCount int, _ string, now time.Time, quiet bool) {
+	targets := d.client.Store().ListLiveActivityTargetsAt(cascadeID, false, now)
 	if len(targets) == 0 {
 		return
 	}
@@ -395,6 +467,11 @@ func (d *LiveActivityDispatcher) EndSession(ctx context.Context, cascadeID, titl
 		summary = "执行遇到错误"
 	case "CANCELLED":
 		summary = "任务已终止"
+	}
+	dismissDelay := time.Duration(liveActivityEndDismissDelaySec) * time.Second
+	if quiet {
+		summary = "已让位给需要处理的会话"
+		dismissDelay = 0
 	}
 	if strings.TrimSpace(title) == "" {
 		title = "Multigravity Agent"
@@ -419,7 +496,7 @@ func (d *LiveActivityDispatcher) EndSession(ctx context.Context, cascadeID, titl
 			Event:         "end",
 			Priority:      10,
 			Timestamp:     now.Unix(),
-			DismissalDate: now.Add(liveActivityEndDismissDelaySec * time.Second).Unix(),
+			DismissalDate: now.Add(dismissDelay).Unix(),
 			ContentState:  finalState,
 		}
 		if err := d.client.SendLiveActivity(ctx, target, req); err != nil {

@@ -17,6 +17,8 @@ public final class ActivityManager {
     private var locallyDismissedCascadeIds: Set<String> = []
     
     private static let optimisticStartGraceSeconds: TimeInterval = 8.0
+    /// Max concurrent session cards (needs-action first, then most recently active).
+    static let maxConcurrentCards = 3
     
     public init() {
         deduplicateActivities()
@@ -276,6 +278,16 @@ public final class ActivityManager {
             return
         }
 
+        // Cap concurrent cards: needs-action sessions outrank routine ones.
+        if activeActivitiesByCascade.count >= Self.maxConcurrentCards {
+            guard hasPendingAction else { return }
+            let victim = activeActivitiesByCascade
+                .filter { !$0.value.content.state.hasPendingAction }
+                .min { (activityStartDates[$0.key] ?? .distantPast) < (activityStartDates[$1.key] ?? .distantPast) }?.key
+            guard let victim else { return }
+            endActivity(for: victim, finalStatus: "COMPLETED", dismissalPolicy: .immediate)
+        }
+
         // Guard against re-entrant duplicate requests for the same cascade
         guard !startingCascadeIds.contains(cascadeId) else { return }
         startingCascadeIds.insert(cascadeId)
@@ -525,7 +537,8 @@ public final class ActivityManager {
             }
         }
 
-        // 2. Ensure working sessions have 1 dedicated Live Activity when app is in foreground
+        // 2. Rank working sessions (needs-action first, then most recent) and keep only the top N cards
+        var working: [ConversationItem] = []
         for item in conversations {
             let isWorking = item.status.isRunning || item.status.needsAction || item.hasRunningSubagents
             if !isWorking {
@@ -533,6 +546,28 @@ public final class ActivityManager {
                 continue
             }
             guard !item.isSubagent, !item.isDraft else { continue }
+            working.append(item)
+        }
+        working.sort {
+            if $0.status.needsAction != $1.status.needsAction { return $0.status.needsAction }
+            return ($0.lastModified ?? .distantPast) > ($1.lastModified ?? .distantPast)
+        }
+        let allowed = Set(working.prefix(Self.maxConcurrentCards).map { $0.id })
+        if !conversations.isEmpty {
+            for cid in Array(activeActivitiesByCascade.keys) where !allowed.contains(cid) {
+                if let item = convById[cid], !(item.status.isRunning || item.status.needsAction || item.hasRunningSubagents) {
+                    continue // finished sessions are handled above
+                }
+                if let startedAt = activityStartDates[cid],
+                   now.timeIntervalSince(startedAt) < Self.optimisticStartGraceSeconds, convById[cid] == nil {
+                    continue
+                }
+                endActivity(for: cid, finalStatus: "COMPLETED", dismissalPolicy: .immediate)
+            }
+        }
+
+        // 3. Ensure the allowed working sessions have 1 dedicated Live Activity when app is in foreground
+        for item in working.prefix(Self.maxConcurrentCards) {
             guard UIApplication.shared.applicationState == .active else { continue }
             guard !locallyDismissedCascadeIds.contains(item.id) else { continue }
             if findActiveActivity(for: item.id) == nil {
