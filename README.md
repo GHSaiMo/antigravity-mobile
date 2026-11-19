@@ -6,6 +6,7 @@
 > *代码仓库保持为 `antigravity-mobile`，产品对外正式品牌命名为 **Multigravity**，全局命令行工具为 **`mgy`**。*
 
 [![Release](https://img.shields.io/github/v/release/GHSaiMo/antigravity-mobile?color=blue&style=flat-square&logo=github)](https://github.com/GHSaiMo/antigravity-mobile/releases/latest)
+[![App Store](https://img.shields.io/badge/App%20Store-iOS%20Official-0D96F6?style=flat-square&logo=apple&logoColor=white)](https://apps.apple.com/app/id6835508934)
 [![Android](https://img.shields.io/badge/Android-APK%20Direct%20Install-3DDC84?style=flat-square&logo=android&logoColor=white)](https://github.com/GHSaiMo/antigravity-mobile/releases/latest)
 [![Linux](https://img.shields.io/badge/Linux-x86__64%20%7C%20NAS-FCC624?style=flat-square&logo=linux&logoColor=black)](https://github.com/GHSaiMo/antigravity-mobile/releases/latest)
 [![macOS](https://img.shields.io/badge/macOS-Apple%20Silicon%20%2B%20Intel-000000?style=flat-square&logo=apple&logoColor=white)](https://github.com/GHSaiMo/antigravity-mobile/releases/latest)
@@ -20,8 +21,10 @@
 </p>
 
 <p align="center">
-  🌐 <b>官网</b>：<a href="https://mgy.jiuge.space">mgy.jiuge.space</a> &nbsp;·&nbsp; 📦 <a href="https://github.com/GHSaiMo/antigravity-mobile/releases/latest">最新版 v1.1.8</a>
+  🌐 <b>官网</b>：<a href="https://mgy.jiuge.space">mgy.jiuge.space</a> &nbsp;·&nbsp; 🍎 <b>App Store</b>：<a href="https://apps.apple.com/app/id6835508934">iOS 正式版下载</a> &nbsp;·&nbsp; 📦 <a href="https://github.com/GHSaiMo/antigravity-mobile/releases/latest">最新版 v1.2.0</a>
 </p>
+
+> 🎉 **iOS 版现已正式上架 Apple App Store！** 无需本地编译签名，直接前往 **[App Store 下载 Multigravity](https://apps.apple.com/app/id6835508934)** 即可在 iPhone / iPad 一键安装。
 
 https://github.com/user-attachments/assets/37360cde-3875-45bf-947e-7774e800094c
 
@@ -58,8 +61,8 @@ irm https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/scripts/in
 </details>
 
 ### 2. 安装或打开移动端
-- **Android**：前往 [GitHub Releases](https://github.com/GHSaiMo/antigravity-mobile/releases/latest) 直接下载安装 `Multigravity-v1.1.8.apk`（支持覆盖升级，请仅从官方 Releases 下载）。
-- **iOS**：参考 [iOS 本地构建与真机调试指南](docs/ios_build_guide.md) 编译安装。
+- **iOS**：🎉 现已正式上架 Apple App Store，直接前往 **[App Store 下载 Multigravity](https://apps.apple.com/app/id6835508934)** 一键安装（如需自行源码编译调试，仍可参考 [iOS 本地构建与真机调试指南](docs/ios_build_guide.md)）。
+- **Android**：前往 [GitHub Releases](https://github.com/GHSaiMo/antigravity-mobile/releases/latest) 直接下载安装 `Multigravity-v1.2.0.apk`（支持覆盖升级，请仅从官方 Releases 下载）。
 - **PWA / Web**：无需安装 App，手机浏览器直接访问网关地址（或 `/?view=pwa`）即可添加到主屏幕。
 
 ### 3. 启动并扫码配对
@@ -87,7 +90,7 @@ mgy
   </tr>
 </table>
 
-> 以上截图来自客户端内置**演示模式**（v1.1.8 最新中文界面），未配对时即可直接体验。
+> 以上截图来自客户端内置**演示模式**（v1.2.0 最新中文界面），未配对时即可直接体验。
 
 ---
 
@@ -122,7 +125,7 @@ mgy
 
 ### 7. 零配置公网穿透、智能选路与安全推送
 - **多通道并发测速选路**：同时管理 Cloudflare Tunnel 专属 HTTPS 域名、局域网 Wi-Fi 与 Tailscale，一键并发探活并自动切换最低延迟链路。
-- **分级消息通知**：支持 iOS Bark（带 DeepLink 直达会话）与 FCM 推送，在任务完成、等待审批、工作流节点及低额度预警时即时唤醒。
+- **分级消息通知与灵动岛**：iOS 原生支持 **APNs 推送与远程 Live Activity 灵动岛状态更新**（经无状态 Cloudflare Relay 转发，同时兼容 Bark）；Android 支持 `dataSync` 前台保活同步与 FCM 推送，在任务完成、等待审批、工作流节点及低额度预警时即时唤醒。
 - **本地优先安全架构**：纯本地直连，无第三方云端中转；设备凭据存入系统 Keychain / EncryptedSharedPreferences，集成敏感路径黑名单与 WS 限流防刷。
 
 ---
