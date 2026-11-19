@@ -637,7 +637,6 @@ extension SettingsSheet {
 // MARK: - 隐私政策与开源许可
 
 private struct PrivacyPolicySheet: View {
-    @Environment(\.dismiss) private var dismiss
     let onOpenWeb: (URL) -> Void
 
     var body: some View {
@@ -689,18 +688,12 @@ private struct PrivacyPolicySheet: View {
             }
             .navigationTitle("隐私政策")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("完成") { dismiss() }
-                }
-            }
         }
+        .presentationDragIndicator(.visible)
     }
 }
 
 private struct OpenSourceLicensesSheet: View {
-    @Environment(\.dismiss) private var dismiss
-
     private let items: [(name: String, license: String, summary: String)] = [
         ("Multigravity", "MIT License", "Copyright (c) 2026 Multigravity Contributors"),
         ("ZLPhotoBrowser", "MIT License", "Lightweight iOS photo picker framework used for attachment selection."),
@@ -734,11 +727,7 @@ private struct OpenSourceLicensesSheet: View {
             }
             .navigationTitle("开源许可")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("完成") { dismiss() }
-                }
-            }
         }
+        .presentationDragIndicator(.visible)
     }
 }

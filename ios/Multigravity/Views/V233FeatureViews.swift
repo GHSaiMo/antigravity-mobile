@@ -315,11 +315,6 @@ public struct GitHubPRDetailSheet: View {
             }
             .navigationTitle("GitHub Pull Request")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("关闭") { dismiss() }
-                }
-            }
             .task {
                 isLoading = true
                 defer { isLoading = false }
@@ -603,11 +598,6 @@ public struct BtwSideQuestionSheet: View {
             }
             .navigationTitle("/btw 旁路快问")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("关闭") { dismiss() }
-                }
-            }
             .onAppear {
                 if let q = initialQuote, !q.isEmpty {
                     quoteText = q

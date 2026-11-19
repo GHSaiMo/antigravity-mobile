@@ -685,15 +685,8 @@ public struct McpSkillsSheet: View {
             }
             .navigationTitle("技能详情")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("关闭") {
-                        viewingSkill = nil
-                    }
-                    .font(.system(size: 15, weight: .medium))
-                }
-            }
         }
+        .presentationDragIndicator(.visible)
     }
     
     // MARK: - Plugins Section

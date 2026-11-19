@@ -97,13 +97,6 @@ public struct TextSelectionSheet: View {
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("完成") {
-                        dismiss()
-                    }
-                    .font(.system(size: 16, weight: .medium))
-                }
-                
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     Button {
                         withAnimation(.easeInOut(duration: 0.15)) {

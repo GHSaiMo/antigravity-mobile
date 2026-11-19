@@ -296,15 +296,9 @@ public struct SubagentDetailSheet: View {
             }
             .navigationTitle("子代理详情")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("关闭") {
-                        dismiss()
-                    }
-                }
-            }
         }
         .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
         .task {
             if isBrowserSubagent && !subagent.conversationId.isEmpty {
                 await loadBrowserSnapshot()

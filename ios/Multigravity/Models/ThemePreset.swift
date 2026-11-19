@@ -425,7 +425,6 @@ public struct ThemeSwatchPillView: View {
 public struct ShareCardSkinPickerSheet: View {
     public let selectedPreset: ThemePreset
     public let onSelect: (ThemePreset) -> Void
-    @Environment(\.dismiss) private var dismiss
 
     public init(selectedPreset: ThemePreset, onSelect: @escaping (ThemePreset) -> Void) {
         self.selectedPreset = selectedPreset
@@ -448,12 +447,8 @@ public struct ShareCardSkinPickerSheet: View {
             }
             .navigationTitle("选择长图皮肤")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("完成") { dismiss() }
-                }
-            }
         }
+        .presentationDragIndicator(.visible)
     }
 
     private func skinRow(_ preset: ThemePreset) -> some View {
