@@ -105,7 +105,20 @@ nonisolated public struct AgentActivityAttributes: ActivityAttributes, Sendable 
             self.hasPendingAction = try container.decodeIfPresent(Bool.self, forKey: .hasPendingAction) ?? false
             self.pendingStepIndex = try container.decodeIfPresent(Int.self, forKey: .pendingStepIndex)
             self.pendingActionKind = try container.decodeIfPresent(String.self, forKey: .pendingActionKind)
-            self.lastUpdated = try container.decodeIfPresent(Date.self, forKey: .lastUpdated) ?? Date()
+            // ActivityKit decodes APNs content-state using default JSONDecoder (.deferredToDate = seconds since 2001).
+            // Accept both Unix epoch seconds (1970, > 1_000_000_000) sent by the Go gateway and Apple ReferenceDate values.
+            if let numericTs = try? container.decodeIfPresent(Double.self, forKey: .lastUpdated) {
+                if numericTs > 1_000_000_000 {
+                    self.lastUpdated = Date(timeIntervalSince1970: numericTs)
+                } else {
+                    self.lastUpdated = Date(timeIntervalSinceReferenceDate: numericTs)
+                }
+            } else if let isoStr = try? container.decodeIfPresent(String.self, forKey: .lastUpdated),
+                      let parsed = ISO8601DateFormatter().date(from: isoStr) {
+                self.lastUpdated = parsed
+            } else {
+                self.lastUpdated = Date()
+            }
         }
     }
     

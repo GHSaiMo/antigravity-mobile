@@ -260,16 +260,38 @@ func runGatewayServer(args []string) {
 		}
 	}()
 
-	var notif *notifier.Notifier
+	notif := notifier.NewNotifier(notifCfg)
+	if notifCfg.APNSEnabled {
+		pushStore, storeErr := notifier.NewPushDeviceStore(notifCfg.PushStorePath)
+		if storeErr != nil {
+			slog.Warn("⚠️  初始化 APNs 设备推送存储失败", "err", storeErr)
+		} else {
+			apnsClient := notifier.NewAPNsRelayClient(notifCfg.APNSRelayURL, pushStore)
+			notif.AttachAPNsClient(apnsClient, notifCfg.LiveActivityPushEnabled)
+			authStore.SetOnDeviceRemoved(func(deviceID string) {
+				pushStore.RemoveDevice(deviceID)
+			})
+			authStore.SetOnClearAll(func() {
+				pushStore.ClearAll()
+			})
+		}
+	}
+
 	var pushSummary string
-	if notifCfg.Enabled {
-		notif = notifier.NewNotifier(notifCfg)
+	if notif.IsEnabled() || notif.CanActivateDynamically() {
 		p.SetNotificationSink(notif)
 
 		watcher := notifier.NewWatcher(p, notif)
 		watcher.Start(watcherCtx)
 
 		var pushes []string
+		if apns := notif.APNsClient(); apns != nil {
+			if cnt := apns.Store().ActiveDeviceCount(); cnt > 0 {
+				pushes = append(pushes, fmt.Sprintf("APNs 原生 (%d 台 iOS)", cnt))
+			} else {
+				pushes = append(pushes, "APNs 原生 (等待 iOS 设备注册)")
+			}
+		}
 		if notifCfg.BarkEndpoint != "" {
 			pushes = append(pushes, "Bark (iOS)")
 		}
@@ -277,11 +299,11 @@ func runGatewayServer(args []string) {
 			pushes = append(pushes, "FCM (Android)")
 		}
 		if len(pushes) > 0 {
-			pushSummary = strings.Join(pushes, " + ") + " 已启用"
+			pushSummary = strings.Join(pushes, " + ")
 		}
 	}
 	if pushSummary == "" {
-		pushSummary = "未配置 (支持 Bark / FCM)"
+		pushSummary = "未配置 (支持 APNs / Bark / FCM)"
 	}
 
 	// 5. Web frontend handler
@@ -727,18 +749,27 @@ func buildRouter(
 	rootMux.HandleFunc("/api/v1/devices/", authHandler.HandleDevices)
 	rootMux.HandleFunc("/api/v1/devices", authHandler.HandleDevices)
 
-	// Mobile push token registration endpoint (for Android FCM and other clients)
+	// Mobile push token registration endpoint (supports iOS APNs Alert/LiveActivity & Android FCM)
 	rootMux.HandleFunc("POST /api/v1/device/push-token", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
-			Platform    string `json:"platform"`
-			Token       string `json:"token"`
-			FCMToken    string `json:"fcm_token"`
-			DeviceToken string `json:"device_token"`
+			Platform              string `json:"platform"`
+			TokenType             string `json:"token_type"` // "alert" | "live_activity_start" | "live_activity_update" | "preferences"
+			Token                 string `json:"token"`
+			FCMToken              string `json:"fcm_token"`
+			DeviceToken           string `json:"device_token"`
+			APNSEnv               string `json:"apns_env"` // "production" | "sandbox"
+			CascadeID             string `json:"cascade_id"`
+			DeviceID              string `json:"device_id"`
+			NotificationsEnabled  *bool  `json:"notifications_enabled"`
+			LiveActivitiesEnabled *bool  `json:"live_activities_enabled"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
 			return
 		}
+
+		platform := strings.ToLower(strings.TrimSpace(req.Platform))
+		tokenType := strings.ToLower(strings.TrimSpace(req.TokenType))
 		pushToken := strings.TrimSpace(req.Token)
 		if pushToken == "" {
 			pushToken = strings.TrimSpace(req.FCMToken)
@@ -746,6 +777,58 @@ func buildRouter(
 		if pushToken == "" {
 			pushToken = strings.TrimSpace(req.DeviceToken)
 		}
+
+		// iOS APNs native push & Live Activity registration path
+		if platform == "ios" || tokenType == "alert" || tokenType == "live_activity_start" || tokenType == "live_activity_update" || tokenType == "preferences" {
+			deviceID := strings.TrimSpace(req.DeviceID)
+			if dev, ok := auth.DeviceFromContext(r.Context()); ok && dev != nil && dev.DeviceID != "" {
+				deviceID = dev.DeviceID
+			}
+			if deviceID == "" {
+				deviceID = "ios-default"
+			}
+
+			sink, _ := p.NotificationSink().(*notifier.Notifier)
+			if sink == nil || sink.APNsClient() == nil {
+				writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "apns relay is disabled on gateway"})
+				return
+			}
+			store := sink.APNsClient().Store()
+			if tokenType == "" {
+				tokenType = "alert"
+			}
+
+			var err error
+			switch tokenType {
+			case "alert":
+				err = store.UpsertAlertToken(deviceID, "ios", pushToken, req.APNSEnv, req.NotificationsEnabled, req.LiveActivitiesEnabled)
+			case "live_activity_start":
+				err = store.UpsertLiveActivityStartToken(deviceID, "ios", pushToken, req.APNSEnv, req.LiveActivitiesEnabled)
+			case "live_activity_update":
+				err = store.UpsertLiveActivityToken(deviceID, "ios", req.CascadeID, pushToken, req.APNSEnv)
+			case "preferences":
+				err = store.UpdatePreferences(deviceID, req.NotificationsEnabled, req.LiveActivitiesEnabled)
+			default:
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "unsupported token_type"})
+				return
+			}
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+				return
+			}
+
+			slog.Info(fmt.Sprintf("[PushToken] 📱 Registered iOS %s token (%s)", tokenType, config.RedactFCMKey(pushToken)),
+				"device_id", deviceID, "env", req.APNSEnv)
+			writeJSON(w, http.StatusOK, map[string]any{
+				"status":     "ok",
+				"platform":   "ios",
+				"token_type": tokenType,
+				"device_id":  deviceID,
+			})
+			return
+		}
+
+		// Legacy Android FCM registration path
 		if pushToken == "" {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "token is required"})
 			return
@@ -767,6 +850,41 @@ func buildRouter(
 			"status":   "ok",
 			"platform": req.Platform,
 			"message":  "push token registered successfully",
+		})
+	})
+
+	// Mobile push token removal endpoint (called when unpairing or disabling notifications/Live Activities)
+	rootMux.HandleFunc("DELETE /api/v1/device/push-token", func(w http.ResponseWriter, r *http.Request) {
+		deviceID := strings.TrimSpace(r.URL.Query().Get("device_id"))
+		if dev, ok := auth.DeviceFromContext(r.Context()); ok && dev != nil && dev.DeviceID != "" {
+			deviceID = dev.DeviceID
+		}
+		if deviceID == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "device_id is required"})
+			return
+		}
+		tokenType := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("token_type")))
+		cascadeID := strings.TrimSpace(r.URL.Query().Get("cascade_id"))
+
+		if sink, ok := p.NotificationSink().(*notifier.Notifier); ok && sink != nil && sink.APNsClient() != nil {
+			store := sink.APNsClient().Store()
+			switch tokenType {
+			case "live_activity_update":
+				if cascadeID != "" {
+					store.RemoveLiveActivityToken(deviceID, cascadeID)
+				}
+			case "alert":
+				store.ClearAlertToken(deviceID, "")
+			case "live_activity_start":
+				store.ClearLiveActivityStartToken(deviceID, "")
+			default:
+				store.RemoveDevice(deviceID)
+			}
+		}
+
+		writeJSON(w, http.StatusOK, map[string]string{
+			"status":    "ok",
+			"device_id": deviceID,
 		})
 	})
 

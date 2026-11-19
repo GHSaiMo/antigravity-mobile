@@ -6,9 +6,63 @@ public final class ActivityManager {
     public static let shared = ActivityManager()
     
     private var _currentActivity: Activity<AgentActivityAttributes>?
+    private var observersStarted = false
+    private var pushToStartTask: Task<Void, Never>?
+    private var activityUpdatesTask: Task<Void, Never>?
+    private var activityTokenTasks: [String: Task<Void, Never>] = [:]
     
     public init() {
         deduplicateActivities()
+    }
+
+    /// Starts observing ActivityKit push-to-start tokens and active Live Activity update tokens
+    /// so the local gateway can remotely launch, update, and end Dynamic Island sessions via APNs.
+    public func startRemoteTokenObservers() {
+        guard !observersStarted else { return }
+        observersStarted = true
+
+        // 1. Observe Push-to-Start token (allows gateway to launch Live Activity even when app is closed)
+        pushToStartTask = Task {
+            for await tokenData in Activity<AgentActivityAttributes>.pushToStartTokenUpdates {
+                let hex = tokenData.map { String(format: "%02x", $0) }.joined()
+                PushNotificationManager.shared.updateLiveActivityStartToken(hex)
+            }
+        }
+
+        // 2. Attach push token observers to any already-active activities on launch
+        for existing in Activity<AgentActivityAttributes>.activities where existing.activityState == .active {
+            observePushToken(for: existing)
+        }
+
+        // 3. Observe newly created activities (including ones launched remotely via Push-to-Start!)
+        activityUpdatesTask = Task {
+            for await activity in Activity<AgentActivityAttributes>.activityUpdates {
+                if activity.activityState == .active {
+                    self._currentActivity = activity
+                    self.observePushToken(for: activity)
+                }
+            }
+        }
+    }
+
+    private func observePushToken(for activity: Activity<AgentActivityAttributes>) {
+        let activityId = activity.id
+        let cascadeId = activity.attributes.cascadeId
+        guard activityTokenTasks[activityId] == nil else { return }
+
+        // Report current pushToken immediately if already populated
+        if let existingToken = activity.pushToken {
+            let hex = existingToken.map { String(format: "%02x", $0) }.joined()
+            PushNotificationManager.shared.updateLiveActivityToken(cascadeId: cascadeId, tokenHex: hex)
+        }
+
+        activityTokenTasks[activityId] = Task { [weak self] in
+            for await tokenData in activity.pushTokenUpdates {
+                let hex = tokenData.map { String(format: "%02x", $0) }.joined()
+                PushNotificationManager.shared.updateLiveActivityToken(cascadeId: cascadeId, tokenHex: hex)
+            }
+            self?.activityTokenTasks.removeValue(forKey: activityId)
+        }
     }
     
     public var isLiveActivityEnabled: Bool {
@@ -129,9 +183,11 @@ public final class ActivityManager {
         do {
             let activity = try Activity.request(
                 attributes: attributes,
-                content: .init(state: initialContentState, staleDate: nil)
+                content: .init(state: initialContentState, staleDate: nil),
+                pushType: .token
             )
             self._currentActivity = activity
+            observePushToken(for: activity)
             cleanUpOrphanedActivities(keepingId: activity.id)
         } catch {
             print("[LiveActivity] Failed to start: \(error)")
@@ -235,6 +291,10 @@ public final class ActivityManager {
         self._currentActivity = nil
         
         for activity in activeActivities {
+            activityTokenTasks[activity.id]?.cancel()
+            activityTokenTasks.removeValue(forKey: activity.id)
+            PushNotificationManager.shared.clearLiveActivityToken(cascadeId: activity.attributes.cascadeId)
+
             let finalTitle = !activity.content.state.conversationTitle.isEmpty ? activity.content.state.conversationTitle : activity.attributes.conversationTitle
             let finalState = AgentActivityAttributes.ContentState(
                 conversationTitle: finalTitle,

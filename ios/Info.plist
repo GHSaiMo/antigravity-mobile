@@ -75,6 +75,8 @@
 	<string>Multigravity accesses your Photo Library so you can attach and send images in conversations.</string>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
+	<key>NSSupportsLiveActivitiesFrequentUpdates</key>
+	<true/>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>

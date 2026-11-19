@@ -17,12 +17,14 @@ type NotificationSender interface {
 	Send(ctx context.Context, payload BarkPayload) error
 }
 
-// Notifier dispatches alerts to push notification channels (Bark, FCM, Webhook, etc.)
+// Notifier dispatches alerts to push notification channels (APNs, Bark, FCM, Webhook, etc.)
 type Notifier struct {
-	mu      sync.RWMutex
-	cfg     config.NotificationConfig
-	senders []NotificationSender
-	dedup   *DedupCache
+	mu           sync.RWMutex
+	cfg          config.NotificationConfig
+	senders      []NotificationSender
+	apns         *APNsRelayClient
+	liveActivity *LiveActivityDispatcher
+	dedup        *DedupCache
 }
 
 // NewNotifier creates an initialized Notifier instance with Bark and/or FCM clients.
@@ -90,24 +92,81 @@ func (n *Notifier) UpdateFCMDeviceToken(token string) {
 	fcmCfg := n.cfg
 	fcmCfg.FCMDeviceToken = token
 	fcmCfg.FCMEnabled = true
+	n.cfg.Enabled = true
 	n.senders = append(n.senders, NewFCMClient(fcmCfg))
 }
 
-// IsEnabled reports whether notifications are actively configured and ready to send.
-func (n *Notifier) IsEnabled() bool {
-	if n == nil || !n.cfg.Enabled {
+// AttachAPNsClient attaches an APNs relay client (and Live Activity dispatcher) for native iOS push delivery.
+func (n *Notifier) AttachAPNsClient(client *APNsRelayClient, liveActivityEnabled bool) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.apns = client
+	if client != nil {
+		n.liveActivity = NewLiveActivityDispatcher(client, liveActivityEnabled)
+	} else {
+		n.liveActivity = nil
+	}
+}
+
+// APNsClient returns the attached APNs relay client, if any.
+func (n *Notifier) APNsClient() *APNsRelayClient {
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+	return n.apns
+}
+
+// LiveActivity returns the Live Activity dispatcher, if any.
+func (n *Notifier) LiveActivity() *LiveActivityDispatcher {
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+	return n.liveActivity
+}
+
+// HasLiveActivityTargets reports whether at least one iOS device is subscribed to Live Activity pushes.
+func (n *Notifier) HasLiveActivityTargets() bool {
+	if n == nil {
+		return false
+	}
+	n.mu.RLock()
+	la := n.liveActivity
+	n.mu.RUnlock()
+	return la != nil && la.IsActive()
+}
+
+// CanActivateDynamically reports whether this Notifier can receive device push registrations at runtime
+// (e.g. APNs iOS clients pairing after gateway startup).
+func (n *Notifier) CanActivateDynamically() bool {
+	if n == nil {
 		return false
 	}
 	n.mu.RLock()
 	defer n.mu.RUnlock()
-	return len(n.senders) > 0
+	return n.apns != nil
+}
+
+// IsEnabled reports whether notifications are actively configured and ready to send.
+func (n *Notifier) IsEnabled() bool {
+	if n == nil {
+		return false
+	}
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+	if n.cfg.Enabled && len(n.senders) > 0 {
+		return true
+	}
+	return n.apns != nil && n.apns.HasAlertTargets()
 }
 
 // sendToAll dispatches payload to all active notification senders in parallel.
 func (n *Notifier) sendToAll(ctx context.Context, payload BarkPayload) error {
 	n.mu.RLock()
-	senders := make([]NotificationSender, len(n.senders))
-	copy(senders, n.senders)
+	senders := make([]NotificationSender, 0, len(n.senders)+1)
+	if n.cfg.Enabled {
+		senders = append(senders, n.senders...)
+	}
+	if n.apns != nil && n.apns.HasAlertTargets() {
+		senders = append(senders, n.apns)
+	}
 	n.mu.RUnlock()
 
 	if len(senders) == 0 {
@@ -199,14 +258,15 @@ func (n *Notifier) NotifyAction(cascadeID, title string, pi *proxy.PendingIntera
 	}
 
 	payload := BarkPayload{
-		Title:    notifTitle,
-		Body:     notifBody,
-		Icon:     n.cfg.IconURL,
-		Group:    n.cfg.Group,
-		URL:      fmt.Sprintf("antigravity://cascade/%s?action=review", cascadeID),
-		Level:    "timeSensitive",
-		Sound:    n.cfg.SoundAction,
-		Category: "antigravity_action",
+		Title:     notifTitle,
+		Body:      notifBody,
+		Icon:      n.cfg.IconURL,
+		Group:     n.cfg.Group,
+		URL:       fmt.Sprintf("antigravity://cascade/%s?action=review", cascadeID),
+		Level:     "timeSensitive",
+		Sound:     n.cfg.SoundAction,
+		Category:  "antigravity_action",
+		CascadeID: cascadeID,
 	}
 
 	if err := n.sendToAll(context.Background(), payload); err != nil {
@@ -235,14 +295,15 @@ func (n *Notifier) NotifyProceed(cascadeID, title string, totalSteps int) error 
 	notifBody := fmt.Sprintf(MsgBodyProceed, displayTitle)
 
 	payload := BarkPayload{
-		Title:    notifTitle,
-		Body:     notifBody,
-		Icon:     n.cfg.IconURL,
-		Group:    n.cfg.Group,
-		URL:      fmt.Sprintf("antigravity://cascade/%s", cascadeID),
-		Level:    "timeSensitive",
-		Sound:    n.cfg.SoundAction,
-		Category: "antigravity_proceed",
+		Title:     notifTitle,
+		Body:      notifBody,
+		Icon:      n.cfg.IconURL,
+		Group:     n.cfg.Group,
+		URL:       fmt.Sprintf("antigravity://cascade/%s", cascadeID),
+		Level:     "timeSensitive",
+		Sound:     n.cfg.SoundAction,
+		Category:  "antigravity_proceed",
+		CascadeID: cascadeID,
 	}
 
 	if err := n.sendToAll(context.Background(), payload); err != nil {
@@ -271,14 +332,15 @@ func (n *Notifier) NotifyCompleted(cascadeID, title string, totalSteps int) erro
 	notifBody := fmt.Sprintf(MsgBodyCompleted, displayTitle, totalSteps)
 
 	payload := BarkPayload{
-		Title:    notifTitle,
-		Body:     notifBody,
-		Icon:     n.cfg.IconURL,
-		Group:    n.cfg.Group,
-		URL:      fmt.Sprintf("antigravity://cascade/%s", cascadeID),
-		Level:    "active",
-		Sound:    n.cfg.SoundComplete,
-		Category: "antigravity_complete",
+		Title:     notifTitle,
+		Body:      notifBody,
+		Icon:      n.cfg.IconURL,
+		Group:     n.cfg.Group,
+		URL:       fmt.Sprintf("antigravity://cascade/%s", cascadeID),
+		Level:     "active",
+		Sound:     n.cfg.SoundComplete,
+		Category:  "antigravity_complete",
+		CascadeID: cascadeID,
 	}
 
 	if err := n.sendToAll(context.Background(), payload); err != nil {
@@ -307,14 +369,15 @@ func (n *Notifier) NotifyFailed(cascadeID, title string, totalSteps int) error {
 	notifBody := fmt.Sprintf(MsgBodyFailed, displayTitle)
 
 	payload := BarkPayload{
-		Title:    notifTitle,
-		Body:     notifBody,
-		Icon:     n.cfg.IconURL,
-		Group:    n.cfg.Group,
-		URL:      fmt.Sprintf("antigravity://cascade/%s", cascadeID),
-		Level:    "timeSensitive",
-		Sound:    "failure",
-		Category: "antigravity_error",
+		Title:     notifTitle,
+		Body:      notifBody,
+		Icon:      n.cfg.IconURL,
+		Group:     n.cfg.Group,
+		URL:       fmt.Sprintf("antigravity://cascade/%s", cascadeID),
+		Level:     "timeSensitive",
+		Sound:     "failure",
+		Category:  "antigravity_error",
+		CascadeID: cascadeID,
 	}
 
 	if err := n.sendToAll(context.Background(), payload); err != nil {
@@ -396,7 +459,19 @@ func (n *Notifier) NotifyQuotaAlert(key, title, body string, critical bool) erro
 // OnTrajectoryUpdate handles a real-time trajectory snapshot from WebSocket or polling asynchronously
 // to prevent blocking streaming connections if the push server experiences latency.
 func (n *Notifier) OnTrajectoryUpdate(details *proxy.TrajectoryDetails) {
-	if !n.IsEnabled() || details == nil || details.CascadeID == "" {
+	if details == nil || details.CascadeID == "" {
+		return
+	}
+
+	// Sync Live Activity state asynchronously whenever the cascade is actively running or awaiting interaction.
+	if n.HasLiveActivityTargets() && details.Status == "CASCADE_RUN_STATUS_RUNNING" {
+		snap := *details
+		if la := n.LiveActivity(); la != nil {
+			go la.SyncFromDetails(context.Background(), &snap)
+		}
+	}
+
+	if !n.IsEnabled() {
 		return
 	}
 

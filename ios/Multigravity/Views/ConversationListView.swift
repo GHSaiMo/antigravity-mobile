@@ -223,7 +223,14 @@ public struct ConversationListView: View {
                 Task {
                     await CacheManager.shared.fetchAndCacheMcpAndSkills()
                 }
+                PushNotificationManager.shared.syncAllTokensIfPaired()
             }
+            if let pendingId = PushNotificationManager.shared.consumePendingCascadeId() {
+                openConversationById(pendingId)
+            }
+        }
+        .onChange(of: navigationPath) { _, newPath in
+            PushNotificationManager.shared.activeViewingCascadeId = newPath.last?.id
         }
         .onDisappear {
             viewModel.stopAutoRefresh()
@@ -848,6 +855,7 @@ public struct ConversationListView: View {
     private func handleAppDidBecomeActive() {
         if AppSettings.shared.isPaired {
             viewModel.startAutoRefresh()
+            PushNotificationManager.shared.syncAllTokensIfPaired()
             Task {
                 await viewModel.resumeActive()
                 await ProjectCacheManager.shared.fetchAndCacheProjects()

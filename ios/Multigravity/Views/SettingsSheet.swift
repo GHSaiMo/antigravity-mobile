@@ -1,9 +1,13 @@
+import ActivityKit
 import SwiftUI
+import UIKit
+import UserNotifications
 
 public struct SettingsSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var settings = AppSettings.shared
     @State private var connectionManager = ConnectionManager.shared
+    @State private var pushManager = PushNotificationManager.shared
     @State private var showClearCacheAlert: Bool = false
     @State private var showUnpairAlert: Bool = false
     @State private var lanAddress: String = ""
@@ -166,14 +170,68 @@ public struct SettingsSheet: View {
                         }
                 }
                 
-                // MARK: - 4b. 灵动岛与实时活动
+                // MARK: - 4b. 通知与实时活动
                 Section(
-                    header: Text("实时活动"),
-                    footer: Text("在灵动岛和锁屏上显示任务进展及后台命令。")
+                    header: Text("通知与实时活动"),
+                    footer: Text("在锁屏、通知中心与灵动岛实时接收审批请求、任务进展与完成提醒。")
                 ) {
-                    Toggle("灵动岛与实时活动", isOn: $settings.enableLiveActivities)
-                        .onChange(of: settings.enableLiveActivities) { _, _ in
+                    if settings.isDemoMode {
+                        HStack {
+                            Text("推送通知")
+                            Spacer()
+                            Text("配对网关后可用")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                        }
+                    } else if pushManager.authorizationStatus == .denied {
+                        Button {
+                            if let url = URL(string: UIApplication.openSettingsURLString) {
+                                UIApplication.shared.open(url)
+                            }
+                        } label: {
+                            HStack {
+                                Text("推送通知")
+                                    .foregroundColor(.primary)
+                                Spacer()
+                                Text("前往系统设置开启")
+                                    .font(.subheadline)
+                                    .foregroundColor(.indigo)
+                            }
+                        }
+                    } else if pushManager.authorizationStatus == .notDetermined {
+                        Button {
                             UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            Task {
+                                _ = await pushManager.requestAuthorizationAndRegister()
+                            }
+                        } label: {
+                            HStack {
+                                Text("开启推送通知")
+                                Spacer()
+                                Text("未开启")
+                                    .font(.subheadline)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                    } else {
+                        Toggle("推送通知", isOn: $settings.enablePushNotifications)
+                            .onChange(of: settings.enablePushNotifications) { _, enabled in
+                                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                if enabled {
+                                    pushManager.syncAllTokensIfPaired(force: true)
+                                } else {
+                                    pushManager.syncPreferencesWithGateway()
+                                }
+                            }
+                    }
+
+                    Toggle("灵动岛与实时活动", isOn: $settings.enableLiveActivities)
+                        .onChange(of: settings.enableLiveActivities) { _, enabled in
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            if !enabled {
+                                ActivityManager.shared.endActivity(finalStatus: "CANCELLED", dismissalPolicy: .immediate)
+                            }
+                            pushManager.syncPreferencesWithGateway()
                         }
                 }
                 
@@ -306,7 +364,13 @@ public struct SettingsSheet: View {
             probeTask?.cancel()
         }
         .task {
+            await pushManager.refreshAuthorizationStatus()
             await connectionManager.probeEndpoints()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+            Task {
+                await pushManager.refreshAuthorizationStatus()
+            }
         }
         .task {
             if let url = settings.serverURL {
@@ -351,6 +415,11 @@ public struct SettingsSheet: View {
                 let currentDeviceID = settings.deviceID
                 
                 Task {
+                    await PushNotificationManager.shared.unregisterFromGateway(
+                        baseURL: currentURL,
+                        authToken: currentToken,
+                        deviceId: currentDeviceID
+                    )
                     await APIClient.shared.unpair(
                         baseURL: currentURL,
                         candidates: currentCandidates,

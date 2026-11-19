@@ -1,0 +1,11 @@
+name = "mgy-apns-relay"
+main = "worker.js"
+compatibility_date = "2026-10-01"
+
+# 生产环境建议在 Cloudflare 控制台 -> Workers -> Settings -> Domains & Routes
+# 绑定自定义域名: push.jiuge.space
+# 并通过 `wrangler secret put` 或控制台配置以下变量：
+#   - APNS_PRIVATE_KEY (Secret)
+#   - APNS_KEY_ID      (Text)
+#   - APNS_TEAM_ID     (Text)
+#   - APNS_BUNDLE_ID   (Text)

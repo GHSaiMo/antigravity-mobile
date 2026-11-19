@@ -30,6 +30,7 @@ public final class AppSettings {
     private let customServerURLKey = "antigravity.custom_server_url"
     private let activeServerURLKey = "antigravity.active_server_url"
     private let enableLiveActivityKey = "antigravity.enable_live_activity"
+    private let enablePushNotificationsKey = "antigravity.enable_push_notifications"
     private let activeModelKey = "antigravity.active_model"
     private let favoriteModel1Key = "antigravity.favorite_model_1"
     private let favoriteModel2Key = "antigravity.favorite_model_2"
@@ -203,6 +204,12 @@ public final class AppSettings {
     public var enableLiveActivities: Bool {
         didSet {
             UserDefaults.standard.set(enableLiveActivities, forKey: enableLiveActivityKey)
+        }
+    }
+
+    public var enablePushNotifications: Bool {
+        didSet {
+            UserDefaults.standard.set(enablePushNotifications, forKey: enablePushNotificationsKey)
         }
     }
     
@@ -703,6 +710,8 @@ public final class AppSettings {
         }
         self.activeServerURL = savedActive
         self.enableLiveActivities = savedLive
+        let savedPush = UserDefaults.standard.object(forKey: enablePushNotificationsKey) as? Bool ?? true
+        self.enablePushNotifications = savedPush
         
         let legacyGemini = UserDefaults.standard.string(forKey: defaultGeminiModelKey).flatMap { $0.isEmpty ? nil : $0 } ?? ModelDefaultsLogic.fallbackGemini
         let legacyClaude = UserDefaults.standard.string(forKey: defaultClaudeModelKey).flatMap { $0.isEmpty ? nil : $0 } ?? ModelDefaultsLogic.fallbackClaude

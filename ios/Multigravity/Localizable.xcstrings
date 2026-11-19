@@ -4902,7 +4902,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Share as Image"
+            "value": "Share Long Image"
           }
         },
         "zh-Hans": {
@@ -4973,22 +4973,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "分享视频"
-          }
-        }
-      }
-    },
-    "分享长图": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Share Long Image"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "分享长图"
           }
         }
       }
@@ -18751,6 +18735,118 @@
           "stringUnit": {
             "state": "translated",
             "value": "📄"
+          }
+        }
+      }
+    },
+    "通知与实时活动": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notifications & Live Activities"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知与实时活动"
+          }
+        }
+      }
+    },
+    "在锁屏、通知中心与灵动岛实时接收审批请求、任务进展与完成提醒。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Receive real-time approval alerts, task progress, and completion updates on the Lock Screen, Notification Center, and Dynamic Island."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在锁屏、通知中心与灵动岛实时接收审批请求、任务进展与完成提醒。"
+          }
+        }
+      }
+    },
+    "推送通知": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Push Notifications"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "推送通知"
+          }
+        }
+      }
+    },
+    "配对网关后可用": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Available after pairing"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "配对网关后可用"
+          }
+        }
+      }
+    },
+    "前往系统设置开启": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable in Settings"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "前往系统设置开启"
+          }
+        }
+      }
+    },
+    "开启推送通知": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable Push Notifications"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "开启推送通知"
+          }
+        }
+      }
+    },
+    "未开启": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Off"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未开启"
           }
         }
       }

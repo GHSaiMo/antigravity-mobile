@@ -2,6 +2,7 @@ import SwiftUI
 
 @main
 struct MultigravityApp: App {
+    @UIApplicationDelegateAdaptor(MultigravityAppDelegate.self) private var appDelegate
     @State private var settings = AppSettings.shared
 
     init() {
@@ -21,6 +22,8 @@ struct MultigravityApp: App {
                 .preferredColorScheme(settings.colorScheme)
                 .onAppear {
                     settings.applyAppearance()
+                    ActivityManager.shared.startRemoteTokenObservers()
+                    PushNotificationManager.shared.syncAllTokensIfPaired()
                 }
         }
     }

@@ -13,17 +13,19 @@ import (
 	"antigravity-mobile/internal/config"
 )
 
-// BarkPayload represents the JSON body sent to Bark's push notification API.
+// BarkPayload represents the JSON body sent to Bark's push notification API
+// (also used as the unified notification envelope across Bark, FCM, and APNs).
 type BarkPayload struct {
-	Title    string `json:"title"`
-	Body     string `json:"body"`
-	Icon     string `json:"icon,omitempty"`
-	Group    string `json:"group,omitempty"`
-	URL      string `json:"url,omitempty"`
-	Level    string `json:"level,omitempty"` // "active", "timeSensitive", "passive"
-	Sound    string `json:"sound,omitempty"`
-	Badge    int    `json:"badge,omitempty"`
-	Category string `json:"category,omitempty"`
+	Title     string `json:"title"`
+	Body      string `json:"body"`
+	Icon      string `json:"icon,omitempty"`
+	Group     string `json:"group,omitempty"`
+	URL       string `json:"url,omitempty"`
+	Level     string `json:"level,omitempty"` // "active", "timeSensitive", "passive"
+	Sound     string `json:"sound,omitempty"`
+	Badge     int    `json:"badge,omitempty"`
+	Category  string `json:"category,omitempty"`
+	CascadeID string `json:"cascade_id,omitempty"`
 }
 
 // BarkClient handles sending push notifications to a device running Bark.

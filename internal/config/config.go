@@ -12,7 +12,10 @@ import (
 // DefaultAntigravityIcon is the public URL for the Antigravity icon in this repository.
 const DefaultAntigravityIcon = "https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/web/icons/icon-192.png"
 
-// NotificationConfig holds settings for push notifications (Bark / FCM / Webhook).
+// DefaultAPNSRelayURL is the default stateless APNs relay Worker URL for App Store iOS clients.
+const DefaultAPNSRelayURL = "https://push.jiuge.space"
+
+// NotificationConfig holds settings for push notifications (APNs / Bark / FCM / Webhook).
 type NotificationConfig struct {
 	Enabled       bool
 	BarkEndpoint  string // Normalized POST/GET endpoint, e.g. "https://api.day.app/YOUR_DEVICE_KEY"
@@ -21,6 +24,12 @@ type NotificationConfig struct {
 	Group         string
 	SoundAction   string
 	SoundComplete string
+
+	// APNs (iOS Native Push & Live Activity) fields
+	APNSEnabled             bool
+	APNSRelayURL            string // Stateless APNs relay endpoint (defaults to DefaultAPNSRelayURL)
+	LiveActivityPushEnabled bool   // Enable remote Dynamic Island / Live Activity updates via APNs
+	PushStorePath           string // Persisted push token store path (defaults to ~/.multigravity/push_devices.json)
 
 	// FCM (Android Push) fields
 	FCMEnabled     bool
@@ -240,18 +249,46 @@ func GetNotificationConfig() NotificationConfig {
 		soundComplete = "glass"
 	}
 
+	apnsRelayURL := strings.TrimRight(strings.TrimSpace(os.Getenv("APNS_RELAY_URL")), "/")
+	if apnsRelayURL == "" {
+		apnsRelayURL = DefaultAPNSRelayURL
+	}
+	apnsEnabled := true
+	if v := strings.TrimSpace(os.Getenv("APNS_ENABLED")); v != "" {
+		vLower := strings.ToLower(v)
+		apnsEnabled = (vLower == "1" || vLower == "true" || vLower == "yes" || vLower == "on")
+	} else if v := strings.TrimSpace(os.Getenv("APNS_ENABLE")); v != "" {
+		vLower := strings.ToLower(v)
+		apnsEnabled = (vLower == "1" || vLower == "true" || vLower == "yes" || vLower == "on")
+	}
+
+	liveActivityPushEnabled := apnsEnabled
+	if v := strings.TrimSpace(os.Getenv("LIVE_ACTIVITY_PUSH_ENABLED")); v != "" {
+		vLower := strings.ToLower(v)
+		liveActivityPushEnabled = apnsEnabled && (vLower == "1" || vLower == "true" || vLower == "yes" || vLower == "on")
+	}
+
+	pushStorePath := strings.TrimSpace(os.Getenv("MULTIGRAVITY_PUSH_STORE_PATH"))
+	if pushStorePath == "" {
+		pushStorePath = filepath.Join(GetDataDir(), "push_devices.json")
+	}
+
 	return NotificationConfig{
-		Enabled:        enabled,
-		BarkEndpoint:   endpoint,
-		BarkRawURL:     barkRaw,
-		IconURL:        icon,
-		Group:          group,
-		SoundAction:    soundAction,
-		SoundComplete:  soundComplete,
-		FCMEnabled:     fcmEnabled,
-		FCMServerKey:   fcmServerKey,
-		FCMDeviceToken: fcmDeviceToken,
-		FCMEndpoint:    fcmEndpoint,
+		Enabled:                 enabled,
+		BarkEndpoint:            endpoint,
+		BarkRawURL:              barkRaw,
+		IconURL:                 icon,
+		Group:                   group,
+		SoundAction:             soundAction,
+		SoundComplete:           soundComplete,
+		APNSEnabled:             apnsEnabled,
+		APNSRelayURL:            apnsRelayURL,
+		LiveActivityPushEnabled: liveActivityPushEnabled,
+		PushStorePath:           pushStorePath,
+		FCMEnabled:              fcmEnabled,
+		FCMServerKey:            fcmServerKey,
+		FCMDeviceToken:          fcmDeviceToken,
+		FCMEndpoint:             fcmEndpoint,
 	}
 }
 

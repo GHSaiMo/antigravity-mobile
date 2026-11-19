@@ -349,6 +349,14 @@ public final class PairingService: Sendable {
                         active: baseURL,
                         primaryCloud: cloudURL
                     )
+                    ActivityManager.shared.startRemoteTokenObservers()
+                    PushNotificationManager.shared.syncAllTokensIfPaired(force: true)
+                    Task {
+                        await PushNotificationManager.shared.refreshAuthorizationStatus()
+                        if PushNotificationManager.shared.authorizationStatus == .notDetermined {
+                            _ = await PushNotificationManager.shared.requestAuthorizationAndRegister()
+                        }
+                    }
                 }
                 
                 return (decoded.device_id, decoded.device_token)

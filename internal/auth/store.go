@@ -52,6 +52,24 @@ type AuthStore struct {
 
 	// S9: ticket store for short-lived one-time WebSocket / media authorization.
 	wsTickets *WSTicketStore
+
+	// Optional lifecycle hooks (e.g. purging APNs push tokens when a device is unpaired/cleared).
+	onDeviceRemoved func(deviceID string)
+	onClearAll      func()
+}
+
+// SetOnDeviceRemoved registers a callback invoked after RemoveDevice succeeds.
+func (s *AuthStore) SetOnDeviceRemoved(fn func(deviceID string)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.onDeviceRemoved = fn
+}
+
+// SetOnClearAll registers a callback invoked after ClearAll succeeds.
+func (s *AuthStore) SetOnClearAll(fn func()) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.onClearAll = fn
 }
 
 func getTokenSalt() string {
@@ -458,30 +476,40 @@ func (s *AuthStore) ListDevices() []PairedDevice {
 // RemoveDevice removes a device by device_id.
 func (s *AuthStore) RemoveDevice(deviceID string) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	dev, ok := s.devices[deviceID]
 	if !ok {
+		s.mu.Unlock()
 		return fmt.Errorf("device not found: %s", deviceID)
 	}
 
 	delete(s.devices, deviceID)
 	delete(s.tokenMap, dev.TokenHash)
+	err := s.save()
+	cb := s.onDeviceRemoved
+	s.mu.Unlock()
 
-	return s.save()
+	if err == nil && cb != nil {
+		cb(deviceID)
+	}
+	return err
 }
 
 // ClearAll removes all paired devices. Returns the number of removed devices.
 func (s *AuthStore) ClearAll() (int, error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	count := len(s.devices)
 	s.devices = make(map[string]PairedDevice)
 	s.tokenMap = make(map[string]string)
 
-	if err := s.save(); err != nil {
+	err := s.save()
+	cb := s.onClearAll
+	s.mu.Unlock()
+
+	if err != nil {
 		return 0, err
+	}
+	if cb != nil {
+		cb()
 	}
 	return count, nil
 }
