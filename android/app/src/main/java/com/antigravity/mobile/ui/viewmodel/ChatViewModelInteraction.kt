@@ -68,6 +68,8 @@ internal fun ChatViewModel.proceedArtifact() {
     val uri = _uiState.value.proceedArtifactUri ?: "implementation_plan.md"
     val model = _uiState.value.activeModel
 
+    awaitingStartedAtMs = System.currentTimeMillis()
+    hasObservedServerRunningForAwaiting = false
     _uiState.value = _uiState.value.copy(
         canProceed = false,
         proceedArtifactUri = null,
@@ -75,13 +77,25 @@ internal fun ChatViewModel.proceedArtifact() {
         isAwaitingResponse = true,
         isLatestMessageError = false
     )
+    liveActivityManager?.startOrUpdateActivity(
+        title = _uiState.value.title,
+        cascadeId = cascadeId,
+        status = "RUNNING",
+        stepCount = maxOf(1, _uiState.value.stepCount),
+        latestAction = "已确认方案，继续执行中...",
+        isOptimisticStart = true,
+        baselineStepCount = _uiState.value.stepCount
+    )
     saveSessionToCache()
     notifyConversationUpdated()
     ensureWebSocketObserving()
+    ensureRunningFallbackPolling()
 
     viewModelScope.launch {
         val result = apiClient.proceedArtifact(cascadeId, uri, model)
         if (result.isFailure) {
+            awaitingStartedAtMs = 0L
+            hasObservedServerRunningForAwaiting = false
             _uiState.value = _uiState.value.copy(
                 canProceed = true,
                 proceedArtifactUri = uri,
@@ -89,6 +103,7 @@ internal fun ChatViewModel.proceedArtifact() {
                 isAwaitingResponse = false,
                 isLatestMessageError = true
             )
+            liveActivityManager?.endActivity(cascadeId = cascadeId, finalStatus = "FAILED", title = _uiState.value.title)
             saveSessionToCache()
             notifyConversationUpdated()
         } else {

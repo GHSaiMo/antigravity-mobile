@@ -224,8 +224,11 @@ class ChatViewModel(
 
     internal var wsJob: Job? = null
     internal var fetchJob: Job? = null
+    internal var runningFallbackPollJob: Job? = null
     internal var mentionSearchJob: Job? = null
     internal var pendingOptimisticMessageId: String? = null
+    internal var awaitingStartedAtMs: Long = 0L
+    internal var hasObservedServerRunningForAwaiting: Boolean = false
     internal var currentLastModifiedTime: String? = null
     internal val pendingOptimisticQueueItems = mutableListOf<PendingOptimisticQueueItem>()
     internal val deletedQueueTombstones = mutableListOf<QueuedMessageTombstone>()
@@ -441,9 +444,19 @@ class ChatViewModel(
         )
     }
 
+    fun reconnectWebSocketIfDisconnected() {
+        val cid = _uiState.value.cascadeId
+        if (cid.isBlank() || cid.startsWith("local_draft_") || cid.startsWith("draft_")) return
+        if (wsClient.connectionStatus.value != ConnectionStatus.CONNECTED) {
+            wsClient.connect(cid)
+        }
+        ensureWebSocketObserving()
+    }
+
     override fun onCleared() {
         super.onCleared()
         liveActivityManager?.cancelActivity()
+        runningFallbackPollJob?.cancel()
         wsJob?.cancel()
         fetchJob?.cancel()
         wsClient.disconnect()

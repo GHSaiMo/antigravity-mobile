@@ -36,7 +36,7 @@ class NotificationActionReceiver : BroadcastReceiver() {
                 val prefs = PreferencesManager(appContext)
                 val connMgr = ConnectionManager(appContext)
                 val apiClient = ApiClient(appContext, prefs, connMgr)
-                val liveMgr = LiveActivityNotificationManager(appContext, prefs)
+                val liveMgr = LiveActivityNotificationManager.getOrCreate(appContext, prefs, apiClient)
 
                 when (action) {
                     ACTION_APPROVE -> {
@@ -71,7 +71,9 @@ class NotificationActionReceiver : BroadcastReceiver() {
                             status = "RUNNING",
                             stepCount = (snap?.totalSteps ?: 1).coerceAtLeast(1),
                             latestAction = "已允许，继续执行中...",
-                            hasPendingAction = false
+                            hasPendingAction = false,
+                            isOptimisticStart = true,
+                            baselineStepCount = snap?.totalSteps ?: -1
                         )
                     }
 
@@ -100,7 +102,9 @@ class NotificationActionReceiver : BroadcastReceiver() {
                             status = "RUNNING",
                             stepCount = (snap?.totalSteps ?: 1).coerceAtLeast(1),
                             latestAction = "已拒绝该操作",
-                            hasPendingAction = false
+                            hasPendingAction = false,
+                            isOptimisticStart = true,
+                            baselineStepCount = snap?.totalSteps ?: -1
                         )
                     }
 

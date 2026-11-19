@@ -24,9 +24,7 @@ internal fun ChatViewModel.extractStepIndex(id: String): Int? {
 }
 
 internal fun ChatViewModel.isStatusRunning(status: String?): Boolean {
-    if (status.isNullOrBlank()) return false
-    return status.equals("CASCADE_RUN_STATUS_RUNNING", ignoreCase = true) ||
-           status.equals("RUNNING", ignoreCase = true)
+    return com.antigravity.mobile.data.service.LiveActivityStatusHelper.isStatusRunning(status)
 }
 
 internal fun ChatViewModel.sanitizeMessageOrder(list: List<GatewayMessageItem>): List<GatewayMessageItem> {

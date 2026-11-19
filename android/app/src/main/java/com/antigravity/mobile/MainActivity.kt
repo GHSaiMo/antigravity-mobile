@@ -42,6 +42,7 @@ import com.journeyapps.barcodescanner.ScanOptions
 import java.net.URLDecoder
 import java.net.URLEncoder
 import com.antigravity.mobile.ui.viewmodel.prepareSession
+import com.antigravity.mobile.ui.viewmodel.refresh
 import com.antigravity.mobile.ui.viewmodel.addAttachmentsFromUris
 import com.antigravity.mobile.data.service.ShareInbox
 import com.antigravity.mobile.data.model.ConversationStatus
@@ -89,7 +90,11 @@ class MainActivity : ComponentActivity() {
         wsClient = StreamWebSocketClient(prefs, connectionManager)
         cacheManager = CacheManager(applicationContext)
         val documentCacheManager = com.antigravity.mobile.data.service.DocumentCacheManager(applicationContext)
-        liveActivityManager = com.antigravity.mobile.data.service.LiveActivityNotificationManager(applicationContext, prefs)
+        liveActivityManager = com.antigravity.mobile.data.service.LiveActivityNotificationManager.getOrCreate(
+            context = applicationContext,
+            prefs = prefs,
+            apiClient = apiClient
+        )
 
         // Initialize Coil SVG and Gateway Auth Header interceptor globally (sharing core connection pool)
         val coilOkHttpClient = apiClient.okHttpClient.newBuilder()
@@ -142,6 +147,13 @@ class MainActivity : ComponentActivity() {
         chatViewModel = ChatViewModel(apiClient, wsClient, prefs, documentCacheManager, liveActivityManager, cacheManager).apply {
             onConversationUpdated = { item ->
                 conversationListViewModel.upsertConversation(item)
+            }
+        }
+        liveActivityManager.onBackgroundTaskEnded = { cid, _ ->
+            lifecycleScope.launch(Dispatchers.Main) {
+                if (chatViewModel.uiState.value.cascadeId == cid) {
+                    chatViewModel.refresh()
+                }
             }
         }
 
@@ -614,6 +626,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         if (::liveActivityManager.isInitialized) {
+            liveActivityManager.refreshActiveActivitiesNow()
             liveActivityManager.cleanUpOrphanedActivities()
         }
     }

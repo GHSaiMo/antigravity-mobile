@@ -3,6 +3,10 @@ package com.antigravity.mobile.ui.viewmodel
 import android.net.Uri
 import androidx.lifecycle.viewModelScope
 import com.antigravity.mobile.data.model.*
+import com.antigravity.mobile.data.service.ConnectionStatus
+import com.antigravity.mobile.data.service.LiveActivityStatusHelper
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 internal fun ChatViewModel.saveSessionToCache() {
@@ -95,9 +99,14 @@ internal fun ChatViewModel.notifyConversationUpdated() {
 internal fun ChatViewModel.resetSession() {
     fetchJob?.cancel()
     fetchJob = null
+    runningFallbackPollJob?.cancel()
+    runningFallbackPollJob = null
     wsJob?.cancel()
     wsJob = null
     wsClient.disconnect()
+    pendingOptimisticMessageId = null
+    awaitingStartedAtMs = 0L
+    hasObservedServerRunningForAwaiting = false
     pendingOptimisticQueueItems.clear()
     deletedQueueTombstones.clear()
     inFlightDeletingQueueIds.clear()
@@ -126,9 +135,14 @@ internal fun ChatViewModel.prepareSession(
 
     fetchJob?.cancel()
     fetchJob = null
+    runningFallbackPollJob?.cancel()
+    runningFallbackPollJob = null
     wsJob?.cancel()
     wsJob = null
     wsClient.disconnect()
+    pendingOptimisticMessageId = null
+    awaitingStartedAtMs = 0L
+    hasObservedServerRunningForAwaiting = false
     pendingOptimisticQueueItems.clear()
     deletedQueueTombstones.clear()
     inFlightDeletingQueueIds.clear()
@@ -446,7 +460,9 @@ internal fun ChatViewModel.initSession(
                     }
 
                     val lastMsg = mergedMsgs.lastOrNull()
-                    val isError = lastMsg?.status.equals("error", ignoreCase = true) || payload.hasError
+                    val isError = lastMsg?.status.equals("error", ignoreCase = true) ||
+                        payload.hasError ||
+                        LiveActivityStatusHelper.isStatusError(payload.status)
                     val wsFromPayload = payload.workspaceUri?.trimEnd('/')?.substringAfterLast('/')?.takeIf { it.isNotBlank() }
 
                     val hasEarliest = mergedMsgs.any { (it.stepIndex ?: extractStepIndex(it.id)) == 0 }
@@ -456,7 +472,10 @@ internal fun ChatViewModel.initSession(
                     val resolvedTitle = payload.title?.takeIf { it.isNotBlank() && it != "未命名会话" && it != "会话详情" }
                         ?: _uiState.value.title
 
-                    val isRunning = isStatusRunning(payload.status)
+                    val statusRunning = isStatusRunning(payload.status)
+                    val awaiting = resolveAwaitingForPayload(mergedMsgs, statusRunning, isError)
+                    val isRunning = statusRunning || awaiting
+                    val wasRunning = _uiState.value.isRunning
                     val activeRunningTasks = filterRunningTasks(payload.runningTasks)
                     _uiState.value = _uiState.value.copy(
                         isLoading = false,
@@ -470,6 +489,7 @@ internal fun ChatViewModel.initSession(
                         subagentRole = payload.subagentRole,
                         queuedMessages = syncQueuedMessages(payload.queuedMessages, mergedMsgs),
                         isRunning = isRunning,
+                        isAwaitingResponse = awaiting,
                         canProceed = payload.canProceed,
                         proceedArtifactUri = payload.proceedArtifactUri,
                         pendingInteraction = payload.pendingInteraction,
@@ -512,15 +532,20 @@ internal fun ChatViewModel.initSession(
                         liveActivityManager?.startOrUpdateActivity(
                             title = resolvedTitle,
                             cascadeId = cascadeId,
-                            status = payload.status ?: "RUNNING",
+                            status = payload.status.ifBlank { "RUNNING" },
                             stepCount = maxOf(1, stepCount),
                             latestAction = latestAction,
                             runningTaskCount = activeRunningTasks.blockingTasks.size,
-                            hasPendingAction = payload.pendingInteraction != null
+                            hasPendingAction = payload.pendingInteraction != null,
+                            isOptimisticStart = !statusRunning
                         )
-                    } else if (liveActivityManager?.hasNotification(cascadeId) == true) {
-                        val finalStatus = if (isError) "FAILED" else "COMPLETED"
-                        liveActivityManager?.endActivity(cascadeId = cascadeId, finalStatus = finalStatus)
+                        ensureRunningFallbackPolling()
+                    } else if (wasRunning || liveActivityManager?.hasNotification(cascadeId) == true) {
+                        val finalStatus = LiveActivityStatusHelper.resolveFinalStatus(isError, payload.canProceed)
+                        liveActivityManager?.endActivity(cascadeId = cascadeId, finalStatus = finalStatus, title = resolvedTitle)
+                        stopRunningFallbackPolling()
+                    } else {
+                        stopRunningFallbackPolling()
                     }
 
                     _scrollToBottomTrigger.value++
@@ -555,6 +580,85 @@ internal fun ChatViewModel.retryLoadMessages() {
     )
 }
 
+internal fun ChatViewModel.resolveAwaitingForPayload(
+    msgs: List<GatewayMessageItem>,
+    statusRunning: Boolean,
+    isError: Boolean
+): Boolean {
+    if (statusRunning) {
+        hasObservedServerRunningForAwaiting = true
+    }
+    val wasAwaiting = _uiState.value.isAwaitingResponse
+    if (!wasAwaiting) return false
+
+    val lastUserIdx = msgs.indexOfLast { it.isUser }
+    val hasSubsequentNonUser = if (lastUserIdx >= 0) {
+        msgs.subList(lastUserIdx + 1, msgs.size).any { !it.isUser }
+    } else {
+        false
+    }
+    val hasPendingOptimistic = pendingOptimisticMessageId != null &&
+        msgs.any { it.id == pendingOptimisticMessageId }
+    val elapsedMs = if (awaitingStartedAtMs > 0L) {
+        (System.currentTimeMillis() - awaitingStartedAtMs).coerceAtLeast(0L)
+    } else {
+        LiveActivityStatusHelper.DEFAULT_AWAITING_TIMEOUT_MS
+    }
+
+    val stillAwaiting = LiveActivityStatusHelper.resolveAwaitingResponse(
+        wasAwaiting = true,
+        statusRunning = statusRunning,
+        isError = isError,
+        hasObservedServerRunning = hasObservedServerRunningForAwaiting,
+        hasSubsequentNonUserMessage = hasSubsequentNonUser,
+        hasPendingOptimisticMessage = hasPendingOptimistic,
+        awaitingElapsedMs = elapsedMs
+    )
+    if (!stillAwaiting) {
+        awaitingStartedAtMs = 0L
+    }
+    return stillAwaiting
+}
+
+internal fun ChatViewModel.ensureRunningFallbackPolling() {
+    val cid = _uiState.value.cascadeId
+    if (cid.isBlank() || cid.startsWith("local_draft_") || cid.startsWith("draft_")) return
+    if (runningFallbackPollJob?.isActive == true) return
+
+    runningFallbackPollJob = viewModelScope.launch {
+        while (isActive) {
+            val state = _uiState.value
+            val currentCid = state.cascadeId
+            if (currentCid.isBlank() || currentCid.startsWith("local_draft_") || currentCid.startsWith("draft_")) {
+                break
+            }
+            val shouldPoll = state.isRunning ||
+                state.isAwaitingResponse ||
+                (liveActivityManager?.hasNotification(currentCid) == true)
+            if (!shouldPoll) {
+                break
+            }
+            val wsConnected = wsClient.connectionStatus.value == ConnectionStatus.CONNECTED
+            delay(if (wsConnected) 8_000L else 3_500L)
+            val afterDelayState = _uiState.value
+            if (afterDelayState.cascadeId != currentCid) break
+            val stillShouldPoll = afterDelayState.isRunning ||
+                afterDelayState.isAwaitingResponse ||
+                (liveActivityManager?.hasNotification(currentCid) == true)
+            if (!stillShouldPoll) break
+            if (!_isRefreshing.value) {
+                refresh()
+            }
+        }
+        runningFallbackPollJob = null
+    }
+}
+
+internal fun ChatViewModel.stopRunningFallbackPolling() {
+    runningFallbackPollJob?.cancel()
+    runningFallbackPollJob = null
+}
+
 internal fun ChatViewModel.ensureWebSocketObserving() {
     if (wsJob?.isActive == true) return
 
@@ -581,24 +685,13 @@ internal fun ChatViewModel.ensureWebSocketObserving() {
                     _uiState.value.messages
                 }
                 val lastMsg = msgs.lastOrNull()
-                val isError = lastMsg?.status.equals("error", ignoreCase = true) || payload.hasError
+                val isError = lastMsg?.status.equals("error", ignoreCase = true) ||
+                    payload.hasError ||
+                    LiveActivityStatusHelper.isStatusError(payload.status)
 
-                var awaiting = _uiState.value.isAwaitingResponse
-                if (isError) {
-                    awaiting = false
-                } else if (awaiting) {
-                    val lastUserIdx = msgs.indexOfLast { it.isUser }
-                    if (lastUserIdx >= 0) {
-                        val subsequent = msgs.subList(lastUserIdx + 1, msgs.size)
-                        val hasAgent = subsequent.any { !it.isUser && !it.isTools && !it.isSubagent }
-                        val hasSubsequentError = subsequent.any { it.status.equals("error", ignoreCase = true) }
-                        if (hasAgent || hasSubsequentError) {
-                            awaiting = false
-                        }
-                    }
-                }
-
-                val isRunning = isStatusRunning(payload.status) || awaiting
+                val statusRunning = isStatusRunning(payload.status)
+                val awaiting = resolveAwaitingForPayload(msgs, statusRunning, isError)
+                val isRunning = statusRunning || awaiting
                 val wasRunning = _uiState.value.isRunning
                 val previousMsgCount = _uiState.value.messages.size
                 val wsFromPayload = payload.workspaceUri?.trimEnd('/')?.substringAfterLast('/')?.takeIf { it.isNotBlank() }
@@ -658,21 +751,30 @@ internal fun ChatViewModel.ensureWebSocketObserving() {
                         payload.pendingInteraction != null -> payload.pendingInteraction.prompt ?: "需要审批操作"
                         activeRunningTasks.hasBlockingTasks -> activeRunningTasks.blockingTasks.firstOrNull()?.displayCommand?.ifBlank { "正在执行后台任务..." } ?: "正在执行后台任务..."
                         lastMsg?.toolCalls?.isNotEmpty() == true -> "正在执行: " + com.antigravity.mobile.ui.util.ToolLocalization.localizedName(lastMsg.toolCalls.lastOrNull()?.name ?: "操作")
-                        awaiting -> "正在思考并组织回复..."
+                        awaiting || lastMsg?.isUser == true -> "正在思考并组织回复..."
                         else -> "正在执行任务..."
                     }
                     liveActivityManager?.startOrUpdateActivity(
                         title = _uiState.value.title,
                         cascadeId = _uiState.value.cascadeId,
-                        status = payload.status,
+                        status = payload.status.ifBlank { "RUNNING" },
                         stepCount = maxOf(1, stepCount),
                         latestAction = latestAction,
                         runningTaskCount = activeRunningTasks.blockingTasks.size,
-                        hasPendingAction = payload.pendingInteraction != null
+                        hasPendingAction = payload.pendingInteraction != null,
+                        isOptimisticStart = !statusRunning
                     )
+                    ensureRunningFallbackPolling()
                 } else if (wasRunning || liveActivityManager?.hasNotification(_uiState.value.cascadeId) == true) {
-                    val finalStatus = if (isError) "FAILED" else "COMPLETED"
-                    liveActivityManager?.endActivity(cascadeId = _uiState.value.cascadeId, finalStatus = finalStatus)
+                    val finalStatus = LiveActivityStatusHelper.resolveFinalStatus(isError, payload.canProceed)
+                    liveActivityManager?.endActivity(
+                        cascadeId = _uiState.value.cascadeId,
+                        finalStatus = finalStatus,
+                        title = _uiState.value.title
+                    )
+                    stopRunningFallbackPolling()
+                } else {
+                    stopRunningFallbackPolling()
                 }
 
                 if (msgs.size != previousMsgCount || isRunning) {
@@ -688,7 +790,7 @@ internal fun ChatViewModel.ensureWebSocketObserving() {
 
 internal fun ChatViewModel.refresh(onComplete: (() -> Unit)? = null) {
     val cid = _uiState.value.cascadeId
-    if (cid.isBlank()) {
+    if (cid.isBlank() || cid.startsWith("local_draft_") || cid.startsWith("draft_")) {
         onComplete?.invoke()
         return
     }
@@ -705,36 +807,73 @@ internal fun ChatViewModel.refresh(onComplete: (() -> Unit)? = null) {
                             sanitizeMessageOrder(incoming)
                         }
                         val lastMsg = msgs.lastOrNull()
-                        val isError = lastMsg?.status.equals("error", ignoreCase = true) || payload.hasError
+                        val isError = lastMsg?.status.equals("error", ignoreCase = true) ||
+                            payload.hasError ||
+                            LiveActivityStatusHelper.isStatusError(payload.status)
                         val wsFromPayload = payload.workspaceUri?.trimEnd('/')?.substringAfterLast('/')?.takeIf { it.isNotBlank() }
 
                         val hasEarliest = msgs.any { (it.stepIndex ?: extractStepIndex(it.id)) == 0 }
                         val hasMore = if (hasEarliest) false else payload.hasMore
                         val nextOffset = if (hasEarliest) 0 else payload.nextOffset
 
-                        val isRunning = isStatusRunning(payload.status)
+                        val resolvedTitle = payload.title?.takeIf { it.isNotBlank() && it != "未命名会话" && it != "会话详情" }
+                            ?: _uiState.value.title
+                        val statusRunning = isStatusRunning(payload.status)
+                        val awaiting = resolveAwaitingForPayload(msgs, statusRunning, isError)
+                        val isRunning = statusRunning || awaiting
+                        val wasRunning = _uiState.value.isRunning
+                        val activeRunningTasks = filterRunningTasks(payload.runningTasks)
+
                         _uiState.value = _uiState.value.copy(
                             isLoading = false,
-                            title = payload.title?.takeIf { it.isNotBlank() } ?: _uiState.value.title,
+                            title = resolvedTitle,
                             workspaceName = wsFromPayload ?: _uiState.value.workspaceName,
                             messages = msgs,
-                            runningTasks = filterRunningTasks(payload.runningTasks),
+                            runningTasks = activeRunningTasks,
                             subagents = payload.subagents.orEmpty(),
                             parentConversationId = payload.parentConversationId?.takeIf { it.isNotBlank() },
                             subagentRole = payload.subagentRole,
                             queuedMessages = syncQueuedMessages(payload.queuedMessages, msgs),
                             isRunning = isRunning,
+                            isAwaitingResponse = awaiting,
+                            canProceed = payload.canProceed,
+                            proceedArtifactUri = payload.proceedArtifactUri,
+                            pendingInteraction = payload.pendingInteraction,
                             isLatestMessageError = isError,
                             hasMore = hasMore,
                             nextOffset = nextOffset,
                             stepCount = payload.totalSteps,
                             totalTools = payload.totalTools,
                             duration = payload.duration ?: _uiState.value.duration,
-                            cascadeConfigRaw = payload.cascadeConfigRaw ?: _uiState.value.cascadeConfigRaw
+                            cascadeConfigRaw = payload.cascadeConfigRaw ?: _uiState.value.cascadeConfigRaw,
+                            suggestedResponses = if (!isRunning) payload.suggestedResponses.orEmpty() else emptyList()
                         )
-                        if (!isRunning && liveActivityManager?.hasNotification(cid) == true) {
-                            val finalStatus = if (isError) "FAILED" else "COMPLETED"
-                            liveActivityManager?.endActivity(cascadeId = cid, finalStatus = finalStatus)
+                        if (isRunning) {
+                            val stepCount = msgs.count { !it.isUser }
+                            val latestAction = when {
+                                payload.pendingInteraction != null -> payload.pendingInteraction.prompt ?: "需要审批操作"
+                                activeRunningTasks.hasBlockingTasks -> activeRunningTasks.blockingTasks.firstOrNull()?.displayCommand?.ifBlank { "正在执行后台任务..." } ?: "正在执行后台任务..."
+                                lastMsg?.toolCalls?.isNotEmpty() == true -> "正在执行: " + com.antigravity.mobile.ui.util.ToolLocalization.localizedName(lastMsg.toolCalls.lastOrNull()?.name ?: "操作")
+                                awaiting || lastMsg?.isUser == true -> "正在思考并组织回复..."
+                                else -> "正在执行任务..."
+                            }
+                            liveActivityManager?.startOrUpdateActivity(
+                                title = resolvedTitle,
+                                cascadeId = cid,
+                                status = payload.status.ifBlank { "RUNNING" },
+                                stepCount = maxOf(1, stepCount),
+                                latestAction = latestAction,
+                                runningTaskCount = activeRunningTasks.blockingTasks.size,
+                                hasPendingAction = payload.pendingInteraction != null,
+                                isOptimisticStart = !statusRunning
+                            )
+                            ensureRunningFallbackPolling()
+                        } else if (wasRunning || liveActivityManager?.hasNotification(cid) == true) {
+                            val finalStatus = LiveActivityStatusHelper.resolveFinalStatus(isError, payload.canProceed)
+                            liveActivityManager?.endActivity(cascadeId = cid, finalStatus = finalStatus, title = resolvedTitle)
+                            stopRunningFallbackPolling()
+                        } else {
+                            stopRunningFallbackPolling()
                         }
                         notifyConversationUpdated()
                         saveSessionToCache()

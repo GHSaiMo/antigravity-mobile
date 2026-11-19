@@ -79,6 +79,14 @@ class AntigravityMessagingService : FirebaseMessagingService() {
 
         val cascadeId = data["cascadeId"]?.takeIf { it.isNotBlank() }
             ?: runCatching { Uri.parse(deeplink).lastPathSegment }.getOrNull()?.takeIf { it.isNotBlank() && it != "cascade" }
+        val lowerCat = category.lowercase()
+        val isTerminalPush = lowerCat.contains("complete") || lowerCat.contains("done") ||
+            lowerCat.contains("finish") || lowerCat.contains("error") || lowerCat.contains("fail") ||
+            lowerCat.contains("proceed")
+        if (isTerminalPush && !cascadeId.isNullOrBlank()) {
+            // Clear any stale local "running" live notification / foreground service when a terminal push arrives
+            LiveActivityNotificationManager.sharedInstanceOrNull()?.cancelActivity(cascadeId)
+        }
         val isApprovalPush = isAction && !category.contains("error")
         if (isApprovalPush && !cascadeId.isNullOrBlank()) {
             builder.addAction(

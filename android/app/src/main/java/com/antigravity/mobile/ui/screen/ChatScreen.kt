@@ -782,10 +782,25 @@ fun ChatScreen(
     }
 
     DisposableEffect(lifecycleOwner, cascadeId) {
+        var hasLeftForeground = false
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_PAUSE || event == Lifecycle.Event.ON_STOP) {
-                textToolbar.hide()
-                viewModel.saveDraftFor(cascadeId, inputText, uiState.selectedImages.map { it.byteArray })
+            when (event) {
+                Lifecycle.Event.ON_PAUSE, Lifecycle.Event.ON_STOP -> {
+                    hasLeftForeground = true
+                    textToolbar.hide()
+                    viewModel.saveDraftFor(cascadeId, inputText, uiState.selectedImages.map { it.byteArray })
+                }
+                Lifecycle.Event.ON_RESUME -> {
+                    if (hasLeftForeground) {
+                        hasLeftForeground = false
+                        val activeCid = viewModel.uiState.value.cascadeId
+                        if (activeCid.isNotBlank() && !activeCid.startsWith("local_draft_") && !activeCid.startsWith("draft_")) {
+                            viewModel.reconnectWebSocketIfDisconnected()
+                            viewModel.refresh()
+                        }
+                    }
+                }
+                else -> {}
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)

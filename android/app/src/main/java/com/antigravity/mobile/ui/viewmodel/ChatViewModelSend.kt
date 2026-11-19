@@ -290,6 +290,9 @@ internal fun ChatViewModel.sendMessage(
         slashCommands = optSlashMentions,
         clientMessageId = optId
     )
+    awaitingStartedAtMs = System.currentTimeMillis()
+    hasObservedServerRunningForAwaiting = false
+    val baselineStepCount = _uiState.value.stepCount
     _uiState.value = _uiState.value.copy(
         messages = _uiState.value.messages + optimisticUserMsg,
         isRunning = true,
@@ -357,11 +360,14 @@ internal fun ChatViewModel.sendMessage(
                     cascadeId = newCascadeId,
                     status = "RUNNING",
                     stepCount = 1,
-                    latestAction = "开始执行任务..."
+                    latestAction = "开始执行任务...",
+                    isOptimisticStart = true,
+                    baselineStepCount = 0
                 )
 
                 wsClient.connect(newCascadeId)
                 ensureWebSocketObserving()
+                ensureRunningFallbackPolling()
 
                 if (attachments.isNotEmpty() || files.isNotEmpty() || !slashCommand.isNullOrBlank() || ctxItems.isNotEmpty()) {
                     val imagePayloads = attachments.map { Pair(it.byteArray, it.mimeType) }
@@ -372,12 +378,15 @@ internal fun ChatViewModel.sendMessage(
                         contextItems = ctxItems
                     )
                     sendResult.onFailure { err ->
+                        awaitingStartedAtMs = 0L
+                        hasObservedServerRunningForAwaiting = false
+                        stopRunningFallbackPolling()
                         _uiState.value = _uiState.value.copy(
                             errorMessage = "发送失败: ${err.message}",
                             isRunning = false,
                             isAwaitingResponse = false
                         )
-                        liveActivityManager?.endActivity(cascadeId = newCascadeId, finalStatus = "FAILED")
+                        liveActivityManager?.endActivity(cascadeId = newCascadeId, finalStatus = "FAILED", title = title)
                         notifyConversationUpdated()
                         saveSessionToCache()
                     }
@@ -393,9 +402,15 @@ internal fun ChatViewModel.sendMessage(
                             _uiState.value.messages
                         }
                         val lastMsg = msgs.lastOrNull()
-                        val isError = lastMsg?.status.equals("error", ignoreCase = true) || payload.hasError
+                        val isError = lastMsg?.status.equals("error", ignoreCase = true) ||
+                            payload.hasError ||
+                            com.antigravity.mobile.data.service.LiveActivityStatusHelper.isStatusError(payload.status)
+                        val statusRunning = isStatusRunning(payload.status)
+                        val awaiting = resolveAwaitingForPayload(msgs, statusRunning, isError)
+                        val isRunning = statusRunning || awaiting
+                        val resolvedTitle = payload.title?.takeIf { it.isNotBlank() } ?: _uiState.value.title
                         _uiState.value = _uiState.value.copy(
-                            title = payload.title?.takeIf { it.isNotBlank() } ?: _uiState.value.title,
+                            title = resolvedTitle,
                             workspaceName = payload.workspaceUri?.trimEnd('/')?.substringAfterLast('/')?.takeIf { it.isNotBlank() } ?: _uiState.value.workspaceName,
                             messages = msgs,
                             runningTasks = filterRunningTasks(payload.runningTasks),
@@ -403,7 +418,8 @@ internal fun ChatViewModel.sendMessage(
                             parentConversationId = payload.parentConversationId?.takeIf { it.isNotBlank() },
                             subagentRole = payload.subagentRole,
                             queuedMessages = syncQueuedMessages(payload.queuedMessages, msgs),
-                            isRunning = isStatusRunning(payload.status),
+                            isRunning = isRunning,
+                            isAwaitingResponse = awaiting,
                             canProceed = payload.canProceed,
                             proceedArtifactUri = payload.proceedArtifactUri,
                             pendingInteraction = payload.pendingInteraction,
@@ -416,12 +432,23 @@ internal fun ChatViewModel.sendMessage(
                             duration = payload.duration ?: _uiState.value.duration,
                             contextMeter = payload.contextMeter ?: _uiState.value.contextMeter
                         )
+                        if (!isRunning && liveActivityManager?.hasNotification(newCascadeId) == true) {
+                            val finalStatus = com.antigravity.mobile.data.service.LiveActivityStatusHelper.resolveFinalStatus(
+                                isError = isError,
+                                canProceed = payload.canProceed
+                            )
+                            liveActivityManager?.endActivity(cascadeId = newCascadeId, finalStatus = finalStatus, title = resolvedTitle)
+                            stopRunningFallbackPolling()
+                        }
                         _scrollToBottomTrigger.value++
                         notifyConversationUpdated()
                         saveSessionToCache()
                     }
                 }
             }.onFailure { err ->
+                awaitingStartedAtMs = 0L
+                hasObservedServerRunningForAwaiting = false
+                stopRunningFallbackPolling()
                 _uiState.value = _uiState.value.copy(
                     errorMessage = "创建会话失败: ${err.message}",
                     isRunning = false,
@@ -439,8 +466,11 @@ internal fun ChatViewModel.sendMessage(
         cascadeId = cascadeId,
         status = "RUNNING",
         stepCount = maxOf(1, _uiState.value.messages.count { !it.isUser } + 1),
-        latestAction = "开始执行任务..."
+        latestAction = "开始执行任务...",
+        isOptimisticStart = true,
+        baselineStepCount = baselineStepCount
     )
+    ensureRunningFallbackPolling()
 
     val imagePayloads = attachments.map { Pair(it.byteArray, it.mimeType) }
     val deliveryStrategy = if (forceImmediate) 1 else null
@@ -458,12 +488,15 @@ internal fun ChatViewModel.sendMessage(
             contextItems = ctxItems
         )
         result.onFailure { err ->
+            awaitingStartedAtMs = 0L
+            hasObservedServerRunningForAwaiting = false
+            stopRunningFallbackPolling()
             _uiState.value = _uiState.value.copy(
                 errorMessage = "发送失败: ${err.message}",
                 isRunning = false,
                 isAwaitingResponse = false
             )
-            liveActivityManager?.endActivity(cascadeId = cascadeId, finalStatus = "FAILED")
+            liveActivityManager?.endActivity(cascadeId = cascadeId, finalStatus = "FAILED", title = _uiState.value.title)
             notifyConversationUpdated()
             saveSessionToCache()
         }
@@ -479,12 +512,15 @@ internal fun ChatViewModel.cancelExecution() {
         stoppedTaskKeys.add("${task.id}:${task.stepIndex}")
         if (task.id.isNotBlank()) stoppedTaskKeys.add(task.id)
     }
+    awaitingStartedAtMs = 0L
+    hasObservedServerRunningForAwaiting = false
+    stopRunningFallbackPolling()
     _uiState.value = _uiState.value.copy(
         isRunning = false,
         isAwaitingResponse = false,
         runningTasks = _uiState.value.runningTasks.filter { !it.blocksTurn }
     )
-    liveActivityManager?.endActivity(cascadeId = cascadeId, finalStatus = "CANCELLED")
+    liveActivityManager?.endActivity(cascadeId = cascadeId, finalStatus = "CANCELLED", title = _uiState.value.title)
     notifyConversationUpdated()
     saveSessionToCache()
     viewModelScope.launch {
