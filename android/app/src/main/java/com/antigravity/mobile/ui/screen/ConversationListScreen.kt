@@ -35,6 +35,7 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -140,11 +141,16 @@ fun ConversationListScreen(
     val pullRefreshState = rememberPullToRefreshState()
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
+    var previousSearchQuery by rememberSaveable { mutableStateOf(searchQuery) }
 
+    // 仅在搜索词真正发生变化时回到顶部，避免从详情页返回重建组合后把已恢复的列表滚动位置重置回 0
     LaunchedEffect(searchQuery) {
         swipedConversationId = null
-        if (listState.firstVisibleItemIndex > 0) {
-            listState.scrollToItem(0)
+        if (searchQuery != previousSearchQuery) {
+            previousSearchQuery = searchQuery
+            if (listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 0) {
+                listState.scrollToItem(0)
+            }
         }
     }
 
@@ -560,7 +566,7 @@ fun ConversationListScreen(
 
     if (showBackgroundTasksSheet) {
         McpSkillsSheet(
-            initialTab = 2,
+            initialTab = McpSkillsTab.TASKS,
             onSelectConversation = { cascadeId, title ->
                 val known = viewModel.getConversation(cascadeId)
                 onSelectConversation(

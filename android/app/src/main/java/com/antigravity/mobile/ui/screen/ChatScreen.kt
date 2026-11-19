@@ -2447,7 +2447,7 @@ fun ChatScreen(
     if (showMcpSkillsSheet) {
         val hasAnyBgTasks = uiState.runningTasks.isNotEmpty() || uiState.globalBackgroundTasks.isNotEmpty()
         McpSkillsSheet(
-            initialTab = if (hasAnyBgTasks) 4 else 0,
+            initialTab = if (hasAnyBgTasks) McpSkillsTab.TASKS else McpSkillsTab.MCP,
             currentConversationId = uiState.cascadeId,
             hasActiveSwarm = uiState.swarmBrief?.active == true,
             onSelectConversation = { targetId, targetTitle ->

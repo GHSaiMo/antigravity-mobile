@@ -48,11 +48,19 @@ import com.antigravity.mobile.ui.util.rememberHaptic
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 
+enum class McpSkillsTab(val index: Int, val label: String) {
+    MCP(0, "MCP"),
+    SKILLS(1, "技能"),
+    PLUGINS(2, "插件"),
+    AUTOMATIONS(3, "定时"),
+    TASKS(4, "任务")
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun McpSkillsSheet(
     onDismiss: () -> Unit,
-    initialTab: Int = 0,
+    initialTab: McpSkillsTab = McpSkillsTab.MCP,
     currentConversationId: String? = null,
     hasActiveSwarm: Boolean = false,
     onSelectConversation: ((cascadeId: String, title: String) -> Unit)? = null,
@@ -73,7 +81,7 @@ fun McpSkillsSheet(
         )
     }
 
-    var selectedTab by remember(initialTab) { mutableStateOf(initialTab) } // 0: MCP, 1: Skills, 2: Background Tasks
+    var selectedTab by remember(initialTab) { mutableStateOf(initialTab) }
     var searchText by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
@@ -321,103 +329,38 @@ fun McpSkillsSheet(
 
             // Tab Row
             TabRow(
-                selectedTabIndex = selectedTab,
+                selectedTabIndex = selectedTab.index,
                 containerColor = colors.surface,
                 contentColor = colors.accentIndigo,
                 modifier = Modifier
                     .clip(RoundedCornerShape(8.dp))
                     .padding(bottom = 8.dp)
             ) {
-                Tab(
-                    selected = selectedTab == 0,
-                    selectedContentColor = colors.accentIndigo,
-                    unselectedContentColor = colors.textSecondary,
-                    onClick = {
-                        haptic.light()
-                        selectedTab = 0
-                    },
-                    text = {
-                        Text(
-                            text = "MCP",
-                            fontWeight = if (selectedTab == 0) FontWeight.Bold else FontWeight.Normal,
-                            fontSize = 12.sp,
-                            maxLines = 1,
-                            softWrap = false
-                        )
+                McpSkillsTab.entries.forEach { tab ->
+                    val tabText = if (tab == McpSkillsTab.TASKS && backgroundTasks.isNotEmpty()) {
+                        "${tab.label}(${backgroundTasks.size})"
+                    } else {
+                        tab.label
                     }
-                )
-                Tab(
-                    selected = selectedTab == 1,
-                    selectedContentColor = colors.accentIndigo,
-                    unselectedContentColor = colors.textSecondary,
-                    onClick = {
-                        haptic.light()
-                        selectedTab = 1
-                    },
-                    text = {
-                        Text(
-                            text = "技能",
-                            fontWeight = if (selectedTab == 1) FontWeight.Bold else FontWeight.Normal,
-                            fontSize = 12.sp,
-                            maxLines = 1,
-                            softWrap = false
-                        )
-                    }
-                )
-                Tab(
-                    selected = selectedTab == 2,
-                    selectedContentColor = colors.accentIndigo,
-                    unselectedContentColor = colors.textSecondary,
-                    onClick = {
-                        haptic.light()
-                        selectedTab = 2
-                    },
-                    text = {
-                        Text(
-                            text = "插件",
-                            fontWeight = if (selectedTab == 2) FontWeight.Bold else FontWeight.Normal,
-                            fontSize = 12.sp,
-                            maxLines = 1,
-                            softWrap = false
-                        )
-                    }
-                )
-                Tab(
-                    selected = selectedTab == 3,
-                    selectedContentColor = colors.accentIndigo,
-                    unselectedContentColor = colors.textSecondary,
-                    onClick = {
-                        haptic.light()
-                        selectedTab = 3
-                    },
-                    text = {
-                        Text(
-                            text = "定时",
-                            fontWeight = if (selectedTab == 3) FontWeight.Bold else FontWeight.Normal,
-                            fontSize = 12.sp,
-                            maxLines = 1,
-                            softWrap = false
-                        )
-                    }
-                )
-                Tab(
-                    selected = selectedTab == 4,
-                    selectedContentColor = colors.accentIndigo,
-                    unselectedContentColor = colors.textSecondary,
-                    onClick = {
-                        haptic.light()
-                        selectedTab = 4
-                    },
-                    text = {
-                        Text(
-                            text = if (backgroundTasks.isNotEmpty()) "任务(${backgroundTasks.size})" else "任务",
-                            fontWeight = if (selectedTab == 4) FontWeight.Bold else FontWeight.Normal,
-                            fontSize = 12.sp,
-                            maxLines = 1,
-                            softWrap = false
-                        )
-                    }
-                )
+                    Tab(
+                        selected = selectedTab == tab,
+                        selectedContentColor = colors.accentIndigo,
+                        unselectedContentColor = colors.textSecondary,
+                        onClick = {
+                            haptic.light()
+                            selectedTab = tab
+                        },
+                        text = {
+                            Text(
+                                text = tabText,
+                                fontWeight = if (selectedTab == tab) FontWeight.Bold else FontWeight.Normal,
+                                fontSize = 12.sp,
+                                maxLines = 1,
+                                softWrap = false
+                            )
+                        }
+                    )
+                }
             }
 
             // Content Area with Bottom Floating Search Bar
@@ -437,7 +380,7 @@ fun McpSkillsSheet(
                         modifier = Modifier.size(32.dp)
                     )
                 }
-            } else if (selectedTab == 0) {
+            } else if (selectedTab == McpSkillsTab.MCP) {
                 // MCP Tab
                 val query = searchText.trim().lowercase()
                 val filteredServers = remember(mcpServers, query) {
@@ -544,7 +487,7 @@ fun McpSkillsSheet(
                         }
                     }
                 }
-            } else if (selectedTab == 1) {
+            } else if (selectedTab == McpSkillsTab.SKILLS) {
                 // Skills Tab + embedded Agent Memories accordion
                 val query = searchText.trim().lowercase()
                 val filteredSkills = remember(skills, query) {
@@ -675,7 +618,7 @@ fun McpSkillsSheet(
                         }
                     }
                 }
-            } else if (selectedTab == 2) {
+            } else if (selectedTab == McpSkillsTab.PLUGINS) {
                 // Plugins Tab
                 val query = searchText.trim().lowercase()
                 val filteredPlugins = remember(plugins, query) {
@@ -779,7 +722,7 @@ fun McpSkillsSheet(
                         }
                     }
                 }
-            } else if (selectedTab == 3) {
+            } else if (selectedTab == McpSkillsTab.AUTOMATIONS) {
                 // Automations Tab
                 val query = searchText.trim().lowercase()
                 val filteredAutomations = remember(automations, query) {
@@ -973,7 +916,7 @@ fun McpSkillsSheet(
                     }
                 }
                     } else {
-                // Background Tasks Tab (selectedTab == 4)
+                // Background Tasks Tab (McpSkillsTab.TASKS)
                 val query = searchText.trim().lowercase()
                 val filteredTasks = remember(backgroundTasks, query) {
                     if (query.isEmpty()) backgroundTasks
@@ -1215,11 +1158,11 @@ fun McpSkillsSheet(
                             if (searchText.isEmpty()) {
                                 Text(
                                     text = when (selectedTab) {
-                                        0 -> "搜索 MCP 服务或工具名称"
-                                        1 -> "搜索技能名称或描述"
-                                        2 -> "搜索插件名称或描述"
-                                        3 -> "搜索定时任务或表达式"
-                                        else -> "搜索命令、会话标题或工作区"
+                                        McpSkillsTab.MCP -> "搜索 MCP 服务或工具名称"
+                                        McpSkillsTab.SKILLS -> "搜索技能名称或描述"
+                                        McpSkillsTab.PLUGINS -> "搜索插件名称或描述"
+                                        McpSkillsTab.AUTOMATIONS -> "搜索定时任务或表达式"
+                                        McpSkillsTab.TASKS -> "搜索命令、会话标题或工作区"
                                     },
                                     color = colors.textMuted,
                                     fontSize = 14.5.sp
