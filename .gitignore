@@ -73,6 +73,7 @@ temp/
 *.bak
 
 # --- Internal Docs & Notes ---
+AGENTS.md
 Agent.md
 !docs/*.md
 private-docs/
