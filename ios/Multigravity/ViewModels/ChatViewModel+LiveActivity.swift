@@ -48,7 +48,8 @@ extension ChatViewModel {
             } else if let title = taskTitle, !title.isEmpty {
                 actionText = title
             } else if let lastMsg = self.messages.last, !lastMsg.content.isEmpty {
-                actionText = lastMsg.content
+                let trimmed = lastMsg.content.trimmingCharacters(in: .whitespacesAndNewlines)
+                actionText = trimmed.count > 500 ? String(trimmed.prefix(500)) : trimmed
             } else if isAgentBusy {
                 actionText = String(localized: "Agent 正在执行...")
             } else {

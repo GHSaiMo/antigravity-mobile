@@ -211,15 +211,17 @@ public struct AgentActivityWidget: Widget {
                     }
                 }
             } else {
-                HStack(spacing: 5) {
-                    Image(systemName: context.state.hasPendingAction ? "exclamationmark.circle.fill" : "sparkles")
-                        .font(.system(size: 12))
-                        .foregroundColor(context.state.hasPendingAction ? .orange : Color(red: 0.6, green: 0.72, blue: 1.0))
+                HStack(alignment: .top, spacing: 6) {
+                    let iconInfo = dynamicActionIcon(for: context.state.latestAction, hasPendingAction: context.state.hasPendingAction, hasRunningTasks: false)
+                    Image(systemName: iconInfo.name)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(iconInfo.color)
+                        .padding(.top, 1)
                     
-                    Text(context.state.latestAction)
+                    Text(renderMarkdownText(context.state.latestAction, defaultColor: Color.white.opacity(0.92), isDark: true))
                         .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(.white)
-                        .lineLimit(1)
+                        .lineLimit(2)
+                        .lineSpacing(2)
                 }
                 .padding(.vertical, 2)
             }
@@ -366,17 +368,19 @@ struct AgentLockScreenView: View {
                 
                 // Middle row: Current Action / Subtask
                 if context.state.runningTaskCount > 0 {
-                    runningTasksBlock
+                    compositeRunningTasksBlock
                 } else {
-                    HStack(alignment: .center, spacing: 6) {
-                        Image(systemName: context.state.hasPendingAction ? "exclamationmark.circle.fill" : "sparkles")
+                    HStack(alignment: .top, spacing: 6) {
+                        let iconInfo = dynamicActionIcon(for: context.state.latestAction, hasPendingAction: context.state.hasPendingAction, hasRunningTasks: false)
+                        Image(systemName: iconInfo.name)
                             .font(.system(size: 13, weight: .semibold))
-                            .foregroundColor(context.state.hasPendingAction ? .orange : accentColor)
+                            .foregroundColor(iconInfo.color)
+                            .padding(.top, 1.5)
                         
-                        Text(context.state.latestAction)
+                        Text(renderMarkdownText(context.state.latestAction, defaultColor: actionTextColor, isDark: isDark))
                             .font(.system(size: 13.5, weight: .medium))
-                            .foregroundColor(actionTextColor)
-                            .lineLimit(1)
+                            .lineLimit(2)
+                            .lineSpacing(2)
                     }
                     .padding(.vertical, 1)
                 }
@@ -476,34 +480,14 @@ struct AgentLockScreenView: View {
         )
     }
     
-    // MARK: - Avatar Badge
+    // MARK: - Avatar Badge (Frameless Floating Logo)
     @ViewBuilder
     private var avatarBadge: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(
-                    isDark
-                        ? Color.white.opacity(0.12)
-                        : Color(red: 0.93, green: 0.94, blue: 0.97)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(
-                            isDark ? Color.white.opacity(0.15) : Color.black.opacity(0.08),
-                            lineWidth: 0.8
-                        )
-                )
-            
             if context.state.hasPendingAction {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .font(.system(size: 26))
                     .foregroundColor(.orange)
-            } else if context.state.runningTaskCount > 0 {
-                Image(systemName: "terminal.fill")
-                    .font(.system(size: 24))
-                    .foregroundColor(
-                        isDark ? Color(red: 0.20, green: 0.78, blue: 1.0) : Color(red: 0.0, green: 0.44, blue: 0.75)
-                    )
             } else if context.state.status == "COMPLETED" {
                 Image(systemName: "checkmark.circle.fill")
                     .font(.system(size: 26))
@@ -515,7 +499,7 @@ struct AgentLockScreenView: View {
                     .renderingMode(.original)
                     .resizable()
                     .aspectRatio(contentMode: .fit)
-                    .frame(width: 36, height: 23)
+                    .frame(width: 40, height: 26)
             }
         }
         .frame(width: 44, height: 44)
@@ -568,96 +552,186 @@ struct AgentLockScreenView: View {
         }
     }
     
-    // MARK: - Multi-task Block
+    // MARK: - Composite Running Tasks + Agent Action Block
     @ViewBuilder
-    private var runningTasksBlock: some View {
-        let displayedTasks: [AgentTaskSnapshot] = !context.state.runningTasks.isEmpty
-            ? Array(context.state.runningTasks.prefix(2))
-            : [AgentTaskSnapshot(id: "fallback", title: context.state.activeTaskTitle ?? String(localized: "后台任务"), command: context.state.activeTaskCommand)]
+    private var compositeRunningTasksBlock: some View {
+        let displayedTask: AgentTaskSnapshot = context.state.runningTasks.first
+            ?? AgentTaskSnapshot(id: "fallback", title: context.state.activeTaskTitle ?? String(localized: "后台任务"), command: context.state.activeTaskCommand)
+        let extraCount = max(0, context.state.runningTaskCount - 1)
         
-        VStack(alignment: .leading, spacing: 4) {
-            ForEach(displayedTasks) { task in
-                HStack(spacing: 6) {
-                    Image(systemName: task.isWaiting ? "hourglass" : "terminal.fill")
-                        .font(.system(size: 10))
-                        .foregroundColor(
-                            task.isWaiting
-                                ? (isDark ? Color.orange : Color(red: 0.85, green: 0.35, blue: 0.0))
-                                : (isDark ? Color(red: 0.20, green: 0.78, blue: 1.0) : Color(red: 0.0, green: 0.44, blue: 0.75))
-                        )
-                    
-                    if let cmd = task.command, !cmd.isEmpty {
-                        Text(cmd)
-                            .font(.system(size: 11.5, weight: .medium, design: .monospaced))
-                            .lineLimit(1)
-                            .foregroundColor(titleColor)
-                    } else {
-                        Text(task.title)
-                            .font(.system(size: 11.5, weight: .medium))
-                            .lineLimit(1)
-                            .foregroundColor(titleColor)
-                    }
-                    
-                    Spacer(minLength: 4)
-                    
-                    if task.isWaiting {
-                        Text("等待中")
-                            .font(.system(size: 9.5, weight: .bold))
-                            .foregroundColor(
-                                isDark ? Color(red: 1.0, green: 0.70, blue: 0.40) : Color(red: 0.78, green: 0.28, blue: 0.0)
-                            )
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 1.5)
-                            .background(
-                                isDark ? Color.orange.opacity(0.2) : Color(red: 1.0, green: 0.93, blue: 0.86)
-                            )
-                            .cornerRadius(3)
-                    } else {
-                        Text("运行中")
-                            .font(.system(size: 9.5, weight: .bold, design: .monospaced))
-                            .foregroundColor(
-                                isDark ? Color(red: 0.20, green: 0.78, blue: 1.0) : Color(red: 0.0, green: 0.44, blue: 0.75)
-                            )
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 1.5)
-                            .background(
-                                isDark ? Color.cyan.opacity(0.2) : Color(red: 0.88, green: 0.95, blue: 1.0)
-                            )
-                            .cornerRadius(3)
-                    }
+        VStack(alignment: .leading, spacing: 3.5) {
+            // Row 1: Compact Task Chip
+            HStack(spacing: 5) {
+                Image(systemName: displayedTask.isWaiting ? "hourglass" : "terminal.fill")
+                    .font(.system(size: 9.5))
+                    .foregroundColor(
+                        displayedTask.isWaiting
+                            ? (isDark ? Color.orange : Color(red: 0.85, green: 0.35, blue: 0.0))
+                            : (isDark ? Color(red: 0.20, green: 0.78, blue: 1.0) : Color(red: 0.0, green: 0.44, blue: 0.75))
+                    )
+                
+                if let cmd = displayedTask.command, !cmd.isEmpty {
+                    Text(cmd)
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .lineLimit(1)
+                        .foregroundColor(titleColor)
+                } else {
+                    Text(displayedTask.title)
+                        .font(.system(size: 11, weight: .medium))
+                        .lineLimit(1)
+                        .foregroundColor(titleColor)
                 }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4.5)
-                .background(
-                    isDark ? Color.white.opacity(0.08) : Color(red: 0.94, green: 0.95, blue: 0.97)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .stroke(
-                            isDark ? Color.white.opacity(0.08) : Color.black.opacity(0.06),
-                            lineWidth: 0.6
-                        )
-                )
-                .cornerRadius(6)
+                
+                Spacer(minLength: 4)
+                
+                if extraCount > 0 {
+                    Text("+\(extraCount)")
+                        .font(.system(size: 9, weight: .bold, design: .monospaced))
+                        .foregroundColor(secondaryTextColor)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(isDark ? Color.white.opacity(0.08) : Color.black.opacity(0.05))
+                        .cornerRadius(3)
+                }
+                
+                Text(displayedTask.isWaiting ? "等待" : "运行中")
+                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .foregroundColor(
+                        displayedTask.isWaiting
+                            ? (isDark ? Color(red: 1.0, green: 0.70, blue: 0.40) : Color(red: 0.78, green: 0.28, blue: 0.0))
+                            : (isDark ? Color(red: 0.20, green: 0.78, blue: 1.0) : Color(red: 0.0, green: 0.44, blue: 0.75))
+                    )
+                    .padding(.horizontal, 4.5)
+                    .padding(.vertical, 1.5)
+                    .background(
+                        displayedTask.isWaiting
+                            ? (isDark ? Color.orange.opacity(0.18) : Color(red: 1.0, green: 0.93, blue: 0.86))
+                            : (isDark ? Color.cyan.opacity(0.18) : Color(red: 0.88, green: 0.95, blue: 1.0))
+                    )
+                    .cornerRadius(3)
             }
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3.5)
+            .background(
+                isDark ? Color.white.opacity(0.08) : Color(red: 0.94, green: 0.95, blue: 0.97)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .stroke(
+                        isDark ? Color.white.opacity(0.08) : Color.black.opacity(0.06),
+                        lineWidth: 0.6
+                    )
+            )
+            .cornerRadius(6)
             
-            let remainingCount = max(0, context.state.runningTaskCount - displayedTasks.count)
-            if remainingCount > 0 {
-                HStack(spacing: 4) {
-                    Image(systemName: "ellipsis.circle")
-                        .font(.system(size: 10))
-                        .foregroundColor(secondaryTextColor)
-                    Text("另有 \(remainingCount) 个任务在队列中...")
-                        .font(.system(size: 10.5))
-                        .foregroundColor(secondaryTextColor)
+            // Row 2: Agent Thought / Action with Markdown
+            if !context.state.latestAction.isEmpty {
+                HStack(alignment: .center, spacing: 5) {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 10.5, weight: .semibold))
+                        .foregroundColor(accentColor)
+                    
+                    Text(renderMarkdownText(context.state.latestAction, defaultColor: actionTextColor, isDark: isDark))
+                        .font(.system(size: 12, weight: .medium))
+                        .lineLimit(1)
                 }
-                .padding(.leading, 4)
+                .padding(.leading, 2)
             }
         }
     }
 }
 
 // MARK: - Helper Functions
+
+private func dynamicActionIcon(for text: String, hasPendingAction: Bool, hasRunningTasks: Bool = false) -> (name: String, color: Color) {
+    if hasPendingAction {
+        return ("exclamationmark.circle.fill", .orange)
+    }
+    if hasRunningTasks {
+        return ("bolt.fill", Color(red: 0.20, green: 0.78, blue: 1.0))
+    }
+    let lower = text.lowercased()
+    if lower.contains("error") || lower.contains("fail") || text.contains("失败") || text.contains("错误") {
+        return ("xmark.circle.fill", Color.red)
+    }
+    if lower.contains("success") || lower.contains("finish") || text.contains("完成") || text.contains("修复") || text.contains("成功") {
+        return ("checkmark.circle.fill", Color(red: 0.25, green: 0.85, blue: 0.45))
+    }
+    if lower.contains("build") || lower.contains("compile") || lower.contains("git") || text.contains("编译") || text.contains("终端") || text.contains("命令") {
+        return ("terminal.fill", Color(red: 0.35, green: 0.75, blue: 1.0))
+    }
+    return ("sparkles", Color(red: 0.42, green: 0.68, blue: 1.0))
+}
+
+private func autoCloseInlineMarkdown(_ text: String) -> String {
+    var result = text
+    let boldCount = result.components(separatedBy: "**").count - 1
+    if boldCount % 2 != 0 {
+        result += "**"
+    }
+    let codeCount = result.components(separatedBy: "`").count - 1
+    if codeCount % 2 != 0 {
+        result += "`"
+    }
+    let singleAsteriskCount = result.replacingOccurrences(of: "**", with: "").components(separatedBy: "*").count - 1
+    if singleAsteriskCount % 2 != 0 {
+        result += "*"
+    }
+    let strikeCount = result.components(separatedBy: "~~").count - 1
+    if strikeCount % 2 != 0 {
+        result += "~~"
+    }
+    return result
+}
+
+private func renderMarkdownText(_ rawText: String, defaultColor: Color, isDark: Bool) -> AttributedString {
+    let trimmed = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else {
+        return AttributedString("")
+    }
+    
+    // Clean block markers (titles, quotes, list bullets)
+    var cleaned = trimmed
+    cleaned = cleaned.replacingOccurrences(of: #"(?m)^#{1,6}\s+"#, with: "", options: .regularExpression)
+    cleaned = cleaned.replacingOccurrences(of: #"(?m)^>\s+"#, with: "", options: .regularExpression)
+    cleaned = cleaned.replacingOccurrences(of: #"(?m)^[-*+]\s+"#, with: "", options: .regularExpression)
+    cleaned = cleaned.replacingOccurrences(of: #"\n{2,}"#, with: "\n", options: .regularExpression)
+    cleaned = autoCloseInlineMarkdown(cleaned)
+    
+    var options = AttributedString.MarkdownParsingOptions()
+    options.interpretedSyntax = .inlineOnlyPreservingWhitespace
+    
+    guard var attr = try? AttributedString(markdown: cleaned, options: options) else {
+        var fallback = AttributedString(cleaned)
+        fallback.foregroundColor = defaultColor
+        return fallback
+    }
+    
+    let codeBgColor = isDark ? Color(white: 0.22) : Color(red: 0.92, green: 0.93, blue: 0.96)
+    let codeFgColor = isDark ? Color(red: 1.0, green: 0.82, blue: 0.45) : Color(red: 0.75, green: 0.40, blue: 0.05)
+    let boldFgColor = isDark ? Color(red: 0.98, green: 0.98, blue: 1.0) : Color(red: 0.05, green: 0.06, blue: 0.08)
+    
+    for run in attr.runs {
+        let runRange = run.range
+        if let intent = run.inlinePresentationIntent {
+            if intent.contains(.code) {
+                attr[runRange].foregroundColor = codeFgColor
+                attr[runRange].backgroundColor = codeBgColor
+                attr[runRange].font = .system(size: 12.5, weight: .medium, design: .monospaced)
+            } else if intent.contains(.stronglyEmphasized) {
+                attr[runRange].foregroundColor = boldFgColor
+                attr[runRange].font = .system(size: 13.5, weight: .bold)
+            } else if intent.contains(.emphasized) {
+                attr[runRange].font = .system(size: 13.5).italic()
+            }
+        } else {
+            if attr[runRange].foregroundColor == nil {
+                attr[runRange].foregroundColor = defaultColor
+            }
+        }
+    }
+    return attr
+}
 
 private func resolvedTitle(context: ActivityViewContext<AgentActivityAttributes>) -> String {
     let dynamicTitle = context.state.conversationTitle.trimmingCharacters(in: .whitespacesAndNewlines)
