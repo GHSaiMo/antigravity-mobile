@@ -23,14 +23,15 @@ fun MarkdownContentView(
     modifier: Modifier = Modifier,
     onPlanClick: ((uri: String, title: String) -> Unit)? = null,
     urlResolver: ((String) -> String)? = null,
-    onImageClick: ((url: String) -> Unit)? = null
+    onImageClick: ((url: String) -> Unit)? = null,
+    selectable: Boolean = LocalMarkdownSelectable.current,
+    onLongPress: (() -> Unit)? = LocalMarkdownLongPress.current
 ) {
     val blocks = remember(content) { MarkdownParser.parse(content) }
     val colors = AntigravityTheme.colors
     val isExport = LocalShareExport.current
 
-    WithCleanCopyToolbar(rawMarkdown = content) {
-    SelectionContainer {
+    val body: @Composable () -> Unit = {
     Column(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -195,6 +196,20 @@ fun MarkdownContentView(
         }
     }
     }
+
+    CompositionLocalProvider(
+        LocalMarkdownSelectable provides selectable,
+        LocalMarkdownLongPress provides onLongPress
+    ) {
+        if (selectable) {
+            WithCleanCopyToolbar(rawMarkdown = content) {
+                SelectionContainer {
+                    body()
+                }
+            }
+        } else {
+            body()
+        }
     }
 }
 

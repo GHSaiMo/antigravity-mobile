@@ -12,6 +12,7 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CallSplit
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.Psychology
+import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Undo
 import androidx.compose.material.icons.filled.UnfoldLess
@@ -292,6 +293,15 @@ fun MessageBubble(
             shareContext = shareContextProvider?.invoke(message) ?: ShareCardContext(),
             urlResolver = urlResolver,
             onDismiss = { shareCardRequest = null }
+        )
+    }
+
+    // 选择文本：自由选择局部文本弹窗（对齐 iOS TextSelectionSheet）
+    var textSelectionContent by remember { mutableStateOf<String?>(null) }
+    textSelectionContent?.let { content ->
+        TextSelectionSheet(
+            content = content,
+            onDismiss = { textSelectionContent = null }
         )
     }
 
@@ -732,7 +742,7 @@ fun MessageBubble(
             val hasArtifacts = !message.artifacts.isNullOrEmpty()
             if (displayText.isNotBlank() || hasArtifacts) {
                 // Agent Bubble: Card background, textPrimary, 18.dp radius with subtle soft shadow
-                // 长按文字仍是选字；长按气泡非文字区域（边距/空白）弹出菜单
+                // 长按气泡任意位置弹出菜单；需要精细选字时通过「选择文本」进入选字页（对齐 iOS）
                 var showAgentMenu by remember { mutableStateOf(false) }
                 Column(
                     modifier = Modifier
@@ -754,14 +764,14 @@ fun MessageBubble(
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     if (displayText.isNotBlank()) {
-                        BlankLongPressHost(onBlankLongPress = { showAgentMenu = true }) {
-                            MarkdownContentView(
-                                content = displayText,
-                                onPlanClick = onPlanClick,
-                                urlResolver = urlResolver,
-                                onImageClick = { url -> onImageClick?.invoke(url, null) }
-                            )
-                        }
+                        MarkdownContentView(
+                            content = displayText,
+                            onPlanClick = onPlanClick,
+                            urlResolver = urlResolver,
+                            onImageClick = { url -> onImageClick?.invoke(url, null) },
+                            selectable = false,
+                            onLongPress = { showAgentMenu = true }
+                        )
                         InlineGitHubPRPillsSection(
                             content = displayText,
                             onOpenPR = { prUrl -> onPlanClick?.invoke(prUrl, "Pull Request") }
@@ -814,6 +824,15 @@ fun MessageBubble(
                                 HorizontalDivider(color = colors.border.copy(alpha = 0.4f))
                             }
 
+                            DropdownMenuItem(
+                                text = { Text("选择文本") },
+                                leadingIcon = { Icon(Icons.Default.SelectAll, contentDescription = "选择文本") },
+                                onClick = {
+                                    showAgentMenu = false
+                                    val plain = MarkdownPlainText.convert(displayText)
+                                    textSelectionContent = plain.ifEmpty { displayText }
+                                }
+                            )
                             DropdownMenuItem(
                                 text = { Text("复制全文") },
                                 leadingIcon = { Icon(Icons.Default.ContentCopy, contentDescription = "复制全文") },

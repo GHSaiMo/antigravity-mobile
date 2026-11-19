@@ -57,6 +57,8 @@ internal val LocalMarkdownBodyScale = compositionLocalOf { 1.0f }
 internal val LocalMarkdownCodeScale = compositionLocalOf { 1.0f }
 internal val LocalCurrentCascadeId = compositionLocalOf<String?> { null }
 internal val LocalKnowledgeModeEnabled = compositionLocalOf { false }
+internal val LocalMarkdownSelectable = compositionLocalOf { true }
+internal val LocalMarkdownLongPress = compositionLocalOf<(() -> Unit)?> { null }
 
 @Composable
 internal fun HeadingBlockView(

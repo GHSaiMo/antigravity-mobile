@@ -14,8 +14,11 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.*
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
@@ -126,6 +129,9 @@ internal fun RichTextRenderer(
     onPlanClick: ((String, String) -> Unit)? = null
 ) {
     val context = LocalContext.current
+    val focusManager = LocalFocusManager.current
+    val haptic = LocalHapticFeedback.current
+    val onLongPress = LocalMarkdownLongPress.current
     val renderData = remember(text, colors, baseFontSize, baseFontWeight) {
         buildRichTextRenderData(
             rawText = text,
@@ -139,53 +145,66 @@ internal fun RichTextRenderer(
 
     Text(
         text = renderData.annotatedString,
-        modifier = Modifier.registerTextHit(layoutResult).pointerInput(renderData.annotatedString) {
-            detectTapGestures { pos ->
-                layoutResult?.let { layout ->
-                    val offset = layout.getOffsetForPosition(pos)
-                    renderData.annotatedString.getStringAnnotations(tag = "URL", start = offset, end = offset)
-                        .firstOrNull()?.let { annotation ->
-                            val url = annotation.item
-                            val titleAnnotation = renderData.annotatedString.getStringAnnotations(tag = "URL_TITLE", start = offset, end = offset).firstOrNull()
-                            val rawTitle = titleAnnotation?.item?.ifBlank { url.substringAfterLast('/') } ?: url.substringAfterLast('/')
-                            val decodedTitle = try {
-                                URLDecoder.decode(rawTitle, "UTF-8")
-                            } catch (_: Exception) {
-                                rawTitle
-                            }
+        modifier = Modifier.pointerInput(renderData.annotatedString, onLongPress) {
+            detectTapGestures(
+                onLongPress = onLongPress?.let { cb ->
+                    {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        cb()
+                    }
+                },
+                onTap = { pos ->
+                    var handledLink = false
+                    layoutResult?.let { layout ->
+                        val offset = layout.getOffsetForPosition(pos)
+                        renderData.annotatedString.getStringAnnotations(tag = "URL", start = offset, end = offset)
+                            .firstOrNull()?.let { annotation ->
+                                handledLink = true
+                                val url = annotation.item
+                                val titleAnnotation = renderData.annotatedString.getStringAnnotations(tag = "URL_TITLE", start = offset, end = offset).firstOrNull()
+                                val rawTitle = titleAnnotation?.item?.ifBlank { url.substringAfterLast('/') } ?: url.substringAfterLast('/')
+                                val decodedTitle = try {
+                                    URLDecoder.decode(rawTitle, "UTF-8")
+                                } catch (_: Exception) {
+                                    rawTitle
+                                }
 
-                            // Script and code files do not need to be accessible (safety filter)
-                            if (FileIconResolver.isScriptFile(url) || FileIconResolver.isScriptFile(decodedTitle)) {
-                                return@let
-                            }
+                                // Script and code files do not need to be accessible (safety filter)
+                                if (FileIconResolver.isScriptFile(url) || FileIconResolver.isScriptFile(decodedTitle)) {
+                                    return@let
+                                }
 
-                            if (url.startsWith("sidecar://")) {
-                                val resolved = resolveSidecarGatewayUrl(url)
-                                if (resolved != null) {
+                                if (url.startsWith("sidecar://")) {
+                                    val resolved = resolveSidecarGatewayUrl(url)
+                                    if (resolved != null) {
+                                        try {
+                                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(resolved)).apply {
+                                                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                            }
+                                            context.startActivity(intent)
+                                        } catch (_: Exception) {}
+                                    }
+                                } else if (onPlanClick != null && FileIconResolver.isAccessibleDocument(url)) {
+                                    onPlanClick(url, decodedTitle)
+                                } else if (url.startsWith("http://") || url.startsWith("https://")) {
                                     try {
-                                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(resolved)).apply {
+                                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
                                             flags = Intent.FLAG_ACTIVITY_NEW_TASK
                                         }
                                         context.startActivity(intent)
-                                    } catch (_: Exception) {}
-                                }
-                            } else if (onPlanClick != null && FileIconResolver.isAccessibleDocument(url)) {
-                                onPlanClick(url, decodedTitle)
-                            } else if (url.startsWith("http://") || url.startsWith("https://")) {
-                                try {
-                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
-                                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                    } catch (_: Exception) {
+                                        onPlanClick?.invoke(url, decodedTitle)
                                     }
-                                    context.startActivity(intent)
-                                } catch (_: Exception) {
-                                    onPlanClick?.invoke(url, decodedTitle)
+                                } else if (onPlanClick != null && !FileIconResolver.isScriptFile(url)) {
+                                    onPlanClick(url, decodedTitle)
                                 }
-                            } else if (onPlanClick != null && !FileIconResolver.isScriptFile(url)) {
-                                onPlanClick(url, decodedTitle)
                             }
-                        }
+                    }
+                    if (!handledLink && onLongPress != null) {
+                        focusManager.clearFocus()
+                    }
                 }
-            }
+            )
         },
         style = TextStyle(
             color = colors.textPrimary,

@@ -722,6 +722,7 @@ public final class HighResolutionImageViewController: UIViewController, UIScroll
     private var slices: [ImageSlice] = []
     private var sliceImageViews: [UIImageView] = []
     private var originalImageSize: CGSize = .zero
+    private var lastLayoutViewportSize: CGSize = .zero
     private var isLoaded: Bool = false
     private var initialScrollDone: Bool = false
     
@@ -779,6 +780,8 @@ public final class HighResolutionImageViewController: UIViewController, UIScroll
         self.url = newURL
         self.isLoaded = false
         self.initialScrollDone = false
+        self.lastLayoutViewportSize = .zero
+        scrollView.setZoomScale(1.0, animated: false)
         loadImage()
     }
     
@@ -853,6 +856,7 @@ public final class HighResolutionImageViewController: UIViewController, UIScroll
     private func setupWithSlices(_ slices: [ImageSlice], originalSize: CGSize) {
         self.slices = slices
         self.originalImageSize = originalSize
+        self.lastLayoutViewportSize = .zero
         self.isLoaded = true
         self.loadingIndicator.stopAnimating()
         
@@ -867,30 +871,35 @@ public final class HighResolutionImageViewController: UIViewController, UIScroll
             sliceImageViews.append(iv)
         }
         
+        view.layoutIfNeeded()
         layoutImageViews()
-        
-        if !initialScrollDone {
-            scrollView.contentOffset = .zero
-            initialScrollDone = true
-        }
     }
     
     public override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         if scrollView.zoomScale == 1.0 {
             layoutImageViews()
+        } else {
+            centerContainerView(in: scrollView.bounds.size)
         }
     }
     
     private func layoutImageViews() {
         guard isLoaded, !slices.isEmpty, originalImageSize.width > 0, originalImageSize.height > 0 else { return }
-        let viewportWidth = view.bounds.width
-        let viewportHeight = view.bounds.height
+        let viewportSize = scrollView.bounds.size.width > 0 && scrollView.bounds.size.height > 0
+            ? scrollView.bounds.size
+            : view.bounds.size
+        let viewportWidth = viewportSize.width
+        let viewportHeight = viewportSize.height
         guard viewportWidth > 0, viewportHeight > 0 else { return }
+        guard viewportSize != lastLayoutViewportSize else { return }
+        lastLayoutViewportSize = viewportSize
         
         let scale = viewportWidth / originalImageSize.width
         let totalDisplayHeight = originalImageSize.height * scale
         
+        scrollView.contentInset = .zero
+        containerView.transform = .identity
         containerView.frame = CGRect(x: 0, y: 0, width: viewportWidth, height: totalDisplayHeight)
         scrollView.contentSize = CGSize(width: viewportWidth, height: totalDisplayHeight)
         
@@ -903,12 +912,22 @@ public final class HighResolutionImageViewController: UIViewController, UIScroll
             currentY += sliceDisplayHeight
         }
         
-        if totalDisplayHeight <= viewportHeight {
-            let offsetY = (viewportHeight - totalDisplayHeight) / 2.0
-            scrollView.contentInset = UIEdgeInsets(top: offsetY, left: 0, bottom: offsetY, right: 0)
-        } else {
-            scrollView.contentInset = .zero
+        centerContainerView(in: viewportSize)
+        
+        if !initialScrollDone {
+            scrollView.contentOffset = .zero
+            initialScrollDone = true
         }
+    }
+    
+    private func centerContainerView(in viewportSize: CGSize) {
+        let contentSize = scrollView.contentSize
+        let offsetX = max((viewportSize.width - contentSize.width) * 0.5, 0)
+        let offsetY = max((viewportSize.height - contentSize.height) * 0.5, 0)
+        containerView.center = CGPoint(
+            x: contentSize.width * 0.5 + offsetX,
+            y: contentSize.height * 0.5 + offsetY
+        )
     }
     
     // MARK: - UIScrollViewDelegate
@@ -918,19 +937,24 @@ public final class HighResolutionImageViewController: UIViewController, UIScroll
     }
     
     public func scrollViewDidZoom(_ scrollView: UIScrollView) {
-        let offsetX = max((scrollView.bounds.width - scrollView.contentSize.width) * 0.5, 0)
-        let offsetY = max((scrollView.bounds.height - scrollView.contentSize.height) * 0.5, 0)
-        containerView.center = CGPoint(
-            x: scrollView.contentSize.width * 0.5 + offsetX,
-            y: scrollView.contentSize.height * 0.5 + offsetY
-        )
+        centerContainerView(in: scrollView.bounds.size)
+    }
+    
+    public func scrollViewDidEndZooming(_ scrollView: UIScrollView, with view: UIView?, atScale scale: CGFloat) {
+        if scale <= 1.001 {
+            layoutImageViews()
+        }
     }
     
     @objc private func handleDoubleTap(_ gesture: UITapGestureRecognizer) {
         if scrollView.zoomScale > 1.1 {
             scrollView.setZoomScale(1.0, animated: true)
         } else {
-            let pointInContainer = gesture.location(in: containerView)
+            let rawPoint = gesture.location(in: containerView)
+            let pointInContainer = CGPoint(
+                x: min(max(rawPoint.x, 0), containerView.bounds.width),
+                y: min(max(rawPoint.y, 0), containerView.bounds.height)
+            )
             let targetScale: CGFloat = min(2.5, scrollView.maximumZoomScale)
             let width = scrollView.bounds.width / targetScale
             let height = scrollView.bounds.height / targetScale

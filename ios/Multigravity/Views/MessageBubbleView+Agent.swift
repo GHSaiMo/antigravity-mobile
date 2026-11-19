@@ -128,6 +128,11 @@ extension MessageBubbleView {
                 Section {
                     if !plainText.isEmpty {
                         Button {
+                            showTextSelectionSheet = true
+                        } label: {
+                            Label("选择文本", systemImage: "selection.pin.in.out")
+                        }
+                        Button {
                             copyWholeText(plainText)
                         } label: {
                             Label("复制全文", systemImage: "doc.on.doc")
@@ -142,13 +147,6 @@ extension MessageBubbleView {
                     }
                     if !plainText.isEmpty || !message.imageUrls.isEmpty {
                         shareLongImageButton
-                    }
-                    if !plainText.isEmpty {
-                        Button {
-                            showTextSelectionSheet = true
-                        } label: {
-                            Label("选择文本", systemImage: "selection.pin.in.out")
-                        }
                     }
                 }
             }
