@@ -34,6 +34,7 @@ import com.antigravity.mobile.ui.screen.ChatScreen
 import com.antigravity.mobile.ui.screen.ConversationListScreen
 import com.antigravity.mobile.ui.screen.PairingScreen
 import com.antigravity.mobile.ui.theme.AntigravityTheme
+import com.antigravity.mobile.ui.util.loc
 import com.antigravity.mobile.ui.viewmodel.ChatViewModel
 import com.antigravity.mobile.ui.viewmodel.ConversationListViewModel
 import com.antigravity.mobile.ui.viewmodel.PairingViewModel
@@ -163,7 +164,7 @@ class MainActivity : ComponentActivity() {
                 val scannedContent = result.contents
                 pairingViewModel.pairWithUri(scannedContent)
             } else {
-                Toast.makeText(this, "已取消扫码", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "已取消扫码".loc, Toast.LENGTH_SHORT).show()
             }
         }
 
@@ -188,7 +189,9 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val themeMode by prefs.themeModeFlow.collectAsState()
-            AntigravityTheme(themeMode = themeMode) {
+            val appLanguage by prefs.appLanguageFlow.collectAsState()
+            androidx.compose.runtime.key(appLanguage) {
+                AntigravityTheme(themeMode = themeMode) {
                 val navController = rememberNavController()
                 activeNavController = navController
 
@@ -339,7 +342,7 @@ class MainActivity : ComponentActivity() {
                                     !it.isPureChat && (it.name == currentWs || it.displayName == currentWs)
                                 } ?: com.antigravity.mobile.data.model.ProjectItem.PURE_CHAT
                                 val draft = conversationListViewModel.createLocalDraftSession(project)
-                                val draftTitle = if (project.isPureChat) "新对话" else project.displayName
+                                val draftTitle = if (project.isPureChat) "新对话".loc else project.displayName
                                 chatViewModel.prepareSession(
                                     cascadeId = draft.id,
                                     initialTitle = draftTitle,
@@ -360,6 +363,7 @@ class MainActivity : ComponentActivity() {
                 }
                 ShareOverlay(navController)
                 }
+            }
             }
         }
     }
@@ -396,12 +400,12 @@ class MainActivity : ComponentActivity() {
         setIntent(Intent(this, MainActivity::class.java))
         if (safe.isEmpty() && sharedText == null) {
             if (intent.action != Intent.ACTION_VIEW) {
-                Toast.makeText(this, "暂未识别到可接收的文件或文本", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "暂未识别到可接收的文件或文本".loc, Toast.LENGTH_SHORT).show()
             }
             return
         }
         if (!prefs.isPaired()) {
-            Toast.makeText(this, "请先完成配对，再分享内容到 Multigravity", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "请先完成配对，再分享内容到 Multigravity".loc, Toast.LENGTH_LONG).show()
             return
         }
         if (sharedText != null) {
@@ -411,7 +415,7 @@ class MainActivity : ComponentActivity() {
             lifecycleScope.launch(Dispatchers.IO) {
                 val staged = ShareInbox.stage(applicationContext, safe)
                 if (staged == 0 && sharedText == null) withContext(Dispatchers.Main) {
-                    Toast.makeText(this@MainActivity, "无法读取分享的文件", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@MainActivity, "无法读取分享的文件".loc, Toast.LENGTH_SHORT).show()
                 }
             }
         }
@@ -450,7 +454,7 @@ class MainActivity : ComponentActivity() {
                 onRemoveText = { ShareInbox.clearText() },
                 onSelectProject = { project ->
                     val draft = conversationListViewModel.createLocalDraftSession(project)
-                    val title = if (project.isPureChat) "新对话" else project.displayName
+                    val title = if (project.isPureChat) "新对话".loc else project.displayName
                     openChatForShare(draft.id, title, true, ConversationStatus.IDLE, null)
                 },
                 onSelectConversation = { item ->
@@ -469,9 +473,9 @@ class MainActivity : ComponentActivity() {
             )
         } else if (route == "conversations") {
             val pillLabel = when {
-                files.isNotEmpty() && !sharedText.isNullOrBlank() -> "文本与 ${files.size} 个文件待投递 · 选择去向"
-                !sharedText.isNullOrBlank() -> "分享文本待投递 · 选择去向"
-                else -> "${files.size} 个文件待投递 · 选择去向"
+                files.isNotEmpty() && !sharedText.isNullOrBlank() -> "文本与 ${files.size} 个文件待投递 · 选择去向".loc
+                !sharedText.isNullOrBlank() -> "分享文本待投递 · 选择去向".loc
+                else -> "${files.size} 个文件待投递 · 选择去向".loc
             }
             androidx.compose.foundation.layout.Box(
                 modifier = androidx.compose.ui.Modifier
@@ -540,7 +544,7 @@ class MainActivity : ComponentActivity() {
     private fun launchScanner() {
         val options = ScanOptions().apply {
             setDesiredBarcodeFormats(ScanOptions.QR_CODE)
-            setPrompt("将镜头对准电脑终端的配对二维码")
+            setPrompt("将镜头对准电脑终端的配对二维码".loc)
             setCameraId(0)
             setBeepEnabled(true)
             setBarcodeImageEnabled(false)

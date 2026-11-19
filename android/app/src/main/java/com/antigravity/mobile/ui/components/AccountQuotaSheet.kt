@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.components
 
+import com.antigravity.mobile.ui.util.loc
 import android.widget.Toast
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
@@ -203,7 +204,7 @@ fun AccountQuotaSheet(
                                     ShareImageUtils.saveBitmapToGallery(context, captureTokenHistoryBitmap())
                                 } catch (e: Throwable) {
                                     android.util.Log.e("AccountQuotaSheet", "Save token history failed", e)
-                                    Toast.makeText(context, "长图保存失败: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, "长图保存失败: ${e.localizedMessage}".loc, Toast.LENGTH_SHORT).show()
                                 } finally {
                                     isSavingTokenHistory = false
                                 }
@@ -224,7 +225,7 @@ fun AccountQuotaSheet(
                         } else {
                             Icon(
                                 imageVector = Icons.Default.FileDownload,
-                                contentDescription = "保存到相册",
+                                contentDescription = "保存到相册".loc,
                                 tint = if (tokenHistory == null) colors.textMuted else colors.accentBlue,
                                 modifier = Modifier.size(19.dp)
                             )
@@ -233,7 +234,7 @@ fun AccountQuotaSheet(
                 }
 
                 Text(
-                    text = "账户与配额",
+                    text = "账户与配额".loc,
                     fontWeight = FontWeight.Bold,
                     fontSize = 17.sp,
                     lineHeight = 20.sp,
@@ -290,7 +291,7 @@ fun AccountQuotaSheet(
                         } else {
                             Icon(
                                 imageVector = Icons.Default.Share,
-                                contentDescription = "分享",
+                                contentDescription = "分享".loc,
                                 tint = if (tokenHistory == null) colors.textMuted else colors.accentBlue,
                                 modifier = Modifier.size(19.dp)
                             )
@@ -310,7 +311,7 @@ fun AccountQuotaSheet(
                     .padding(3.dp),
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                listOf("实时配额", "Token 历史").forEachIndexed { idx, label ->
+                listOf("实时配额".loc, "Token 历史".loc).forEachIndexed { idx, label ->
                     val active = selectedTab == idx
                     Box(
                         modifier = Modifier
@@ -368,7 +369,7 @@ fun AccountQuotaSheet(
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Text(
-                                text = "当前使用账号",
+                                text = "当前使用账号".loc,
                                 color = colors.textSecondary,
                                 fontSize = 13.sp,
                                 lineHeight = 16.sp,
@@ -390,7 +391,7 @@ fun AccountQuotaSheet(
                                         .background(colors.accentBlue)
                                 )
                                 Text(
-                                    text = "使用中",
+                                    text = "使用中".loc,
                                     color = colors.accentBlue,
                                     fontSize = 11.sp,
                                     lineHeight = 13.sp,
@@ -426,7 +427,7 @@ fun AccountQuotaSheet(
                             modifier = Modifier.padding(horizontal = 4.dp)
                         ) {
                             Text(
-                                text = "备用账号",
+                                text = "备用账号".loc,
                                 color = colors.textSecondary,
                                 fontSize = 13.sp,
                                 lineHeight = 16.sp,
@@ -434,7 +435,7 @@ fun AccountQuotaSheet(
                                 style = tightTextStyle
                             )
                             Text(
-                                text = "多账号联动",
+                                text = "多账号联动".loc,
                                 color = colors.textMuted,
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Normal
@@ -454,7 +455,7 @@ fun AccountQuotaSheet(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = "未检测到 Cockpit Tools",
+                                    text = "未检测到 Cockpit Tools".loc,
                                     color = colors.textSecondary,
                                     fontSize = 14.sp,
                                     fontWeight = FontWeight.SemiBold
@@ -466,7 +467,7 @@ fun AccountQuotaSheet(
                                         .padding(horizontal = 6.dp, vertical = 2.dp)
                                 ) {
                                     Text(
-                                        text = "可选功能",
+                                        text = "可选功能".loc,
                                         color = colors.textSecondary,
                                         fontSize = 10.sp,
                                         fontWeight = FontWeight.Medium
@@ -475,7 +476,7 @@ fun AccountQuotaSheet(
                             }
 
                             Text(
-                                text = "• 单账号用户无需配置，当前额度已正常监控。\n• 若需管理多个 Antigravity 账号并在手机上一键切号，可配合开源工具 Cockpit Tools 与网关联动。",
+                                text = "• 单账号用户无需配置，当前额度已正常监控。\n• 若需管理多个 Antigravity 账号并在手机上一键切号，可配合开源工具 Cockpit Tools 与网关联动。".loc,
                                 color = colors.textMuted,
                                 fontSize = 12.sp,
                                 lineHeight = 17.sp
@@ -486,23 +487,23 @@ fun AccountQuotaSheet(
                                 horizontalArrangement = Arrangement.spacedBy(14.dp)
                             ) {
                                 Text(
-                                    text = "复制 GitHub 链接",
+                                    text = "复制 GitHub 链接".loc,
                                     color = colors.accentBlue,
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Medium,
                                     modifier = Modifier.clickable {
                                         clipboard.setText(androidx.compose.ui.text.AnnotatedString("https://github.com/jlcodes99/cockpit-tools"))
-                                        Toast.makeText(context, "GitHub 链接已复制", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, "GitHub 链接已复制".loc, Toast.LENGTH_SHORT).show()
                                     }
                                 )
                                 Text(
-                                    text = "复制 mgy cockpit 命令",
+                                    text = "复制 mgy cockpit 命令".loc,
                                     color = colors.textSecondary,
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Medium,
                                     modifier = Modifier.clickable {
                                         clipboard.setText(androidx.compose.ui.text.AnnotatedString("mgy cockpit"))
-                                        Toast.makeText(context, "命令已复制: mgy cockpit", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, "命令已复制: mgy cockpit".loc, Toast.LENGTH_SHORT).show()
                                     }
                                 )
                             }
@@ -515,7 +516,7 @@ fun AccountQuotaSheet(
                                     .padding(vertical = 2.dp)
                             ) {
                                 Text(
-                                    text = if (isGuideExpanded) "收起配置步骤 ▲" else "查看详细配置步骤 ▼",
+                                    text = if (isGuideExpanded) "收起配置步骤 ▲".loc else "查看详细配置步骤 ▼".loc,
                                     color = colors.textMuted,
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Medium
@@ -532,19 +533,19 @@ fun AccountQuotaSheet(
                                     verticalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
                                     Text(
-                                        text = "1. 下载安装：从 GitHub Releases 下载 Cockpit Tools 桌面端，在应用中添加/登录备用账号；",
+                                        text = "1. 下载安装：从 GitHub Releases 下载 Cockpit Tools 桌面端，在应用中添加/登录备用账号；".loc,
                                         color = colors.textMuted,
                                         fontSize = 11.sp,
                                         lineHeight = 16.sp
                                     )
                                     Text(
-                                        text = "2. 网关联动：在网关电脑终端运行 mgy cockpit，按回车一键开启 HTTP 报表服务与 Token 并重启；",
+                                        text = "2. 网关联动：在网关电脑终端运行 mgy cockpit，按回车一键开启 HTTP 报表服务与 Token 并重启；".loc,
                                         color = colors.textMuted,
                                         fontSize = 11.sp,
                                         lineHeight = 16.sp
                                     )
                                     Text(
-                                        text = "3. 手机刷新：在手机端下拉刷新，即可查看到所有备用账号的实时额度并自由切换。",
+                                        text = "3. 手机刷新：在手机端下拉刷新，即可查看到所有备用账号的实时额度并自由切换。".loc,
                                         color = colors.textMuted,
                                         fontSize = 11.sp,
                                         lineHeight = 16.sp
@@ -556,7 +557,7 @@ fun AccountQuotaSheet(
                 } else if (otherAccounts.isNotEmpty()) {
                     Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
                         Text(
-                            text = "备用账号 (${otherAccounts.size})",
+                            text = "备用账号 (${otherAccounts.size})".loc,
                             color = colors.textSecondary,
                             fontSize = 13.sp,
                             lineHeight = 16.sp,
@@ -583,7 +584,7 @@ fun AccountQuotaSheet(
                     val date = Date(timestamp)
                     val timeFmt = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
                     Text(
-                        text = "配额数据更新于 ${timeFmt.format(date)}",
+                        text = "配额数据更新于 ${timeFmt.format(date)}".loc,
                         color = colors.textMuted,
                         fontSize = 11.sp,
                         lineHeight = 14.sp,
@@ -638,14 +639,14 @@ fun AccountQuotaSheet(
             onDismissRequest = { pendingSwitchAccount = null },
             title = {
                 Text(
-                    text = "确认切换账号",
+                    text = "确认切换账号".loc,
                     color = colors.textPrimary,
                     fontWeight = FontWeight.Bold
                 )
             },
             text = {
                 Text(
-                    text = "切换到 ${if (isMasked) maskEmail(acc.email) else acc.email} 将关闭并重启电脑上的 Antigravity。",
+                    text = "切换到 ${if (isMasked) maskEmail(acc.email) else acc.email} 将关闭并重启电脑上的 Antigravity。".loc,
                     color = colors.textSecondary,
                     fontSize = 14.sp
                 )
@@ -660,12 +661,12 @@ fun AccountQuotaSheet(
                     colors = ButtonDefaults.buttonColors(containerColor = colors.accentBlue),
                     shape = RoundedCornerShape(10.dp)
                 ) {
-                    Text("切换并重启 Antigravity", fontWeight = FontWeight.SemiBold)
+                    Text("切换并重启 Antigravity".loc, fontWeight = FontWeight.SemiBold)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { pendingSwitchAccount = null }) {
-                    Text("取消", color = colors.textSecondary)
+                    Text("取消".loc, color = colors.textSecondary)
                 }
             },
             containerColor = colors.surface
@@ -1184,10 +1185,10 @@ private fun QuotaMetricCell(
         }
 
         // Countdown & reset description
-        val displayText = bucket?.resetCountdownDisplay?.takeIf { it.isNotBlank() } ?: "配额充足"
+        val displayText = bucket?.resetCountdownDisplay?.takeIf { it.isNotBlank() } ?: "配额充足".loc
         Text(
             text = displayText,
-            color = if (displayText == "配额充足") colors.textMuted.copy(alpha = 0.7f) else colors.textSecondary,
+            color = if (displayText == "配额充足".loc) colors.textMuted.copy(alpha = 0.7f) else colors.textSecondary,
             fontSize = 9.5.sp,
             lineHeight = 11.sp,
             style = CompactTextStyle,
@@ -1218,7 +1219,7 @@ private fun WeeklyPaceDetailDialog(
                         .background(if (info.isOverPacing) Color(0xFFFF9F0A) else colors.accentGreen)
                 )
                 Text(
-                    text = "$title 消耗节奏分析",
+                    text = "$title 消耗节奏分析".loc,
                     fontSize = 17.sp,
                     fontWeight = FontWeight.Bold,
                     color = colors.textPrimary
@@ -1249,16 +1250,16 @@ private fun WeeklyPaceDetailDialog(
                 ) {
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(
-                            text = if (info.isOverPacing) "⚠️ 消耗偏快 (超速透支)" else "✅ 节奏健康 (额度充裕)",
+                            text = if (info.isOverPacing) "⚠️ 消耗偏快 (超速透支)".loc else "✅ 节奏健康 (额度充裕)".loc,
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Bold,
                             color = if (info.isOverPacing) Color(0xFFFF9F0A) else colors.accentGreen
                         )
                         Text(
                             text = if (info.isOverPacing) {
-                                "当前额度已消耗 ${String.format(Locale.US, "%.1f%%", info.usedPercent)}，快于 ${info.windowLabel}时间匀速基准线 (${String.format(Locale.US, "%.1f%%", info.expectedUsedPercent)})。若保持此速率可能在周期结束前提前耗尽。"
+                                "当前额度已消耗 ${String.format(Locale.US, ".loc%.1f%%", info.usedPercent)}，快于 ${info.windowLabel}时间匀速基准线 (${String.format(Locale.US, ".loc%.1f%%", info.expectedUsedPercent)})。若保持此速率可能在周期结束前提前耗尽。".loc
                             } else {
-                                "当前额度已消耗 ${String.format(Locale.US, "%.1f%%", info.usedPercent)}，低于或符合 ${info.windowLabel}时间匀速基准线 (${String.format(Locale.US, "%.1f%%", info.expectedUsedPercent)})。剩余额度充足，无需担心断粮。"
+                                "当前额度已消耗 ${String.format(Locale.US, ".loc%.1f%%", info.usedPercent)}，低于或符合 ${info.windowLabel}时间匀速基准线 (${String.format(Locale.US, ".loc%.1f%%", info.expectedUsedPercent)})。剩余额度充足，无需担心断粮。".loc
                             },
                             fontSize = 12.sp,
                             lineHeight = 16.sp,
@@ -1276,24 +1277,24 @@ private fun WeeklyPaceDetailDialog(
                         .padding(12.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    PaceDetailRow("当前实际剩余", String.format(Locale.US, "%.1f%%", info.actualRemainingPercent), colors.textPrimary)
-                    PaceDetailRow("当前实际已用", String.format(Locale.US, "%.1f%%", info.usedPercent), colors.textPrimary)
+                    PaceDetailRow("当前实际剩余".loc, String.format(Locale.US, "%.1f%%", info.actualRemainingPercent), colors.textPrimary)
+                    PaceDetailRow("当前实际已用".loc, String.format(Locale.US, "%.1f%%", info.usedPercent), colors.textPrimary)
                     HorizontalDivider(thickness = 0.5.dp, color = colors.border.copy(alpha = 0.4f))
-                    PaceDetailRow("${info.windowLabel}匀速应剩 (游标位)", String.format(Locale.US, "%.1f%%", info.expectedRemainingPercent), colors.textSecondary)
-                    PaceDetailRow("${info.windowLabel}匀速应耗基准", String.format(Locale.US, "%.1f%%", info.expectedUsedPercent), colors.textSecondary)
+                    PaceDetailRow("${info.windowLabel}匀速应剩 (游标位)".loc, String.format(Locale.US, "%.1f%%", info.expectedRemainingPercent), colors.textSecondary)
+                    PaceDetailRow("${info.windowLabel}匀速应耗基准".loc, String.format(Locale.US, "%.1f%%", info.expectedUsedPercent), colors.textSecondary)
                     HorizontalDivider(thickness = 0.5.dp, color = colors.border.copy(alpha = 0.4f))
                     PaceDetailRow(
-                        label = "节奏差值 (实际 - 理论)",
+                        label = "节奏差值 (实际 - 理论)".loc,
                         value = (if (info.paceDeltaPercent >= 0) "+" else "") + String.format(Locale.US, "%.1f%%", info.paceDeltaPercent),
                         color = if (info.isOverPacing) Color(0xFFFF9F0A) else colors.accentGreen
                     )
-                    PaceDetailRow("重置倒计时", info.resetCountdownDisplay, colors.textSecondary)
+                    PaceDetailRow("重置倒计时".loc, info.resetCountdownDisplay, colors.textSecondary)
                 }
             }
         },
         confirmButton = {
             TextButton(onClick = onDismiss) {
-                Text("知道了", fontWeight = FontWeight.SemiBold, color = colors.accentBlue)
+                Text("知道了".loc, fontWeight = FontWeight.SemiBold, color = colors.accentBlue)
             }
         },
         containerColor = colors.surface
@@ -1339,7 +1340,7 @@ private fun IosSwitchButton(
         contentAlignment = Alignment.Center
     ) {
         Text(
-            text = "切换",
+            text = "切换".loc,
             color = Color.White,
             fontSize = 11.sp,
             lineHeight = 13.sp,

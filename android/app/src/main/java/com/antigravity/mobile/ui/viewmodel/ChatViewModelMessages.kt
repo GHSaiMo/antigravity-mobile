@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.viewmodel
 
+import com.antigravity.mobile.ui.util.loc
 import androidx.lifecycle.viewModelScope
 import com.antigravity.mobile.data.model.*
 import kotlinx.coroutines.launch
@@ -109,15 +110,15 @@ internal fun collapseAttemptErrors(list: List<GatewayMessageItem>): List<Gateway
     for (msg in list) {
         val last = result.lastOrNull()
         if (msg.isError && last != null && last.isError) {
-            val msgText = msg.effectiveText.ifBlank { "执行遇到错误" }
-            val lastText = last.effectiveText.ifBlank { "执行遇到错误" }
+            val msgText = msg.effectiveText.ifBlank { "执行遇到错误".loc }
+            val lastText = last.effectiveText.ifBlank { "执行遇到错误".loc }
             val parsed = parseAttemptError(msgText)
             val prevParsed = parseAttemptError(lastText)
 
             if (parsed.isAttempt && prevParsed.isAttempt && normalizeErrKey(prevParsed.baseError) == normalizeErrKey(parsed.baseError)) {
                 val newAttempt = maxOf(parsed.attempt, (last.attemptCount ?: prevParsed.attempt) + 1)
                 val maxAttempts = if (parsed.maxAttempts > 0) parsed.maxAttempts else (last.maxAttempts ?: 9)
-                val formatted = "${parsed.prefix} (attempt $newAttempt/$maxAttempts · 已重试 $newAttempt 次): ${parsed.baseError}"
+                val formatted = "${parsed.prefix} (attempt $newAttempt/$maxAttempts · 已重试 $newAttempt 次): ${parsed.baseError}".loc
                 result[result.size - 1] = last.copy(
                     text = formatted,
                     content = formatted,
@@ -129,7 +130,7 @@ internal fun collapseAttemptErrors(list: List<GatewayMessageItem>): List<Gateway
             } else if (parsed.isAttempt && normalizeErrKey(lastText) == normalizeErrKey(parsed.baseError)) {
                 val newAttempt = maxOf(parsed.attempt, (last.attemptCount ?: 1) + 1)
                 val maxAttempts = if (parsed.maxAttempts > 0) parsed.maxAttempts else 9
-                val formatted = "${parsed.prefix} (attempt $newAttempt/$maxAttempts · 已重试 $newAttempt 次): ${parsed.baseError}"
+                val formatted = "${parsed.prefix} (attempt $newAttempt/$maxAttempts · 已重试 $newAttempt 次): ${parsed.baseError}".loc
                 result[result.size - 1] = last.copy(
                     text = formatted,
                     content = formatted,
@@ -140,7 +141,7 @@ internal fun collapseAttemptErrors(list: List<GatewayMessageItem>): List<Gateway
                 continue
             } else if (!parsed.isAttempt && !prevParsed.isAttempt && normalizeErrKey(lastText) == normalizeErrKey(msgText)) {
                 val count = (last.attemptCount ?: 1) + 1
-                val formatted = "$msgText (已重试 $count 次)"
+                val formatted = "$msgText (已重试 $count 次)".loc
                 result[result.size - 1] = last.copy(
                     text = formatted,
                     content = formatted,
@@ -236,13 +237,13 @@ internal fun ChatViewModel.refreshMessages() {
                     val emptyTitle = if (_uiState.value.workspaceName.isNotBlank() && _uiState.value.workspaceName != "Chat") {
                         _uiState.value.workspaceName
                     } else {
-                        "新对话"
+                        "新对话".loc
                     }
                     _uiState.value = _uiState.value.copy(
                         messages = emptyList(),
                         stepCount = 0,
                         totalTools = 0,
-                        duration = "0秒",
+                        duration = "0秒".loc,
                         isNewConversation = true,
                         title = emptyTitle
                     )

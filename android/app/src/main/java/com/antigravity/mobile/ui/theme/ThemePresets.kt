@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.theme
 
+import com.antigravity.mobile.ui.util.loc
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
@@ -145,8 +146,8 @@ object ThemePresetCatalog {
 
     val defaultDark: ThemePreset = makePreset(
         id = "default-dark",
-        name = "深色",
-        description = "经典深邃紫蓝渐变",
+        name = "深色".loc,
+        description = "经典深邃紫蓝渐变".loc,
         isDark = true,
         isDefaultGroup = true,
         bg = Color(0xFF0F121C),
@@ -159,8 +160,8 @@ object ThemePresetCatalog {
 
     val defaultLight: ThemePreset = makePreset(
         id = "default-light",
-        name = "浅色",
-        description = "极简暖白纸感排版",
+        name = "浅色".loc,
+        description = "极简暖白纸感排版".loc,
         isDark = false,
         isDefaultGroup = true,
         bg = Color(0xFFFCFCFA),
@@ -177,7 +178,7 @@ object ThemePresetCatalog {
         makePreset(
             id = "solarized-light",
             name = "Solarized Light",
-            description = "经典低眩光暖沙色",
+            description = "经典低眩光暖沙色".loc,
             isDark = false,
             isDefaultGroup = false,
             bg = Color(0xFFFAF4E5),
@@ -198,7 +199,7 @@ object ThemePresetCatalog {
         makePreset(
             id = "nord",
             name = "Nord",
-            description = "极地冰蓝冷调暗色",
+            description = "极地冰蓝冷调暗色".loc,
             isDark = true,
             isDefaultGroup = false,
             bg = NordBackground,
@@ -221,7 +222,7 @@ object ThemePresetCatalog {
         makePreset(
             id = "tokyo-night",
             name = "Tokyo Night",
-            description = "东京夜色深靛蓝与霓虹蓝",
+            description = "东京夜色深靛蓝与霓虹蓝".loc,
             isDark = true,
             isDefaultGroup = false,
             bg = Color(0xFF1A1B26),
@@ -243,7 +244,7 @@ object ThemePresetCatalog {
         makePreset(
             id = "catppuccin-dark",
             name = "Catppuccin",
-            description = "Macchiato 柔和粉紫暮色",
+            description = "Macchiato 柔和粉紫暮色".loc,
             isDark = true,
             isDefaultGroup = false,
             bg = Color(0xFF24273A),
@@ -265,7 +266,7 @@ object ThemePresetCatalog {
         makePreset(
             id = "everforest-dark",
             name = "Everforest",
-            description = "松林暗绿与柔光暖字",
+            description = "松林暗绿与柔光暖字".loc,
             isDark = true,
             isDefaultGroup = false,
             bg = Color(0xFF2D353B),

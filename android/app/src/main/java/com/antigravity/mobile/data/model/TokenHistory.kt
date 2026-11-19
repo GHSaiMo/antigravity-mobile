@@ -1,5 +1,6 @@
 package com.antigravity.mobile.data.model
 
+import com.antigravity.mobile.ui.util.loc
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 

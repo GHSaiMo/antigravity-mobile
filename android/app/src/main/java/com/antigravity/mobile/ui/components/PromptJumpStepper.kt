@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.components
 
+import com.antigravity.mobile.ui.util.loc
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -72,7 +73,7 @@ fun PromptJumpStepper(
         ) {
             Icon(
                 imageVector = Icons.Default.KeyboardArrowUp,
-                contentDescription = "上一轮提问",
+                contentDescription = "上一轮提问".loc,
                 modifier = Modifier
                     .size(20.dp)
                     .alpha(if (isAtTop) 0.25f else 1.0f),
@@ -104,7 +105,7 @@ fun PromptJumpStepper(
         ) {
             Icon(
                 imageVector = if (isAtLastTurn) Icons.Default.KeyboardDoubleArrowDown else Icons.Default.KeyboardArrowDown,
-                contentDescription = if (isAtLastTurn) "直达最新消息" else "下一轮提问",
+                contentDescription = if (isAtLastTurn) "直达最新消息".loc else "下一轮提问".loc,
                 modifier = Modifier.size(if (isAtLastTurn) 19.dp else 20.dp),
                 tint = colors.textPrimary
             )

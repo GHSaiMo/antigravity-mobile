@@ -1167,7 +1167,7 @@ func buildRouter(
 
 		// Embedded web files for mobile PWA
 		if path == "/style.css" || strings.HasPrefix(path, "/js/") || path == "/mermaid.min.js" ||
-			path == "/manifest.json" || path == "/sw.js" || path == "/favicon.ico" || strings.HasPrefix(path, "/icons/") {
+			path == "/manifest.json" || path == "/manifest-en.json" || path == "/sw.js" || path == "/favicon.ico" || strings.HasPrefix(path, "/icons/") {
 			webHandler.ServeHTTP(w, r)
 			return
 		}

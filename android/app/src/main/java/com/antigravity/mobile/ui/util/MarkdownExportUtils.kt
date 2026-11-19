@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.util
 
+import com.antigravity.mobile.ui.util.loc
 import android.content.Context
 import android.content.Intent
 import androidx.core.content.FileProvider
@@ -39,7 +40,7 @@ object MarkdownExportUtils {
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
             context.startActivity(
-                Intent.createChooser(intent, "导出 Markdown").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                Intent.createChooser(intent, "导出 Markdown".loc).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             )
         }
     }

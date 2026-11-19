@@ -36,6 +36,9 @@ function htmlUnescape(str) {
 }
 
 function formatRelativeTime(dateStr) {
+  if (window.I18n && typeof window.I18n.formatRelativeTime === "function") {
+    return window.I18n.formatRelativeTime(dateStr);
+  }
   if (!dateStr) return "";
   const diff = (Date.now() - new Date(dateStr).getTime()) / 1000;
   if (diff < 60) return "刚刚";

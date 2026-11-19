@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.components
 
+import com.antigravity.mobile.ui.util.loc
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -87,9 +88,9 @@ fun SubagentsCard(
                     }
                     Text(
                         text = when {
-                            singleOpenable != null -> "${singleOpenable.displayName} · 点按查看"
-                            runningCount > 0 -> "$runningCount 个子代理运行中"
-                            else -> "${items.size} 个子代理"
+                            singleOpenable != null -> "${singleOpenable.displayName} · 点按查看".loc
+                            runningCount > 0 -> "$runningCount 个子代理运行中".loc
+                            else -> "${items.size} 个子代理".loc
                         },
                         color = colors.textPrimary,
                         fontSize = 14.sp,
@@ -116,7 +117,7 @@ fun SubagentsCard(
                 ) {
                     Icon(
                         imageVector = Icons.Default.KeyboardArrowDown,
-                        contentDescription = if (isExpanded) "折叠子代理" else "展开子代理",
+                        contentDescription = if (isExpanded) "折叠子代理".loc else "展开子代理".loc,
                         tint = colors.textSecondary,
                         modifier = Modifier.size(20.dp).rotate(if (isExpanded) 0f else 180f)
                     )
@@ -237,7 +238,7 @@ private fun SubagentInfo(item: SubagentItem) {
         }
         val meta = buildString {
             append(item.statusText)
-            item.stepCount?.takeIf { it > 0 }?.let { if (isNotEmpty()) append(" · "); append("$it 步") }
+            item.stepCount?.takeIf { it > 0 }?.let { if (isNotEmpty()) append(" · "); append("$it 步".loc) }
         }
         if (meta.isNotEmpty()) {
             Text(text = meta, color = colors.textSecondary, fontSize = 11.sp)
@@ -252,12 +253,12 @@ private fun SubagentInfo(item: SubagentItem) {
 private fun ConfirmStopSubagentDialog(name: String, onConfirm: () -> Unit, onDismiss: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("关停子代理？") },
-        text = { Text("「$name」正在进行的工作会被中断，已完成的内容会保留。") },
+        title = { Text("关停子代理？".loc) },
+        text = { Text("「$name」正在进行的工作会被中断，已完成的内容会保留。".loc) },
         confirmButton = {
-            TextButton(onClick = onConfirm) { Text("关停", color = AntigravityTheme.colors.accentRed) }
+            TextButton(onClick = onConfirm) { Text("关停".loc, color = AntigravityTheme.colors.accentRed) }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }
+        dismissButton = { TextButton(onClick = onDismiss) { Text("取消".loc) } }
     )
 }
 
@@ -282,21 +283,21 @@ fun SubagentReadOnlyBar(
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text("子代理会话 · 只读", color = colors.textPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                Text("子代理会话 · 只读".loc, color = colors.textPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                 role?.takeIf { it.isNotBlank() }?.let {
                     Text(it, color = colors.textSecondary, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
             if (isRunning && canStop) {
                 TextButton(onClick = { confirm = true }) {
-                    Text("关停", color = colors.accentRed, fontWeight = FontWeight.SemiBold)
+                    Text("关停".loc, color = colors.accentRed, fontWeight = FontWeight.SemiBold)
                 }
             }
         }
     }
     if (confirm) {
         ConfirmStopSubagentDialog(
-            name = role?.takeIf { it.isNotBlank() } ?: "子代理",
+            name = role?.takeIf { it.isNotBlank() } ?: "子代理".loc,
             onConfirm = { confirm = false; onStop() },
             onDismiss = { confirm = false }
         )
@@ -346,7 +347,7 @@ fun SubagentInlineCard(
             val meta = buildList {
                 item.typeName?.takeIf { it.isNotBlank() && it != item.displayName }?.let { add(it) }
                 if (item.status != "done") item.statusText.takeIf { it.isNotEmpty() }?.let { add(it) }
-                if (item.isRunning) item.stepCount?.takeIf { it > 0 }?.let { add("$it 步") }
+                if (item.isRunning) item.stepCount?.takeIf { it > 0 }?.let { add("$it 步".loc) }
             }.joinToString(" · ")
             if (meta.isNotEmpty()) {
                 Text(text = meta, color = colors.textSecondary, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)

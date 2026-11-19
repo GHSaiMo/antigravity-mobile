@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.components
 
+import com.antigravity.mobile.ui.util.loc
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
@@ -85,8 +86,8 @@ fun VoiceCallCard(
     }
 
     val statusTimerLabel = when (callState) {
-        VoiceCallState.CONNECTING -> "连接中"
-        VoiceCallState.RECONNECTING -> "重连中"
+        VoiceCallState.CONNECTING -> "连接中".loc
+        VoiceCallState.RECONNECTING -> "重连中".loc
         else -> {
             val minutes = durationSeconds / 60
             val seconds = durationSeconds % 60
@@ -102,8 +103,8 @@ fun VoiceCallCard(
 
     val effectiveTranscript = when {
         liveTranscriptText.isNotBlank() -> liveTranscriptText
-        callState == VoiceCallState.CONNECTING -> "正在准备麦克风与连接语音服务..."
-        callState == VoiceCallState.RECONNECTING -> "语音服务重连中..."
+        callState == VoiceCallState.CONNECTING -> "正在准备麦克风与连接语音服务...".loc
+        callState == VoiceCallState.RECONNECTING -> "语音服务重连中...".loc
         else -> ""
     }
     val effectiveRole = when {
@@ -144,7 +145,7 @@ fun VoiceCallCard(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = if (effectiveRole == VoiceTranscriptRole.AI) "AI" else "我",
+                        text = if (effectiveRole == VoiceTranscriptRole.AI) "AI" else "我".loc,
                         color = Color.White,
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold
@@ -258,7 +259,7 @@ fun VoiceCallCard(
                 ) {
                     Icon(
                         imageVector = if (isMicMuted) Icons.Default.MicOff else Icons.Default.Mic,
-                        contentDescription = if (isMicMuted) "取消静音麦克风" else "静音麦克风",
+                        contentDescription = if (isMicMuted) "取消静音麦克风".loc else "静音麦克风".loc,
                         tint = if (isMicMuted) Color.White else colors.textPrimary,
                         modifier = Modifier.size(14.dp)
                     )
@@ -277,7 +278,7 @@ fun VoiceCallCard(
                 ) {
                     Icon(
                         imageVector = if (isSpeakerMuted) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp,
-                        contentDescription = if (isSpeakerMuted) "开启AI外放" else "静音AI外放",
+                        contentDescription = if (isSpeakerMuted) "开启AI外放".loc else "静音AI外放".loc,
                         tint = if (isSpeakerMuted) Color.White else colors.textPrimary,
                         modifier = Modifier.size(14.dp)
                     )
@@ -297,7 +298,7 @@ fun VoiceCallCard(
                     ) {
                         Icon(
                             imageVector = Icons.Default.Stop,
-                            contentDescription = "停止当前任务",
+                            contentDescription = "停止当前任务".loc,
                             tint = Color.White,
                             modifier = Modifier.size(14.dp)
                         )

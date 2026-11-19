@@ -918,23 +918,25 @@ function updateChatControls(isRunning, wsUri, hasAction = false) {
 
     if (inVoiceCall && !hasContent) {
       sendBtn.className = "btn-action-circle hangup-mode";
-      sendBtn.title = "挂断实时语音通话";
-      sendBtn.setAttribute("aria-label", "挂断实时语音通话");
+      sendBtn.title = typeof t === "function" ? t("挂断实时语音通话") : "挂断实时语音通话";
+      sendBtn.setAttribute("aria-label", sendBtn.title);
       showOnlyIcon(iconHangup);
     } else if (hasContent || (!isRunning && !voiceEnabled)) {
       sendBtn.className = "btn-action-circle send-mode" + (hasContent ? " active" : "");
-      sendBtn.title = isRunning ? "加入待发送队列" : "发送";
-      sendBtn.setAttribute("aria-label", isRunning ? "加入待发送队列" : "发送");
+      sendBtn.title = isRunning
+        ? (typeof t === "function" ? t("加入待发送队列") : "加入待发送队列")
+        : (typeof t === "function" ? t("发送") : "发送");
+      sendBtn.setAttribute("aria-label", sendBtn.title);
       showOnlyIcon(iconSend);
     } else if (isRunning) {
       sendBtn.className = "btn-action-circle stop-mode";
-      sendBtn.title = "停止任务";
-      sendBtn.setAttribute("aria-label", "停止任务");
+      sendBtn.title = typeof t === "function" ? t("停止任务") : "停止任务";
+      sendBtn.setAttribute("aria-label", sendBtn.title);
       showOnlyIcon(iconStop);
     } else {
       sendBtn.className = "btn-action-circle voice-mode";
-      sendBtn.title = "实时语音对话";
-      sendBtn.setAttribute("aria-label", "实时语音对话");
+      sendBtn.title = typeof t === "function" ? t("实时语音对话") : "实时语音对话";
+      sendBtn.setAttribute("aria-label", sendBtn.title);
       showOnlyIcon(iconVoice);
     }
   }
@@ -1549,7 +1551,7 @@ function getItemFingerprint(item, isRunning, isLastItem) {
 }
 
 function formatToolName(name) {
-  if (!name) return "工具操作";
+  if (!name) return typeof t === "function" ? t("工具操作") : "工具操作";
   const raw = String(name).trim();
   const lower = raw.toLowerCase();
   const map = {
@@ -1587,7 +1589,7 @@ function formatToolName(name) {
     "tool_call": "工具操作",
     "action": "操作"
   };
-  if (map[lower]) return map[lower];
+  if (map[lower]) return typeof t === "function" ? t(map[lower]) : map[lower];
   if (lower.startsWith("mcp_")) return `MCP: ${raw.slice(4)}`;
   return raw;
 }

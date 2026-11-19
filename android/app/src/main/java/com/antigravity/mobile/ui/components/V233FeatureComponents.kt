@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.components
 
+import com.antigravity.mobile.ui.util.loc
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -291,7 +292,7 @@ fun GitHubPRDetailBottomSheet(
             }
 
             item?.authorLogin?.takeIf { it.isNotBlank() }?.let { author ->
-                Text(text = "作者 @$author", color = colors.textSecondary, fontSize = 13.sp)
+                Text(text = "作者 @$author".loc, color = colors.textSecondary, fontSize = 13.sp)
             }
 
             item?.body?.takeIf { it.isNotBlank() }?.let { body ->
@@ -310,7 +311,7 @@ fun GitHubPRDetailBottomSheet(
             ) {
                 Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(6.dp))
-                Text("在浏览器中打开 Pull Request", fontWeight = FontWeight.SemiBold)
+                Text("在浏览器中打开 Pull Request".loc, fontWeight = FontWeight.SemiBold)
             }
         }
     }
@@ -342,8 +343,8 @@ fun WorkspaceTrustBanner(
             modifier = Modifier.size(18.dp)
         )
         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text("当前工作区尚未受信任", color = colors.textPrimary, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold)
-            Text("部分文件与工具操作会受限，可一键授予信任。", color = colors.textSecondary, fontSize = 11.sp)
+            Text("当前工作区尚未受信任".loc, color = colors.textPrimary, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold)
+            Text("部分文件与工具操作会受限，可一键授予信任。".loc, color = colors.textSecondary, fontSize = 11.sp)
         }
         Button(
             onClick = onTrust,
@@ -354,7 +355,7 @@ fun WorkspaceTrustBanner(
             if (isUpdating) {
                 CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp, color = Color.White)
             } else {
-                Text("信任", fontSize = 12.sp, color = Color.White, fontWeight = FontWeight.SemiBold)
+                Text("信任".loc, fontSize = 12.sp, color = Color.White, fontWeight = FontWeight.SemiBold)
             }
         }
     }
@@ -424,8 +425,8 @@ fun BtwSideQuestionBottomSheet(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Text("/btw 旁路快问", color = colors.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                TextButton(onClick = onDismiss) { Text("关闭") }
+                Text("/btw 旁路快问".loc, color = colors.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                TextButton(onClick = onDismiss) { Text("关闭".loc) }
             }
 
             Column(
@@ -449,8 +450,8 @@ fun BtwSideQuestionBottomSheet(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text("引用片段", color = colors.accentIndigo, fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold)
-                            Text("清除", color = colors.textSecondary, fontSize = 11.5.sp, modifier = Modifier.clickable { quoteText = "" })
+                            Text("引用片段".loc, color = colors.accentIndigo, fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold)
+                            Text("清除".loc, color = colors.textSecondary, fontSize = 11.5.sp, modifier = Modifier.clickable { quoteText = "" })
                         }
                         Text(quoteText, color = colors.textSecondary, fontSize = 12.sp, maxLines = 4, overflow = TextOverflow.Ellipsis)
                     }
@@ -519,7 +520,7 @@ fun BtwSideQuestionBottomSheet(
                                 .padding(10.dp)
                         ) {
                             Text(
-                                text = if (showThinking) "▼ 深度思考" else "▶ 深度思考",
+                                text = if (showThinking) "▼ 深度思考".loc else "▶ 深度思考".loc,
                                 color = colors.textSecondary,
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Medium
@@ -568,26 +569,26 @@ fun BtwSideQuestionBottomSheet(
                                 modifier = Modifier.weight(1f),
                                 colors = ButtonDefaults.buttonColors(containerColor = colors.accentIndigo)
                             ) {
-                                Text("插入主对话", fontWeight = FontWeight.SemiBold)
+                                Text("插入主对话".loc, fontWeight = FontWeight.SemiBold)
                             }
                             if (onOpenStandalone != null) {
                                 OutlinedButton(onClick = {
                                     onDismiss()
                                     onOpenStandalone(st.cascadeId)
                                 }) {
-                                    Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = "在独立会话打开", modifier = Modifier.size(16.dp))
+                                    Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = "在独立会话打开".loc, modifier = Modifier.size(16.dp))
                                 }
                             }
                         }
                     } else if (st.isRunning) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = colors.accentIndigo)
-                            Text("旁路快问正在生成回复...", color = colors.textSecondary, fontSize = 13.sp)
+                            Text("旁路快问正在生成回复...".loc, color = colors.textSecondary, fontSize = 13.sp)
                         }
                     }
                 } else if (!isStarting && entries.isEmpty()) {
                     Text(
-                        text = "随时在不打断主任务流的前提下发起旁路提问，结果可一键引用插入主对话输入框。",
+                        text = "随时在不打断主任务流的前提下发起旁路提问，结果可一键引用插入主对话输入框。".loc,
                         color = colors.textSecondary,
                         fontSize = 12.5.sp,
                         modifier = Modifier
@@ -609,7 +610,7 @@ fun BtwSideQuestionBottomSheet(
                 OutlinedTextField(
                     value = questionText,
                     onValueChange = { questionText = it },
-                    placeholder = { Text("输入旁路快问（/btw）...", fontSize = 14.sp) },
+                    placeholder = { Text("输入旁路快问（/btw）...".loc, fontSize = 14.sp) },
                     modifier = Modifier.weight(1f),
                     maxLines = 3
                 )
@@ -642,7 +643,7 @@ fun BtwSideQuestionBottomSheet(
                                 entries = entries + entry
                                 activeSideId = res.cascadeId
                             }.onFailure { err ->
-                                errorMsg = err.message ?: "启动旁路快问失败"
+                                errorMsg = err.message ?: "启动旁路快问失败".loc
                             }
                             isStarting = false
                         }
@@ -655,7 +656,7 @@ fun BtwSideQuestionBottomSheet(
                     if (isStarting) {
                         CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = Color.White)
                     } else {
-                        Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "发送", tint = Color.White, modifier = Modifier.size(18.dp))
+                        Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "发送".loc, tint = Color.White, modifier = Modifier.size(18.dp))
                     }
                 }
             }

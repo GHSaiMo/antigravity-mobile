@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.components
 
+import com.antigravity.mobile.ui.util.loc
 import android.content.Intent
 import android.net.Uri
 import java.net.URLDecoder
@@ -306,7 +307,7 @@ internal fun buildRichTextRenderData(
             val clean = rawPath.trim('`', '"', '\'', '(', ')', '[', ']', '<', '>')
             val fn = clean.substringAfterLast('/')
             val linkTarget = if (clean.startsWith("file://") || clean.startsWith("http://") || clean.startsWith("https://")) clean else "file://$clean"
-            val actionText = if (com.antigravity.mobile.data.service.FileIconResolver.isVideo(clean)) "点击预览并播放视频" else "点击放大查看图片"
+            val actionText = if (com.antigravity.mobile.data.service.FileIconResolver.isVideo(clean)) "点击预览并播放视频".loc else "点击放大查看图片".loc
             "\n[$actionText ($fn)]($linkTarget)"
         }
     }

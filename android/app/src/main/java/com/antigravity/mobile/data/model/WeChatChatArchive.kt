@@ -1,5 +1,6 @@
 package com.antigravity.mobile.data.model
 
+import com.antigravity.mobile.ui.util.loc
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -29,7 +30,7 @@ data class WeChatChatMessage(
 @Serializable
 data class WeChatChatArchive(
     @SerialName("is_wechat_archive") val isWeChatArchive: Boolean = false,
-    val title: String = "群聊的聊天记录",
+    val title: String = "群聊的聊天记录".loc,
     @SerialName("date_range") val dateRange: String = "",
     @SerialName("is_multi_day") val isMultiDay: Boolean = false,
     @SerialName("file_name") val fileName: String = "",

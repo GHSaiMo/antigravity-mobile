@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.components
 
+import com.antigravity.mobile.ui.util.loc
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -53,10 +54,10 @@ private fun linkColor(state: LinkHealthState): Color {
 }
 
 private fun linkDescription(state: LinkHealthState) = when (state) {
-    LinkHealthState.UNKNOWN -> "正在连接电脑"
-    LinkHealthState.CONNECTED -> "已连接电脑"
-    LinkHealthState.ATTENTION -> "连接异常"
-    LinkHealthState.DISCONNECTED -> "已断开"
+    LinkHealthState.UNKNOWN -> "正在连接电脑".loc
+    LinkHealthState.CONNECTED -> "已连接电脑".loc
+    LinkHealthState.ATTENTION -> "连接异常".loc
+    LinkHealthState.DISCONNECTED -> "已断开".loc
 }
 
 /** Small heartbeat dot for the right edge of the home quota bar; pulses on every gateway heartbeat. */
@@ -105,21 +106,21 @@ fun LinkHealthDetailCard(snapshot: LinkSnapshot, onReconnect: () -> Unit, modifi
     val now = rememberNowMs()
     val state = LinkHealth.evaluate(snapshot, now)
     val title = when (state) {
-        LinkHealthState.UNKNOWN -> "连接中"
-        LinkHealthState.CONNECTED -> "已连接电脑"
-        LinkHealthState.ATTENTION -> "连接不稳或电脑端未就绪"
-        LinkHealthState.DISCONNECTED -> "未连接"
+        LinkHealthState.UNKNOWN -> "连接中".loc
+        LinkHealthState.CONNECTED -> "已连接电脑".loc
+        LinkHealthState.ATTENTION -> "连接不稳或电脑端未就绪".loc
+        LinkHealthState.DISCONNECTED -> "未连接".loc
     }
     val beatAge = snapshot.lastBeatAtMs?.let { ((now - it) / 1000).coerceAtLeast(0) }
     val beatText = when {
         beatAge == null -> "—"
-        beatAge < 2 -> "刚刚"
-        else -> "${beatAge} 秒前"
+        beatAge < 2 -> "刚刚".loc
+        else -> "${beatAge} 秒前".loc
     }
     val desktopText = when (snapshot.desktop) {
-        "ok" -> "已就绪"
-        "down" -> "未就绪(请确认电脑端 Antigravity 已打开)"
-        else -> "未知"
+        "ok" -> "已就绪".loc
+        "down" -> "未就绪(请确认电脑端 Antigravity 已打开)".loc
+        else -> "未知".loc
     }
     Column(
         modifier = modifier
@@ -139,11 +140,11 @@ fun LinkHealthDetailCard(snapshot: LinkSnapshot, onReconnect: () -> Unit, modifi
                 modifier = Modifier.weight(1f)
             )
             OutlinedButton(onClick = onReconnect, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)) {
-                Text("立即重连", fontSize = 12.sp)
+                Text("立即重连".loc, fontSize = 12.sp)
             }
         }
         Text(
-            text = "最近心跳 $beatText · 电脑端 $desktopText",
+            text = "最近心跳 $beatText · 电脑端 $desktopText".loc,
             color = colors.textSecondary,
             fontSize = 12.sp
         )

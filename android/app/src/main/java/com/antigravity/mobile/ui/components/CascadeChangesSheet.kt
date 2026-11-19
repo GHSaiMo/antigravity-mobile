@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.components
 
+import com.antigravity.mobile.ui.util.loc
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -75,7 +76,7 @@ fun CascadeChangesSheet(
 
                 // Header title: Centered, no icon, aligned with NewConversationSheet
                 Text(
-                    text = "本会话改动",
+                    text = "本会话改动".loc,
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold,
                     color = colors.textPrimary,
@@ -104,14 +105,14 @@ fun CascadeChangesSheet(
                             ) {
                                 CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = colors.accentIndigo)
                                 Spacer(Modifier.width(10.dp))
-                                Text("正在汇总代码改动...", fontSize = 13.sp, color = colors.textMuted)
+                                Text("正在汇总代码改动...".loc, fontSize = 13.sp, color = colors.textMuted)
                             }
                         }
                         state.error != null -> {
                             ChangesNotice(state.error, isError = true)
                         }
                         data == null || !data.hasChanges -> {
-                            ChangesNotice("本会话没有产生文件改动", isError = false)
+                            ChangesNotice("本会话没有产生文件改动".loc, isError = false)
                         }
                         else -> {
                             Row(
@@ -119,7 +120,7 @@ fun CascadeChangesSheet(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                Text("${data.files.size} 个文件", fontSize = 13.sp, color = colors.textSecondary)
+                                Text("${data.files.size} 个文件".loc, fontSize = 13.sp, color = colors.textSecondary)
                                 Text("+${data.additions}", fontSize = 13.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace, color = Color(0xFF4CAF50))
                                 Text("-${data.deletions}", fontSize = 13.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace, color = Color(0xFFF44336))
                             }

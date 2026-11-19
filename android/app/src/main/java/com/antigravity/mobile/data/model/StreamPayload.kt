@@ -1,5 +1,6 @@
 package com.antigravity.mobile.data.model
 
+import com.antigravity.mobile.ui.util.loc
 import android.util.Base64
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -170,7 +171,7 @@ data class RunningTaskItem(
             ?: toolAction?.takeIf { it.isNotBlank() }
             ?: toolName?.takeIf { it.isNotBlank() }?.let { com.antigravity.mobile.ui.util.ToolLocalization.localizedName(it) }
             ?: type.takeIf { it.isNotBlank() }?.let { com.antigravity.mobile.ui.util.ToolLocalization.localizedName(it) }
-            ?: "运行终端命令"
+            ?: "运行终端命令".loc
 
     val displayCommand: String
         get() = commandLine.takeIf { it.isNotBlank() }
@@ -211,9 +212,9 @@ data class SubagentItem(
 
     val statusText: String
         get() = when (status) {
-            "running" -> "运行中"
-            "gone" -> "已清理"
-            "done" -> "已结束"
+            "running" -> "运行中".loc
+            "gone" -> "已清理".loc
+            "done" -> "已结束".loc
             else -> ""
         }
 }

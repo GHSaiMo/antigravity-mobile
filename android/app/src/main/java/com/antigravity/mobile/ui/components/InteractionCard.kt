@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.components
 
+import com.antigravity.mobile.ui.util.loc
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Spring
@@ -132,18 +133,18 @@ fun InteractionCard(
         else -> colors.accentOrange
     }
 
-    val singleQuestionTitle = interaction.title.ifBlank { interaction.prompt ?: "需要用户审批操作" }
+    val singleQuestionTitle = interaction.title.ifBlank { interaction.prompt ?: "需要用户审批操作".loc }
     val isLongSingleQuestion = !hasMultipleQuestions && (singleQuestionTitle.contains("\n") || singleQuestionTitle.length > 48)
     val compactCategoryTitle = when {
-        pg != null -> "权限确认"
-        interaction.type == "browser_download" -> "下载确认"
-        interaction.type == "approval" -> "操作确认"
-        interaction.type == "mcp" -> "MCP 工具确认"
-        interaction.type == "elicitation" -> "补充信息"
-        interaction.type == "permission" || interaction.type == "file_permission" -> "权限确认"
-        interaction.type == "ask_question" -> "询问用户"
-        interaction.type == "run_command" -> "执行命令"
-        else -> "需要确认"
+        pg != null -> "权限确认".loc
+        interaction.type == "browser_download" -> "下载确认".loc
+        interaction.type == "approval" -> "操作确认".loc
+        interaction.type == "mcp" -> "MCP 工具确认".loc
+        interaction.type == "elicitation" -> "补充信息".loc
+        interaction.type == "permission" || interaction.type == "file_permission" -> "权限确认".loc
+        interaction.type == "ask_question" -> "询问用户".loc
+        interaction.type == "run_command" -> "执行命令".loc
+        else -> "需要确认".loc
     }
 
     // 默认自适应高度，只有超出半屏才截断至半屏，支持一键扩展到会话全屏（严格不超过可用高度，避免遮挡顶栏或挤没底部按钮）
@@ -227,7 +228,7 @@ fun InteractionCard(
                     )
                     Text(
                         text = when {
-                            hasMultipleQuestions -> "需要确认规格 (${questions?.size} 个问题)"
+                            hasMultipleQuestions -> "需要确认规格 (${questions?.size} 个问题)".loc
                             isLongSingleQuestion -> compactCategoryTitle
                             else -> singleQuestionTitle
                         },
@@ -252,14 +253,14 @@ fun InteractionCard(
                         horizontalArrangement = Arrangement.spacedBy(3.dp)
                     ) {
                         Text(
-                            text = if (isExpanded) "收起" else "展开",
+                            text = if (isExpanded) "收起".loc else "展开".loc,
                             color = colors.textSecondary,
                             fontSize = 11.5.sp,
                             fontWeight = FontWeight.Medium
                         )
                         Icon(
                             imageVector = Icons.Default.KeyboardArrowUp,
-                            contentDescription = if (isExpanded) "收起为半屏" else "一键全屏",
+                            contentDescription = if (isExpanded) "收起为半屏".loc else "一键全屏".loc,
                             tint = colors.textSecondary,
                             modifier = Modifier
                                 .size(16.dp)
@@ -327,7 +328,7 @@ fun InteractionCard(
                             }
 
                             Text(
-                                text = "操作: ${pg.action}",
+                                text = "操作: ${pg.action}".loc,
                                 color = colors.textPrimary,
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Medium
@@ -337,7 +338,7 @@ fun InteractionCard(
                         if (!pg.repo.isNullOrBlank() || !pg.org.isNullOrBlank()) {
                             val repoText = if (!pg.org.isNullOrBlank() && !pg.repo.isNullOrBlank()) "${pg.org}/${pg.repo}" else (pg.repo ?: "")
                             Text(
-                                text = "仓库: $repoText",
+                                text = "仓库: $repoText".loc,
                                 color = colors.textSecondary,
                                 fontSize = 11.5.sp,
                                 fontFamily = FontFamily.Monospace
@@ -346,7 +347,7 @@ fun InteractionCard(
 
                         if (!pg.branch.isNullOrBlank()) {
                             Text(
-                                text = "目标分支: ${pg.branch}",
+                                text = "目标分支: ${pg.branch}".loc,
                                 color = colors.textSecondary,
                                 fontSize = 11.5.sp,
                                 fontFamily = FontFamily.Monospace
@@ -461,7 +462,7 @@ fun InteractionCard(
                     ),
                     shape = RoundedCornerShape(10.dp)
                 ) {
-                    Text("跳过")
+                    Text("跳过".loc)
                 }
 
                 Button(
@@ -490,7 +491,7 @@ fun InteractionCard(
                     ),
                     shape = RoundedCornerShape(10.dp)
                 ) {
-                    Text("提交")
+                    Text("提交".loc)
                 }
             }
         }
@@ -578,7 +579,7 @@ private fun OptionRow(
     isWriteIn: Boolean = false,
     writeInText: String = "",
     onWriteInChange: (String) -> Unit = {},
-    placeholderText: String = "输入自定义回答..."
+    placeholderText: String = "输入自定义回答...".loc
 ) {
     val colors = AntigravityTheme.colors
     val focusRequester = remember { FocusRequester() }
@@ -745,13 +746,13 @@ fun ProceedBanner(
         ) {
             Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
                 Text(
-                    text = "📋 实施方案已就绪",
+                    text = "📋 实施方案已就绪".loc,
                     color = colors.accentBlue,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = "点击 Proceed 开始自动化代码实施",
+                    text = "点击 Proceed 开始自动化代码实施".loc,
                     color = colors.textSecondary,
                     fontSize = 12.sp
                 )
@@ -778,22 +779,22 @@ fun ProceedBanner(
 }
 
 private fun resolveWriteInLabel(raw: String?): String {
-    if (raw.isNullOrBlank()) return "自定义输入"
+    if (raw.isNullOrBlank()) return "自定义输入".loc
     val lower = raw.trim().lowercase()
     return when {
-        lower == "other" || lower == "write in" || lower == "write in..." -> "自定义输入"
+        lower == "other" || lower == "write in" || lower == "write in..." -> "自定义输入".loc
         else -> raw
     }
 }
 
 private fun resolveWriteInPlaceholder(raw: String?, isDeny: Boolean): String {
     if (raw.isNullOrBlank()) {
-        return if (isDeny) "告诉 Agent 应该怎么做..." else "输入自定义回答..."
+        return if (isDeny) "告诉 Agent 应该怎么做...".loc else "输入自定义回答...".loc
     }
     val lower = raw.trim().lowercase()
     return when {
-        lower.contains("write in your response") || lower.contains("write in") -> "输入自定义回答..."
-        lower.contains("tell the agent") || lower.contains("what to do instead") -> "告诉 Agent 应该怎么做..."
+        lower.contains("write in your response") || lower.contains("write in") -> "输入自定义回答...".loc
+        lower.contains("tell the agent") || lower.contains("what to do instead") -> "告诉 Agent 应该怎么做...".loc
         else -> raw
     }
 }

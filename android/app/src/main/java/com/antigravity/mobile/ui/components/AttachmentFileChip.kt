@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.components
 
+import com.antigravity.mobile.ui.util.loc
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -50,7 +51,7 @@ internal fun FileTypeBadge(fileName: String, size: androidx.compose.ui.unit.Dp =
     if (FileIconResolver.isWeChatChatArchive(fileName)) {
         Image(
             painter = painterResource(id = R.drawable.ic_file_wechat),
-            contentDescription = "微信聊天记录",
+            contentDescription = "微信聊天记录".loc,
             contentScale = ContentScale.Crop,
             modifier = Modifier
                 .size(size)
@@ -132,7 +133,7 @@ fun AttachmentFileChip(
                             .background(Color.Black.copy(alpha = 0.45f)),
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(Icons.Default.Refresh, contentDescription = "重试上传", tint = Color.White, modifier = Modifier.size(20.dp))
+                        Icon(Icons.Default.Refresh, contentDescription = "重试上传".loc, tint = Color.White, modifier = Modifier.size(20.dp))
                     }
                 }
             }
@@ -146,12 +147,12 @@ fun AttachmentFileChip(
                     overflow = TextOverflow.Ellipsis
                 )
                 val sizeLabel = formatFileSize(file.size)
-                val baseSubtitle = if (FileIconResolver.isWeChatChatArchive(file.name)) "微信聊天记录 · $sizeLabel" else sizeLabel
+                val baseSubtitle = if (FileIconResolver.isWeChatChatArchive(file.name)) "微信聊天记录 · $sizeLabel".loc else sizeLabel
                 Text(
                     text = when (file.state) {
-                        UploadState.FAILED -> "上传失败，点按重试"
+                        UploadState.FAILED -> "上传失败，点按重试".loc
                         UploadState.DONE -> baseSubtitle
-                        else -> "$baseSubtitle · 上传中"
+                        else -> "$baseSubtitle · 上传中".loc
                     },
                     color = if (file.state == UploadState.FAILED) colors.accentRed else colors.textMuted,
                     fontSize = 11.sp,
@@ -170,7 +171,7 @@ fun AttachmentFileChip(
                 .clickable { onRemove() },
             contentAlignment = Alignment.Center
         ) {
-            Icon(Icons.Default.Close, contentDescription = "移除文件", tint = Color.White, modifier = Modifier.size(12.dp))
+            Icon(Icons.Default.Close, contentDescription = "移除文件".loc, tint = Color.White, modifier = Modifier.size(12.dp))
         }
     }
 }

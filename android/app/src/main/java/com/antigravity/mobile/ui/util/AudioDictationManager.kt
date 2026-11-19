@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.util
 
+import com.antigravity.mobile.ui.util.loc
 import android.annotation.SuppressLint
 import android.content.Context
 import android.media.AudioFormat
@@ -51,7 +52,7 @@ class AudioDictationManager(private val apiClient: ApiClient) {
         committedText = initialText.trim()
         currentInterim = ""
         val base = apiClient.currentBaseUrl ?: run {
-            onError("未配置网关地址")
+            onError("未配置网关地址".loc)
             return
         }
         val wsBase = base.replaceFirst("https://", "wss://").replaceFirst("http://", "ws://").trimEnd('/')
@@ -73,13 +74,13 @@ class AudioDictationManager(private val apiClient: ApiClient) {
                 minBuf * 2
             )
         } catch (e: Exception) {
-            onError("无法访问麦克风: ${e.message}")
+            onError("无法访问麦克风: ${e.message}".loc)
             return
         }
 
         if (record.state != AudioRecord.STATE_INITIALIZED) {
             record.release()
-            onError("麦克风初始化失败")
+            onError("麦克风初始化失败".loc)
             return
         }
 
@@ -120,7 +121,7 @@ class AudioDictationManager(private val apiClient: ApiClient) {
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                 Log.w("Dictation", "WS failed: ${t.message}")
                 if (_isDictating.value) {
-                    onError("语音识别连接中断")
+                    onError("语音识别连接中断".loc)
                     stop()
                 }
             }
@@ -129,7 +130,7 @@ class AudioDictationManager(private val apiClient: ApiClient) {
         try {
             record.startRecording()
         } catch (e: Exception) {
-            onError("启动录音失败: ${e.message}")
+            onError("启动录音失败: ${e.message}".loc)
             stop()
             return
         }
@@ -198,7 +199,7 @@ class NarrationAudioPlayer(private val context: Context, private val apiClient: 
         if (cleaned.isEmpty()) return
         stop()
         _isPlaying.value = true
-        _statusLabel.value = "正在合成语音…"
+        _statusLabel.value = "正在合成语音…".loc
         playJob = scope.launch {
             val res = apiClient.synthesizeNarrationAudio(cleaned)
             res.onSuccess { bytes ->
@@ -220,7 +221,7 @@ class NarrationAudioPlayer(private val context: Context, private val apiClient: 
                         start()
                     }
                     mediaPlayer = mp
-                    _statusLabel.value = "语音播报中"
+                    _statusLabel.value = "语音播报中".loc
                 } catch (_: Exception) {
                     speakWithSystemTts(cleaned)
                 }
@@ -231,7 +232,7 @@ class NarrationAudioPlayer(private val context: Context, private val apiClient: 
     }
 
     private fun speakWithSystemTts(text: String) {
-        _statusLabel.value = "系统朗读中"
+        _statusLabel.value = "系统朗读中".loc
         var engine: TextToSpeech? = null
         engine = TextToSpeech(context) { status ->
             if (status == TextToSpeech.SUCCESS) {

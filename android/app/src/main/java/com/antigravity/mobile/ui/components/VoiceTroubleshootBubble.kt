@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.components
 
+import com.antigravity.mobile.ui.util.loc
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -33,9 +34,9 @@ fun VoiceTroubleshootBubble(
     val amberWarning = Color(0xFFF59E0B)
 
     val checklistItems = listOf(
-        "**重新登录**：退出 Antigravity 登录，完全关闭后重新打开并登录，授权页勾选全部权限",
-        "**开启代理 TUN 模式**：确保 `*.googleapis.com` 长连接（HTTP/2、gRPC）正常转发",
-        "**检查电脑麦克风**：系统麦克风权限已开启，默认录音设备正常且未被占用"
+        "**重新登录**：退出 Antigravity 登录，完全关闭后重新打开并登录，授权页勾选全部权限".loc,
+        "**开启代理 TUN 模式**：确保 `*.googleapis.com` 长连接（HTTP/2、gRPC）正常转发".loc,
+        "**检查电脑麦克风**：系统麦克风权限已开启，默认录音设备正常且未被占用".loc
     )
 
     Column(
@@ -63,7 +64,7 @@ fun VoiceTroubleshootBubble(
                 modifier = Modifier.size(20.dp)
             )
             Text(
-                text = "当前无法连接语音",
+                text = "当前无法连接语音".loc,
                 color = colors.textPrimary,
                 fontSize = 16.5.sp,
                 fontWeight = FontWeight.Bold
@@ -71,7 +72,7 @@ fun VoiceTroubleshootBubble(
         }
 
         Text(
-            text = "请先在电脑上依次检查：",
+            text = "请先在电脑上依次检查：".loc,
             color = colors.textSecondary,
             fontSize = 15.sp,
             fontWeight = FontWeight.Medium
@@ -106,7 +107,7 @@ fun VoiceTroubleshootBubble(
         }
 
         Text(
-            text = "如果都不行，是否让智能体自动排查？",
+            text = "如果都不行，是否让智能体自动排查？".loc,
             color = colors.textPrimary,
             fontSize = 15.sp,
             fontWeight = FontWeight.SemiBold,
@@ -121,7 +122,7 @@ fun VoiceTroubleshootBubble(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "我再试试",
+                text = "我再试试".loc,
                 color = colors.textPrimary,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Medium,
@@ -132,7 +133,7 @@ fun VoiceTroubleshootBubble(
                     .padding(horizontal = 16.dp, vertical = 8.dp)
             )
             Text(
-                text = "一键排查",
+                text = "一键排查".loc,
                 color = Color.White,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.SemiBold,

@@ -1,5 +1,6 @@
 package com.antigravity.mobile.data.model
 
+import com.antigravity.mobile.ui.util.loc
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -107,10 +108,10 @@ data class PairingInfo(
 
     val gatewayDisplayName: String
         get() = when ((platform ?: os)?.lowercase()) {
-            "windows", "win" -> "Windows 网关"
-            "darwin", "macos", "mac" -> "Mac 网关"
-            "linux" -> "Linux 网关"
-            else -> "网关"
+            "windows", "win" -> "Windows 网关".loc
+            "darwin", "macos", "mac" -> "Mac 网关".loc
+            "linux" -> "Linux 网关".loc
+            else -> "网关".loc
         }
 }
 

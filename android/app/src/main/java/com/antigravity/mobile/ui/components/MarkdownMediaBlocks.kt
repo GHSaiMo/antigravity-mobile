@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.components
 
+import com.antigravity.mobile.ui.util.loc
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
@@ -65,13 +66,13 @@ internal fun MarkdownVideoPreviewCard(
     onClick: () -> Unit
 ) {
     val displayTitle = remember(title, url, rawUri) {
-        if (title.isNotBlank() && title != "视频预览" && title != "文档详情") {
+        if (title.isNotBlank() && title != "视频预览".loc && title != "文档详情".loc) {
             title
         } else {
             val target = if (url.isNotBlank()) url else rawUri
             val clean = target.substringAfterLast('/').substringBefore('?').substringBefore('#')
             val decoded = try { URLDecoder.decode(clean, "UTF-8") } catch (_: Exception) { clean }
-            if (decoded.isBlank() || decoded == "raw") "MP4 视频" else decoded
+            if (decoded.isBlank() || decoded == "raw") "MP4 视频".loc else decoded
         }
     }
 
@@ -186,7 +187,7 @@ internal fun MarkdownVideoPreviewCard(
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Icon(
                     imageVector = Icons.Default.PlayArrow,
-                    contentDescription = "播放",
+                    contentDescription = "播放".loc,
                     tint = Color.White,
                     modifier = Modifier.size(28.dp).offset(x = 1.5.dp)
                 )
@@ -295,7 +296,7 @@ internal fun MarkdownImageView(
                 .memoryCacheKey(stableCacheKey)
                 .crossfade(!LocalShareExport.current)
                 .build(),
-            contentDescription = alt.ifBlank { "图片" },
+            contentDescription = alt.ifBlank { "图片".loc },
             contentScale = ContentScale.Fit,
             modifier = Modifier
                 .heightIn(max = 280.dp)
@@ -333,7 +334,7 @@ internal fun MarkdownImageView(
                             modifier = Modifier.size(16.dp)
                         )
                         Text(
-                            text = if (alt.isNotBlank()) alt else "图片加载失败",
+                            text = if (alt.isNotBlank()) alt else "图片加载失败".loc,
                             color = colors.textSecondary,
                             fontSize = 12.sp,
                             maxLines = 2
@@ -386,7 +387,7 @@ internal fun FrontmatterCard(
                     modifier = Modifier.size(14.dp)
                 )
                 Text(
-                    text = "YAML 配置 / 元数据 ($lineCount 行)",
+                    text = "YAML 配置 / 元数据 ($lineCount 行)".loc,
                     color = colors.textSecondary,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Medium

@@ -44,16 +44,26 @@ import com.antigravity.mobile.data.service.refreshMcpServers
 import com.antigravity.mobile.data.service.toggleMcpServer
 import com.antigravity.mobile.data.service.upsertMemory
 import com.antigravity.mobile.ui.theme.AntigravityTheme
+import com.antigravity.mobile.ui.util.loc
 import com.antigravity.mobile.ui.util.rememberHaptic
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 
-enum class McpSkillsTab(val index: Int, val label: String) {
-    MCP(0, "MCP"),
-    SKILLS(1, "技能"),
-    PLUGINS(2, "插件"),
-    AUTOMATIONS(3, "定时"),
-    TASKS(4, "任务")
+enum class McpSkillsTab(val index: Int) {
+    MCP(0),
+    SKILLS(1),
+    PLUGINS(2),
+    AUTOMATIONS(3),
+    TASKS(4);
+
+    val label: String
+        get() = when (this) {
+            MCP -> "MCP"
+            SKILLS -> "技能".loc
+            PLUGINS -> "插件".loc
+            AUTOMATIONS -> "定时".loc
+            TASKS -> "任务".loc
+        }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -121,19 +131,19 @@ fun McpSkillsSheet(
                 tools = listOf(
                     McpToolDefinition(
                         name = "get_realtime_quotation",
-                        description = "查询证券实时行情、最新价、涨跌幅、盘口及资金流",
+                        description = "查询证券实时行情、最新价、涨跌幅、盘口及资金流".loc,
                         serverName = "ifind",
-                        jsonSchemaString = "{\"properties\":{\"codes\":{\"type\":\"string\",\"description\":\"证券代码，如 600519.SH\"}},\"required\":[\"codes\"]}"
+                        jsonSchemaString = "{\"properties\":{\"codes\":{\"type\":\"string\",\"description\":\"证券代码，如 600519.SH\"}},\"required\":[\"codes\"]}".loc
                     ),
                     McpToolDefinition(
                         name = "get_history_quotation",
-                        description = "查询历史K线行情与序列数据",
+                        description = "查询历史K线行情与序列数据".loc,
                         serverName = "ifind",
                         jsonSchemaString = "{\"properties\":{\"codes\":{\"type\":\"string\"},\"period\":{\"type\":\"string\",\"default\":\"D\"}},\"required\":[\"codes\"]}"
                     )
                 ),
                 serverInfo = McpServerInfoDetail(name = "ifind-mcp", version = "4.0.0"),
-                instructions = "iFinD 金融数据终端服务接口"
+                instructions = "iFinD 金融数据终端服务接口".loc
             ),
             McpServerState(
                 spec = McpServerSpec(serverName = "weather", command = "uv run weather-server"),
@@ -141,13 +151,13 @@ fun McpSkillsSheet(
                 tools = listOf(
                     McpToolDefinition(
                         name = "get_current_weather",
-                        description = "获取指定城市的当前实时天气情况",
+                        description = "获取指定城市的当前实时天气情况".loc,
                         serverName = "weather",
-                        jsonSchemaString = "{\"properties\":{\"city\":{\"type\":\"string\",\"description\":\"城市名称\"}},\"required\":[\"city\"]}"
+                        jsonSchemaString = "{\"properties\":{\"city\":{\"type\":\"string\",\"description\":\"城市名称\"}},\"required\":[\"city\"]}".loc
                     )
                 ),
                 serverInfo = McpServerInfoDetail(name = "weather-service", version = "1.2.0"),
-                instructions = "全球实时与未来天气查询"
+                instructions = "全球实时与未来天气查询".loc
             ),
             McpServerState(
                 spec = McpServerSpec(serverName = "message_hub", command = "node message_hub.js"),
@@ -155,19 +165,19 @@ fun McpSkillsSheet(
                 tools = listOf(
                     McpToolDefinition(
                         name = "send_message",
-                        description = "统一向微信或元宝渠道发送通知与长图",
+                        description = "统一向微信或元宝渠道发送通知与长图".loc,
                         serverName = "message_hub",
                         jsonSchemaString = "{\"properties\":{\"target\":{\"type\":\"string\"},\"text\":{\"type\":\"string\"}},\"required\":[\"target\",\"text\"]}"
                     )
                 ),
                 serverInfo = McpServerInfoDetail(name = "message-hub", version = "2.1.0"),
-                instructions = "统一消息与多端通信路由"
+                instructions = "统一消息与多端通信路由".loc
             )
         )
         skills = listOf(
-            SkillInfo(name = "chart-generator", description = "自动化图表生成与多维度可视化分析", path = "builtin/skills/chart-generator/SKILL.md", content = "# Chart Generator\n自动根据输入数据渲染交互图表"),
-            SkillInfo(name = "sql-inspector", description = "SQL 查询调优与执行计划诊断", path = "builtin/skills/sql-inspector/SKILL.md", content = "# SQL Inspector\n分析 SQL 慢查询并提出索引优化方案"),
-            SkillInfo(name = "jiuge-market-analysis", description = "首席宏观研判与市场逻辑观点体系", path = "config/skills/jiuge-market-analysis/SKILL.md", content = "# Jiuge Market Analysis\n宏观与大宗商品核心驱动逻辑")
+            SkillInfo(name = "chart-generator", description = "自动化图表生成与多维度可视化分析".loc, path = "builtin/skills/chart-generator/SKILL.md", content = "# Chart Generator\n自动根据输入数据渲染交互图表".loc),
+            SkillInfo(name = "sql-inspector", description = "SQL 查询调优与执行计划诊断".loc, path = "builtin/skills/sql-inspector/SKILL.md", content = "# SQL Inspector\n分析 SQL 慢查询并提出索引优化方案".loc),
+            SkillInfo(name = "jiuge-market-analysis", description = "首席宏观研判与市场逻辑观点体系".loc, path = "config/skills/jiuge-market-analysis/SKILL.md", content = "# Jiuge Market Analysis\n宏观与大宗商品核心驱动逻辑".loc)
         )
     }
 
@@ -307,7 +317,7 @@ fun McpSkillsSheet(
 
                 // Header title: Centered, no icon, aligned with NewConversationSheet
                 Text(
-                    text = "工具与任务看板",
+                    text = "工具与任务看板".loc,
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold,
                     color = colors.textPrimary,
@@ -403,7 +413,7 @@ fun McpSkillsSheet(
                         verticalArrangement = Arrangement.Center
                     ) {
                         Text(
-                            text = "未找到匹配的 MCP 服务或工具",
+                            text = "未找到匹配的 MCP 服务或工具".loc,
                             fontSize = 14.sp,
                             color = colors.textSecondary
                         )
@@ -419,7 +429,7 @@ fun McpSkillsSheet(
                             },
                             enabled = !isRefreshingMcp
                         ) {
-                            Text(if (isRefreshingMcp) "正在刷新..." else "刷新 MCP 状态", fontSize = 13.sp)
+                            Text(if (isRefreshingMcp) "正在刷新...".loc else "刷新 MCP 状态".loc, fontSize = 13.sp)
                         }
                     }
                 } else {
@@ -435,7 +445,7 @@ fun McpSkillsSheet(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = "已配置 ${filteredServers.size} 个服务",
+                                    text = "已配置 ${filteredServers.size} 个服务".loc,
                                     fontSize = 12.sp,
                                     color = colors.textMuted
                                 )
@@ -451,7 +461,7 @@ fun McpSkillsSheet(
                                     },
                                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
                                 ) {
-                                    Text(if (isRefreshingMcp) "刷新中..." else "↻ 刷新 MCP", fontSize = 12.sp, color = colors.accentIndigo)
+                                    Text(if (isRefreshingMcp) "刷新中...".loc else "↻ 刷新 MCP".loc, fontSize = 12.sp, color = colors.accentIndigo)
                                 }
                             }
                         }
@@ -526,7 +536,7 @@ fun McpSkillsSheet(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = "🧠 Agent 记忆库与规则 (${filteredMemories.size})",
+                                    text = "🧠 Agent 记忆库与规则 (${filteredMemories.size})".loc,
                                     fontSize = 14.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     color = colors.textPrimary,
@@ -536,7 +546,7 @@ fun McpSkillsSheet(
                                     onClick = { editingMemory = MemoryRuleItem(id = "", scope = "memory", title = "", content = "") },
                                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
                                 ) {
-                                    Text("+ 新增", fontSize = 12.sp, color = colors.accentIndigo)
+                                    Text("+ 新增".loc, fontSize = 12.sp, color = colors.accentIndigo)
                                 }
                                 Icon(
                                     imageVector = if (showMemoriesPanel) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
@@ -547,7 +557,7 @@ fun McpSkillsSheet(
                             }
                             if (showMemoriesPanel) {
                                 if (filteredMemories.isEmpty()) {
-                                    Text("暂无记忆或规则条目", fontSize = 12.5.sp, color = colors.textMuted)
+                                    Text("暂无记忆或规则条目".loc, fontSize = 12.5.sp, color = colors.textMuted)
                                 } else {
                                     filteredMemories.forEach { mem ->
                                         Row(
@@ -581,7 +591,7 @@ fun McpSkillsSheet(
                                                     onClick = { pendingDeleteMemory = mem },
                                                     modifier = Modifier.size(28.dp)
                                                 ) {
-                                                    Icon(Icons.Default.Delete, contentDescription = "删除记忆", tint = Color(0xFFF44336), modifier = Modifier.size(16.dp))
+                                                    Icon(Icons.Default.Delete, contentDescription = "删除记忆".loc, tint = Color(0xFFF44336), modifier = Modifier.size(16.dp))
                                                 }
                                             }
                                         }
@@ -600,7 +610,7 @@ fun McpSkillsSheet(
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
-                                    text = "未找到匹配的技能",
+                                    text = "未找到匹配的技能".loc,
                                     fontSize = 14.sp,
                                     color = colors.textSecondary
                                 )
@@ -636,7 +646,7 @@ fun McpSkillsSheet(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = "暂无插件或未找到匹配项",
+                            text = "暂无插件或未找到匹配项".loc,
                             fontSize = 14.sp,
                             color = colors.textSecondary
                         )
@@ -650,7 +660,7 @@ fun McpSkillsSheet(
                         if (pluginProviders.isNotEmpty()) {
                             item(key = "plugin_providers_header") {
                                 Text(
-                                    text = "插件账号与认证状态 (${pluginProviders.size})",
+                                    text = "插件账号与认证状态 (${pluginProviders.size})".loc,
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     color = colors.textSecondary,
@@ -675,7 +685,7 @@ fun McpSkillsSheet(
                                         fontWeight = FontWeight.Medium
                                     )
                                     Text(
-                                        text = if (prov.signedIn) "已连接" else "未登录",
+                                        text = if (prov.signedIn) "已连接".loc else "未登录".loc,
                                         color = if (prov.signedIn) colors.accentGreen else colors.textSecondary,
                                         fontSize = 11.5.sp,
                                         fontWeight = FontWeight.SemiBold
@@ -687,7 +697,7 @@ fun McpSkillsSheet(
                         if (filteredPlugins.isNotEmpty()) {
                             item(key = "plugins_header") {
                                 Text(
-                                    text = "已安装 / 可用插件 (${filteredPlugins.size})",
+                                    text = "已安装 / 可用插件 (${filteredPlugins.size})".loc,
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     color = colors.textSecondary,
@@ -758,12 +768,12 @@ fun McpSkillsSheet(
                                 modifier = Modifier.size(32.dp)
                             )
                             Text(
-                                text = "暂无定时自动化任务或未找到匹配项",
+                                text = "暂无定时自动化任务或未找到匹配项".loc,
                                 fontSize = 14.sp,
                                 color = colors.textSecondary
                             )
                             FilledTonalButton(onClick = { showNewAutomationDialog = true }) {
-                                Text("+ 新建定时任务", fontSize = 13.sp)
+                                Text("+ 新建定时任务".loc, fontSize = 13.sp)
                             }
                         }
                     }
@@ -780,7 +790,7 @@ fun McpSkillsSheet(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = "定时计划 (${filteredAutomations.size})",
+                                    text = "定时计划 (${filteredAutomations.size})".loc,
                                     fontSize = 13.5.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     color = colors.textSecondary,
@@ -791,7 +801,7 @@ fun McpSkillsSheet(
                                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
                                     modifier = Modifier.height(30.dp)
                                 ) {
-                                    Text("+ 新建定时任务", fontSize = 12.sp)
+                                    Text("+ 新建定时任务".loc, fontSize = 12.sp)
                                 }
                             }
                         }
@@ -842,7 +852,7 @@ fun McpSkillsSheet(
                         if (filteredEvents.isNotEmpty()) {
                             item(key = "automation_events_header") {
                                 Text(
-                                    text = "最近触发记录",
+                                    text = "最近触发记录".loc,
                                     fontSize = 13.5.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     color = colors.textSecondary,
@@ -868,7 +878,7 @@ fun McpSkillsSheet(
                                                     val cid = ev.conversationId
                                                     if (!cid.isNullOrBlank()) {
                                                         onDismiss()
-                                                        onSelectConversation?.invoke(cid, ev.scheduleId.ifBlank { "自动化任务记录" })
+                                                        onSelectConversation?.invoke(cid, ev.scheduleId.ifBlank { "自动化任务记录".loc })
                                                     }
                                                 }
                                                 .padding(horizontal = 14.dp, vertical = 11.dp),
@@ -880,7 +890,7 @@ fun McpSkillsSheet(
                                                 modifier = Modifier.fillMaxWidth()
                                             ) {
                                                 Text(
-                                                    text = ev.scheduleId.ifBlank { "自动化执行" },
+                                                    text = ev.scheduleId.ifBlank { "自动化执行".loc },
                                                     color = colors.textPrimary,
                                                     fontSize = 13.5.sp,
                                                     fontWeight = FontWeight.SemiBold,
@@ -955,7 +965,7 @@ fun McpSkillsSheet(
                         )
                         Spacer(modifier = Modifier.height(10.dp))
                         Text(
-                            text = if (query.isEmpty()) "当前没有正在运行的后台任务" else "未找到匹配的后台任务",
+                            text = if (query.isEmpty()) "当前没有正在运行的后台任务".loc else "未找到匹配的后台任务".loc,
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Medium,
                             color = colors.textSecondary
@@ -963,7 +973,7 @@ fun McpSkillsSheet(
                         if (query.isEmpty()) {
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                text = "各会话中执行的后台终端命令、常驻开发服务器与定时任务会实时汇总在此处",
+                                text = "各会话中执行的后台终端命令、常驻开发服务器与定时任务会实时汇总在此处".loc,
                                 fontSize = 12.sp,
                                 color = colors.textMuted,
                                 textAlign = TextAlign.Center
@@ -1006,7 +1016,7 @@ fun McpSkillsSheet(
                                         modifier = Modifier.size(18.dp)
                                     )
                                     Text(
-                                        text = "一键停止全部后台任务 (${filteredTasks.size})",
+                                        text = "一键停止全部后台任务 (${filteredTasks.size})".loc,
                                         fontSize = 13.5.sp,
                                         fontWeight = FontWeight.SemiBold,
                                         color = colors.accentRed
@@ -1018,7 +1028,7 @@ fun McpSkillsSheet(
                         if (currentTasks.isNotEmpty()) {
                             item(key = "header_current_tasks") {
                                 Text(
-                                    text = "当前会话任务 (${currentTasks.size})",
+                                    text = "当前会话任务 (${currentTasks.size})".loc,
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     color = colors.textSecondary,
@@ -1065,7 +1075,7 @@ fun McpSkillsSheet(
                         if (otherTasks.isNotEmpty()) {
                             item(key = "header_other_tasks") {
                                 Text(
-                                    text = if (currentConversationId != null) "其他会话任务 (${otherTasks.size})" else "正在运行的后台任务 (${otherTasks.size})",
+                                    text = if (currentConversationId != null) "其他会话任务 (${otherTasks.size})".loc else "正在运行的后台任务 (${otherTasks.size})".loc,
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     color = colors.textSecondary,
@@ -1158,11 +1168,11 @@ fun McpSkillsSheet(
                             if (searchText.isEmpty()) {
                                 Text(
                                     text = when (selectedTab) {
-                                        McpSkillsTab.MCP -> "搜索 MCP 服务或工具名称"
-                                        McpSkillsTab.SKILLS -> "搜索技能名称或描述"
-                                        McpSkillsTab.PLUGINS -> "搜索插件名称或描述"
-                                        McpSkillsTab.AUTOMATIONS -> "搜索定时任务或表达式"
-                                        McpSkillsTab.TASKS -> "搜索命令、会话标题或工作区"
+                                        McpSkillsTab.MCP -> "搜索 MCP 服务或工具名称".loc
+                                        McpSkillsTab.SKILLS -> "搜索技能名称或描述".loc
+                                        McpSkillsTab.PLUGINS -> "搜索插件名称或描述".loc
+                                        McpSkillsTab.AUTOMATIONS -> "搜索定时任务或表达式".loc
+                                        McpSkillsTab.TASKS -> "搜索命令、会话标题或工作区".loc
                                     },
                                     color = colors.textMuted,
                                     fontSize = 14.5.sp
@@ -1197,7 +1207,7 @@ fun McpSkillsSheet(
             onDismissRequest = { viewingSkill = null },
             confirmButton = {
                 TextButton(onClick = { viewingSkill = null }) {
-                    Text("关闭", color = colors.accentIndigo)
+                    Text("关闭".loc, color = colors.accentIndigo)
                 }
             },
             title = {
@@ -1247,7 +1257,7 @@ fun McpSkillsSheet(
                     if (!skill.content.isNullOrEmpty()) {
                         HorizontalDivider(color = colors.border)
                         Text(
-                            text = "规则定义 (SKILL.md)：",
+                            text = "规则定义 (SKILL.md)：".loc,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = colors.textSecondary
@@ -1278,20 +1288,20 @@ fun McpSkillsSheet(
         var memContent by remember(initialMem) { mutableStateOf(initialMem.content) }
         AlertDialog(
             onDismissRequest = { editingMemory = null },
-            title = { Text(if (initialMem.id.isBlank()) "新增 Agent 记忆" else "编辑记忆 / 规则", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) },
+            title = { Text(if (initialMem.id.isBlank()) "新增 Agent 记忆".loc else "编辑记忆 / 规则".loc, fontSize = 16.sp, fontWeight = FontWeight.SemiBold) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(
                         value = memTitle,
                         onValueChange = { memTitle = it },
-                        label = { Text("标题") },
+                        label = { Text("标题".loc) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
                     OutlinedTextField(
                         value = memContent,
                         onValueChange = { memContent = it },
-                        label = { Text("内容") },
+                        label = { Text("内容".loc) },
                         minLines = 3,
                         maxLines = 8,
                         modifier = Modifier.fillMaxWidth()
@@ -1302,7 +1312,7 @@ fun McpSkillsSheet(
                 TextButton(
                     enabled = memContent.isNotBlank() && !initialMem.readOnly,
                     onClick = {
-                        val t = memTitle.trim().ifBlank { "未命名记忆" }
+                        val t = memTitle.trim().ifBlank { "未命名记忆".loc }
                         val c = memContent.trim()
                         editingMemory = null
                         scope.launch {
@@ -1315,10 +1325,10 @@ fun McpSkillsSheet(
                             apiClient.fetchMemories().onSuccess { memories = it }
                         }
                     }
-                ) { Text("保存") }
+                ) { Text("保存".loc) }
             },
             dismissButton = {
-                TextButton(onClick = { editingMemory = null }) { Text("关闭") }
+                TextButton(onClick = { editingMemory = null }) { Text("关闭".loc) }
             },
             containerColor = colors.surface
         )
@@ -1327,10 +1337,10 @@ fun McpSkillsSheet(
     pendingDeleteMemory?.let { targetMem ->
         AlertDialog(
             onDismissRequest = { pendingDeleteMemory = null },
-            title = { Text("确认删除记忆条目？", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) },
+            title = { Text("确认删除记忆条目？".loc, fontSize = 16.sp, fontWeight = FontWeight.SemiBold) },
             text = {
                 Text(
-                    text = "确定要删除「${targetMem.title.ifBlank { targetMem.id }}」吗？这会移除对应的本地规则/记忆文件（并在 ~/.gemini/backups/deleted_memories 保留备份）。",
+                    text = "确定要删除「${targetMem.title.ifBlank { targetMem.id }}」吗？这会移除对应的本地规则/记忆文件（并在 ~/.gemini/backups/deleted_memories 保留备份）。".loc,
                     fontSize = 13.5.sp,
                     color = colors.textSecondary
                 )
@@ -1344,10 +1354,10 @@ fun McpSkillsSheet(
                             apiClient.fetchMemories().onSuccess { memories = it }
                         }
                     }
-                ) { Text("删除", color = Color(0xFFF44336)) }
+                ) { Text("删除".loc, color = Color(0xFFF44336)) }
             },
             dismissButton = {
-                TextButton(onClick = { pendingDeleteMemory = null }) { Text("取消") }
+                TextButton(onClick = { pendingDeleteMemory = null }) { Text("取消".loc) }
             },
             containerColor = colors.surface
         )
@@ -1359,27 +1369,27 @@ fun McpSkillsSheet(
         var autoPrompt by remember { mutableStateOf("") }
         AlertDialog(
             onDismissRequest = { showNewAutomationDialog = false },
-            title = { Text("新建定时自动化任务", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) },
+            title = { Text("新建定时自动化任务".loc, fontSize = 16.sp, fontWeight = FontWeight.SemiBold) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(
                         value = autoName,
                         onValueChange = { autoName = it },
-                        label = { Text("任务名称") },
+                        label = { Text("任务名称".loc) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
                     OutlinedTextField(
                         value = autoCron,
                         onValueChange = { autoCron = it },
-                        label = { Text("Cron 表达式（如 0 9 * * *）") },
+                        label = { Text("Cron 表达式（如 0 9 * * *）".loc) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
                     OutlinedTextField(
                         value = autoPrompt,
                         onValueChange = { autoPrompt = it },
-                        label = { Text("执行 Prompt") },
+                        label = { Text("执行 Prompt".loc) },
                         minLines = 2,
                         maxLines = 5,
                         modifier = Modifier.fillMaxWidth()
@@ -1400,10 +1410,10 @@ fun McpSkillsSheet(
                             }
                         }
                     }
-                ) { Text("创建") }
+                ) { Text("创建".loc) }
             },
             dismissButton = {
-                TextButton(onClick = { showNewAutomationDialog = false }) { Text("取消") }
+                TextButton(onClick = { showNewAutomationDialog = false }) { Text("取消".loc) }
             },
             containerColor = colors.surface
         )
@@ -1515,7 +1525,7 @@ private fun McpServerCard(
             ) {
                 HorizontalDivider(color = colors.border.copy(alpha = 0.5f))
                 Text(
-                    text = "可用工具清单 (${server.toolCount})",
+                    text = "可用工具清单 (${server.toolCount})".loc,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = colors.accentIndigo
@@ -1564,7 +1574,7 @@ private fun McpToolItem(
             if (params.isNotEmpty()) {
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(
-                    text = "${params.size} 参数",
+                    text = "${params.size} 参数".loc,
                     fontSize = 10.sp,
                     color = colors.accentIndigo,
                     modifier = Modifier
@@ -1598,7 +1608,7 @@ private fun McpToolItem(
             Spacer(modifier = Modifier.height(6.dp))
             if (params.isEmpty()) {
                 Text(
-                    text = "无输入参数（直接调用）",
+                    text = "无输入参数（直接调用）".loc,
                     fontSize = 11.sp,
                     color = colors.textMuted
                 )
@@ -1612,7 +1622,7 @@ private fun McpToolItem(
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     Text(
-                        text = "参数定义：",
+                        text = "参数定义：".loc,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = colors.textSecondary
@@ -1630,7 +1640,7 @@ private fun McpToolItem(
                                 if (param.isRequired) {
                                     Spacer(modifier = Modifier.width(4.dp))
                                     Text(
-                                        text = "必填",
+                                        text = "必填".loc,
                                         fontSize = 9.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = colors.accentRed,
@@ -1650,7 +1660,7 @@ private fun McpToolItem(
                                 param.defaultValue?.let { def ->
                                     Spacer(modifier = Modifier.weight(1f))
                                     Text(
-                                        text = "默认: $def",
+                                        text = "默认: $def".loc,
                                         fontSize = 10.sp,
                                         color = colors.textMuted
                                     )
@@ -1758,9 +1768,9 @@ private fun GlobalBackgroundTaskCard(
 ) {
     val colors = AntigravityTheme.colors
     val badgeTitle = when {
-        task.isDaemon -> "常驻守护"
-        task.toolName == "schedule" -> "定时任务"
-        else -> "后台命令"
+        task.isDaemon -> "常驻守护".loc
+        task.toolName == "schedule" -> "定时任务".loc
+        else -> "后台命令".loc
     }
     val badgeColor = when {
         task.isDaemon -> Color(0xFFAF52DE)
@@ -1823,7 +1833,7 @@ private fun GlobalBackgroundTaskCard(
             } else {
                 Icon(
                     imageVector = Icons.Default.StopCircle,
-                    contentDescription = "停止任务",
+                    contentDescription = "停止任务".loc,
                     tint = colors.accentRed,
                     modifier = Modifier
                         .size(22.dp)
@@ -1878,7 +1888,7 @@ private fun GlobalBackgroundTaskCard(
             )
             if (!isCurrentSession && onSelectSession != null) {
                 Text(
-                    text = "跳转会话 ›",
+                    text = "跳转会话 ›".loc,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Medium,
                     color = colors.accentIndigo
@@ -1926,7 +1936,7 @@ private fun GlobalBackgroundTaskCard(
                             modifier = Modifier.size(13.dp)
                         )
                         Text(
-                            text = if (isCopied) "已复制命令" else "复制命令",
+                            text = if (isCopied) "已复制命令".loc else "复制命令".loc,
                             fontSize = 11.5.sp,
                             fontWeight = FontWeight.Medium,
                             color = if (isCopied) colors.accentGreen else colors.textSecondary
@@ -1949,7 +1959,7 @@ private fun GlobalBackgroundTaskCard(
                                 modifier = Modifier.size(13.dp)
                             )
                             Text(
-                                text = if (isLogExpanded) "收起终端日志" else "查看最新终端日志",
+                                text = if (isLogExpanded) "收起终端日志".loc else "查看最新终端日志".loc,
                                 fontSize = 11.5.sp,
                                 fontWeight = FontWeight.Medium,
                                 color = colors.accentIndigo
@@ -1974,7 +1984,7 @@ private fun GlobalBackgroundTaskCard(
                                 modifier = Modifier.size(12.dp)
                             )
                             Text(
-                                text = "刷新",
+                                text = "刷新".loc,
                                 fontSize = 11.sp,
                                 color = colors.textSecondary
                             )
@@ -2005,7 +2015,7 @@ private fun GlobalBackgroundTaskCard(
                             modifier = Modifier.size(14.dp)
                         )
                         Text(
-                            text = "正在读取日志尾部...",
+                            text = "正在读取日志尾部...".loc,
                             fontSize = 11.5.sp,
                             color = colors.textSecondary
                         )
@@ -2013,7 +2023,7 @@ private fun GlobalBackgroundTaskCard(
                 } else {
                     val trimmed = logContent?.trim().orEmpty()
                     Text(
-                        text = trimmed.ifEmpty { "（暂无终端日志输出）" },
+                        text = trimmed.ifEmpty { "（暂无终端日志输出）".loc },
                         fontSize = 11.sp,
                         fontFamily = FontFamily.Monospace,
                         color = colors.textPrimary,
@@ -2069,7 +2079,7 @@ private fun PluginCard(
                             .padding(horizontal = 6.dp, vertical = 2.dp)
                     ) {
                         Text(
-                            text = if (plugin.enabled) "已启用" else "已停用",
+                            text = if (plugin.enabled) "已启用".loc else "已停用".loc,
                             color = if (plugin.enabled) colors.accentGreen else colors.textSecondary,
                             fontSize = 10.5.sp,
                             fontWeight = FontWeight.Medium
@@ -2088,7 +2098,7 @@ private fun PluginCard(
                     if (isInstalling) {
                         CircularProgressIndicator(modifier = Modifier.size(12.dp), strokeWidth = 1.5.dp)
                     } else {
-                        Text("安装", fontSize = 11.5.sp)
+                        Text("安装".loc, fontSize = 11.5.sp)
                     }
                 }
             } else if (onOpenSwarm != null) {
@@ -2097,7 +2107,7 @@ private fun PluginCard(
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
                     modifier = Modifier.height(28.dp)
                 ) {
-                    Text("打开看板", fontSize = 11.5.sp)
+                    Text("打开看板".loc, fontSize = 11.5.sp)
                 }
             }
         }
@@ -2168,7 +2178,7 @@ private fun AutomationCard(
                         .padding(horizontal = 6.dp, vertical = 2.dp)
                 ) {
                     Text(
-                        text = if (isRunning) "运行中" else "已停止",
+                        text = if (isRunning) "运行中".loc else "已停止".loc,
                         color = if (isRunning) colors.accentGreen else colors.textSecondary,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Medium
@@ -2194,7 +2204,7 @@ private fun AutomationCard(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = "立即运行",
+                            text = "立即运行".loc,
                             color = colors.textPrimary,
                             fontSize = 11.5.sp,
                             fontWeight = FontWeight.SemiBold
@@ -2209,7 +2219,7 @@ private fun AutomationCard(
                     ) {
                         Icon(
                             imageVector = Icons.Default.Delete,
-                            contentDescription = "删除定时任务",
+                            contentDescription = "删除定时任务".loc,
                             tint = Color(0xFFF44336),
                             modifier = Modifier.size(16.dp)
                         )
@@ -2232,7 +2242,7 @@ private fun AutomationCard(
                         )
                     } else {
                         Text(
-                            text = if (isRunning) "停止" else "启动",
+                            text = if (isRunning) "停止".loc else "启动".loc,
                             color = if (isRunning) colors.accentIndigo else colors.textPrimary,
                             fontSize = 11.5.sp,
                             fontWeight = FontWeight.SemiBold
@@ -2272,14 +2282,14 @@ private fun AutomationCard(
             ) {
                 if (!sidecar.nextRunAt.isNullOrBlank()) {
                     Text(
-                        text = "下次: ${sidecar.nextRunAt}",
+                        text = "下次: ${sidecar.nextRunAt}".loc,
                         color = colors.textSecondary,
                         fontSize = 11.sp
                     )
                 }
                 if (!sidecar.lastRunAt.isNullOrBlank()) {
                     Text(
-                        text = "上次: ${sidecar.lastRunAt}",
+                        text = "上次: ${sidecar.lastRunAt}".loc,
                         color = colors.textMuted,
                         fontSize = 11.sp
                     )

@@ -7,6 +7,7 @@ import android.graphics.Color
 import android.media.AudioAttributes
 import android.media.RingtoneManager
 import android.os.Build
+import com.antigravity.mobile.ui.util.loc
 
 object NotificationChannelManager {
     const val CHANNEL_LIVE_ACTIVITY = "antigravity_live_activity"
@@ -20,10 +21,10 @@ object NotificationChannelManager {
         // 1. Live Activity Ongoing Channel (Low importance: silent progress in drawer/lockscreen)
         val liveChannel = NotificationChannel(
             CHANNEL_LIVE_ACTIVITY,
-            "任务实时进展",
+            "任务实时进展".loc,
             NotificationManager.IMPORTANCE_LOW
         ).apply {
-            description = "在锁屏与通知栏常驻展示 Agent 任务执行进度与后台指令状态"
+            description = "在锁屏与通知栏常驻展示 Agent 任务执行进度与后台指令状态".loc
             setShowBadge(false)
             enableLights(false)
             enableVibration(false)
@@ -32,10 +33,10 @@ object NotificationChannelManager {
         // 2. High-Priority Alerts Channel (High importance: heads-up pop-up, sound, vibration for approvals & completions)
         val alertChannel = NotificationChannel(
             CHANNEL_ALERTS,
-            "重要通知与审批",
+            "重要通知与审批".loc,
             NotificationManager.IMPORTANCE_HIGH
         ).apply {
-            description = "接收 Agent 用户审批申请、方案就绪提示、任务完成与异常终止等高优先级提醒"
+            description = "接收 Agent 用户审批申请、方案就绪提示、任务完成与异常终止等高优先级提醒".loc
             setShowBadge(true)
             enableLights(true)
             lightColor = Color.parseColor("#4F46E5")

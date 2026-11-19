@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.viewmodel
 
+import com.antigravity.mobile.ui.util.loc
 import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
@@ -78,7 +79,7 @@ internal fun ChatViewModel.addFilesFromUris(context: Context, uris: List<Uri>) {
                 -1L
             }
             if (copied < 0) {
-                target.delete(); rejected.add("无法读取文件：$name"); continue
+                target.delete(); rejected.add("无法读取文件：$name".loc); continue
             }
             // Re-validate with the real size (the provider's declared size may be missing).
             AttachmentRules.validate(name, copied, existing)?.let {
@@ -142,7 +143,7 @@ internal fun ChatViewModel.startUpload(cid: String, fileId: String) {
         }.onFailure { e ->
             updateDraftFiles(cid, persist = true) {
                 it.mapById(fileId) { f ->
-                    f.copy(state = UploadState.FAILED, error = e.message ?: "上传失败")
+                    f.copy(state = UploadState.FAILED, error = e.message ?: "上传失败".loc)
                 }
             }
         }

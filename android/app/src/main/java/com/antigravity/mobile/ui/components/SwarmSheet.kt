@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.components
 
+import com.antigravity.mobile.ui.util.loc
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
@@ -45,7 +46,7 @@ fun SwarmSheet(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     var selectedTab by remember { mutableIntStateOf(1) } // 0: 概览, 1: 协作板, 2: 成员, 3: 拓扑
-    val tabs = listOf("概览", "协作板", "成员", "拓扑")
+    val tabs = listOf("概览".loc, "协作板".loc, "成员".loc, "拓扑".loc)
 
     var snapshot by remember { mutableStateOf<SwarmSnapshot?>(null) }
     var isLoading by remember { mutableStateOf(true) }
@@ -78,7 +79,7 @@ fun SwarmSheet(
                 if (!silent) errorMessage = null
             }.onFailure {
                 if (!silent || snapshot == null) {
-                    errorMessage = it.message ?: "加载快照失败"
+                    errorMessage = it.message ?: "加载快照失败".loc
                 }
             }
             if (!silent) isLoading = false
@@ -121,7 +122,7 @@ fun SwarmSheet(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = snapshot?.title?.ifBlank { "蜂群协同 (Swarm)" } ?: "蜂群协同",
+                        text = snapshot?.title?.ifBlank { "蜂群协同 (Swarm)".loc } ?: "蜂群协同".loc,
                         color = SwarmColors.ink(isDark),
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Bold,
@@ -213,13 +214,13 @@ fun SwarmSheet(
                         errorMessage != null && snapshot == null -> {
                             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                 Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Text("加载蜂群快照失败", color = SwarmColors.ink(isDark), fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                                    Text("加载蜂群快照失败".loc, color = SwarmColors.ink(isDark), fontSize = 15.sp, fontWeight = FontWeight.Bold)
                                     Text(errorMessage ?: "", color = SwarmColors.muted(isDark), fontSize = 12.5.sp)
                                     Button(
                                         onClick = { loadData(silent = false) },
                                         colors = ButtonDefaults.buttonColors(containerColor = SwarmColors.accent(isDark))
                                     ) {
-                                        Text("重试", color = Color.White)
+                                        Text("重试".loc, color = Color.White)
                                     }
                                 }
                             }
@@ -318,7 +319,7 @@ private fun SwarmOverviewTab(
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        text = snap.title.ifBlank { "蜂群协同任务" },
+                        text = snap.title.ifBlank { "蜂群协同任务".loc },
                         color = SwarmColors.ink(isDark),
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Bold,
@@ -357,19 +358,19 @@ private fun SwarmOverviewTab(
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     StatBox(
-                        title = "活跃成员",
+                        title = "活跃成员".loc,
                         value = "${snap.brief.workingCount} / ${snap.brief.totalMembers}",
                         color = SwarmColors.liveGreen(isDark),
                         modifier = Modifier.weight(1f)
                     )
                     StatBox(
-                        title = "协作消息",
+                        title = "协作消息".loc,
                         value = "${maxOf(snap.messages.size, snap.brief.latestSeq)}",
                         color = SwarmColors.infoBlue(isDark),
                         modifier = Modifier.weight(1f)
                     )
                     StatBox(
-                        title = "待关注",
+                        title = "待关注".loc,
                         value = "${snap.brief.attentionCount}",
                         color = if (snap.brief.attentionCount > 0) SwarmColors.warnAmber(isDark) else SwarmColors.muted(isDark),
                         modifier = Modifier.weight(1f)
@@ -397,7 +398,7 @@ private fun SwarmOverviewTab(
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = "协同指挥 / 用户反馈",
+                        text = "协同指挥 / 用户反馈".loc,
                         color = SwarmColors.ink(isDark),
                         fontSize = 14.5.sp,
                         fontWeight = FontWeight.SemiBold
@@ -405,7 +406,7 @@ private fun SwarmOverviewTab(
                 }
 
                 Text(
-                    text = "直接向蜂群公共协作板留言（发送至协调者）。",
+                    text = "直接向蜂群公共协作板留言（发送至协调者）。".loc,
                     color = SwarmColors.muted(isDark),
                     fontSize = 12.sp
                 )
@@ -418,7 +419,7 @@ private fun SwarmOverviewTab(
                     OutlinedTextField(
                         value = feedbackText,
                         onValueChange = onFeedbackChange,
-                        placeholder = { Text("输入对蜂群的反馈或补充指示...", fontSize = 13.sp) },
+                        placeholder = { Text("输入对蜂群的反馈或补充指示...".loc, fontSize = 13.sp) },
                         modifier = Modifier.weight(1f),
                         singleLine = true
                     )
@@ -431,7 +432,7 @@ private fun SwarmOverviewTab(
                         if (isSendingFeedback) {
                             CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = Color.White)
                         } else {
-                            Text("发板", color = Color.White)
+                            Text("发板".loc, color = Color.White)
                         }
                     }
                 }
@@ -557,9 +558,9 @@ private fun SwarmBoardTabNative(
                     expanded = showFilterMenu,
                     onDismissRequest = { showFilterMenu = false }
                 ) {
-                    DropdownMenuItem(text = { Text("全部成员") }, onClick = { onFilterChange(null); showFilterMenu = false })
-                    DropdownMenuItem(text = { Text("仅看 @all 广播") }, onClick = { onFilterChange("@all"); showFilterMenu = false })
-                    DropdownMenuItem(text = { Text("未指定接收者") }, onClick = { onFilterChange("@none"); showFilterMenu = false })
+                    DropdownMenuItem(text = { Text("全部成员".loc) }, onClick = { onFilterChange(null); showFilterMenu = false })
+                    DropdownMenuItem(text = { Text("仅看 @all 广播".loc) }, onClick = { onFilterChange("@all"); showFilterMenu = false })
+                    DropdownMenuItem(text = { Text("未指定接收者".loc) }, onClick = { onFilterChange("@none"); showFilterMenu = false })
                     if (agents.isNotEmpty()) {
                         HorizontalDivider()
                         agents.forEach { ag ->
@@ -572,7 +573,7 @@ private fun SwarmBoardTabNative(
 
         if (filteredMessages.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(if (snap.messages.isEmpty()) "暂无协作留言" else "没有匹配筛选条件的消息", color = SwarmColors.muted(isDark), fontSize = 14.sp)
+                Text(if (snap.messages.isEmpty()) "暂无协作留言".loc else "没有匹配筛选条件的消息".loc, color = SwarmColors.muted(isDark), fontSize = 14.sp)
             }
         } else {
             LazyColumn(
@@ -674,7 +675,7 @@ private fun BoardMessageRowNative(
 
             if (needsClamp) {
                 Text(
-                    text = if (isExpanded) "收起" else "展开更多",
+                    text = if (isExpanded) "收起".loc else "展开更多".loc,
                     fontSize = 11.5.sp,
                     fontWeight = FontWeight.Medium,
                     color = SwarmColors.accent(isDark),
@@ -757,7 +758,7 @@ private fun SwarmMembersTabNative(
 
         if (matching.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("未找到匹配的成员", color = SwarmColors.muted(isDark), fontSize = 14.sp)
+                Text("未找到匹配的成员".loc, color = SwarmColors.muted(isDark), fontSize = 14.sp)
             }
         } else {
             LazyColumn(
@@ -997,7 +998,7 @@ private fun MemberCardRow(
                                 .padding(horizontal = 5.dp, vertical = 1.dp)
                         ) {
                             Text(
-                                text = "当前",
+                                text = "当前".loc,
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = SwarmColors.infoBlue(isDark)
@@ -1057,7 +1058,7 @@ private fun MemberCardRow(
                             } else {
                                 Icon(imageVector = Icons.Default.Bolt, contentDescription = null, tint = SwarmColors.accent(isDark), modifier = Modifier.size(11.dp))
                             }
-                            Text("催促 / 唤醒", fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, color = SwarmColors.accent(isDark))
+                            Text("催促 / 唤醒".loc, fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, color = SwarmColors.accent(isDark))
                         }
                     }
                 }
@@ -1072,7 +1073,7 @@ private fun MemberCardRow(
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                             Icon(imageVector = Icons.Default.OpenInNew, contentDescription = null, tint = SwarmColors.infoBlue(isDark), modifier = Modifier.size(11.dp))
-                            Text("进入子会话", fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, color = SwarmColors.infoBlue(isDark))
+                            Text("进入子会话".loc, fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, color = SwarmColors.infoBlue(isDark))
                         }
                     }
                 }
@@ -1080,7 +1081,7 @@ private fun MemberCardRow(
                 Spacer(modifier = Modifier.weight(1f))
 
                 if (member.unreadCount > 0) {
-                    Text("未读 ${member.unreadCount}", fontSize = 11.sp, color = SwarmColors.faint(isDark))
+                    Text("未读 ${member.unreadCount}".loc, fontSize = 11.sp, color = SwarmColors.faint(isDark))
                 }
             }
         }

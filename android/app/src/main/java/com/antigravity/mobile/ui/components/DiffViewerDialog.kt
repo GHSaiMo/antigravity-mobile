@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.components
 
+import com.antigravity.mobile.ui.util.loc
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
@@ -148,7 +149,7 @@ fun DiffViewerDialog(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = "无行级别代码差异",
+                            text = "无行级别代码差异".loc,
                             fontSize = 13.sp,
                             color = colors.textMuted
                         )
@@ -177,9 +178,9 @@ private fun ActionTypeBadge(
     modifier: Modifier = Modifier
 ) {
     val (bgColor, textColor, label) = when (actionType.uppercase()) {
-        "CREATE" -> Triple(Color(0x264CAF50), Color(0xFF4CAF50), "新增")
-        "DELETE" -> Triple(Color(0x26F44336), Color(0xFFF44336), "删除")
-        else -> Triple(Color(0x262196F3), Color(0xFF2196F3), "修改")
+        "CREATE" -> Triple(Color(0x264CAF50), Color(0xFF4CAF50), "新增".loc)
+        "DELETE" -> Triple(Color(0x26F44336), Color(0xFFF44336), "删除".loc)
+        else -> Triple(Color(0x262196F3), Color(0xFF2196F3), "修改".loc)
     }
 
     Box(

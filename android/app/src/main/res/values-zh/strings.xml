@@ -1,0 +1,17 @@
+<resources>
+    <string name="app_name">Multigravity</string>
+    <string name="pair_title">设备配对</string>
+    <string name="conversations_title">会话列表</string>
+    <string name="chat_placeholder">向 Multigravity 发送指令...</string>
+    <string name="send">发送</string>
+    <string name="stop">停止</string>
+    <string name="proceed">确认执行方案 (Proceed)</string>
+    <string name="approve">允许执行</string>
+    <string name="reject">拒绝</string>
+    <string name="channel_task_status">Antigravity 任务通知</string>
+    <string name="channel_task_status_desc">显示 Agent 任务实时执行状态、工具调用及完成通知</string>
+    <string name="channel_live_activity">实时活动卡片</string>
+    <string name="channel_live_activity_desc">锁屏与通知栏灵动岛式任务实时流转卡片</string>
+    <string name="channel_approval">审批与人工确认</string>
+    <string name="channel_approval_desc">紧急需要人工确认或权限授予的弹窗通知</string>
+</resources>

@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.viewmodel
 
+import com.antigravity.mobile.ui.util.loc
 import androidx.lifecycle.viewModelScope
 import com.antigravity.mobile.data.model.ContextMentionItem
 import com.antigravity.mobile.data.service.*
@@ -36,11 +37,11 @@ internal fun ChatViewModel.trustCurrentProject(onDone: ((String) -> Unit)? = nul
             trusted = true
         ).onSuccess { updated ->
             _uiState.value = _uiState.value.copy(trustStatus = updated, isUpdatingTrust = false)
-            onDone?.invoke("已信任工作区")
+            onDone?.invoke("已信任工作区".loc)
         }.onFailure { err ->
             _uiState.value = _uiState.value.copy(
                 isUpdatingTrust = false,
-                attachmentNotice = "授予工作区信任失败: ${err.message}"
+                attachmentNotice = "授予工作区信任失败: ${err.message}".loc
             )
         }
     }
@@ -50,9 +51,9 @@ internal fun ChatViewModel.setPermissionPreset(preset: String, onDone: ((String)
     viewModelScope.launch {
         apiClient.updatePermissionPreset(preset).onSuccess { st ->
             _uiState.value = _uiState.value.copy(permissionState = st)
-            onDone?.invoke("权限档位已切换为「${st.label}」")
+            onDone?.invoke("权限档位已切换为「${st.label}」".loc)
         }.onFailure { err ->
-            _uiState.value = _uiState.value.copy(attachmentNotice = "切换权限失败: ${err.message}")
+            _uiState.value = _uiState.value.copy(attachmentNotice = "切换权限失败: ${err.message}".loc)
         }
     }
 }
@@ -117,10 +118,10 @@ internal fun ChatViewModel.forkConversationAt(
             if (!newId.isNullOrBlank()) {
                 onForked(newId)
             } else {
-                _uiState.value = _uiState.value.copy(attachmentNotice = resp.error ?: "分叉未返回新会话")
+                _uiState.value = _uiState.value.copy(attachmentNotice = resp.error ?: "分叉未返回新会话".loc)
             }
         }.onFailure { err ->
-            _uiState.value = _uiState.value.copy(attachmentNotice = "分叉失败: ${err.message}")
+            _uiState.value = _uiState.value.copy(attachmentNotice = "分叉失败: ${err.message}".loc)
         }
     }
 }
@@ -130,9 +131,9 @@ internal fun ChatViewModel.sendTaskToBackground(stepIndex: Int, onNotice: (Strin
     if (cid.isBlank()) return
     viewModelScope.launch {
         apiClient.sendStepsToBackground(cid, listOf(stepIndex)).onSuccess { ok ->
-            onNotice(if (ok) "已转入后台执行" else "当前上游版本暂不支持步骤级转后台")
+            onNotice(if (ok) "已转入后台执行".loc else "当前上游版本暂不支持步骤级转后台".loc)
         }.onFailure { err ->
-            onNotice("转后台失败: ${err.message}")
+            onNotice("转后台失败: ${err.message}".loc)
         }
     }
 }

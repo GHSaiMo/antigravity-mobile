@@ -43,6 +43,9 @@ class PreferencesManager(context: Context) {
     private val _themeModeFlow = MutableStateFlow(themeMode)
     val themeModeFlow: StateFlow<String> = _themeModeFlow.asStateFlow()
 
+    private val _appLanguageFlow = MutableStateFlow(appLanguage)
+    val appLanguageFlow: StateFlow<String> = _appLanguageFlow.asStateFlow()
+
     private val _gatewayPlatformFlow = MutableStateFlow(gatewayPlatform)
     val gatewayPlatformFlow: StateFlow<String?> = _gatewayPlatformFlow.asStateFlow()
 
@@ -105,6 +108,7 @@ class PreferencesManager(context: Context) {
             }
         }
         _gatewayPlatformFlow.value = gatewayPlatform
+        com.antigravity.mobile.ui.util.L10n.setLanguagePreference(appLanguage)
     }
 
     var gatewayPlatform: String?
@@ -190,6 +194,19 @@ class PreferencesManager(context: Context) {
             } else {
                 Log.e("PreferencesManager", "Cannot store deviceId: EncryptedSharedPreferences unavailable.")
             }
+        }
+
+    var appLanguage: String
+        get() = prefs.getString(KEY_APP_LANGUAGE, "system") ?: "system"
+        set(value) {
+            val normalized = when (value.lowercase()) {
+                "en" -> "en"
+                "zh" -> "zh"
+                else -> "system"
+            }
+            prefs.edit().putString(KEY_APP_LANGUAGE, normalized).apply()
+            _appLanguageFlow.value = normalized
+            com.antigravity.mobile.ui.util.L10n.setLanguagePreference(normalized)
         }
 
     var themeMode: String
@@ -933,6 +950,7 @@ class PreferencesManager(context: Context) {
         private const val KEY_DEVICE_TOKEN = "device_token"
         private const val KEY_DEVICE_ID = "device_id"
         private const val KEY_THEME_MODE = "theme_mode"
+        private const val KEY_APP_LANGUAGE = "app_language"
         private const val KEY_SHARE_CARD_SKIN_ID = "share_card_skin_id"
         private const val KEY_FONT_SIZE_SCALE = "font_size_scale"
         private const val KEY_KNOWLEDGE_MODE = "knowledge_mode_enabled"

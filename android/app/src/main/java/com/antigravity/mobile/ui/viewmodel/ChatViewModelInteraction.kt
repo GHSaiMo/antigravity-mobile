@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.viewmodel
 
+import com.antigravity.mobile.ui.util.loc
 import androidx.lifecycle.viewModelScope
 import com.antigravity.mobile.data.model.*
 import kotlinx.coroutines.launch
@@ -82,7 +83,7 @@ internal fun ChatViewModel.proceedArtifact() {
         cascadeId = cascadeId,
         status = "RUNNING",
         stepCount = maxOf(1, _uiState.value.stepCount),
-        latestAction = "已确认方案，继续执行中...",
+        latestAction = "已确认方案，继续执行中...".loc,
         isOptimisticStart = true,
         baselineStepCount = _uiState.value.stepCount
     )

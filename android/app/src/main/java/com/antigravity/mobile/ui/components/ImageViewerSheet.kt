@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.components
 
+import com.antigravity.mobile.ui.util.loc
 import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
@@ -291,7 +292,7 @@ fun ImageViewerSheet(
                                 }
                             } else if (state is AsyncImagePainter.State.Error) {
                                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                    Text("图片加载失败", color = Color.White.copy(alpha = 0.7f), fontSize = 14.sp)
+                                    Text("图片加载失败".loc, color = Color.White.copy(alpha = 0.7f), fontSize = 14.sp)
                                 }
                             } else {
                                 SubcomposeAsyncImageContent()
@@ -329,11 +330,11 @@ fun ImageViewerSheet(
                     ) {
                         val sheetItem = effectiveItems.getOrNull(pagerState.currentPage)
                             ?: ImageViewerItem(data.bitmap, data.url, data.title, bytes = data.bytes)
-                        ViewerActionRow(Icons.Default.FileDownload, "保存图片") {
+                        ViewerActionRow(Icons.Default.FileDownload, "保存图片".loc) {
                             showSaveSheet = false
                             coroutineScope.launch { saveImageToGallery(context, sheetItem) }
                         }
-                        ViewerActionRow(Icons.Default.Share, "分享图片") {
+                        ViewerActionRow(Icons.Default.Share, "分享图片".loc) {
                             showSaveSheet = false
                             coroutineScope.launch { shareImage(context, sheetItem) }
                         }

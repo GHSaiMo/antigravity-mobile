@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.components
 
+import com.antigravity.mobile.ui.util.loc
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -151,7 +152,7 @@ fun QuotaStatusBar(
 
             val countdownText = if (isWeekly) {
                 bucket.formattedResetClockTime
-                    ?: bucket.resetFriendly?.takeIf { it == "已就绪" || it == "未知" }
+                    ?: bucket.resetFriendly?.takeIf { it == "已就绪".loc || it == "未知".loc }
             } else {
                 bucket.resetCountdownDisplay
             }

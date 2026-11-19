@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.components
 
+import com.antigravity.mobile.ui.util.loc
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.Image
@@ -116,7 +117,7 @@ fun OnboardingGuideView(
             )
 
             Text(
-                text = "欢迎使用 Multigravity",
+                text = "欢迎使用 Multigravity".loc,
                 fontSize = 21.sp,
                 fontWeight = FontWeight.Bold,
                 color = colors.textPrimary,
@@ -124,7 +125,7 @@ fun OnboardingGuideView(
             )
 
             Text(
-                text = "Google Antigravity 移动伴侣\n随时随地监控任务状态、下发指令",
+                text = "Google Antigravity 移动伴侣\n随时随地监控任务状态、下发指令".loc,
                 fontSize = 12.5.sp,
                 color = colors.textSecondary,
                 textAlign = TextAlign.Center,
@@ -163,7 +164,7 @@ fun OnboardingGuideView(
                         )
                     }
                     Text(
-                        text = "在电脑上启动网关服务",
+                        text = "在电脑上启动网关服务".loc,
                         fontSize = 15.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = colors.textPrimary
@@ -171,7 +172,7 @@ fun OnboardingGuideView(
                 }
 
                 Text(
-                    text = "手机端需配合运行在 Mac、Linux 或 Windows 电脑上的本地网关协同工作，嗅探后台 Google Antigravity 实例打通直连。",
+                    text = "手机端需配合运行在 Mac、Linux 或 Windows 电脑上的本地网关协同工作，嗅探后台 Google Antigravity 实例打通直连。".loc,
                     fontSize = 12.sp,
                     color = colors.textSecondary,
                     lineHeight = 16.sp
@@ -262,7 +263,7 @@ fun OnboardingGuideView(
                                         modifier = Modifier.size(11.dp)
                                     )
                                     Text(
-                                        text = if (isUnixCopied) "已复制" else "一键复制",
+                                        text = if (isUnixCopied) "已复制".loc else "一键复制".loc,
                                         fontSize = 10.5.sp,
                                         fontWeight = FontWeight.SemiBold,
                                         color = if (isUnixCopied) colors.accentGreen else colors.accentBlue
@@ -354,7 +355,7 @@ fun OnboardingGuideView(
                                         modifier = Modifier.size(11.dp)
                                     )
                                     Text(
-                                        text = if (isWinCopied) "已复制" else "一键复制",
+                                        text = if (isWinCopied) "已复制".loc else "一键复制".loc,
                                         fontSize = 10.5.sp,
                                         fontWeight = FontWeight.SemiBold,
                                         color = if (isWinCopied) colors.accentGreen else colors.accentBlue
@@ -398,7 +399,7 @@ fun OnboardingGuideView(
                         horizontalArrangement = Arrangement.spacedBy(5.dp)
                     ) {
                         Text(
-                            text = "若已安装网关，直接在终端执行",
+                            text = "若已安装网关，直接在终端执行".loc,
                             fontSize = 11.5.sp,
                             color = colors.textMuted
                         )
@@ -445,7 +446,7 @@ fun OnboardingGuideView(
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = "查看 GitHub 部署指南与下载",
+                        text = "查看 GitHub 部署指南与下载".loc,
                         fontSize = 12.5.sp,
                         fontWeight = FontWeight.Medium,
                         color = colors.accentBlue
@@ -491,7 +492,7 @@ fun OnboardingGuideView(
                         )
                     }
                     Text(
-                        text = "扫码一键自动配对",
+                        text = "扫码一键自动配对".loc,
                         fontSize = 15.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = colors.textPrimary
@@ -499,7 +500,7 @@ fun OnboardingGuideView(
                 }
 
                 Text(
-                    text = "电脑终端运行网关后会自动生成复合二维码，手机扫码即可直接交换凭证并绑定，零手动配置。",
+                    text = "电脑终端运行网关后会自动生成复合二维码，手机扫码即可直接交换凭证并绑定，零手动配置。".loc,
                     fontSize = 12.sp,
                     color = colors.textSecondary,
                     lineHeight = 17.sp
@@ -529,7 +530,7 @@ fun OnboardingGuideView(
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = "扫描电脑端配对二维码",
+                        text = "扫描电脑端配对二维码".loc,
                         fontSize = 14.5.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = Color.White
@@ -557,7 +558,7 @@ fun OnboardingGuideView(
                 modifier = Modifier.size(15.dp)
             )
             Text(
-                text = "高级选项：手动输入网址或配对码",
+                text = "高级选项：手动输入网址或配对码".loc,
                 color = colors.textSecondary,
                 fontSize = 12.5.sp,
                 fontWeight = FontWeight.Medium

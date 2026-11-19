@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import androidx.core.app.NotificationManagerCompat
+import com.antigravity.mobile.ui.util.loc
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -70,7 +71,7 @@ class NotificationActionReceiver : BroadcastReceiver() {
                             cascadeId = cascadeId,
                             status = "RUNNING",
                             stepCount = (snap?.totalSteps ?: 1).coerceAtLeast(1),
-                            latestAction = "已允许，继续执行中...",
+                            latestAction = "已允许，继续执行中...".loc,
                             hasPendingAction = false,
                             isOptimisticStart = true,
                             baselineStepCount = snap?.totalSteps ?: -1
@@ -101,7 +102,7 @@ class NotificationActionReceiver : BroadcastReceiver() {
                             cascadeId = cascadeId,
                             status = "RUNNING",
                             stepCount = (snap?.totalSteps ?: 1).coerceAtLeast(1),
-                            latestAction = "已拒绝该操作",
+                            latestAction = "已拒绝该操作".loc,
                             hasPendingAction = false,
                             isOptimisticStart = true,
                             baselineStepCount = snap?.totalSteps ?: -1

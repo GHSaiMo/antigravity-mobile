@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.viewmodel
 
+import com.antigravity.mobile.ui.util.loc
 import androidx.lifecycle.viewModelScope
 import com.antigravity.mobile.data.model.CascadeChangesResponse
 import com.antigravity.mobile.data.model.CascadeStepRange
@@ -113,7 +114,7 @@ fun ChatViewModel.refreshChapterTitles(chapters: List<ConversationChapter>) {
 fun ChatViewModel.openChangesSheet() {
     val cascadeId = _uiState.value.cascadeId
     if (cascadeId.isLocalDraft()) {
-        _uiState.value = _uiState.value.copy(errorMessage = "新会话还没有任何改动")
+        _uiState.value = _uiState.value.copy(errorMessage = "新会话还没有任何改动".loc)
         return
     }
     _uiState.value = _uiState.value.copy(changesSheet = ChangesSheetState())
@@ -124,7 +125,7 @@ fun ChatViewModel.openChangesSheet() {
             }
             .onFailure { err ->
                 _uiState.value = _uiState.value.copy(
-                    changesSheet = ChangesSheetState(isLoading = false, error = err.message ?: "加载失败")
+                    changesSheet = ChangesSheetState(isLoading = false, error = err.message ?: "加载失败".loc)
                 )
             }
     }
@@ -141,7 +142,7 @@ fun ChatViewModel.closeChangesSheet() {
 fun ChatViewModel.openGitSheet() {
     val cascadeId = _uiState.value.cascadeId
     if (cascadeId.isLocalDraft()) {
-        _uiState.value = _uiState.value.copy(errorMessage = "新会话还没有关联的工作区")
+        _uiState.value = _uiState.value.copy(errorMessage = "新会话还没有关联的工作区".loc)
         return
     }
     _uiState.value = _uiState.value.copy(gitSheet = GitSheetState())
@@ -161,7 +162,7 @@ fun ChatViewModel.refreshGitStatus() {
             .onFailure { err ->
                 val sheet = _uiState.value.gitSheet ?: return@onFailure
                 _uiState.value = _uiState.value.copy(
-                    gitSheet = sheet.copy(isLoading = false, error = err.message ?: "加载失败")
+                    gitSheet = sheet.copy(isLoading = false, error = err.message ?: "加载失败".loc)
                 )
             }
     }
@@ -182,7 +183,7 @@ fun ChatViewModel.commitGit(message: String, paths: List<String>, push: Boolean)
             .onFailure { err ->
                 val s = _uiState.value.gitSheet ?: return@onFailure
                 _uiState.value = _uiState.value.copy(
-                    gitSheet = s.copy(isWorking = false, actionError = err.message ?: "提交失败")
+                    gitSheet = s.copy(isWorking = false, actionError = err.message ?: "提交失败".loc)
                 )
             }
     }
@@ -205,7 +206,7 @@ fun ChatViewModel.retryGitPush() {
             .onFailure { err ->
                 val s = _uiState.value.gitSheet ?: return@onFailure
                 _uiState.value = _uiState.value.copy(
-                    gitSheet = s.copy(isWorking = false, actionError = err.message ?: "推送失败")
+                    gitSheet = s.copy(isWorking = false, actionError = err.message ?: "推送失败".loc)
                 )
             }
     }
@@ -229,20 +230,20 @@ fun ChatViewModel.delegateCommitToAgent() {
 fun ChatViewModel.exportMarkdown(onReady: (title: String, markdown: String) -> Unit) {
     val state = _uiState.value
     if (state.cascadeId.isLocalDraft()) {
-        _uiState.value = state.copy(errorMessage = "新会话还没有内容可导出")
+        _uiState.value = state.copy(errorMessage = "新会话还没有内容可导出".loc)
         return
     }
     viewModelScope.launch {
         apiClient.exportConversationMarkdown(state.cascadeId)
             .onSuccess { md ->
                 if (md.isBlank()) {
-                    _uiState.value = _uiState.value.copy(errorMessage = "会话内容为空，无法导出")
+                    _uiState.value = _uiState.value.copy(errorMessage = "会话内容为空，无法导出".loc)
                 } else {
                     onReady(state.title, md)
                 }
             }
             .onFailure { err ->
-                _uiState.value = _uiState.value.copy(errorMessage = "导出失败: ${err.message}")
+                _uiState.value = _uiState.value.copy(errorMessage = "导出失败: ${err.message}".loc)
             }
     }
 }

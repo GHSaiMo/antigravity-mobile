@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.components
 
+import com.antigravity.mobile.ui.util.loc
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -139,7 +140,7 @@ fun SubagentDetailBottomSheet(
                                     .background(if (isRunning) colors.accentGreen else colors.textMuted)
                             )
                             Text(
-                                text = if (isRunning) "执行中" else "已完成",
+                                text = if (isRunning) "执行中".loc else "已完成".loc,
                                 style = MaterialTheme.typography.bodySmall,
                                 color = colors.textSecondary
                             )
@@ -147,7 +148,7 @@ fun SubagentDetailBottomSheet(
 
                         if ((subagent.stepCount ?: 0) > 0) {
                             Text(
-                                text = "• ${subagent.stepCount} 步",
+                                text = "• ${subagent.stepCount} 步".loc,
                                 style = MaterialTheme.typography.bodySmall,
                                 color = colors.textSecondary
                             )
@@ -165,7 +166,7 @@ fun SubagentDetailBottomSheet(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "分配指令 (Initial Prompt)",
+                            text = "分配指令 (Initial Prompt)".loc,
                             style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
                             color = colors.textSecondary
                         )
@@ -177,7 +178,7 @@ fun SubagentDetailBottomSheet(
                                 },
                                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
                             ) {
-                                Text("旁路快问", fontSize = 11.sp, color = colors.accentIndigo)
+                                Text("旁路快问".loc, fontSize = 11.sp, color = colors.accentIndigo)
                             }
                         }
                     }
@@ -200,7 +201,7 @@ fun SubagentDetailBottomSheet(
             // Metadata info
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(
-                    text = "运行时元数据",
+                    text = "运行时元数据".loc,
                     style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
                     color = colors.textSecondary
                 )
@@ -218,7 +219,7 @@ fun SubagentDetailBottomSheet(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Text("智能体类型", style = MaterialTheme.typography.bodySmall, color = colors.textSecondary)
+                            Text("智能体类型".loc, style = MaterialTheme.typography.bodySmall, color = colors.textSecondary)
                             Text(subagent.typeName ?: "self", style = MaterialTheme.typography.bodySmall, color = colors.textPrimary)
                         }
                         HorizontalDivider(color = colors.border.copy(alpha = 0.3f))
@@ -226,9 +227,9 @@ fun SubagentDetailBottomSheet(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Text("会话 ID", style = MaterialTheme.typography.bodySmall, color = colors.textSecondary)
+                            Text("会话 ID".loc, style = MaterialTheme.typography.bodySmall, color = colors.textSecondary)
                             Text(
-                                text = subagent.conversationId.ifBlank { "未生成" },
+                                text = subagent.conversationId.ifBlank { "未生成".loc },
                                 style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
                                 color = colors.textPrimary
                             )
@@ -242,7 +243,7 @@ fun SubagentDetailBottomSheet(
                 val b = browserState!!
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        text = "浏览器实时画布",
+                        text = "浏览器实时画布".loc,
                         style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
                         color = colors.textSecondary
                     )
@@ -264,7 +265,7 @@ fun SubagentDetailBottomSheet(
                         if (bmp != null) {
                             Image(
                                 bitmap = bmp,
-                                contentDescription = "浏览器截图",
+                                contentDescription = "浏览器截图".loc,
                                 contentScale = ContentScale.FillWidth,
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -277,21 +278,21 @@ fun SubagentDetailBottomSheet(
                             OutlinedButton(onClick = {
                                 scope.launch {
                                     ApiClient.defaultInstance?.whitelistBrowserUrl(url)?.onSuccess {
-                                        actionNotice = "已添加到浏览器允许名单"
+                                        actionNotice = "已添加到浏览器允许名单".loc
                                     }
                                 }
                             }) {
-                                Text("加白名单", fontSize = 12.sp)
+                                Text("加白名单".loc, fontSize = 12.sp)
                             }
                         }
                         OutlinedButton(onClick = {
                             scope.launch {
                                 ApiClient.defaultInstance?.skipBrowserSubagent(subagent.conversationId)?.onSuccess {
-                                    actionNotice = "已请求跳过此步骤"
+                                    actionNotice = "已请求跳过此步骤".loc
                                 }
                             }
                         }) {
-                            Text("跳过此步", color = colors.accentOrange, fontSize = 12.sp)
+                            Text("跳过此步".loc, color = colors.accentOrange, fontSize = 12.sp)
                         }
                     }
                 }
@@ -301,7 +302,7 @@ fun SubagentDetailBottomSheet(
             if (subagent.conversationId.isNotBlank()) {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(
-                        text = "向子代理发送指示",
+                        text = "向子代理发送指示".loc,
                         style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
                         color = colors.textSecondary
                     )
@@ -312,7 +313,7 @@ fun SubagentDetailBottomSheet(
                         OutlinedTextField(
                             value = messageInput,
                             onValueChange = { messageInput = it },
-                            placeholder = { Text("中途插话 / 补充要求…", fontSize = 13.sp) },
+                            placeholder = { Text("中途插话 / 补充要求…".loc, fontSize = 13.sp) },
                             singleLine = true,
                             modifier = Modifier.weight(1f)
                         )
@@ -323,13 +324,13 @@ fun SubagentDetailBottomSheet(
                                     messageInput = ""
                                     scope.launch {
                                         ApiClient.defaultInstance?.sendSubagentMessage(subagent.conversationId, txt)
-                                            ?.onSuccess { actionNotice = "指示已送达子代理" }
-                                            ?.onFailure { actionNotice = "发送失败: ${it.message}" }
+                                            ?.onSuccess { actionNotice = "指示已送达子代理".loc }
+                                            ?.onFailure { actionNotice = "发送失败: ${it.message}".loc }
                                     }
                                 }
                             }
                         ) {
-                            Icon(Icons.Default.Send, contentDescription = "发送", tint = colors.accentBlue)
+                            Icon(Icons.Default.Send, contentDescription = "发送".loc, tint = colors.accentBlue)
                         }
                     }
                     actionNotice?.let { note ->
@@ -365,7 +366,7 @@ fun SubagentDetailBottomSheet(
                         modifier = Modifier.size(16.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("终止该子代理", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold))
+                    Text("终止该子代理".loc, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold))
                 }
             }
         }

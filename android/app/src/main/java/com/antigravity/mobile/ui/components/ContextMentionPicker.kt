@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.components
 
+import com.antigravity.mobile.ui.util.loc
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -104,7 +105,7 @@ fun ContextMentionPicker(
                 }
 
                 Text(
-                    text = "引用文件或关联会话",
+                    text = "引用文件或关联会话".loc,
                     color = colors.textPrimary,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.SemiBold
@@ -141,7 +142,7 @@ fun ContextMentionPicker(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Close,
-                        contentDescription = "关闭引用选择浮窗",
+                        contentDescription = "关闭引用选择浮窗".loc,
                         tint = colors.textSecondary,
                         modifier = Modifier.size(14.dp)
                     )
@@ -168,7 +169,7 @@ fun ContextMentionPicker(
                 Box(modifier = Modifier.weight(1f)) {
                     if (query.isEmpty()) {
                         Text(
-                            text = "搜索文件、目录或关联会话...",
+                            text = "搜索文件、目录或关联会话...".loc,
                             color = colors.textMuted,
                             fontSize = 14.sp,
                             maxLines = 1,
@@ -196,7 +197,7 @@ fun ContextMentionPicker(
                 } else if (query.isNotEmpty()) {
                     Icon(
                         imageVector = Icons.Default.Close,
-                        contentDescription = "清空搜索",
+                        contentDescription = "清空搜索".loc,
                         tint = colors.textSecondary,
                         modifier = Modifier
                             .size(16.dp)
@@ -231,7 +232,7 @@ fun ContextMentionPicker(
                     }
                     Spacer(modifier = Modifier.height(10.dp))
                     Text(
-                        text = if (isLoading) "正在检索工作区上下文..." else "暂无匹配的文件、目录或关联会话",
+                        text = if (isLoading) "正在检索工作区上下文...".loc else "暂无匹配的文件、目录或关联会话".loc,
                         color = colors.textMuted,
                         fontSize = 13.5.sp
                     )
@@ -322,7 +323,7 @@ fun ContextMentionPicker(
                             if (isAlreadySelected) {
                                 Icon(
                                     imageVector = Icons.Default.CheckCircle,
-                                    contentDescription = "已选中",
+                                    contentDescription = "已选中".loc,
                                     tint = colors.accentIndigo,
                                     modifier = Modifier
                                         .padding(top = 2.dp)
@@ -358,17 +359,17 @@ private fun mentionVisualStyle(type: String): MentionVisualStyle {
         "directory" -> MentionVisualStyle(
             icon = Icons.Default.Folder,
             accentColor = colors.accentBlue,
-            tag = "目录"
+            tag = "目录".loc
         )
         "conversation" -> MentionVisualStyle(
             icon = Icons.AutoMirrored.Filled.Chat,
             accentColor = colors.accentGreen,
-            tag = "会话"
+            tag = "会话".loc
         )
         else -> MentionVisualStyle(
             icon = Icons.Default.Description,
             accentColor = colors.accentIndigo,
-            tag = "文件"
+            tag = "文件".loc
         )
     }
 }

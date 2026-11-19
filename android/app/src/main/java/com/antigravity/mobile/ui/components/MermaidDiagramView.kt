@@ -43,12 +43,19 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.antigravity.mobile.ui.theme.AppColors
 import com.antigravity.mobile.ui.theme.AntigravityTheme
+import com.antigravity.mobile.ui.util.loc
 import com.antigravity.mobile.ui.util.rememberHaptic
 import org.json.JSONObject
 
-enum class MermaidViewMode(val label: String) {
-    DIAGRAM("图表"),
-    CODE("代码")
+enum class MermaidViewMode {
+    DIAGRAM,
+    CODE;
+
+    val label: String
+        get() = when (this) {
+            DIAGRAM -> "图表".loc
+            CODE -> "代码".loc
+        }
 }
 
 /**
@@ -158,7 +165,7 @@ fun MermaidDiagramView(
                     ) {
                         Icon(
                             imageVector = Icons.Default.Fullscreen,
-                            contentDescription = "全屏查看",
+                            contentDescription = "全屏查看".loc,
                             tint = colors.textSecondary,
                             modifier = Modifier.size(16.dp)
                         )
@@ -174,7 +181,7 @@ fun MermaidDiagramView(
                             val formattedCode = if (code.endsWith("\n")) code else "$code\n"
                             clipboardManager.setText(AnnotatedString(formattedCode))
                             isCopied = true
-                            Toast.makeText(context, "代码已复制", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, "代码已复制".loc, Toast.LENGTH_SHORT).show()
                             Handler(Looper.getMainLooper()).postDelayed({ isCopied = false }, 1800)
                         }
                         .padding(horizontal = 6.dp, vertical = 3.dp),
@@ -188,7 +195,7 @@ fun MermaidDiagramView(
                         modifier = Modifier.size(12.dp)
                     )
                     Text(
-                        text = if (isCopied) "已复制" else "复制",
+                        text = if (isCopied) "已复制".loc else "复制".loc,
                         color = if (isCopied) colors.accentIndigo else colors.textSecondary,
                         fontSize = 11.sp
                     )
@@ -224,14 +231,14 @@ fun MermaidDiagramView(
                                 modifier = Modifier.size(15.dp)
                             )
                             Text(
-                                text = "Mermaid 语法解析失败",
+                                text = "Mermaid 语法解析失败".loc,
                                 color = colors.textPrimary,
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.SemiBold
                             )
                         }
                         Text(
-                            text = "查看源码",
+                            text = "查看源码".loc,
                             color = colors.accentIndigo,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Medium,
@@ -240,7 +247,7 @@ fun MermaidDiagramView(
                     }
 
                     Text(
-                        text = renderError ?: "未知错误",
+                        text = renderError ?: "未知错误".loc,
                         color = colors.textSecondary,
                         fontSize = 11.sp,
                         fontFamily = FontFamily.Monospace,
@@ -288,7 +295,7 @@ fun MermaidDiagramView(
                             modifier = Modifier.size(11.dp)
                         )
                         Text(
-                            text = "双指可缩放",
+                            text = "双指可缩放".loc,
                             color = colors.textSecondary,
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Medium
@@ -346,7 +353,7 @@ fun MermaidDiagramView(
                         }
 
                         Text(
-                            text = "Mermaid 架构图",
+                            text = "Mermaid 架构图".loc,
                             color = colors.textPrimary,
                             fontSize = 16.sp,
                             fontWeight = FontWeight.SemiBold
@@ -355,10 +362,10 @@ fun MermaidDiagramView(
                         TextButton(onClick = {
                             val formattedCode = if (code.endsWith("\n")) code else "$code\n"
                             clipboardManager.setText(AnnotatedString(formattedCode))
-                            Toast.makeText(context, "代码已复制", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, "代码已复制".loc, Toast.LENGTH_SHORT).show()
                         }) {
                             Text(
-                                text = "复制源码",
+                                text = "复制源码".loc,
                                 color = colors.accentIndigo,
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Medium

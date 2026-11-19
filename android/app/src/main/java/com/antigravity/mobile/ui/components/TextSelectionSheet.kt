@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.components
 
+import com.antigravity.mobile.ui.util.loc
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -36,7 +37,7 @@ import com.antigravity.mobile.ui.theme.AntigravityTheme
 fun TextSelectionSheet(
     content: String,
     onDismiss: () -> Unit,
-    title: String = "选择文本",
+    title: String = "选择文本".loc,
     modifier: Modifier = Modifier
 ) {
     val colors = AntigravityTheme.colors
@@ -90,12 +91,12 @@ fun TextSelectionSheet(
                 ) {
                     Icon(
                         imageVector = Icons.Default.ContentCopy,
-                        contentDescription = "全部复制",
+                        contentDescription = "全部复制".loc,
                         tint = colors.accentIndigo,
                         modifier = Modifier.size(15.dp)
                     )
                     Text(
-                        text = "全部复制",
+                        text = "全部复制".loc,
                         color = colors.accentIndigo,
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Medium
@@ -119,7 +120,7 @@ fun TextSelectionSheet(
                     modifier = Modifier.size(14.dp)
                 )
                 Text(
-                    text = "长按拖动手柄可精细选择局部文本",
+                    text = "长按拖动手柄可精细选择局部文本".loc,
                     color = colors.textSecondary,
                     fontSize = 12.sp
                 )

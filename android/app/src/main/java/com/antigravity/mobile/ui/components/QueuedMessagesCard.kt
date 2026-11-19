@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.components
 
+import com.antigravity.mobile.ui.util.loc
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
@@ -90,7 +91,7 @@ fun QueuedMessagesCard(
                     modifier = Modifier.weight(1f)
                 ) {
                     Text(
-                        text = "队列",
+                        text = "队列".loc,
                         color = colors.textPrimary,
                         fontSize = 14.sp,
                         fontWeight = FontWeight.SemiBold
@@ -118,7 +119,7 @@ fun QueuedMessagesCard(
                                 .background(Color(0xFFFF9800))
                         )
                         Text(
-                            text = "后台任务运行中，完成后出列",
+                            text = "后台任务运行中，完成后出列".loc,
                             color = Color(0xFFFF9800),
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Medium,
@@ -127,7 +128,7 @@ fun QueuedMessagesCard(
                         )
                     } else {
                         Text(
-                            text = "当前任务完成后自动发送",
+                            text = "当前任务完成后自动发送".loc,
                             color = colors.textSecondary,
                             fontSize = 12.sp,
                             maxLines = 1,
@@ -138,7 +139,7 @@ fun QueuedMessagesCard(
 
                 Icon(
                     imageVector = Icons.Default.KeyboardArrowDown,
-                    contentDescription = if (isExpanded) "折叠队列" else "展开队列",
+                    contentDescription = if (isExpanded) "折叠队列".loc else "展开队列".loc,
                     tint = colors.textSecondary,
                     modifier = Modifier
                         .size(20.dp)

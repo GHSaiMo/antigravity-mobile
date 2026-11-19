@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.viewmodel
 
+import com.antigravity.mobile.ui.util.loc
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -330,7 +331,7 @@ internal fun ChatViewModel.sendMessage(
                     p.clearDraftImages(newCascadeId)
                 }
 
-                val title = if (isPure) "新对话" else project.name
+                val title = if (isPure) "新对话".loc else project.name
                 val wsName = if (isPure) "Chat" else project.name
                 _uiState.value = _uiState.value.copy(
                     cascadeId = newCascadeId,
@@ -360,7 +361,7 @@ internal fun ChatViewModel.sendMessage(
                     cascadeId = newCascadeId,
                     status = "RUNNING",
                     stepCount = 1,
-                    latestAction = "开始执行任务...",
+                    latestAction = "开始执行任务...".loc,
                     isOptimisticStart = true,
                     baselineStepCount = 0
                 )
@@ -382,7 +383,7 @@ internal fun ChatViewModel.sendMessage(
                         hasObservedServerRunningForAwaiting = false
                         stopRunningFallbackPolling()
                         _uiState.value = _uiState.value.copy(
-                            errorMessage = "发送失败: ${err.message}",
+                            errorMessage = "发送失败: ${err.message}".loc,
                             isRunning = false,
                             isAwaitingResponse = false
                         )
@@ -450,7 +451,7 @@ internal fun ChatViewModel.sendMessage(
                 hasObservedServerRunningForAwaiting = false
                 stopRunningFallbackPolling()
                 _uiState.value = _uiState.value.copy(
-                    errorMessage = "创建会话失败: ${err.message}",
+                    errorMessage = "创建会话失败: ${err.message}".loc,
                     isRunning = false,
                     isAwaitingResponse = false
                 )
@@ -466,7 +467,7 @@ internal fun ChatViewModel.sendMessage(
         cascadeId = cascadeId,
         status = "RUNNING",
         stepCount = maxOf(1, _uiState.value.messages.count { !it.isUser } + 1),
-        latestAction = "开始执行任务...",
+        latestAction = "开始执行任务...".loc,
         isOptimisticStart = true,
         baselineStepCount = baselineStepCount
     )
@@ -492,7 +493,7 @@ internal fun ChatViewModel.sendMessage(
             hasObservedServerRunningForAwaiting = false
             stopRunningFallbackPolling()
             _uiState.value = _uiState.value.copy(
-                errorMessage = "发送失败: ${err.message}",
+                errorMessage = "发送失败: ${err.message}".loc,
                 isRunning = false,
                 isAwaitingResponse = false
             )
@@ -543,7 +544,7 @@ internal fun ChatViewModel.stopSubagent(conversationId: String) {
             Log.e("ChatViewModel", "stopSubagent failed for $conversationId: ${result.exceptionOrNull()?.message}")
             _uiState.value = _uiState.value.copy(
                 subagents = previous,
-                attachmentNotice = "关停子代理失败，请稍后重试"
+                attachmentNotice = "关停子代理失败，请稍后重试".loc
             )
         }
     }
@@ -599,7 +600,7 @@ internal fun ChatViewModel.ensureCascadeForVoiceCall(onReady: (String, String?, 
             onReady(newCascadeId, baseUrl, token)
         }.onFailure { err ->
             _uiState.value = _uiState.value.copy(
-                errorMessage = "无法启动实时语音会话：${err.message ?: "网络异常"}"
+                errorMessage = "无法启动实时语音会话：${err.message ?: "网络异常".loc}".loc
             )
         }
     }
@@ -618,7 +619,7 @@ internal fun ChatViewModel.bindVoiceCascadeId(newCascadeId: String, projectOverr
         p.clearDraftImages(oldDraftId)
         p.clearDraftFiles(oldDraftId)
     }
-    val title = if (isPure) "新对话" else project.name
+    val title = if (isPure) "新对话".loc else project.name
     val wsName = if (isPure) "Chat" else project.name
     _uiState.value = _uiState.value.copy(
         cascadeId = newCascadeId,

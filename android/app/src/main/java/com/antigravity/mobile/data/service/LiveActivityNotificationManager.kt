@@ -20,6 +20,7 @@ import com.antigravity.mobile.data.model.StreamUpdatePayload
 import com.antigravity.mobile.data.model.blockingTasks
 import com.antigravity.mobile.data.model.hasBlockingTasks
 import com.antigravity.mobile.ui.util.ToolLocalization
+import com.antigravity.mobile.ui.util.loc
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -299,15 +300,15 @@ class LiveActivityNotificationManager(
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val resolvedTitle = title.ifBlank { cascadeTitles[cascadeId].orEmpty().ifBlank { "Agent 任务执行中" } }
+        val resolvedTitle = title.ifBlank { cascadeTitles[cascadeId].orEmpty().ifBlank { "Agent 任务执行中".loc } }
         val actionText = when {
-            latestAction.isNotBlank() -> latestAction
-            runningTaskCount > 0 -> "正在执行后台任务 ($runningTaskCount)..."
-            stepCount > 0 -> "正在执行第 $stepCount 步..."
-            else -> "正在执行..."
+            latestAction.isNotBlank() -> latestAction.loc
+            runningTaskCount > 0 -> "正在执行后台任务 ($runningTaskCount)...".loc
+            stepCount > 0 -> "正在执行第 $stepCount 步...".loc
+            else -> "正在执行...".loc
         }
 
-        val subText = if (hasPendingAction) "需要用户审批" else "Antigravity Agent"
+        val subText = if (hasPendingAction) "需要用户审批".loc else "Antigravity Agent"
 
         val builder = NotificationCompat.Builder(context, NotificationChannelManager.CHANNEL_LIVE_ACTIVITY)
             .setContentTitle(resolvedTitle)
@@ -325,7 +326,7 @@ class LiveActivityNotificationManager(
         if (hasPendingAction) {
             builder.addAction(
                 0,
-                "允许",
+                "允许".loc,
                 NotificationActionReceiver.buildPendingIntent(
                     context,
                     NotificationActionReceiver.ACTION_APPROVE,
@@ -334,7 +335,7 @@ class LiveActivityNotificationManager(
             )
             builder.addAction(
                 0,
-                "拒绝",
+                "拒绝".loc,
                 NotificationActionReceiver.buildPendingIntent(
                     context,
                     NotificationActionReceiver.ACTION_REJECT,
@@ -344,7 +345,7 @@ class LiveActivityNotificationManager(
         } else if (LiveActivityStatusHelper.isStatusRunning(status)) {
             builder.addAction(
                 0,
-                "停止",
+                "停止".loc,
                 NotificationActionReceiver.buildPendingIntent(
                     context,
                     NotificationActionReceiver.ACTION_STOP,
@@ -441,17 +442,17 @@ class LiveActivityNotificationManager(
         cleanUpOrphanedActivities(keepingCascadeId = cascadeId)
 
         // 3. If user interaction / approval is required, post a high-priority heads-up alert with sound & vibration
-        val resolvedTitle = cleanedTitle ?: cascadeTitles[cascadeId].orEmpty().ifBlank { "Agent 任务执行中" }
+        val resolvedTitle = cleanedTitle ?: cascadeTitles[cascadeId].orEmpty().ifBlank { "Agent 任务执行中".loc }
         val actionText = when {
-            latestAction.isNotBlank() -> latestAction
-            runningTaskCount > 0 -> "正在执行后台任务 ($runningTaskCount)..."
-            stepCount > 0 -> "正在执行第 $stepCount 步..."
-            else -> "正在执行..."
+            latestAction.isNotBlank() -> latestAction.loc
+            runningTaskCount > 0 -> "正在执行后台任务 ($runningTaskCount)...".loc
+            stepCount > 0 -> "正在执行第 $stepCount 步...".loc
+            else -> "正在执行...".loc
         }
         if (hasPendingAction && lastActionNotifiedForCascade != cascadeId) {
             lastActionNotifiedForCascade = cascadeId
             notifyAlert(
-                title = "⚠️ Antigravity 需要审批",
+                title = "⚠️ Antigravity 需要审批".loc,
                 body = "【$resolvedTitle】$actionText",
                 deeplink = "antigravity://cascade/$cascadeId?action=review",
                 isAction = true,
@@ -514,7 +515,7 @@ class LiveActivityNotificationManager(
         updateCachedConversationStatus(targetCascadeId, finalStatus)
 
         val summary = LiveActivityStatusHelper.formatEndedSummary(finalStatus)
-        val contentTitle = if (resolvedTitle.isNotBlank()) resolvedTitle else "任务已结束"
+        val contentTitle = if (resolvedTitle.isNotBlank()) resolvedTitle else "任务已结束".loc
         val intent = Intent(context, MainActivity::class.java).apply {
             action = Intent.ACTION_VIEW
             data = Uri.parse("antigravity://cascade/$targetCascadeId")
@@ -616,10 +617,10 @@ class LiveActivityNotificationManager(
                         observedServerRunningIds.add(cid)
                         val runningTasks = payload.runningTasks.orEmpty()
                         val latestAction = when {
-                            payload.pendingInteraction != null -> payload.pendingInteraction.prompt ?: "需要审批操作"
-                            runningTasks.hasBlockingTasks -> runningTasks.blockingTasks.firstOrNull()?.displayCommand?.ifBlank { "正在执行后台任务..." } ?: "正在执行后台任务..."
-                            lastMsg?.toolCalls?.isNotEmpty() == true -> "正在执行: " + ToolLocalization.localizedName(lastMsg.toolCalls.lastOrNull()?.name ?: "操作")
-                            else -> "正在执行任务..."
+                            payload.pendingInteraction != null -> payload.pendingInteraction.prompt ?: "需要审批操作".loc
+                            runningTasks.hasBlockingTasks -> runningTasks.blockingTasks.firstOrNull()?.displayCommand?.ifBlank { "正在执行后台任务...".loc } ?: "正在执行后台任务...".loc
+                            lastMsg?.toolCalls?.isNotEmpty() == true -> "正在执行: ".loc + ToolLocalization.localizedName(lastMsg.toolCalls.lastOrNull()?.name ?: "操作")
+                            else -> "正在执行任务...".loc
                         }
                         val stepCount = maxOf(1, payload.totalSteps, msgs.count { !it.isUser })
                         startOrUpdateActivity(
@@ -745,7 +746,7 @@ class LiveActivityNotificationManager(
         if (isAction && !cascadeId.isNullOrBlank()) {
             alertBuilder.addAction(
                 0,
-                "允许",
+                "允许".loc,
                 NotificationActionReceiver.buildPendingIntent(
                     context,
                     NotificationActionReceiver.ACTION_APPROVE,
@@ -755,7 +756,7 @@ class LiveActivityNotificationManager(
             )
             alertBuilder.addAction(
                 0,
-                "拒绝",
+                "拒绝".loc,
                 NotificationActionReceiver.buildPendingIntent(
                     context,
                     NotificationActionReceiver.ACTION_REJECT,

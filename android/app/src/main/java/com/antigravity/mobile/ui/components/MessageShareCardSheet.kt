@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.components
 
+import com.antigravity.mobile.ui.util.loc
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
@@ -255,10 +256,10 @@ fun MessageShareCardSheet(
                     },
                     enabled = !busy
                 ) {
-                    Icon(Icons.Default.FileDownload, contentDescription = "保存到相册")
+                    Icon(Icons.Default.FileDownload, contentDescription = "保存到相册".loc)
                 }
                 Text(
-                    text = "分享长图",
+                    text = "分享长图".loc,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.weight(1f),
@@ -274,7 +275,7 @@ fun MessageShareCardSheet(
                     },
                     enabled = !busy
                 ) {
-                    Icon(Icons.Default.Share, contentDescription = "分享")
+                    Icon(Icons.Default.Share, contentDescription = "分享".loc)
                 }
             }
 
@@ -321,7 +322,7 @@ fun MessageShareCardSheet(
                 if (canIncludeQuestion) {
                     ShareOptionPill(
                         icon = if (includeQuestion) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
-                        label = "包含提问",
+                        label = "包含提问".loc,
                         selected = includeQuestion,
                         onClick = { includeQuestion = !includeQuestion }
                     )
@@ -394,7 +395,7 @@ internal fun ShareCardSkinPickerSheet(
                 .navigationBarsPadding()
         ) {
             Text(
-                text = "选择长图皮肤",
+                text = "选择长图皮肤".loc,
                 color = colors.textPrimary,
                 fontWeight = FontWeight.Bold,
                 fontSize = 17.sp,
@@ -411,8 +412,8 @@ internal fun ShareCardSkinPickerSheet(
                     .padding(horizontal = 16.dp, vertical = 14.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                SkinGroupSection("基础风格", ThemePresetCatalog.defaultSkins, selectedPreset, onSelect)
-                SkinGroupSection("精选桌面端配色", ThemePresetCatalog.desktopSkins, selectedPreset, onSelect)
+                SkinGroupSection("基础风格".loc, ThemePresetCatalog.defaultSkins, selectedPreset, onSelect)
+                SkinGroupSection("精选桌面端配色".loc, ThemePresetCatalog.desktopSkins, selectedPreset, onSelect)
                 Spacer(Modifier.height(12.dp))
             }
         }
@@ -553,7 +554,7 @@ private fun MessageShareCard(
         ) {
             // Header: 会话标题 / 时间 + 模型胶囊
             Text(
-                text = shareContext.sessionTitle.ifBlank { "Multigravity 会话" },
+                text = shareContext.sessionTitle.ifBlank { "Multigravity 会话".loc },
                 color = colors.textPrimary,
                 fontSize = 24.sp,
                 lineHeight = 30.sp,
@@ -626,7 +627,7 @@ private fun MessageShareCard(
                                 tint = Color.White
                             )
                             Text(
-                                text = "语音交互",
+                                text = "语音交互".loc,
                                 color = Color.White,
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.SemiBold
@@ -783,7 +784,7 @@ private fun QuestionBubble(
                     tint = Color.White
                 )
                 Text(
-                    text = "语音交互",
+                    text = "语音交互".loc,
                     color = Color.White,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.SemiBold

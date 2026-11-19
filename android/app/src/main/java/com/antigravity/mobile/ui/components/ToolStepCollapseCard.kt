@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.components
 
+import com.antigravity.mobile.ui.util.loc
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
@@ -56,11 +57,11 @@ fun ToolStepCollapseCard(
     val summaryText = remember(toolCalls, uniqueToolNames, thinkingText, thinkingDuration) {
         when {
             !hasTools -> buildString {
-                append("💭 已深度思考")
+                append("💭 已深度思考".loc)
                 if (!thinkingDuration.isNullOrBlank()) append(" ($thinkingDuration)")
             }
-            uniqueToolNames.isNotBlank() -> "⚡ 已思考并执行 ${toolCalls.size} 项操作 ($uniqueToolNames)"
-            else -> "⚡ 已思考并执行 ${toolCalls.size} 项操作"
+            uniqueToolNames.isNotBlank() -> "⚡ 已思考并执行 ${toolCalls.size} 项操作 ($uniqueToolNames)".loc
+            else -> "⚡ 已思考并执行 ${toolCalls.size} 项操作".loc
         }
     }
 
@@ -159,7 +160,7 @@ fun ToolStepCollapseCard(
                             .padding(horizontal = 12.dp, vertical = 8.dp)
                     ) {
                         Text(
-                            text = "思考过程",
+                            text = "思考过程".loc,
                             color = colors.textSecondary,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.SemiBold

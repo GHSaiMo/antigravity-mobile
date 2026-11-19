@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.components
 
+import com.antigravity.mobile.ui.util.loc
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
@@ -316,7 +317,7 @@ fun WorkflowSlidePickerOverlay(
                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
                                 Text(
-                                    text = if (isHovered) "暂未配置快捷模板 · 松手去设置" else "暂未配置快捷模板 · 点击去设置",
+                                    text = if (isHovered) "暂未配置快捷模板 · 松手去设置".loc else "暂未配置快捷模板 · 点击去设置".loc,
                                     fontSize = 13.sp,
                                     fontWeight = if (isHovered) FontWeight.SemiBold else FontWeight.Medium,
                                     color = colors.textPrimary,

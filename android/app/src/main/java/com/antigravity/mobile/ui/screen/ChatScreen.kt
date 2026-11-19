@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.screen
 
+import com.antigravity.mobile.ui.util.loc
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
 import androidx.compose.runtime.snapshotFlow
@@ -506,7 +507,7 @@ fun ChatScreen(
             pendingCameraUri = uri
             cameraLauncher.launch(uri)
         } catch (e: Exception) {
-            android.widget.Toast.makeText(context, "无法打开相机", android.widget.Toast.LENGTH_SHORT).show()
+            android.widget.Toast.makeText(context, "无法打开相机".loc, android.widget.Toast.LENGTH_SHORT).show()
         }
     }
     // The manifest declares CAMERA, so the system camera intent requires the permission to be granted.
@@ -528,7 +529,7 @@ fun ChatScreen(
                 }
             }
         } catch (t: Throwable) {
-            android.util.Log.e("ChatScreen", "解析文档扫描结果异常", t)
+            android.util.Log.e("ChatScreen", "解析文档扫描结果异常".loc, t)
         }
     }
     val launchDocumentScanner: () -> Unit = {
@@ -549,18 +550,18 @@ fun ChatScreen(
                             val request = IntentSenderRequest.Builder(intentSender).build()
                             documentScannerLauncher.launch(request)
                         } catch (e: Exception) {
-                            android.widget.Toast.makeText(context, "无法启动文档扫描", android.widget.Toast.LENGTH_SHORT).show()
+                            android.widget.Toast.makeText(context, "无法启动文档扫描".loc, android.widget.Toast.LENGTH_SHORT).show()
                         }
                     }
                     .addOnFailureListener { e ->
-                        android.widget.Toast.makeText(context, "启动文档扫描失败: ${e.localizedMessage ?: "服务不可用"}", android.widget.Toast.LENGTH_SHORT).show()
+                        android.widget.Toast.makeText(context, "启动文档扫描失败: ${e.localizedMessage ?: "服务不可用".loc}".loc, android.widget.Toast.LENGTH_SHORT).show()
                     }
             } else {
-                android.widget.Toast.makeText(context, "无法获取界面上下文", android.widget.Toast.LENGTH_SHORT).show()
+                android.widget.Toast.makeText(context, "无法获取界面上下文".loc, android.widget.Toast.LENGTH_SHORT).show()
             }
         } catch (t: Throwable) {
-            android.util.Log.e("ChatScreen", "初始化文档扫描异常", t)
-            android.widget.Toast.makeText(context, "当前设备暂不支持原生文档扫描", android.widget.Toast.LENGTH_SHORT).show()
+            android.util.Log.e("ChatScreen", "初始化文档扫描异常".loc, t)
+            android.widget.Toast.makeText(context, "当前设备暂不支持原生文档扫描".loc, android.widget.Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -636,7 +637,7 @@ fun ChatScreen(
                 deviceToken = token
             )
             if (!ok) {
-                android.widget.Toast.makeText(context, "无法启动实时语音通话", android.widget.Toast.LENGTH_SHORT).show()
+                android.widget.Toast.makeText(context, "无法启动实时语音通话".loc, android.widget.Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -647,7 +648,7 @@ fun ChatScreen(
         if (granted) {
             startVoiceCallInternal()
         } else {
-            android.widget.Toast.makeText(context, "需要麦克风权限以开启实时语音对话", android.widget.Toast.LENGTH_SHORT).show()
+            android.widget.Toast.makeText(context, "需要麦克风权限以开启实时语音对话".loc, android.widget.Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -678,10 +679,10 @@ fun ChatScreen(
             }
             val success = audioRecorder.startRecording()
             if (!success) {
-                android.widget.Toast.makeText(context, "无法启动录音", android.widget.Toast.LENGTH_SHORT).show()
+                android.widget.Toast.makeText(context, "无法启动录音".loc, android.widget.Toast.LENGTH_SHORT).show()
             }
         } else {
-            android.widget.Toast.makeText(context, "需要麦克风权限以录制音频", android.widget.Toast.LENGTH_SHORT).show()
+            android.widget.Toast.makeText(context, "需要麦克风权限以录制音频".loc, android.widget.Toast.LENGTH_SHORT).show()
         }
     }
     val launchAudioRecording: () -> Unit = {
@@ -695,7 +696,7 @@ fun ChatScreen(
             }
             val success = audioRecorder.startRecording()
             if (!success) {
-                android.widget.Toast.makeText(context, "无法启动录音", android.widget.Toast.LENGTH_SHORT).show()
+                android.widget.Toast.makeText(context, "无法启动录音".loc, android.widget.Toast.LENGTH_SHORT).show()
             }
         } else {
             audioPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
@@ -736,7 +737,7 @@ fun ChatScreen(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         if (granted) startDictation()
-        else phase3Notice = "需要麦克风权限以开启流式听写"
+        else phase3Notice = "需要麦克风权限以开启流式听写".loc
     }
     val toggleDictation: () -> Unit = {
         if (isDictating) {
@@ -1150,7 +1151,7 @@ fun ChatScreen(
                                         .padding(horizontal = 6.dp, vertical = 1.5.dp)
                                 ) {
                                     Text(
-                                        text = "第 $currentTurnIndex/${turns.size} 轮",
+                                        text = "第 $currentTurnIndex/${turns.size} 轮".loc,
                                         fontSize = 10.sp,
                                         fontWeight = FontWeight.SemiBold,
                                         color = colors.accentIndigo
@@ -1246,7 +1247,7 @@ fun ChatScreen(
                             } else {
                                 Icon(
                                     imageVector = Icons.Default.Build,
-                                    contentDescription = "MCP 工具与技能看板",
+                                    contentDescription = "MCP 工具与技能看板".loc,
                                     tint = colors.accentBlue
                                 )
                             }
@@ -1257,7 +1258,7 @@ fun ChatScreen(
                             onDismissRequest = { showPermissionMenu = false }
                         ) {
                             DropdownMenuItem(
-                                text = { Text("旁路快问") },
+                                text = { Text("旁路快问".loc) },
                                 onClick = {
                                     showPermissionMenu = false
                                     btwInitialQuote = null
@@ -1266,9 +1267,9 @@ fun ChatScreen(
                             )
                             HorizontalDivider(color = colors.border.copy(alpha = 0.4f))
                             listOf(
-                                Triple("strict", "严格审批", "每步高危命令需确认"),
-                                Triple("sandbox", "离席沙箱放行", "工作区安全操作自动放行"),
-                                Triple("auto", "全自动", "命令与编辑自动放行")
+                                Triple("strict", "严格审批".loc, "每步高危命令需确认".loc),
+                                Triple("sandbox", "离席沙箱放行".loc, "工作区安全操作自动放行".loc),
+                                Triple("auto", "全自动".loc, "命令与编辑自动放行".loc)
                             ).forEach { (preset, label, _) ->
                                 val selected = uiState.permissionState.preset == preset
                                 DropdownMenuItem(
@@ -1345,7 +1346,7 @@ fun ChatScreen(
                     }
                     uiState.errorMessage != null && uiState.messages.isEmpty() && !uiState.isNewConversation -> {
                         ChatErrorStateView(
-                            errorMessage = uiState.errorMessage ?: "同步会话历史失败",
+                            errorMessage = uiState.errorMessage ?: "同步会话历史失败".loc,
                             onRetry = { viewModel.retryLoadMessages() }
                         )
                     }
@@ -1402,12 +1403,12 @@ fun ChatScreen(
                                                     ) {
                                                         Icon(
                                                             imageVector = Icons.Default.ArrowUpward,
-                                                            contentDescription = "查看更早的消息",
+                                                            contentDescription = "查看更早的消息".loc,
                                                             modifier = Modifier.size(14.dp),
                                                             tint = MaterialTheme.colorScheme.onSurfaceVariant
                                                         )
                                                         Text(
-                                                            text = "查看更早的消息",
+                                                            text = "查看更早的消息".loc,
                                                             style = MaterialTheme.typography.labelMedium,
                                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                                         )
@@ -1471,7 +1472,7 @@ fun ChatScreen(
                                             viewModel.forkConversationAt(target.stepIndex ?: 0, false) { newId ->
                                                 viewModel.prepareSession(
                                                     cascadeId = newId,
-                                                    initialTitle = "${uiState.title} (分支)",
+                                                    initialTitle = "${uiState.title} (分支)".loc,
                                                     isNewConversation = false,
                                                     workspaceName = uiState.workspaceName
                                                 )
@@ -1959,7 +1960,7 @@ fun ChatScreen(
                                     modifier = Modifier.size(16.dp)
                                 )
                                 Text(
-                                    text = narrationLabel.ifBlank { "语音播报中..." },
+                                    text = narrationLabel.ifBlank { "语音播报中...".loc },
                                     fontSize = 12.5.sp,
                                     color = colors.textPrimary,
                                     modifier = Modifier.weight(1f),
@@ -1970,7 +1971,7 @@ fun ChatScreen(
                                     onClick = { narrationPlayer.stop() },
                                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
                                 ) {
-                                    Text("停止", fontSize = 12.sp, color = colors.accentRed)
+                                    Text("停止".loc, fontSize = 12.sp, color = colors.accentRed)
                                 }
                             }
                         }
@@ -2035,7 +2036,7 @@ fun ChatScreen(
                                         )
                                         Icon(
                                             imageVector = Icons.Default.Close,
-                                            contentDescription = "移除引用",
+                                            contentDescription = "移除引用".loc,
                                             tint = colors.accentIndigo,
                                             modifier = Modifier
                                                 .size(13.dp)
@@ -2199,7 +2200,7 @@ fun ChatScreen(
                                         val isActivelyRunning = uiState.isRunning || uiState.isAwaitingResponse || uiState.runningTasks.hasBlockingTasks
                                         if (inputText.isEmpty()) {
                                             Text(
-                                                text = if (isActivelyRunning) "向队列添加指令..." else "发送对 Agent 的指令...",
+                                                text = if (isActivelyRunning) "向队列添加指令...".loc else "发送对 Agent 的指令...".loc,
                                                 color = colors.textMuted,
                                                 fontSize = 16.sp,
                                                 lineHeight = 22.sp
@@ -2238,7 +2239,7 @@ fun ChatScreen(
                                     ) {
                                         Icon(
                                             imageVector = Icons.Default.CallEnd,
-                                            contentDescription = "挂断实时语音通话",
+                                            contentDescription = "挂断实时语音通话".loc,
                                             tint = Color.White,
                                             modifier = Modifier.size(19.dp)
                                         )
@@ -2630,14 +2631,14 @@ fun ChatScreen(
                         )
                     }
                     Text(
-                        text = "正在下载 ${uiState.downloadingDocumentName}...",
+                        text = "正在下载 ${uiState.downloadingDocumentName}...".loc,
                         color = colors.textPrimary,
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Medium,
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center
                     )
                     TextButton(onClick = { viewModel.cancelDocumentDownload() }) {
-                        Text("取消", color = colors.textMuted)
+                        Text("取消".loc, color = colors.textMuted)
                     }
                 }
             }
@@ -2653,7 +2654,7 @@ fun ChatScreen(
             },
             title = {
                 Text(
-                    text = "后台任务正在执行",
+                    text = "后台任务正在执行".loc,
                     fontWeight = FontWeight.Bold,
                     fontSize = 17.sp,
                     color = colors.textPrimary
@@ -2661,7 +2662,7 @@ fun ChatScreen(
             },
             text = {
                 Text(
-                    text = "当前有正在运行的后台命令或子代理。立即发送将提前触发下一轮对话，可能会导致后台任务被中断或产生冲突。确定仍要立即发送吗？",
+                    text = "当前有正在运行的后台命令或子代理。立即发送将提前触发下一轮对话，可能会导致后台任务被中断或产生冲突。确定仍要立即发送吗？".loc,
                     fontSize = 14.sp,
                     color = colors.textSecondary,
                     lineHeight = 20.sp
@@ -2679,7 +2680,7 @@ fun ChatScreen(
                     },
                     colors = ButtonDefaults.textButtonColors(contentColor = colors.accentRed)
                 ) {
-                    Text("仍要立即发送", fontWeight = FontWeight.SemiBold)
+                    Text("仍要立即发送".loc, fontWeight = FontWeight.SemiBold)
                 }
             },
             dismissButton = {
@@ -2690,7 +2691,7 @@ fun ChatScreen(
                     },
                     colors = ButtonDefaults.textButtonColors(contentColor = colors.textSecondary)
                 ) {
-                    Text("取消")
+                    Text("取消".loc)
                 }
             },
             containerColor = colors.surface,
@@ -2753,7 +2754,7 @@ fun ChatScreen(
             onOpenStandalone = { targetId ->
                 viewModel.prepareSession(
                     cascadeId = targetId,
-                    initialTitle = "旁路快问",
+                    initialTitle = "旁路快问".loc,
                     isNewConversation = false,
                     workspaceName = uiState.workspaceName
                 )
@@ -2816,7 +2817,7 @@ private fun ChatLoadingStateView() {
         Spacer(modifier = Modifier.height(14.dp))
 
         Text(
-            text = "正在同步会话历史与步骤...",
+            text = "正在同步会话历史与步骤...".loc,
             color = colors.textSecondary,
             fontSize = 13.5.sp,
             textAlign = TextAlign.Center
@@ -2862,7 +2863,7 @@ private fun ChatErrorStateView(
             colors = ButtonDefaults.buttonColors(containerColor = colors.accentIndigo),
             shape = RoundedCornerShape(10.dp)
         ) {
-            Text("点击重试")
+            Text("点击重试".loc)
         }
     }
 }
@@ -2907,7 +2908,7 @@ private fun ChatEmptyStateView(title: String) {
         Spacer(modifier = Modifier.height(6.dp))
 
         Text(
-            text = if (title == "新对话") "新对话模式，在下方输入指令开启对话" else "已连接工作区，在下方输入指令开启对话",
+            text = if (title == "新对话".loc) "新对话模式，在下方输入指令开启对话".loc else "已连接工作区，在下方输入指令开启对话".loc,
             color = colors.textSecondary,
             fontSize = 13.sp,
             textAlign = TextAlign.Center
@@ -2951,7 +2952,7 @@ private fun AgentThinkingBubble() {
                 .padding(horizontal = 12.dp, vertical = 8.dp)
         ) {
             Text(
-                text = "Agent 正在思考与执行",
+                text = "Agent 正在思考与执行".loc,
                 color = colors.textPrimary,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.SemiBold

@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.viewmodel
 
+import com.antigravity.mobile.ui.util.loc
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import androidx.lifecycle.viewModelScope
@@ -69,7 +70,7 @@ internal fun ChatViewModel.openMarkdownViewer(uri: String, title: String) {
         }.onFailure { err ->
             _uiState.value = _uiState.value.copy(
                 markdownViewerData = _uiState.value.markdownViewerData?.copy(
-                    errorMessage = err.message ?: "无法加载文档内容",
+                    errorMessage = err.message ?: "无法加载文档内容".loc,
                     isLoading = false
                 )
             )
@@ -181,7 +182,7 @@ internal fun ChatViewModel.downloadAndPreviewDocument(uri: String, fileName: Str
             )
         }.onFailure { err ->
             _uiState.value = _uiState.value.copy(
-                errorMessage = "下载文档失败: ${err.message}"
+                errorMessage = "下载文档失败: ${err.message}".loc
             )
         }
     }

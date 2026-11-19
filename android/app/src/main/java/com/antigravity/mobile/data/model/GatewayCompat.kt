@@ -1,5 +1,6 @@
 package com.antigravity.mobile.data.model
 
+import com.antigravity.mobile.ui.util.loc
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -40,7 +41,7 @@ data class GatewayCompat(
     val bannerText: String
         get() {
             val ver = version?.takeIf { it.isNotBlank() }?.let { "（$it）" } ?: ""
-            return "当前 Antigravity 版本$ver 与网关不兼容，部分基础功能可能无法使用。请升级网关（mgy）。"
+            return "当前 Antigravity 版本$ver 与网关不兼容，部分基础功能可能无法使用。请升级网关（mgy）。".loc
         }
 
     companion object {

@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.components
 
+import com.antigravity.mobile.ui.util.loc
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -125,7 +126,7 @@ fun AudioRecordingCard(
             ) {
                 Icon(
                     imageVector = Icons.Default.Delete,
-                    contentDescription = "取消录音",
+                    contentDescription = "取消录音".loc,
                     tint = colors.textMuted,
                     modifier = Modifier.size(16.dp)
                 )
@@ -145,7 +146,7 @@ fun AudioRecordingCard(
             ) {
                 Icon(
                     imageVector = if (isPaused) Icons.Default.PlayArrow else Icons.Default.Pause,
-                    contentDescription = if (isPaused) "继续录音" else "暂停录音",
+                    contentDescription = if (isPaused) "继续录音".loc else "暂停录音".loc,
                     tint = colors.textPrimary,
                     modifier = Modifier.size(16.dp)
                 )
@@ -165,7 +166,7 @@ fun AudioRecordingCard(
             ) {
                 Icon(
                     imageVector = Icons.Default.Check,
-                    contentDescription = "完成录音",
+                    contentDescription = "完成录音".loc,
                     tint = Color.White,
                     modifier = Modifier.size(16.dp)
                 )

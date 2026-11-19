@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.util
 
+import com.antigravity.mobile.ui.util.loc
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.ContentValues
@@ -50,7 +51,7 @@ object ShareImageUtils {
     /** 写入系统相册（Android 10+ 走 MediaStore 分区存储，免权限）。 */
     suspend fun saveBitmapToGallery(context: Context, bitmap: Bitmap?) {
         if (bitmap == null) {
-            toast(context, "图片未就绪，无法保存")
+            toast(context, "图片未就绪，无法保存".loc)
             return
         }
         withContext(Dispatchers.IO) {
@@ -71,9 +72,9 @@ object ShareImageUtils {
                     fos = FileOutputStream(File(dir, filename))
                 }
                 fos?.use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
-                toast(context, "已保存到相册")
+                toast(context, "已保存到相册".loc)
             } catch (e: Exception) {
-                toast(context, "保存失败: ${e.localizedMessage}")
+                toast(context, "保存失败: ${e.localizedMessage}".loc)
             }
         }
     }
@@ -96,10 +97,10 @@ object ShareImageUtils {
                     putExtra(Intent.EXTRA_TEXT, fallbackUrl)
                 }
                 withContext(Dispatchers.Main) {
-                    context.startActivity(Intent.createChooser(intent, "分享图片链接").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                    context.startActivity(Intent.createChooser(intent, "分享图片链接".loc).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
                 }
             } else {
-                toast(context, "图片未就绪，无法分享")
+                toast(context, "图片未就绪，无法分享".loc)
             }
             return
         }
@@ -111,17 +112,17 @@ object ShareImageUtils {
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
             withContext(Dispatchers.Main) {
-                startShare(context, intent, "分享图片")
+                startShare(context, intent, "分享图片".loc)
             }
         } catch (e: Exception) {
-            toast(context, "分享失败: ${e.localizedMessage}")
+            toast(context, "分享失败: ${e.localizedMessage}".loc)
         }
     }
 
     /** 将位图作为图片 Uri 写入系统剪贴板。 */
     suspend fun copyBitmapToClipboard(context: Context, bitmap: Bitmap?) {
         if (bitmap == null) {
-            toast(context, "图片未就绪，无法拷贝")
+            toast(context, "图片未就绪，无法拷贝".loc)
             return
         }
         try {
@@ -129,10 +130,10 @@ object ShareImageUtils {
             withContext(Dispatchers.Main) {
                 val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                 clipboard.setPrimaryClip(ClipData.newUri(context.contentResolver, "image", uri))
-                Toast.makeText(context, "已拷贝图片", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "已拷贝图片".loc, Toast.LENGTH_SHORT).show()
             }
         } catch (e: Exception) {
-            toast(context, "拷贝失败: ${e.localizedMessage}")
+            toast(context, "拷贝失败: ${e.localizedMessage}".loc)
         }
     }
 

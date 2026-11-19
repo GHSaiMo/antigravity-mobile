@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.components
 
+import com.antigravity.mobile.ui.util.loc
 import android.Manifest
 import android.content.ContentUris
 import android.content.Context
@@ -201,7 +202,7 @@ fun AttachmentPickerSheet(
             }
 
             Text(
-                text = "最近项目",
+                text = "最近项目".loc,
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Bold,
                 color = colors.textPrimary,
@@ -238,12 +239,12 @@ fun AttachmentPickerSheet(
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.AttachFile,
-                                    contentDescription = "文件",
+                                    contentDescription = "文件".loc,
                                     tint = colors.textPrimary,
                                     modifier = Modifier.size(28.dp)
                                 )
                                 Spacer(Modifier.height(4.dp))
-                                Text("文件", color = colors.textPrimary, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                                Text("文件".loc, color = colors.textPrimary, fontSize = 13.sp, fontWeight = FontWeight.Medium)
                             }
                         }
                     }
@@ -263,12 +264,12 @@ fun AttachmentPickerSheet(
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Mic,
-                                    contentDescription = "录音",
+                                    contentDescription = "录音".loc,
                                     tint = colors.textPrimary,
                                     modifier = Modifier.size(28.dp)
                                 )
                                 Spacer(Modifier.height(4.dp))
-                                Text("录音", color = colors.textPrimary, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                                Text("录音".loc, color = colors.textPrimary, fontSize = 13.sp, fontWeight = FontWeight.Medium)
                             }
                         }
                     }
@@ -289,12 +290,12 @@ fun AttachmentPickerSheet(
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.DocumentScanner,
-                                    contentDescription = "文稿",
+                                    contentDescription = "文稿".loc,
                                     tint = colors.textPrimary,
                                     modifier = Modifier.size(28.dp)
                                 )
                                 Spacer(Modifier.height(4.dp))
-                                Text("文稿", color = colors.textPrimary, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                                Text("文稿".loc, color = colors.textPrimary, fontSize = 13.sp, fontWeight = FontWeight.Medium)
                             }
                         }
                     }
@@ -315,12 +316,12 @@ fun AttachmentPickerSheet(
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.CameraAlt,
-                                    contentDescription = "相机",
+                                    contentDescription = "相机".loc,
                                     tint = colors.textPrimary,
                                     modifier = Modifier.size(28.dp)
                                 )
                                 Spacer(Modifier.height(4.dp))
-                                Text("相机", color = colors.textPrimary, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                                Text("相机".loc, color = colors.textPrimary, fontSize = 13.sp, fontWeight = FontWeight.Medium)
                             }
                         }
                     }
@@ -346,7 +347,7 @@ fun AttachmentPickerSheet(
                                     )
                                     Spacer(Modifier.height(4.dp))
                                     Text(
-                                        "允许访问照片",
+                                        "允许访问照片".loc,
                                         color = colors.textSecondary,
                                         fontSize = 11.sp,
                                         textAlign = TextAlign.Center
@@ -414,7 +415,7 @@ fun AttachmentPickerSheet(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        "添加 (${selected.size})",
+                        "添加 (${selected.size})".loc,
                         color = Color.White,
                         fontSize = 16.sp,
                         fontWeight = FontWeight.SemiBold

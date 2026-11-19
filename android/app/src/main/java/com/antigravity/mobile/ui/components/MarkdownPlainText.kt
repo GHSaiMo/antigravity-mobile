@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.components
 
+import com.antigravity.mobile.ui.util.loc
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
@@ -53,8 +54,8 @@ object MarkdownPlainText {
                 is MarkdownBlock.Blockquote -> convert(block.content)
                 is MarkdownBlock.Paragraph -> inline(block.text)
                 is MarkdownBlock.Image -> block.alt.takeIf { it.isNotBlank() }
-                is MarkdownBlock.AgentEmbed -> "[交互组件: ${block.src.substringAfterLast('/')}]"
-                is MarkdownBlock.PluginCard -> "[推荐插件: ${block.pluginId}]"
+                is MarkdownBlock.AgentEmbed -> "[交互组件: ${block.src.substringAfterLast('/')}]".loc
+                is MarkdownBlock.PluginCard -> "[推荐插件: ${block.pluginId}]".loc
                 is MarkdownBlock.Carousel -> block.slides.joinToString("\n\n") { convert(it.content) }
             }
         }
@@ -231,7 +232,7 @@ internal fun CopiedHint(visible: Boolean, onHidden: () -> Unit) {
     }
     Popup(popupPositionProvider = provider) {
         Text(
-            text = "已复制全部文字",
+            text = "已复制全部文字".loc,
             color = Color.White,
             fontSize = 15.sp,
             modifier = Modifier

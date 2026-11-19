@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.components
 
+import com.antigravity.mobile.ui.util.loc
 import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
@@ -119,7 +120,7 @@ fun MarkdownViewerSheet(
                 // Top-left: Apple native Save button
                 ApplePreviewCircleButton(
                     icon = Icons.Default.FileDownload,
-                    contentDescription = "保存Markdown",
+                    contentDescription = "保存Markdown".loc,
                     colors = colors,
                     onClick = {
                         haptic.light()
@@ -151,7 +152,7 @@ fun MarkdownViewerSheet(
                     if (data.content.isNotBlank()) {
                         ApplePreviewCircleButton(
                             icon = Icons.Default.Search,
-                            contentDescription = "页内查找",
+                            contentDescription = "页内查找".loc,
                             colors = colors,
                             onClick = {
                                 haptic.light()
@@ -161,7 +162,7 @@ fun MarkdownViewerSheet(
                     }
                     ApplePreviewCircleButton(
                         icon = Icons.Default.Share,
-                        contentDescription = "分享Markdown",
+                        contentDescription = "分享Markdown".loc,
                         colors = colors,
                         onClick = {
                             haptic.medium()
@@ -181,15 +182,15 @@ fun MarkdownViewerSheet(
                     OutlinedTextField(
                         value = findQuery,
                         onValueChange = { findQuery = it },
-                        placeholder = { Text("在文档中查找...", fontSize = 13.sp) },
+                        placeholder = { Text("在文档中查找...".loc, fontSize = 13.sp) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                         trailingIcon = {
                             if (findQuery.isNotEmpty()) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text("${matchingLines.size} 处", color = colors.textSecondary, fontSize = 11.5.sp)
+                                    Text("${matchingLines.size} 处".loc, color = colors.textSecondary, fontSize = 11.5.sp)
                                     IconButton(onClick = { findQuery = "" }) {
-                                        Icon(Icons.Default.Close, contentDescription = "清除", modifier = Modifier.size(16.dp))
+                                        Icon(Icons.Default.Close, contentDescription = "清除".loc, modifier = Modifier.size(16.dp))
                                     }
                                 }
                             }
@@ -278,13 +279,13 @@ fun MarkdownViewerSheet(
                             verticalArrangement = Arrangement.spacedBy(2.dp)
                         ) {
                             Text(
-                                text = "方案查阅完毕",
+                                text = "方案查阅完毕".loc,
                                 color = colors.textSecondary,
                                 fontSize = 11.5.sp,
                                 fontWeight = FontWeight.Medium
                             )
                             Text(
-                                text = "点击立即进入自动化执行",
+                                text = "点击立即进入自动化执行".loc,
                                 color = colors.textPrimary,
                                 fontSize = 12.5.sp,
                                 fontWeight = FontWeight.SemiBold
@@ -308,7 +309,7 @@ fun MarkdownViewerSheet(
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = "确认执行 (Proceed)",
+                                text = "确认执行 (Proceed)".loc,
                                 fontSize = 13.5.sp,
                                 fontWeight = FontWeight.SemiBold
                             )
@@ -350,19 +351,19 @@ private suspend fun saveMarkdownToDownloads(context: Context, filename: String, 
                     resolver.update(itemUri, contentValues, null, null)
                 }
                 withContext(Dispatchers.Main) {
-                    Toast.makeText(context, "已保存到下载目录", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "已保存到下载目录".loc, Toast.LENGTH_SHORT).show()
                 }
             } else {
                 val targetDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
                 val destFile = File(targetDir, safeName)
                 destFile.writeText(content, Charsets.UTF_8)
                 withContext(Dispatchers.Main) {
-                    Toast.makeText(context, "已保存到下载目录", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "已保存到下载目录".loc, Toast.LENGTH_SHORT).show()
                 }
             }
         } catch (e: Exception) {
             withContext(Dispatchers.Main) {
-                Toast.makeText(context, "保存失败: ${e.localizedMessage ?: e.message}", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "保存失败: ${e.localizedMessage ?: e.message}".loc, Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -386,8 +387,8 @@ private fun shareMarkdown(context: Context, filename: String, content: String) {
             putExtra(Intent.EXTRA_SUBJECT, safeName)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
-        com.antigravity.mobile.ui.util.ShareImageUtils.startShare(context, shareIntent, "分享Markdown文档")
+        com.antigravity.mobile.ui.util.ShareImageUtils.startShare(context, shareIntent, "分享Markdown文档".loc)
     } catch (e: Exception) {
-        Toast.makeText(context, "分享失败: ${e.message}", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, "分享失败: ${e.message}".loc, Toast.LENGTH_SHORT).show()
     }
 }

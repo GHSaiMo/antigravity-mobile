@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.viewmodel
 
+import com.antigravity.mobile.ui.util.loc
 import android.net.Uri
 import androidx.lifecycle.viewModelScope
 import com.antigravity.mobile.data.model.*
@@ -85,13 +86,13 @@ internal fun ChatViewModel.confirmUndo() {
                 val emptyTitle = if (_uiState.value.workspaceName.isNotBlank() && _uiState.value.workspaceName != "Chat") {
                     _uiState.value.workspaceName
                 } else {
-                    "新对话"
+                    "新对话".loc
                 }
                 _uiState.value = _uiState.value.copy(
                     messages = emptyList(),
                     stepCount = 0,
                     totalTools = 0,
-                    duration = "0秒",
+                    duration = "0秒".loc,
                     isNewConversation = true,
                     title = emptyTitle
                 )
@@ -108,7 +109,7 @@ internal fun ChatViewModel.confirmUndo() {
         }.onFailure { err ->
             _uiState.value = _uiState.value.copy(
                 isReverting = false,
-                errorMessage = "撤回失败: ${err.message}"
+                errorMessage = "撤回失败: ${err.message}".loc
             )
         }
     }

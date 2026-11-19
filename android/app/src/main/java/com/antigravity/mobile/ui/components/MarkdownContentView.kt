@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.components
 
+import com.antigravity.mobile.ui.util.loc
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -66,14 +67,14 @@ fun MarkdownContentView(
 
                 is MarkdownBlock.CodeBlock -> {
                     if (isExport && (block.lang.equals("mermaid", ignoreCase = true) || block.lang.equals("diagram", ignoreCase = true))) {
-                        ShareExportPlaceholder("Mermaid 图表，请在 App 中查看")
+                        ShareExportPlaceholder("Mermaid 图表，请在 App 中查看".loc)
                     } else if (block.lang.equals("mermaid", ignoreCase = true) || block.lang.equals("diagram", ignoreCase = true)) {
                         MermaidDiagramView(
                             code = block.code,
                             colors = colors
                         )
                     } else if (isExport) {
-                        ShareExportPlaceholder("代码块（${block.code.trimEnd().lines().size} 行），请在 App 中查看")
+                        ShareExportPlaceholder("代码块（${block.code.trimEnd().lines().size} 行），请在 App 中查看".loc)
                     } else {
                         CodeBlockView(
                             lang = block.lang,
@@ -86,7 +87,7 @@ fun MarkdownContentView(
                 is MarkdownBlock.Table -> {
                     val columns = maxOf(block.headers.size, block.rows.maxOfOrNull { it.size } ?: 0)
                     if (isExport && (columns >= 4 || block.rows.size > 12)) {
-                        ShareExportPlaceholder("表格（${block.rows.size} 行 × $columns 列），请在 App 中查看")
+                        ShareExportPlaceholder("表格（${block.rows.size} 行 × $columns 列），请在 App 中查看".loc)
                     } else
                     DisableSelection {
                     TableBlockView(
@@ -157,7 +158,7 @@ fun MarkdownContentView(
 
                 is MarkdownBlock.AgentEmbed -> {
                     if (isExport) {
-                        ShareExportPlaceholder("交互内容，请在 App 中查看")
+                        ShareExportPlaceholder("交互内容，请在 App 中查看".loc)
                     } else {
                         AgentEmbedView(
                             src = block.src,
@@ -169,7 +170,7 @@ fun MarkdownContentView(
 
                 is MarkdownBlock.PluginCard -> {
                     if (isExport) {
-                        ShareExportPlaceholder("推荐插件：${block.pluginId}，请在 App 中查看")
+                        ShareExportPlaceholder("推荐插件：${block.pluginId}，请在 App 中查看".loc)
                     } else {
                         PluginCardBlockView(
                             pluginId = block.pluginId,
@@ -180,7 +181,7 @@ fun MarkdownContentView(
 
                 is MarkdownBlock.Carousel -> {
                     if (isExport) {
-                        ShareExportPlaceholder("图片轮播（${block.slides.size} 张），请在 App 中查看")
+                        ShareExportPlaceholder("图片轮播（${block.slides.size} 张），请在 App 中查看".loc)
                     } else {
                         CarouselBlockView(
                             slides = block.slides,

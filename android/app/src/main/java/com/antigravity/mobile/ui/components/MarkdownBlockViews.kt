@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.components
 
+import com.antigravity.mobile.ui.util.loc
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.platform.LocalDensity
@@ -151,7 +152,7 @@ internal fun CodeBlockView(
                         haptic.medium()
                         clipboardManager.setText(AnnotatedString(code.trimEnd('\r', '\n')))
                         copied = true
-                        Toast.makeText(context, "已复制到剪贴板", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "已复制到剪贴板".loc, Toast.LENGTH_SHORT).show()
                     }
                     .padding(horizontal = 6.dp, vertical = 3.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -164,7 +165,7 @@ internal fun CodeBlockView(
                     modifier = Modifier.size(12.dp)
                 )
                 Text(
-                    text = if (copied) "已复制" else "复制",
+                    text = if (copied) "已复制".loc else "复制".loc,
                     color = if (copied) colors.accentIndigo else colors.textSecondary,
                     fontSize = 11.sp
                 )
@@ -627,7 +628,7 @@ internal fun CarouselBlockView(
                     modifier = Modifier.size(16.dp)
                 )
                 Text(
-                    text = "照片轮播",
+                    text = "照片轮播".loc,
                     color = colors.textPrimary,
                     fontSize = 12.5.sp,
                     fontWeight = FontWeight.SemiBold
@@ -672,12 +673,12 @@ internal fun CarouselBlockView(
                 ) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "上一张",
+                        contentDescription = "上一张".loc,
                         tint = if (prevEnabled) colors.textPrimary else colors.textSecondary.copy(alpha = 0.35f),
                         modifier = Modifier.size(12.dp)
                     )
                     Text(
-                        text = "上一张",
+                        text = "上一张".loc,
                         fontSize = 11.5.sp,
                         fontWeight = FontWeight.Medium,
                         color = if (prevEnabled) colors.textPrimary else colors.textSecondary.copy(alpha = 0.35f)
@@ -703,14 +704,14 @@ internal fun CarouselBlockView(
                     horizontalArrangement = Arrangement.spacedBy(3.dp)
                 ) {
                     Text(
-                        text = "下一张",
+                        text = "下一张".loc,
                         fontSize = 11.5.sp,
                         fontWeight = FontWeight.Medium,
                         color = if (nextEnabled) colors.textPrimary else colors.textSecondary.copy(alpha = 0.35f)
                     )
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                        contentDescription = "下一张",
+                        contentDescription = "下一张".loc,
                         tint = if (nextEnabled) colors.textPrimary else colors.textSecondary.copy(alpha = 0.35f),
                         modifier = Modifier.size(12.dp)
                     )
@@ -835,7 +836,7 @@ internal fun PluginCardBlockView(
                     modifier = Modifier.size(16.dp)
                 )
                 Text(
-                    text = "推荐插件：$pluginId",
+                    text = "推荐插件：$pluginId".loc,
                     color = colors.textPrimary,
                     fontSize = 13.5.sp,
                     fontWeight = FontWeight.Bold
@@ -850,7 +851,7 @@ internal fun PluginCardBlockView(
                         .padding(horizontal = 8.dp, vertical = 3.dp)
                 ) {
                     Text(
-                        text = "已安装",
+                        text = "已安装".loc,
                         color = colors.accentGreen,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold
@@ -869,9 +870,9 @@ internal fun PluginCardBlockView(
                             val res = client.installPlugin(pluginId, cascadeId, autoResume = true)
                             res.onSuccess { resp ->
                                 isInstalled = resp.installed || resp.success
-                                Toast.makeText(context, "插件已安装并续接对话", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, "插件已安装并续接对话".loc, Toast.LENGTH_SHORT).show()
                             }.onFailure { err ->
-                                errorMsg = err.message ?: "安装失败"
+                                errorMsg = err.message ?: "安装失败".loc
                             }
                             isInstalling = false
                         }
@@ -883,14 +884,14 @@ internal fun PluginCardBlockView(
                     if (isInstalling) {
                         CircularProgressIndicator(modifier = Modifier.size(13.dp), strokeWidth = 1.6.dp)
                     } else {
-                        Text("一键安装", fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold)
+                        Text("一键安装".loc, fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold)
                     }
                 }
             }
         }
 
         Text(
-            text = errorMsg ?: "来自 Antigravity 插件市场。点击一键安装后将自动为您续接当前对话。",
+            text = errorMsg ?: "来自 Antigravity 插件市场。点击一键安装后将自动为您续接当前对话。".loc,
             color = if (errorMsg != null) Color(0xFFEF4444) else colors.textSecondary,
             fontSize = 11.5.sp
         )

@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.components
 
+import com.antigravity.mobile.ui.util.loc
 import android.annotation.SuppressLint
 import android.os.Handler
 import android.os.Looper
@@ -103,7 +104,7 @@ fun AgentEmbedView(
         if (nameWithoutExt.isNotBlank() && nameWithoutExt != "interactive_preview" && nameWithoutExt != "widget") {
             nameWithoutExt
         } else {
-            "交互预览"
+            "交互预览".loc
         }
     }
 
@@ -128,7 +129,7 @@ fun AgentEmbedView(
                 htmlContent = resp.content
                 errorMessage = null
             }.onFailure { err ->
-                errorMessage = err.localizedMessage ?: "加载失败"
+                errorMessage = err.localizedMessage ?: "加载失败".loc
             }
         } else if (urlResolver != null) {
             // Fallback via resolved media raw/content URL
@@ -158,11 +159,11 @@ fun AgentEmbedView(
                 errorMessage = null
             } catch (e: Exception) {
                 isLoading = false
-                errorMessage = e.localizedMessage ?: "网络异常"
+                errorMessage = e.localizedMessage ?: "网络异常".loc
             }
         } else {
             isLoading = false
-            errorMessage = "未配置网关连接"
+            errorMessage = "未配置网关连接".loc
         }
     }
 
@@ -233,7 +234,7 @@ fun AgentEmbedView(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Refresh,
-                        contentDescription = "刷新",
+                        contentDescription = "刷新".loc,
                         tint = colors.textSecondary,
                         modifier = Modifier.size(14.dp)
                     )
@@ -250,7 +251,7 @@ fun AgentEmbedView(
                     ) {
                         Icon(
                             imageVector = Icons.Default.Fullscreen,
-                            contentDescription = "全屏查看",
+                            contentDescription = "全屏查看".loc,
                             tint = colors.textSecondary,
                             modifier = Modifier.size(16.dp)
                         )
@@ -287,7 +288,7 @@ fun AgentEmbedView(
                                 modifier = Modifier.size(15.dp)
                             )
                             Text(
-                                text = "交互卡片加载失败",
+                                text = "交互卡片加载失败".loc,
                                 color = colors.textPrimary,
                                 fontSize = 12.5.sp,
                                 fontWeight = FontWeight.SemiBold
@@ -297,7 +298,7 @@ fun AgentEmbedView(
                         Spacer(modifier = Modifier.height(4.dp))
 
                         Text(
-                            text = errorMessage ?: "未知错误",
+                            text = errorMessage ?: "未知错误".loc,
                             color = colors.textSecondary,
                             fontSize = 11.sp,
                             maxLines = 2
@@ -318,7 +319,7 @@ fun AgentEmbedView(
                             ),
                             modifier = Modifier.height(30.dp)
                         ) {
-                            Text(text = "重试", fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                            Text(text = "重试".loc, fontSize = 11.sp, fontWeight = FontWeight.Medium)
                         }
                     }
                 }
@@ -365,7 +366,7 @@ fun AgentEmbedView(
                                 modifier = Modifier.size(11.dp)
                             )
                             Text(
-                                text = "全屏操作",
+                                text = "全屏操作".loc,
                                 color = colors.textSecondary,
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Medium
@@ -389,7 +390,7 @@ fun AgentEmbedView(
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = "正在加载交互组件...",
+                            text = "正在加载交互组件...".loc,
                             color = colors.textSecondary,
                             fontSize = 11.sp
                         )
@@ -442,7 +443,7 @@ fun AgentEmbedView(
                         }) {
                             Icon(
                                 imageVector = Icons.Default.Refresh,
-                                contentDescription = "刷新",
+                                contentDescription = "刷新".loc,
                                 tint = colors.accentIndigo
                             )
                         }

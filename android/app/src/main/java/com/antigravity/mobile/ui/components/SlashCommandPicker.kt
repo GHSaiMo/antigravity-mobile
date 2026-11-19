@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.components
 
+import com.antigravity.mobile.ui.util.loc
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -182,7 +183,7 @@ fun SlashCommandPicker(
                 }
 
                 Text(
-                    text = "斜杠命令与技能",
+                    text = "斜杠命令与技能".loc,
                     color = colors.textPrimary,
                     fontSize = 13.5.sp,
                     fontWeight = FontWeight.SemiBold
@@ -219,7 +220,7 @@ fun SlashCommandPicker(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Close,
-                        contentDescription = "关闭斜杠命令气泡",
+                        contentDescription = "关闭斜杠命令气泡".loc,
                         tint = colors.textSecondary,
                         modifier = Modifier.size(14.dp)
                     )
@@ -240,7 +241,7 @@ fun SlashCommandPicker(
                         CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp, color = colors.accentIndigo)
                     }
                     Text(
-                        text = if (isLoading) "正在读取命令与技能..." else "没有匹配的命令或技能",
+                        text = if (isLoading) "正在读取命令与技能...".loc else "没有匹配的命令或技能".loc,
                         color = colors.textMuted,
                         fontSize = 13.5.sp
                     )
@@ -302,7 +303,7 @@ fun SlashCommandPicker(
                                             .padding(horizontal = 6.dp, vertical = 1.5.dp)
                                     ) {
                                         Text(
-                                            text = if (isSkill) "技能" else "系统",
+                                            text = if (isSkill) "技能".loc else "系统".loc,
                                             color = accentColor,
                                             fontSize = 10.5.sp,
                                             fontWeight = FontWeight.SemiBold
@@ -394,7 +395,7 @@ fun SlashCommandChip(
             ) {
                 Icon(
                     imageVector = Icons.Default.Close,
-                    contentDescription = "移除命令",
+                    contentDescription = "移除命令".loc,
                     tint = Color.White,
                     modifier = Modifier.size(9.dp)
                 )

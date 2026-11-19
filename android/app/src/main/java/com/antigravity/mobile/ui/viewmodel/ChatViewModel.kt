@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.viewmodel
 
+import com.antigravity.mobile.ui.util.loc
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -71,7 +72,7 @@ data class QueuedMessageTombstone(
 
 data class ChatUiState(
     val cascadeId: String = "",
-    val title: String = "会话详情",
+    val title: String = "会话详情".loc,
     val workspaceName: String = "",
     val workspaceFolder: String? = null,
     val messages: List<GatewayMessageItem> = emptyList(),
@@ -316,11 +317,11 @@ class ChatViewModel(
         val files = _uiState.value.selectedFiles
         if (text.isEmpty() && images.isEmpty() && files.isEmpty() && _uiState.value.selectedSlashCommand == null && _uiState.value.selectedContextItems.isEmpty()) return
         if (files.any { it.state == UploadState.FAILED }) {
-            _uiState.value = _uiState.value.copy(attachmentNotice = "有文件上传失败，请重试或移除后再发送")
+            _uiState.value = _uiState.value.copy(attachmentNotice = "有文件上传失败，请重试或移除后再发送".loc)
             return
         }
         if (files.any { !it.isUploaded }) {
-            _uiState.value = _uiState.value.copy(attachmentNotice = "文件仍在上传，请稍候")
+            _uiState.value = _uiState.value.copy(attachmentNotice = "文件仍在上传，请稍候".loc)
             return
         }
         val cid = _uiState.value.cascadeId

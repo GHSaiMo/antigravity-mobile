@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.util
 
+import com.antigravity.mobile.ui.util.loc
 import android.annotation.SuppressLint
 import android.content.Context
 import android.media.AudioAttributes

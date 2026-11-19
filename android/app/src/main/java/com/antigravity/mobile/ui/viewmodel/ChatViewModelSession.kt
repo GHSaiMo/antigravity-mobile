@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.viewmodel
 
+import com.antigravity.mobile.ui.util.loc
 import android.net.Uri
 import androidx.lifecycle.viewModelScope
 import com.antigravity.mobile.data.model.*
@@ -31,7 +32,7 @@ internal fun ChatViewModel.saveSessionToCache() {
         hasMore = state.hasMore,
         nextOffset = state.nextOffset,
         messages = toCache,
-        title = state.title.takeIf { it.isNotBlank() && it != "会话详情" && it != "未命名会话" },
+        title = state.title.takeIf { it.isNotBlank() && it != "会话详情".loc && it != "未命名会话".loc },
         workspaceName = state.workspaceName.takeIf { it.isNotBlank() && it != "Chat" },
         cascadeConfigRaw = state.cascadeConfigRaw,
         canProceed = state.canProceed,
@@ -72,10 +73,10 @@ internal fun ChatViewModel.currentConversationItem(): ConversationItem? {
         ?: "Chat"
 
     val title = when {
-        state.title.isNotBlank() && state.title != "会话详情" && state.title != "未命名会话" && !state.title.startsWith("会话 ") ->
+        state.title.isNotBlank() && state.title != "会话详情".loc && state.title != "未命名会话".loc && !state.title.startsWith("会话 ".loc) ->
             state.title
         wsName != "Chat" -> wsName
-        else -> "新对话"
+        else -> "新对话".loc
     }
 
     return ConversationItem(
@@ -155,7 +156,7 @@ internal fun ChatViewModel.prepareSession(
 
     val resolvedWs = workspaceName?.takeIf { it.isNotBlank() }
         ?: (if (resolvedDraftProject?.isPureChat == true) "Chat" else resolvedDraftProject?.name.orEmpty())
-    val defaultTitle = if (isDraft) (if (resolvedWs.isNotBlank() && resolvedWs != "Chat") resolvedWs else "新对话") else "会话 $cascadeId"
+    val defaultTitle = if (isDraft) (if (resolvedWs.isNotBlank() && resolvedWs != "Chat") resolvedWs else "新对话".loc) else "会话 $cascadeId".loc
 
     // Restore draft text and images immediately
     val savedDraftText = prefs?.getDraftText(cascadeId).orEmpty()
@@ -183,7 +184,7 @@ internal fun ChatViewModel.prepareSession(
         val hasMore = if (hasEarliest) false else cached.hasMore
         val nextOffset = if (hasEarliest) 0 else cached.nextOffset
         val isRunning = cached.status.equals("CASCADE_RUN_STATUS_RUNNING", ignoreCase = true) || cached.status.equals("RUNNING", ignoreCase = true)
-        val resolvedTitle = cached.title?.takeIf { it.isNotBlank() && it != "未命名会话" && it != "会话详情" }
+        val resolvedTitle = cached.title?.takeIf { it.isNotBlank() && it != "未命名会话".loc && it != "会话详情".loc }
             ?: initialTitle?.takeIf { it.isNotBlank() }
             ?: defaultTitle
 
@@ -280,7 +281,7 @@ internal fun ChatViewModel.initSession(
     val shouldLoad = !isNewConversation && !isDraft
     val fallbackWs = (if (resolvedDraftProject?.isPureChat == true) "Chat" else resolvedDraftProject?.name) ?: _uiState.value.workspaceName
     val resolvedWs = workspaceName?.takeIf { it.isNotBlank() } ?: fallbackWs
-    val defaultTitle = if (isDraft) (if (resolvedWs.isNotBlank() && resolvedWs != "Chat") resolvedWs else "新对话") else "会话 $cascadeId"
+    val defaultTitle = if (isDraft) (if (resolvedWs.isNotBlank() && resolvedWs != "Chat") resolvedWs else "新对话".loc) else "会话 $cascadeId".loc
 
     if (isDifferentSession) {
         fetchJob?.cancel()
@@ -316,7 +317,7 @@ internal fun ChatViewModel.initSession(
             val hasMore = if (hasEarliest) false else cached.hasMore
             val nextOffset = if (hasEarliest) 0 else cached.nextOffset
             val isRunning = cached.status.equals("CASCADE_RUN_STATUS_RUNNING", ignoreCase = true) || cached.status.equals("RUNNING", ignoreCase = true)
-            val resolvedTitle = cached.title?.takeIf { it.isNotBlank() && it != "未命名会话" && it != "会话详情" }
+            val resolvedTitle = cached.title?.takeIf { it.isNotBlank() && it != "未命名会话".loc && it != "会话详情".loc }
                 ?: initialTitle?.takeIf { it.isNotBlank() }
                 ?: defaultTitle
 
@@ -469,7 +470,7 @@ internal fun ChatViewModel.initSession(
                     val hasMore = if (hasEarliest) false else payload.hasMore
                     val nextOffset = if (hasEarliest) 0 else payload.nextOffset
 
-                    val resolvedTitle = payload.title?.takeIf { it.isNotBlank() && it != "未命名会话" && it != "会话详情" }
+                    val resolvedTitle = payload.title?.takeIf { it.isNotBlank() && it != "未命名会话".loc && it != "会话详情".loc }
                         ?: _uiState.value.title
 
                     val statusRunning = isStatusRunning(payload.status)
@@ -524,10 +525,10 @@ internal fun ChatViewModel.initSession(
                     if (isRunning) {
                         val stepCount = mergedMsgs.count { !it.isUser }
                         val latestAction = when {
-                            payload.pendingInteraction != null -> payload.pendingInteraction.prompt ?: "需要审批操作"
-                            activeRunningTasks.hasBlockingTasks -> activeRunningTasks.blockingTasks.firstOrNull()?.displayCommand?.ifBlank { "正在执行后台任务..." } ?: "正在执行后台任务..."
-                            lastMsg?.toolCalls?.isNotEmpty() == true -> "正在执行: " + com.antigravity.mobile.ui.util.ToolLocalization.localizedName(lastMsg.toolCalls.lastOrNull()?.name ?: "操作")
-                            else -> "正在执行任务..."
+                            payload.pendingInteraction != null -> payload.pendingInteraction.prompt ?: "需要审批操作".loc
+                            activeRunningTasks.hasBlockingTasks -> activeRunningTasks.blockingTasks.firstOrNull()?.displayCommand?.ifBlank { "正在执行后台任务...".loc } ?: "正在执行后台任务...".loc
+                            lastMsg?.toolCalls?.isNotEmpty() == true -> "正在执行: ".loc + com.antigravity.mobile.ui.util.ToolLocalization.localizedName(lastMsg.toolCalls.lastOrNull()?.name ?: "操作".loc)
+                            else -> "正在执行任务...".loc
                         }
                         liveActivityManager?.startOrUpdateActivity(
                             title = resolvedTitle,
@@ -557,7 +558,7 @@ internal fun ChatViewModel.initSession(
                 if (_uiState.value.cascadeId == cascadeId) {
                     _uiState.value = _uiState.value.copy(
                         isLoading = false,
-                        errorMessage = if (_uiState.value.messages.isEmpty()) (error.localizedMessage ?: "同步会话历史失败") else null
+                        errorMessage = if (_uiState.value.messages.isEmpty()) (error.localizedMessage ?: "同步会话历史失败".loc) else null
                     )
                 }
             }
@@ -748,11 +749,11 @@ internal fun ChatViewModel.ensureWebSocketObserving() {
                 if (isRunning) {
                     val stepCount = msgs.count { !it.isUser }
                     val latestAction = when {
-                        payload.pendingInteraction != null -> payload.pendingInteraction.prompt ?: "需要审批操作"
-                        activeRunningTasks.hasBlockingTasks -> activeRunningTasks.blockingTasks.firstOrNull()?.displayCommand?.ifBlank { "正在执行后台任务..." } ?: "正在执行后台任务..."
-                        lastMsg?.toolCalls?.isNotEmpty() == true -> "正在执行: " + com.antigravity.mobile.ui.util.ToolLocalization.localizedName(lastMsg.toolCalls.lastOrNull()?.name ?: "操作")
-                        awaiting || lastMsg?.isUser == true -> "正在思考并组织回复..."
-                        else -> "正在执行任务..."
+                        payload.pendingInteraction != null -> payload.pendingInteraction.prompt ?: "需要审批操作".loc
+                        activeRunningTasks.hasBlockingTasks -> activeRunningTasks.blockingTasks.firstOrNull()?.displayCommand?.ifBlank { "正在执行后台任务...".loc } ?: "正在执行后台任务...".loc
+                        lastMsg?.toolCalls?.isNotEmpty() == true -> "正在执行: ".loc + com.antigravity.mobile.ui.util.ToolLocalization.localizedName(lastMsg.toolCalls.lastOrNull()?.name ?: "操作".loc)
+                        awaiting || lastMsg?.isUser == true -> "正在思考并组织回复...".loc
+                        else -> "正在执行任务...".loc
                     }
                     liveActivityManager?.startOrUpdateActivity(
                         title = _uiState.value.title,
@@ -816,7 +817,7 @@ internal fun ChatViewModel.refresh(onComplete: (() -> Unit)? = null) {
                         val hasMore = if (hasEarliest) false else payload.hasMore
                         val nextOffset = if (hasEarliest) 0 else payload.nextOffset
 
-                        val resolvedTitle = payload.title?.takeIf { it.isNotBlank() && it != "未命名会话" && it != "会话详情" }
+                        val resolvedTitle = payload.title?.takeIf { it.isNotBlank() && it != "未命名会话".loc && it != "会话详情".loc }
                             ?: _uiState.value.title
                         val statusRunning = isStatusRunning(payload.status)
                         val awaiting = resolveAwaitingForPayload(msgs, statusRunning, isError)
@@ -851,11 +852,11 @@ internal fun ChatViewModel.refresh(onComplete: (() -> Unit)? = null) {
                         if (isRunning) {
                             val stepCount = msgs.count { !it.isUser }
                             val latestAction = when {
-                                payload.pendingInteraction != null -> payload.pendingInteraction.prompt ?: "需要审批操作"
-                                activeRunningTasks.hasBlockingTasks -> activeRunningTasks.blockingTasks.firstOrNull()?.displayCommand?.ifBlank { "正在执行后台任务..." } ?: "正在执行后台任务..."
-                                lastMsg?.toolCalls?.isNotEmpty() == true -> "正在执行: " + com.antigravity.mobile.ui.util.ToolLocalization.localizedName(lastMsg.toolCalls.lastOrNull()?.name ?: "操作")
-                                awaiting || lastMsg?.isUser == true -> "正在思考并组织回复..."
-                                else -> "正在执行任务..."
+                                payload.pendingInteraction != null -> payload.pendingInteraction.prompt ?: "需要审批操作".loc
+                                activeRunningTasks.hasBlockingTasks -> activeRunningTasks.blockingTasks.firstOrNull()?.displayCommand?.ifBlank { "正在执行后台任务...".loc } ?: "正在执行后台任务...".loc
+                                lastMsg?.toolCalls?.isNotEmpty() == true -> "正在执行: ".loc + com.antigravity.mobile.ui.util.ToolLocalization.localizedName(lastMsg.toolCalls.lastOrNull()?.name ?: "操作".loc)
+                                awaiting || lastMsg?.isUser == true -> "正在思考并组织回复...".loc
+                                else -> "正在执行任务...".loc
                             }
                             liveActivityManager?.startOrUpdateActivity(
                                 title = resolvedTitle,

@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.components
 
+import com.antigravity.mobile.ui.util.loc
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -133,14 +134,14 @@ fun NewConversationSheet(
                     ) {
                         Icon(
                             imageVector = GitHubOctocatIcon,
-                            contentDescription = "克隆 GitHub 仓库",
+                            contentDescription = "克隆 GitHub 仓库".loc,
                             tint = colors.accentBlue,
                             modifier = Modifier.size(19.dp)
                         )
                     }
                 }
                 Text(
-                    text = "新建会话",
+                    text = "新建会话".loc,
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold,
                     color = colors.textPrimary,
@@ -166,7 +167,7 @@ fun NewConversationSheet(
                         } else {
                             Icon(
                                 imageVector = Icons.Default.Add,
-                                contentDescription = "添加本地工作区",
+                                contentDescription = "添加本地工作区".loc,
                                 tint = colors.accentBlue,
                                 modifier = Modifier.size(21.dp)
                             )
@@ -187,14 +188,14 @@ fun NewConversationSheet(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(
-                    text = "选择模式或工作区发起新会话",
+                    text = "选择模式或工作区发起新会话".loc,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Medium,
                     color = colors.textSecondary
                 )
                 if (projects.isNotEmpty()) {
                     Text(
-                        text = "${projects.size} 个工作区",
+                        text = "${projects.size} 个工作区".loc,
                         fontSize = 12.sp,
                         color = colors.textSecondary
                     )
@@ -296,7 +297,7 @@ fun NewConversationSheet(
                                         .padding(horizontal = 6.dp, vertical = 2.dp)
                                 ) {
                                     Text(
-                                        text = "新对话",
+                                        text = "新对话".loc,
                                         fontSize = 10.5.sp,
                                         fontWeight = FontWeight.SemiBold,
                                         color = colors.accentIndigo,
@@ -307,7 +308,7 @@ fun NewConversationSheet(
                             }
 
                             Text(
-                                text = "新对话 · 不关联任何工作区",
+                                text = "新对话 · 不关联任何工作区".loc,
                                 fontSize = 11.5.sp,
                                 color = colors.textSecondary,
                                 maxLines = 1,
@@ -339,7 +340,7 @@ fun NewConversationSheet(
                                 strokeWidth = 2.5.dp
                             )
                             Text(
-                                text = "正在拉取工作区列表...",
+                                text = "正在拉取工作区列表...".loc,
                                 fontSize = 12.5.sp,
                                 color = colors.textSecondary
                             )
@@ -404,7 +405,7 @@ fun NewConversationSheet(
                                                 .padding(horizontal = 6.dp, vertical = 2.dp)
                                         ) {
                                             Text(
-                                                text = "${project.sessionCount} 会话",
+                                                text = "${project.sessionCount} 会话".loc,
                                                 fontSize = 10.5.sp,
                                                 fontWeight = FontWeight.SemiBold,
                                                 color = colors.textSecondary,
@@ -449,14 +450,14 @@ fun NewConversationSheet(
         AlertDialog(
             onDismissRequest = { longPressedProject = null },
             title = { Text(proj.displayName) },
-            text = { Text("选择工作区操作：") },
+            text = { Text("选择工作区操作：".loc) },
             confirmButton = {
                 TextButton(onClick = {
                     val target = proj
                     longPressedProject = null
                     onStartWorktreeSession?.invoke(target)
                 }) {
-                    Text("在独立 Worktree 开启会话")
+                    Text("在独立 Worktree 开启会话".loc)
                 }
             },
             dismissButton = {
@@ -465,7 +466,7 @@ fun NewConversationSheet(
                     longPressedProject = null
                     onEditProjectAlias(target)
                 }) {
-                    Text("设置工作区备注")
+                    Text("设置工作区备注".loc)
                 }
             }
         )
@@ -474,12 +475,12 @@ fun NewConversationSheet(
     if (showCloneDialog) {
         AlertDialog(
             onDismissRequest = { showCloneDialog = false },
-            title = { Text("克隆 GitHub 仓库") },
+            title = { Text("克隆 GitHub 仓库".loc) },
             text = {
                 OutlinedTextField(
                     value = cloneRepoSlug,
                     onValueChange = { cloneRepoSlug = it },
-                    label = { Text("owner/repo 或 HTTPS URL") },
+                    label = { Text("owner/repo 或 HTTPS URL".loc) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -492,10 +493,10 @@ fun NewConversationSheet(
                         cloneRepoSlug = ""
                         onCloneGitHubRepo?.invoke(slug)
                     }
-                }) { Text("克隆并开启") }
+                }) { Text("克隆并开启".loc) }
             },
             dismissButton = {
-                TextButton(onClick = { showCloneDialog = false }) { Text("取消") }
+                TextButton(onClick = { showCloneDialog = false }) { Text("取消".loc) }
             }
         )
     }
@@ -503,18 +504,18 @@ fun NewConversationSheet(
     if (showAddWorkspaceDialog) {
         AlertDialog(
             onDismissRequest = { showAddWorkspaceDialog = false },
-            title = { Text("添加本地工作区") },
+            title = { Text("添加本地工作区".loc) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        text = "输入电脑上的本地目录路径，添加到工作区列表",
+                        text = "输入电脑上的本地目录路径，添加到工作区列表".loc,
                         fontSize = 13.sp,
                         color = colors.textSecondary
                     )
                     OutlinedTextField(
                         value = localWorkspacePath,
                         onValueChange = { localWorkspacePath = it },
-                        label = { Text("~/Projects/my-app 或 /Users/...") },
+                        label = { Text("~/Projects/my-app 或 /Users/...".loc) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -536,10 +537,10 @@ fun NewConversationSheet(
                             }
                         }
                     }
-                }) { Text("添加") }
+                }) { Text("添加".loc) }
             },
             dismissButton = {
-                TextButton(onClick = { showAddWorkspaceDialog = false }) { Text("取消") }
+                TextButton(onClick = { showAddWorkspaceDialog = false }) { Text("取消".loc) }
             }
         )
     }

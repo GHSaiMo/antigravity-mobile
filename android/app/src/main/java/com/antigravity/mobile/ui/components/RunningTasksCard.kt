@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.components
 
+import com.antigravity.mobile.ui.util.loc
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
@@ -152,7 +153,7 @@ fun RunningTasksCard(
                     )
 
                     Text(
-                        text = "${tasks.size} 个任务正在执行",
+                        text = "${tasks.size} 个任务正在执行".loc,
                         color = colors.textPrimary,
                         fontSize = 14.sp,
                         fontWeight = FontWeight.SemiBold
@@ -208,7 +209,7 @@ fun RunningTasksCard(
 
                     Icon(
                         imageVector = Icons.Default.KeyboardArrowDown,
-                        contentDescription = if (isCardExpanded) "折叠任务" else "展开任务",
+                        contentDescription = if (isCardExpanded) "折叠任务".loc else "展开任务".loc,
                         tint = colors.textSecondary,
                         modifier = Modifier
                             .size(20.dp)
@@ -281,7 +282,7 @@ fun RunningTasksCard(
                                 ) {
                                     if (onSendToBackground != null) {
                                         Text(
-                                            text = "转后台",
+                                            text = "转后台".loc,
                                             fontSize = 10.sp,
                                             fontWeight = FontWeight.Medium,
                                             color = colors.accentBlue,
@@ -298,7 +299,7 @@ fun RunningTasksCard(
                                     if (task.id.isNotBlank()) {
                                         val isTermOpen = activeTerminalTaskId == task.id
                                         Text(
-                                            text = if (isTermOpen) "收起终端" else "终端",
+                                            text = if (isTermOpen) "收起终端".loc else "终端".loc,
                                             fontSize = 10.sp,
                                             fontWeight = FontWeight.Medium,
                                             color = colors.accentIndigo,
@@ -385,7 +386,7 @@ fun RunningTasksCard(
                                             horizontalArrangement = Arrangement.spacedBy(2.dp)
                                         ) {
                                             Text(
-                                                text = if (isCmdExpanded) "收起" else "展开完整命令",
+                                                text = if (isCmdExpanded) "收起".loc else "展开完整命令".loc,
                                                 color = colors.accentIndigo,
                                                 fontSize = 10.sp,
                                                 fontWeight = FontWeight.Medium
@@ -417,7 +418,7 @@ fun RunningTasksCard(
                                             modifier = Modifier.size(10.dp)
                                         )
                                         Text(
-                                            text = "已复制",
+                                            text = "已复制".loc,
                                             fontSize = 10.sp,
                                             color = Color.White,
                                             fontWeight = FontWeight.SemiBold
@@ -436,7 +437,7 @@ fun RunningTasksCard(
                                     verticalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
                                     Text(
-                                        text = terminalLog.ifBlank { "等待终端输出流…" },
+                                        text = terminalLog.ifBlank { "等待终端输出流…".loc },
                                         color = Color(0xFFE5E5EA),
                                         fontSize = 10.5.sp,
                                         fontFamily = FontFamily.Monospace,
@@ -469,7 +470,7 @@ fun RunningTasksCard(
                                         OutlinedTextField(
                                             value = terminalInput,
                                             onValueChange = { terminalInput = it },
-                                            placeholder = { Text("输入命令或回答…", fontSize = 11.sp, color = Color.Gray) },
+                                            placeholder = { Text("输入命令或回答…".loc, fontSize = 11.sp, color = Color.Gray) },
                                             singleLine = true,
                                             textStyle = androidx.compose.ui.text.TextStyle(color = Color.White, fontSize = 11.sp, fontFamily = FontFamily.Monospace),
                                             modifier = Modifier.weight(1f)
@@ -483,7 +484,7 @@ fun RunningTasksCard(
                                                 }
                                             }
                                         }) {
-                                            Text("发送", color = colors.accentBlue, fontSize = 11.sp)
+                                            Text("发送".loc, color = colors.accentBlue, fontSize = 11.sp)
                                         }
                                     }
                                 }

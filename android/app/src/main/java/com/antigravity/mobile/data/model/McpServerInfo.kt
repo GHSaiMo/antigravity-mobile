@@ -1,5 +1,6 @@
 package com.antigravity.mobile.data.model
 
+import com.antigravity.mobile.ui.util.loc
 import kotlinx.serialization.Serializable
 import org.json.JSONObject
 
@@ -85,10 +86,10 @@ data class McpServerState(
 ) {
     val isReady: Boolean get() = status.contains("READY")
     val statusTitle: String get() = when {
-        status.contains("READY") -> "就绪"
-        status.contains("STARTING") -> "启动中"
-        status.contains("ERROR") -> "异常"
-        status.contains("STOPPED") -> "已停止"
+        status.contains("READY") -> "就绪".loc
+        status.contains("STARTING") -> "启动中".loc
+        status.contains("ERROR") -> "异常".loc
+        status.contains("STOPPED") -> "已停止".loc
         else -> status
     }
     val toolCount: Int get() = tools?.size ?: 0
@@ -108,9 +109,9 @@ data class SkillInfo(
 ) {
     val isBuiltin: Boolean get() = path?.contains("builtin") == true
     val locationCategory: String get() = when {
-        isBuiltin -> "内置技能"
-        path?.contains(".gemini/config") == true -> "用户技能"
-        else -> "工作区技能"
+        isBuiltin -> "内置技能".loc
+        path?.contains(".gemini/config") == true -> "用户技能".loc
+        else -> "工作区技能".loc
     }
 }
 

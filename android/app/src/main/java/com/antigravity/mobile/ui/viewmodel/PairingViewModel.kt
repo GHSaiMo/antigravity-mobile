@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.viewmodel
 
+import com.antigravity.mobile.ui.util.loc
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.antigravity.mobile.data.model.PairingInfo
@@ -37,7 +38,7 @@ class PairingViewModel(
     fun pairWithUri(uriString: String) {
         val info = PairingInfo.parseFromUri(uriString)
         if (info == null) {
-            _uiState.value = PairingUiState.Error("无法识别配对链接，请扫描正确的 agy://pair 二维码")
+            _uiState.value = PairingUiState.Error("无法识别配对链接，请扫描正确的 agy://pair 二维码".loc)
             return
         }
 
@@ -59,7 +60,7 @@ class PairingViewModel(
     }
 
     private fun executePairing(info: PairingInfo) {
-        _uiState.value = PairingUiState.Pairing("正在向网关验证并签发设备证书...")
+        _uiState.value = PairingUiState.Pairing("正在向网关验证并签发设备证书...".loc)
         viewModelScope.launch {
             val result = apiClient.pair(info)
             result.onSuccess {
@@ -73,7 +74,7 @@ class PairingViewModel(
                         }
                     }
                 }
-                _uiState.value = PairingUiState.Pairing("正在同步会话与工作区...")
+                _uiState.value = PairingUiState.Pairing("正在同步会话与工作区...".loc)
                 try {
                     onPreheatData?.invoke()
                 } catch (e: Exception) {
@@ -81,7 +82,7 @@ class PairingViewModel(
                 }
                 _uiState.value = PairingUiState.Success
             }.onFailure { err ->
-                _uiState.value = PairingUiState.Error(err.message ?: "配对失败，请检查网络和网关")
+                _uiState.value = PairingUiState.Error(err.message ?: "配对失败，请检查网络和网关".loc)
             }
         }
     }

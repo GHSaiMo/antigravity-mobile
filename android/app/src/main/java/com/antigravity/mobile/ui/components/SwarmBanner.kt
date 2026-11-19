@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.components
 
+import com.antigravity.mobile.ui.util.loc
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -57,7 +58,7 @@ fun SwarmBanner(
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Text(
-                    text = brief.title.ifBlank { "蜂群协同 (Swarm)" },
+                    text = brief.title.ifBlank { "蜂群协同 (Swarm)".loc },
                     color = SwarmColors.ink(isDark),
                     fontSize = 13.5.sp,
                     fontWeight = FontWeight.SemiBold,
@@ -88,7 +89,7 @@ fun SwarmBanner(
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Text(
-                    text = "${brief.workingCount}/${brief.totalMembers} 活跃",
+                    text = "${brief.workingCount}/${brief.totalMembers} 活跃".loc,
                     color = SwarmColors.muted(isDark),
                     fontSize = 11.sp
                 )
@@ -98,7 +99,7 @@ fun SwarmBanner(
                     fontSize = 11.sp
                 )
                 Text(
-                    text = "#${brief.latestSeq} 看板",
+                    text = "#${brief.latestSeq} 看板".loc,
                     color = SwarmColors.muted(isDark),
                     fontSize = 11.sp
                 )
@@ -132,7 +133,7 @@ fun SwarmBanner(
                 )
                 Spacer(modifier = Modifier.width(3.dp))
                 Text(
-                    text = "${brief.attentionCount} 待关注",
+                    text = "${brief.attentionCount} 待关注".loc,
                     color = SwarmColors.warnAmber(isDark),
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Medium

@@ -1,5 +1,6 @@
 package com.antigravity.mobile.data.model
 
+import com.antigravity.mobile.ui.util.loc
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -24,7 +25,7 @@ data class ProjectItem(
         get() = !alias.isNullOrBlank() && alias != name
 
     val isPureChat: Boolean
-        get() = rawId == "outside-of-project" || name == "Chat" || (uri.isEmpty() && path.contains("不关联任何工作区"))
+        get() = rawId == "outside-of-project" || name == "Chat" || (uri.isEmpty() && path.contains("不关联任何工作区".loc))
 
     companion object {
         val PURE_CHAT = ProjectItem(
@@ -32,7 +33,7 @@ data class ProjectItem(
             name = "Chat",
             alias = null,
             uri = "",
-            path = "新对话 · 不关联任何工作区",
+            path = "新对话 · 不关联任何工作区".loc,
             isWorkspace = false
         )
     }

@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.components
 
+import com.antigravity.mobile.ui.util.loc
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -54,7 +55,7 @@ fun TokenHistoryTabContent(
                     color = colors.accentBlue
                 )
                 Text(
-                    text = "正在统计本地 Transcript Token 历史...",
+                    text = "正在统计本地 Transcript Token 历史...".loc,
                     fontSize = 13.sp,
                     color = colors.textSecondary
                 )
@@ -75,13 +76,13 @@ fun TokenHistoryTabContent(
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Text(
-                    text = "暂无 Token 历史数据",
+                    text = "暂无 Token 历史数据".loc,
                     fontSize = 14.sp,
                     color = colors.textSecondary,
                     fontWeight = FontWeight.Medium
                 )
                 Text(
-                    text = "点击加载",
+                    text = "点击加载".loc,
                     fontSize = 13.sp,
                     color = colors.accentBlue,
                     fontWeight = FontWeight.SemiBold,
@@ -126,15 +127,15 @@ fun TokenHistoryTabContent(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 TokenKpiCard(
-                    label = "今日消耗",
+                    label = "今日消耗".loc,
                     value = formatTokensCompact(summary.todayTokens),
-                    sub = "${summary.activeDays} 活跃日",
+                    sub = "${summary.activeDays} 活跃日".loc,
                     modifier = Modifier.weight(1f)
                 )
                 TokenKpiCard(
-                    label = "近 7 日",
+                    label = "近 7 日".loc,
                     value = formatTokensCompact(summary.last7dTokens),
-                    sub = "${summary.totalSteps} 轮采样",
+                    sub = "${summary.totalSteps} 轮采样".loc,
                     modifier = Modifier.weight(1f)
                 )
             }
@@ -143,13 +144,13 @@ fun TokenHistoryTabContent(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 TokenKpiCard(
-                    label = "累计总 Token",
+                    label = "累计总 Token".loc,
                     value = formatTokensCompact(summary.totalTokens),
                     sub = "IDE ${formatTokensCompact(summary.desktopTokens)} · CLI ${formatTokensCompact(summary.cliTokens)}",
                     modifier = Modifier.weight(1f)
                 )
                 TokenKpiCard(
-                    label = "API 折算",
+                    label = "API 折算".loc,
                     value = String.format(Locale.US, "$%.2f", summary.estimatedCostUsd),
                     sub = String.format(Locale.US, "≈ ¥%.1f", summary.estimatedCostCny),
                     modifier = Modifier.weight(1f)
@@ -172,13 +173,13 @@ fun TokenHistoryTabContent(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "桌面端 Antigravity $desktopPct% · CLI $cliPct%",
+                text = "桌面端 Antigravity $desktopPct% · CLI $cliPct%".loc,
                 fontSize = 12.sp,
                 color = colors.textSecondary,
                 fontWeight = FontWeight.Medium
             )
             Text(
-                text = "近 52 周热力图",
+                text = "近 52 周热力图".loc,
                 fontSize = 11.sp,
                 color = colors.textMuted
             )
@@ -203,7 +204,7 @@ fun TokenHistoryTabContent(
                 }
             }
             Text(
-                text = "本地历史扫描于 ${timeFmt.format(Date(tokenHistory.updatedAtEpochMs))}",
+                text = "本地历史扫描于 ${timeFmt.format(Date(tokenHistory.updatedAtEpochMs))}".loc,
                 fontSize = 11.sp,
                 color = colors.textMuted,
                 modifier = Modifier
@@ -306,7 +307,7 @@ private fun TokenHeatmapSection(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "每日活跃密度",
+                text = "每日活跃密度".loc,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = colors.textPrimary
@@ -315,7 +316,7 @@ private fun TokenHeatmapSection(
                 horizontalArrangement = Arrangement.spacedBy(3.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("少", fontSize = 10.sp, color = colors.textMuted)
+                Text("少".loc, fontSize = 10.sp, color = colors.textMuted)
                 (0..4).forEach { lvl ->
                     Box(
                         modifier = Modifier
@@ -324,7 +325,7 @@ private fun TokenHeatmapSection(
                             .background(heatLevelColor(lvl, colors))
                     )
                 }
-                Text("多", fontSize = 10.sp, color = colors.textMuted)
+                Text("多".loc, fontSize = 10.sp, color = colors.textMuted)
             }
         }
 
@@ -405,7 +406,7 @@ private fun TokenInspectorCard(record: DailyTokenRecord) {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "${record.date} 用量明细",
+                text = "${record.date} 用量明细".loc,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = colors.textPrimary

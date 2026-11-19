@@ -24,7 +24,7 @@ async function sendMessage() {
   const hasImages = pendingImages.length > 0;
   const hasAttachments = typeof pendingAttachments !== "undefined" && pendingAttachments.some(a => !a.uploading);
   if (typeof pendingAttachments !== "undefined" && pendingAttachments.some(a => a.uploading)) {
-    if (typeof showToast === "function") showToast("附件正在上传，请稍候…");
+    if (typeof showToast === "function") showToast(typeof t === "function" ? t("附件正在上传，请稍候…") : "附件正在上传，请稍候…");
     return;
   }
   const slashSelected = getSelectedSlashCommand();
@@ -45,7 +45,7 @@ async function sendMessage() {
     const sentSlash = slashSelected;
     const ctxItems = window.Phase3?.consumeContextItems?.() || [];
     const needsSeparateMessage = imagesToSend.length > 0 || attachmentsToSend.length > 0 || !!sentSlash || ctxItems.length > 0;
-    const effectiveText = text || (attachmentsToSend.length > 0 && !imagesToSend.length ? "请查收附件" : "");
+    const effectiveText = text || (attachmentsToSend.length > 0 && !imagesToSend.length ? (typeof t === "function" ? t("请查收附件") : "请查收附件") : "");
     const items = needsSeparateMessage ? buildSendItems(effectiveText) : null;
     if (sentSlash) {
       clearSelectedSlash();
@@ -60,7 +60,7 @@ async function sendMessage() {
       streamEl.innerHTML = `
         <div class="loading-state">
           <div class="ios-spinner"></div>
-          <p>正在创建会话并启动 Agent...</p>
+          <p>${typeof t === "function" ? t("正在创建会话并启动 Agent...") : "正在创建会话并启动 Agent..."}</p>
         </div>
       `;
     }
@@ -80,7 +80,7 @@ async function sendMessage() {
 
       const data = await res.json();
       if (!res.ok || data.status === "error" || !data.cascadeId) {
-        throw new Error(data.error || "创建会话失败");
+        throw new Error(data.error || (typeof t === "function" ? t("创建会话失败") : "创建会话失败"));
       }
 
       const newCascadeId = data.cascadeId;

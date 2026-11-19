@@ -1,0 +1,17 @@
+<resources>
+    <string name="app_name">Multigravity</string>
+    <string name="pair_title">Device Pairing</string>
+    <string name="conversations_title">Conversations</string>
+    <string name="chat_placeholder">Send instructions to Multigravity...</string>
+    <string name="send">Send</string>
+    <string name="stop">Stop</string>
+    <string name="proceed">Proceed</string>
+    <string name="approve">Approve</string>
+    <string name="reject">Reject</string>
+    <string name="channel_task_status">Antigravity Task Notifications</string>
+    <string name="channel_task_status_desc">Real-time status updates, tool calls, and completions for Agent tasks</string>
+    <string name="channel_live_activity">Live Activity Notifications</string>
+    <string name="channel_live_activity_desc">Dynamic lock screen and status bar progress cards</string>
+    <string name="channel_approval">Approvals &amp; Manual Confirmations</string>
+    <string name="channel_approval_desc">High-priority alerts requiring user permission or confirmation</string>
+</resources>

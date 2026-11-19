@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.components
 
+import com.antigravity.mobile.ui.util.loc
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.Share
@@ -29,16 +30,16 @@ internal fun ImageActionMenu(
 
     DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
         DropdownMenuItem(
-            text = { Text("保存图片") },
-            leadingIcon = { Icon(Icons.Default.FileDownload, contentDescription = "保存图片") },
+            text = { Text("保存图片".loc) },
+            leadingIcon = { Icon(Icons.Default.FileDownload, contentDescription = "保存图片".loc) },
             onClick = {
                 onDismiss()
                 scope.launch { ShareImageUtils.saveBitmapToGallery(context, ShareImageUtils.resolveBitmap(context, item)) }
             }
         )
         DropdownMenuItem(
-            text = { Text("分享图片") },
-            leadingIcon = { Icon(Icons.Default.Share, contentDescription = "分享图片") },
+            text = { Text("分享图片".loc) },
+            leadingIcon = { Icon(Icons.Default.Share, contentDescription = "分享图片".loc) },
             onClick = {
                 onDismiss()
                 scope.launch {

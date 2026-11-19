@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.components
 
+import com.antigravity.mobile.ui.util.loc
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
@@ -82,7 +83,7 @@ fun ConfirmUndoBottomSheet(
 
                 // Header title: Centered, no icon, aligned with NewConversationSheet
                 Text(
-                    text = "撤回确认",
+                    text = "撤回确认".loc,
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold,
                     color = colors.textPrimary,
@@ -112,7 +113,7 @@ fun ConfirmUndoBottomSheet(
                     .padding(14.dp)
             ) {
                 Text(
-                    text = "撤回将删除此消息及后续的所有对话历史与代码修改。该句话将被放回输入框，方便您重新编辑。",
+                    text = "撤回将删除此消息及后续的所有对话历史与代码修改。该句话将被放回输入框，方便您重新编辑。".loc,
                     fontSize = 13.sp,
                     color = colors.textSecondary,
                     lineHeight = 18.sp
@@ -125,7 +126,7 @@ fun ConfirmUndoBottomSheet(
             if (message != null) {
                 val text = message.effectiveText
                 Text(
-                    text = "撤回的内容：",
+                    text = "撤回的内容：".loc,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = colors.textMuted,
@@ -140,7 +141,7 @@ fun ConfirmUndoBottomSheet(
                         .padding(12.dp)
                 ) {
                     Text(
-                        text = if (text.isBlank()) "（图片附件消息）" else text,
+                        text = if (text.isBlank()) "（图片附件消息）".loc else text,
                         fontSize = 14.sp,
                         color = colors.textPrimary,
                         maxLines = 4,
@@ -167,7 +168,7 @@ fun ConfirmUndoBottomSheet(
                     )
                     Spacer(modifier = Modifier.width(10.dp))
                     Text(
-                        text = "正在计算代码变更差异...",
+                        text = "正在计算代码变更差异...".loc,
                         fontSize = 13.sp,
                         color = colors.textMuted
                     )
@@ -175,7 +176,7 @@ fun ConfirmUndoBottomSheet(
             } else if (preview != null) {
                 if (preview.hasCodeChanges) {
                     Text(
-                        text = "代码回退变更 (${preview.files.size} 个文件)",
+                        text = "代码回退变更 (${preview.files.size} 个文件)".loc,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
                         color = colors.textPrimary,
@@ -212,7 +213,7 @@ fun ConfirmUndoBottomSheet(
                             modifier = Modifier.size(18.dp)
                         )
                         Text(
-                            text = "无工作区代码变更（仅回退会话与指令记录）",
+                            text = "无工作区代码变更（仅回退会话与指令记录）".loc,
                             fontSize = 13.sp,
                             color = colors.textSecondary
                         )
@@ -236,7 +237,7 @@ fun ConfirmUndoBottomSheet(
                     shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = colors.textPrimary)
                 ) {
-                    Text(text = "取消", fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                    Text(text = "取消".loc, fontSize = 15.sp, fontWeight = FontWeight.Medium)
                 }
 
                 Button(
@@ -258,9 +259,9 @@ fun ConfirmUndoBottomSheet(
                             color = Color.White
                         )
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text(text = "正在撤回...", fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                        Text(text = "正在撤回...".loc, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                     } else {
-                        Text(text = "确认撤回", fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                        Text(text = "确认撤回".loc, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                     }
                 }
             }
@@ -349,7 +350,7 @@ internal fun FileChangeItem(
             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
         ) {
             Text(
-                text = "查看 Diff",
+                text = "查看 Diff".loc,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Medium,
                 color = colors.accentIndigo
@@ -364,9 +365,9 @@ private fun ActionMiniBadge(
     modifier: Modifier = Modifier
 ) {
     val (bgColor, textColor, label) = when (actionType.uppercase()) {
-        "CREATE" -> Triple(Color(0x264CAF50), Color(0xFF4CAF50), "新增")
-        "DELETE" -> Triple(Color(0x26F44336), Color(0xFFF44336), "删除")
-        else -> Triple(Color(0x262196F3), Color(0xFF2196F3), "修改")
+        "CREATE" -> Triple(Color(0x264CAF50), Color(0xFF4CAF50), "新增".loc)
+        "DELETE" -> Triple(Color(0x26F44336), Color(0xFFF44336), "删除".loc)
+        else -> Triple(Color(0x262196F3), Color(0xFF2196F3), "修改".loc)
     }
 
     Box(

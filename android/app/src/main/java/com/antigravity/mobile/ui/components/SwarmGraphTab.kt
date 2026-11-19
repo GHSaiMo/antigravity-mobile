@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.components
 
+import com.antigravity.mobile.ui.util.loc
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -196,12 +197,12 @@ fun SwarmGraphTab(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "→ @提及 (线宽 = 次数)",
+                text = "→ @提及 (线宽 = 次数)".loc,
                 fontSize = 11.sp,
                 color = SwarmColors.muted(isDark)
             )
             Text(
-                text = "⇢ 经 @all",
+                text = "⇢ 经 @all".loc,
                 fontSize = 11.sp,
                 color = SwarmColors.muted(isDark)
             )
@@ -301,7 +302,7 @@ private fun ReplayControlsBar(
             ) {
                 Icon(
                     imageVector = Icons.Default.FirstPage,
-                    contentDescription = "起始",
+                    contentDescription = "起始".loc,
                     tint = if (total > 0) SwarmColors.ink(isDark) else SwarmColors.faint(isDark),
                     modifier = Modifier.size(16.dp)
                 )
@@ -314,7 +315,7 @@ private fun ReplayControlsBar(
             ) {
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "上一条",
+                    contentDescription = "上一条".loc,
                     tint = if (currentPos > 1) SwarmColors.ink(isDark) else SwarmColors.faint(isDark),
                     modifier = Modifier.size(14.dp)
                 )
@@ -330,7 +331,7 @@ private fun ReplayControlsBar(
             ) {
                 Icon(
                     imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                    contentDescription = if (isPlaying) "暂停" else "播放",
+                    contentDescription = if (isPlaying) "暂停".loc else "播放".loc,
                     tint = SwarmColors.ink(isDark),
                     modifier = Modifier.size(15.dp)
                 )
@@ -343,7 +344,7 @@ private fun ReplayControlsBar(
             ) {
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                    contentDescription = "下一条",
+                    contentDescription = "下一条".loc,
                     tint = if (!isLive) SwarmColors.ink(isDark) else SwarmColors.faint(isDark),
                     modifier = Modifier.size(14.dp)
                 )
@@ -400,15 +401,15 @@ private fun ReplayControlsBar(
                 )
             } else {
                 Text(
-                    text = "Live · 共 $total 条消息",
+                    text = "Live · 共 $total 条消息".loc,
                     fontSize = 11.5.sp,
                     color = SwarmColors.muted(isDark)
                 )
             }
 
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                ToggleChip(title = "隐藏未活跃", isOn = hideInactive, onClick = onToggleHideInactive)
-                ToggleChip(title = "展开 @all", isOn = expandAll, onClick = onToggleExpandAll)
+                ToggleChip(title = "隐藏未活跃".loc, isOn = hideInactive, onClick = onToggleHideInactive)
+                ToggleChip(title = "展开 @all".loc, isOn = expandAll, onClick = onToggleExpandAll)
             }
         }
     }
@@ -884,7 +885,7 @@ private fun DetailMessageCard(
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
                         Text(
-                            text = "进入子会话",
+                            text = "进入子会话".loc,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = SwarmColors.accent(isDark)

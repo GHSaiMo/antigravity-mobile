@@ -12,6 +12,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import com.antigravity.mobile.R
+import com.antigravity.mobile.ui.util.loc
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -175,8 +176,8 @@ class AgentTaskForegroundService : Service() {
 
     private fun buildTransientNotification(): Notification {
         return NotificationCompat.Builder(applicationContext, NotificationChannelManager.CHANNEL_LIVE_ACTIVITY)
-            .setContentTitle("正在同步任务状态")
-            .setContentText("正在检查任务执行结果...")
+            .setContentTitle("正在同步任务状态".loc)
+            .setContentText("正在检查任务执行结果...".loc)
             .setSubText("Antigravity Agent")
             .setSmallIcon(R.drawable.ic_stat_antigravity)
             .setOnlyAlertOnce(true)

@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.components
 
+import com.antigravity.mobile.ui.util.loc
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -70,9 +71,9 @@ fun WorkflowStageCard(
     val isError = workflow.status.equals("error", ignoreCase = true) || workflow.status.equals("failed", ignoreCase = true)
 
     val statusText = when {
-        isRunning -> "编排执行中"
-        isError -> "执行失败"
-        else -> "工作流完成"
+        isRunning -> "编排执行中".loc
+        isError -> "执行失败".loc
+        else -> "工作流完成".loc
     }
 
     val statusColor = when {
@@ -132,7 +133,7 @@ fun WorkflowStageCard(
 
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = workflow.description?.takeIf { it.isNotBlank() } ?: "动态多智能体工作流",
+                            text = workflow.description?.takeIf { it.isNotBlank() } ?: "动态多智能体工作流".loc,
                             color = colors.textPrimary,
                             fontSize = 13.5.sp,
                             fontWeight = FontWeight.SemiBold,
@@ -191,7 +192,7 @@ fun WorkflowStageCard(
                                     modifier = Modifier.size(12.dp)
                                 )
                                 Text(
-                                    text = "终止",
+                                    text = "终止".loc,
                                     color = colors.accentRed,
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.SemiBold
@@ -209,7 +210,7 @@ fun WorkflowStageCard(
                     ) {
                         Icon(
                             imageVector = if (isExpanded) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowRight,
-                            contentDescription = if (isExpanded) "折叠" else "展开",
+                            contentDescription = if (isExpanded) "折叠".loc else "展开".loc,
                             tint = colors.textMuted,
                             modifier = Modifier.size(18.dp)
                         )
@@ -309,13 +310,13 @@ fun WorkflowStageCard(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = "并发子代理 (Sub-Agents)",
+                                    text = "并发子代理 (Sub-Agents)".loc,
                                     color = colors.textMuted,
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold
                                 )
                                 Text(
-                                    text = "轻触穿透查看",
+                                    text = "轻触穿透查看".loc,
                                     color = colors.textMuted,
                                     fontSize = 10.sp
                                 )
@@ -367,7 +368,7 @@ fun WorkflowStageCard(
                                                         overflow = TextOverflow.Ellipsis
                                                     )
                                                     Text(
-                                                        text = if (sa.isRunning) "运行中" else "已就绪",
+                                                        text = if (sa.isRunning) "运行中".loc else "已就绪".loc,
                                                         color = colors.textSecondary,
                                                         fontSize = 9.5.sp
                                                     )
@@ -423,7 +424,7 @@ fun WorkflowStageCard(
                                         modifier = Modifier.size(11.dp)
                                     )
                                     Text(
-                                        text = if (isLogsExpanded) "收起日志输出" else "展开执行日志 (${currentLogs.size} 行)",
+                                        text = if (isLogsExpanded) "收起日志输出".loc else "展开执行日志 (${currentLogs.size} 行)".loc,
                                         color = colors.textSecondary,
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.SemiBold
@@ -482,7 +483,7 @@ fun WorkflowStageCard(
                                         modifier = Modifier.size(12.dp)
                                     )
                                     Text(
-                                        text = "结构化产物 (Schema Output)",
+                                        text = "结构化产物 (Schema Output)".loc,
                                         color = colors.accentOrange,
                                         fontSize = 10.5.sp,
                                         fontWeight = FontWeight.Bold
@@ -498,7 +499,7 @@ fun WorkflowStageCard(
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.ContentCopy,
-                                        contentDescription = "复制",
+                                        contentDescription = "复制".loc,
                                         tint = colors.textMuted,
                                         modifier = Modifier.size(12.dp)
                                     )
@@ -535,7 +536,7 @@ fun WorkflowStageCard(
                                     modifier = Modifier.size(14.dp)
                                 )
                                 Text(
-                                    text = workflow.error?.ifBlank { null } ?: "工作流在执行中遇到未捕获异常或单节点失败",
+                                    text = workflow.error?.ifBlank { null } ?: "工作流在执行中遇到未捕获异常或单节点失败".loc,
                                     color = colors.accentRed,
                                     fontSize = 11.sp
                                 )

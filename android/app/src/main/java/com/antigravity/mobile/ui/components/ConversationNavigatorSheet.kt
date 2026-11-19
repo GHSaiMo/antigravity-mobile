@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.components
 
+import com.antigravity.mobile.ui.util.loc
 import androidx.compose.animation.*
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
@@ -109,7 +110,7 @@ fun ConversationNavigatorSheet(
 
                 // Header title: Centered, no icon, aligned with NewConversationSheet
                 Text(
-                    text = "对话大纲与步骤导轨",
+                    text = "对话大纲与步骤导轨".loc,
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold,
                     color = colors.textPrimary,
@@ -157,9 +158,9 @@ fun ConversationNavigatorSheet(
 
                 Column(modifier = Modifier.weight(1f)) {
                     val summaryText = if (chapters.size > 1) {
-                        "共 ${chapters.size} 个章节 · ${turns.size} 轮问答"
+                        "共 ${chapters.size} 个章节 · ${turns.size} 轮问答".loc
                     } else {
-                        "共 ${turns.size} 轮问答步骤"
+                        "共 ${turns.size} 轮问答步骤".loc
                     }
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text(
@@ -177,7 +178,7 @@ fun ConversationNavigatorSheet(
                         }
                     }
                     Text(
-                        text = "点击任意步骤即可平滑瞬达对应提问与上下文",
+                        text = "点击任意步骤即可平滑瞬达对应提问与上下文".loc,
                         fontSize = 12.sp,
                         color = colors.textSecondary
                     )
@@ -203,7 +204,7 @@ fun ConversationNavigatorSheet(
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                text = if (allCollapsed) "展开全部" else "折叠全部",
+                                text = if (allCollapsed) "展开全部".loc else "折叠全部".loc,
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Medium,
                                 color = colors.accentIndigo
@@ -425,7 +426,7 @@ fun ConversationNavigatorSheet(
 
                                 if (containsCurrent) {
                                     Text(
-                                        text = "当前",
+                                        text = "当前".loc,
                                         fontSize = 10.sp,
                                         fontWeight = FontWeight.SemiBold,
                                         color = Color.White,
@@ -439,7 +440,7 @@ fun ConversationNavigatorSheet(
 
                                 if (containsActive) {
                                     Text(
-                                        text = "进行中",
+                                        text = "进行中".loc,
                                         fontSize = 10.sp,
                                         fontWeight = FontWeight.SemiBold,
                                         color = colors.accentBlue,
@@ -453,7 +454,7 @@ fun ConversationNavigatorSheet(
 
                                 if (containsError) {
                                     Text(
-                                        text = "异常",
+                                        text = "异常".loc,
                                         fontSize = 10.sp,
                                         fontWeight = FontWeight.SemiBold,
                                         color = colors.accentOrange,
@@ -466,7 +467,7 @@ fun ConversationNavigatorSheet(
                                 }
 
                                 Text(
-                                    text = "${chapter.turns.size} 轮",
+                                    text = "${chapter.turns.size} 轮".loc,
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Medium,
                                     color = colors.textSecondary,
@@ -480,7 +481,7 @@ fun ConversationNavigatorSheet(
 
                                 Icon(
                                     imageVector = Icons.Default.ExpandMore,
-                                    contentDescription = if (isCollapsed) "展开" else "折叠",
+                                    contentDescription = if (isCollapsed) "展开".loc else "折叠".loc,
                                     tint = colors.textSecondary,
                                     modifier = Modifier
                                         .size(18.dp)
@@ -665,7 +666,7 @@ private fun TurnCardItem(
                         .padding(horizontal = 6.dp, vertical = 2.dp)
                 ) {
                     Text(
-                        text = "第 ${turn.turnIndex} 轮",
+                        text = "第 ${turn.turnIndex} 轮".loc,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = if (isCurrent) Color.White else colors.accentIndigo
@@ -687,14 +688,14 @@ private fun TurnCardItem(
 
                 if (turn.isActive) {
                     Text(
-                        text = "处理中",
+                        text = "处理中".loc,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Medium,
                         color = colors.accentBlue
                     )
                 } else if (turn.hasError) {
                     Text(
-                        text = "异常",
+                        text = "异常".loc,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Medium,
                         color = colors.accentOrange
@@ -733,7 +734,7 @@ private fun TurnCardItem(
                                 tint = Color.White
                             )
                             Text(
-                                text = "语音交互",
+                                text = "语音交互".loc,
                                 fontSize = 11.5.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 color = Color.White
@@ -786,7 +787,7 @@ private fun TurnCardItem(
                             )
                             Spacer(modifier = Modifier.width(3.dp))
                             Text(
-                                text = "${turn.artifacts.size} 个产物",
+                                text = "${turn.artifacts.size} 个产物".loc,
                                 fontSize = 10.sp,
                                 color = colors.accentGreen,
                                 fontWeight = FontWeight.Medium
@@ -810,7 +811,7 @@ private fun TurnCardItem(
                             )
                             Spacer(modifier = Modifier.width(3.dp))
                             Text(
-                                text = "${turn.totalTools} 次工具调用",
+                                text = "${turn.totalTools} 次工具调用".loc,
                                 fontSize = 10.sp,
                                 color = colors.accentGreen,
                                 fontWeight = FontWeight.Medium

@@ -1,5 +1,6 @@
 package com.antigravity.mobile.data.model
 
+import com.antigravity.mobile.ui.util.loc
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import java.text.SimpleDateFormat
@@ -29,7 +30,7 @@ data class CockpitQuotaBucket(
     val resetCountdownDisplay: String?
         get() {
             val friendly = resetFriendly?.takeIf { it.isNotBlank() } ?: return null
-            if (friendly == "已就绪" || friendly == "未知") return friendly
+            if (friendly == "已就绪".loc || friendly == "未知".loc) return friendly
             val clock = formattedResetClockTime
             return if (clock != null) "$friendly $clock" else friendly
         }
@@ -70,11 +71,11 @@ data class CockpitQuotaBucket(
 
             val deltaAbsStr = String.format(Locale.US, "%.1f%%", Math.abs(delta))
             val status = if (isOver) {
-                "消耗偏快 (-$deltaAbsStr)"
+                "消耗偏快 (-$deltaAbsStr)".loc
             } else if (Math.abs(delta) <= 1.0) {
-                "匀速正常 (±$deltaAbsStr)"
+                "匀速正常 (±$deltaAbsStr)".loc
             } else {
-                "节奏充裕 (+$deltaAbsStr)"
+                "节奏充裕 (+$deltaAbsStr)".loc
             }
 
             WeeklyPaceInfo(
@@ -86,7 +87,7 @@ data class CockpitQuotaBucket(
                 isOverPacing = isOver,
                 statusText = status,
                 windowHours = totalWindowHours,
-                resetCountdownDisplay = resetCountdownDisplay ?: "计算中"
+                resetCountdownDisplay = resetCountdownDisplay ?: "计算中".loc
             )
         } catch (_: Exception) {
             null
@@ -107,7 +108,7 @@ data class WeeklyPaceInfo(
     val resetCountdownDisplay: String
 ) {
     val windowLabel: String
-        get() = if (windowHours <= 5.0) "5小时" else "7天"
+        get() = if (windowHours <= 5.0) "5小时".loc else "7天".loc
 }
 
 enum class QuotaBucketKind(val key: String, val displayTitle: String) {

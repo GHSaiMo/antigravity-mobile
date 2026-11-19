@@ -1,5 +1,6 @@
 package com.antigravity.mobile.data.service
 
+import com.antigravity.mobile.ui.util.loc
 import android.content.Context
 import android.os.Build
 import android.util.Base64
@@ -103,7 +104,7 @@ class ApiClient(
     suspend fun pair(info: PairingInfo): Result<PairResponse> = withContext(Dispatchers.IO) {
         val candidates = info.candidateBaseUrls()
         if (candidates.isEmpty()) {
-            return@withContext Result.failure(IllegalArgumentException("无可用候选网关地址"))
+            return@withContext Result.failure(IllegalArgumentException("无可用候选网关地址".loc))
         }
 
         val deviceName = "${Build.MANUFACTURER} ${Build.MODEL}"
@@ -126,7 +127,7 @@ class ApiClient(
                 client.newCall(request).await().use { response ->
                     if (!response.isSuccessful) {
                         val errMsg = response.body?.string() ?: "HTTP ${response.code}"
-                        lastException = RuntimeException("配对响应失败: $errMsg")
+                        lastException = RuntimeException("配对响应失败: $errMsg".loc)
                         return@use
                     }
                     val respStr = response.body?.string() ?: ""
@@ -200,14 +201,14 @@ class ApiClient(
             }
         }
 
-        Result.failure(lastException ?: RuntimeException("所有候选地址配对均超时或失败"))
+        Result.failure(lastException ?: RuntimeException("所有候选地址配对均超时或失败".loc))
     }
 
     /**
      * Fetch all conversations via ConnectRPC GetAllCascadeTrajectories
      */
     suspend fun fetchConversations(): Result<List<ConversationItem>> = withContext(Dispatchers.IO) {
-        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
+        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址".loc))
         val url = "$baseUrl/api/exa.language_server_pb.LanguageServerService/GetAllCascadeTrajectories"
 
         try {
@@ -217,7 +218,7 @@ class ApiClient(
 
             client.newCall(req).await().use { response ->
                 if (!response.isSuccessful) {
-                    return@withContext Result.failure(RuntimeException("获取会话列表失败 (${response.code})"))
+                    return@withContext Result.failure(RuntimeException("获取会话列表失败 (${response.code})".loc))
                 }
                 val bodyStr = response.body?.string() ?: "{}"
                 val resp = json.decodeFromString<GetAllCascadeTrajectoriesResponse>(bodyStr)
@@ -260,14 +261,14 @@ class ApiClient(
      * Fetch Cockpit Quota status
      */
     suspend fun fetchCockpitQuotas(): Result<CockpitQuotaResponse> = withContext(Dispatchers.IO) {
-        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
+        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址".loc))
         val url = "$baseUrl/api/v1/cockpit/quotas"
 
         try {
             val req = buildAuthorizedRequest(url).get().build()
             client.newCall(req).await().use { response ->
                 if (!response.isSuccessful) {
-                    return@withContext Result.failure(RuntimeException("获取配额失败 (${response.code})"))
+                    return@withContext Result.failure(RuntimeException("获取配额失败 (${response.code})".loc))
                 }
                 val bodyStr = response.body?.string() ?: "{}"
                 val quotaResp = json.decodeFromString<CockpitQuotaResponse>(bodyStr)
@@ -282,14 +283,14 @@ class ApiClient(
      * Fetch Cockpit Token History & 52-week Heatmap
      */
     suspend fun fetchTokenHistory(force: Boolean = false): Result<TokenHistoryResponse> = withContext(Dispatchers.IO) {
-        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
+        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址".loc))
         val url = "$baseUrl/api/v1/cockpit/tokens/history" + if (force) "?force=true" else ""
 
         try {
             val req = buildAuthorizedRequest(url).get().build()
             client.newCall(req).await().use { response ->
                 if (!response.isSuccessful) {
-                    return@withContext Result.failure(RuntimeException("获取 Token 历史失败 (${response.code})"))
+                    return@withContext Result.failure(RuntimeException("获取 Token 历史失败 (${response.code})".loc))
                 }
                 val bodyStr = response.body?.string() ?: "{}"
                 val historyResp = json.decodeFromString<TokenHistoryResponse>(bodyStr)
@@ -304,14 +305,14 @@ class ApiClient(
      * Refresh Cockpit Quota
      */
     suspend fun refreshCockpitQuotas(): Result<CockpitQuotaResponse> = withContext(Dispatchers.IO) {
-        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
+        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址".loc))
         val url = "$baseUrl/api/v1/cockpit/refresh"
 
         try {
             val req = buildAuthorizedRequest(url).post("{}".toRequestBody(jsonMediaType)).build()
             client.newCall(req).await().use { response ->
                 if (!response.isSuccessful) {
-                    return@withContext Result.failure(RuntimeException("刷新配额失败 (${response.code})"))
+                    return@withContext Result.failure(RuntimeException("刷新配额失败 (${response.code})".loc))
                 }
                 val bodyStr = response.body?.string() ?: "{}"
                 val quotaResp = json.decodeFromString<CockpitQuotaResponse>(bodyStr)
@@ -326,7 +327,7 @@ class ApiClient(
      * Switch active Cockpit Account
      */
     suspend fun switchCockpitAccount(accountId: String): Result<Unit> = withContext(Dispatchers.IO) {
-        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
+        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址".loc))
         val url = "$baseUrl/api/v1/cockpit/switch"
 
         val body = buildJsonObject {
@@ -339,7 +340,7 @@ class ApiClient(
                 if (response.isSuccessful) {
                     Result.success(Unit)
                 } else {
-                    Result.failure(RuntimeException("切换账号失败: HTTP ${response.code}"))
+                    Result.failure(RuntimeException("切换账号失败: HTTP ${response.code}".loc))
                 }
             }
         } catch (e: Exception) {
@@ -351,7 +352,7 @@ class ApiClient(
      * Fetch workspace projects from gateway
      */
     suspend fun fetchProjects(): Result<List<ProjectItem>> = withContext(Dispatchers.IO) {
-        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
+        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址".loc))
         val url = "$baseUrl/gateway/projects"
 
         try {
@@ -360,7 +361,7 @@ class ApiClient(
                 if (!response.isSuccessful) {
                     val errMsg = response.body?.string()?.take(200) ?: ""
                     Log.e("ApiClient", "fetchProjects failed (${response.code}): $errMsg")
-                    return@withContext Result.failure(RuntimeException("获取工作区列表失败 (${response.code})"))
+                    return@withContext Result.failure(RuntimeException("获取工作区列表失败 (${response.code})".loc))
                 }
                 val bodyStr = response.body?.string() ?: "[]"
                 val list = json.decodeFromString<List<ProjectItem>>(bodyStr)
@@ -392,7 +393,7 @@ class ApiClient(
      * Update or clear custom alias for a workspace/project path
      */
     suspend fun updateProjectAlias(path: String, alias: String): Result<Unit> = withContext(Dispatchers.IO) {
-        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
+        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址".loc))
         val url = "$baseUrl/gateway/projects/alias"
 
         val payload = buildJsonObject {
@@ -409,7 +410,7 @@ class ApiClient(
                 if (response.isSuccessful) {
                     Result.success(Unit)
                 } else {
-                    Result.failure(RuntimeException("修改工作区备注失败: HTTP ${response.code}"))
+                    Result.failure(RuntimeException("修改工作区备注失败: HTTP ${response.code}".loc))
                 }
             }
         } catch (e: Exception) {
@@ -426,7 +427,7 @@ class ApiClient(
         model: String? = null,
         projectId: String? = null
     ): Result<String> = withContext(Dispatchers.IO) {
-        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
+        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址".loc))
         val url = "$baseUrl/gateway/cascade/new"
 
         val payload = buildJsonObject {
@@ -443,7 +444,7 @@ class ApiClient(
 
             client.newCall(req).await().use { response ->
                 if (!response.isSuccessful) {
-                    return@withContext Result.failure(RuntimeException("创建会话失败: HTTP ${response.code}"))
+                    return@withContext Result.failure(RuntimeException("创建会话失败: HTTP ${response.code}".loc))
                 }
                 val bodyStr = response.body?.string() ?: "{}"
                 val resObj = json.parseToJsonElement(bodyStr).jsonObject
@@ -451,7 +452,7 @@ class ApiClient(
                 if (!cascadeId.isNullOrBlank()) {
                     Result.success(cascadeId)
                 } else {
-                    val err = resObj["error"]?.jsonPrimitive?.contentOrNull ?: "未能生成会话 ID"
+                    val err = resObj["error"]?.jsonPrimitive?.contentOrNull ?: "未能生成会话 ID".loc
                     Result.failure(RuntimeException(err))
                 }
             }
@@ -464,7 +465,7 @@ class ApiClient(
      * Delete a conversation
      */
     suspend fun deleteConversation(cascadeId: String): Result<Unit> = withContext(Dispatchers.IO) {
-        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
+        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址".loc))
         val url = "$baseUrl/api/exa.language_server_pb.LanguageServerService/DeleteCascadeTrajectory"
 
         val payload = buildJsonObject {
@@ -480,7 +481,7 @@ class ApiClient(
                 if (response.isSuccessful) {
                     Result.success(Unit)
                 } else {
-                    Result.failure(RuntimeException("删除会话失败: HTTP ${response.code}"))
+                    Result.failure(RuntimeException("删除会话失败: HTTP ${response.code}".loc))
                 }
             }
         } catch (e: Exception) {
@@ -492,7 +493,7 @@ class ApiClient(
      * Rename conversation
      */
     suspend fun renameConversation(cascadeId: String, newTitle: String): Result<Unit> = withContext(Dispatchers.IO) {
-        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
+        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址".loc))
         val url = "$baseUrl/api/exa.language_server_pb.LanguageServerService/UpdateConversationAnnotations"
 
         val payload = buildJsonObject {
@@ -512,7 +513,7 @@ class ApiClient(
                 if (response.isSuccessful) {
                     Result.success(Unit)
                 } else {
-                    Result.failure(RuntimeException("重命名会话失败: HTTP ${response.code}"))
+                    Result.failure(RuntimeException("重命名会话失败: HTTP ${response.code}".loc))
                 }
             }
         } catch (e: Exception) {
@@ -524,7 +525,7 @@ class ApiClient(
      * Update pinned state of a conversation in upstream language_server
      */
     suspend fun setConversationPinned(cascadeId: String, pinned: Boolean): Result<Unit> = withContext(Dispatchers.IO) {
-        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
+        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址".loc))
         val url = "$baseUrl/api/exa.language_server_pb.LanguageServerService/UpdateConversationAnnotations"
 
         val payload = buildJsonObject {
@@ -544,7 +545,7 @@ class ApiClient(
                 if (response.isSuccessful) {
                     Result.success(Unit)
                 } else {
-                    Result.failure(RuntimeException("设置置顶状态失败: HTTP ${response.code}"))
+                    Result.failure(RuntimeException("设置置顶状态失败: HTTP ${response.code}".loc))
                 }
             }
         } catch (e: Exception) {
@@ -560,7 +561,7 @@ class ApiClient(
         limit: Int = 15,
         offset: Int? = null
     ): Result<StreamUpdatePayload> = withContext(Dispatchers.IO) {
-        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
+        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址".loc))
         val urlBuilder = StringBuilder("$baseUrl/gateway/cascade/messages?cascadeId=$cascadeId&limit=$limit")
         offset?.let { urlBuilder.append("&offset=$it") }
 
@@ -571,7 +572,7 @@ class ApiClient(
 
             client.newCall(req).await().use { response ->
                 if (!response.isSuccessful) {
-                    return@withContext Result.failure(RuntimeException("获取消息失败: HTTP ${response.code}"))
+                    return@withContext Result.failure(RuntimeException("获取消息失败: HTTP ${response.code}".loc))
                 }
                 val bodyStr = response.body?.string() ?: "{}"
                 val payload = json.decodeFromString<StreamUpdatePayload>(bodyStr)
@@ -597,7 +598,7 @@ class ApiClient(
         slashCommand: String? = null,
         contextItems: List<ContextMentionItem> = emptyList()
     ): Result<Unit> = withContext(Dispatchers.IO) {
-        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
+        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址".loc))
         val url = "$baseUrl/api/exa.language_server_pb.LanguageServerService/SendUserCascadeMessage"
 
         val payload = buildJsonObject {
@@ -663,7 +664,7 @@ class ApiClient(
                 if (response.isSuccessful) {
                     Result.success(Unit)
                 } else {
-                    Result.failure(RuntimeException("发送失败: HTTP ${response.code}"))
+                    Result.failure(RuntimeException("发送失败: HTTP ${response.code}".loc))
                 }
             }
         } catch (e: Exception) {
@@ -678,7 +679,7 @@ class ApiClient(
         cascadeId: String,
         messageId: String
     ): Result<Unit> = withContext(Dispatchers.IO) {
-        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
+        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址".loc))
         val url = "$baseUrl/api/exa.language_server_pb.LanguageServerService/DeleteAgentMessage"
 
         val payload = buildJsonObject {
@@ -695,7 +696,7 @@ class ApiClient(
                 if (response.isSuccessful) {
                     Result.success(Unit)
                 } else {
-                    Result.failure(RuntimeException("删除队列消息失败: HTTP ${response.code}"))
+                    Result.failure(RuntimeException("删除队列消息失败: HTTP ${response.code}".loc))
                 }
             }
         } catch (e: Exception) {
@@ -707,7 +708,7 @@ class ApiClient(
      * Cancel ongoing invocation
      */
     suspend fun cancelInvocation(cascadeId: String, killBackgroundTasks: Boolean? = null): Result<Unit> = withContext(Dispatchers.IO) {
-        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
+        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址".loc))
         val url = "$baseUrl/api/exa.language_server_pb.LanguageServerService/CancelCascadeInvocation"
 
         val payload = buildJsonObject {
@@ -726,7 +727,7 @@ class ApiClient(
                 if (response.isSuccessful) {
                     Result.success(Unit)
                 } else {
-                    Result.failure(RuntimeException("取消失败: HTTP ${response.code}"))
+                    Result.failure(RuntimeException("取消失败: HTTP ${response.code}".loc))
                 }
             }
         } catch (e: Exception) {
@@ -738,7 +739,7 @@ class ApiClient(
      * 关停一个子代理（网关只接受子代理会话，不会误停主会话）。
      */
     suspend fun stopSubagent(conversationId: String): Result<Unit> = withContext(Dispatchers.IO) {
-        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
+        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址".loc))
         val payload = buildJsonObject { put("conversationId", conversationId) }
         try {
             val req = buildAuthorizedRequest("$baseUrl/gateway/subagent/stop")
@@ -746,7 +747,7 @@ class ApiClient(
                 .build()
             client.newCall(req).await().use { response ->
                 if (response.isSuccessful) Result.success(Unit)
-                else Result.failure(RuntimeException("关停子代理失败: HTTP ${response.code}"))
+                else Result.failure(RuntimeException("关停子代理失败: HTTP ${response.code}".loc))
             }
         } catch (e: Exception) {
             Result.failure(e)
@@ -757,7 +758,7 @@ class ApiClient(
      * Stop background running command task
      */
     suspend fun stopTask(cascadeId: String, taskId: String, stepIndex: Int = 0): Result<Unit> = withContext(Dispatchers.IO) {
-        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
+        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址".loc))
         val url = "$baseUrl/gateway/cascade/task/stop"
 
         val payload = buildJsonObject {
@@ -778,7 +779,7 @@ class ApiClient(
                 if (response.isSuccessful) {
                     Result.success(Unit)
                 } else {
-                    Result.failure(RuntimeException("停止任务失败: HTTP ${response.code}"))
+                    Result.failure(RuntimeException("停止任务失败: HTTP ${response.code}".loc))
                 }
             }
         } catch (e: Exception) {
@@ -802,7 +803,7 @@ class ApiClient(
         target: String? = null,
         questionResponses: List<QuestionResponse>? = null
     ): Result<Unit> = withContext(Dispatchers.IO) {
-        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
+        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址".loc))
         val url = "$baseUrl/gateway/cascade/interaction"
 
         val reqObj = InteractionSubmitRequest(
@@ -829,7 +830,7 @@ class ApiClient(
                 if (response.isSuccessful) {
                     Result.success(Unit)
                 } else {
-                    Result.failure(RuntimeException("交互提交失败: HTTP ${response.code}"))
+                    Result.failure(RuntimeException("交互提交失败: HTTP ${response.code}".loc))
                 }
             }
         } catch (e: Exception) {
@@ -845,7 +846,7 @@ class ApiClient(
         artifactUri: String,
         model: String? = null
     ): Result<Unit> = withContext(Dispatchers.IO) {
-        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
+        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址".loc))
         val url = "$baseUrl/api/exa.language_server_pb.LanguageServerService/SendUserCascadeMessage"
 
         val comment = buildJsonObject {
@@ -879,7 +880,7 @@ class ApiClient(
                 if (response.isSuccessful) {
                     Result.success(Unit)
                 } else {
-                    Result.failure(RuntimeException("执行方案推进失败: HTTP ${response.code}"))
+                    Result.failure(RuntimeException("执行方案推进失败: HTTP ${response.code}".loc))
                 }
             }
         } catch (e: Exception) {
@@ -891,7 +892,7 @@ class ApiClient(
      * Fetch document or artifact content with companion metadata
      */
     suspend fun fetchFileContent(uri: String, cascadeId: String? = null): Result<FileContentResponse> = withContext(Dispatchers.IO) {
-        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
+        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址".loc))
         val unescapedUri = try { URLDecoder.decode(uri, "UTF-8") } catch (_: Exception) { uri }
         val encodedUri = URLEncoder.encode(unescapedUri, "UTF-8")
         val cidParam = cascadeId?.let { "&cascade_id=${URLEncoder.encode(it, "UTF-8")}" } ?: ""
@@ -901,7 +902,7 @@ class ApiClient(
             val req = buildAuthorizedRequest(url).get().build()
             client.newCall(req).await().use { response ->
                 if (!response.isSuccessful) {
-                    return@withContext Result.failure(RuntimeException("获取文件失败: HTTP ${response.code}"))
+                    return@withContext Result.failure(RuntimeException("获取文件失败: HTTP ${response.code}".loc))
                 }
                 val bodyStr = response.body?.string() ?: "{}"
                 val fileResp = json.decodeFromString<FileContentResponse>(bodyStr)
@@ -913,7 +914,7 @@ class ApiClient(
     }
 
     suspend fun fetchWeChatChatArchive(uri: String, cascadeId: String? = null): Result<WeChatChatArchive> = withContext(Dispatchers.IO) {
-        val baseUrl = currentBaseUrl?.trimEnd('/') ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
+        val baseUrl = currentBaseUrl?.trimEnd('/') ?: return@withContext Result.failure(IllegalStateException("未配置网关地址".loc))
         val cleanUri = normalizeUriForGateway(uri)
         val encodedUri = URLEncoder.encode(cleanUri, "UTF-8")
         val cidParam = cascadeId?.takeIf { it.isNotBlank() }?.let { "&cascade_id=${URLEncoder.encode(it, "UTF-8")}" } ?: ""
@@ -922,7 +923,7 @@ class ApiClient(
             val req = buildAuthorizedRequest(url).get().build()
             client.newCall(req).await().use { response ->
                 if (!response.isSuccessful) {
-                    return@withContext Result.failure(RuntimeException("解析聊天记录失败: HTTP ${response.code}"))
+                    return@withContext Result.failure(RuntimeException("解析聊天记录失败: HTTP ${response.code}".loc))
                 }
                 val bodyStr = response.body?.string() ?: "{}"
                 val parsed = json.decodeFromString<WeChatChatArchive>(bodyStr)
@@ -1073,9 +1074,9 @@ class ApiClient(
 
             client.newCall(request).await().use { response ->
                 if (!response.isSuccessful) {
-                    return@withContext Result.failure(RuntimeException("下载文件失败: HTTP ${response.code}"))
+                    return@withContext Result.failure(RuntimeException("下载文件失败: HTTP ${response.code}".loc))
                 }
-                val body = response.body ?: return@withContext Result.failure(RuntimeException("空响应体"))
+                val body = response.body ?: return@withContext Result.failure(RuntimeException("空响应体".loc))
                 val totalLength = body.contentLength()
 
                 targetFile.parentFile?.mkdirs()
@@ -1137,7 +1138,7 @@ class ApiClient(
      */
     suspend fun getRevertPreview(cascadeId: String, stepIndex: Int): Result<RevertPreviewResponse> = withContext(Dispatchers.IO) {
         val baseUrl = currentBaseUrl?.trim()?.trimEnd('/')
-            ?: return@withContext Result.failure(IllegalStateException("网关地址未配置"))
+            ?: return@withContext Result.failure(IllegalStateException("网关地址未配置".loc))
 
         try {
             val endpoint = "$baseUrl/gateway/cascade/revert/preview"
@@ -1149,7 +1150,7 @@ class ApiClient(
             client.newCall(request).await().use { response ->
                 if (!response.isSuccessful) {
                     val errMsg = response.body?.string() ?: "HTTP ${response.code}"
-                    return@withContext Result.failure(RuntimeException("获取撤回预览失败: $errMsg"))
+                    return@withContext Result.failure(RuntimeException("获取撤回预览失败: $errMsg".loc))
                 }
                 val respStr = response.body?.string() ?: ""
                 val preview = json.decodeFromString<RevertPreviewResponse>(respStr)
@@ -1165,7 +1166,7 @@ class ApiClient(
      */
     suspend fun executeRevert(cascadeId: String, stepIndex: Int, conversationOnly: Boolean = false): Result<Unit> = withContext(Dispatchers.IO) {
         val baseUrl = currentBaseUrl?.trim()?.trimEnd('/')
-            ?: return@withContext Result.failure(IllegalStateException("网关地址未配置"))
+            ?: return@withContext Result.failure(IllegalStateException("网关地址未配置".loc))
 
         try {
             val endpoint = "$baseUrl/gateway/cascade/revert/execute"
@@ -1177,7 +1178,7 @@ class ApiClient(
             client.newCall(request).await().use { response ->
                 if (!response.isSuccessful) {
                     val errMsg = response.body?.string() ?: "HTTP ${response.code}"
-                    return@withContext Result.failure(RuntimeException("执行撤回失败: $errMsg"))
+                    return@withContext Result.failure(RuntimeException("执行撤回失败: $errMsg".loc))
                 }
                 Result.success(Unit)
             }
@@ -1192,7 +1193,7 @@ class ApiClient(
     private suspend fun postGatewayJson(path: String, payload: String, failurePrefix: String): Result<String> =
         withContext(Dispatchers.IO) {
             val baseUrl = currentBaseUrl?.trim()?.trimEnd('/')
-                ?: return@withContext Result.failure(IllegalStateException("网关地址未配置"))
+                ?: return@withContext Result.failure(IllegalStateException("网关地址未配置".loc))
             try {
                 val request = buildAuthorizedRequest("$baseUrl$path")
                     .post(payload.toRequestBody(jsonMediaType))
@@ -1221,7 +1222,7 @@ class ApiClient(
      */
     suspend fun refreshGatewayCompat(force: Boolean = false): Result<GatewayCompat> = withContext(Dispatchers.IO) {
         val baseUrl = currentBaseUrl?.trim()?.trimEnd('/')
-            ?: return@withContext Result.failure(IllegalStateException("网关地址未配置"))
+            ?: return@withContext Result.failure(IllegalStateException("网关地址未配置".loc))
         // 列表会被频繁轮询；自检结果只在 Antigravity 重启/升级时才会变，30 秒内不重复请求
         val now = System.currentTimeMillis()
         if (!force && now - lastCompatRefreshAt < 30_000L) return@withContext Result.success(GatewayCompatStore.state.value)
@@ -1244,7 +1245,7 @@ class ApiClient(
         postGatewayJson(
             if (refresh) "/gateway/slash-commands?refresh=1" else "/gateway/slash-commands",
             "{}",
-            "获取斜杠命令失败"
+            "获取斜杠命令失败".loc
         ).mapCatching { json.decodeFromString<SlashCommandsResponse>(it).commands }
 
     /** 可选模型目录（网关从 language_server 实时取，失败时返回内置兜底）。 */
@@ -1252,7 +1253,7 @@ class ApiClient(
         postGatewayJson(
             if (refresh) "/gateway/models?refresh=1" else "/gateway/models",
             "{}",
-            "获取模型列表失败"
+            "获取模型列表失败".loc
         ).mapCatching { json.decodeFromString<ModelsResponse>(it) }
 
     /** 本会话累计改动（正向 diff）。fromStepIndex 非空时只取该步骤起的改动。 */
@@ -1260,7 +1261,7 @@ class ApiClient(
         postGatewayJson(
             "/gateway/cascade/changes",
             json.encodeToString(CascadeChangesRequest(cascadeId = cascadeId, fromStepIndex = fromStepIndex)),
-            "获取本会话改动失败"
+            "获取本会话改动失败".loc
         ).mapCatching { json.decodeFromString<CascadeChangesResponse>(it) }
 
     /** 会话章节语义标题（Antigravity 2.30.0 GetChapterTitles，经网关 /gateway/cascade/chapters 聚合并轮询收敛）。 */
@@ -1271,14 +1272,14 @@ class ApiClient(
         postGatewayJson(
             "/gateway/cascade/chapters",
             json.encodeToString(CascadeChaptersRequest(cascadeId = cascadeId, ranges = ranges)),
-            "获取章节标题失败"
+            "获取章节标题失败".loc
         ).mapCatching { json.decodeFromString<CascadeChaptersResponse>(it).chapters }
 
     suspend fun getGitStatus(cascadeId: String): Result<GitStatusResponse> =
         postGatewayJson(
             "/gateway/git/status",
             json.encodeToString(GitCascadeRequest(cascadeId = cascadeId)),
-            "获取 Git 状态失败"
+            "获取 Git 状态失败".loc
         ).mapCatching { json.decodeFromString<GitStatusResponse>(it) }
 
     suspend fun gitCommit(
@@ -1290,14 +1291,14 @@ class ApiClient(
         postGatewayJson(
             "/gateway/git/commit",
             json.encodeToString(GitCommitRequest(cascadeId = cascadeId, message = message, paths = paths, push = push)),
-            "提交失败"
+            "提交失败".loc
         ).mapCatching { json.decodeFromString<GitCommitResponse>(it) }
 
     suspend fun gitPush(cascadeId: String): Result<GitCommitResponse> =
         postGatewayJson(
             "/gateway/git/push",
             json.encodeToString(GitCascadeRequest(cascadeId = cascadeId)),
-            "推送失败"
+            "推送失败".loc
         ).mapCatching { json.decodeFromString<GitCommitResponse>(it) }
 
     /** 会话内容全文搜索（language_server SearchConversations，经网关透传）。 */
@@ -1305,7 +1306,7 @@ class ApiClient(
         postGatewayJson(
             "/api/exa.language_server_pb.LanguageServerService/SearchConversations",
             buildJsonObject { put("query", query) }.toString(),
-            "搜索失败"
+            "搜索失败".loc
         ).mapCatching { json.decodeFromString<ConversationSearchResponse>(it).results }
 
     /** 导出会话为 Markdown（language_server ConvertTrajectoryToMarkdown，经网关透传）。 */
@@ -1313,7 +1314,7 @@ class ApiClient(
         postGatewayJson(
             "/api/exa.language_server_pb.LanguageServerService/ConvertTrajectoryToMarkdown",
             buildJsonObject { put("conversationId", cascadeId) }.toString(),
-            "导出失败"
+            "导出失败".loc
         ).mapCatching { json.decodeFromString<MarkdownExportResponse>(it).markdown }
 
     /** 获取当前挂载的所有 MCP 服务状态及工具清单（language_server GetMcpServerStates，经网关透传）。 */
@@ -1321,7 +1322,7 @@ class ApiClient(
         postGatewayJson(
             "/api/exa.language_server_pb.LanguageServerService/GetMcpServerStates",
             "{}",
-            "获取 MCP 服务状态失败"
+            "获取 MCP 服务状态失败".loc
         ).mapCatching { json.decodeFromString<GetMcpServerStatesResponse>(it).states ?: emptyList() }
 
     /** 获取当前挂载的所有技能清单（language_server GetAllSkills，经网关透传）。 */
@@ -1329,7 +1330,7 @@ class ApiClient(
         postGatewayJson(
             "/api/exa.language_server_pb.LanguageServerService/GetAllSkills",
             "{}",
-            "获取技能清单失败"
+            "获取技能清单失败".loc
         ).mapCatching { json.decodeFromString<GetAllSkillsResponse>(it).skills ?: emptyList() }
 
     // endregion
@@ -1338,7 +1339,7 @@ class ApiClient(
      * Registers the device push token (FCM / remote push) with the gateway.
      */
     suspend fun registerPushToken(token: String, platform: String = "android"): Result<Unit> = withContext(Dispatchers.IO) {
-        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
+        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址".loc))
         val url = "$baseUrl/api/v1/device/push-token"
         val payload = buildJsonObject {
             put("platform", platform)
@@ -1354,7 +1355,7 @@ class ApiClient(
 
             client.newCall(req).await().use { response ->
                 if (!response.isSuccessful) {
-                    return@withContext Result.failure(RuntimeException("注册推送 Token 失败 (${response.code})"))
+                    return@withContext Result.failure(RuntimeException("注册推送 Token 失败 (${response.code})".loc))
                 }
                 Result.success(Unit)
             }
@@ -1368,7 +1369,7 @@ class ApiClient(
      * Exchanges the device token for a short-lived one-time ticket via POST /api/v1/auth/ws-ticket.
      */
     suspend fun getWsTicket(): Result<String> = withContext(Dispatchers.IO) {
-        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
+        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址".loc))
         val url = "$baseUrl/api/v1/auth/ws-ticket"
         try {
             val req = buildAuthorizedRequest(url)
@@ -1377,7 +1378,7 @@ class ApiClient(
 
             client.newCall(req).await().use { response ->
                 if (!response.isSuccessful) {
-                    return@withContext Result.failure(RuntimeException("获取 ws-ticket 失败 (${response.code})"))
+                    return@withContext Result.failure(RuntimeException("获取 ws-ticket 失败 (${response.code})".loc))
                 }
                 val body = response.body?.string() ?: return@withContext Result.failure(RuntimeException("Empty body"))
                 val ticketResp = JsonConfig.instance.decodeFromString<WsTicketResponse>(body)
@@ -1399,7 +1400,7 @@ class ApiClient(
         onProgress: (Float) -> Unit = {}
     ): Result<UploadedAttachment> = withContext(Dispatchers.IO) {
         val baseUrl = currentBaseUrl?.trim()?.trimEnd('/')
-            ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
+            ?: return@withContext Result.failure(IllegalStateException("未配置网关地址".loc))
         try {
             val total = file.length()
             val body = object : okhttp3.RequestBody() {
@@ -1446,7 +1447,7 @@ class ApiClient(
      * 获取全局所有正在运行的后台任务（language_server ListBackgroundTasks，经网关补全会话与工作区信息）
      */
     suspend fun fetchGlobalBackgroundTasks(): Result<List<GlobalBackgroundTaskItem>> = withContext(Dispatchers.IO) {
-        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(RuntimeException("未配置网关地址"))
+        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(RuntimeException("未配置网关地址".loc))
         try {
             val request = buildAuthorizedRequest("$baseUrl/gateway/tasks/background")
                 .get()
@@ -1472,7 +1473,7 @@ class ApiClient(
         taskId: String,
         logUri: String?
     ): Result<BackgroundTaskLogResponse> = withContext(Dispatchers.IO) {
-        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(RuntimeException("未配置网关地址"))
+        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(RuntimeException("未配置网关地址".loc))
         try {
             val payload = buildJsonObject {
                 put("conversationId", conversationId)
@@ -1499,7 +1500,7 @@ class ApiClient(
     // MARK: - Swarm 蜂群协同接口
 
     suspend fun fetchSwarmSnapshot(cascadeId: String): Result<SwarmSnapshot> = withContext(Dispatchers.IO) {
-        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(RuntimeException("未配置网关地址"))
+        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(RuntimeException("未配置网关地址".loc))
         try {
             val url = "$baseUrl/gateway/swarm?cascadeId=${URLEncoder.encode(cascadeId, "UTF-8")}"
             val request = buildAuthorizedRequest(url).get().build()
@@ -1516,7 +1517,7 @@ class ApiClient(
     }
 
     suspend fun sendSwarmFeedback(cascadeId: String, content: String, coordinatorId: String? = null): Result<Unit> = withContext(Dispatchers.IO) {
-        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(RuntimeException("未配置网关地址"))
+        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(RuntimeException("未配置网关地址".loc))
         try {
             val payload = json.encodeToString(
                 SwarmFeedbackRequest(
@@ -1540,7 +1541,7 @@ class ApiClient(
     }
 
     suspend fun nudgeSwarmMember(cascadeId: String, member: String, coordinatorId: String? = null): Result<Unit> = withContext(Dispatchers.IO) {
-        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(RuntimeException("未配置网关地址"))
+        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(RuntimeException("未配置网关地址".loc))
         try {
             val payload = json.encodeToString(
                 SwarmNudgeRequest(
@@ -1566,7 +1567,7 @@ class ApiClient(
     // MARK: - Plugins 插件市场接口
 
     suspend fun fetchPluginsCatalog(): Result<CascadePluginsResponse> = withContext(Dispatchers.IO) {
-        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(RuntimeException("未配置网关地址"))
+        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(RuntimeException("未配置网关地址".loc))
         try {
             val request = buildAuthorizedRequest("$baseUrl/gateway/plugins").get().build()
             client.newCall(request).await().use { response ->
@@ -1586,7 +1587,7 @@ class ApiClient(
         fetchPluginsCatalog().map { it.plugins }
 
     suspend fun installPlugin(id: String, conversationId: String? = null, autoResume: Boolean = true): Result<PluginInstallResponse> = withContext(Dispatchers.IO) {
-        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(RuntimeException("未配置网关地址"))
+        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(RuntimeException("未配置网关地址".loc))
         try {
             val payload = json.encodeToString(
                 PluginInstallRequest(
@@ -1613,7 +1614,7 @@ class ApiClient(
     // MARK: - Automations 定时与守护任务接口
 
     suspend fun fetchAutomationsData(): Result<AutomationsResponse> = withContext(Dispatchers.IO) {
-        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(RuntimeException("未配置网关地址"))
+        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(RuntimeException("未配置网关地址".loc))
         try {
             val request = buildAuthorizedRequest("$baseUrl/gateway/automations").get().build()
             client.newCall(request).await().use { response ->
@@ -1633,7 +1634,7 @@ class ApiClient(
         fetchAutomationsData().map { it.automations }
 
     suspend fun manageAutomation(action: String, sidecarId: String): Result<Unit> = withContext(Dispatchers.IO) {
-        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(RuntimeException("未配置网关地址"))
+        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(RuntimeException("未配置网关地址".loc))
         try {
             val payload = json.encodeToString(AutomationManageRequest(sidecarId = sidecarId, action = action))
             val request = buildAuthorizedRequest("$baseUrl/gateway/automations/manage")
@@ -1653,7 +1654,7 @@ class ApiClient(
     // region Workflow 模板同步接口
 
     suspend fun fetchWorkflowTemplates(): Result<WorkflowTemplatesResponse> = withContext(Dispatchers.IO) {
-        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(RuntimeException("未配置网关地址"))
+        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(RuntimeException("未配置网关地址".loc))
         try {
             val request = buildAuthorizedRequest("$baseUrl/gateway/workflow-templates")
                 .get()
@@ -1671,7 +1672,7 @@ class ApiClient(
     }
 
     suspend fun saveWorkflowTemplates(templates: List<WorkflowTemplateRecord>): Result<WorkflowTemplatesResponse> = withContext(Dispatchers.IO) {
-        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(RuntimeException("未配置网关地址"))
+        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(RuntimeException("未配置网关地址".loc))
         try {
             val payload = json.encodeToString(WorkflowTemplatesUpdateRequest(templates = templates))
             val request = buildAuthorizedRequest("$baseUrl/gateway/workflow-templates")
@@ -1690,7 +1691,7 @@ class ApiClient(
     }
 
     suspend fun resetWorkflowTemplates(): Result<WorkflowTemplatesResponse> = withContext(Dispatchers.IO) {
-        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(RuntimeException("未配置网关地址"))
+        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(RuntimeException("未配置网关地址".loc))
         try {
             val request = buildAuthorizedRequest("$baseUrl/gateway/workflow-templates")
                 .delete()

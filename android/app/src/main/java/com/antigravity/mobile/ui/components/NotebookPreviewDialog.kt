@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.components
 
+import com.antigravity.mobile.ui.util.loc
 import android.graphics.BitmapFactory
 import android.util.Base64
 import android.widget.Toast
@@ -112,7 +113,7 @@ fun NotebookPreviewDialog(
                 }
             }
         } catch (e: Exception) {
-            list.add(NotebookCellData("markdown", "解析 Notebook 失败: ${e.message}", null, emptyList()))
+            list.add(NotebookCellData("markdown", "解析 Notebook 失败: ${e.message}".loc, null, emptyList()))
         }
         list
     }
@@ -144,7 +145,7 @@ fun NotebookPreviewDialog(
                         modifier = Modifier.weight(1f)
                     )
                     IconButton(onClick = onDismiss) {
-                        Icon(imageVector = Icons.Default.Close, contentDescription = "关闭", tint = colors.textSecondary)
+                        Icon(imageVector = Icons.Default.Close, contentDescription = "关闭".loc, tint = colors.textSecondary)
                     }
                 }
 
@@ -192,13 +193,13 @@ fun NotebookPreviewDialog(
                                     IconButton(
                                         onClick = {
                                             clipboard.setText(AnnotatedString(cell.source))
-                                            Toast.makeText(context, "代码已复制", Toast.LENGTH_SHORT).show()
+                                            Toast.makeText(context, "代码已复制".loc, Toast.LENGTH_SHORT).show()
                                         },
                                         modifier = Modifier.size(24.dp)
                                     ) {
                                         Icon(
                                             imageVector = Icons.Default.ContentCopy,
-                                            contentDescription = "复制",
+                                            contentDescription = "复制".loc,
                                             tint = colors.textSecondary,
                                             modifier = Modifier.size(14.dp)
                                         )

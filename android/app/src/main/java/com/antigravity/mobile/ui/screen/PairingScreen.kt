@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.screen
 
+import com.antigravity.mobile.ui.util.loc
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.Image
@@ -148,7 +149,7 @@ fun PairingScreen(
                     }
 
                     Text(
-                        text = "手动输入配对信息",
+                        text = "手动输入配对信息".loc,
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold,
                         color = colors.textPrimary,
@@ -189,7 +190,7 @@ fun PairingScreen(
                                     modifier = Modifier.size(16.dp)
                                 )
                                 Text(
-                                    text = "检测到配对链接，点击立即配对",
+                                    text = "检测到配对链接，点击立即配对".loc,
                                     fontSize = 13.sp,
                                     fontWeight = FontWeight.Medium,
                                     color = colors.accentIndigo
@@ -200,8 +201,8 @@ fun PairingScreen(
                         OutlinedTextField(
                             value = host,
                             onValueChange = { host = it },
-                            label = { Text("网关 IP 或域名 (Host)", color = colors.textSecondary) },
-                            placeholder = { Text("例如 192.168.1.100 或 [2408:...]", color = colors.textMuted) },
+                            label = { Text("网关 IP 或域名 (Host)".loc, color = colors.textSecondary) },
+                            placeholder = { Text("例如 192.168.1.100 或 [2408:...]".loc, color = colors.textMuted) },
                             singleLine = true,
                             shape = RoundedCornerShape(12.dp),
                             colors = OutlinedTextFieldDefaults.colors(
@@ -218,7 +219,7 @@ fun PairingScreen(
                         OutlinedTextField(
                             value = port,
                             onValueChange = { port = it },
-                            label = { Text("端口号 (Port)", color = colors.textSecondary) },
+                            label = { Text("端口号 (Port)".loc, color = colors.textSecondary) },
                             singleLine = true,
                             shape = RoundedCornerShape(12.dp),
                             colors = OutlinedTextFieldDefaults.colors(
@@ -235,8 +236,8 @@ fun PairingScreen(
                         OutlinedTextField(
                             value = code,
                             onValueChange = { code = it },
-                            label = { Text("配对码 (Code)", color = colors.textSecondary) },
-                            placeholder = { Text("终端输出的配对码 (5分钟有效)", color = colors.textMuted) },
+                            label = { Text("配对码 (Code)".loc, color = colors.textSecondary) },
+                            placeholder = { Text("终端输出的配对码 (5分钟有效)".loc, color = colors.textMuted) },
                             singleLine = true,
                             shape = RoundedCornerShape(12.dp),
                             colors = OutlinedTextFieldDefaults.colors(
@@ -255,7 +256,7 @@ fun PairingScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Text("开启 HTTPS / SSL", color = colors.textPrimary, fontSize = 14.sp)
+                            Text("开启 HTTPS / SSL".loc, color = colors.textPrimary, fontSize = 14.sp)
                             Switch(
                                 checked = ssl,
                                 onCheckedChange = { ssl = it }
@@ -278,7 +279,7 @@ fun PairingScreen(
                                 contentColor = Color.White
                             )
                         ) {
-                            Text("连接并配对", fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                            Text("连接并配对".loc, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                         }
                     }
                 }
@@ -305,7 +306,7 @@ fun PairingScreen(
                             modifier = Modifier.size(36.dp)
                         )
                         Text(
-                            text = "正在与电脑网关配对...",
+                            text = "正在与电脑网关配对...".loc,
                             fontSize = 13.sp,
                             fontWeight = FontWeight.Medium,
                             color = Color.White,
@@ -322,11 +323,11 @@ fun PairingScreen(
             val errMsg = (uiState as PairingUiState.Error).message
             AlertDialog(
                 onDismissRequest = { viewModel.resetState() },
-                title = { Text("配对失败", fontWeight = FontWeight.Bold, color = colors.textPrimary) },
+                title = { Text("配对失败".loc, fontWeight = FontWeight.Bold, color = colors.textPrimary) },
                 text = { Text(errMsg, color = colors.textSecondary, fontSize = 14.sp) },
                 confirmButton = {
                     TextButton(onClick = { viewModel.resetState() }) {
-                        Text("确定", color = colors.accentIndigo, fontWeight = FontWeight.SemiBold)
+                        Text("确定".loc, color = colors.accentIndigo, fontWeight = FontWeight.SemiBold)
                     }
                 },
                 containerColor = colors.surface,

@@ -1,11 +1,12 @@
 // --- Navigation & Routing ---
 
 function formatConversationTitle(annotations, summary, fallback = "未命名会话") {
+  const defaultFallback = typeof t === "function" ? t(fallback) : fallback;
   const raw = annotations?.title || summary;
-  if (!raw || raw === "未命名会话") return fallback;
+  if (!raw || raw === "未命名会话" || raw === "Untitled Conversation") return defaultFallback;
   const cleaned = raw.replace(/<[^>]+>/g, "").trim();
   const firstLine = cleaned.split("\n").map((l) => l.trim()).find((l) => l.length > 0) || "";
-  if (!firstLine) return fallback;
+  if (!firstLine) return defaultFallback;
   if (firstLine.length > 36) {
     return firstLine.slice(0, 36) + "...";
   }
@@ -79,7 +80,7 @@ function renderRoute() {
 
     // Title resolution
     const summary = currentTrajectories[activeCascadeId];
-    const title = formatConversationTitle(summary?.annotations, summary?.summary, "会话详情");
+    const title = formatConversationTitle(summary?.annotations, summary?.summary, typeof t === "function" ? t("会话详情") : "会话详情");
     const wsUri = summary?.workspaceUris?.[0] || summary?.workspaces?.[0]?.workspaceFolderAbsoluteUri || "";
     const wsName = summary?.workspaceName || wsUri.split("/").filter(Boolean).pop() || "";
 
@@ -544,6 +545,12 @@ async function loadConversations(quiet = false) {
   }
 }
 
+window.addEventListener("mgy:languagechange", () => {
+  if (currentTrajectories) {
+    renderConversationList(currentTrajectories, { forceReorder: false });
+  }
+});
+
 function formatConvPrBadge(info) {
   if (!info) return "";
   const pr = info.pullRequest;
@@ -697,19 +704,23 @@ function renderConversationList(summaries, { forceReorder = false } = {}) {
             : (hasDraft
               ? `<span class="badge badge-draft">DRAFT</span>`
               : unreadDotHtml)));
-      const title = formatConversationTitle(item.annotations, item.summary, "未命名会话");
+      const title = formatConversationTitle(item.annotations, item.summary, typeof t === "function" ? t("未命名会话") : "未命名会话");
       const isPinned = Boolean(item.annotations?.pinned);
       const pinIconHtml = isPinned
-        ? `<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" class="conv-pin-icon" title="已置顶" style="color: #f59e0b; margin-right: 4px; flex-shrink: 0;"><path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z"/></svg>`
+        ? `<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" class="conv-pin-icon" title="${typeof t === "function" ? t("已置顶") : "已置顶"}" style="color: #f59e0b; margin-right: 4px; flex-shrink: 0;"><path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z"/></svg>`
         : "";
       const wsUri = item.workspaceUris?.[0] || item.workspaces?.[0]?.workspaceFolderAbsoluteUri || "";
       const wsName = item.workspaceName || wsUri.split("/").filter(Boolean).pop() || "Chat";
       const timeStr = formatRelativeTime(item.lastModifiedTime);
+      const stepCount = item.stepCount || 0;
+      const stepLabel = (window.I18n && window.I18n.isEn && window.I18n.isEn())
+        ? (stepCount === 1 ? "step" : "steps")
+        : (typeof t === "function" ? t("步骤") : "步骤");
 
       return `
         <div class="conv-card-wrapper" data-id="${item.id}">
           <div class="conv-card-actions">
-            <button class="conv-card-delete-btn" type="button" aria-label="删除会话" data-id="${item.id}">
+            <button class="conv-card-delete-btn" type="button" aria-label="${typeof t === "function" ? t("删除会话") : "删除会话"}" data-id="${item.id}">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                 <polyline points="3 6 5 6 21 6"></polyline>
                 <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
@@ -732,7 +743,7 @@ function renderConversationList(summaries, { forceReorder = false } = {}) {
                     </svg>`}
                 <span class="ws-name">${escapeHtml(wsName)}</span>${formatConvPrBadge(item)}
               </div>
-              <span class="conv-steps-time">${item.stepCount || 0} 步骤 • ${timeStr}</span>
+              <span class="conv-steps-time">${stepCount} ${stepLabel} • ${timeStr}</span>
             </div>
           </div>
         </div>
@@ -1414,10 +1425,10 @@ function renderContentHits() {
   syncNoMatchState(true);
   box.classList.remove("hidden");
   box.innerHTML =
-    `<div class="content-hits-header"><span>对话内容匹配</span>${contentSearch.loading ? '<div class="ios-spinner content-hits-spinner"></div>' : ""}</div>` +
+    `<div class="content-hits-header"><span>${typeof t === "function" ? t("对话内容匹配") : "对话内容匹配"}</span>${contentSearch.loading ? '<div class="ios-spinner content-hits-spinner"></div>' : ""}</div>` +
     hits
       .map((h) => {
-        const title = h.title && h.title.trim() ? h.title : "未命名会话";
+        const title = h.title && h.title.trim() ? h.title : (typeof t === "function" ? t("未命名会话") : "未命名会话");
         const ws = h.workspaceName ? `<div class="content-hit-ws">${escapeHtml(h.workspaceName)}</div>` : "";
         const snippet = h.snippet ? `<div class="content-hit-snippet">${highlightSnippetHtml(h.snippet, h.snippetMatchRanges)}</div>` : "";
         return `<button type="button" class="content-hit-card" data-id="${escapeHtml(h.cascadeId)}">

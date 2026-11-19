@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.components
 
+import com.antigravity.mobile.ui.util.loc
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -174,7 +175,7 @@ fun ContextAuditSheet(
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(
-                        text = "实时上下文",
+                        text = "实时上下文".loc,
                         fontSize = 17.sp,
                         fontWeight = FontWeight.Bold,
                         color = colors.textPrimary
@@ -225,17 +226,17 @@ fun ContextAuditSheet(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 AuditMetricTile(
-                    label = "输出速度",
+                    label = "输出速度".loc,
                     value = if (meter.tokensPerSecond > 0) String.format(Locale.US, "%.1f t/s", meter.tokensPerSecond) else "--",
                     modifier = Modifier.weight(1f)
                 )
                 AuditMetricTile(
-                    label = "首字延迟 (TTFT)",
+                    label = "首字延迟 (TTFT)".loc,
                     value = if (meter.timeToFirstTokenSec > 0) String.format(Locale.US, "%.2fs", meter.timeToFirstTokenSec) else "--",
                     modifier = Modifier.weight(1f)
                 )
                 AuditMetricTile(
-                    label = "流式耗时",
+                    label = "流式耗时".loc,
                     value = if (meter.streamingDurationSec > 0) String.format(Locale.US, "%.1fs", meter.streamingDurationSec) else "--",
                     modifier = Modifier.weight(1f)
                 )
@@ -252,7 +253,7 @@ fun ContextAuditSheet(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Text(
-                    text = "最近一步 Token 构成",
+                    text = "最近一步 Token 构成".loc,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = colors.textSecondary
@@ -289,7 +290,7 @@ fun ContextAuditSheet(
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "一键压缩",
+                            text = "一键压缩".loc,
                             fontSize = 13.sp,
                             fontWeight = FontWeight.SemiBold,
                             maxLines = 1,
@@ -313,7 +314,7 @@ fun ContextAuditSheet(
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = "开启新会话",
+                        text = "开启新会话".loc,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.SemiBold,
                         maxLines = 1,
@@ -406,13 +407,13 @@ fun RescueBubbleCard(
             }
             Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
                 Text(
-                    text = "上下文窗口已触及上限",
+                    text = "上下文窗口已触及上限".loc,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Bold,
                     color = colors.accentOrange
                 )
                 Text(
-                    text = "建议立即压缩历史对话或开启新会话继续工作",
+                    text = "建议立即压缩历史对话或开启新会话继续工作".loc,
                     fontSize = 12.sp,
                     color = colors.textSecondary
                 )
@@ -446,7 +447,7 @@ fun RescueBubbleCard(
                         tint = Color.White
                     )
                     Spacer(modifier = Modifier.width(5.dp))
-                    Text("一键压缩 /compact", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    Text("一键压缩 /compact".loc, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                 }
             }
             if (onStartNewSessionClick != null) {
@@ -456,7 +457,7 @@ fun RescueBubbleCard(
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                     modifier = Modifier.weight(1f)
                 ) {
-                    Text("开启新会话", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    Text("开启新会话".loc, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                 }
             }
         }

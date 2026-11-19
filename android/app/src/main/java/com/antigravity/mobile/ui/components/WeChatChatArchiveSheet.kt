@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.components
 
+import com.antigravity.mobile.ui.util.loc
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -119,7 +120,7 @@ fun WeChatChatArchiveSheet(
                 isLoading = false
             }
         }.onFailure { err ->
-            errorMessage = "解析聊天记录失败：${err.localizedMessage ?: err.message ?: "未知错误"}"
+            errorMessage = "解析聊天记录失败：${err.localizedMessage ?: err.message ?: "未知错误".loc}".loc
             isLoading = false
         }
     }
@@ -139,7 +140,7 @@ fun WeChatChatArchiveSheet(
         archive?.messages.orEmpty().mapNotNull { msg ->
             if (msg.kind == "image" && !msg.mediaEntry.isNullOrBlank()) {
                 val url = apiClient.buildZipEntryUrl(item.uri, msg.mediaEntry, cascadeId)
-                msg.id to ImageViewerItem(url = url, title = msg.mediaName ?: "图片")
+                msg.id to ImageViewerItem(url = url, title = msg.mediaName ?: "图片".loc)
             } else null
         }
     }
@@ -169,7 +170,7 @@ fun WeChatChatArchiveSheet(
             dl.onSuccess { f ->
                 entryPreviewFile = f to fileName
             }.onFailure {
-                Toast.makeText(context, "打开媒体失败: ${it.message}", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "打开媒体失败: ${it.message}".loc, Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -194,7 +195,7 @@ fun WeChatChatArchiveSheet(
                     saveFileToDownloads(context, file, item.fileName)
                 }
             }.onFailure {
-                Toast.makeText(context, "获取原始 ZIP 失败: ${it.message}", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "获取原始 ZIP 失败: ${it.message}".loc, Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -224,7 +225,7 @@ fun WeChatChatArchiveSheet(
                         IconButton(onClick = onDismiss) {
                             Icon(
                                 imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = "关闭",
+                                contentDescription = "关闭".loc,
                                 tint = textPrimary
                             )
                         }
@@ -233,7 +234,7 @@ fun WeChatChatArchiveSheet(
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             Text(
-                                text = archive?.title?.ifBlank { "群聊的聊天记录" } ?: "群聊的聊天记录",
+                                text = archive?.title?.ifBlank { "群聊的聊天记录".loc } ?: "群聊的聊天记录".loc,
                                 color = textPrimary,
                                 fontSize = 16.5.sp,
                                 fontWeight = FontWeight.SemiBold,
@@ -259,7 +260,7 @@ fun WeChatChatArchiveSheet(
                             IconButton(onClick = { menuExpanded = true }) {
                                 Icon(
                                     imageVector = Icons.Default.MoreHoriz,
-                                    contentDescription = "更多操作",
+                                    contentDescription = "更多操作".loc,
                                     tint = textPrimary
                                 )
                             }
@@ -268,7 +269,7 @@ fun WeChatChatArchiveSheet(
                                 onDismissRequest = { menuExpanded = false }
                             ) {
                                 DropdownMenuItem(
-                                    text = { Text(if (isSearching) "关闭搜索" else "搜索聊天记录") },
+                                    text = { Text(if (isSearching) "关闭搜索".loc else "搜索聊天记录".loc) },
                                     leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
                                     onClick = {
                                         menuExpanded = false
@@ -278,16 +279,16 @@ fun WeChatChatArchiveSheet(
                                 )
                                 archive?.rawText?.takeIf { it.isNotBlank() }?.let { raw ->
                                     DropdownMenuItem(
-                                        text = { Text("复制全部文本") },
+                                        text = { Text("复制全部文本".loc) },
                                         leadingIcon = { Icon(Icons.Default.ContentCopy, contentDescription = null) },
                                         onClick = {
                                             menuExpanded = false
-                                            copyToClipboard("wechat_chat", raw, "已复制全部聊天记录")
+                                            copyToClipboard("wechat_chat", raw, "已复制全部聊天记录".loc)
                                         }
                                     )
                                 }
                                 DropdownMenuItem(
-                                    text = { Text("保存原始 ZIP") },
+                                    text = { Text("保存原始 ZIP".loc) },
                                     leadingIcon = { Icon(Icons.Default.FileDownload, contentDescription = null) },
                                     onClick = {
                                         menuExpanded = false
@@ -295,7 +296,7 @@ fun WeChatChatArchiveSheet(
                                     }
                                 )
                                 DropdownMenuItem(
-                                    text = { Text("分享原始 ZIP") },
+                                    text = { Text("分享原始 ZIP".loc) },
                                     leadingIcon = { Icon(Icons.Default.Share, contentDescription = null) },
                                     onClick = {
                                         menuExpanded = false
@@ -320,7 +321,7 @@ fun WeChatChatArchiveSheet(
                             Spacer(Modifier.width(8.dp))
                             Box(modifier = Modifier.weight(1f)) {
                                 if (searchQuery.isEmpty()) {
-                                    Text("搜索群成员或聊天内容", color = textMuted, fontSize = 14.sp)
+                                    Text("搜索群成员或聊天内容".loc, color = textMuted, fontSize = 14.sp)
                                 }
                                 BasicTextField(
                                     value = searchQuery,
@@ -334,7 +335,7 @@ fun WeChatChatArchiveSheet(
                             if (searchQuery.isNotEmpty()) {
                                 Icon(
                                     imageVector = Icons.Default.Close,
-                                    contentDescription = "清除",
+                                    contentDescription = "清除".loc,
                                     tint = textMuted,
                                     modifier = Modifier.size(16.dp).clickable { searchQuery = "" }
                                 )
@@ -356,7 +357,7 @@ fun WeChatChatArchiveSheet(
                             ) {
                                 CircularProgressIndicator(color = Color(0xFF07C160), modifier = Modifier.size(30.dp))
                                 Spacer(Modifier.height(10.dp))
-                                Text("正在解析微信聊天记录...", color = textMuted, fontSize = 13.5.sp)
+                                Text("正在解析微信聊天记录...".loc, color = textMuted, fontSize = 13.5.sp)
                             }
                         }
                         errorMessage != null -> {
@@ -370,18 +371,18 @@ fun WeChatChatArchiveSheet(
                                 Text(errorMessage!!, color = textMuted, fontSize = 14.sp, textAlign = TextAlign.Center)
                                 Spacer(Modifier.height(16.dp))
                                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                    Button(onClick = { reloadKey++ }) { Text("重试") }
+                                    Button(onClick = { reloadKey++ }) { Text("重试".loc) }
                                     OutlinedButton(onClick = {
                                         onDismiss()
                                         onFallbackToDocumentPreview()
-                                    }) { Text("打开压缩包") }
+                                    }) { Text("打开压缩包".loc) }
                                 }
                             }
                         }
                         filteredMessages.isEmpty() -> {
                             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                 Text(
-                                    text = if (isSearching) "没有匹配的聊天记录" else "聊天记录为空",
+                                    text = if (isSearching) "没有匹配的聊天记录".loc else "聊天记录为空".loc,
                                     color = textMuted,
                                     fontSize = 14.sp
                                 )
@@ -421,7 +422,7 @@ fun WeChatChatArchiveSheet(
                                         },
                                         onLongPressCopy = { text ->
                                             haptic.medium()
-                                            copyToClipboard("wechat_msg", text, "已复制消息")
+                                            copyToClipboard("wechat_msg", text, "已复制消息".loc)
                                         }
                                     )
                                 }
@@ -439,7 +440,7 @@ fun WeChatChatArchiveSheet(
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                 CircularProgressIndicator(color = Color.White, modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-                                Text("正在加载...", color = Color.White, fontSize = 13.sp)
+                                Text("正在加载...".loc, color = Color.White, fontSize = 13.sp)
                             }
                         }
                     }
@@ -546,7 +547,7 @@ private fun WeChatMessageRow(
                             val url = apiClient.buildZipEntryUrl(item.uri, entry, cascadeId)
                             SubcomposeAsyncImage(
                                 model = url,
-                                contentDescription = msg.mediaName ?: "图片",
+                                contentDescription = msg.mediaName ?: "图片".loc,
                                 contentScale = ContentScale.Fit,
                                 modifier = Modifier
                                     .widthIn(max = 190.dp)
@@ -562,11 +563,11 @@ private fun WeChatMessageRow(
                                     }
                                 },
                                 error = {
-                                    MissingMediaPlaceholder(Icons.Default.Image, "[图片] 加载失败", cardBg, textMuted)
+                                    MissingMediaPlaceholder(Icons.Default.Image, "[图片] 加载失败".loc, cardBg, textMuted)
                                 }
                             )
                         } else {
-                            MissingMediaPlaceholder(Icons.Default.Image, "[图片] 未随记录导出", cardBg, textMuted)
+                            MissingMediaPlaceholder(Icons.Default.Image, "[图片] 未随记录导出".loc, cardBg, textMuted)
                         }
                     }
 
@@ -585,7 +586,7 @@ private fun WeChatMessageRow(
                             ) {
                                 SubcomposeAsyncImage(
                                     model = thumbUrl,
-                                    contentDescription = msg.mediaName ?: "视频",
+                                    contentDescription = msg.mediaName ?: "视频".loc,
                                     contentScale = ContentScale.Crop,
                                     modifier = Modifier.fillMaxSize(),
                                     error = {}
@@ -599,7 +600,7 @@ private fun WeChatMessageRow(
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.PlayArrow,
-                                        contentDescription = "播放视频",
+                                        contentDescription = "播放视频".loc,
                                         tint = Color.White,
                                         modifier = Modifier.size(26.dp)
                                     )
@@ -619,20 +620,20 @@ private fun WeChatMessageRow(
                                 }
                             }
                         } else {
-                            MissingMediaPlaceholder(Icons.Default.VideocamOff, "[视频] 未随记录导出", cardBg, textMuted)
+                            MissingMediaPlaceholder(Icons.Default.VideocamOff, "[视频] 未随记录导出".loc, cardBg, textMuted)
                         }
                     }
 
                     "missing_image" -> {
-                        MissingMediaPlaceholder(Icons.Default.Image, "[图片] 未随记录导出", cardBg, textMuted)
+                        MissingMediaPlaceholder(Icons.Default.Image, "[图片] 未随记录导出".loc, cardBg, textMuted)
                     }
 
                     "missing_video" -> {
-                        MissingMediaPlaceholder(Icons.Default.VideocamOff, "[视频] 未随记录导出", cardBg, textMuted)
+                        MissingMediaPlaceholder(Icons.Default.VideocamOff, "[视频] 未随记录导出".loc, cardBg, textMuted)
                     }
 
                     "sticker" -> {
-                        val label = if (msg.text.isBlank()) "[动画表情]" else "[动画表情] ${msg.text}"
+                        val label = if (msg.text.isBlank()) "[动画表情]".loc else "[动画表情] ${msg.text}".loc
                         Text(
                             text = label,
                             color = textMuted,

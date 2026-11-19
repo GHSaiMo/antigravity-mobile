@@ -1,6 +1,10 @@
 // --- Initialization ---
 
 function initApp() {
+  if (window.I18n) {
+    window.I18n.translateDOM(document);
+  }
+
   // Initialize Image Viewer Modal
   ImageViewerManager.init();
 
@@ -289,13 +293,17 @@ function initApp() {
     }
     if (kmSummary) {
       if (!enabled) {
-        kmSummary.textContent = "已关闭";
+        kmSummary.textContent = typeof t === "function" ? t("已关闭") : "已关闭";
       } else {
         const count = [tools, tasks, hideCtx].filter(Boolean).length;
-        kmSummary.textContent = `已开启 (${count}/3)`;
+        kmSummary.textContent = typeof t === "function" ? `${t("已开启")} (${count}/3)` : `已开启 (${count}/3)`;
       }
     }
   };
+
+  window.addEventListener("mgy:languagechange", () => {
+    syncCompactUI();
+  });
 
   const applyCompactLiveEffects = () => {
     if (typeof currentContextMeter !== "undefined" && typeof updateContextMeterUI === "function") {

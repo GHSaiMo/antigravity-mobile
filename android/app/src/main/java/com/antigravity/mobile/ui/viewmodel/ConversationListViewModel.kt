@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.viewmodel
 
+import com.antigravity.mobile.ui.util.loc
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -332,8 +333,8 @@ class ConversationListViewModel(
             } else {
                 cacheManager?.healConversationTitleIfNeeded(serverItem) ?: serverItem
             }
-            val resolvedTitle = if ((serverItem.title.isBlank() || serverItem.title == "未命名会话") &&
-                healedLocal.title.isNotBlank() && healedLocal.title != "未命名会话" && healedLocal.title != "会话详情") {
+            val resolvedTitle = if ((serverItem.title.isBlank() || serverItem.title == "未命名会话".loc) &&
+                healedLocal.title.isNotBlank() && healedLocal.title != "未命名会话".loc && healedLocal.title != "会话详情".loc) {
                 healedLocal.title
             } else {
                 serverItem.title
@@ -430,7 +431,7 @@ class ConversationListViewModel(
                     cacheManager?.prewarmSessions(rawConversations.take(15).map { it.id })
                 }.onFailure { err ->
                     if (rawConversations.isEmpty()) {
-                        _uiState.value = ConversationListUiState.Error(err.message ?: "无法获取会话列表")
+                        _uiState.value = ConversationListUiState.Error(err.message ?: "无法获取会话列表".loc)
                     }
                 }
                 apiClient.fetchCockpitQuotas().onSuccess {
@@ -477,7 +478,7 @@ class ConversationListViewModel(
                 liveActivityManager?.syncWithConversations(rawConversations)
             }.onFailure { err ->
                 if (rawConversations.isEmpty()) {
-                    _uiState.value = ConversationListUiState.Error(err.message ?: "无法获取会话列表")
+                    _uiState.value = ConversationListUiState.Error(err.message ?: "无法获取会话列表".loc)
                 }
             }
         }
@@ -526,7 +527,7 @@ class ConversationListViewModel(
     fun loadProjects() {
         if (!prefs.isPaired()) {
             if (_projects.value.isEmpty()) {
-                _projectsError.value = "请先配对电脑终端"
+                _projectsError.value = "请先配对电脑终端".loc
             }
             return
         }
@@ -546,7 +547,7 @@ class ConversationListViewModel(
             }.onFailure { err ->
                 Log.e("ConvListVM", "Failed to load projects: ${err.message}", err)
                 if (_projects.value.isEmpty()) {
-                    _projectsError.value = "拉取工作区失败: ${err.message ?: "网络或网关异常"}"
+                    _projectsError.value = "拉取工作区失败: ${err.message ?: "网络或网关异常".loc}".loc
                 }
             }
             _isLoadingProjects.value = false
@@ -560,7 +561,7 @@ class ConversationListViewModel(
         val updatedList = if (existingIndex >= 0) {
             val old = rawConversations[existingIndex]
             val merged = old.copy(
-                title = if (item.title.isNotBlank() && item.title != "未命名会话" && item.title != "会话详情") item.title else old.title,
+                title = if (item.title.isNotBlank() && item.title != "未命名会话".loc && item.title != "会话详情".loc) item.title else old.title,
                 status = if (item.status != ConversationStatus.UNKNOWN) item.status else old.status,
                 stepCount = maxOf(old.stepCount, item.stepCount),
                 workspaceName = if (item.workspaceName.isNotBlank() && item.workspaceName != "Chat") item.workspaceName else old.workspaceName,

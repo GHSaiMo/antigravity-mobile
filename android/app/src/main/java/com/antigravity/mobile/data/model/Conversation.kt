@@ -1,5 +1,6 @@
 package com.antigravity.mobile.data.model
 
+import com.antigravity.mobile.ui.util.loc
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import java.text.SimpleDateFormat
@@ -105,7 +106,7 @@ data class ConversationItem(
     val pullRequest: GitPullRequestItem? = null
 ) {
     val displayTitle: String
-        get() = title.ifBlank { "未命名会话" }
+        get() = title.ifBlank { "未命名会话".loc }
 
     val lastModifiedEpochMs: Long
         get() = parseIsoDate(lastModifiedTime)
@@ -115,13 +116,13 @@ data class ConversationItem(
             val timeMs = lastModifiedEpochMs
             if (timeMs <= 0L) return ""
             val diffMs = System.currentTimeMillis() - timeMs
-            if (diffMs < 0) return "刚刚"
+            if (diffMs < 0) return "刚刚".loc
             val diffSec = diffMs / 1000
             return when {
-                diffSec < 60 -> "刚刚"
-                diffSec < 3600 -> "${diffSec / 60}分钟前"
-                diffSec < 86400 -> "${diffSec / 3600}小时前"
-                else -> "${diffSec / 86400}天前"
+                diffSec < 60 -> "刚刚".loc
+                diffSec < 3600 -> "${diffSec / 60}分钟前".loc
+                diffSec < 86400 -> "${diffSec / 3600}小时前".loc
+                else -> "${diffSec / 86400}天前".loc
             }
         }
 
@@ -138,7 +139,7 @@ data class ConversationItem(
         fun sanitizeTitle(raw: String): String {
             val stripped = raw.replace(Regex("<[^>]+>"), "").trim()
             val firstLine = stripped.lines().firstOrNull { it.isNotBlank() }?.trim() ?: ""
-            if (firstLine.isEmpty()) return "未命名会话"
+            if (firstLine.isEmpty()) return "未命名会话".loc
             return if (firstLine.length > 36) firstLine.take(36) + "..." else firstLine
         }
 
@@ -152,11 +153,11 @@ data class ConversationItem(
             val annotationTitle = summary.annotations?.title
             val summaryText = summary.summary
             val resolvedTitle = when {
-                !annotationTitle.isNullOrBlank() && annotationTitle != "未命名会话" ->
+                !annotationTitle.isNullOrBlank() && annotationTitle != "未命名会话".loc ->
                     sanitizeTitle(annotationTitle)
-                !summaryText.isNullOrBlank() && summaryText != "未命名会话" ->
+                !summaryText.isNullOrBlank() && summaryText != "未命名会话".loc ->
                     sanitizeTitle(summaryText)
-                else -> "未命名会话"
+                else -> "未命名会话".loc
             }
 
             val hasRunningTasks = summary.hasRunningTasks == true ||
@@ -269,8 +270,8 @@ data class LocalDraftSession(
         val isPure = project.isPureChat
         val displayTitle = when {
             firstLine.isNotEmpty() -> if (firstLine.length > 36) firstLine.take(36) + "..." else firstLine
-            hasImages -> if (isPure) "[图片] 新对话" else "[图片] ${project.name}"
-            else -> if (isPure) "新对话" else project.name
+            hasImages -> if (isPure) "[图片] 新对话".loc else "[图片] ${project.name}".loc
+            else -> if (isPure) "新对话".loc else project.name
         }
         val nowIso = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
             timeZone = TimeZone.getTimeZone("UTC")

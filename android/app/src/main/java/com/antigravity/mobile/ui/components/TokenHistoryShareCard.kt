@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.components
 
+import com.antigravity.mobile.ui.util.loc
 import android.graphics.Bitmap
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -166,7 +167,7 @@ private fun HeaderSection(colors: AppColors) {
                     color = colors.textPrimary
                 )
                 Text(
-                    text = "Token 消耗分析报告",
+                    text = "Token 消耗分析报告".loc,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Medium,
                     color = colors.textSecondary
@@ -211,16 +212,16 @@ private fun KpiGridSection(
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             KpiCell(
-                title = "今日消耗",
+                title = "今日消耗".loc,
                 value = formatTokensCompact(summary.todayTokens),
-                sub = "${summary.activeDays} 活跃日",
+                sub = "${summary.activeDays} 活跃日".loc,
                 colors = colors,
                 modifier = Modifier.weight(1f)
             )
             KpiCell(
-                title = "近 7 日",
+                title = "近 7 日".loc,
                 value = formatTokensCompact(summary.last7dTokens),
-                sub = "${summary.totalSteps} 轮采样",
+                sub = "${summary.totalSteps} 轮采样".loc,
                 colors = colors,
                 modifier = Modifier.weight(1f)
             )
@@ -230,14 +231,14 @@ private fun KpiGridSection(
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             KpiCell(
-                title = "累计总 Token",
+                title = "累计总 Token".loc,
                 value = formatTokensCompact(summary.totalTokens),
                 sub = "IDE ${formatTokensCompact(summary.desktopTokens)} · CLI ${formatTokensCompact(summary.cliTokens)}",
                 colors = colors,
                 modifier = Modifier.weight(1f)
             )
             KpiCell(
-                title = "API 折算",
+                title = "API 折算".loc,
                 value = String.format(Locale.US, "$%.2f", summary.estimatedCostUsd),
                 sub = String.format(Locale.US, "≈ ¥%.1f", summary.estimatedCostCny),
                 colors = colors,
@@ -310,13 +311,13 @@ private fun SourceRatioSection(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "桌面端 Antigravity $desktopPct% · CLI $cliPct%",
+                text = "桌面端 Antigravity $desktopPct% · CLI $cliPct%".loc,
                 fontSize = 11.5.sp,
                 fontWeight = FontWeight.Medium,
                 color = colors.textSecondary
             )
             Text(
-                text = "近 18 周活跃热力",
+                text = "近 18 周活跃热力".loc,
                 fontSize = 10.5.sp,
                 color = colors.textMuted
             )
@@ -371,7 +372,7 @@ private fun HeatmapCardSection(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "每日活跃密度",
+                text = "每日活跃密度".loc,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = colors.textPrimary
@@ -380,7 +381,7 @@ private fun HeatmapCardSection(
                 horizontalArrangement = Arrangement.spacedBy(3.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("少", fontSize = 10.sp, color = colors.textMuted)
+                Text("少".loc, fontSize = 10.sp, color = colors.textMuted)
                 (0..4).forEach { lvl ->
                     Box(
                         modifier = Modifier
@@ -389,7 +390,7 @@ private fun HeatmapCardSection(
                             .background(heatColor(lvl, colors))
                     )
                 }
-                Text("多", fontSize = 10.sp, color = colors.textMuted)
+                Text("多".loc, fontSize = 10.sp, color = colors.textMuted)
             }
         }
 
@@ -461,7 +462,7 @@ private fun InspectorCardSection(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "${record.date} 用量明细",
+                text = "${record.date} 用量明细".loc,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = colors.textPrimary
@@ -547,7 +548,7 @@ private fun FooterSection(
     ) {
         HorizontalDivider(thickness = 0.8.dp, color = colors.border)
         Text(
-            text = "由 Multigravity 自动统计生成 · 跨端协同 AI 控制台",
+            text = "由 Multigravity 自动统计生成 · 跨端协同 AI 控制台".loc,
             fontSize = 10.sp,
             fontWeight = FontWeight.Medium,
             color = colors.textSecondary
@@ -560,7 +561,7 @@ private fun FooterSection(
             }
             val timeStr = timeFmt.format(Date(tokenHistory.updatedAtEpochMs))
             Text(
-                text = "本地数据扫描于 $timeStr",
+                text = "本地数据扫描于 $timeStr".loc,
                 fontSize = 9.5.sp,
                 color = colors.textMuted
             )
@@ -676,10 +677,10 @@ fun TokenHistoryShareCardSheet(
                     },
                     enabled = !busy
                 ) {
-                    Icon(Icons.Default.FileDownload, contentDescription = "保存到相册")
+                    Icon(Icons.Default.FileDownload, contentDescription = "保存到相册".loc)
                 }
                 Text(
-                    text = "分享 Token 报告",
+                    text = "分享 Token 报告".loc,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.weight(1f),
@@ -695,7 +696,7 @@ fun TokenHistoryShareCardSheet(
                     },
                     enabled = !busy
                 ) {
-                    Icon(Icons.Default.Share, contentDescription = "分享")
+                    Icon(Icons.Default.Share, contentDescription = "分享".loc)
                 }
             }
 

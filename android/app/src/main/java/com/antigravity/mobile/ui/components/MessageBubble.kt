@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.components
 
+import com.antigravity.mobile.ui.util.loc
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -122,7 +123,7 @@ fun MessageBubble(
             )
             return
         }
-        val toolText = message.effectiveText.ifBlank { "已思考并执行工具操作" }
+        val toolText = message.effectiveText.ifBlank { "已思考并执行工具操作".loc }
         Box(
             modifier = modifier
                 .fillMaxWidth()
@@ -157,7 +158,7 @@ fun MessageBubble(
 
     // Error card for execution errors
     if (message.isError) {
-        val errText = message.effectiveText.ifBlank { "执行遇到错误" }
+        val errText = message.effectiveText.ifBlank { "执行遇到错误".loc }
         val isOverflowErr = message.isOverflow ||
             message.errorKind == "context_overflow" ||
             errText.contains("context window", ignoreCase = true) ||
@@ -189,12 +190,12 @@ fun MessageBubble(
             }
         }
         val badgeText = when {
-            attemptInfo != null -> "ERROR · 尝试 ${attemptInfo.first}/${attemptInfo.second}"
+            attemptInfo != null -> "ERROR · 尝试 ${attemptInfo.first}/${attemptInfo.second}".loc
             else -> "ERROR"
         }
         val titleText = when {
-            attemptInfo != null && attemptInfo.first > 1 -> "执行遇到错误 (已重试 ${attemptInfo.first} 次)"
-            else -> "执行遇到错误"
+            attemptInfo != null && attemptInfo.first > 1 -> "执行遇到错误 (已重试 ${attemptInfo.first} 次)".loc
+            else -> "执行遇到错误".loc
         }
 
         Box(
@@ -328,7 +329,7 @@ fun MessageBubble(
                         modifier = Modifier.size(12.dp)
                     )
                     Text(
-                        text = if (!message.toolCalls.isNullOrEmpty()) "已完成 ${message.toolCalls.size} 项检索与命令操作" else "已完成深度思考",
+                        text = if (!message.toolCalls.isNullOrEmpty()) "已完成 ${message.toolCalls.size} 项检索与命令操作".loc else "已完成深度思考".loc,
                         color = colors.textSecondary,
                         fontSize = 11.5.sp
                     )
@@ -375,7 +376,7 @@ fun MessageBubble(
                         modifier = Modifier.size(14.dp)
                     )
                     Text(
-                        text = "思考过程",
+                        text = "思考过程".loc,
                         color = colors.textMuted,
                         fontSize = 11.5.sp,
                         fontWeight = FontWeight.SemiBold
@@ -531,7 +532,7 @@ fun MessageBubble(
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
-                                val typeLabel = if (FileIconResolver.isWeChatChatArchive(f.name)) "微信聊天记录" else f.ext.uppercase()
+                                val typeLabel = if (FileIconResolver.isWeChatChatArchive(f.name)) "微信聊天记录".loc else f.ext.uppercase()
                                 Text(
                                     text = "$typeLabel · ${f.sizeLabel}",
                                     color = colors.textMuted,
@@ -578,7 +579,7 @@ fun MessageBubble(
                                 tint = colors.userBubbleText
                             )
                             Text(
-                                text = "语音交互",
+                                text = "语音交互".loc,
                                 color = colors.userBubbleText,
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.Medium
@@ -598,7 +599,7 @@ fun MessageBubble(
                                     tint = colors.userBubbleText.copy(alpha = 0.85f)
                                 )
                                 Text(
-                                    text = "语音交互",
+                                    text = "语音交互".loc,
                                     color = colors.userBubbleText.copy(alpha = 0.85f),
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.SemiBold
@@ -619,7 +620,7 @@ fun MessageBubble(
                     ) {
                         if (cleanedVoiceText.isNotBlank()) {
                             DropdownMenuItem(
-                                text = { Text(if (isVoiceExpanded) "折叠语音" else "展开详情") },
+                                text = { Text(if (isVoiceExpanded) "折叠语音".loc else "展开详情".loc) },
                                 leadingIcon = {
                                     Icon(
                                         if (isVoiceExpanded) Icons.Default.UnfoldLess else Icons.Default.UnfoldMore,
@@ -632,8 +633,8 @@ fun MessageBubble(
                                 }
                             )
                             DropdownMenuItem(
-                                text = { Text("复制语音内容") },
-                                leadingIcon = { Icon(Icons.Default.ContentCopy, contentDescription = "复制语音内容") },
+                                text = { Text("复制语音内容".loc) },
+                                leadingIcon = { Icon(Icons.Default.ContentCopy, contentDescription = "复制语音内容".loc) },
                                 onClick = {
                                     showContextMenu = false
                                     copyAll(cleanedVoiceText)
@@ -642,8 +643,8 @@ fun MessageBubble(
                         }
                         if (onUndoClick != null) {
                             DropdownMenuItem(
-                                text = { Text("撤回至此步骤", color = colors.accentRed) },
-                                leadingIcon = { Icon(Icons.Default.Undo, contentDescription = "撤回至此步骤", tint = colors.accentRed) },
+                                text = { Text("撤回至此步骤".loc, color = colors.accentRed) },
+                                leadingIcon = { Icon(Icons.Default.Undo, contentDescription = "撤回至此步骤".loc, tint = colors.accentRed) },
                                 onClick = {
                                     showContextMenu = false
                                     onUndoClick(message)
@@ -693,8 +694,8 @@ fun MessageBubble(
                         onDismissRequest = { showContextMenu = false }
                     ) {
                         DropdownMenuItem(
-                            text = { Text("复制全文") },
-                            leadingIcon = { Icon(Icons.Default.ContentCopy, contentDescription = "复制全文") },
+                            text = { Text("复制全文".loc) },
+                            leadingIcon = { Icon(Icons.Default.ContentCopy, contentDescription = "复制全文".loc) },
                             onClick = {
                                 showContextMenu = false
                                 copyAll(userBodyText)
@@ -702,8 +703,8 @@ fun MessageBubble(
                         )
                         if (onExportMarkdownClick != null) {
                             DropdownMenuItem(
-                                text = { Text("导出MD") },
-                                leadingIcon = { Icon(Icons.Default.FileDownload, contentDescription = "导出MD") },
+                                text = { Text("导出MD".loc) },
+                                leadingIcon = { Icon(Icons.Default.FileDownload, contentDescription = "导出MD".loc) },
                                 onClick = {
                                     showContextMenu = false
                                     onExportMarkdownClick()
@@ -711,8 +712,8 @@ fun MessageBubble(
                             )
                         }
                         DropdownMenuItem(
-                            text = { Text("分享长图") },
-                            leadingIcon = { Icon(Icons.Default.Share, contentDescription = "分享长图") },
+                            text = { Text("分享长图".loc) },
+                            leadingIcon = { Icon(Icons.Default.Share, contentDescription = "分享长图".loc) },
                             onClick = {
                                 showContextMenu = false
                                 shareCardRequest = ShareCardRequest(userBodyText, true, allUserImages)
@@ -722,11 +723,11 @@ fun MessageBubble(
                         if (onUndoClick != null) {
                             HorizontalDivider(color = colors.border.copy(alpha = 0.4f))
                             DropdownMenuItem(
-                                text = { Text("撤回") },
+                                text = { Text("撤回".loc) },
                                 leadingIcon = {
                                     Icon(
                                         imageVector = Icons.Default.Undo,
-                                        contentDescription = "撤回"
+                                        contentDescription = "撤回".loc
                                     )
                                 },
                                 onClick = {
@@ -788,8 +789,8 @@ fun MessageBubble(
 
                             if (hasGroup1) {
                                 DropdownMenuItem(
-                                    text = { Text("语音播报") },
-                                    leadingIcon = { Icon(Icons.Default.VolumeUp, contentDescription = "语音播报") },
+                                    text = { Text("语音播报".loc) },
+                                    leadingIcon = { Icon(Icons.Default.VolumeUp, contentDescription = "语音播报".loc) },
                                     onClick = {
                                         showAgentMenu = false
                                         val plain = MarkdownPlainText.convert(displayText)
@@ -802,8 +803,8 @@ fun MessageBubble(
                             if (hasGroup2) {
                                 if (onForkClick != null) {
                                     DropdownMenuItem(
-                                        text = { Text("分叉会话") },
-                                        leadingIcon = { Icon(Icons.Default.CallSplit, contentDescription = "分叉会话") },
+                                        text = { Text("分叉会话".loc) },
+                                        leadingIcon = { Icon(Icons.Default.CallSplit, contentDescription = "分叉会话".loc) },
                                         onClick = {
                                             showAgentMenu = false
                                             onForkClick(message)
@@ -812,8 +813,8 @@ fun MessageBubble(
                                 }
                                 if (onAskBtwClick != null) {
                                     DropdownMenuItem(
-                                        text = { Text("旁路快问") },
-                                        leadingIcon = { Icon(Icons.Default.AutoAwesome, contentDescription = "旁路快问") },
+                                        text = { Text("旁路快问".loc) },
+                                        leadingIcon = { Icon(Icons.Default.AutoAwesome, contentDescription = "旁路快问".loc) },
                                         onClick = {
                                             showAgentMenu = false
                                             val plain = MarkdownPlainText.convert(displayText)
@@ -825,8 +826,8 @@ fun MessageBubble(
                             }
 
                             DropdownMenuItem(
-                                text = { Text("选择文本") },
-                                leadingIcon = { Icon(Icons.Default.SelectAll, contentDescription = "选择文本") },
+                                text = { Text("选择文本".loc) },
+                                leadingIcon = { Icon(Icons.Default.SelectAll, contentDescription = "选择文本".loc) },
                                 onClick = {
                                     showAgentMenu = false
                                     val plain = MarkdownPlainText.convert(displayText)
@@ -834,8 +835,8 @@ fun MessageBubble(
                                 }
                             )
                             DropdownMenuItem(
-                                text = { Text("复制全文") },
-                                leadingIcon = { Icon(Icons.Default.ContentCopy, contentDescription = "复制全文") },
+                                text = { Text("复制全文".loc) },
+                                leadingIcon = { Icon(Icons.Default.ContentCopy, contentDescription = "复制全文".loc) },
                                 onClick = {
                                     showAgentMenu = false
                                     val plain = MarkdownPlainText.convert(displayText)
@@ -844,8 +845,8 @@ fun MessageBubble(
                             )
                             if (onExportMarkdownClick != null) {
                                 DropdownMenuItem(
-                                    text = { Text("导出MD") },
-                                    leadingIcon = { Icon(Icons.Default.FileDownload, contentDescription = "导出MD") },
+                                    text = { Text("导出MD".loc) },
+                                    leadingIcon = { Icon(Icons.Default.FileDownload, contentDescription = "导出MD".loc) },
                                     onClick = {
                                         showAgentMenu = false
                                         onExportMarkdownClick()
@@ -853,8 +854,8 @@ fun MessageBubble(
                                 )
                             }
                             DropdownMenuItem(
-                                text = { Text("分享长图") },
-                                leadingIcon = { Icon(Icons.Default.Share, contentDescription = "分享长图") },
+                                text = { Text("分享长图".loc) },
+                                leadingIcon = { Icon(Icons.Default.Share, contentDescription = "分享长图".loc) },
                                 onClick = {
                                     showAgentMenu = false
                                     shareCardRequest = ShareCardRequest(displayText, false, emptyList())
@@ -917,7 +918,7 @@ fun ArtifactPreviewCard(
                 fontSize = 15.sp
             )
             Text(
-                text = artifact.title.ifBlank { if (isVideo) "MP4 视频" else "文档详情" },
+                text = artifact.title.ifBlank { if (isVideo) "MP4 视频".loc else "文档详情".loc },
                 color = colors.textPrimary,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.SemiBold,
@@ -931,7 +932,7 @@ fun ArtifactPreviewCard(
                     color = colors.accentIndigo.copy(alpha = 0.15f)
                 ) {
                     Text(
-                        text = "MP4 视频",
+                        text = "MP4 视频".loc,
                         color = colors.accentIndigo,
                         fontSize = 10.5.sp,
                         fontWeight = FontWeight.Medium,
@@ -1109,10 +1110,10 @@ object VoiceTranscriptCleaner {
             if (roleMatch != null) {
                 finishCurrent()
                 val matched = roleMatch.groupValues[1].lowercase()
-                currentRole = if (matched in listOf("user", "human", "me", "用户", "我")) {
-                    "用户: "
+                currentRole = if (matched in listOf("user", "human", "me", "用户".loc, "我".loc)) {
+                    "用户: ".loc
                 } else {
-                    "智能体: "
+                    "智能体: ".loc
                 }
                 val rem = content.substring(roleMatch.range.last + 1).trim()
                 val quoteCount = rem.count { it == '"' }

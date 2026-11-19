@@ -79,12 +79,12 @@ async function exportConversationMarkdown() {
   const cascadeId = typeof activeCascadeId !== "undefined" ? activeCascadeId : "";
   if (!cascadeId) return;
   exportingMarkdown = true;
-  showToast("正在导出…", 8000);
+  showToast(typeof t === "function" ? t("正在导出…") : "正在导出…", 8000);
   try {
     const data = await rpc("ConvertTrajectoryToMarkdown", { conversationId: cascadeId });
     const markdown = data && typeof data.markdown === "string" ? data.markdown : "";
     if (!markdown.trim()) {
-      showToast("会话内容为空，没有可导出的内容");
+      showToast(typeof t === "function" ? t("会话内容为空，没有可导出的内容") : "会话内容为空，没有可导出的内容");
       return;
     }
     // 直接用链接打开会话时导航栏标题可能还是占位文字，优先用会话列表里的真实标题
@@ -98,26 +98,27 @@ async function exportConversationMarkdown() {
     }
     const listTitle = info && typeof formatConversationTitle === "function" ? formatConversationTitle(info.annotations, info.summary, "") : "";
     const navTitle = document.getElementById("chat-title-text")?.textContent || "";
-    const title = listTitle || (navTitle && navTitle !== "会话详情" ? navTitle : "") || "会话";
+    const defaultTitle = typeof t === "function" ? t("会话") : "会话";
+    const title = listTitle || (navTitle && navTitle !== "会话详情" && navTitle !== "Conversation Details" ? navTitle : "") || defaultTitle;
     const fileName = `${sanitizeFileName(title)}.md`;
     const file = typeof File === "function" ? new File([markdown], fileName, { type: "text/markdown" }) : null;
     // 手机上优先走系统分享面板；不支持文件分享的浏览器（如桌面 Chrome / Firefox）直接下载
     if (file && navigator.canShare && navigator.canShare({ files: [file] })) {
       try {
         await navigator.share({ files: [file], title });
-        showToast("已导出");
+        showToast(typeof t === "function" ? t("已导出") : "已导出");
         return;
       } catch (err) {
         if (err && err.name === "AbortError") {
-          showToast("已取消");
+          showToast(typeof t === "function" ? t("已取消") : "已取消");
           return;
         }
       }
     }
     downloadTextFile(fileName, markdown);
-    showToast("已导出为 " + fileName);
+    showToast((typeof t === "function" ? t("已导出为 ") : "已导出为 ") + fileName);
   } catch (err) {
-    showToast("导出失败：" + (err && err.message ? err.message : "未知错误"), 3200);
+    showToast((typeof t === "function" ? t("导出失败：") : "导出失败：") + (err && err.message ? err.message : (typeof t === "function" ? t("未知错误") : "未知错误")), 3200);
   } finally {
     exportingMarkdown = false;
   }
@@ -152,7 +153,7 @@ function initMessageActions() {
       if (typeof triggerHaptic === "function") triggerHaptic("light");
       if (action === "copy" && row) {
         const ok = await copyTextToClipboard(messageRowText(row));
-        showToast(ok ? "已复制" : "复制失败，请长按文字手动选择");
+        showToast(ok ? (typeof t === "function" ? t("已复制") : "已复制") : (typeof t === "function" ? t("复制失败，请长按文字手动选择") : "复制失败，请长按文字手动选择"));
       } else if (action === "export") {
         exportConversationMarkdown();
       } else if (action === "fork" && row) {
@@ -194,12 +195,13 @@ function buildMessageActionsHtml(kind) {
     narrate: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>',
     btw: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>',
   };
-  let html = `<button type="button" class="msg-action-btn" data-msg-action="copy">${icon.copy}<span>复制</span></button>`;
-  html += `<button type="button" class="msg-action-btn" data-msg-action="btw">${icon.btw}<span>旁路快问</span></button>`;
+  const tr = typeof t === "function" ? t : (s) => s;
+  let html = `<button type="button" class="msg-action-btn" data-msg-action="copy">${icon.copy}<span>${tr("复制")}</span></button>`;
+  html += `<button type="button" class="msg-action-btn" data-msg-action="btw">${icon.btw}<span>${tr("旁路快问")}</span></button>`;
   if (kind === "agent") {
-    html += `<button type="button" class="msg-action-btn" data-msg-action="fork">${icon.fork}<span>分叉</span></button>`;
-    html += `<button type="button" class="msg-action-btn" data-msg-action="narrate">${icon.narrate}<span>语音播报</span></button>`;
-    html += `<button type="button" class="msg-action-btn" data-msg-action="export" data-feature="export">${icon.export}<span>导出MD</span></button>`;
+    html += `<button type="button" class="msg-action-btn" data-msg-action="fork">${icon.fork}<span>${tr("分叉")}</span></button>`;
+    html += `<button type="button" class="msg-action-btn" data-msg-action="narrate">${icon.narrate}<span>${tr("语音播报")}</span></button>`;
+    html += `<button type="button" class="msg-action-btn" data-msg-action="export" data-feature="export">${icon.export}<span>${tr("导出MD")}</span></button>`;
   }
   return `<div class="msg-actions" data-msg-kind="${kind}">${html}</div>`;
 }

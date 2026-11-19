@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.components
 
+import com.antigravity.mobile.ui.util.loc
 import android.content.Context
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
@@ -95,88 +96,88 @@ internal object WorkflowStyleCatalog {
         WorkflowIconOption(
             "workflow",
             "M 6 3.3 C 7.5 3.3 8.7 4.5 8.7 6 C 8.7 7.5 7.5 8.7 6 8.7 C 4.5 8.7 3.3 7.5 3.3 6 C 3.3 4.5 4.5 3.3 6 3.3 Z M 18 3.3 C 19.5 3.3 20.7 4.5 20.7 6 C 20.7 7.5 19.5 8.7 18 8.7 C 16.5 8.7 15.3 7.5 15.3 6 C 15.3 4.5 16.5 3.3 18 3.3 Z M 12 15.3 C 13.5 15.3 14.7 16.5 14.7 18 C 14.7 19.5 13.5 20.7 12 20.7 C 10.5 20.7 9.3 19.5 9.3 18 C 9.3 16.5 10.5 15.3 12 15.3 Z M 8.7 6 L 15.3 6 M 7.3 8.4 L 10.7 15.6 M 16.7 8.4 L 13.3 15.6",
-            "工作流"
+            "工作流".loc
         ),
         WorkflowIconOption(
             "security",
             "M 12 2.5 L 19.5 5.8 L 19.5 11.5 C 19.5 16.5 16.2 20.0 12 21.5 C 7.8 20.0 4.5 16.5 4.5 11.5 L 4.5 5.8 L 12 2.5 Z M 9 12 L 11.2 14.2 L 15.4 9.8",
-            "安全审查"
+            "安全审查".loc
         ),
         WorkflowIconOption(
             "bug",
             "M 9 7.5 L 9 6.5 C 9 4.84 10.34 3.5 12 3.5 C 13.66 3.5 15 4.84 15 6.5 L 15 7.5 M 8.2 2.5 L 10 4.2 M 15.8 2.5 L 14 4.2 M 8.5 7.5 L 15.5 7.5 C 16.88 7.5 18 8.62 18 10 L 18 14 C 18 17.31 15.31 20 12 20 C 8.69 20 6 17.31 6 14 L 6 10 C 6 8.62 7.12 7.5 8.5 7.5 Z M 12 11 L 12 20 M 6 9.5 L 3.2 7.5 M 6 13.2 L 2.5 13.2 M 6.4 16.8 L 3.2 19.2 M 18 9.5 L 20.8 7.5 M 18 13.2 L 21.5 13.2 M 17.6 16.8 L 20.8 19.2",
-            "测试修复"
+            "测试修复".loc
         ),
         WorkflowIconOption(
             "search",
             "M 10.8 4 C 14.56 4 17.6 7.04 17.6 10.8 C 17.6 14.56 14.56 17.6 10.8 17.6 C 7.04 17.6 4 14.56 4 10.8 C 4 7.04 7.04 4 10.8 4 Z M 15.8 15.8 L 20.5 20.5",
-            "调研分析"
+            "调研分析".loc
         ),
         WorkflowIconOption(
             "bolt",
             "M 13.2 2.5 L 4.5 13.5 L 11.5 13.5 L 10.2 21.5 L 19.5 10.5 L 12.5 10.5 L 13.2 2.5 Z",
-            "快捷执行"
+            "快捷执行".loc
         ),
         WorkflowIconOption(
             "code",
             "M 7.5 7.5 L 3 12 L 7.5 16.5 M 16.5 7.5 L 21 12 L 16.5 16.5 M 13.8 5 L 10.2 19",
-            "代码开发"
+            "代码开发".loc
         ),
         WorkflowIconOption(
             "terminal",
             "M 5.5 4 L 18.5 4 C 19.88 4 21 5.12 21 6.5 L 21 17.5 C 21 18.88 19.88 20 18.5 20 L 5.5 20 C 4.12 20 3 18.88 3 17.5 L 3 6.5 C 3 5.12 4.12 4 5.5 4 Z M 7 9.5 L 10.5 12.5 L 7 15.5 M 12.5 15.5 L 17 15.5",
-            "终端脚本"
+            "终端脚本".loc
         ),
         WorkflowIconOption(
             "doc",
             "M 14 2.5 L 6.5 2.5 C 5.4 2.5 4.5 3.4 4.5 4.5 L 4.5 19.5 C 4.5 20.6 5.4 21.5 6.5 21.5 L 17.5 21.5 C 18.6 21.5 19.5 20.6 19.5 19.5 L 19.5 8 L 14 2.5 Z M 14 2.5 L 14 8 L 19.5 8 M 8.5 13 L 15.5 13 M 8.5 17 L 13.5 17",
-            "文档总结"
+            "文档总结".loc
         ),
         WorkflowIconOption(
             "build",
             "M 9 3.2 C 12.0 2.7 14.8 3.7 16.8 5.7 L 21 9.9 L 18.2 12.7 L 14 8.5 C 12.5 7.0 10.8 6.4 9 6.7 L 9 3.2 Z M 13.5 8.1 L 3.4 18.2 C 2.6 19.0 2.6 20.3 3.4 21.1 C 4.2 21.9 5.5 21.9 6.3 21.1 L 16.4 11.0",
-            "编译构建"
+            "编译构建".loc
         ),
         WorkflowIconOption(
             "sparkles",
             "M 11 4 L 12.8 9.7 L 18.5 11.5 L 12.8 13.3 L 11 19 L 9.2 13.3 L 3.5 11.5 L 9.2 9.7 L 11 4 Z M 18.5 2.8 L 18.5 7.2 M 16.3 5 L 20.7 5",
-            "AI 增强"
+            "AI 增强".loc
         ),
         WorkflowIconOption(
             "git",
             "M 6 3.5 C 7.38 3.5 8.5 4.62 8.5 6 C 8.5 7.38 7.38 8.5 6 8.5 C 4.62 8.5 3.5 7.38 3.5 6 C 3.5 4.62 4.62 3.5 6 3.5 Z M 6 15.5 C 7.38 15.5 8.5 16.62 8.5 18 C 8.5 19.38 7.38 20.5 6 20.5 C 4.62 20.5 3.5 19.38 3.5 18 C 3.5 16.62 4.62 15.5 6 15.5 Z M 18 5.5 C 19.38 5.5 20.5 6.62 20.5 8 C 20.5 9.38 19.38 10.5 18 10.5 C 16.62 10.5 15.5 9.38 15.5 8 C 15.5 6.62 16.62 5.5 18 5.5 Z M 6 8.5 L 6 15.5 M 18 10.5 C 18 14.5 14.5 15.5 8.5 15.5",
-            "Git 分支"
+            "Git 分支".loc
         ),
         WorkflowIconOption(
             "merge",
             "M 6 3.5 C 7.38 3.5 8.5 4.62 8.5 6 C 8.5 7.38 7.38 8.5 6 8.5 C 4.62 8.5 3.5 7.38 3.5 6 C 3.5 4.62 4.62 3.5 6 3.5 Z M 6 15.5 C 7.38 15.5 8.5 16.62 8.5 18 C 8.5 19.38 7.38 20.5 6 20.5 C 4.62 20.5 3.5 19.38 3.5 18 C 3.5 16.62 4.62 15.5 6 15.5 Z M 18 15.5 C 19.38 15.5 20.5 16.62 20.5 18 C 20.5 19.38 19.38 20.5 18 20.5 C 16.62 20.5 15.5 19.38 15.5 18 C 15.5 16.62 16.62 15.5 18 15.5 Z M 6 8.5 L 6 15.5 M 6 8.5 C 6 13.5 11 18 15.5 18",
-            "分支合并"
+            "分支合并".loc
         ),
         WorkflowIconOption(
             "pipeline",
             "M 4.5 11 C 5.0 6.8 8.6 3.8 12.8 4.0 C 15.8 4.1 18.4 5.8 19.6 8.5 M 20 4.5 L 20 8.8 L 15.7 8.8 M 19.5 13 C 19.0 17.2 15.4 20.2 11.2 20.0 C 8.2 19.9 5.6 18.2 4.4 15.5 M 4 19.5 L 4 15.2 L 8.3 15.2",
-            "流水线"
+            "流水线".loc
         ),
         WorkflowIconOption(
             "checklist",
             "M 3.5 7.5 L 5.8 9.8 L 9.8 5.5 M 13 7.8 L 20.5 7.8 M 3.5 16.5 L 5.8 18.8 L 9.8 14.5 M 13 16.8 L 20.5 16.8",
-            "流程清单"
+            "流程清单".loc
         ),
         WorkflowIconOption(
             "report",
             "M 3.5 4 L 3.5 20 L 20.5 20 M 8 16.5 L 8 12 M 12.8 16.5 L 12.8 8.5 M 17.6 16.5 L 17.6 5.5",
-            "分析报告"
+            "分析报告".loc
         )
     )
 
     val colors = listOf(
-        WorkflowColorOption("indigo", "靛蓝"),
-        WorkflowColorOption("green", "翠绿"),
-        WorkflowColorOption("blue", "湛蓝"),
-        WorkflowColorOption("purple", "亮紫"),
-        WorkflowColorOption("orange", "活力橙"),
-        WorkflowColorOption("red", "珊瑚红"),
-        WorkflowColorOption("teal", "青碧")
+        WorkflowColorOption("indigo", "靛蓝".loc),
+        WorkflowColorOption("green", "翠绿".loc),
+        WorkflowColorOption("blue", "湛蓝".loc),
+        WorkflowColorOption("purple", "亮紫".loc),
+        WorkflowColorOption("orange", "活力橙".loc),
+        WorkflowColorOption("red", "珊瑚红".loc),
+        WorkflowColorOption("teal", "青碧".loc)
     )
 
     private val pathCache = ConcurrentHashMap<String, Path>()
@@ -422,7 +423,7 @@ fun WorkflowTemplateSheet(
                     }
                 }
                 .onFailure { err ->
-                    syncError = "已保存本机缓存，网关同步失败：${err.message ?: "未知错误"}"
+                    syncError = "已保存本机缓存，网关同步失败：${err.message ?: "未知错误".loc}".loc
                 }
         }
     }
@@ -615,14 +616,14 @@ fun WorkflowTemplateSheet(
                         ) {
                             Icon(
                                 imageVector = if (isEditing) Icons.Default.Check else Icons.Default.Edit,
-                                contentDescription = if (isEditing) "完成" else "编辑",
+                                contentDescription = if (isEditing) "完成".loc else "编辑".loc,
                                 tint = colors.accentIndigo,
                                 modifier = Modifier.size(19.dp)
                             )
                         }
 
                         Text(
-                            text = "Workflow 模板",
+                            text = "Workflow 模板".loc,
                             fontWeight = FontWeight.Bold,
                             fontSize = 17.sp,
                             lineHeight = 20.sp,
@@ -657,7 +658,7 @@ fun WorkflowTemplateSheet(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Add,
-                                contentDescription = "新增",
+                                contentDescription = "新增".loc,
                                 tint = colors.accentIndigo,
                                 modifier = Modifier.size(19.dp)
                             )
@@ -715,7 +716,7 @@ fun WorkflowTemplateSheet(
                                 verticalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
                                 Text(
-                                    text = "暂无 Workflow 模板",
+                                    text = "暂无 Workflow 模板".loc,
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = colors.textSecondary
                                 )
@@ -733,18 +734,18 @@ fun WorkflowTemplateSheet(
                                         },
                                         colors = ButtonDefaults.buttonColors(containerColor = colors.accentIndigo)
                                     ) {
-                                        Text("+ 新增模板")
+                                        Text("+ 新增模板".loc)
                                     }
                                     OutlinedButton(onClick = { showResetDialog = true }) {
-                                        Text("恢复默认")
+                                        Text("恢复默认".loc)
                                     }
                                 }
                             }
                         } else {
                             // Section 1: 长按快捷菜单
                             WorkflowSectionHeader(
-                                title = "长按快捷菜单",
-                                subtitle = if (isEditing) "拖拽至此置入长按上滑菜单" else "长按聊天栏 Workflow 上滑直达",
+                                title = "长按快捷菜单".loc,
+                                subtitle = if (isEditing) "拖拽至此置入长按上滑菜单".loc else "长按聊天栏 Workflow 上滑直达".loc,
                                 count = quickEntries.size,
                                 colors = colors
                             )
@@ -773,8 +774,8 @@ fun WorkflowTemplateSheet(
 
                             // Section 2: 更多模板
                             WorkflowSectionHeader(
-                                title = "更多模板",
-                                subtitle = if (isEditing) "点击卡片编辑，按住 ≡ 可拖入上方快捷菜单" else "点击模板直接填入输入框",
+                                title = "更多模板".loc,
+                                subtitle = if (isEditing) "点击卡片编辑，按住 ≡ 可拖入上方快捷菜单".loc else "点击模板直接填入输入框".loc,
                                 count = moreEntries.size,
                                 colors = colors,
                                 modifier = Modifier
@@ -791,7 +792,7 @@ fun WorkflowTemplateSheet(
                                     )
                                 } else {
                                     Text(
-                                        text = "全部模板已加入长按快捷菜单",
+                                        text = "全部模板已加入长按快捷菜单".loc,
                                         fontSize = 12.5.sp,
                                         color = colors.textSecondary,
                                         textAlign = TextAlign.Center,
@@ -818,7 +819,7 @@ fun WorkflowTemplateSheet(
                                 modifier = Modifier.align(Alignment.CenterHorizontally)
                             ) {
                                 Text(
-                                    text = "恢复默认模板",
+                                    text = "恢复默认模板".loc,
                                     color = colors.accentRed,
                                     fontSize = 13.5.sp,
                                     fontWeight = FontWeight.Medium
@@ -834,8 +835,8 @@ fun WorkflowTemplateSheet(
     if (showResetDialog) {
         AlertDialog(
             onDismissRequest = { showResetDialog = false },
-            title = { Text("恢复默认模板") },
-            text = { Text("将恢复为系统初始的 4 个模板，当前自定义模板、快捷菜单配置和排序会被替换。") },
+            title = { Text("恢复默认模板".loc) },
+            text = { Text("将恢复为系统初始的 4 个模板，当前自定义模板、快捷菜单配置和排序会被替换。".loc) },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -854,17 +855,17 @@ fun WorkflowTemplateSheet(
                                     onTemplatesChanged(partitioned)
                                 }
                                 .onFailure { err ->
-                                    syncError = "已重置本机列表，网关同步失败：${err.message ?: "未知错误"}"
+                                    syncError = "已重置本机列表，网关同步失败：${err.message ?: "未知错误".loc}".loc
                                 }
                         }
                     }
                 ) {
-                    Text("确认恢复", color = colors.accentRed)
+                    Text("确认恢复".loc, color = colors.accentRed)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showResetDialog = false }) {
-                    Text("取消")
+                    Text("取消".loc)
                 }
             }
         )
@@ -952,7 +953,7 @@ private fun WorkflowQuickGuideCard(
                     verticalAlignment = Alignment.Top
                 ) {
                     Text(
-                        text = "长按上滑，快捷输入常用模板",
+                        text = "长按上滑，快捷输入常用模板".loc,
                         fontSize = 13.5.sp,
                         fontWeight = FontWeight.Bold,
                         color = colors.textPrimary,
@@ -966,7 +967,7 @@ private fun WorkflowQuickGuideCard(
                     ) {
                         Icon(
                             imageVector = Icons.Default.Close,
-                            contentDescription = "关闭引导",
+                            contentDescription = "关闭引导".loc,
                             tint = colors.textMuted,
                             modifier = Modifier.size(14.dp)
                         )
@@ -974,7 +975,7 @@ private fun WorkflowQuickGuideCard(
                 }
 
                 Text(
-                    text = "聊天栏长按 Workflow 上滑松手即可填入；编辑后按住 ≡ 可拖入「长按快捷菜单」",
+                    text = "聊天栏长按 Workflow 上滑松手即可填入；编辑后按住 ≡ 可拖入「长按快捷菜单」".loc,
                     fontSize = 11.5.sp,
                     lineHeight = 15.5.sp,
                     color = colors.textSecondary
@@ -990,7 +991,7 @@ private fun WorkflowQuickGuideCard(
                             .padding(horizontal = 10.dp, vertical = 4.dp)
                     ) {
                         Text(
-                            text = "去配置 ›",
+                            text = "去配置 ›".loc,
                             fontSize = 11.5.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = colors.accentIndigo
@@ -1079,13 +1080,13 @@ private fun EmptyQuickMenuDropZone(
             .padding(horizontal = 14.dp, vertical = 18.dp)
     ) {
         Text(
-            text = if (isEditing) "按住下方模板左侧 ≡ 向上拖入此处" else "暂未添加快捷模板",
+            text = if (isEditing) "按住下方模板左侧 ≡ 向上拖入此处".loc else "暂未添加快捷模板".loc,
             fontSize = 13.sp,
             fontWeight = FontWeight.SemiBold,
             color = if (isHighlighted) colors.accentIndigo else colors.textPrimary
         )
         Text(
-            text = if (isEditing) "拖入后即可在聊天栏长按 Workflow 上滑直达" else "点击进入编辑，或编辑单个模板开启「加入长按快捷菜单」",
+            text = if (isEditing) "拖入后即可在聊天栏长按 Workflow 上滑直达".loc else "点击进入编辑，或编辑单个模板开启「加入长按快捷菜单」".loc,
             fontSize = 11.5.sp,
             color = colors.textSecondary,
             textAlign = TextAlign.Center
@@ -1121,7 +1122,7 @@ private fun EmptyMoreTemplatesDropZone(
             .padding(horizontal = 14.dp, vertical = 16.dp)
     ) {
         Text(
-            text = "拖至此处可移出长按快捷菜单",
+            text = "拖至此处可移出长按快捷菜单".loc,
             fontSize = 13.sp,
             fontWeight = FontWeight.SemiBold,
             color = if (isHighlighted) colors.accentIndigo else colors.textSecondary
@@ -1214,7 +1215,7 @@ private fun WorkflowSwipeableCard(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Delete,
-                        contentDescription = "删除",
+                        contentDescription = "删除".loc,
                         tint = Color.White,
                         modifier = Modifier.size(18.dp)
                     )
@@ -1287,7 +1288,7 @@ private fun WorkflowSwipeableCard(
                     ) {
                         Icon(
                             imageVector = Icons.Default.DragHandle,
-                            contentDescription = "拖拽排序",
+                            contentDescription = "拖拽排序".loc,
                             tint = colors.textMuted,
                             modifier = Modifier.size(20.dp)
                         )
@@ -1375,14 +1376,14 @@ private fun WorkflowTemplateEditorContent(
             ) {
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "返回",
+                    contentDescription = "返回".loc,
                     tint = colors.textPrimary,
                     modifier = Modifier.size(19.dp)
                 )
             }
 
             Text(
-                text = if (draft.isNew) "新增 Workflow" else "编辑 Workflow",
+                text = if (draft.isNew) "新增 Workflow".loc else "编辑 Workflow".loc,
                 fontWeight = FontWeight.Bold,
                 fontSize = 17.sp,
                 lineHeight = 20.sp,
@@ -1415,7 +1416,7 @@ private fun WorkflowTemplateEditorContent(
             ) {
                 Icon(
                     imageVector = Icons.Default.Check,
-                    contentDescription = "保存",
+                    contentDescription = "保存".loc,
                     tint = if (canSave) colors.accentIndigo else colors.textMuted,
                     modifier = Modifier.size(19.dp)
                 )
@@ -1435,8 +1436,8 @@ private fun WorkflowTemplateEditorContent(
             OutlinedTextField(
                 value = title,
                 onValueChange = { title = it },
-                label = { Text("标题（必填）") },
-                placeholder = { Text("例如：每日代码巡检") },
+                label = { Text("标题（必填）".loc) },
+                placeholder = { Text("例如：每日代码巡检".loc) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
             )
@@ -1444,8 +1445,8 @@ private fun WorkflowTemplateEditorContent(
             OutlinedTextField(
                 value = subtitle,
                 onValueChange = { subtitle = it },
-                label = { Text("简介（可选）") },
-                placeholder = { Text("简短描述用途，方便快速辨识") },
+                label = { Text("简介（可选）".loc) },
+                placeholder = { Text("简短描述用途，方便快速辨识".loc) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
             )
@@ -1465,13 +1466,13 @@ private fun WorkflowTemplateEditorContent(
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "加入长按快捷菜单",
+                            text = "加入长按快捷菜单".loc,
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Medium,
                             color = colors.textPrimary
                         )
                         Text(
-                            text = "开启后，在聊天栏长按 Workflow 上滑即可快速填入",
+                            text = "开启后，在聊天栏长按 Workflow 上滑即可快速填入".loc,
                             fontSize = 11.5.sp,
                             color = colors.textSecondary
                         )
@@ -1484,7 +1485,7 @@ private fun WorkflowTemplateEditorContent(
             }
 
             Text(
-                text = "主题色",
+                text = "主题色".loc,
                 style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
                 color = colors.textSecondary
             )
@@ -1514,7 +1515,7 @@ private fun WorkflowTemplateEditorContent(
             }
 
             Text(
-                text = "图标",
+                text = "图标".loc,
                 style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
                 color = colors.textSecondary
             )
@@ -1557,8 +1558,8 @@ private fun WorkflowTemplateEditorContent(
             OutlinedTextField(
                 value = promptValue,
                 onValueChange = { promptValue = it },
-                label = { Text("提示词 / 命令模板（必填）") },
-                placeholder = { Text("支持任意提示词或 /workflow、/plan 等命令，可用 [占位符] 提示补充参数") },
+                label = { Text("提示词 / 命令模板（必填）".loc) },
+                placeholder = { Text("支持任意提示词或 /workflow、/plan 等命令，可用 [占位符] 提示补充参数".loc) },
                 minLines = 4,
                 maxLines = 8,
                 modifier = Modifier
@@ -1572,7 +1573,7 @@ private fun WorkflowTemplateEditorContent(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(
-                    text = "占位符在编辑框中可以直接选中",
+                    text = "占位符在编辑框中可以直接选中".loc,
                     fontSize = 12.sp,
                     color = colors.textSecondary,
                     modifier = Modifier.weight(1f)
@@ -1583,7 +1584,7 @@ private fun WorkflowTemplateEditorContent(
                         val current = promptValue
                         val start = current.selection.min.coerceIn(0, current.text.length)
                         val end = current.selection.max.coerceIn(start, current.text.length)
-                        val token = "[占位符]"
+                        val token = "[占位符]".loc
                         val nextText = buildString {
                             append(current.text.substring(0, start))
                             append(token)
@@ -1591,7 +1592,7 @@ private fun WorkflowTemplateEditorContent(
                         }
                         promptValue = TextFieldValue(
                             text = nextText,
-                            selection = TextRange(start + 1, start + 1 + "占位符".length)
+                            selection = TextRange(start + 1, start + 1 + "占位符".loc.length)
                         )
                         promptFocusRequester.requestFocus()
                     },
@@ -1607,7 +1608,7 @@ private fun WorkflowTemplateEditorContent(
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
-                        text = "插入占位符",
+                        text = "插入占位符".loc,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Medium,
                         color = colors.accentIndigo

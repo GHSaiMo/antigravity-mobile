@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.components
 
+import com.antigravity.mobile.ui.util.loc
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -72,9 +73,9 @@ fun ShareTargetSheet(
     }
 
     val headerLabel = when {
-        deliverable > 0 && hasSharedText -> "投递文本与 $deliverable 个文件到…"
-        hasSharedText -> "投递分享文本到…"
-        else -> "投递 $deliverable 个文件到…"
+        deliverable > 0 && hasSharedText -> "投递文本与 $deliverable 个文件到…".loc
+        hasSharedText -> "投递分享文本到…".loc
+        else -> "投递 $deliverable 个文件到…".loc
     }
 
     ModalBottomSheet(
@@ -95,7 +96,7 @@ fun ShareTargetSheet(
                     fontSize = 18.sp, fontWeight = FontWeight.Bold, color = colors.textPrimary,
                     modifier = Modifier.weight(1f)
                 )
-                TextButton(onClick = onDiscard) { Text("全部丢弃", color = colors.accentRed, fontSize = 13.sp) }
+                TextButton(onClick = onDiscard) { Text("全部丢弃".loc, color = colors.accentRed, fontSize = 13.sp) }
             }
 
             if (hasSharedText) {
@@ -120,7 +121,7 @@ fun ShareTargetSheet(
                         modifier = Modifier.weight(1f)
                     )
                     IconButton(onClick = onRemoveText, modifier = Modifier.size(28.dp)) {
-                        Icon(Icons.Default.Close, contentDescription = "移除文本", tint = colors.textMuted, modifier = Modifier.size(16.dp))
+                        Icon(Icons.Default.Close, contentDescription = "移除文本".loc, tint = colors.textMuted, modifier = Modifier.size(16.dp))
                     }
                 }
             }
@@ -143,7 +144,7 @@ fun ShareTargetSheet(
                             Text(f.name, fontSize = 13.sp, color = colors.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             Text(
                                 f.rejectReason ?: if (com.antigravity.mobile.data.service.FileIconResolver.isWeChatChatArchive(f.name)) {
-                                    "微信聊天记录 · ${formatFileSize(f.size)}"
+                                    "微信聊天记录 · ${formatFileSize(f.size)}".loc
                                 } else {
                                     formatFileSize(f.size)
                                 },
@@ -153,7 +154,7 @@ fun ShareTargetSheet(
                             )
                         }
                         IconButton(onClick = { onRemoveFile(f.id) }, modifier = Modifier.size(28.dp)) {
-                            Icon(Icons.Default.Close, contentDescription = "移除", tint = colors.textMuted, modifier = Modifier.size(16.dp))
+                            Icon(Icons.Default.Close, contentDescription = "移除".loc, tint = colors.textMuted, modifier = Modifier.size(16.dp))
                         }
                     }
                 }
@@ -170,20 +171,20 @@ fun ShareTargetSheet(
                     selectedContentColor = colors.accentIndigo,
                     unselectedContentColor = colors.textSecondary,
                     onClick = { tab = 0 },
-                    text = { Text("新对话") }
+                    text = { Text("新对话".loc) }
                 )
                 Tab(
                     selected = tab == 1,
                     selectedContentColor = colors.accentIndigo,
                     unselectedContentColor = colors.textSecondary,
                     onClick = { tab = 1 },
-                    text = { Text("现有对话") }
+                    text = { Text("现有对话".loc) }
                 )
             }
 
             if (!hasDeliverable) {
                 Text(
-                    "没有可投递的内容", color = colors.textSecondary, fontSize = 13.sp,
+                    "没有可投递的内容".loc, color = colors.textSecondary, fontSize = 13.sp,
                     textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(24.dp)
                 )
             } else if (tab == 0) {
@@ -193,7 +194,7 @@ fun ShareTargetSheet(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     item(key = "chat_pure") {
-                        TargetRow(Icons.Default.ChatBubbleOutline, "新对话", "不关联任何工作区", colors.accentIndigo) {
+                        TargetRow(Icons.Default.ChatBubbleOutline, "新对话".loc, "不关联任何工作区".loc, colors.accentIndigo) {
                             onSelectProject(ProjectItem.PURE_CHAT)
                         }
                     }
@@ -206,7 +207,7 @@ fun ShareTargetSheet(
             } else {
                 OutlinedTextField(
                     value = query, onValueChange = { query = it }, singleLine = true,
-                    placeholder = { Text("搜索会话或工作区", fontSize = 13.sp) },
+                    placeholder = { Text("搜索会话或工作区".loc, fontSize = 13.sp) },
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
                 )
                 LazyColumn(
@@ -218,8 +219,8 @@ fun ShareTargetSheet(
                         item(key = "current") {
                             TargetRow(
                                 Icons.Default.ChatBubbleOutline,
-                                "当前对话",
-                                currentItem?.displayTitle ?: "正在查看的会话",
+                                "当前对话".loc,
+                                currentItem?.displayTitle ?: "正在查看的会话".loc,
                                 colors.accentGreen,
                                 onSelectCurrent
                             )
@@ -231,7 +232,7 @@ fun ShareTargetSheet(
                             c.displayTitle,
                             listOfNotNull(
                                 c.workspaceName.takeIf { it.isNotBlank() },
-                                if (c.status.isRunning) "运行中" else c.relativeTimeString.takeIf { it.isNotBlank() }
+                                if (c.status.isRunning) "运行中".loc else c.relativeTimeString.takeIf { it.isNotBlank() }
                             ).joinToString(" · "),
                             colors.accentIndigo
                         ) { onSelectConversation(c) }

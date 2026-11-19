@@ -1,5 +1,6 @@
 package com.antigravity.mobile.data.model
 
+import com.antigravity.mobile.ui.util.loc
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -70,7 +71,7 @@ data class CreateProjectResponse(
 data class PermissionStateResponse(
     val ok: Boolean = true,
     val preset: String = "strict", // "strict" | "sandbox" | "auto"
-    val label: String = "严格审批",
+    val label: String = "严格审批".loc,
     val isUnlocked: Boolean = false
 )
 

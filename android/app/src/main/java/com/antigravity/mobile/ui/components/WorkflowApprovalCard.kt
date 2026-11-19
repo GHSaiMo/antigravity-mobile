@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.components
 
+import com.antigravity.mobile.ui.util.loc
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -87,12 +88,12 @@ fun WorkflowApprovalCard(
 
                     Column {
                         Text(
-                            text = "Workflow 执行审批",
+                            text = "Workflow 执行审批".loc,
                             style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
                             color = colors.textPrimary
                         )
                         Text(
-                            text = "申请执行多智能体 Python 编排脚本",
+                            text = "申请执行多智能体 Python 编排脚本".loc,
                             style = MaterialTheme.typography.bodySmall,
                             color = colors.textSecondary
                         )
@@ -104,7 +105,7 @@ fun WorkflowApprovalCard(
                     color = colors.accentIndigo.copy(alpha = 0.12f)
                 ) {
                     Text(
-                        text = "安全确认",
+                        text = "安全确认".loc,
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
                         style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
                         color = colors.accentIndigo
@@ -122,7 +123,7 @@ fun WorkflowApprovalCard(
                 ) {
                     Column(modifier = Modifier.padding(10.dp)) {
                         Text(
-                            text = "目标与范围",
+                            text = "目标与范围".loc,
                             style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
                             color = colors.textSecondary
                         )
@@ -146,14 +147,14 @@ fun WorkflowApprovalCard(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "预估执行阶段 (${phases.size})",
+                            text = "预估执行阶段 (${phases.size})".loc,
                             style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
                             color = colors.textSecondary
                         )
                         val maxConc = approval.maxConcurrency ?: 1
                         if (maxConc > 1) {
                             Text(
-                                text = "最大并发: $maxConc",
+                                text = "最大并发: $maxConc".loc,
                                 style = MaterialTheme.typography.labelSmall.copy(
                                     fontWeight = FontWeight.SemiBold,
                                     fontFamily = FontFamily.Monospace
@@ -230,13 +231,13 @@ fun WorkflowApprovalCard(
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                text = if (isCodeExpanded) "收起 Python 脚本" else "查看 Python 脚本源码",
+                                text = if (isCodeExpanded) "收起 Python 脚本".loc else "查看 Python 脚本源码".loc,
                                 style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
                                 color = colors.accentIndigo
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                text = "(${scriptContent.lines().size} 行)",
+                                text = "(${scriptContent.lines().size} 行)".loc,
                                 style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
                                 color = colors.textSecondary
                             )
@@ -251,7 +252,7 @@ fun WorkflowApprovalCard(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.ContentCopy,
-                                contentDescription = "复制",
+                                contentDescription = "复制".loc,
                                 tint = colors.textMuted,
                                 modifier = Modifier.size(13.dp)
                             )
@@ -284,7 +285,7 @@ fun WorkflowApprovalCard(
             if (showFeedbackInput) {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(
-                        text = "向 Agent 说明打回原因或修改诉求:",
+                        text = "向 Agent 说明打回原因或修改诉求:".loc,
                         style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
                         color = colors.textSecondary
                     )
@@ -296,19 +297,19 @@ fun WorkflowApprovalCard(
                         OutlinedTextField(
                             value = feedbackText,
                             onValueChange = { feedbackText = it },
-                            placeholder = { Text("例如：请减少并发数，先审查核心模块...") },
+                            placeholder = { Text("例如：请减少并发数，先审查核心模块...".loc) },
                             modifier = Modifier.weight(1f),
                             singleLine = true
                         )
                         Button(
                             onClick = {
                                 haptic.medium()
-                                onSubmit("5", feedbackText.ifBlank { "用户拒绝执行该工作流" })
+                                onSubmit("5", feedbackText.ifBlank { "用户拒绝执行该工作流".loc })
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = colors.accentRed),
                             enabled = !isSubmitting
                         ) {
-                            Text("打回")
+                            Text("打回".loc)
                         }
                     }
                 }
@@ -342,7 +343,7 @@ fun WorkflowApprovalCard(
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = "允许本次执行 (Allow Once)",
+                        text = "允许本次执行 (Allow Once)".loc,
                         style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold)
                     )
                 }
@@ -361,7 +362,7 @@ fun WorkflowApprovalCard(
                         shape = RoundedCornerShape(8.dp),
                         enabled = !isSubmitting
                     ) {
-                        Text(text = "会话始终允许", style = MaterialTheme.typography.bodySmall)
+                        Text(text = "会话始终允许".loc, style = MaterialTheme.typography.bodySmall)
                     }
 
                     // Deny
@@ -375,7 +376,7 @@ fun WorkflowApprovalCard(
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = colors.accentRed),
                         enabled = !isSubmitting
                     ) {
-                        Text(text = "拒绝", style = MaterialTheme.typography.bodySmall)
+                        Text(text = "拒绝".loc, style = MaterialTheme.typography.bodySmall)
                     }
 
                     // Reject with Feedback toggle
@@ -389,7 +390,7 @@ fun WorkflowApprovalCard(
                         enabled = !isSubmitting
                     ) {
                         Text(
-                            text = if (showFeedbackInput) "收起" else "反馈打回",
+                            text = if (showFeedbackInput) "收起".loc else "反馈打回".loc,
                             style = MaterialTheme.typography.bodySmall
                         )
                     }

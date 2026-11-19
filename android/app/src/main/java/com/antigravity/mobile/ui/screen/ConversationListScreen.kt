@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.screen
 
+import com.antigravity.mobile.ui.util.loc
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
@@ -278,7 +279,7 @@ fun ConversationListScreen(
                             )
                             Spacer(modifier = Modifier.height(12.dp))
                             Text(
-                                text = "无法连接网关",
+                                text = "无法连接网关".loc,
                                 color = colors.textPrimary,
                                 fontSize = 17.sp,
                                 fontWeight = FontWeight.SemiBold
@@ -295,7 +296,7 @@ fun ConversationListScreen(
                                 onClick = { viewModel.loadConversations() },
                                 colors = ButtonDefaults.buttonColors(containerColor = colors.accentIndigo)
                             ) {
-                                Text("重试连接")
+                                Text("重试连接".loc)
                             }
                         }
                     }
@@ -320,7 +321,7 @@ fun ConversationListScreen(
                                 val known = viewModel.getConversation(hit.cascadeId)
                                 onSelectConversation(
                                     hit.cascadeId,
-                                    known?.displayTitle ?: hit.title.ifBlank { "未命名会话" },
+                                    known?.displayTitle ?: hit.title.ifBlank { "未命名会话".loc },
                                     false,
                                     known?.isUnread ?: false,
                                     known?.status ?: com.antigravity.mobile.data.model.ConversationStatus.UNKNOWN,
@@ -403,7 +404,7 @@ fun ConversationListScreen(
                         decorationBox = { innerTextField ->
                             if (searchQuery.isEmpty()) {
                                 Text(
-                                    text = "搜索会话或工作区...",
+                                    text = "搜索会话或工作区...".loc,
                                     color = colors.textSecondary,
                                     fontSize = 15.sp
                                 )
@@ -571,7 +572,7 @@ fun ConversationListScreen(
                 val known = viewModel.getConversation(cascadeId)
                 onSelectConversation(
                     cascadeId,
-                    known?.displayTitle ?: title.ifBlank { "会话详情" },
+                    known?.displayTitle ?: title.ifBlank { "会话详情".loc },
                     false,
                     known?.isUnread ?: false,
                     known?.status ?: com.antigravity.mobile.data.model.ConversationStatus.RUNNING,
@@ -592,7 +593,7 @@ fun ConversationListScreen(
             onSelectProject = { project ->
                 showNewConvSheet = false
                 val draftSession = viewModel.createLocalDraftSession(project)
-                val title = if (project.isPureChat) "新对话" else project.displayName
+                val title = if (project.isPureChat) "新对话".loc else project.displayName
                 onSelectConversation(draftSession.id, title, true, false, com.antigravity.mobile.data.model.ConversationStatus.IDLE, null)
             },
             onEditProjectAlias = { project ->
@@ -645,7 +646,7 @@ fun ConversationListScreen(
             },
             onAddLocalWorkspace = { localPath ->
                 val client = ApiClient.defaultInstance
-                    ?: return@NewConversationSheet "未配置网关地址"
+                    ?: return@NewConversationSheet "未配置网关地址".loc
                 val result = client.createProjectWorkspace(
                     path = localPath,
                     startSession = false
@@ -656,7 +657,7 @@ fun ConversationListScreen(
                         null
                     },
                     onFailure = { err ->
-                        err.message?.takeIf { it.isNotBlank() } ?: "添加工作区失败"
+                        err.message?.takeIf { it.isNotBlank() } ?: "添加工作区失败".loc
                     }
                 )
             },
@@ -681,7 +682,7 @@ fun ConversationListScreen(
     renamingItem?.let { item ->
         AlertDialog(
             onDismissRequest = { renamingItem = null },
-            title = { Text("重命名会话", color = colors.textPrimary, fontWeight = FontWeight.Bold) },
+            title = { Text("重命名会话".loc, color = colors.textPrimary, fontWeight = FontWeight.Bold) },
             text = {
                 OutlinedTextField(
                     value = renameText,
@@ -708,7 +709,7 @@ fun ConversationListScreen(
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = colors.accentIndigo)
                 ) {
-                    Text("保存")
+                    Text("保存".loc)
                 }
             },
             dismissButton = {
@@ -716,7 +717,7 @@ fun ConversationListScreen(
                     onClick = { renamingItem = null },
                     colors = ButtonDefaults.textButtonColors(contentColor = colors.textSecondary)
                 ) {
-                    Text("取消")
+                    Text("取消".loc)
                 }
             },
             containerColor = colors.surface
@@ -727,18 +728,18 @@ fun ConversationListScreen(
     editingAliasProject?.let { project ->
         AlertDialog(
             onDismissRequest = { editingAliasProject = null },
-            title = { Text("设置工作区备注", color = colors.textPrimary, fontWeight = FontWeight.Bold) },
+            title = { Text("设置工作区备注".loc, color = colors.textPrimary, fontWeight = FontWeight.Bold) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        text = "原文件夹：${project.name}",
+                        text = "原文件夹：${project.name}".loc,
                         fontSize = 12.5.sp,
                         color = colors.textSecondary
                     )
                     OutlinedTextField(
                         value = aliasInputText,
                         onValueChange = { aliasInputText = it },
-                        placeholder = { Text("输入中文备注（留空恢复默认）", color = colors.textMuted) },
+                        placeholder = { Text("输入中文备注（留空恢复默认）".loc, color = colors.textMuted) },
                         singleLine = true,
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedContainerColor = colors.surface,
@@ -760,7 +761,7 @@ fun ConversationListScreen(
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = colors.accentIndigo)
                 ) {
-                    Text("保存")
+                    Text("保存".loc)
                 }
             },
             dismissButton = {
@@ -768,7 +769,7 @@ fun ConversationListScreen(
                     onClick = { editingAliasProject = null },
                     colors = ButtonDefaults.textButtonColors(contentColor = colors.textSecondary)
                 ) {
-                    Text("取消")
+                    Text("取消".loc)
                 }
             },
             containerColor = colors.surface
@@ -779,8 +780,8 @@ fun ConversationListScreen(
     deletingItem?.let { item ->
         AlertDialog(
             onDismissRequest = { deletingItem = null },
-            title = { Text("确认删除此会话吗？", color = colors.textPrimary, fontWeight = FontWeight.Bold) },
-            text = { Text("此操作将永久删除会话记录且无法撤销。", color = colors.textSecondary) },
+            title = { Text("确认删除此会话吗？".loc, color = colors.textPrimary, fontWeight = FontWeight.Bold) },
+            text = { Text("此操作将永久删除会话记录且无法撤销。".loc, color = colors.textSecondary) },
             confirmButton = {
                 Button(
                     onClick = {
@@ -789,12 +790,12 @@ fun ConversationListScreen(
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = colors.accentRed)
                 ) {
-                    Text("删除")
+                    Text("删除".loc)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { deletingItem = null }) {
-                    Text("取消", color = colors.textSecondary)
+                    Text("取消".loc, color = colors.textSecondary)
                 }
             },
             containerColor = colors.surface
@@ -804,11 +805,11 @@ fun ConversationListScreen(
     // Pin / Unpin Confirmation Dialog
     pinningItem?.let { item ->
         val isCurrentlyPinned = item.isPinned
-        val pinTitle = if (isCurrentlyPinned) "取消置顶" else "置顶会话"
+        val pinTitle = if (isCurrentlyPinned) "取消置顶".loc else "置顶会话".loc
         val pinMessage = if (isCurrentlyPinned) {
-            "确定取消置顶此会话吗？"
+            "确定取消置顶此会话吗？".loc
         } else {
-            "确定置顶此会话吗？\n置顶后该会话将固定显示在会话列表顶部。"
+            "确定置顶此会话吗？\n置顶后该会话将固定显示在会话列表顶部。".loc
         }
         AlertDialog(
             onDismissRequest = { pinningItem = null },
@@ -823,12 +824,12 @@ fun ConversationListScreen(
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = colors.accentOrange)
                 ) {
-                    Text(if (isCurrentlyPinned) "取消置顶" else "置顶")
+                    Text(if (isCurrentlyPinned) "取消置顶".loc else "置顶".loc)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { pinningItem = null }) {
-                    Text("取消", color = colors.textSecondary)
+                    Text("取消".loc, color = colors.textSecondary)
                 }
             },
             containerColor = colors.surface
@@ -1018,7 +1019,7 @@ private fun ConversationListContent(
                         color = colors.accentIndigo
                     )
                     Text(
-                        text = if (daemonCount > 0) "${count} 个后台任务运行中（${daemonCount} 个常驻）" else "${count} 个后台任务运行中",
+                        text = if (daemonCount > 0) "${count} 个后台任务运行中（${daemonCount} 个常驻）".loc else "${count} 个后台任务运行中".loc,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Medium,
                         color = colors.textPrimary,
@@ -1027,7 +1028,7 @@ private fun ConversationListContent(
                         modifier = Modifier.weight(1f)
                     )
                     Text(
-                        text = "管理 ›",
+                        text = "管理 ›".loc,
                         fontSize = 11.5.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = colors.accentIndigo
@@ -1059,14 +1060,14 @@ private fun ConversationListContent(
                     )
                     Spacer(modifier = Modifier.height(12.dp))
                     Text(
-                        text = if (searchQuery.isEmpty()) "暂无会话" else "未找到匹配会话",
+                        text = if (searchQuery.isEmpty()) "暂无会话".loc else "未找到匹配会话".loc,
                         color = colors.textPrimary,
                         fontSize = 17.sp,
                         fontWeight = FontWeight.SemiBold
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = if (searchQuery.isEmpty()) "可点击右上角 + 开启新会话，或下拉刷新同步" else "请尝试其他关键词搜索",
+                        text = if (searchQuery.isEmpty()) "可点击右上角 + 开启新会话，或下拉刷新同步".loc else "请尝试其他关键词搜索".loc,
                         color = colors.textSecondary,
                         fontSize = 13.sp,
                         textAlign = TextAlign.Center
@@ -1077,7 +1078,7 @@ private fun ConversationListContent(
                             onClick = onRefresh,
                             colors = ButtonDefaults.buttonColors(containerColor = colors.accentIndigo)
                         ) {
-                            Text("刷新列表")
+                            Text("刷新列表".loc)
                         }
                     }
                 }
@@ -1144,7 +1145,7 @@ private fun ConversationListContent(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Text(
-                        text = "对话内容匹配",
+                        text = "对话内容匹配".loc,
                         color = colors.textSecondary,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.SemiBold
@@ -1204,7 +1205,7 @@ private fun ContentHitCard(
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         Text(
-            text = hit.title.ifBlank { "未命名会话" },
+            text = hit.title.ifBlank { "未命名会话".loc },
             color = colors.textPrimary,
             fontSize = 15.sp,
             fontWeight = FontWeight.SemiBold,
@@ -1513,9 +1514,9 @@ fun ConversationCard(
 
                 val timeStr = conversation.relativeTimeString
                 val metaText = if (conversation.isDraft) {
-                    if (timeStr.isNotBlank()) "草稿 · $timeStr" else "草稿"
+                    if (timeStr.isNotBlank()) "草稿 · $timeStr".loc else "草稿".loc
                 } else {
-                    if (timeStr.isNotBlank()) "${conversation.stepCount} 步骤 · $timeStr" else "${conversation.stepCount} 步骤"
+                    if (timeStr.isNotBlank()) "${conversation.stepCount} 步骤 · $timeStr".loc else "${conversation.stepCount} 步骤".loc
                 }
 
                 Text(

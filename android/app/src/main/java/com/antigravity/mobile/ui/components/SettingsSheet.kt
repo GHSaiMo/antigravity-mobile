@@ -55,12 +55,19 @@ import com.antigravity.mobile.data.service.fetchPermissionSettings
 import com.antigravity.mobile.data.service.updatePermissionPreset
 import com.antigravity.mobile.ui.theme.AntigravityTheme
 import com.antigravity.mobile.ui.theme.modelProviderAccent
+import com.antigravity.mobile.ui.util.loc
 import com.antigravity.mobile.ui.util.rememberHaptic
 import kotlinx.coroutines.launch
 
-private enum class SettingsSubpage(val title: String) {
-    MAIN("设置"),
-    COMPACT("精简模式")
+private enum class SettingsSubpage {
+    MAIN,
+    COMPACT;
+
+    val title: String
+        get() = when (this) {
+            MAIN -> "设置".loc
+            COMPACT -> "精简模式".loc
+        }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -71,7 +78,7 @@ fun SettingsSheet(
     onUnpair: () -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
-    onLoadModels: suspend () -> Result<ModelsResponse> = { Result.failure(IllegalStateException("未提供模型目录")) }
+    onLoadModels: suspend () -> Result<ModelsResponse> = { Result.failure(IllegalStateException("未提供模型目录".loc)) }
 ) {
     var showUnpairAlert by remember { mutableStateOf(false) }
     var showClearCacheAlert by remember { mutableStateOf(false) }
@@ -151,12 +158,12 @@ fun SettingsSheet(
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
-                            contentDescription = "返回设置",
+                            contentDescription = "返回设置".loc,
                             tint = colors.accentBlue,
                             modifier = Modifier.size(22.dp)
                         )
                         Text(
-                            text = "设置",
+                            text = "设置".loc,
                             color = colors.accentBlue,
                             fontSize = 15.sp,
                             fontWeight = FontWeight.Medium
@@ -204,14 +211,14 @@ fun SettingsSheet(
             onDismissRequest = { showUnpairAlert = false },
             title = {
                 Text(
-                    text = "确定解除设备配对？",
+                    text = "确定解除设备配对？".loc,
                     color = colors.textPrimary,
                     fontWeight = FontWeight.Bold
                 )
             },
             text = {
                 Text(
-                    text = "解除配对将通知网关清理此设备绑定，并清除本地访问令牌与网关配置。",
+                    text = "解除配对将通知网关清理此设备绑定，并清除本地访问令牌与网关配置。".loc,
                     color = colors.textSecondary,
                     fontSize = 14.sp
                 )
@@ -225,12 +232,12 @@ fun SettingsSheet(
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = colors.accentRed)
                 ) {
-                    Text("解除配对")
+                    Text("解除配对".loc)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showUnpairAlert = false }) {
-                    Text("取消", color = colors.textSecondary)
+                    Text("取消".loc, color = colors.textSecondary)
                 }
             },
             containerColor = colors.surface
@@ -242,14 +249,14 @@ fun SettingsSheet(
             onDismissRequest = { showClearCacheAlert = false },
             title = {
                 Text(
-                    text = "确定清空本地缓存？",
+                    text = "确定清空本地缓存？".loc,
                     color = colors.textPrimary,
                     fontWeight = FontWeight.Bold
                 )
             },
             text = {
                 Text(
-                    text = "本地缓存的会话消息、方案及离线文档将被清理，下次访问时将从网关重新拉取。",
+                    text = "本地缓存的会话消息、方案及离线文档将被清理，下次访问时将从网关重新拉取。".loc,
                     color = colors.textSecondary,
                     fontSize = 14.sp
                 )
@@ -258,16 +265,16 @@ fun SettingsSheet(
                 Button(
                     onClick = {
                         showClearCacheAlert = false
-                        Toast.makeText(context, "本地缓存已清空", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "本地缓存已清空".loc, Toast.LENGTH_SHORT).show()
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = colors.accentRed)
                 ) {
-                    Text("清空")
+                    Text("清空".loc)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showClearCacheAlert = false }) {
-                    Text("取消", color = colors.textSecondary)
+                    Text("取消".loc, color = colors.textSecondary)
                 }
             },
             containerColor = colors.surface
@@ -304,16 +311,24 @@ private fun MainSettingsContent(
     var enableLiveNotifications by remember { mutableStateOf(prefs.enableLiveNotifications) }
     var enableVoiceMode by remember { mutableStateOf(prefs.enableVoiceMode) }
     val isPaired = prefs.isPaired()
-    val deviceId = prefs.deviceId ?: "未知"
+    val deviceId = prefs.deviceId ?: "未知".loc
 
     var lanAddress by remember { mutableStateOf(prefs.lanServerUrl ?: "") }
     var customAddress by remember { mutableStateOf(prefs.customServerUrl ?: "") }
+    val currentAppLanguage by prefs.appLanguageFlow.collectAsState()
+    val languageOptions = remember {
+        listOf(
+            PickerMenuOption("system", "跟随系统 (System Default)".loc),
+            PickerMenuOption("zh", "简体中文".loc),
+            PickerMenuOption("en", "English")
+        )
+    }
     val currentPlatform by prefs.gatewayPlatformFlow.collectAsState()
     val gatewayDesc = when (currentPlatform?.lowercase()) {
-        "windows", "win" -> "Windows 网关"
-        "darwin", "macos", "mac" -> "Mac 网关"
-        "linux" -> "Linux 网关"
-        else -> "电脑网关"
+        "windows", "win" -> "Windows 网关".loc
+        "darwin", "macos", "mac" -> "Mac 网关".loc
+        "linux" -> "Linux 网关".loc
+        else -> "电脑网关".loc
     }
 
     LaunchedEffect(Unit) {
@@ -330,8 +345,8 @@ private fun MainSettingsContent(
     ) {
         // MARK: - 1. 设备配对与鉴权 (1:1 iOS 对齐)
         SettingsSection(
-            title = "设备配对",
-            footer = "管理当前设备与 ${gatewayDesc}的配对状态。"
+            title = "设备配对".loc,
+            footer = "管理当前设备与 ${gatewayDesc}的配对状态。".loc
         ) {
             Column(
                 modifier = Modifier
@@ -348,7 +363,7 @@ private fun MainSettingsContent(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Text(text = "配对状态", color = colors.textPrimary, fontSize = 15.sp)
+                    Text(text = "配对状态".loc, color = colors.textPrimary, fontSize = 15.sp)
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(5.dp)
@@ -360,9 +375,9 @@ private fun MainSettingsContent(
                                 tint = colors.accentGreen,
                                 modifier = Modifier.size(16.dp)
                             )
-                            Text(text = "已配对", color = colors.textSecondary, fontSize = 14.sp)
+                            Text(text = "已配对".loc, color = colors.textSecondary, fontSize = 14.sp)
                         } else {
-                            Text(text = "未配对", color = colors.textSecondary, fontSize = 14.sp)
+                            Text(text = "未配对".loc, color = colors.textSecondary, fontSize = 14.sp)
                         }
                     }
                 }
@@ -376,7 +391,7 @@ private fun MainSettingsContent(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text(text = "设备 ID", color = colors.textPrimary, fontSize = 15.sp)
+                        Text(text = "设备 ID".loc, color = colors.textPrimary, fontSize = 15.sp)
                         Text(
                             text = if (deviceId.length > 20) deviceId.take(8) + "..." + deviceId.takeLast(6) else deviceId,
                             color = colors.textSecondary,
@@ -395,7 +410,7 @@ private fun MainSettingsContent(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "解除设备配对",
+                        text = "解除设备配对".loc,
                         color = colors.accentRed,
                         fontSize = 15.sp
                     )
@@ -405,7 +420,7 @@ private fun MainSettingsContent(
 
         // MARK: - 2. 网络 (局域网与自定义平铺，主域名后台智能路由，1:1 对齐 iOS)
         SettingsSection(
-            title = "网络"
+            title = "网络".loc
         ) {
             Column(
                 modifier = Modifier
@@ -422,7 +437,7 @@ private fun MainSettingsContent(
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     Text(
-                        text = "局域网",
+                        text = "局域网".loc,
                         color = colors.textPrimary,
                         fontSize = 15.sp
                     )
@@ -447,7 +462,7 @@ private fun MainSettingsContent(
                         decorationBox = { innerTextField ->
                             if (lanAddress.isBlank()) {
                                 Text(
-                                    text = "如 http://192.168.1.50:58900",
+                                    text = "如 http://192.168.1.50:58900".loc,
                                     color = colors.textMuted,
                                     fontSize = 13.sp,
                                     fontFamily = FontFamily.Monospace
@@ -468,7 +483,7 @@ private fun MainSettingsContent(
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     Text(
-                        text = "自定义",
+                        text = "自定义".loc,
                         color = colors.textPrimary,
                         fontSize = 15.sp
                     )
@@ -493,7 +508,7 @@ private fun MainSettingsContent(
                         decorationBox = { innerTextField ->
                             if (customAddress.isBlank()) {
                                 Text(
-                                    text = "如 http://100.x.x.x:58900",
+                                    text = "如 http://100.x.x.x:58900".loc,
                                     color = colors.textMuted,
                                     fontSize = 13.sp,
                                     fontFamily = FontFamily.Monospace
@@ -518,14 +533,14 @@ private fun MainSettingsContent(
         }
         val permissionOptions = remember(colors) {
             listOf(
-                PickerMenuOption("strict", "严格审批", accentColor = colors.accentIndigo),
-                PickerMenuOption("sandbox", "离席沙箱放行", accentColor = colors.accentOrange),
-                PickerMenuOption("auto", "全自动放行", accentColor = colors.accentOrange)
+                PickerMenuOption("strict", "严格审批".loc, accentColor = colors.accentIndigo),
+                PickerMenuOption("sandbox", "离席沙箱放行".loc, accentColor = colors.accentOrange),
+                PickerMenuOption("auto", "全自动放行".loc, accentColor = colors.accentOrange)
             )
         }
         SettingsSection(
-            title = "扩展与能力",
-            footer = "在此配置默认权限并查看 MCP 工具与技能；进入会话后，长按右上角工具按钮也可以随时改变该会话的权限。"
+            title = "扩展与能力".loc,
+            footer = "在此配置默认权限并查看 MCP 工具与技能；进入会话后，长按右上角工具按钮也可以随时改变该会话的权限。".loc
         ) {
             Column(
                 modifier = Modifier
@@ -535,8 +550,8 @@ private fun MainSettingsContent(
                     .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
             ) {
                 SettingsMenuPickerRow(
-                    label = "Agent 权限模式",
-                    selectedLabel = permissionOptions.firstOrNull { it.id == permPreset }?.label ?: "严格审批",
+                    label = "Agent 权限模式".loc,
+                    selectedLabel = permissionOptions.firstOrNull { it.id == permPreset }?.label ?: "严格审批".loc,
                     selectedId = permPreset,
                     selectedColor = if (permPreset == "strict") colors.accentIndigo else colors.accentOrange,
                     options = permissionOptions,
@@ -559,13 +574,13 @@ private fun MainSettingsContent(
                 ) {
                     Column {
                         Text(
-                            text = "MCP 工具与技能看板",
+                            text = "MCP 工具与技能看板".loc,
                             color = colors.textPrimary,
                             fontSize = 15.sp,
                             fontWeight = FontWeight.Medium
                         )
                         Text(
-                            text = "MCP / 技能 / 插件 / 定时任务 / 后台",
+                            text = "MCP / 技能 / 插件 / 定时任务 / 后台".loc,
                             color = colors.textMuted,
                             fontSize = 11.5.sp
                         )
@@ -583,8 +598,8 @@ private fun MainSettingsContent(
 
         // MARK: - 4a. 实时语音对话
         SettingsSection(
-            title = "语音",
-            footer = "开启后，输入框为空且空闲时右侧按钮支持单击实时双工语音通话、长按原生流式语音听写。"
+            title = "语音".loc,
+            footer = "开启后，输入框为空且空闲时右侧按钮支持单击实时双工语音通话、长按原生流式语音听写。".loc
         ) {
             Row(
                 modifier = Modifier
@@ -597,9 +612,9 @@ private fun MainSettingsContent(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(text = "实时语音对话", color = colors.textPrimary, fontSize = 15.sp)
+                    Text(text = "实时语音对话".loc, color = colors.textPrimary, fontSize = 15.sp)
                     Text(
-                        text = if (enableVoiceMode) "已开启（空闲时显示语音入口）" else "已关闭",
+                        text = if (enableVoiceMode) "已开启（空闲时显示语音入口）".loc else "已关闭".loc,
                         color = colors.textSecondary,
                         fontSize = 12.sp
                     )
@@ -620,8 +635,8 @@ private fun MainSettingsContent(
 
         // MARK: - 4b. 实时通知
         SettingsSection(
-            title = "实时通知",
-            footer = "在通知栏中展示任务实时进展，并在需要用户审批或任务完成时发出高优先级提示音与振动提醒。"
+            title = "实时通知".loc,
+            footer = "在通知栏中展示任务实时进展，并在需要用户审批或任务完成时发出高优先级提示音与振动提醒。".loc
         ) {
             Column(
                 modifier = Modifier
@@ -638,9 +653,9 @@ private fun MainSettingsContent(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text(text = "实时通知与审批提醒", color = colors.textPrimary, fontSize = 15.sp)
+                        Text(text = "实时通知与审批提醒".loc, color = colors.textPrimary, fontSize = 15.sp)
                         Text(
-                            text = if (enableLiveNotifications) "已开启（含任务常驻与高优弹窗）" else "已关闭",
+                            text = if (enableLiveNotifications) "已开启（含任务常驻与高优弹窗）".loc else "已关闭".loc,
                             color = colors.textSecondary,
                             fontSize = 12.sp
                         )
@@ -681,12 +696,12 @@ private fun MainSettingsContent(
                     ) {
                         Icon(
                             imageVector = Icons.Default.Warning,
-                            contentDescription = "权限警告",
+                            contentDescription = "权限警告".loc,
                             tint = Color(0xFFF59E0B),
                             modifier = Modifier.size(18.dp)
                         )
                         Text(
-                            text = "系统通知权限未开启，点击前往系统设置授予权限",
+                            text = "系统通知权限未开启，点击前往系统设置授予权限".loc,
                             color = Color(0xFFF59E0B),
                             fontSize = 13.sp,
                             modifier = Modifier.weight(1f)
@@ -710,22 +725,22 @@ private fun MainSettingsContent(
         val compactCollapseTasks by prefs.compactCollapseTasksFlow.collectAsState()
         val compactHideHealthyContext by prefs.compactHideHealthyContextFlow.collectAsState()
         val compactSummary = remember(knowledgeMode, compactCollapseTools, compactCollapseTasks, compactHideHealthyContext) {
-            if (!knowledgeMode) "已关闭"
+            if (!knowledgeMode) "已关闭".loc
             else {
                 val activeCount = listOf(compactCollapseTools, compactCollapseTasks, compactHideHealthyContext).count { it }
-                "已开启 ($activeCount/3)"
+                "已开启 ($activeCount/3)".loc
             }
         }
         val fontScaleOptions = remember {
             listOf(
-                PickerMenuOption("compact", "紧凑 (90%)"),
-                PickerMenuOption("standard", "标准 (100%)"),
-                PickerMenuOption("comfortable", "舒适 (115%)")
+                PickerMenuOption("compact", "紧凑 (90%)".loc),
+                PickerMenuOption("standard", "标准 (100%)".loc),
+                PickerMenuOption("comfortable", "舒适 (115%)".loc)
             )
         }
         SettingsSection(
-            title = "外观与主题",
-            footer = "选择全局浅色/深色/跟随系统外观；点进「精简模式」可自定义对话降噪选项。"
+            title = "外观与主题".loc,
+            footer = "选择全局浅色/深色/跟随系统外观；点进「精简模式」可自定义对话降噪选项。".loc
         ) {
             Column(
                 modifier = Modifier
@@ -740,11 +755,23 @@ private fun MainSettingsContent(
                 )
                 HorizontalDivider(color = colors.separator.copy(alpha = 0.4f), thickness = 0.5.dp)
                 SettingsMenuPickerRow(
-                    label = "字号缩放",
-                    selectedLabel = fontScaleOptions.firstOrNull { it.id == currentFontScale }?.label ?: "标准 (100%)",
+                    label = "字号缩放".loc,
+                    selectedLabel = fontScaleOptions.firstOrNull { it.id == currentFontScale }?.label ?: "标准 (100%)".loc,
                     selectedId = currentFontScale,
                     options = fontScaleOptions,
                     onSelect = { prefs.fontSizeScale = it }
+                )
+                HorizontalDivider(color = colors.separator.copy(alpha = 0.4f), thickness = 0.5.dp)
+                SettingsMenuPickerRow(
+                    label = "语言 / Language".loc,
+                    selectedLabel = when (currentAppLanguage) {
+                        "en" -> "English"
+                        "zh" -> "简体中文".loc
+                        else -> "跟随系统 (System Default)".loc
+                    },
+                    selectedId = currentAppLanguage,
+                    options = languageOptions,
+                    onSelect = { prefs.appLanguage = it }
                 )
                 HorizontalDivider(color = colors.separator.copy(alpha = 0.4f), thickness = 0.5.dp)
                 Row(
@@ -760,13 +787,13 @@ private fun MainSettingsContent(
                             .padding(end = 12.dp)
                     ) {
                         Text(
-                            text = "额度匀速指标",
+                            text = "额度匀速指标".loc,
                             color = colors.textPrimary,
                             fontSize = 15.sp,
                             fontWeight = FontWeight.Medium
                         )
                         Text(
-                            text = "在额度条上显示均速基准刻度针",
+                            text = "在额度条上显示均速基准刻度针".loc,
                             color = colors.textSecondary,
                             fontSize = 11.5.sp,
                             lineHeight = 15.sp
@@ -794,7 +821,7 @@ private fun MainSettingsContent(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(
-                        text = "精简模式",
+                        text = "精简模式".loc,
                         color = colors.textPrimary,
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Medium
@@ -821,8 +848,8 @@ private fun MainSettingsContent(
 
         // MARK: - 6. 存储 (整体下移一行，放在关于的上面)
         SettingsSection(
-            title = "存储",
-            footer = "清除本地缓存的会话与文档数据，下次访问时将从网关重新拉取。"
+            title = "存储".loc,
+            footer = "清除本地缓存的会话与文档数据，下次访问时将从网关重新拉取。".loc
         ) {
             Row(
                 modifier = Modifier
@@ -835,7 +862,7 @@ private fun MainSettingsContent(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "清空本地缓存",
+                    text = "清空本地缓存".loc,
                     color = colors.accentRed,
                     fontSize = 15.sp
                 )
@@ -860,7 +887,7 @@ private fun MainSettingsContent(
             }
         }
 
-        SettingsSection(title = "关于") {
+        SettingsSection(title = "关于".loc) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -875,7 +902,7 @@ private fun MainSettingsContent(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Text(text = "应用名称", color = colors.textPrimary, fontSize = 15.sp)
+                    Text(text = "应用名称".loc, color = colors.textPrimary, fontSize = 15.sp)
                     Text(text = "Multigravity", color = colors.textSecondary, fontSize = 14.sp)
                 }
                 HorizontalDivider(color = colors.separator.copy(alpha = 0.4f), thickness = 0.5.dp)
@@ -886,7 +913,7 @@ private fun MainSettingsContent(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Text(text = "版本", color = colors.textPrimary, fontSize = 15.sp)
+                    Text(text = "版本".loc, color = colors.textPrimary, fontSize = 15.sp)
                     Text(text = appVersion, color = colors.textSecondary, fontSize = 14.sp)
                 }
             }
@@ -1060,12 +1087,12 @@ private fun DefaultModelSection(
     }
 
     val footer = when (loadState) {
-        "loading" -> "正在读取可用模型..."
-        "failed" -> "暂时无法读取实时模型列表，可先从内置列表中选择模型；新会话默认使用首选模型，已有会话自动同步电脑端最新模型；短按模型胶囊切换首选与次选，长按可任选模型。"
-        else -> "新会话默认使用首选模型，已有会话自动同步电脑端最新模型；短按模型胶囊切换首选与次选，长按可任选模型。"
+        "loading" -> "正在读取可用模型...".loc
+        "failed" -> "暂时无法读取实时模型列表，可先从内置列表中选择模型；新会话默认使用首选模型，已有会话自动同步电脑端最新模型；短按模型胶囊切换首选与次选，长按可任选模型。".loc
+        else -> "新会话默认使用首选模型，已有会话自动同步电脑端最新模型；短按模型胶囊切换首选与次选，长按可任选模型。".loc
     }
 
-    SettingsSection(title = "模型", footer = footer) {
+    SettingsSection(title = "模型".loc, footer = footer) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1074,14 +1101,14 @@ private fun DefaultModelSection(
                 .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
         ) {
             FavoriteModelPickerRow(
-                label = "首选模型",
+                label = "首选模型".loc,
                 selectedId = favorite1,
                 options = allOptions,
                 onSelect = { prefs.favoriteModel1 = it }
             )
             HorizontalDivider(color = colors.separator.copy(alpha = 0.4f), thickness = 0.5.dp)
             FavoriteModelPickerRow(
-                label = "次选模型",
+                label = "次选模型".loc,
                 selectedId = favorite2,
                 options = allOptions,
                 onSelect = { prefs.favoriteModel2 = it }
@@ -1134,7 +1161,7 @@ private fun ThemeModeSegmentedRow(
     val colors = AntigravityTheme.colors
     val haptic = rememberHaptic()
     val items = remember {
-        listOf("system" to "跟随系统", "light" to "浅色", "dark" to "深色")
+        listOf("system" to "跟随系统".loc, "light" to "浅色".loc, "dark" to "深色".loc)
     }
     Row(
         modifier = Modifier
@@ -1144,7 +1171,7 @@ private fun ThemeModeSegmentedRow(
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
         Text(
-            text = "外观模式",
+            text = "外观模式".loc,
             color = colors.textPrimary,
             fontSize = 15.sp,
             fontWeight = FontWeight.Medium
@@ -1198,8 +1225,8 @@ private fun CompactModeSubpageContent(prefs: PreferencesManager) {
         verticalArrangement = Arrangement.spacedBy(20.dp)
     ) {
         SettingsSection(
-            title = "精简模式",
-            footer = "开启后可折叠对话中的工具执行过程与底部任务辅助栏，让长对话阅读更聚焦。"
+            title = "精简模式".loc,
+            footer = "开启后可折叠对话中的工具执行过程与底部任务辅助栏，让长对话阅读更聚焦。".loc
         ) {
             Row(
                 modifier = Modifier
@@ -1212,7 +1239,7 @@ private fun CompactModeSubpageContent(prefs: PreferencesManager) {
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(
-                    text = "开启精简模式",
+                    text = "开启精简模式".loc,
                     color = colors.textPrimary,
                     fontSize = 15.sp,
                     fontWeight = FontWeight.Medium
@@ -1231,7 +1258,7 @@ private fun CompactModeSubpageContent(prefs: PreferencesManager) {
             }
         }
 
-        SettingsSection(title = "降噪选项") {
+        SettingsSection(title = "降噪选项".loc) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1241,8 +1268,8 @@ private fun CompactModeSubpageContent(prefs: PreferencesManager) {
                     .alpha(if (knowledgeMode) 1f else 0.48f)
             ) {
                 CompactSubpageToggleRow(
-                    title = "折叠工具执行过程",
-                    subtitle = "将检索与命令步骤收起为单行摘要",
+                    title = "折叠工具执行过程".loc,
+                    subtitle = "将检索与命令步骤收起为单行摘要".loc,
                     checked = compactCollapseTools,
                     enabled = knowledgeMode,
                     onCheckedChange = {
@@ -1256,8 +1283,8 @@ private fun CompactModeSubpageContent(prefs: PreferencesManager) {
                     modifier = Modifier.padding(start = 16.dp)
                 )
                 CompactSubpageToggleRow(
-                    title = "收起任务辅助栏",
-                    subtitle = "底部运行任务默认单行折叠，保留终止按钮",
+                    title = "收起任务辅助栏".loc,
+                    subtitle = "底部运行任务默认单行折叠，保留终止按钮".loc,
                     checked = compactCollapseTasks,
                     enabled = knowledgeMode,
                     onCheckedChange = {
@@ -1271,8 +1298,8 @@ private fun CompactModeSubpageContent(prefs: PreferencesManager) {
                     modifier = Modifier.padding(start = 16.dp)
                 )
                 CompactSubpageToggleRow(
-                    title = "隐藏常规上下文",
-                    subtitle = "占用 < 70% 时隐藏顶栏胶囊，≥ 70% 自动恢复预警",
+                    title = "隐藏常规上下文".loc,
+                    subtitle = "占用 < 70% 时隐藏顶栏胶囊，≥ 70% 自动恢复预警".loc,
                     checked = compactHideHealthyContext,
                     enabled = knowledgeMode,
                     onCheckedChange = {
