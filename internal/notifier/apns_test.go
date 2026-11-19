@@ -231,6 +231,10 @@ func TestLiveActivityDispatcher_StartThrottleCriticalAndEnd(t *testing.T) {
 		mu.Unlock()
 		t.Fatalf("expected push-to-start event, got %+v", requests)
 	}
+	if requests[0].Alert == nil || requests[0].Alert.Title == "" || requests[0].Alert.Body == "" {
+		mu.Unlock()
+		t.Fatalf("expected non-empty aps.alert on start event (required by iOS liveactivitiesd), got %+v", requests[0].Alert)
+	}
 	if requests[0].ContentState.LastUpdated != float64(curTime.Unix()) {
 		mu.Unlock()
 		t.Fatalf("expected Unix epoch LastUpdated %.0f, got %.0f", float64(curTime.Unix()), requests[0].ContentState.LastUpdated)

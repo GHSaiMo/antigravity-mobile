@@ -782,7 +782,10 @@ func buildRouter(
 		if platform == "ios" || tokenType == "alert" || tokenType == "live_activity_start" || tokenType == "live_activity_update" || tokenType == "preferences" {
 			deviceID := strings.TrimSpace(req.DeviceID)
 			if dev, ok := auth.DeviceFromContext(r.Context()); ok && dev != nil && dev.DeviceID != "" {
-				deviceID = dev.DeviceID
+				isSynthetic := dev.DeviceID == "admin-local" || strings.HasPrefix(dev.DeviceID, "lan-")
+				if !isSynthetic || deviceID == "" {
+					deviceID = dev.DeviceID
+				}
 			}
 			if deviceID == "" {
 				deviceID = "ios-default"

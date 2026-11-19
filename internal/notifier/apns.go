@@ -31,6 +31,13 @@ type APNsRelayAlertRequest struct {
 	URL               string `json:"url,omitempty"`
 }
 
+// APNsLiveActivityAlert carries the alert dictionary required by iOS for Push-to-Start ("start") events.
+type APNsLiveActivityAlert struct {
+	Title string `json:"title"`
+	Body  string `json:"body"`
+	Sound string `json:"sound,omitempty"`
+}
+
 // APNsLiveActivityRequest is the JSON contract accepted by /v1/push/live-activity on the Cloudflare APNs relay.
 type APNsLiveActivityRequest struct {
 	PushToken      string                   `json:"push_token"`
@@ -43,6 +50,7 @@ type APNsLiveActivityRequest struct {
 	AttributesType string                   `json:"attributes_type,omitempty"`
 	Attributes     *LiveActivityAttributes  `json:"attributes,omitempty"`
 	ContentState   LiveActivityContentState `json:"content_state"`
+	Alert          *APNsLiveActivityAlert   `json:"alert,omitempty"`
 	InputPushToken bool                     `json:"input_push_token,omitempty"`
 }
 

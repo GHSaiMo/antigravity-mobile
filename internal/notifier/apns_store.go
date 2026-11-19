@@ -141,6 +141,15 @@ func (s *PushDeviceStore) UpsertAlertToken(deviceID, platform, token, apnsEnv st
 
 	rec := s.getOrCreateLocked(deviceID, platform, apnsEnv)
 	rec.APNSDeviceToken = token
+	// Deduplicate across device records (e.g. re-pairing or switching between loopback and tunnel)
+	for otherID, other := range s.devices {
+		if otherID != deviceID && other.APNSDeviceToken == token {
+			other.APNSDeviceToken = ""
+			if other.PushToStartToken == "" && len(other.ActivityTokens) == 0 {
+				delete(s.devices, otherID)
+			}
+		}
+	}
 	if notifEnabled != nil {
 		rec.NotificationsEnabled = *notifEnabled
 	}
@@ -167,6 +176,14 @@ func (s *PushDeviceStore) UpsertLiveActivityStartToken(deviceID, platform, token
 
 	rec := s.getOrCreateLocked(deviceID, platform, apnsEnv)
 	rec.PushToStartToken = token
+	for otherID, other := range s.devices {
+		if otherID != deviceID && other.PushToStartToken == token {
+			other.PushToStartToken = ""
+			if other.APNSDeviceToken == "" && len(other.ActivityTokens) == 0 {
+				delete(s.devices, otherID)
+			}
+		}
+	}
 	if liveEnabled != nil {
 		rec.LiveActivitiesEnabled = *liveEnabled
 	}
