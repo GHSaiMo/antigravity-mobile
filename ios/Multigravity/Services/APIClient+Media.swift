@@ -342,17 +342,51 @@ extension APIClient {
 private final class FileDownloadProgressDelegate: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
     let onProgress: (@Sendable (Double, Int64, Int64) -> Void)?
     var continuation: CheckedContinuation<(URL, HTTPURLResponse), Error>?
+    private let lock = NSLock()
+    private var lastReportedBytes: Int64 = 0
+    private var lastReportedTime: CFAbsoluteTime = 0
     
     init(onProgress: (@Sendable (Double, Int64, Int64) -> Void)?) {
         self.onProgress = onProgress
     }
     
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
-        let progress = totalBytesExpectedToWrite > 0 ? max(0, min(1.0, Double(totalBytesWritten) / Double(totalBytesExpectedToWrite))) : 0.0
-        onProgress?(progress, totalBytesWritten, totalBytesExpectedToWrite)
+        guard let onProgress = onProgress else { return }
+        let now = CFAbsoluteTimeGetCurrent()
+        
+        lock.lock()
+        // 严格保证单调递增，丢弃网络乱序或重置导致的倒退包
+        if totalBytesWritten < lastReportedBytes && totalBytesWritten > 0 {
+            lock.unlock()
+            return
+        }
+        
+        let isCompleted = totalBytesExpectedToWrite > 0 && totalBytesWritten >= totalBytesExpectedToWrite
+        let timeElapsed = now - lastReportedTime
+        let bytesDelta = totalBytesWritten - lastReportedBytes
+        
+        // 节流策略：首包、尾包(完成)、间隔超50ms、或增量超256KB时上报，避免主线程状态风暴
+        let shouldReport = isCompleted || lastReportedBytes == 0 || timeElapsed >= 0.05 || bytesDelta >= 262_144
+        if shouldReport {
+            lastReportedBytes = totalBytesWritten
+            lastReportedTime = now
+            lock.unlock()
+            
+            let progress = totalBytesExpectedToWrite > 0 ? max(0, min(1.0, Double(totalBytesWritten) / Double(totalBytesExpectedToWrite))) : 0.0
+            onProgress(progress, totalBytesWritten, totalBytesExpectedToWrite)
+        } else {
+            lock.unlock()
+        }
     }
     
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
+        let total = downloadTask.countOfBytesExpectedToReceive
+        let written = downloadTask.countOfBytesReceived
+        if total > 0 {
+            onProgress?(1.0, total, total)
+        } else if written > 0 {
+            onProgress?(1.0, written, written)
+        }
         guard let httpResp = downloadTask.response as? HTTPURLResponse else {
             continuation?.resume(throwing: APIError.networkError("Invalid response type"))
             return

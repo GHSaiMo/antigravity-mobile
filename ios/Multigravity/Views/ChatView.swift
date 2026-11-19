@@ -634,15 +634,19 @@ public struct ChatView: View {
                                 .font(.system(size: 14, weight: .medium))
                                 .foregroundColor(.primary)
 
-                            if viewModel.downloadBytesTotal > 0 {
-                                ProgressView(value: viewModel.downloadProgress)
-                                    .progressViewStyle(.linear)
-                                    .tint(.accentColor)
-                                    .frame(width: 150)
-                            } else {
-                                ProgressView()
-                                    .progressViewStyle(.circular)
+                            ZStack {
+                                if viewModel.downloadBytesTotal > 0 {
+                                    ProgressView(value: viewModel.downloadProgress)
+                                        .progressViewStyle(.linear)
+                                        .tint(.accentColor)
+                                        .animation(.easeInOut(duration: 0.15), value: viewModel.downloadProgress)
+                                } else {
+                                    ProgressView()
+                                        .progressViewStyle(.linear)
+                                        .tint(.accentColor)
+                                }
                             }
+                            .frame(width: 150, height: 4)
                         }
                         .padding(.horizontal, 24)
                         .padding(.vertical, 16)

@@ -601,7 +601,9 @@ extension ChatViewModel {
                 ) { [weak self] progress, written, total in
                     Task { @MainActor [weak self] in
                         guard let self = self, self.isDownloadingDocument else { return }
-                        self.downloadProgress = progress
+                        // 单调递增保护：防止 Task 在 MainActor 调度乱序时出现进度倒退跳变
+                        guard written >= self.downloadBytesWritten || total != self.downloadBytesTotal else { return }
+                        self.downloadProgress = max(self.downloadProgress, progress)
                         self.downloadBytesWritten = written
                         self.downloadBytesTotal = total
                     }
