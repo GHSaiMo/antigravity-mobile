@@ -127,7 +127,7 @@ func TestAPNsRelayClient_AlertAnd410Cleanup(t *testing.T) {
 	_ = store.UpsertAlertToken("dev-ios", "ios", tok, "production", nil, nil)
 
 	apns := NewAPNsRelayClient(relaySrv.URL, store)
-	notif := NewNotifier(config.NotificationConfig{Enabled: false}) // Neither Bark nor FCM configured
+	notif := NewNotifier(config.NotificationConfig{Enabled: false}) // Neither FCM nor other senders configured
 	notif.AttachAPNsClient(apns, true)
 
 	if !notif.IsEnabled() {

@@ -12,12 +12,26 @@ import (
 	"antigravity-mobile/internal/proxy"
 )
 
-// NotificationSender defines the interface for dispatching notification payloads.
-type NotificationSender interface {
-	Send(ctx context.Context, payload BarkPayload) error
+// PushPayload is the unified notification envelope dispatched across APNs and FCM channels.
+type PushPayload struct {
+	Title     string `json:"title"`
+	Body      string `json:"body"`
+	Icon      string `json:"icon,omitempty"`
+	Group     string `json:"group,omitempty"`
+	URL       string `json:"url,omitempty"`
+	Level     string `json:"level,omitempty"` // "active", "timeSensitive", "passive"
+	Sound     string `json:"sound,omitempty"`
+	Badge     int    `json:"badge,omitempty"`
+	Category  string `json:"category,omitempty"`
+	CascadeID string `json:"cascade_id,omitempty"`
 }
 
-// Notifier dispatches alerts to push notification channels (APNs, Bark, FCM, Webhook, etc.)
+// NotificationSender defines the interface for dispatching notification payloads.
+type NotificationSender interface {
+	Send(ctx context.Context, payload PushPayload) error
+}
+
+// Notifier dispatches alerts to push notification channels (APNs, FCM, etc.).
 type Notifier struct {
 	mu           sync.RWMutex
 	cfg          config.NotificationConfig
@@ -27,14 +41,12 @@ type Notifier struct {
 	dedup        *DedupCache
 }
 
-// NewNotifier creates an initialized Notifier instance with Bark and/or FCM clients.
+// NewNotifier creates an initialized Notifier instance with configured push senders (e.g. FCM).
+// Native iOS APNs is attached via AttachAPNsClient.
 func NewNotifier(cfg config.NotificationConfig) *Notifier {
 	n := &Notifier{
 		cfg:   cfg,
 		dedup: NewDedupCache(),
-	}
-	if cfg.BarkEndpoint != "" {
-		n.senders = append(n.senders, NewBarkClient(cfg))
 	}
 	if cfg.FCMEnabled || (cfg.FCMServerKey != "" && cfg.FCMDeviceToken != "") {
 		n.senders = append(n.senders, NewFCMClient(cfg))
@@ -158,7 +170,7 @@ func (n *Notifier) IsEnabled() bool {
 }
 
 // sendToAll dispatches payload to all active notification senders in parallel.
-func (n *Notifier) sendToAll(ctx context.Context, payload BarkPayload) error {
+func (n *Notifier) sendToAll(ctx context.Context, payload PushPayload) error {
 	n.mu.RLock()
 	senders := make([]NotificationSender, 0, len(n.senders)+1)
 	if n.cfg.Enabled {
@@ -257,7 +269,7 @@ func (n *Notifier) NotifyAction(cascadeID, title string, pi *proxy.PendingIntera
 		notifBody = fmt.Sprintf("【%s】%s", title, notifBody)
 	}
 
-	payload := BarkPayload{
+	payload := PushPayload{
 		Title:     notifTitle,
 		Body:      notifBody,
 		Icon:      n.cfg.IconURL,
@@ -294,7 +306,7 @@ func (n *Notifier) NotifyProceed(cascadeID, title string, totalSteps int) error 
 	}
 	notifBody := fmt.Sprintf(MsgBodyProceed, displayTitle)
 
-	payload := BarkPayload{
+	payload := PushPayload{
 		Title:     notifTitle,
 		Body:      notifBody,
 		Icon:      n.cfg.IconURL,
@@ -331,7 +343,7 @@ func (n *Notifier) NotifyCompleted(cascadeID, title string, totalSteps int) erro
 	}
 	notifBody := fmt.Sprintf(MsgBodyCompleted, displayTitle, totalSteps)
 
-	payload := BarkPayload{
+	payload := PushPayload{
 		Title:     notifTitle,
 		Body:      notifBody,
 		Icon:      n.cfg.IconURL,
@@ -368,7 +380,7 @@ func (n *Notifier) NotifyFailed(cascadeID, title string, totalSteps int) error {
 	}
 	notifBody := fmt.Sprintf(MsgBodyFailed, displayTitle)
 
-	payload := BarkPayload{
+	payload := PushPayload{
 		Title:     notifTitle,
 		Body:      notifBody,
 		Icon:      n.cfg.IconURL,
@@ -405,7 +417,7 @@ func (n *Notifier) NotifyCockpitAlert(title, message string) error {
 		message = MsgBodyCockpitOffline
 	}
 
-	payload := BarkPayload{
+	payload := PushPayload{
 		Title:    title,
 		Body:     message,
 		Icon:     n.cfg.IconURL,
@@ -436,7 +448,7 @@ func (n *Notifier) NotifyQuotaAlert(key, title, body string, critical bool) erro
 		return nil
 	}
 
-	payload := BarkPayload{
+	payload := PushPayload{
 		Title:    title,
 		Body:     body,
 		Icon:     n.cfg.IconURL,

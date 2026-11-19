@@ -42,11 +42,10 @@ MULTIGRAVITY_PORT=58900
 # CF_TUNNEL_TOKEN=
 # CF_TUNNEL_ENABLED=1
 
-# 🔔 iOS Bark 实时推送通知 (填入 Device Key 或 Bark 完整 URL)
-# BARK_URL=
-# BARK_ICON=https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/web/icons/icon-192.png
-# BARK_GROUP=Antigravity
-# BARK_SOUND_ACTION=alarm
+# 🔔 iOS 原生 APNs 推送与灵动岛远程更新 (开箱即用，默认开启)
+# APNS_ENABLED=1
+# LIVE_ACTIVITY_PUSH_ENABLED=1
+# APNS_RELAY_URL=https://push.jiuge.space
 # 局域网免配对信任模式 (0: 需配对码[默认推荐], 1: 信任局域网免配对直连)
 # 本机 127.0.0.1 始终免配对，Cloudflare 公网穿透始终强制验证
 MULTIGRAVITY_TRUST_LAN=0
@@ -419,7 +418,6 @@ Write-Host "🚀 常用指令:" -ForegroundColor Yellow
 Write-Host "   • 启动网关主服务:   mgy" -ForegroundColor White
 Write-Host "   • 终端打印配对码:   mgy pair" -ForegroundColor White
 Write-Host "   • 配置座舱报表:     mgy cockpit" -ForegroundColor White
-Write-Host "   • 配置推送 (iOS):   mgy bark" -ForegroundColor White
 Write-Host "   • 配置公网穿透:     mgy cloudflare" -ForegroundColor White
 Write-Host "   • 查看已连接设备:   mgy list" -ForegroundColor White
 Write-Host "   • 清空已配对设备:   mgy clear all" -ForegroundColor White

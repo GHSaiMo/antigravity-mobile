@@ -2,9 +2,7 @@ package notifier
 
 import (
 	"context"
-	"encoding/json"
-	"net/http"
-	"net/http/httptest"
+	"errors"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -14,56 +12,36 @@ import (
 	"antigravity-mobile/internal/proxy"
 )
 
-func TestBarkClientSend(t *testing.T) {
-	var receivedPayload BarkPayload
-	var receivedContentType string
+type mockSender struct {
+	mu       sync.Mutex
+	payloads []PushPayload
+	fail     bool
+	count    atomic.Int32
+}
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		receivedContentType = r.Header.Get("Content-Type")
-		if err := json.NewDecoder(r.Body).Decode(&receivedPayload); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"code":200,"message":"success"}`))
-	}))
-	defer server.Close()
+func (m *mockSender) Send(_ context.Context, p PushPayload) error {
+	m.count.Add(1)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.fail {
+		return errors.New("mock send failure")
+	}
+	m.payloads = append(m.payloads, p)
+	return nil
+}
 
-	cfg := config.NotificationConfig{
-		Enabled:       true,
-		BarkEndpoint:  server.URL,
-		IconURL:       "https://example.com/icon.png",
-		Group:         "Antigravity",
-		SoundAction:   "alarm",
-		SoundComplete: "glass",
-	}
+func (m *mockSender) setFail(v bool) {
+	m.mu.Lock()
+	m.fail = v
+	m.mu.Unlock()
+}
 
-	client := NewBarkClient(cfg)
-	err := client.Send(context.Background(), BarkPayload{
-		Title: "测试标题",
-		Body:  "测试正文",
-		URL:   "antigravity://cascade/cas_123",
-		Level: "timeSensitive",
-		Sound: "alarm",
-	})
-
-	if err != nil {
-		t.Fatalf("expected nil error, got: %v", err)
-	}
-
-	if receivedContentType != "application/json; charset=utf-8" {
-		t.Errorf("expected Content-Type application/json; charset=utf-8, got %q", receivedContentType)
-	}
-
-	if receivedPayload.Title != "测试标题" || receivedPayload.Body != "测试正文" {
-		t.Errorf("unexpected payload content: %+v", receivedPayload)
-	}
-	if receivedPayload.Icon != "https://example.com/icon.png" {
-		t.Errorf("expected default icon to be applied, got: %s", receivedPayload.Icon)
-	}
-	if receivedPayload.Group != "Antigravity" {
-		t.Errorf("expected default group, got: %s", receivedPayload.Group)
-	}
+func (m *mockSender) snapshot() []PushPayload {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]PushPayload, len(m.payloads))
+	copy(out, m.payloads)
+	return out
 }
 
 func TestDedupCache(t *testing.T) {
@@ -94,24 +72,16 @@ func TestDedupCache(t *testing.T) {
 }
 
 func TestNotifierEvents(t *testing.T) {
-	var requestCount int
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requestCount++
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"code":200,"message":"success"}`))
-	}))
-	defer server.Close()
-
+	sender := &mockSender{}
 	cfg := config.NotificationConfig{
 		Enabled:       true,
-		BarkEndpoint:  server.URL,
 		IconURL:       "https://example.com/icon.png",
 		Group:         "Antigravity",
 		SoundAction:   "alarm",
 		SoundComplete: "glass",
 	}
 
-	n := NewNotifier(cfg)
+	n := NewNotifierWithSender(cfg, sender)
 
 	// 1. Action notification
 	pi := &proxy.PendingInteraction{
@@ -123,14 +93,14 @@ func TestNotifierEvents(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NotifyAction failed: %v", err)
 	}
-	if requestCount != 1 {
-		t.Errorf("expected 1 request, got %d", requestCount)
+	if sender.count.Load() != 1 {
+		t.Errorf("expected 1 request, got %d", sender.count.Load())
 	}
 
 	// Duplicate action should be deduped
 	_ = n.NotifyAction("cas_abc", "My Project", pi)
-	if requestCount != 1 {
-		t.Errorf("duplicate action should have been deduped, got %d requests", requestCount)
+	if sender.count.Load() != 1 {
+		t.Errorf("duplicate action should have been deduped, got %d requests", sender.count.Load())
 	}
 
 	// 2. CanProceed notification
@@ -138,8 +108,8 @@ func TestNotifierEvents(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NotifyProceed failed: %v", err)
 	}
-	if requestCount != 2 {
-		t.Errorf("expected 2 requests, got %d", requestCount)
+	if sender.count.Load() != 2 {
+		t.Errorf("expected 2 requests, got %d", sender.count.Load())
 	}
 
 	// 3. Completed notification
@@ -147,41 +117,24 @@ func TestNotifierEvents(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NotifyCompleted failed: %v", err)
 	}
-	if requestCount != 3 {
-		t.Errorf("expected 3 requests, got %d", requestCount)
+	if sender.count.Load() != 3 {
+		t.Errorf("expected 3 requests, got %d", sender.count.Load())
 	}
 }
 
 func TestNotifierDedupRollbackOnFailure(t *testing.T) {
-	var shouldFail bool
-	var requestCount int
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requestCount++
-		if shouldFail {
-			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte(`{"code":500,"message":"internal error"}`))
-			return
-		}
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"code":200,"message":"success"}`))
-	}))
-	defer server.Close()
-
-	cfg := config.NotificationConfig{
-		Enabled:      true,
-		BarkEndpoint: server.URL,
-	}
-	n := NewNotifier(cfg)
+	sender := &mockSender{fail: true}
+	cfg := config.NotificationConfig{Enabled: true}
+	n := NewNotifierWithSender(cfg, sender)
 
 	// Cause failure on first attempt
-	shouldFail = true
 	err := n.NotifyCompleted("cas_fail", "Test Fail", 5)
 	if err == nil {
 		t.Fatalf("expected error on failure, got nil")
 	}
 
-	// Because of dedup rollback, calling it again (after server recovered) should succeed!
-	shouldFail = false
+	// Because of dedup rollback, calling it again (after sender recovered) should succeed!
+	sender.setFail(false)
 	err = n.NotifyCompleted("cas_fail", "Test Fail", 5)
 	if err != nil {
 		t.Fatalf("expected retry after failure to succeed, got %v", err)
@@ -189,19 +142,9 @@ func TestNotifierDedupRollbackOnFailure(t *testing.T) {
 }
 
 func TestNotifierOnTrajectoryUpdate_IgnoresTerminalStates(t *testing.T) {
-	var requestCount atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requestCount.Add(1)
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"code":200,"message":"success"}`))
-	}))
-	defer server.Close()
-
-	cfg := config.NotificationConfig{
-		Enabled:      true,
-		BarkEndpoint: server.URL,
-	}
-	n := NewNotifier(cfg)
+	sender := &mockSender{}
+	cfg := config.NotificationConfig{Enabled: true}
+	n := NewNotifierWithSender(cfg, sender)
 
 	// 1. IDLE status should not trigger completion notification
 	idleDetails := &proxy.TrajectoryDetails{
@@ -243,25 +186,15 @@ func TestNotifierOnTrajectoryUpdate_IgnoresTerminalStates(t *testing.T) {
 	}
 	n.OnTrajectoryUpdate(idleWithPIDetails)
 
-	if requestCount.Load() != 0 {
-		t.Errorf("expected 0 requests for terminal/idle snapshots in OnTrajectoryUpdate, got %d", requestCount.Load())
+	if sender.count.Load() != 0 {
+		t.Errorf("expected 0 requests for terminal/idle snapshots in OnTrajectoryUpdate, got %d", sender.count.Load())
 	}
 }
 
 func TestNotifierOnTrajectoryUpdate_RunningInteraction(t *testing.T) {
-	var requestCount atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requestCount.Add(1)
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"code":200,"message":"success"}`))
-	}))
-	defer server.Close()
-
-	cfg := config.NotificationConfig{
-		Enabled:      true,
-		BarkEndpoint: server.URL,
-	}
-	n := NewNotifier(cfg)
+	sender := &mockSender{}
+	cfg := config.NotificationConfig{Enabled: true}
+	n := NewNotifierWithSender(cfg, sender)
 
 	runningPIDetails := &proxy.TrajectoryDetails{
 		CascadeID:  "cas_running_pi",
@@ -279,89 +212,59 @@ func TestNotifierOnTrajectoryUpdate_RunningInteraction(t *testing.T) {
 	// Await async notification dispatch
 	deadline := time.Now().Add(1 * time.Second)
 	for time.Now().Before(deadline) {
-		if requestCount.Load() == 1 {
+		if sender.count.Load() == 1 {
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	if requestCount.Load() != 1 {
-		t.Errorf("expected 1 request for running pending interaction, got %d", requestCount.Load())
+	if sender.count.Load() != 1 {
+		t.Errorf("expected 1 request for running pending interaction, got %d", sender.count.Load())
 	}
 }
 
 func TestNotifier_NotifyFailed(t *testing.T) {
-	var received BarkPayload
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewDecoder(r.Body).Decode(&received)
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"code":200,"message":"success"}`))
-	}))
-	defer server.Close()
-
-	cfg := config.NotificationConfig{
-		Enabled:      true,
-		BarkEndpoint: server.URL,
-	}
-	n := NewNotifier(cfg)
+	sender := &mockSender{}
+	cfg := config.NotificationConfig{Enabled: true}
+	n := NewNotifierWithSender(cfg, sender)
 
 	err := n.NotifyFailed("cas_fail_1", "Failed task", 5)
 	if err != nil {
 		t.Fatalf("expected nil error, got: %v", err)
 	}
 
-	if received.Title != MsgTitleFailed {
-		t.Errorf("expected title %q, got %q", MsgTitleFailed, received.Title)
+	got := sender.snapshot()
+	if len(got) != 1 {
+		t.Fatalf("expected 1 payload, got %d", len(got))
 	}
-	if received.Level != "timeSensitive" {
-		t.Errorf("expected level timeSensitive, got %q", received.Level)
+	if got[0].Title != MsgTitleFailed {
+		t.Errorf("expected title %q, got %q", MsgTitleFailed, got[0].Title)
+	}
+	if got[0].Level != "timeSensitive" {
+		t.Errorf("expected level timeSensitive, got %q", got[0].Level)
 	}
 }
 
 func TestNotifier_NotifyCockpitAlert(t *testing.T) {
-	var received BarkPayload
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewDecoder(r.Body).Decode(&received)
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"code":200,"message":"success"}`))
-	}))
-	defer server.Close()
-
-	cfg := config.NotificationConfig{
-		Enabled:      true,
-		BarkEndpoint: server.URL,
-	}
-	n := NewNotifier(cfg)
+	sender := &mockSender{}
+	cfg := config.NotificationConfig{Enabled: true}
+	n := NewNotifierWithSender(cfg, sender)
 
 	err := n.NotifyCockpitAlert("自定义报警", "Cockpit 进程离线")
 	if err != nil {
 		t.Fatalf("expected nil error, got: %v", err)
 	}
 
-	if received.Title != "自定义报警" || received.Body != "Cockpit 进程离线" {
-		t.Errorf("unexpected alert content: %+v", received)
+	got := sender.snapshot()
+	if len(got) != 1 || got[0].Title != "自定义报警" || got[0].Body != "Cockpit 进程离线" {
+		t.Errorf("unexpected alert content: %+v", got)
 	}
 }
 
 func TestNotifier_NotifyAction_Branches(t *testing.T) {
-	var mu sync.Mutex
-	var payloads []BarkPayload
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var p BarkPayload
-		json.NewDecoder(r.Body).Decode(&p)
-		mu.Lock()
-		payloads = append(payloads, p)
-		mu.Unlock()
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"code":200,"message":"success"}`))
-	}))
-	defer server.Close()
-
-	cfg := config.NotificationConfig{
-		Enabled:      true,
-		BarkEndpoint: server.URL,
-	}
-	n := NewNotifier(cfg)
+	sender := &mockSender{}
+	cfg := config.NotificationConfig{Enabled: true}
+	n := NewNotifierWithSender(cfg, sender)
 
 	// 1. Permission for write/edit file
 	piFile := &proxy.PendingInteraction{
@@ -384,11 +287,7 @@ func TestNotifier_NotifyAction_Branches(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	mu.Lock()
-	count := len(payloads)
-	mu.Unlock()
-	if count != 2 {
+	if count := len(sender.snapshot()); count != 2 {
 		t.Fatalf("expected 2 notification payloads, got %d", count)
 	}
 }
-

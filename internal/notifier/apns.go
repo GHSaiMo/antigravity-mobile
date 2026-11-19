@@ -113,7 +113,7 @@ func (c *APNsRelayClient) HasLiveActivityTargets() bool {
 }
 
 // Send implements NotificationSender, broadcasting an alert notification to all registered iOS devices.
-func (c *APNsRelayClient) Send(ctx context.Context, payload BarkPayload) error {
+func (c *APNsRelayClient) Send(ctx context.Context, payload PushPayload) error {
 	if c == nil || c.store == nil {
 		return nil
 	}

@@ -62,9 +62,6 @@ func main() {
 		case "cockpit":
 			cockpit.RunCockpitCmd(args[1:])
 			return
-		case "bark":
-			notifier.RunBarkCmd(args[1:])
-			return
 		case "cloudflare", "cf":
 			tunnel.RunCloudflareCmd(args[1:])
 			return
@@ -292,9 +289,6 @@ func runGatewayServer(args []string) {
 				pushes = append(pushes, "APNs 原生 (等待 iOS 设备注册)")
 			}
 		}
-		if notifCfg.BarkEndpoint != "" {
-			pushes = append(pushes, "Bark (iOS)")
-		}
 		if notifCfg.FCMEnabled {
 			pushes = append(pushes, "FCM (Android)")
 		}
@@ -303,13 +297,13 @@ func runGatewayServer(args []string) {
 		}
 	}
 	if pushSummary == "" {
-		pushSummary = "未配置 (支持 APNs / Bark / FCM)"
+		pushSummary = "未配置 (支持 APNs / FCM)"
 	}
 
 	// 5. Web frontend handler
 	webHandler := web.Handler()
 
-	// Start Cockpit quota auto-refresher (every 10 minutes, with auto-launch self-healing & Bark alert)
+	// Start Cockpit quota auto-refresher (every 10 minutes, with auto-launch self-healing & push alert)
 	var cockpitAlertFn func(title, body string)
 	if notif != nil {
 		cockpitAlertFn = func(title, body string) {
@@ -498,7 +492,6 @@ func runHelpCmd() {
   run (默认)        启动网关服务 (局域网直连 + Cloudflare 专属 HTTPS 隧道)
   pair              向正在运行的网关申请并打印新配对二维码与链接
   cockpit           交互式配置 Cockpit 报表服务与安全 Token (支持 status/token/restart)
-  bark              交互式配置 Bark 实时推送与提示音 (iOS 专用, 支持 status/test/set)
   cloudflare (cf)   交互式配置 Cloudflare 专属穿透隧道与域名 (支持 status/reset/enable)
   lan               交互式配置局域网安全配对策略 (支持 status/trust/pair)
   list              查看所有已配对授权的移动设备 (支持在线与离线查看)

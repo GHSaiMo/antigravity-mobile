@@ -52,7 +52,7 @@ endif
 #    -ddns <域名/IP>       : 公网 DDNS 域名或固定 IP 地址 (支持环境变量: DDNS_HOST)
 #
 # 2. 常用环境变量 (推荐在 ~/.multigravity/.env 或项目根目录 .env 中按需配置):
-#    BARK_URL             : iOS Bark 实时推送链接（填入后自动开启任务完成与审批推送通知）
+#    APNS_ENABLED         : 是否启用 iOS 原生 APNs 推送与灵动岛远程更新 (默认 1 开启, 0 关闭)
 #    CF_TUNNEL_ENABLED    : 是否启用 Cloudflare Tunnel 穿透通道 (默认 1 开启, 0 关闭)
 #    CF_WORKER_URL        : Cloudflare Worker 调度服务器地址 (默认 https://mgy-tunnel.multigravity.workers.dev)
 #    CF_TUNNEL_TOKEN      : 自定义 Cloudflare Tunnel Token (若不使用动态调度)

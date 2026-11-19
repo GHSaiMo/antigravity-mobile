@@ -89,7 +89,7 @@ func (f *FCMClient) Endpoint() string {
 }
 
 // Send dispatches a push notification to FCM with automatic retry on failure.
-func (f *FCMClient) Send(ctx context.Context, payload BarkPayload) error {
+func (f *FCMClient) Send(ctx context.Context, payload PushPayload) error {
 	f.mu.RLock()
 	endpoint := f.endpoint
 	serverKey := f.serverKey

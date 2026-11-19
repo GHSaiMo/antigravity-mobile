@@ -114,7 +114,7 @@ Multigravity 统一遵循行业标准的配置与数据隔离规范，全部数�
 | 路径 | 用途说明 | 权限与安全性 |
 | :--- | :--- | :--- |
 | `~/.local/bin/mgy` | 网关主执行程序（二进制文件） | `0755`，免 root 权限 |
-| `~/.multigravity/.env` | 全局环境变量配置文件（端口、FRP、Bark 等） | `0600`，仅当前用户可读写 |
+| `~/.multigravity/.env` | 全局环境变量配置文件（端口、APNs 推送、Cloudflare 等） | `0600`，仅当前用户可读写 |
 | `~/.multigravity/admin_token` | 管理员特权密钥（留空时首次启动自动生成 64 位安全密钥） | `0600`，私密凭证 |
 | `~/.multigravity/auth_salt` | 配对设备 Token 加盐哈希 Salt | `0600`，私密凭证 |
 | `~/.multigravity/auth_store.json` | 已授权配对设备白名单列表（含设备名、公钥哈希、最后活跃时间） | `0600`，私密存储 |
@@ -126,7 +126,7 @@ Multigravity 统一遵循行业标准的配置与数据隔离规范，全部数�
 - `MULTIGRAVITY_PORT`：网关监听端口（默认 `58900`）。
 - `MULTIGRAVITY_HOST`：监听地址（默认留空绑定本机全部 IPv4 网卡 `0.0.0.0`；设为 `127.0.0.1` 仅限本机）。
 - `DDNS_HOST`：公网域名或固定公网 IP。
-- `BARK_URL`：iOS Bark 推送凭证。
+- `APNS_ENABLED` / `LIVE_ACTIVITY_PUSH_ENABLED`：iOS 原生 APNs 推送与远程灵动岛更新开关（默认均开启）。
 - `FRP_ENABLED` / `FRP_SERVER_ADDR` / `FRP_REMOTE_PORT`：FRP 穿透配置。
 
 ---

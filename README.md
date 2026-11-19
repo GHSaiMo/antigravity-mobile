@@ -125,7 +125,7 @@ mgy
 
 ### 7. 零配置公网穿透、智能选路与安全推送
 - **多通道并发测速选路**：同时管理 Cloudflare Tunnel 专属 HTTPS 域名、局域网 Wi-Fi 与 Tailscale，一键并发探活并自动切换最低延迟链路。
-- **分级消息通知与灵动岛**：iOS 原生支持 **APNs 推送与远程 Live Activity 灵动岛状态更新**（经无状态 Cloudflare Relay 转发，同时兼容 Bark）；Android 支持 `dataSync` 前台保活同步与 FCM 推送，在任务完成、等待审批、工作流节点及低额度预警时即时唤醒。
+- **分级消息通知与灵动岛**：iOS 原生支持 **APNs 推送与远程 Live Activity 灵动岛状态更新**（经无状态 Cloudflare Relay 转发，开箱即用）；Android 支持 `dataSync` 前台保活同步与 FCM 推送，在任务完成、等待审批、工作流节点及低额度预警时即时唤醒。
 - **本地优先安全架构**：纯本地直连，无第三方云端中转；设备凭据存入系统 Keychain / EncryptedSharedPreferences，集成敏感路径黑名单与 WS 限流防刷。
 
 ---
@@ -150,7 +150,6 @@ mgy
 mgy                # 前台启动网关并打印配对二维码
 mgy pair           # 申请新的 5 分钟有效配对二维码
 mgy cockpit        # 配置 Cockpit 报表服务与 Token
-mgy bark           # 配置 iOS Bark 推送与提示音
 mgy cloudflare     # 配置 Cloudflare 穿透隧道 (别名: mgy cf)
 mgy list           # 查看已配对设备
 mgy clear all      # 吊销所有已配对设备 (或 mgy clear <dev_id>)
@@ -158,7 +157,7 @@ mgy help           # 查看完整命令与启动参数
 ```
 
 - **默认配置目录**：`~/.multigravity/.env`（自动兼容迁移旧版 `~/.antigravity-mobile/`）。
-- **核心环境变量**：`MULTIGRAVITY_PORT` (`58900`)、`CF_TUNNEL_ENABLED` (`1`)、`BARK_URL`、`MULTIGRAVITY_LOG_LEVEL` (`info`)。
+- **核心环境变量**：`MULTIGRAVITY_PORT` (`58900`)、`CF_TUNNEL_ENABLED` (`1`)、`APNS_ENABLED` (`1`)、`MULTIGRAVITY_LOG_LEVEL` (`info`)。
 - **进阶文档**：安装自测与排错详见 [安装与运维指南](docs/installation_and_testing_guide.md)，RPC 接入细节详见 [language_server RPC 说明](docs/ls_rpc_integration_notes.md)。
 
 <details>

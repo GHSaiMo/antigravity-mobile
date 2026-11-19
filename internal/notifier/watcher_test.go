@@ -63,27 +63,14 @@ func TestWatcherStateTransitions(t *testing.T) {
 
 	port := mockUpstream.Listener.Addr().(*net.TCPAddr).Port
 
-	// 2. Setup Mock Bark Server
-	var barkRequestCount int
-	var barkMu sync.Mutex
-	mockBark := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		barkMu.Lock()
-		barkRequestCount++
-		barkMu.Unlock()
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"code":200,"message":"success"}`))
-	}))
-	defer mockBark.Close()
+	// 2. Setup Mock Push Sender
+	sender := &mockSender{}
 
 	// 3. Initialize Proxy and Notifier
 	p := proxy.NewProxy(inspector.NewInspector(10 * time.Second))
 	p.SetTestUpstream(port, "test-token")
 
-	notifCfg := config.NotificationConfig{
-		Enabled:      true,
-		BarkEndpoint: mockBark.URL,
-	}
-	notif := NewNotifier(notifCfg)
+	notif := NewNotifierWithSender(config.NotificationConfig{Enabled: true}, sender)
 	watcher := NewWatcher(p, notif)
 
 	// Step 1: Initial baseline sync with existing historical IDLE session
@@ -92,11 +79,9 @@ func TestWatcherStateTransitions(t *testing.T) {
 		t.Errorf("expected 0 running tasks on baseline sync, got %d", running)
 	}
 
-	barkMu.Lock()
-	if barkRequestCount != 0 {
-		t.Errorf("expected 0 bark notifications on initial baseline sync, got %d", barkRequestCount)
+	if sender.count.Load() != 0 {
+		t.Errorf("expected 0 notifications on initial baseline sync, got %d", sender.count.Load())
 	}
-	barkMu.Unlock()
 
 	// Step 2: Session transitions to RUNNING
 	mu.Lock()
@@ -109,11 +94,9 @@ func TestWatcherStateTransitions(t *testing.T) {
 		t.Errorf("expected 1 running task, got %d", running)
 	}
 
-	barkMu.Lock()
-	if barkRequestCount != 0 {
-		t.Errorf("expected 0 bark notifications while running without action, got %d", barkRequestCount)
+	if sender.count.Load() != 0 {
+		t.Errorf("expected 0 notifications while running without action, got %d", sender.count.Load())
 	}
-	barkMu.Unlock()
 
 	// Wait for trajectory cache (250ms TTL) to expire so FetchTrajectoryDetails fetches the new IDLE state
 	time.Sleep(300 * time.Millisecond)
@@ -129,11 +112,9 @@ func TestWatcherStateTransitions(t *testing.T) {
 		t.Errorf("expected 0 running tasks after completion, got %d", running)
 	}
 
-	barkMu.Lock()
-	if barkRequestCount != 1 {
-		t.Errorf("expected exactly 1 completion notification on RUNNING->IDLE transition, got %d", barkRequestCount)
+	if sender.count.Load() != 1 {
+		t.Errorf("expected exactly 1 completion notification on RUNNING->IDLE transition, got %d", sender.count.Load())
 	}
-	barkMu.Unlock()
 
 	// Step 4: Subsequent scan with session still IDLE (must not re-trigger!)
 	running = watcher.scanOnce()
@@ -141,11 +122,9 @@ func TestWatcherStateTransitions(t *testing.T) {
 		t.Errorf("expected 0 running tasks, got %d", running)
 	}
 
-	barkMu.Lock()
-	if barkRequestCount != 1 {
-		t.Errorf("expected still 1 notification after second idle scan, got %d", barkRequestCount)
+	if sender.count.Load() != 1 {
+		t.Errorf("expected still 1 notification after second idle scan, got %d", sender.count.Load())
 	}
-	barkMu.Unlock()
 }
 
 func TestWatcherTransitionalAndBackgroundTaskSuppression(t *testing.T) {
@@ -207,25 +186,12 @@ func TestWatcherTransitionalAndBackgroundTaskSuppression(t *testing.T) {
 
 	port := mockUpstream.Listener.Addr().(*net.TCPAddr).Port
 
-	var barkRequestCount int
-	var barkMu sync.Mutex
-	mockBark := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		barkMu.Lock()
-		barkRequestCount++
-		barkMu.Unlock()
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"code":200,"message":"success"}`))
-	}))
-	defer mockBark.Close()
+	sender := &mockSender{}
 
 	p := proxy.NewProxy(inspector.NewInspector(10 * time.Second))
 	p.SetTestUpstream(port, "test-token")
 
-	notifCfg := config.NotificationConfig{
-		Enabled:      true,
-		BarkEndpoint: mockBark.URL,
-	}
-	notif := NewNotifier(notifCfg)
+	notif := NewNotifierWithSender(config.NotificationConfig{Enabled: true}, sender)
 	watcher := NewWatcher(p, notif)
 
 	// Step 1: Baseline sync
@@ -244,11 +210,9 @@ func TestWatcherTransitionalAndBackgroundTaskSuppression(t *testing.T) {
 	}
 
 	// Verify notification was SUPPRESSED!
-	barkMu.Lock()
-	if barkRequestCount != 0 {
-		t.Errorf("expected 0 bark notifications while background task is running, got %d", barkRequestCount)
+	if sender.count.Load() != 0 {
+		t.Errorf("expected 0 notifications while background task is running, got %d", sender.count.Load())
 	}
-	barkMu.Unlock()
 
 	// Step 3: Background task completes! Agent wakes up and provides final response
 	time.Sleep(300 * time.Millisecond) // expire cache
@@ -264,19 +228,15 @@ func TestWatcherTransitionalAndBackgroundTaskSuppression(t *testing.T) {
 	}
 
 	// Verify notification was DELIVERED upon genuine completion!
-	barkMu.Lock()
-	if barkRequestCount != 1 {
-		t.Errorf("expected exactly 1 bark notification upon genuine completion, got %d", barkRequestCount)
+	if sender.count.Load() != 1 {
+		t.Errorf("expected exactly 1 notification upon genuine completion, got %d", sender.count.Load())
 	}
-	barkMu.Unlock()
 
 	// Step 4: Next scan tick (session still IDLE) must not duplicate
 	running = watcher.scanOnce()
-	barkMu.Lock()
-	if barkRequestCount != 1 {
-		t.Errorf("expected still 1 bark notification, got %d", barkRequestCount)
+	if sender.count.Load() != 1 {
+		t.Errorf("expected still 1 notification, got %d", sender.count.Load())
 	}
-	barkMu.Unlock()
 }
 
 func jsonNumber(n int) string {
@@ -339,25 +299,12 @@ func TestWatcherTransientFetchFailureRetry(t *testing.T) {
 
 	port := mockUpstream.Listener.Addr().(*net.TCPAddr).Port
 
-	var barkRequestCount int
-	var barkMu sync.Mutex
-	mockBark := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		barkMu.Lock()
-		barkRequestCount++
-		barkMu.Unlock()
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"code":200,"message":"success"}`))
-	}))
-	defer mockBark.Close()
+	sender := &mockSender{}
 
 	p := proxy.NewProxy(inspector.NewInspector(10 * time.Second))
 	p.SetTestUpstream(port, "test-token")
 
-	notifCfg := config.NotificationConfig{
-		Enabled:      true,
-		BarkEndpoint: mockBark.URL,
-	}
-	notif := NewNotifier(notifCfg)
+	notif := NewNotifierWithSender(config.NotificationConfig{Enabled: true}, sender)
 	watcher := NewWatcher(p, notif)
 
 	// Step 1: Baseline sync with RUNNING
@@ -373,20 +320,16 @@ func TestWatcherTransientFetchFailureRetry(t *testing.T) {
 	// First scan tick: fetch fails!
 	watcher.scanOnce()
 
-	barkMu.Lock()
-	if barkRequestCount != 0 {
-		t.Errorf("expected 0 notifications on failed fetch, got %d", barkRequestCount)
+	if sender.count.Load() != 0 {
+		t.Errorf("expected 0 notifications on failed fetch, got %d", sender.count.Load())
 	}
-	barkMu.Unlock()
 
 	// Second scan tick: fetch succeeds! Notification MUST be delivered!
 	time.Sleep(300 * time.Millisecond)
 	watcher.scanOnce()
 
-	barkMu.Lock()
-	if barkRequestCount != 1 {
-		t.Errorf("expected 1 notification delivered after retry, got %d", barkRequestCount)
+	if sender.count.Load() != 1 {
+		t.Errorf("expected 1 notification delivered after retry, got %d", sender.count.Load())
 	}
-	barkMu.Unlock()
 }
 

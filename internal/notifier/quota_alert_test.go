@@ -10,10 +10,10 @@ import (
 
 type captureSender struct {
 	mu   sync.Mutex
-	sent []BarkPayload
+	sent []PushPayload
 }
 
-func (c *captureSender) Send(_ context.Context, p BarkPayload) error {
+func (c *captureSender) Send(_ context.Context, p PushPayload) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.sent = append(c.sent, p)

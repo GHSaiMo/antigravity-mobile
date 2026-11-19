@@ -13,7 +13,7 @@ func TestUpdateEnvVariables(t *testing.T) {
 
 	initialContent := `# Multigravity Config
 MULTIGRAVITY_PORT=58900
-# BARK_URL=
+# APNS_RELAY_URL=
 # CF_INVITE_CODE=
 `
 	envFile := filepath.Join(tmpDir, ".env")
@@ -22,7 +22,7 @@ MULTIGRAVITY_PORT=58900
 	}
 
 	updates := map[string]string{
-		"BARK_URL":          "https://api.day.app/TESTKEY123",
+		"APNS_RELAY_URL":    "https://push.example.com",
 		"MULTIGRAVITY_PORT": "59000",
 		"CF_WORKER_URL":     "https://custom.worker.dev",
 	}
@@ -41,9 +41,9 @@ MULTIGRAVITY_PORT=58900
 	}
 	content := string(updatedBytes)
 
-	// Check BARK_URL was uncommented and updated
-	if !strings.Contains(content, "BARK_URL=https://api.day.app/TESTKEY123") {
-		t.Errorf("BARK_URL was not updated correctly:\n%s", content)
+	// Check APNS_RELAY_URL was uncommented and updated
+	if !strings.Contains(content, "APNS_RELAY_URL=https://push.example.com") {
+		t.Errorf("APNS_RELAY_URL was not updated correctly:\n%s", content)
 	}
 
 	// Check MULTIGRAVITY_PORT was updated
@@ -57,7 +57,7 @@ MULTIGRAVITY_PORT=58900
 	}
 
 	// Check runtime env was set
-	if os.Getenv("BARK_URL") != "https://api.day.app/TESTKEY123" {
-		t.Errorf("runtime env BARK_URL not set")
+	if os.Getenv("APNS_RELAY_URL") != "https://push.example.com" {
+		t.Errorf("runtime env APNS_RELAY_URL not set")
 	}
 }

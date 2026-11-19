@@ -98,12 +98,10 @@ MULTIGRAVITY_TRUST_LAN=0
 # CF_TUNNEL_TOKEN=
 # CF_TUNNEL_ENABLED=1
 
-# 🔔 iOS Bark 实时推送通知 (填入 Device Key 或 Bark 完整 URL)
-# BARK_URL=
-# BARK_ICON=https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/web/icons/icon-192.png
-# BARK_GROUP=Antigravity
-# BARK_SOUND_ACTION=alarm
-# BARK_SOUND_COMPLETE=glass
+# 🔔 iOS 原生 APNs 推送与灵动岛远程更新 (开箱即用，默认开启)
+# APNS_ENABLED=1
+# LIVE_ACTIVITY_PUSH_ENABLED=1
+# APNS_RELAY_URL=https://push.jiuge.space
 ENVEOF
     chmod 600 "${CONF_DIR}/.env" 2>/dev/null || true
     echo "📝 已生成全局默认配置: ${CONF_DIR}/.env"
@@ -582,7 +580,6 @@ echo "🚀 常用指令:"
 echo "   • 启动网关主服务:   mgy"
 echo "   • 终端打印配对码:   mgy pair"
 echo "   • 配置座舱报表:     mgy cockpit"
-echo "   • 配置推送 (iOS):   mgy bark"
 echo "   • 配置公网穿透:     mgy cloudflare"
 echo "   • 查看已连接设备:   mgy list"
 echo "   • 清空已配对设备:   mgy clear all"

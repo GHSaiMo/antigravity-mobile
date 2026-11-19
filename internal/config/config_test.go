@@ -6,80 +6,26 @@ import (
 	"testing"
 )
 
-func TestNormalizeBarkEndpoint(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    string
-		expected string
-	}{
-		{
-			name:     "User provided full example URL with query and Chinese path",
-			input:    "https://api.day.app/mock_test_device_key_abc123/自定义推送图标（需iOS15或以上）?icon=https://day.app/assets/images/avatar.jpg",
-			expected: "https://api.day.app/mock_test_device_key_abc123",
-		},
-		{
-			name:     "Standard URL with trailing slash",
-			input:    "https://api.day.app/mock_test_device_key_abc123/",
-			expected: "https://api.day.app/mock_test_device_key_abc123",
-		},
-		{
-			name:     "Standard URL without trailing slash",
-			input:    "https://api.day.app/mock_test_device_key_abc123",
-			expected: "https://api.day.app/mock_test_device_key_abc123",
-		},
-		{
-			name:     "Bare key only",
-			input:    "mock_test_device_key_abc123",
-			expected: "https://api.day.app/mock_test_device_key_abc123",
-		},
-		{
-			name:     "Self-hosted server with key",
-			input:    "https://bark.example.com/customkey123",
-			expected: "https://bark.example.com/customkey123",
-		},
-		{
-			name:     "Empty input",
-			input:    "",
-			expected: "",
-		},
-		{
-			name:     "Placeholder key from env.example",
-			input:    "https://api.day.app/YOUR_DEVICE_KEY/",
-			expected: "",
-		},
-		{
-			name:     "Bare placeholder key",
-			input:    "YOUR_DEVICE_KEY",
-			expected: "",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := NormalizeBarkEndpoint(tt.input)
-			if got != tt.expected {
-				t.Errorf("NormalizeBarkEndpoint(%q) = %q, want %q", tt.input, got, tt.expected)
-			}
-		})
-	}
-}
-
 func TestLoadDotEnv(t *testing.T) {
 	tempDir := t.TempDir()
 	envPath := filepath.Join(tempDir, ".env")
 	content := `
 # Comment line
-BARK_URL="https://api.day.app/mock_test_device_key_abc123/"
-BARK_GROUP='MyAntigravity'
-BARK_SOUND_ACTION=alarm
+APNS_RELAY_URL="https://custom-relay.example.com/"
+NOTIFICATION_GROUP='MyAntigravity'
+FCM_SERVER_KEY=test_fcm_key
+FCM_DEVICE_TOKEN=test_fcm_token
 `
 	if err := os.WriteFile(envPath, []byte(content), 0644); err != nil {
 		t.Fatalf("failed to write temp .env: %v", err)
 	}
 
-	os.Unsetenv("BARK_URL")
-	os.Unsetenv("BARK_GROUP")
-	os.Unsetenv("BARK_SOUND_ACTION")
+	t.Setenv("APNS_RELAY_URL", "")
+	t.Setenv("NOTIFICATION_GROUP", "")
+	t.Setenv("FCM_SERVER_KEY", "")
+	t.Setenv("FCM_DEVICE_TOKEN", "")
+	t.Setenv("FCM_ENABLE", "")
+	t.Setenv("NOTIFICATION_ENABLE", "")
 
 	LoadDotEnv(envPath)
 
@@ -87,25 +33,14 @@ BARK_SOUND_ACTION=alarm
 	if !cfg.Enabled {
 		t.Errorf("expected cfg.Enabled = true, got false")
 	}
-	if cfg.BarkEndpoint != "https://api.day.app/mock_test_device_key_abc123" {
-		t.Errorf("unexpected endpoint: %s", cfg.BarkEndpoint)
+	if cfg.APNSRelayURL != "https://custom-relay.example.com" {
+		t.Errorf("unexpected APNSRelayURL: %s", cfg.APNSRelayURL)
 	}
 	if cfg.Group != "MyAntigravity" {
 		t.Errorf("unexpected group: %s", cfg.Group)
 	}
 	if cfg.IconURL != DefaultAntigravityIcon {
 		t.Errorf("unexpected icon: %s", cfg.IconURL)
-	}
-}
-
-
-func TestRedactBarkEndpoint(t *testing.T) {
-	got := RedactBarkEndpoint("https://api.day.app/supersecretkey123/")
-	if got != "https://api.day.app/***" {
-		t.Errorf("unexpected redaction: %s", got)
-	}
-	if RedactBarkEndpoint("") != "" {
-		t.Errorf("empty should stay empty")
 	}
 }
 

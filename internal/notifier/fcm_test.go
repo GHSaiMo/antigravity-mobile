@@ -40,7 +40,7 @@ func TestFCMClientSend_Success(t *testing.T) {
 	}
 
 	client := NewFCMClient(cfg)
-	err := client.Send(context.Background(), BarkPayload{
+	err := client.Send(context.Background(), PushPayload{
 		Title:    "⚠️ Antigravity 需要审批",
 		Body:     "【项目】申请执行命令: make run",
 		URL:      "antigravity://cascade/cas_123?action=review",
@@ -98,7 +98,7 @@ func TestFCMClientSend_Retry(t *testing.T) {
 	}
 
 	client := NewFCMClient(cfg)
-	err := client.Send(context.Background(), BarkPayload{
+	err := client.Send(context.Background(), PushPayload{
 		Title: "Test",
 		Body:  "Retry",
 	})
@@ -118,20 +118,21 @@ func TestFCMClientSend_MissingToken(t *testing.T) {
 		FCMServerKey: "key",
 	}
 	client := NewFCMClient(cfg)
-	err := client.Send(context.Background(), BarkPayload{Title: "Test"})
+	err := client.Send(context.Background(), PushPayload{Title: "Test"})
 	if err == nil {
 		t.Errorf("expected error when device token is empty, got nil")
 	}
 }
 
 func TestNotifier_MultiSender(t *testing.T) {
-	var barkReceived int32
-	barkServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		atomic.AddInt32(&barkReceived, 1)
+	var apnsReceived int32
+	apnsServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&apnsReceived, 1)
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"code":200}`))
+		w.Write([]byte(`{"ok":true,"status":200}`))
 	}))
-	defer barkServer.Close()
+	defer apnsServer.Close()
 
 	var fcmReceived int32
 	fcmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -143,7 +144,6 @@ func TestNotifier_MultiSender(t *testing.T) {
 
 	cfg := config.NotificationConfig{
 		Enabled:        true,
-		BarkEndpoint:   barkServer.URL,
 		FCMEnabled:     true,
 		FCMServerKey:   "fcm_key",
 		FCMDeviceToken: "fcm_token",
@@ -151,9 +151,9 @@ func TestNotifier_MultiSender(t *testing.T) {
 	}
 
 	n := NewNotifier(cfg)
-	if len(n.Senders()) != 2 {
-		t.Fatalf("expected 2 senders, got %d", len(n.Senders()))
-	}
+	store, _ := NewPushDeviceStore("")
+	_ = store.UpsertAlertToken("dev-ios-multi", "ios", sampleHexToken("beef"), "production", nil, nil)
+	n.AttachAPNsClient(NewAPNsRelayClient(apnsServer.URL, store), true)
 
 	pi := &proxy.PendingInteraction{
 		Type:      "permission",
@@ -170,8 +170,8 @@ func TestNotifier_MultiSender(t *testing.T) {
 	// Give goroutines a brief moment to complete
 	time.Sleep(50 * time.Millisecond)
 
-	if atomic.LoadInt32(&barkReceived) != 1 {
-		t.Errorf("expected Bark to receive 1 message, got %d", barkReceived)
+	if atomic.LoadInt32(&apnsReceived) != 1 {
+		t.Errorf("expected APNs to receive 1 message, got %d", apnsReceived)
 	}
 	if atomic.LoadInt32(&fcmReceived) != 1 {
 		t.Errorf("expected FCM to receive 1 message, got %d", fcmReceived)

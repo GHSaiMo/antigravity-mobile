@@ -2,8 +2,6 @@ package config
 
 import (
 	"bufio"
-	"fmt"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,11 +13,9 @@ const DefaultAntigravityIcon = "https://raw.githubusercontent.com/GHSaiMo/antigr
 // DefaultAPNSRelayURL is the default stateless APNs relay Worker URL for App Store iOS clients.
 const DefaultAPNSRelayURL = "https://push.jiuge.space"
 
-// NotificationConfig holds settings for push notifications (APNs / Bark / FCM / Webhook).
+// NotificationConfig holds settings for push notifications (APNs / FCM / Webhook).
 type NotificationConfig struct {
 	Enabled       bool
-	BarkEndpoint  string // Normalized POST/GET endpoint, e.g. "https://api.day.app/YOUR_DEVICE_KEY"
-	BarkRawURL    string
 	IconURL       string
 	Group         string
 	SoundAction   string
@@ -128,81 +124,8 @@ func parseEnvFile(filename string) {
 	}
 }
 
-// IsPlaceholderBarkKey reports whether raw contains unconfigured example placeholders like YOUR_DEVICE_KEY.
-func IsPlaceholderBarkKey(raw string) bool {
-	upper := strings.ToUpper(strings.TrimSpace(raw))
-	return strings.Contains(upper, "YOUR_DEVICE_KEY") || strings.Contains(upper, "YOUR_KEY")
-}
-
-// NormalizeBarkEndpoint extracts the clean Bark API base device URL from various input formats.
-// Supported inputs:
-//   - "myDeviceKey123" -> "https://api.day.app/myDeviceKey123"
-//   - "https://api.day.app/myDeviceKey123/" -> "https://api.day.app/myDeviceKey123"
-//   - "https://api.day.app/myDeviceKey123/xxx?icon=yyy" -> "https://api.day.app/myDeviceKey123"
-//   - "https://my-bark.com/mykey" -> "https://my-bark.com/mykey"
-func NormalizeBarkEndpoint(raw string) string {
-	raw = strings.TrimSpace(raw)
-	if raw == "" || IsPlaceholderBarkKey(raw) {
-		return ""
-	}
-
-	// Case 1: Just the device key without URL scheme
-	if !strings.HasPrefix(raw, "http://") && !strings.HasPrefix(raw, "https://") {
-		// Clean any trailing slashes or path
-		key := strings.Trim(raw, "/")
-		if idx := strings.Index(key, "/"); idx != -1 {
-			key = key[:idx]
-		}
-		if key != "" {
-			return "https://api.day.app/" + key
-		}
-		return ""
-	}
-
-	// Case 2: Full URL
-	u, err := url.Parse(raw)
-	if err != nil {
-		return strings.TrimRight(raw, "/")
-	}
-
-	segments := strings.Split(strings.Trim(u.Path, "/"), "/")
-	if len(segments) > 0 && segments[0] != "" {
-		// Scheme + Host + first path segment (device key)
-		return fmt.Sprintf("%s://%s/%s", u.Scheme, u.Host, segments[0])
-	}
-
-	return fmt.Sprintf("%s://%s", u.Scheme, u.Host)
-}
-
-// RedactBarkEndpoint hides the device key path segment for logs.
-func RedactBarkEndpoint(raw string) string {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return ""
-	}
-	u, err := url.Parse(raw)
-	if err != nil || u.Host == "" {
-		return "(redacted)"
-	}
-	u.RawQuery = ""
-	u.Fragment = ""
-	u.Path = ""
-	u.RawPath = ""
-	return fmt.Sprintf("%s://%s/***", u.Scheme, u.Host)
-}
-
 // GetNotificationConfig parses environment variables and returns a NotificationConfig.
 func GetNotificationConfig() NotificationConfig {
-	barkRaw := os.Getenv("BARK_URL")
-	if barkRaw == "" {
-		barkRaw = os.Getenv("BARK_SERVER_URL")
-	}
-	if barkRaw == "" {
-		barkRaw = os.Getenv("BARK_KEY")
-	}
-
-	endpoint := NormalizeBarkEndpoint(barkRaw)
-
 	fcmServerKey := strings.TrimSpace(os.Getenv("FCM_SERVER_KEY"))
 	fcmDeviceToken := strings.TrimSpace(os.Getenv("FCM_DEVICE_TOKEN"))
 	fcmEndpoint := strings.TrimSpace(os.Getenv("FCM_ENDPOINT"))
@@ -216,38 +139,25 @@ func GetNotificationConfig() NotificationConfig {
 		fcmEnabled = (vLower == "1" || vLower == "true" || vLower == "yes")
 	}
 
-	// Enabled if explicitly set or if a valid Bark or FCM endpoint is present
-	enabled := endpoint != "" || fcmEnabled
+	// Enabled if explicitly set or if FCM is configured (APNs dynamically activates when iOS devices register)
+	enabled := fcmEnabled
 	if v := os.Getenv("NOTIFICATION_ENABLE"); v != "" {
-		vLower := strings.ToLower(v)
-		enabled = (vLower == "1" || vLower == "true" || vLower == "yes")
-	} else if v := os.Getenv("BARK_ENABLE"); v != "" {
 		vLower := strings.ToLower(v)
 		enabled = (vLower == "1" || vLower == "true" || vLower == "yes")
 	}
 
-	icon := os.Getenv("BARK_ICON")
-	if icon == "" {
-		icon = os.Getenv("BARK_ICON_URL")
-	}
+	icon := os.Getenv("NOTIFICATION_ICON")
 	if icon == "" {
 		icon = DefaultAntigravityIcon
 	}
 
-	group := os.Getenv("BARK_GROUP")
+	group := os.Getenv("NOTIFICATION_GROUP")
 	if group == "" {
 		group = "Antigravity"
 	}
 
-	soundAction := os.Getenv("BARK_SOUND_ACTION")
-	if soundAction == "" {
-		soundAction = "alarm"
-	}
-
-	soundComplete := os.Getenv("BARK_SOUND_COMPLETE")
-	if soundComplete == "" {
-		soundComplete = "glass"
-	}
+	soundAction := "alarm"
+	soundComplete := "glass"
 
 	apnsRelayURL := strings.TrimRight(strings.TrimSpace(os.Getenv("APNS_RELAY_URL")), "/")
 	if apnsRelayURL == "" {
@@ -275,8 +185,6 @@ func GetNotificationConfig() NotificationConfig {
 
 	return NotificationConfig{
 		Enabled:                 enabled,
-		BarkEndpoint:            endpoint,
-		BarkRawURL:              barkRaw,
 		IconURL:                 icon,
 		Group:                   group,
 		SoundAction:             soundAction,

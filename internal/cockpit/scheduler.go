@@ -207,7 +207,7 @@ func StartQuotaAutoRefresher(ctx context.Context, defaultInterval time.Duration,
 				return
 			}
 
-			// Both rounds failed and direct quota fetch also failed: notify via Bark and enter backoff cooldown
+			// Both rounds failed and direct quota fetch also failed: notify via push alert and enter backoff cooldown
 			slog.Error("[Cockpit] ❌ Cockpit Tools failed to recover after 2 launch rounds", "err", queryErr)
 			if alertCallback != nil {
 				alertTitle := "⚠️ 座舱助手未能启动"
