@@ -171,6 +171,32 @@ func (w *Watcher) scanOnceWithMaxAge(summaryMaxAge time.Duration) int {
 			// Pre-mark completed sessions in dedup cache
 			if status != "CASCADE_RUN_STATUS_RUNNING" {
 				w.notifier.Dedup().Record(fmt.Sprintf("done:%s:%d", id, steps))
+				// If a session finished while the gateway was restarting, reconcile any leftover Live Activity state.
+				if !runningSubagents[id] {
+					if la := w.notifier.LiveActivity(); la != nil && la.HasStateForCascade(id) {
+						cid, dTitle, st := id, title, steps
+						w.dispatchNotify(func() {
+							details, err := w.proxy.FetchTrajectoryDetails(cid, 250*time.Millisecond)
+							if err == nil && details != nil {
+								if details.PendingInteraction != nil || details.CanProceed {
+									la.SyncFromDetails(context.Background(), details)
+									return
+								}
+								if inProg, _ := IsCascadeInProgress(details, false); inProg {
+									la.SyncFromDetails(context.Background(), details)
+									return
+								}
+								finalStatus := "COMPLETED"
+								if details.Status == "CASCADE_RUN_STATUS_FAILED" || details.Status == "CASCADE_RUN_STATUS_ERROR" || details.HasError {
+									finalStatus = "FAILED"
+								}
+								la.EndSession(context.Background(), cid, details.Title, finalStatus, details.TotalSteps)
+								return
+							}
+							la.EndSession(context.Background(), cid, dTitle, "COMPLETED", st)
+						})
+					}
+				}
 			}
 		}
 		w.hasInitialSync = true

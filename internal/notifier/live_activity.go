@@ -18,7 +18,6 @@ const (
 	liveActivityMinRoutineInterval = 18 * time.Second
 	liveActivityStaleTTL           = 30 * time.Minute
 	liveActivityEndDismissDelaySec = 15
-	liveActivityStartCooldown      = 10 * time.Minute
 )
 
 // LiveActivityAttributes mirrors Swift AgentActivityAttributes static fields for push-to-start.
@@ -62,21 +61,45 @@ type liveActivityTrack struct {
 
 // LiveActivityDispatcher translates Antigravity trajectory states into throttled, budget-aware APNs Live Activity pushes.
 type LiveActivityDispatcher struct {
-	mu      sync.Mutex
-	client  *APNsRelayClient
-	enabled bool
-	nowFunc func() time.Time
-	tracks  map[string]*liveActivityTrack // cascadeID -> tracking state
+	mu           sync.Mutex
+	client       *APNsRelayClient
+	enabled      bool
+	nowFunc      func() time.Time
+	tracks       map[string]*liveActivityTrack // cascadeID -> tracking state
+	endedAt      map[string]time.Time          // cascadeID -> recent EndSession timestamp
+	cascadeLocks map[string]*sync.Mutex        // per-cascade send serialization
 }
 
 // NewLiveActivityDispatcher constructs a LiveActivityDispatcher backed by client.
 func NewLiveActivityDispatcher(client *APNsRelayClient, enabled bool) *LiveActivityDispatcher {
 	return &LiveActivityDispatcher{
-		client:  client,
-		enabled: enabled,
-		nowFunc: time.Now,
-		tracks:  make(map[string]*liveActivityTrack),
+		client:       client,
+		enabled:      enabled,
+		nowFunc:      time.Now,
+		tracks:       make(map[string]*liveActivityTrack),
+		endedAt:      make(map[string]time.Time),
+		cascadeLocks: make(map[string]*sync.Mutex),
 	}
+}
+
+func (d *LiveActivityDispatcher) lockCascade(cascadeID string) func() {
+	d.mu.Lock()
+	cmu, ok := d.cascadeLocks[cascadeID]
+	if !ok {
+		cmu = &sync.Mutex{}
+		d.cascadeLocks[cascadeID] = cmu
+	}
+	d.mu.Unlock()
+	cmu.Lock()
+	return cmu.Unlock
+}
+
+// HasStateForCascade reports whether any device holds a Live Activity update token or Push-to-Start marker for cascadeID.
+func (d *LiveActivityDispatcher) HasStateForCascade(cascadeID string) bool {
+	if !d.IsActive() || strings.TrimSpace(cascadeID) == "" {
+		return false
+	}
+	return d.client.Store().HasLiveActivityStateForCascade(cascadeID)
 }
 
 // IsActive reports whether Live Activity pushing is enabled and at least one iOS device is subscribed.
@@ -223,14 +246,27 @@ func (d *LiveActivityDispatcher) SyncFromDetails(ctx context.Context, details *p
 	if !d.IsActive() || details == nil || strings.TrimSpace(details.CascadeID) == "" {
 		return
 	}
+	// Subagents share the parent conversation's Live Activity and never spawn separate cards.
+	if strings.TrimSpace(details.ParentConversation) != "" {
+		return
+	}
 
 	cascadeID := details.CascadeID
-	targets := d.client.Store().ListLiveActivityTargets(cascadeID, true)
+	defer d.lockCascade(cascadeID)()
+
+	now := d.nowFunc()
+	d.mu.Lock()
+	if ended, ok := d.endedAt[cascadeID]; ok && now.Sub(ended) < 3*time.Second {
+		d.mu.Unlock()
+		return
+	}
+	d.mu.Unlock()
+
+	targets := d.client.Store().ListLiveActivityTargetsAt(cascadeID, true, now)
 	if len(targets) == 0 {
 		return
 	}
 
-	now := d.nowFunc()
 	state := BuildContentState(details, now)
 	stateHash := hashContentState(state)
 
@@ -249,8 +285,8 @@ func (d *LiveActivityDispatcher) SyncFromDetails(ctx context.Context, details *p
 	var toSend []APNsLiveActivityTarget
 	for _, t := range targets {
 		if t.IsStart {
-			// Only remote-start once per cascade cooldown window so we never spam duplicate activities
-			if lastStart, ok := tr.startedAt[t.DeviceID]; ok && now.Sub(lastStart) < liveActivityStartCooldown {
+			// Only remote-start once per working run (backed by both in-memory track and persisted store).
+			if lastStart, ok := tr.startedAt[t.DeviceID]; ok && now.Sub(lastStart) < liveActivityStartRunTTL {
 				continue
 			}
 			tr.startedAt[t.DeviceID] = now
@@ -291,6 +327,8 @@ func (d *LiveActivityDispatcher) SyncFromDetails(ctx context.Context, details *p
 			ContentState: state,
 		}
 		if target.IsStart {
+			// Persist Push-to-Start guard before network send so a concurrent gateway restart never re-starts this run.
+			d.client.Store().MarkLiveActivityStarted(target.DeviceID, cascadeID, now)
 			req.Event = "start"
 			req.Priority = 10
 			req.AttributesType = "AgentActivityAttributes"
@@ -308,6 +346,14 @@ func (d *LiveActivityDispatcher) SyncFromDetails(ctx context.Context, details *p
 		}
 
 		if err := d.client.SendLiveActivity(ctx, target, req); err != nil {
+			if target.IsStart {
+				d.client.Store().ClearLiveActivityStarted(target.DeviceID, cascadeID)
+				d.mu.Lock()
+				if curTr := d.tracks[cascadeID]; curTr != nil {
+					delete(curTr.startedAt, target.DeviceID)
+				}
+				d.mu.Unlock()
+			}
 			slog.Warn("[APNs] Live Activity push failed",
 				"event", req.Event,
 				"device_id", target.DeviceID,
@@ -324,18 +370,25 @@ func (d *LiveActivityDispatcher) EndSession(ctx context.Context, cascadeID, titl
 		return
 	}
 
+	defer d.lockCascade(cascadeID)()
+
+	now := d.nowFunc()
+
 	// Only send "end" to devices that already hold an active update token (never push-to-start an ended session).
-	targets := d.client.Store().ListLiveActivityTargets(cascadeID, false)
+	targets := d.client.Store().ListLiveActivityTargetsAt(cascadeID, false, now)
 
 	d.mu.Lock()
 	delete(d.tracks, cascadeID)
+	d.endedAt[cascadeID] = now
 	d.mu.Unlock()
+
+	// Clear persisted Push-to-Start run markers so a future working run in this conversation can Push-to-Start cleanly.
+	d.client.Store().ClearLiveActivityStartedForCascade(cascadeID)
 
 	if len(targets) == 0 {
 		return
 	}
 
-	now := d.nowFunc()
 	summary := "任务已完成"
 	switch finalStatus {
 	case "FAILED":
@@ -392,6 +445,11 @@ func (d *LiveActivityDispatcher) CleanupStaleTracks(maxAge time.Duration) {
 	for cid, tr := range d.tracks {
 		if now.Sub(tr.lastSentAt) > maxAge {
 			delete(d.tracks, cid)
+		}
+	}
+	for cid, ended := range d.endedAt {
+		if now.Sub(ended) > maxAge {
+			delete(d.endedAt, cid)
 		}
 	}
 }

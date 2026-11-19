@@ -701,7 +701,7 @@ extension ChatViewModel {
                 try? await apiClient.stopTask(cascadeId: cascadeId, stepIndex: task.stepIndex, taskId: task.id, baseURL: url)
             }
             if settings.enableLiveActivities {
-                activityManager.endActivity(finalStatus: "CANCELLED")
+                activityManager.endActivity(for: cascadeId, finalStatus: "CANCELLED")
             }
             await loadMessages(isBackgroundPoll: true)
         } catch {

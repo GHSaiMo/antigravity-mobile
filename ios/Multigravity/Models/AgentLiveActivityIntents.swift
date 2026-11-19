@@ -37,6 +37,7 @@ nonisolated public struct ApproveAgentActionIntent: LiveActivityIntent {
             if expectedStepIndex >= 0 && interaction.stepIndex != expectedStepIndex {
                 if ActivityManager.shared.findActiveActivity(for: cascadeId) != nil {
                     ActivityManager.shared.updateActivity(
+                        cascadeId: cascadeId,
                         title: snap?.title,
                         status: "WAITING_APPROVAL",
                         stepCount: max(1, snap?.totalSteps ?? 1),
@@ -53,6 +54,7 @@ nonisolated public struct ApproveAgentActionIntent: LiveActivityIntent {
             if kind == "ask_question" || kind == "workflow_approval" || kind == "elicitation" || (interaction.questions?.isEmpty == false) {
                 if ActivityManager.shared.findActiveActivity(for: cascadeId) != nil {
                     ActivityManager.shared.updateActivity(
+                        cascadeId: cascadeId,
                         title: snap?.title,
                         status: "WAITING_APPROVAL",
                         stepCount: max(1, snap?.totalSteps ?? 1),
@@ -94,6 +96,7 @@ nonisolated public struct ApproveAgentActionIntent: LiveActivityIntent {
         }
         if ActivityManager.shared.findActiveActivity(for: cascadeId) != nil {
             ActivityManager.shared.updateActivity(
+                cascadeId: cascadeId,
                 title: snap?.title,
                 status: "RUNNING",
                 stepCount: max(1, snap?.totalSteps ?? 1),
@@ -139,6 +142,7 @@ nonisolated public struct RejectAgentActionIntent: LiveActivityIntent {
             if expectedStepIndex >= 0 && interaction.stepIndex != expectedStepIndex {
                 if ActivityManager.shared.findActiveActivity(for: cascadeId) != nil {
                     ActivityManager.shared.updateActivity(
+                        cascadeId: cascadeId,
                         title: snap?.title,
                         status: "WAITING_APPROVAL",
                         stepCount: max(1, snap?.totalSteps ?? 1),
@@ -168,6 +172,7 @@ nonisolated public struct RejectAgentActionIntent: LiveActivityIntent {
         }
         if ActivityManager.shared.findActiveActivity(for: cascadeId) != nil {
             ActivityManager.shared.updateActivity(
+                cascadeId: cascadeId,
                 title: snap?.title,
                 status: "RUNNING",
                 stepCount: max(1, snap?.totalSteps ?? 1),
@@ -205,7 +210,7 @@ nonisolated public struct StopAgentRunIntent: LiveActivityIntent {
         }
         try? await APIClient.shared.cancelTask(cascadeId: cascadeId, killBackgroundTasks: true, baseURL: baseURL)
         if ActivityManager.shared.findActiveActivity(for: cascadeId) != nil {
-            ActivityManager.shared.endActivity(finalStatus: "CANCELLED")
+            ActivityManager.shared.endActivity(for: cascadeId, finalStatus: "CANCELLED")
         }
         #endif
         return .result()

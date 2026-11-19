@@ -414,3 +414,120 @@ func TestAPNsRelayClient_SoundPreferences(t *testing.T) {
 		t.Errorf("dev-custom silence complete sound = %q, want silence.caf", got)
 	}
 }
+
+func TestLiveActivityDispatcher_NoDuplicateStartAcrossRestartAndConcurrentSessions(t *testing.T) {
+	var (
+		mu       sync.Mutex
+		requests []APNsLiveActivityRequest
+	)
+
+	relaySrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req APNsLiveActivityRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		mu.Lock()
+		requests = append(requests, req)
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(APNsRelayResponse{OK: true, Status: 200})
+	}))
+	defer relaySrv.Close()
+
+	storePath := filepath.Join(t.TempDir(), "push_devices.json")
+	store, err := NewPushDeviceStore(storePath)
+	if err != nil {
+		t.Fatalf("NewPushDeviceStore failed: %v", err)
+	}
+	startTok := sampleHexToken("7777")
+	updateTokB := sampleHexToken("8888")
+	_ = store.UpsertLiveActivityStartToken("dev-1", "ios", startTok, "production", nil)
+
+	curTime := time.Date(2026, 11, 19, 12, 0, 0, 0, time.UTC)
+	disp1 := NewLiveActivityDispatcher(NewAPNsRelayClient(relaySrv.URL, store), true)
+	disp1.nowFunc = func() time.Time { return curTime }
+
+	// 1. Two concurrent working sessions A and B -> each gets exactly 1 Push-to-Start
+	detailsA := &proxy.TrajectoryDetails{
+		CascadeID:  "casc-A",
+		Title:      "Session A",
+		Status:     "CASCADE_RUN_STATUS_RUNNING",
+		TotalSteps: 2,
+	}
+	detailsB := &proxy.TrajectoryDetails{
+		CascadeID:  "casc-B",
+		Title:      "Session B",
+		Status:     "CASCADE_RUN_STATUS_RUNNING",
+		TotalSteps: 1,
+	}
+	// Subagent should be ignored
+	detailsSub := &proxy.TrajectoryDetails{
+		CascadeID:          "casc-sub",
+		Title:              "Subagent",
+		Status:             "CASCADE_RUN_STATUS_RUNNING",
+		TotalSteps:         1,
+		ParentConversation: "casc-A",
+	}
+
+	disp1.SyncFromDetails(context.Background(), detailsA)
+	disp1.SyncFromDetails(context.Background(), detailsB)
+	disp1.SyncFromDetails(context.Background(), detailsSub)
+
+	mu.Lock()
+	if len(requests) != 2 {
+		mu.Unlock()
+		t.Fatalf("expected exactly 2 start requests (A and B, not subagent), got %d", len(requests))
+	}
+	mu.Unlock()
+
+	// 2. Simulate gateway restart 15 minutes later (past old 10m cooldown), with A still lacking update token and B having update token
+	storeReloaded, err := NewPushDeviceStore(storePath)
+	if err != nil {
+		t.Fatalf("reload store failed: %v", err)
+	}
+	_ = storeReloaded.UpsertLiveActivityToken("dev-1", "ios", "casc-B", updateTokB, "production")
+
+	curTime = curTime.Add(15 * time.Minute)
+	disp2 := NewLiveActivityDispatcher(NewAPNsRelayClient(relaySrv.URL, storeReloaded), true)
+	disp2.nowFunc = func() time.Time { return curTime }
+
+	detailsA.TotalSteps = 5
+	detailsB.TotalSteps = 4
+	disp2.SyncFromDetails(context.Background(), detailsA) // MUST NOT send duplicate start!
+	disp2.SyncFromDetails(context.Background(), detailsB) // MUST send update on updateTokB
+
+	mu.Lock()
+	if len(requests) != 3 {
+		mu.Unlock()
+		t.Fatalf("expected 3 total requests (no duplicate start for A, 1 update for B), got %d: %+v", len(requests), requests)
+	}
+	if requests[2].Event != "update" || requests[2].PushToken != updateTokB {
+		mu.Unlock()
+		t.Fatalf("expected update for casc-B on updateTokB, got %+v", requests[2])
+	}
+	mu.Unlock()
+
+	// 3. EndSession for A clears A's persisted start marker even without an update token; B remains intact
+	curTime = curTime.Add(1 * time.Minute)
+	disp2.EndSession(context.Background(), "casc-A", "Session A", "COMPLETED", 5)
+
+	if storeReloaded.HasLiveActivityStateForCascade("casc-A") {
+		t.Errorf("expected casc-A live activity state to be cleared after EndSession")
+	}
+	if !storeReloaded.HasLiveActivityStateForCascade("casc-B") {
+		t.Errorf("expected casc-B live activity state to remain active")
+	}
+
+	// 4. Subsequent working run of A can Push-to-Start cleanly again
+	curTime = curTime.Add(10 * time.Second)
+	detailsA.TotalSteps = 6
+	disp2.SyncFromDetails(context.Background(), detailsA)
+
+	mu.Lock()
+	if len(requests) != 4 || requests[3].Event != "start" || requests[3].Attributes == nil || requests[3].Attributes.CascadeID != "casc-A" {
+		mu.Unlock()
+		t.Fatalf("expected fresh start for new run of casc-A, got %+v", requests)
+	}
+	mu.Unlock()
+}

@@ -163,10 +163,10 @@ extension MarkdownContentView {
     
     static let cjkDelimiterPatterns: [NSRegularExpression] = {
         let patternStrings = [
-            (#"\*\*\*"#, #"(?:[^\*]|\*(?!\*\*))+?"#, #"\*\*\*"#),
-            (#"\*\*"#, #"(?:[^\*]|\*(?!\*))+?"#, #"\*\*"#),
-            (#"~~"#, #"(?:[^~]|~(?!~))+?"#, #"~~"#),
-            (#"(?<![A-Za-z0-9_])__"#, #"(?:[^_]|_(?!_))+?"#, #"__(?![A-Za-z0-9_])"#),
+            (#"(?<!\*)\*\*\*(?!\*)"#, #"(?:[^\*]|\*(?!\*\*))+?"#, #"(?<!\*)\*\*\*(?!\*)"#),
+            (#"(?<!\*)\*\*(?!\*)"#, #"(?:[^\*]|\*(?!\*))+?"#, #"(?<!\*)\*\*(?!\*)"#),
+            (#"(?<!~)~~(?!~)"#, #"(?:[^~]|~(?!~))+?"#, #"(?<!~)~~(?!~)"#),
+            (#"(?<![A-Za-z0-9_])__(?!_)"#, #"(?:[^_]|_(?!_))+?"#, #"(?<!_)__(?![A-Za-z0-9_])"#),
             (#"(?<!\*)\*(?!\*)"#, #"[^\*\n]+?"#, #"(?<!\*)\*(?!\*)"#),
             (#"(?<![A-Za-z0-9_\\\{\}])_(?![_\{])"#, #"[^_\n\{\}]+?"#, #"(?<![_\\\{\}])_(?![A-Za-z0-9_\{])"#)
         ]
@@ -487,7 +487,7 @@ extension MarkdownContentView {
         guard text.contains("*") || text.contains("_") || text.contains("~") else {
             return (text, false)
         }
-        guard !text.contains(codeSpanPlaceholder) && !text.contains(protectedSpanPlaceholder) else {
+        guard !text.contains(codeSpanPlaceholder) && !text.contains(protectedSpanPlaceholder) && !text.contains(bareURLPlaceholder) else {
             return (text, false)
         }
         
@@ -523,11 +523,15 @@ extension MarkdownContentView {
 
     /// Stand-in for an inline code span while delimiter fixing runs (private-use, treated as punctuation).
     static let codeSpanPlaceholder: Character = "\u{E000}"
-    /// Stand-in for Markdown links and URLs while delimiter fixing runs (private-use, treated as punctuation).
+    /// Stand-in for Markdown links and angle-bracket autolinks while delimiter fixing runs (private-use, treated as punctuation).
     static let protectedSpanPlaceholder: Character = "\u{E001}"
+    /// Stand-in for bare URLs while delimiter fixing runs (private-use, treated as non-punctuation).
+    static let bareURLPlaceholder: Character = "\u{E002}"
 
     /// Masks Markdown links `[label](destination)` and bare/autolink URLs (`http://`, `https://`, `file://`)
-    /// so emphasis regexes never insert markers into URLs or pair delimiters across link boundaries.
+    /// so emphasis regexes never insert markers into URLs or pair delimiters across link boundaries,
+    /// and escapes standalone single `~` as `\~` so `cmark-gfm` does not parse range tildes (`1.5~2`, `10~13`)
+    /// as strikethrough spans that swallow surrounding `**bold**` delimiters.
     /// Link labels are still processed recursively so CJK bold/italic inside `[label]` continues to work.
     private static func processProtectedAndDelimiters(in text: String) -> (String, Bool) {
         let chars = Array(text)
@@ -562,8 +566,23 @@ extension MarkdownContentView {
 
             if let bareEnd = scanBareURL(in: chars, from: i) {
                 protectedSpans.append(String(chars[i..<bareEnd]))
-                masked.append(protectedSpanPlaceholder)
+                masked.append(bareURLPlaceholder)
                 i = bareEnd
+                continue
+            }
+
+            if chars[i] == "~" {
+                var j = i
+                while j < chars.count && chars[j] == "~" {
+                    j += 1
+                }
+                if j - i == 1 {
+                    masked.append("\\")
+                    masked.append("~")
+                } else {
+                    masked.append(contentsOf: chars[i..<j])
+                }
+                i = j
                 continue
             }
 
@@ -581,7 +600,7 @@ extension MarkdownContentView {
         var restored = ""
         var spanIdx = 0
         for ch in processed {
-            if ch == protectedSpanPlaceholder, spanIdx < protectedSpans.count {
+            if (ch == protectedSpanPlaceholder || ch == bareURLPlaceholder), spanIdx < protectedSpans.count {
                 restored += protectedSpans[spanIdx]
                 spanIdx += 1
             } else {
@@ -710,8 +729,10 @@ extension MarkdownContentView {
         var hasMarkers = false
         var result = text
         
+        // Matches cmark-gfm punctuation rules: Unicode General Category P or ASCII symbols (`$`, `+`, `~`, etc.),
+        // excluding non-ASCII symbols (`≈`, `¥`, `→`, `℃`) which cmark-gfm treats as non-punctuation.
         func isPunctOrSymbol(_ c: Character) -> Bool {
-            return c.isPunctuation || c.isSymbol || c == codeSpanPlaceholder || c == protectedSpanPlaceholder
+            return c.isPunctuation || (c.isASCII && c.isSymbol) || c == codeSpanPlaceholder || c == protectedSpanPlaceholder
         }
         
         for regex in cjkDelimiterPatterns {

@@ -8,7 +8,8 @@ extension ChatViewModel {
     
     @MainActor
     public func syncLiveActivity() {
-        guard settings.enableLiveActivities, !cascadeId.isEmpty else { return }
+        // Subagents share the parent conversation's Live Activity and never spawn separate cards.
+        guard settings.enableLiveActivities, !cascadeId.isEmpty, parentConversationId == nil else { return }
         
         let isAgentBusy = self.isRunning || self.isAwaitingResponse
         // Standing daemons (IsDaemon=true) never finish on their own; keep them out of the Live Activity
@@ -67,8 +68,9 @@ extension ChatViewModel {
                 )
             }
             
-            if activityManager.hasActiveActivity && activityManager.currentCascadeId == cascadeId {
+            if activityManager.hasActiveActivity(for: cascadeId) {
                 activityManager.updateActivity(
+                    cascadeId: cascadeId,
                     title: currentTitle,
                     status: status,
                     stepCount: self.stepCount,
@@ -98,9 +100,9 @@ extension ChatViewModel {
                 )
             }
         } else {
-            if activityManager.hasActiveActivity && activityManager.currentCascadeId == cascadeId {
+            if activityManager.hasActiveActivity(for: cascadeId) {
                 let finalStatus = self.hasErrorState ? "FAILED" : "COMPLETED"
-                activityManager.endActivity(finalStatus: finalStatus)
+                activityManager.endActivity(for: cascadeId, finalStatus: finalStatus)
             }
         }
     }

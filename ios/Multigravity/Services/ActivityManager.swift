@@ -1,18 +1,42 @@
 import Foundation
 import ActivityKit
+import UIKit
 
 @MainActor
 public final class ActivityManager {
     public static let shared = ActivityManager()
     
-    private var _currentActivity: Activity<AgentActivityAttributes>?
+    private var activeActivitiesByCascade: [String: Activity<AgentActivityAttributes>] = [:]
     private var observersStarted = false
     private var pushToStartTask: Task<Void, Never>?
     private var activityUpdatesTask: Task<Void, Never>?
     private var activityTokenTasks: [String: Task<Void, Never>] = [:]
+    private var activityStateTasks: [String: Task<Void, Never>] = [:]
+    private var startingCascadeIds: Set<String> = []
+    private var activityStartDates: [String: Date] = [:]
+    private var locallyDismissedCascadeIds: Set<String> = []
+    
+    private static let optimisticStartGraceSeconds: TimeInterval = 8.0
     
     public init() {
         deduplicateActivities()
+    }
+
+    private func isAlive(_ state: ActivityState) -> Bool {
+        state == .active || state == .stale
+    }
+
+    private func rankActivity(_ lhs: Activity<AgentActivityAttributes>, _ rhs: Activity<AgentActivityAttributes>) -> Bool {
+        if (lhs.activityState == .active) != (rhs.activityState == .active) {
+            return lhs.activityState == .active
+        }
+        if lhs.content.state.lastUpdated != rhs.content.state.lastUpdated {
+            return lhs.content.state.lastUpdated > rhs.content.state.lastUpdated
+        }
+        if lhs.content.state.stepCount != rhs.content.state.stepCount {
+            return lhs.content.state.stepCount > rhs.content.state.stepCount
+        }
+        return (lhs.pushToken != nil) && (rhs.pushToken == nil)
     }
 
     /// Starts observing ActivityKit push-to-start tokens and active Live Activity update tokens
@@ -29,18 +53,41 @@ public final class ActivityManager {
             }
         }
 
-        // 2. Attach push token observers to any already-active activities on launch
-        for existing in Activity<AgentActivityAttributes>.activities where existing.activityState == .active {
-            observePushToken(for: existing)
-        }
+        // 2. Deduplicate and attach observers to any already-alive activities on launch
+        reconcileActiveActivities()
 
         // 3. Observe newly created activities (including ones launched remotely via Push-to-Start!)
-        activityUpdatesTask = Task {
+        activityUpdatesTask = Task { [weak self] in
             for await activity in Activity<AgentActivityAttributes>.activityUpdates {
-                if activity.activityState == .active {
-                    self._currentActivity = activity
-                    self.observePushToken(for: activity)
+                guard let self else { break }
+                let cid = activity.attributes.cascadeId
+                if self.isAlive(activity.activityState) {
+                    self.locallyDismissedCascadeIds.remove(cid)
+                    self.deduplicateActivities(for: cid)
+                    if let winner = self.findActiveActivity(for: cid) {
+                        self.observePushToken(for: winner)
+                        self.observeStateUpdates(for: winner)
+                        if let existingToken = winner.pushToken {
+                            let hex = existingToken.map { String(format: "%02x", $0) }.joined()
+                            PushNotificationManager.shared.updateLiveActivityToken(cascadeId: cid, tokenHex: hex)
+                        }
+                    }
+                } else {
+                    self.handleActivityEnded(activity, wasDismissed: activity.activityState == .dismissed)
                 }
+            }
+        }
+    }
+
+    /// Reconciles active Live Activities on launch or foreground resume: ensures 1 activity per cascade and fresh token observers.
+    public func reconcileActiveActivities() {
+        deduplicateActivities()
+        for activity in activeActivitiesByCascade.values where isAlive(activity.activityState) {
+            observePushToken(for: activity)
+            observeStateUpdates(for: activity)
+            if let existingToken = activity.pushToken {
+                let hex = existingToken.map { String(format: "%02x", $0) }.joined()
+                PushNotificationManager.shared.updateLiveActivityToken(cascadeId: activity.attributes.cascadeId, tokenHex: hex)
             }
         }
     }
@@ -58,10 +105,55 @@ public final class ActivityManager {
 
         activityTokenTasks[activityId] = Task { [weak self] in
             for await tokenData in activity.pushTokenUpdates {
+                guard let self else { break }
+                guard self.activeActivitiesByCascade[cascadeId]?.id == activityId else { continue }
                 let hex = tokenData.map { String(format: "%02x", $0) }.joined()
                 PushNotificationManager.shared.updateLiveActivityToken(cascadeId: cascadeId, tokenHex: hex)
             }
             self?.activityTokenTasks.removeValue(forKey: activityId)
+        }
+    }
+
+    private func observeStateUpdates(for activity: Activity<AgentActivityAttributes>) {
+        let activityId = activity.id
+        guard activityStateTasks[activityId] == nil else { return }
+
+        activityStateTasks[activityId] = Task { [weak self] in
+            for await state in activity.activityStateUpdates {
+                if state == .ended || state == .dismissed {
+                    self?.handleActivityEnded(activity, wasDismissed: state == .dismissed)
+                    break
+                }
+            }
+            self?.activityStateTasks.removeValue(forKey: activityId)
+        }
+    }
+
+    private func handleActivityEnded(_ activity: Activity<AgentActivityAttributes>, wasDismissed: Bool) {
+        let activityId = activity.id
+        let cid = activity.attributes.cascadeId
+        activityTokenTasks[activityId]?.cancel()
+        activityTokenTasks.removeValue(forKey: activityId)
+        activityStateTasks[activityId]?.cancel()
+        activityStateTasks.removeValue(forKey: activityId)
+
+        guard activeActivitiesByCascade[cid]?.id == activityId else { return }
+
+        if let replacement = Activity<AgentActivityAttributes>.activities
+            .filter({ isAlive($0.activityState) && $0.attributes.cascadeId == cid && $0.id != activityId })
+            .sorted(by: rankActivity)
+            .first {
+            activeActivitiesByCascade[cid] = replacement
+            observePushToken(for: replacement)
+            observeStateUpdates(for: replacement)
+            return
+        }
+
+        activeActivitiesByCascade.removeValue(forKey: cid)
+        activityStartDates.removeValue(forKey: cid)
+        PushNotificationManager.shared.dropCachedLiveActivityToken(cascadeId: cid)
+        if wasDismissed {
+            locallyDismissedCascadeIds.insert(cid)
         }
     }
     
@@ -70,12 +162,12 @@ public final class ActivityManager {
     }
     
     public var currentActivity: Activity<AgentActivityAttributes>? {
-        if let act = _currentActivity, act.activityState == .active {
-            return act
+        let alive = activeActivitiesByCascade.values.filter { isAlive($0.activityState) }
+        if let best = alive.sorted(by: rankActivity).first {
+            return best
         }
-        let active = Activity<AgentActivityAttributes>.activities.first(where: { $0.activityState == .active })
-        _currentActivity = active
-        return active
+        deduplicateActivities()
+        return activeActivitiesByCascade.values.sorted(by: rankActivity).first
     }
     
     public var currentCascadeId: String? {
@@ -85,38 +177,57 @@ public final class ActivityManager {
     public var hasActiveActivity: Bool {
         currentActivity != nil
     }
+
+    public func hasActiveActivity(for cascadeId: String) -> Bool {
+        findActiveActivity(for: cascadeId) != nil
+    }
     
     public func findActiveActivity(for cascadeId: String) -> Activity<AgentActivityAttributes>? {
-        if let current = currentActivity, current.attributes.cascadeId == cascadeId {
-            return current
+        guard !cascadeId.isEmpty else { return nil }
+        if let tracked = activeActivitiesByCascade[cascadeId], isAlive(tracked.activityState) {
+            return tracked
         }
-        return Activity<AgentActivityAttributes>.activities.first {
-            $0.activityState == .active && $0.attributes.cascadeId == cascadeId
+        let matching = Activity<AgentActivityAttributes>.activities
+            .filter { isAlive($0.activityState) && $0.attributes.cascadeId == cascadeId }
+            .sorted(by: rankActivity)
+        if let best = matching.first {
+            activeActivitiesByCascade[cascadeId] = best
+            return best
         }
+        activeActivitiesByCascade.removeValue(forKey: cascadeId)
+        return nil
     }
     
-    public func cleanUpOrphanedActivities(keepingId: String? = nil) {
-        let activeActivities = Activity<AgentActivityAttributes>.activities.filter { $0.activityState == .active }
-        for activity in activeActivities {
-            if let keepId = keepingId, activity.id == keepId {
-                continue
+    /// Ensures each working cascadeId has at most ONE alive Live Activity without terminating other working cascades.
+    public func deduplicateActivities(for targetCascadeId: String? = nil) {
+        let aliveActivities = Activity<AgentActivityAttributes>.activities.filter { activity in
+            guard isAlive(activity.activityState) else { return false }
+            if let targetCascadeId {
+                return activity.attributes.cascadeId == targetCascadeId
             }
-            Task {
-                await activity.end(nil, dismissalPolicy: .immediate)
+            return true
+        }
+
+        if targetCascadeId == nil {
+            let aliveCids = Set(aliveActivities.map { $0.attributes.cascadeId })
+            for cid in Array(activeActivitiesByCascade.keys) where !aliveCids.contains(cid) {
+                activeActivitiesByCascade.removeValue(forKey: cid)
             }
         }
-    }
-    
-    public func deduplicateActivities() {
-        let activeActivities = Activity<AgentActivityAttributes>.activities.filter { $0.activityState == .active }
-        guard activeActivities.count > 1 else { return }
-        
-        let sorted = activeActivities.sorted {
-            $0.content.state.lastUpdated > $1.content.state.lastUpdated
-        }
-        if let primary = sorted.first {
-            self._currentActivity = primary
+
+        let grouped = Dictionary(grouping: aliveActivities, by: { $0.attributes.cascadeId })
+        for (cid, group) in grouped {
+            let sorted = group.sorted(by: rankActivity)
+            guard let primary = sorted.first else { continue }
+            activeActivitiesByCascade[cid] = primary
+            observePushToken(for: primary)
+            observeStateUpdates(for: primary)
+
             for duplicate in sorted.dropFirst() {
+                activityTokenTasks[duplicate.id]?.cancel()
+                activityTokenTasks.removeValue(forKey: duplicate.id)
+                activityStateTasks[duplicate.id]?.cancel()
+                activityStateTasks.removeValue(forKey: duplicate.id)
                 Task {
                     await duplicate.end(nil, dismissalPolicy: .immediate)
                 }
@@ -138,12 +249,18 @@ public final class ActivityManager {
         pendingStepIndex: Int? = nil,
         pendingActionKind: String? = nil
     ) {
-        guard isLiveActivityEnabled else { return }
-        
-        // 1. If an active activity already exists for this conversation, update in-place to avoid flicker & duplicates
-        if let existing = findActiveActivity(for: cascadeId) {
-            self._currentActivity = existing
+        guard isLiveActivityEnabled,
+              !cascadeId.isEmpty,
+              !cascadeId.hasPrefix("local_draft_"),
+              !cascadeId.hasPrefix("draft_") else { return }
+
+        locallyDismissedCascadeIds.remove(cascadeId)
+        deduplicateActivities(for: cascadeId)
+
+        // 1. If an alive activity already exists for this conversation, update in-place to avoid duplicates
+        if findActiveActivity(for: cascadeId) != nil {
             updateActivity(
+                cascadeId: cascadeId,
                 title: title,
                 status: status,
                 stepCount: stepCount,
@@ -156,17 +273,19 @@ public final class ActivityManager {
                 pendingStepIndex: pendingStepIndex,
                 pendingActionKind: pendingActionKind
             )
-            cleanUpOrphanedActivities(keepingId: existing.id)
             return
         }
+
+        // Guard against re-entrant duplicate requests for the same cascade
+        guard !startingCascadeIds.contains(cascadeId) else { return }
+        startingCascadeIds.insert(cascadeId)
+        defer { startingCascadeIds.remove(cascadeId) }
         
-        // 2. End any other existing activities before requesting a new one
-        cleanUpOrphanedActivities()
-        self._currentActivity = nil
-        
-        let attributes = AgentActivityAttributes(conversationTitle: title, cascadeId: cascadeId)
+        let resolvedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let safeTitle = resolvedTitle.isEmpty ? "Multigravity Agent" : resolvedTitle
+        let attributes = AgentActivityAttributes(conversationTitle: safeTitle, cascadeId: cascadeId)
         let initialContentState = AgentActivityAttributes.ContentState(
-            conversationTitle: title,
+            conversationTitle: safeTitle,
             status: status,
             stepCount: max(1, stepCount),
             latestAction: latestAction.isEmpty ? (runningTaskCount > 0 ? String(localized: "正在执行后台任务...") : String(localized: "正在执行...")) : latestAction,
@@ -186,15 +305,18 @@ public final class ActivityManager {
                 content: .init(state: initialContentState, staleDate: nil),
                 pushType: .token
             )
-            self._currentActivity = activity
+            activeActivitiesByCascade[cascadeId] = activity
+            activityStartDates[cascadeId] = Date()
             observePushToken(for: activity)
-            cleanUpOrphanedActivities(keepingId: activity.id)
+            observeStateUpdates(for: activity)
+            deduplicateActivities(for: cascadeId)
         } catch {
-            print("[LiveActivity] Failed to start: \(error)")
+            print("[LiveActivity] Failed to start for \(cascadeId): \(error)")
         }
     }
     
     public func updateActivity(
+        cascadeId: String? = nil,
         title: String? = nil,
         status: String,
         stepCount: Int,
@@ -207,7 +329,13 @@ public final class ActivityManager {
         pendingStepIndex: Int? = nil,
         pendingActionKind: String? = nil
     ) {
-        guard let activity = currentActivity, activity.activityState == .active else { return }
+        let activity: Activity<AgentActivityAttributes>?
+        if let cid = cascadeId, !cid.isEmpty {
+            activity = findActiveActivity(for: cid)
+        } else {
+            activity = currentActivity
+        }
+        guard let activity, isAlive(activity.activityState) else { return }
         
         let actionText: String
         if !latestAction.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -252,6 +380,7 @@ public final class ActivityManager {
     public func updateTitle(cascadeId: String, newTitle: String) {
         guard let activity = findActiveActivity(for: cascadeId) else { return }
         updateActivity(
+            cascadeId: cascadeId,
             title: newTitle,
             status: activity.content.state.status,
             stepCount: activity.content.state.stepCount,
@@ -265,17 +394,51 @@ public final class ActivityManager {
             pendingActionKind: activity.content.state.pendingActionKind
         )
     }
-    
+
     public func endActivity(
+        for cascadeId: String? = nil,
         finalStatus: String = "COMPLETED",
         dismissalPolicy: ActivityUIDismissalPolicy = .after(Date().addingTimeInterval(4))
     ) {
-        let activeActivities = Activity<AgentActivityAttributes>.activities.filter { $0.activityState == .active }
-        guard !activeActivities.isEmpty else {
-            self._currentActivity = nil
+        guard let targetCascadeId = cascadeId?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !targetCascadeId.isEmpty else {
+            endAllActivities(finalStatus: finalStatus, dismissalPolicy: dismissalPolicy)
             return
         }
-        
+
+        let matching = Activity<AgentActivityAttributes>.activities.filter {
+            isAlive($0.activityState) && $0.attributes.cascadeId == targetCascadeId
+        }
+        activeActivitiesByCascade.removeValue(forKey: targetCascadeId)
+        activityStartDates.removeValue(forKey: targetCascadeId)
+        locallyDismissedCascadeIds.remove(targetCascadeId)
+        PushNotificationManager.shared.clearLiveActivityToken(cascadeId: targetCascadeId)
+
+        guard !matching.isEmpty else { return }
+        endActivitiesList(matching, finalStatus: finalStatus, dismissalPolicy: dismissalPolicy)
+    }
+
+    public func endAllActivities(
+        finalStatus: String = "CANCELLED",
+        dismissalPolicy: ActivityUIDismissalPolicy = .immediate
+    ) {
+        let alive = Activity<AgentActivityAttributes>.activities.filter { isAlive($0.activityState) }
+        let cids = Set(alive.map { $0.attributes.cascadeId }).union(activeActivitiesByCascade.keys)
+        activeActivitiesByCascade.removeAll()
+        activityStartDates.removeAll()
+        locallyDismissedCascadeIds.removeAll()
+        for cid in cids {
+            PushNotificationManager.shared.clearLiveActivityToken(cascadeId: cid)
+        }
+        guard !alive.isEmpty else { return }
+        endActivitiesList(alive, finalStatus: finalStatus, dismissalPolicy: dismissalPolicy)
+    }
+
+    private func endActivitiesList(
+        _ activities: [Activity<AgentActivityAttributes>],
+        finalStatus: String,
+        dismissalPolicy: ActivityUIDismissalPolicy
+    ) {
         let summary: String
         switch finalStatus {
         case "COMPLETED":
@@ -287,15 +450,16 @@ public final class ActivityManager {
         default:
             summary = String(localized: "执行已结束")
         }
-        
-        self._currentActivity = nil
-        
-        for activity in activeActivities {
+
+        for activity in activities {
             activityTokenTasks[activity.id]?.cancel()
             activityTokenTasks.removeValue(forKey: activity.id)
-            PushNotificationManager.shared.clearLiveActivityToken(cascadeId: activity.attributes.cascadeId)
+            activityStateTasks[activity.id]?.cancel()
+            activityStateTasks.removeValue(forKey: activity.id)
 
-            let finalTitle = !activity.content.state.conversationTitle.isEmpty ? activity.content.state.conversationTitle : activity.attributes.conversationTitle
+            let finalTitle = !activity.content.state.conversationTitle.isEmpty
+                ? activity.content.state.conversationTitle
+                : activity.attributes.conversationTitle
             let finalState = AgentActivityAttributes.ContentState(
                 conversationTitle: finalTitle,
                 status: finalStatus,
@@ -308,11 +472,81 @@ public final class ActivityManager {
                 hasPendingAction: false,
                 lastUpdated: Date()
             )
-            
+
             Task {
                 await activity.end(
                     .init(state: finalState, staleDate: nil),
                     dismissalPolicy: dismissalPolicy
+                )
+            }
+        }
+    }
+
+    /// Reconciles Live Activities with the authoritative server conversation list:
+    /// guarantees 1 dedicated Live Activity per working session and ends finished/orphaned ones.
+    public func syncWithConversations(_ conversations: [ConversationItem]) {
+        guard AppSettings.shared.enableLiveActivities, isLiveActivityEnabled else {
+            endAllActivities(finalStatus: "CANCELLED", dismissalPolicy: .immediate)
+            return
+        }
+
+        deduplicateActivities()
+
+        let convById = Dictionary(conversations.map { ($0.id, $0) }, uniquingKeysWith: { _, new in new })
+        let now = Date()
+
+        // 1. Reconcile existing alive activities against server state
+        let aliveSnapshot = Array(activeActivitiesByCascade)
+        for (cid, activity) in aliveSnapshot {
+            if let item = convById[cid] {
+                let isWorking = item.status.isRunning || item.status.needsAction || item.hasRunningSubagents
+                if !isWorking {
+                    locallyDismissedCascadeIds.remove(cid)
+                    if let startedAt = activityStartDates[cid],
+                       now.timeIntervalSince(startedAt) < Self.optimisticStartGraceSeconds {
+                        continue
+                    }
+                    let finalStatus = item.status.isError ? "FAILED" : "COMPLETED"
+                    endActivity(for: cid, finalStatus: finalStatus)
+                } else {
+                    let currentTitle = activity.content.state.conversationTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let incomingTitle = item.title.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if (currentTitle.isEmpty || currentTitle == "未命名会话" || currentTitle == "Multigravity Agent"),
+                       !incomingTitle.isEmpty, incomingTitle != "未命名会话" {
+                        updateTitle(cascadeId: cid, newTitle: incomingTitle)
+                    }
+                }
+            } else if !conversations.isEmpty {
+                if let startedAt = activityStartDates[cid],
+                   now.timeIntervalSince(startedAt) < Self.optimisticStartGraceSeconds {
+                    continue
+                }
+                endActivity(for: cid, finalStatus: "COMPLETED")
+            }
+        }
+
+        // 2. Ensure working sessions have 1 dedicated Live Activity when app is in foreground
+        for item in conversations {
+            let isWorking = item.status.isRunning || item.status.needsAction || item.hasRunningSubagents
+            if !isWorking {
+                locallyDismissedCascadeIds.remove(item.id)
+                continue
+            }
+            guard !item.isSubagent, !item.isDraft else { continue }
+            guard UIApplication.shared.applicationState == .active else { continue }
+            guard !locallyDismissedCascadeIds.contains(item.id) else { continue }
+            if findActiveActivity(for: item.id) == nil {
+                let status = item.status.needsAction ? "WAITING_APPROVAL" : "RUNNING"
+                let actionText = item.status.needsAction
+                    ? String(localized: "等待用户确认")
+                    : String(localized: "正在执行任务...")
+                startActivity(
+                    title: item.title,
+                    cascadeId: item.id,
+                    status: status,
+                    stepCount: max(1, item.stepCount),
+                    latestAction: actionText,
+                    hasPendingAction: item.status.needsAction
                 )
             }
         }

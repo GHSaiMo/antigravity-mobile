@@ -235,6 +235,13 @@ public final class PushNotificationManager: NSObject {
         }
     }
 
+    public func dropCachedLiveActivityToken(cascadeId: String) {
+        let cid = cascadeId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cid.isEmpty else { return }
+        activeLiveActivityTokens.removeValue(forKey: cid)
+        lastSyncedActivitySignatures.removeValue(forKey: cid)
+    }
+
     public func clearLiveActivityToken(cascadeId: String) {
         let cid = cascadeId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cid.isEmpty else { return }
@@ -243,8 +250,9 @@ public final class PushNotificationManager: NSObject {
 
         let settings = AppSettings.shared
         guard settings.isPaired, !settings.isDemoMode, let baseURL = settings.serverURL else { return }
+        let authToken = KeychainHelper.shared.read(key: .deviceToken) ?? settings.deviceToken
         Task {
-            await sendDeletePushToken(baseURL: baseURL, tokenType: "live_activity_update", cascadeId: cid, authToken: settings.deviceToken, deviceId: settings.deviceID)
+            await sendDeletePushToken(baseURL: baseURL, tokenType: "live_activity_update", cascadeId: cid, authToken: authToken, deviceId: settings.deviceID)
         }
     }
 

@@ -14,6 +14,7 @@ import (
 
 const (
 	maxActivityTokensPerDevice = 20
+	liveActivityStartRunTTL    = 2 * time.Hour
 	apnsEnvProduction          = "production"
 	apnsEnvSandbox             = "sandbox"
 )
@@ -27,6 +28,7 @@ type PushDeviceRecord struct {
 	PushToStartToken      string            `json:"push_to_start_token,omitempty"`
 	ActivityTokens        map[string]string `json:"activity_tokens,omitempty"` // cascadeID -> update token
 	ActivityUpdatedAt     map[string]int64  `json:"activity_updated_at,omitempty"`
+	ActivityStartedAt     map[string]int64  `json:"activity_started_at,omitempty"` // cascadeID -> push-to-start unix ts for active working run
 	NotificationsEnabled  bool              `json:"notifications_enabled"`
 	LiveActivitiesEnabled bool              `json:"live_activities_enabled"`
 	SoundComplete         string            `json:"sound_complete,omitempty"`
@@ -108,6 +110,7 @@ func (s *PushDeviceStore) getOrCreateLocked(deviceID, platform, apnsEnv string) 
 			APNSEnv:               normalizeAPNSEnv(apnsEnv),
 			ActivityTokens:        make(map[string]string),
 			ActivityUpdatedAt:     make(map[string]int64),
+			ActivityStartedAt:     make(map[string]int64),
 			NotificationsEnabled:  true,
 			LiveActivitiesEnabled: true,
 		}
@@ -124,6 +127,9 @@ func (s *PushDeviceStore) getOrCreateLocked(deviceID, platform, apnsEnv string) 
 		}
 		if rec.ActivityUpdatedAt == nil {
 			rec.ActivityUpdatedAt = make(map[string]int64)
+		}
+		if rec.ActivityStartedAt == nil {
+			rec.ActivityStartedAt = make(map[string]int64)
 		}
 	}
 	return rec
@@ -213,12 +219,30 @@ func (s *PushDeviceStore) UpsertLiveActivityToken(deviceID, platform, cascadeID,
 	rec := s.getOrCreateLocked(deviceID, platform, apnsEnv)
 	rec.ActivityTokens[cascadeID] = token
 	rec.ActivityUpdatedAt[cascadeID] = time.Now().Unix()
+	for otherID, other := range s.devices {
+		if otherID != deviceID && other.ActivityTokens[cascadeID] == token {
+			delete(other.ActivityTokens, cascadeID)
+			delete(other.ActivityUpdatedAt, cascadeID)
+			delete(other.ActivityStartedAt, cascadeID)
+			if other.APNSDeviceToken == "" && other.PushToStartToken == "" && len(other.ActivityTokens) == 0 {
+				delete(s.devices, otherID)
+			}
+		}
+	}
 	pruneActivityTokensLocked(rec)
 	rec.UpdatedAt = time.Now()
 	return s.saveLocked()
 }
 
 func pruneActivityTokensLocked(rec *PushDeviceRecord) {
+	if len(rec.ActivityStartedAt) > 0 {
+		cutoff := time.Now().Add(-24 * time.Hour).Unix()
+		for cid, ts := range rec.ActivityStartedAt {
+			if ts < cutoff {
+				delete(rec.ActivityStartedAt, cid)
+			}
+		}
+	}
 	if len(rec.ActivityTokens) <= maxActivityTokensPerDevice {
 		return
 	}
@@ -325,6 +349,72 @@ func (s *PushDeviceStore) RemoveLiveActivityToken(deviceID, cascadeID string) {
 	_ = s.saveLocked()
 }
 
+// MarkLiveActivityStarted persists that a Push-to-Start was sent for (deviceID, cascadeID)
+// so a gateway restart or cooldown lapse will not spawn duplicate Live Activities for the same working run.
+func (s *PushDeviceStore) MarkLiveActivityStarted(deviceID, cascadeID string, at time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	rec, ok := s.devices[deviceID]
+	if !ok {
+		return
+	}
+	if rec.ActivityStartedAt == nil {
+		rec.ActivityStartedAt = make(map[string]int64)
+	}
+	rec.ActivityStartedAt[cascadeID] = at.Unix()
+	pruneActivityTokensLocked(rec)
+	rec.UpdatedAt = time.Now()
+	_ = s.saveLocked()
+}
+
+// ClearLiveActivityStarted clears the Push-to-Start guard for (deviceID, cascadeID).
+func (s *PushDeviceStore) ClearLiveActivityStarted(deviceID, cascadeID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	rec, ok := s.devices[deviceID]
+	if !ok || rec.ActivityStartedAt == nil {
+		return
+	}
+	if _, exists := rec.ActivityStartedAt[cascadeID]; !exists {
+		return
+	}
+	delete(rec.ActivityStartedAt, cascadeID)
+	rec.UpdatedAt = time.Now()
+	_ = s.saveLocked()
+}
+
+// ClearLiveActivityStartedForCascade clears the Push-to-Start guard for cascadeID across all devices
+// once the working run terminates, allowing future runs in the same conversation to Push-to-Start again.
+func (s *PushDeviceStore) ClearLiveActivityStartedForCascade(cascadeID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	changed := false
+	for _, rec := range s.devices {
+		if rec.ActivityStartedAt != nil {
+			if _, exists := rec.ActivityStartedAt[cascadeID]; exists {
+				delete(rec.ActivityStartedAt, cascadeID)
+				rec.UpdatedAt = time.Now()
+				changed = true
+			}
+		}
+	}
+	if changed {
+		_ = s.saveLocked()
+	}
+}
+
+// HasLiveActivityStateForCascade reports whether any device holds an update token or active Push-to-Start marker for cascadeID.
+func (s *PushDeviceStore) HasLiveActivityStateForCascade(cascadeID string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, rec := range s.devices {
+		if rec.ActivityTokens[cascadeID] != "" || rec.ActivityStartedAt[cascadeID] > 0 {
+			return true
+		}
+	}
+	return false
+}
+
 // ClearAlertToken removes an invalid/unregistered alert token for a device (e.g. after 410 Unregistered).
 func (s *PushDeviceStore) ClearAlertToken(deviceID, badToken string) {
 	s.mu.Lock()
@@ -400,8 +490,14 @@ func (s *PushDeviceStore) ListAlertTargets() []APNsAlertTarget {
 
 // ListLiveActivityTargets returns per-device targets for a cascade:
 // if a device has an active update token for cascadeID, it returns that update target (IsStart=false);
-// otherwise, if the device has a push-to-start token and includeStart is true, it returns the start target (IsStart=true).
+// otherwise, if the device has a push-to-start token and includeStart is true (and no active run start was already sent),
+// it returns the start target (IsStart=true).
 func (s *PushDeviceStore) ListLiveActivityTargets(cascadeID string, includeStart bool) []APNsLiveActivityTarget {
+	return s.ListLiveActivityTargetsAt(cascadeID, includeStart, time.Now())
+}
+
+// ListLiveActivityTargetsAt behaves like ListLiveActivityTargets using an explicit reference clock.
+func (s *PushDeviceStore) ListLiveActivityTargetsAt(cascadeID string, includeStart bool, now time.Time) []APNsLiveActivityTarget {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	var out []APNsLiveActivityTarget
@@ -419,6 +515,9 @@ func (s *PushDeviceStore) ListLiveActivityTargets(cascadeID string, includeStart
 				IsStart:   false,
 			})
 		} else if includeStart && rec.PushToStartToken != "" {
+			if startedTs := rec.ActivityStartedAt[cascadeID]; startedTs > 0 && now.Sub(time.Unix(startedTs, 0)) < liveActivityStartRunTTL {
+				continue
+			}
 			out = append(out, APNsLiveActivityTarget{
 				DeviceID:  rec.DeviceID,
 				CascadeID: cascadeID,
@@ -495,6 +594,9 @@ func (s *PushDeviceStore) load() error {
 		}
 		if rec.ActivityUpdatedAt == nil {
 			rec.ActivityUpdatedAt = make(map[string]int64)
+		}
+		if rec.ActivityStartedAt == nil {
+			rec.ActivityStartedAt = make(map[string]int64)
 		}
 		s.devices[rec.DeviceID] = rec
 	}

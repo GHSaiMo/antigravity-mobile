@@ -325,6 +325,7 @@ public final class ConversationListViewModel {
             updateConversationsWithAnimation(all)
             cacheManager.saveConversations(nonDraftEnriched)
             cacheManager.prewarmSessions(for: all.prefix(15).map(\.id))
+            ActivityManager.shared.syncWithConversations(nonDraftEnriched)
             self.isLoading = false
         } catch {
             // Auto-failover: if current endpoint failed, probe candidate endpoints and retry once with alternative
@@ -364,6 +365,7 @@ public final class ConversationListViewModel {
                     updateConversationsWithAnimation(buffered)
                     cacheManager.saveConversations(nonDraftEnriched)
                     cacheManager.prewarmSessions(for: all.prefix(15).map(\.id))
+                    ActivityManager.shared.syncWithConversations(nonDraftEnriched)
                     self.isLoading = false
                     self.errorMessage = nil
                     await fetchQuotas()
@@ -601,8 +603,8 @@ public final class ConversationListViewModel {
         // Optimistic UI removal
         self.conversations.removeAll(where: { $0.id == item.id })
         self.cacheManager.deleteConversation(cascadeId: item.id)
-        if ActivityManager.shared.currentCascadeId == item.id {
-            ActivityManager.shared.endActivity(finalStatus: "CANCELLED")
+        if ActivityManager.shared.hasActiveActivity(for: item.id) {
+            ActivityManager.shared.endActivity(for: item.id, finalStatus: "CANCELLED")
         }
         
         do {

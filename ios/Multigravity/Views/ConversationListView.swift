@@ -853,6 +853,7 @@ public struct ConversationListView: View {
     }
     
     private func handleAppDidBecomeActive() {
+        ActivityManager.shared.reconcileActiveActivities()
         if AppSettings.shared.isPaired {
             viewModel.startAutoRefresh()
             PushNotificationManager.shared.syncAllTokensIfPaired()

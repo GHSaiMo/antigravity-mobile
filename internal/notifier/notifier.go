@@ -475,8 +475,8 @@ func (n *Notifier) OnTrajectoryUpdate(details *proxy.TrajectoryDetails) {
 		return
 	}
 
-	// Sync Live Activity state asynchronously whenever the cascade is actively running or awaiting interaction.
-	if n.HasLiveActivityTargets() && details.Status == "CASCADE_RUN_STATUS_RUNNING" {
+	// Sync Live Activity state asynchronously whenever the cascade is actively running (excluding subagents).
+	if n.HasLiveActivityTargets() && details.Status == "CASCADE_RUN_STATUS_RUNNING" && strings.TrimSpace(details.ParentConversation) == "" {
 		snap := *details
 		if la := n.LiveActivity(); la != nil {
 			go la.SyncFromDetails(context.Background(), &snap)

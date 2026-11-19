@@ -229,7 +229,7 @@ public struct SettingsSheet: View {
                         .onChange(of: settings.enableLiveActivities) { _, enabled in
                             UIImpactFeedbackGenerator(style: .light).impactOccurred()
                             if !enabled {
-                                ActivityManager.shared.endActivity(finalStatus: "CANCELLED", dismissalPolicy: .immediate)
+                                ActivityManager.shared.endAllActivities(finalStatus: "CANCELLED", dismissalPolicy: .immediate)
                             }
                             pushManager.syncPreferencesWithGateway()
                         }

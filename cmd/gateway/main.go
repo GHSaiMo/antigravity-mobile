@@ -861,7 +861,10 @@ func buildRouter(
 	rootMux.HandleFunc("DELETE /api/v1/device/push-token", func(w http.ResponseWriter, r *http.Request) {
 		deviceID := strings.TrimSpace(r.URL.Query().Get("device_id"))
 		if dev, ok := auth.DeviceFromContext(r.Context()); ok && dev != nil && dev.DeviceID != "" {
-			deviceID = dev.DeviceID
+			isSynthetic := dev.DeviceID == "admin-local" || strings.HasPrefix(dev.DeviceID, "lan-")
+			if !isSynthetic || deviceID == "" {
+				deviceID = dev.DeviceID
+			}
 		}
 		if deviceID == "" {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "device_id is required"})
