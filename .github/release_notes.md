@@ -23,3 +23,7 @@
 - 🔄 **网关新增 `mgy update` 一键自更新与启动版本检测**：
   - 新增 `mgy update` 子命令（支持 `-check`、`-force`、`-version <tag>`），沿用多镜像直连优先 + 本地代理兜底下载策略，全平台支持归档解压、macOS 自动清隔离属性与 ad-hoc 签名、二进制自检及原子原地替换；
   - GitHub Release 产物同步附带 `checksums.txt` 支持 SHA-256 完整性校验，网关启动时新增 12 小时限频静默新版本提示（可通过 `MULTIGRAVITY_UPDATE_CHECK=0` 关闭）。
+- 🌐 **双语官方文档与网关终端多语言自适应（i18n）**：
+  - 新增官方英文文档（`README_EN.md`），与默认中文 `README.md` 实现双向一键切换；
+  - 网关 `mgy` 终端看板、配对二维码、帮助菜单（`mgy help`）及设备管理命令全量接入双语支持；
+  - 支持 macOS / Linux（POSIX locale）与 Windows（Win32 API）系统语言自动探测自适应，并支持通过 `--lang=<zh|en>` 或 `MGY_LANG` 随时覆盖。

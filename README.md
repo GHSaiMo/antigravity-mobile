@@ -1,5 +1,9 @@
 # Multigravity 📱✨
 
+<p align="center">
+  <b>简体中文</b> &nbsp;|&nbsp; <a href="README_EN.md">English</a>
+</p>
+
 > **The Full-Stack Mobile & Remote Companion for Google Antigravity AI Agent.**  
 > 随时随地，在 iPhone、iPad、Android 或手机浏览器上实时对话、审批决策、调度多智能体工作流，并掌握上下文水位与配额消耗。  
 > 
@@ -159,7 +163,7 @@ mgy help           # 查看完整命令与启动参数
 ```
 
 - **默认配置目录**：`~/.multigravity/.env`（自动兼容迁移旧版 `~/.antigravity-mobile/`）。
-- **核心环境变量**：`MULTIGRAVITY_PORT` (`58900`)、`CF_TUNNEL_ENABLED` (`1`)、`APNS_ENABLED` (`1`)、`MULTIGRAVITY_LOG_LEVEL` (`info`)。
+- **核心环境变量**：`MULTIGRAVITY_PORT` (`58900`)、`CF_TUNNEL_ENABLED` (`1`)、`APNS_ENABLED` (`1`)、`MGY_LANG` (`zh` / `en` 自适应)、`MULTIGRAVITY_LOG_LEVEL` (`info`)。
 - **进阶文档**：安装自测与排错详见 [安装与运维指南](docs/installation_and_testing_guide.md)，RPC 接入细节详见 [language_server RPC 说明](docs/ls_rpc_integration_notes.md)。
 
 <details>

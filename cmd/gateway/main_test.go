@@ -345,4 +345,58 @@ func TestCloudURLHeaderGatedOnAuth(t *testing.T) {
 	}
 }
 
+func TestExtractLangFlag(t *testing.T) {
+	tests := []struct {
+		name         string
+		args         []string
+		expectedLang string
+		expectedArgs []string
+	}{
+		{
+			name:         "no flag",
+			args:         []string{"pair", "-port", "58900"},
+			expectedLang: "",
+			expectedArgs: []string{"pair", "-port", "58900"},
+		},
+		{
+			name:         "separated flag",
+			args:         []string{"--lang", "en", "pair"},
+			expectedLang: "en",
+			expectedArgs: []string{"pair"},
+		},
+		{
+			name:         "equals flag",
+			args:         []string{"run", "--lang=zh"},
+			expectedLang: "zh",
+			expectedArgs: []string{"run"},
+		},
+		{
+			name:         "single dash equals flag",
+			args:         []string{"-lang=en", "help"},
+			expectedLang: "en",
+			expectedArgs: []string{"help"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			args := make([]string, len(tc.args))
+			copy(args, tc.args)
+			lang := extractLangFlag(&args)
+			if lang != tc.expectedLang {
+				t.Fatalf("expected lang %q, got %q", tc.expectedLang, lang)
+			}
+			if len(args) != len(tc.expectedArgs) {
+				t.Fatalf("expected args %+v, got %+v", tc.expectedArgs, args)
+			}
+			for i := range args {
+				if args[i] != tc.expectedArgs[i] {
+					t.Errorf("arg[%d] expected %q, got %q", i, tc.expectedArgs[i], args[i])
+				}
+			}
+		})
+	}
+}
+
+
 

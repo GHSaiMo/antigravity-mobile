@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 
+	"antigravity-mobile/internal/i18n"
+
 	"github.com/skip2/go-qrcode"
 )
 
@@ -222,33 +224,43 @@ func FormatPairingQRCode(primaryHost string, port int, code string, ssl bool, ex
 
 	qr, err := qrcode.New(uri, qrcode.Medium)
 	if err != nil {
-		fmt.Fprintf(&b, "\n⚠️  无法生成配对二维码: %v\n🔗 配对链接: %s\n\n", err, uri)
+		fmt.Fprintf(&b, i18n.T("\n⚠️  无法生成配对二维码: %v\n🔗 配对链接: %s\n\n",
+			"\n⚠️  Failed to generate pairing QR code: %v\n🔗 Pairing URL: %s\n\n"), err, uri)
 		return b.String()
 	}
 
-	b.WriteString("\n  📱 Multigravity 客户端扫码一键配对 (5分钟内有效)\n")
+	b.WriteString(i18n.T(
+		"\n  📱 Multigravity 客户端扫码一键配对 (5分钟内有效)\n",
+		"\n  📱 Multigravity Mobile One-Tap Pairing (Valid for 5 mins)\n",
+	))
 	qrStr := qr.ToSmallString(false)
 	b.WriteString(qrStr)
 	if !strings.HasSuffix(qrStr, "\n") {
 		b.WriteString("\n")
 	}
-	b.WriteString("  请使用 Multigravity 手机客户端扫描上方二维码\n")
+	b.WriteString(i18n.T(
+		"  请使用 Multigravity 手机客户端扫描上方二维码\n",
+		"  Scan the QR code above using Multigravity mobile app\n",
+	))
 
 	if ssl || (strings.Contains(primaryHost, ".") && strings.ContainsAny(primaryHost, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")) {
-		b.WriteString("  ☁️  Cloudflare 专属域名已就绪\n")
+		b.WriteString(i18n.T(
+			"  ☁️  Cloudflare 专属域名已就绪\n",
+			"  ☁️  Cloudflare exclusive HTTPS domain ready\n",
+		))
 	} else {
 		scheme := "http://"
 		if ssl {
 			scheme = "https://"
 		}
 		if port != 80 && port != 443 && port != 0 {
-			fmt.Fprintf(&b, "  🌐 访问地址: %s%s:%d\n", scheme, primaryHost, port)
+			fmt.Fprintf(&b, i18n.T("  🌐 访问地址: %s%s:%d\n", "  🌐 Access URL: %s%s:%d\n"), scheme, primaryHost, port)
 		} else {
-			fmt.Fprintf(&b, "  🌐 访问地址: %s%s\n", scheme, primaryHost)
+			fmt.Fprintf(&b, i18n.T("  🌐 访问地址: %s%s\n", "  🌐 Access URL: %s%s\n"), scheme, primaryHost)
 		}
 	}
 
-	fmt.Fprintf(&b, "  🔗 配对 URI: %s\n\n", uri)
+	fmt.Fprintf(&b, i18n.T("  🔗 配对 URI: %s\n\n", "  🔗 Pairing URI: %s\n\n"), uri)
 	return b.String()
 }
 
@@ -287,18 +299,25 @@ func PrintRawPairingQRCode(code string, uri string) {
 	var b strings.Builder
 	qr, err := qrcode.New(uri, qrcode.Medium)
 	if err != nil {
-		fmt.Fprintf(&b, "\n⚠️  无法生成配对二维码: %v\n🔗 配对链接: %s\n\n", err, uri)
+		fmt.Fprintf(&b, i18n.T("\n⚠️  无法生成配对二维码: %v\n🔗 配对链接: %s\n\n",
+			"\n⚠️  Failed to generate pairing QR code: %v\n🔗 Pairing URL: %s\n\n"), err, uri)
 	} else {
-		b.WriteString("\n  📱 Multigravity 客户端扫码一键配对 (5分钟内有效)\n")
+		b.WriteString(i18n.T(
+			"\n  📱 Multigravity 客户端扫码一键配对 (5分钟内有效)\n",
+			"\n  📱 Multigravity Mobile One-Tap Pairing (Valid for 5 mins)\n",
+		))
 		if code != "" {
-			fmt.Fprintf(&b, "  🔑 配对码: %s\n", code)
+			fmt.Fprintf(&b, i18n.T("  🔑 配对码: %s\n", "  🔑 Pairing Code: %s\n"), code)
 		}
 		qrStr := qr.ToSmallString(false)
 		b.WriteString(qrStr)
 		if !strings.HasSuffix(qrStr, "\n") {
 			b.WriteString("\n")
 		}
-		b.WriteString("  请使用 Multigravity 手机客户端扫描上方二维码\n")
+		b.WriteString(i18n.T(
+			"  请使用 Multigravity 手机客户端扫描上方二维码\n",
+			"  Scan the QR code above using Multigravity mobile app\n",
+		))
 
 		if u, err := url.Parse(uri); err == nil {
 			q := u.Query()
@@ -308,20 +327,23 @@ func PrintRawPairingQRCode(code string, uri string) {
 			sVal := q.Get("ssl") == "1" || (q.Get("ssl") == "" && (pVal == 443 || pVal == 0))
 
 			if sVal || (strings.Contains(h, ".") && strings.ContainsAny(h, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")) {
-				b.WriteString("  ☁️  Cloudflare 专属域名已就绪\n")
+				b.WriteString(i18n.T(
+					"  ☁️  Cloudflare 专属域名已就绪\n",
+					"  ☁️  Cloudflare exclusive HTTPS domain ready\n",
+				))
 			} else if h != "" {
 				scheme := "http://"
 				if sVal {
 					scheme = "https://"
 				}
 				if pVal != 80 && pVal != 443 && pVal != 0 {
-					fmt.Fprintf(&b, "  🌐 访问地址: %s%s:%d\n", scheme, h, pVal)
+					fmt.Fprintf(&b, i18n.T("  🌐 访问地址: %s%s:%d\n", "  🌐 Access URL: %s%s:%d\n"), scheme, h, pVal)
 				} else {
-					fmt.Fprintf(&b, "  🌐 访问地址: %s%s\n", scheme, h)
+					fmt.Fprintf(&b, i18n.T("  🌐 访问地址: %s%s\n", "  🌐 Access URL: %s%s\n"), scheme, h)
 				}
 			}
 		}
-		fmt.Fprintf(&b, "  🔗 配对 URI: %s\n\n", uri)
+		fmt.Fprintf(&b, i18n.T("  🔗 配对 URI: %s\n\n", "  🔗 Pairing URI: %s\n\n"), uri)
 	}
 
 	consoleMu.Lock()

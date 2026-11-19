@@ -23,6 +23,7 @@ import (
 	"antigravity-mobile/internal/auth"
 	"antigravity-mobile/internal/cockpit"
 	"antigravity-mobile/internal/config"
+	"antigravity-mobile/internal/i18n"
 	"antigravity-mobile/internal/inspector"
 	"antigravity-mobile/internal/localtls"
 	"antigravity-mobile/internal/logx"
@@ -46,6 +47,31 @@ func envDisabled(name string) bool {
 	return false
 }
 
+// extractLangFlag extracts --lang or -lang flag from the arguments slice and returns the value.
+func extractLangFlag(args *[]string) string {
+	var lang string
+	filtered := make([]string, 0, len(*args))
+	for i := 0; i < len(*args); i++ {
+		arg := (*args)[i]
+		if arg == "--lang" || arg == "-lang" {
+			if i+1 < len(*args) {
+				lang = (*args)[i+1]
+				i++
+				continue
+			}
+		} else if strings.HasPrefix(arg, "--lang=") {
+			lang = strings.TrimPrefix(arg, "--lang=")
+			continue
+		} else if strings.HasPrefix(arg, "-lang=") {
+			lang = strings.TrimPrefix(arg, "-lang=")
+			continue
+		}
+		filtered = append(filtered, arg)
+	}
+	*args = filtered
+	return lang
+}
+
 func main() {
 	// 0. Initialize console output synchronization so concurrent logs don't tear terminal output
 	auth.InitConsoleSync()
@@ -55,6 +81,9 @@ func main() {
 	config.LoadDotEnv()
 
 	args := os.Args[1:]
+	langOverride := extractLangFlag(&args)
+	i18n.Init(langOverride)
+
 	if len(args) > 0 {
 		switch args[0] {
 		case "pair":
@@ -92,7 +121,7 @@ func main() {
 				runGatewayServer(args)
 				return
 			}
-			fmt.Fprintf(os.Stderr, "❌ 未知子命令: %s\n\n", args[0])
+			fmt.Fprintf(os.Stderr, i18n.T("❌ 未知子命令: %s\n\n", "❌ Unknown subcommand: %s\n\n"), args[0])
 			runHelpCmd()
 			os.Exit(1)
 		}
@@ -126,13 +155,18 @@ func runGatewayServer(args []string) {
 	defaultPort := defaultPort()
 
 	fs := flag.NewFlagSet("mgy", flag.ExitOnError)
-	host := fs.String("host", defaultHost, "网关监听的主机/IP 地址（默认 \"\" 绑定所有 IPv4 网卡，设为 127.0.0.1 仅限本机访问）")
-	port := fs.Int("port", defaultPort, "网关 HTTP/WebSocket 监听端口（默认 58900）")
-	printQR := fs.Bool("qr", false, "启动时是否输出配对二维码（默认: 未配对时自动输出，已配对时默认隐藏）")
-	pollSec := fs.Int("poll", 5, "探测本地 Antigravity 实例与健康检查的轮询间隔秒数（默认 5 秒）")
-	ddnsHost := fs.String("ddns", os.Getenv("DDNS_HOST"), "公网 DDNS 域名，用于生成扫码配对链接及外部直连")
-	trustLAN := fs.Bool("trust-lan", config.GetTrustLAN(), "是否信任局域网访问（允许免配对直接使用，默认: 需配对码）")
+	host := fs.String("host", defaultHost, i18n.T("网关监听的主机/IP 地址（默认 \"\" 绑定所有 IPv4 网卡，设为 127.0.0.1 仅限本机访问）", "Gateway listening host/IP (default \"\" binds all IPv4 interfaces; 127.0.0.1 for local only)"))
+	port := fs.Int("port", defaultPort, i18n.T("网关 HTTP/WebSocket 监听端口（默认 58900）", "Gateway HTTP/WebSocket listening port (default 58900)"))
+	printQR := fs.Bool("qr", false, i18n.T("启动时是否输出配对二维码（默认: 未配对时自动输出，已配对时默认隐藏）", "Print pairing QR code on startup (default: auto for unpaired, hidden when paired)"))
+	pollSec := fs.Int("poll", 5, i18n.T("探测本地 Antigravity 实例与健康检查的轮询间隔秒数（默认 5 秒）", "Polling interval in seconds for Antigravity health checks (default 5s)"))
+	ddnsHost := fs.String("ddns", os.Getenv("DDNS_HOST"), i18n.T("公网 DDNS 域名，用于生成扫码配对链接及外部直连", "Public DDNS hostname for pairing link and direct external access"))
+	trustLAN := fs.Bool("trust-lan", config.GetTrustLAN(), i18n.T("是否信任局域网访问（允许免配对直接使用，默认: 需配对码）", "Trust LAN access without pairing code (default: false, pairing code required)"))
+	langFlag := fs.String("lang", "", i18n.T("界面与终端语言 (zh/en，默认自适应系统)", "Interface and terminal language (zh/en, defaults to system locale)"))
 	_ = fs.Parse(args)
+
+	if *langFlag != "" {
+		i18n.SetLang(*langFlag)
+	}
 
 	qrExplicitlySet := false
 	fs.Visit(func(f *flag.Flag) {
@@ -198,7 +232,7 @@ func runGatewayServer(args []string) {
 
 		binPath, err := tunnel.EnsureCloudflaredBinary(cfCtx)
 		if err != nil {
-			slog.Warn("⚠️  Cloudflare 穿透引擎准备失败", "err", err)
+			slog.Warn(i18n.T("⚠️  Cloudflare 穿透引擎准备失败", "⚠️  Failed to prepare Cloudflare tunnel engine"), "err", err)
 		} else {
 			var cfRes *tunnel.CFTunnelResult
 			if cfCfg.Token != "" {
@@ -213,11 +247,11 @@ func runGatewayServer(args []string) {
 			}
 
 			if err != nil {
-				slog.Warn("⚠️  Cloudflare 隧道注册失败", "err", err)
+				slog.Warn(i18n.T("⚠️  Cloudflare 隧道注册失败", "⚠️  Cloudflare tunnel registration failed"), "err", err)
 			} else if cfRes != nil {
 				cfTunnel = tunnel.NewCloudflareTunnel(cfRes, &cfCfg)
 				if err := cfTunnel.Start(cfCtx, binPath); err != nil {
-					slog.Warn("⚠️  启动 cloudflared 失败", "err", err)
+					slog.Warn(i18n.T("⚠️  启动 cloudflared 失败", "⚠️  Failed to start cloudflared"), "err", err)
 				} else {
 					defer cfTunnel.Stop()
 					authHandler.SetCloudflareURL(cfRes.URL)
@@ -265,7 +299,7 @@ func runGatewayServer(args []string) {
 	if notifCfg.APNSEnabled {
 		pushStore, storeErr := notifier.NewPushDeviceStore(notifCfg.PushStorePath)
 		if storeErr != nil {
-			slog.Warn("⚠️  初始化 APNs 设备推送存储失败", "err", storeErr)
+			slog.Warn(i18n.T("⚠️  初始化 APNs 设备推送存储失败", "⚠️  Failed to initialize APNs device push storage"), "err", storeErr)
 		} else {
 			apnsClient := notifier.NewAPNsRelayClient(notifCfg.APNSRelayURL, pushStore)
 			notif.AttachAPNsClient(apnsClient, notifCfg.LiveActivityPushEnabled)
@@ -288,9 +322,9 @@ func runGatewayServer(args []string) {
 		var pushes []string
 		if apns := notif.APNsClient(); apns != nil {
 			if cnt := apns.Store().ActiveDeviceCount(); cnt > 0 {
-				pushes = append(pushes, fmt.Sprintf("APNs 原生 (%d 台 iOS)", cnt))
+				pushes = append(pushes, i18n.Sprintf("APNs 原生 (%d 台 iOS)", "APNs Native (%d iOS device(s))", cnt))
 			} else {
-				pushes = append(pushes, "APNs 原生 (等待 iOS 设备注册)")
+				pushes = append(pushes, i18n.T("APNs 原生 (等待 iOS 设备注册)", "APNs Native (Waiting for iOS device registration)"))
 			}
 		}
 		if notifCfg.FCMEnabled {
@@ -301,7 +335,7 @@ func runGatewayServer(args []string) {
 		}
 	}
 	if pushSummary == "" {
-		pushSummary = "未配置 (支持 APNs / FCM)"
+		pushSummary = i18n.T("未配置 (支持 APNs / FCM)", "Not configured (Supports APNs / FCM)")
 	}
 
 	// 5. Web frontend handler
@@ -392,11 +426,10 @@ func runGatewayServer(args []string) {
 	// Brief pause to allow initial upstream detection
 	time.Sleep(100 * time.Millisecond)
 
-	upstreamDesc := "等待 Antigravity 启动..."
+	upstreamDesc := i18n.T("等待 Antigravity 启动...", "Waiting for Antigravity...")
 	if cur := insp.Current(); cur != nil && cur.IsHealthy {
-		upstreamDesc = fmt.Sprintf("已连接 (PID %d, 端口 %d)", cur.PID, cur.Port)
+		upstreamDesc = i18n.Sprintf("已连接 (PID %d, 端口 %d)", "Connected (PID %d, Port %d)", cur.PID, cur.Port)
 	}
-
 
 	lanDisplay := netAddrs.LANIPv4
 	if lanDisplay == "" && qrHost != "127.0.0.1" && !strings.Contains(qrHost, ":") {
@@ -408,36 +441,46 @@ func runGatewayServer(args []string) {
 	}
 
 	deviceCount := len(authStore.ListDevices())
-	deviceDesc := "0 台"
+	deviceDesc := i18n.T("0 台", "0 devices")
 	if deviceCount > 0 {
-		deviceDesc = fmt.Sprintf("%d 台已配对", deviceCount)
+		deviceDesc = i18n.Sprintf("%d 台已配对", "%d device(s) paired", deviceCount)
 	}
 
 	// 打印清爽紧凑的启动看板
 	fmt.Println()
 	fmt.Printf("  Multigravity (mgy) v%s\n", Version)
 	fmt.Println("  --------------------------------------------------")
-	fmt.Printf("  ➜  本地访问:   http://127.0.0.1:%d (免配对)\n", *port)
+	fmt.Print(i18n.Sprintf("  ➜  本地访问:   http://127.0.0.1:%d (免配对)\n",
+		"  ➜  Local:        http://127.0.0.1:%d (No pairing needed)\n", *port))
 	if lanURL != "-" {
 		if authPolicy.TrustLAN {
-			fmt.Printf("  ➜  局域网络:   %s (已信任免配对)\n", lanURL)
+			fmt.Print(i18n.Sprintf("  ➜  局域网络:   %s (已信任免配对)\n",
+				"  ➜  LAN:          %s (Trusted, no pairing needed)\n", lanURL))
 		} else {
-			fmt.Printf("  ➜  局域网络:   %s (需配对码)\n", lanURL)
+			fmt.Print(i18n.Sprintf("  ➜  局域网络:   %s (需配对码)\n",
+				"  ➜  LAN:          %s (Pairing required)\n", lanURL))
 		}
 	}
 	if cfDomain != "" {
-		fmt.Printf("  ➜  云端穿透:   Cloudflare 专属域名已生成 (强制配对)\n")
+		fmt.Print(i18n.T("  ➜  云端穿透:   Cloudflare 专属域名已生成 (强制配对)\n",
+			"  ➜  Cloud Tunnel: Cloudflare exclusive HTTPS domain active (Pairing required)\n"))
 	} else if *ddnsHost != "" {
-		fmt.Printf("  ➜  云端穿透:   DDNS 专属域名已配置 (强制配对)\n")
+		fmt.Print(i18n.T("  ➜  云端穿透:   DDNS 专属域名已配置 (强制配对)\n",
+			"  ➜  Cloud Tunnel: DDNS domain configured (Pairing required)\n"))
 	}
 	if authPolicy.TrustLAN {
-		fmt.Printf("  ➜  安全策略:   局域网已信任免密放行 (可通过 mgy lan 切换策略)\n")
+		fmt.Print(i18n.T("  ➜  安全策略:   局域网已信任免密放行 (可通过 mgy lan 切换策略)\n",
+			"  ➜  Security:     LAN trusted without pairing (Switch policy via mgy lan)\n"))
 	} else {
-		fmt.Printf("  ➜  安全策略:   局域网标准安全配对 (可通过 mgy lan 切换策略)\n")
+		fmt.Print(i18n.T("  ➜  安全策略:   局域网标准安全配对 (可通过 mgy lan 切换策略)\n",
+			"  ➜  Security:     LAN standard pairing (Switch policy via mgy lan)\n"))
 	}
-	fmt.Printf("  ➜  目标实例:   %s\n", upstreamDesc)
-	fmt.Printf("  ➜  远程推送:   %s\n", pushSummary)
-	fmt.Printf("  ➜  已配设备:   %s\n", deviceDesc)
+	fmt.Print(i18n.Sprintf("  ➜  目标实例:   %s\n",
+		"  ➜  Core Engine:  %s\n", upstreamDesc))
+	fmt.Print(i18n.Sprintf("  ➜  远程推送:   %s\n",
+		"  ➜  Remote Push:  %s\n", pushSummary))
+	fmt.Print(i18n.Sprintf("  ➜  已配设备:   %s\n",
+		"  ➜  Paired:       %s\n", deviceDesc))
 	fmt.Println("  --------------------------------------------------")
 
 	shouldPrintQR := false
@@ -452,10 +495,11 @@ func runGatewayServer(args []string) {
 		if initialSession, err := pairingMgr.GenerateSession(5 * time.Minute); err == nil {
 			auth.PrintPairingQRCode(qrHost, qrPort, initialSession.Code, cfTunnel != nil, extraHosts...)
 		} else {
-			slog.Warn("⚠️  无法生成初始配对二维码", "err", err)
+			slog.Warn(i18n.T("⚠️  无法生成初始配对二维码", "⚠️  Failed to generate initial pairing QR code"), "err", err)
 		}
 	} else if deviceCount > 0 {
-		fmt.Println("  💡 提示: 执行 `mgy pair` 可随时申请新设备配对二维码。")
+		fmt.Println(i18n.T("  💡 提示: 执行 `mgy pair` 可随时申请新设备配对二维码。",
+			"  💡 Tip: Run `mgy pair` anytime to request a new device pairing QR code."))
 		fmt.Println()
 	}
 
@@ -463,7 +507,7 @@ func runGatewayServer(args []string) {
 	updater.StartBackgroundUpdateCheck(watcherCtx, Version)
 
 	<-stopCh
-	slog.Info("🛑 网关正在安全停止...")
+	slog.Info(i18n.T("🛑 网关正在安全停止...", "🛑 Gateway is gracefully shutting down..."))
 
 	// 1. Stop background watchers and inspector polling first to prevent new requests
 	cancelWatcher()
@@ -482,7 +526,7 @@ func runGatewayServer(args []string) {
 	if err := server.Shutdown(ctx); err != nil {
 		slog.Warn("Server shutdown error", "err", err)
 	}
-	slog.Info("✅ 网关已完全退出。")
+	slog.Info(i18n.T("✅ 网关已完全退出。", "✅ Gateway stopped cleanly."))
 }
 
 func runVersionCmd() {
@@ -490,7 +534,8 @@ func runVersionCmd() {
 }
 
 func runHelpCmd() {
-	fmt.Printf(`Multigravity (mgy) %s - Unified Mobile Gateway for Antigravity
+	if i18n.IsZh() {
+		fmt.Printf(`Multigravity (mgy) %s - Antigravity 统一移动伴侣与远程网关
 
 用法:
   mgy [子命令] [参数]
@@ -514,14 +559,44 @@ func runHelpCmd() {
   -poll <秒数>            Antigravity 实例轮询间隔 (默认: 5秒)
   -ddns <域名/IP>         公网 DDNS 域名或固定 IP 地址
   -trust-lan=<true|false> 是否信任局域网免配对访问 (默认: false, 环境变量: MULTIGRAVITY_TRUST_LAN)
+  -lang <zh|en>           界面与终端语言 (默认: 自适应系统语言, 环境变量: MGY_LANG)
   -open=<true|false>      启动时是否自动在默认浏览器打开主页 (默认: true, 无头系统自动跳过)
 `, Version)
+	} else {
+		fmt.Printf(`Multigravity (mgy) %s - Unified Mobile Gateway for Antigravity
+
+Usage:
+  mgy [subcommand] [flags]
+
+Common Subcommands:
+  run (default)     Start gateway service (Direct LAN + Cloudflare exclusive HTTPS tunnel)
+  pair              Request and print a new pairing QR code and link
+  cockpit           Interactively configure Cockpit report service & token (supports status/token/restart)
+  cloudflare (cf)   Interactively configure Cloudflare tunnel & domain (supports status/reset/enable)
+  lan               Interactively configure LAN pairing security policy (supports status/trust/pair)
+  list              List all paired and authorized mobile devices (online & offline)
+  clear [all|id]    Revoke paired device credentials (supports: mgy clear all or mgy clear <device-id>)
+  update            Check and update mgy gateway to the latest release (supports -check/-force/-version)
+  version           Show current version information
+  help              Show this help message
+
+Gateway Startup Flags (for mgy or mgy run):
+  -port <number>          HTTP/WebSocket listening port (default: 58900, env: MULTIGRAVITY_PORT)
+  -host <host/IP>         Listening address (default: "" binds all IPv4 interfaces; 127.0.0.1 for local only)
+  -qr=<true|false>        Print pairing QR code on startup (default: true)
+  -poll <seconds>         Antigravity instance health check polling interval (default: 5s)
+  -ddns <domain/IP>       Public DDNS domain or fixed IP address
+  -trust-lan=<true|false> Trust LAN access without pairing code (default: false, env: MULTIGRAVITY_TRUST_LAN)
+  -lang <zh|en>           Interface and terminal language (default: auto-detect system locale, env: MGY_LANG)
+  -open=<true|false>      Auto-open homepage in default browser on launch (default: true, skipped on headless)
+`, Version)
+	}
 }
 
 func runPairCmd(args []string) {
 	fs := flag.NewFlagSet("pair", flag.ExitOnError)
 	port := defaultPort()
-	portFlag := fs.Int("port", port, "网关端口")
+	portFlag := fs.Int("port", port, i18n.T("网关端口", "Gateway port"))
 	_ = fs.Parse(args)
 
 	targetPort := *portFlag
@@ -542,7 +617,7 @@ func runPairCmd(args []string) {
 	u := fmt.Sprintf("http://127.0.0.1:%d/api/v1/auth/session", targetPort)
 	req, err := http.NewRequest(http.MethodPost, u, nil)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "❌ 创建请求失败: %v\n", err)
+		fmt.Fprint(os.Stderr, i18n.Sprintf("❌ 创建请求失败: %v\n", "❌ Failed to create request: %v\n", err))
 		os.Exit(1)
 	}
 	if adminToken != "" {
@@ -550,17 +625,18 @@ func runPairCmd(args []string) {
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "❌ 无法连接到网关 (端口 %d): %v\n", targetPort, err)
-		fmt.Fprintf(os.Stderr, "   请确认网关是否已在运行 (启动命令: mgy 或 mgy run)\n")
+		fmt.Fprint(os.Stderr, i18n.Sprintf("❌ 无法连接到网关 (端口 %d): %v\n", "❌ Unable to connect to gateway (port %d): %v\n", targetPort, err))
+		fmt.Fprint(os.Stderr, i18n.T("   请确认网关是否已在运行 (启动命令: mgy 或 mgy run)\n", "   Please make sure the gateway is running (start with: mgy or mgy run)\n"))
 		os.Exit(1)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-		fmt.Fprintf(os.Stderr, "❌ 网关拒绝签发配对码 (HTTP %d): %s\n", resp.StatusCode, strings.TrimSpace(string(body)))
+		fmt.Fprint(os.Stderr, i18n.Sprintf("❌ 网关拒绝签发配对码 (HTTP %d): %s\n", "❌ Gateway refused to issue pairing code (HTTP %d): %s\n", resp.StatusCode, strings.TrimSpace(string(body))))
 		if resp.StatusCode == http.StatusUnauthorized {
-			fmt.Fprintf(os.Stderr, "   提示: 请确认管理员令牌已配置在环境变量 MULTIGRAVITY_ADMIN_TOKEN 或 ~/.multigravity/admin_token。\n")
+			fmt.Fprint(os.Stderr, i18n.T("   提示: 请确认管理员令牌已配置在环境变量 MULTIGRAVITY_ADMIN_TOKEN 或 ~/.multigravity/admin_token。\n",
+				"   Tip: Please ensure admin token is configured in MULTIGRAVITY_ADMIN_TOKEN or ~/.multigravity/admin_token.\n"))
 		}
 		os.Exit(1)
 	}
@@ -570,7 +646,7 @@ func runPairCmd(args []string) {
 		URI  string `json:"uri"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&sessionResp); err != nil {
-		fmt.Fprintf(os.Stderr, "❌ 解析网关返回失败: %v\n", err)
+		fmt.Fprint(os.Stderr, i18n.Sprintf("❌ 解析网关返回失败: %v\n", "❌ Failed to parse gateway response: %v\n", err))
 		os.Exit(1)
 	}
 
@@ -580,7 +656,7 @@ func runPairCmd(args []string) {
 func runListCmd(args []string) {
 	fs := flag.NewFlagSet("list", flag.ExitOnError)
 	port := defaultPort()
-	portFlag := fs.Int("port", port, "网关端口")
+	portFlag := fs.Int("port", port, i18n.T("网关端口", "Gateway port"))
 	_ = fs.Parse(args)
 
 	targetPort := *portFlag
@@ -596,7 +672,7 @@ func runListCmd(args []string) {
 	urlStr := fmt.Sprintf("http://127.0.0.1:%d/api/v1/devices", targetPort)
 
 	var devices []auth.PairedDevice
-	mode := "离线模式 (直接读取本地凭据)"
+	mode := i18n.T("离线模式 (直接读取本地凭据)", "Offline mode (direct read from local credentials)")
 
 	client := &http.Client{
 		Timeout:   2 * time.Second,
@@ -609,13 +685,13 @@ func runListCmd(args []string) {
 
 	if resp, err := client.Do(req); err == nil {
 		if resp.StatusCode == http.StatusOK {
-			mode = "在线模式 (网关实时探测)"
+			mode = i18n.T("在线模式 (网关实时探测)", "Online mode (connected to running gateway)")
 			_ = json.NewDecoder(resp.Body).Decode(&devices)
 		}
 		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
 		_ = resp.Body.Close()
 	}
-	if mode != "在线模式 (网关实时探测)" {
+	if !strings.Contains(mode, i18n.T("在线", "Online")) {
 		store, err := auth.NewAuthStore("")
 		if err == nil {
 			devices = store.ListDevices()
@@ -628,18 +704,19 @@ func runListCmd(args []string) {
 func printDeviceTable(devices []auth.PairedDevice, mode string) {
 	fmt.Println("========================================================================================================")
 	if len(devices) == 0 {
-		fmt.Printf("ℹ️  当前暂无已配对设备 (%s)\n", mode)
-		fmt.Println("💡 提示: 执行 mgy pair 可生成配对二维码与扫码链接。")
+		fmt.Print(i18n.Sprintf("ℹ️  当前暂无已配对设备 (%s)\n", "ℹ️  No paired devices found (%s)\n", mode))
+		fmt.Println(i18n.T("💡 提示: 执行 mgy pair 可生成配对二维码与扫码链接。", "💡 Tip: Run 'mgy pair' to generate a pairing QR code and link."))
 		fmt.Println("========================================================================================================")
 		return
 	}
 
-	fmt.Printf("📱 Multigravity 已配对设备列表 (共 %d 台 | %s)\n", len(devices), mode)
+	fmt.Print(i18n.Sprintf("📱 Multigravity 已配对设备列表 (共 %d 台 | %s)\n", "📱 Multigravity Paired Devices (%d total | %s)\n", len(devices), mode))
 	fmt.Println("========================================================================================================")
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
-	fmt.Fprintln(w, "设备 ID\t设备名称\t平台\t首次配对时间\t最后活跃时间\t最后 IP")
-	fmt.Fprintln(w, "-------\t--------\t----\t------------\t------------\t-------")
+	fmt.Fprintln(w, i18n.T("设备 ID\t设备名称\t平台\t首次配对时间\t最后活跃时间\t最后 IP",
+		"DEVICE ID\tDEVICE NAME\tPLATFORM\tFIRST PAIRED\tLAST ACTIVE\tLAST IP"))
+	fmt.Fprintln(w, "-------\t-----------\t--------\t------------\t------------\t-------")
 	for _, dev := range devices {
 		created := "-"
 		if !dev.CreatedAt.IsZero() {
@@ -655,13 +732,14 @@ func printDeviceTable(devices []auth.PairedDevice, mode string) {
 		}
 		name := dev.DeviceName
 		if name == "" {
-			name = "未知设备"
+			name = i18n.T("未知设备", "Unknown Device")
 		}
 		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", dev.DeviceID, name, dev.Platform, created, lastSeen, lastIP)
 	}
 	w.Flush()
 	fmt.Println("========================================================================================================")
-	fmt.Println("💡 提示: 执行 mgy clear all 可清空所有设备授权；执行 mgy pair 可生成新配对二维码。")
+	fmt.Println(i18n.T("💡 提示: 执行 mgy clear all 可清空所有设备授权；执行 mgy pair 可生成新配对二维码。",
+		"💡 Tip: Run 'mgy clear all' to revoke all device credentials; run 'mgy pair' to generate a new QR code."))
 }
 
 func runClearCmd(args []string) {
@@ -701,9 +779,9 @@ func runClearCmd(args []string) {
 		_ = resp.Body.Close()
 		if status == http.StatusOK || status == http.StatusNoContent {
 			if target == "all" {
-				fmt.Println("✅ [在线网关] 已成功清除所有已配对设备授权。")
+				fmt.Println(i18n.T("✅ [在线网关] 已成功清除所有已配对设备授权。", "✅ [Online Gateway] Successfully revoked all paired device authorizations."))
 			} else {
-				fmt.Printf("✅ [在线网关] 已成功清除设备 [%s] 的授权。\n", target)
+				fmt.Print(i18n.Sprintf("✅ [在线网关] 已成功清除设备 [%s] 的授权。\n", "✅ [Online Gateway] Successfully revoked authorization for device [%s].\n", target))
 			}
 			return
 		}
@@ -712,18 +790,18 @@ func runClearCmd(args []string) {
 	// Offline fallback
 	store, err := auth.NewAuthStore("")
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "❌ 无法打开设备凭据存储: %v\n", err)
+		fmt.Fprint(os.Stderr, i18n.Sprintf("❌ 无法打开设备凭据存储: %v\n", "❌ Failed to open device credentials store: %v\n", err))
 		os.Exit(1)
 	}
 	if target == "all" {
 		count := len(store.ListDevices())
 		store.ClearAll()
-		fmt.Printf("✅ [离线模式] 已清除全部 %d 台已配对设备授权。\n", count)
+		fmt.Print(i18n.Sprintf("✅ [离线模式] 已清除全部 %d 台已配对设备授权。\n", "✅ [Offline Mode] Revoked authorizations for all %d paired device(s).\n", count))
 	} else {
 		if err := store.RemoveDevice(target); err == nil {
-			fmt.Printf("✅ [离线模式] 已成功清除设备 [%s] 的授权。\n", target)
+			fmt.Print(i18n.Sprintf("✅ [离线模式] 已成功清除设备 [%s] 的授权。\n", "✅ [Offline Mode] Successfully revoked authorization for device [%s].\n", target))
 		} else {
-			fmt.Printf("⚠️  [离线模式] 清除设备失败: %v\n", err)
+			fmt.Print(i18n.Sprintf("⚠️  [离线模式] 清除设备失败: %v\n", "⚠️  [Offline Mode] Failed to revoke device: %v\n", err))
 		}
 	}
 }
