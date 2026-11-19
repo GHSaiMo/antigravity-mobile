@@ -156,6 +156,8 @@ func (w *Watcher) scanOnceWithMaxAge(summaryMaxAge time.Duration) int {
 	// Record already-completed historical sessions so we don't spam notifications on startup.
 	w.mu.Lock()
 	if !w.hasInitialSync {
+		// Reconcile closures are dispatched only after w.mu is released (dispatchNotify takes w.mu.RLock).
+		var deferred []func()
 		for id, s := range summaries {
 			status, _ := s["status"].(string)
 			steps := extractStepCount(s["stepCount"])
@@ -175,7 +177,7 @@ func (w *Watcher) scanOnceWithMaxAge(summaryMaxAge time.Duration) int {
 				if !runningSubagents[id] {
 					if la := w.notifier.LiveActivity(); la != nil && la.HasStateForCascade(id) {
 						cid, dTitle, st := id, title, steps
-						w.dispatchNotify(func() {
+						deferred = append(deferred, func() {
 							details, err := w.proxy.FetchTrajectoryDetails(cid, 250*time.Millisecond)
 							if err == nil && details != nil {
 								if details.PendingInteraction != nil || details.CanProceed {
@@ -201,6 +203,9 @@ func (w *Watcher) scanOnceWithMaxAge(summaryMaxAge time.Duration) int {
 		}
 		w.hasInitialSync = true
 		w.mu.Unlock()
+		for _, fn := range deferred {
+			w.dispatchNotify(fn)
+		}
 		return 0
 	}
 	w.mu.Unlock()
