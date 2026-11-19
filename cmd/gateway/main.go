@@ -30,6 +30,7 @@ import (
 	"antigravity-mobile/internal/notifier"
 	"antigravity-mobile/internal/proxy"
 	"antigravity-mobile/internal/tunnel"
+	"antigravity-mobile/internal/updater"
 	"antigravity-mobile/web"
 )
 
@@ -73,6 +74,9 @@ func main() {
 			return
 		case "clear":
 			runClearCmd(args[1:])
+			return
+		case "update", "upgrade":
+			runUpdateCmd(args[1:])
 			return
 		case "version", "-v", "--version":
 			runVersionCmd()
@@ -455,6 +459,9 @@ func runGatewayServer(args []string) {
 		fmt.Println()
 	}
 
+	// Non-blocking background check for newer gateway releases (rate-limited to once per 12h)
+	updater.StartBackgroundUpdateCheck(watcherCtx, Version)
+
 	<-stopCh
 	slog.Info("🛑 网关正在安全停止...")
 
@@ -496,6 +503,7 @@ func runHelpCmd() {
   lan               交互式配置局域网安全配对策略 (支持 status/trust/pair)
   list              查看所有已配对授权的移动设备 (支持在线与离线查看)
   clear [all|id]    清除已配对的设备授权 (支持: mgy clear all 或 mgy clear <device-id>)
+  update            检查并一键更新 mgy 网关到最新正式版 (支持 -check/-force/-version)
   version           查看当前版本信息
   help              显示帮助信息
 

@@ -20,3 +20,6 @@
   - 新增 `dataSync` 前台保活服务（`AgentTaskForegroundService`）与后台 3 秒 HTTP 兜底状态轮询，彻底解决任务退后台或锁屏完成后通知栏一直卡在「运行中」、必须切回应用才刷新的问题；
   - 复用单通知 ID（零重复卡片），任务完成、方案待审批或异常结束时同步解绑并自动停止前台服务（零闲时耗电），同时弹出高优完成提醒并支持点击直达会话；
   - 修复 `isAwaitingResponse` 状态残留卡死、`CASCADE_RUN_STATUS_RUNNING` 下「停止」快捷按钮丢失、以及从后台切回前台后自动重连 WebSocket 与即时刷新。
+- 🔄 **网关新增 `mgy update` 一键自更新与启动版本检测**：
+  - 新增 `mgy update` 子命令（支持 `-check`、`-force`、`-version <tag>`），沿用多镜像直连优先 + 本地代理兜底下载策略，全平台支持归档解压、macOS 自动清隔离属性与 ad-hoc 签名、二进制自检及原子原地替换；
+  - GitHub Release 产物同步附带 `checksums.txt` 支持 SHA-256 完整性校验，网关启动时新增 12 小时限频静默新版本提示（可通过 `MULTIGRAVITY_UPDATE_CHECK=0` 关闭）。
