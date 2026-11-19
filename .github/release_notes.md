@@ -27,3 +27,6 @@
   - 新增官方英文文档（`README_EN.md`），与默认中文 `README.md` 实现双向一键切换；
   - 网关 `mgy` 终端看板、配对二维码、帮助菜单（`mgy help`）及设备管理命令全量接入双语支持；
   - 支持 macOS / Linux（POSIX locale）与 Windows（Win32 API）系统语言自动探测自适应，并支持通过 `--lang=<zh|en>` 或 `MGY_LANG` 随时覆盖。
+- 📱 **Android 原生客户端与 Web 控制台多语言自适应（i18n）**：
+  - Android 客户端全面接入系统语言识别与原生英文国际化支持，提取 260+ 项全量界面文本并生成独立 `values-en` 资源库，全面适配 Compose 组件与 ViewModel 提示；
+  - Web 控制台新增系统语言严格判定（仅中文系统显示中文，其余语言一律默认原生英文）与 1,600+ 字条零依赖 i18n 引擎，支持设置面板手动覆盖切换及 PWA 英文 Manifest。
