@@ -7,6 +7,7 @@
 
 [![Release](https://img.shields.io/github/v/release/GHSaiMo/antigravity-mobile?color=blue&style=flat-square&logo=github)](https://github.com/GHSaiMo/antigravity-mobile/releases/latest)
 [![App Store](https://img.shields.io/badge/App%20Store-iOS%20Official-0D96F6?style=flat-square&logo=apple&logoColor=white)](https://apps.apple.com/app/id6835508934)
+[![TestFlight](https://img.shields.io/badge/TestFlight-Public%20Beta-007AFF?style=flat-square&logo=apple&logoColor=white)](https://testflight.apple.com/join/YM7f4aSK)
 [![Android](https://img.shields.io/badge/Android-APK%20Direct%20Install-3DDC84?style=flat-square&logo=android&logoColor=white)](https://github.com/GHSaiMo/antigravity-mobile/releases/latest)
 [![Linux](https://img.shields.io/badge/Linux-x86__64%20%7C%20NAS-FCC624?style=flat-square&logo=linux&logoColor=black)](https://github.com/GHSaiMo/antigravity-mobile/releases/latest)
 [![macOS](https://img.shields.io/badge/macOS-Apple%20Silicon%20%2B%20Intel-000000?style=flat-square&logo=apple&logoColor=white)](https://github.com/GHSaiMo/antigravity-mobile/releases/latest)
@@ -21,10 +22,11 @@
 </p>
 
 <p align="center">
-  🌐 <b>官网</b>：<a href="https://mgy.jiuge.space">mgy.jiuge.space</a> &nbsp;·&nbsp; 🍎 <b>App Store</b>：<a href="https://apps.apple.com/app/id6835508934">iOS 正式版下载</a> &nbsp;·&nbsp; 📦 <a href="https://github.com/GHSaiMo/antigravity-mobile/releases/latest">最新版 v1.2.0</a>
+  🌐 <b>官网</b>：<a href="https://mgy.jiuge.space">mgy.jiuge.space</a> &nbsp;·&nbsp; 🍎 <b>App Store</b>：<a href="https://apps.apple.com/app/id6835508934">iOS 正式版下载</a> &nbsp;·&nbsp; 🧪 <b>TestFlight</b>：<a href="https://testflight.apple.com/join/YM7f4aSK">公开测试通道</a> &nbsp;·&nbsp; 📦 <a href="https://github.com/GHSaiMo/antigravity-mobile/releases/latest">最新版 v1.2.0</a>
 </p>
 
-> 🎉 **iOS 版现已正式上架 Apple App Store！** 无需本地编译签名，直接前往 **[App Store 下载 Multigravity](https://apps.apple.com/app/id6835508934)** 即可在 iPhone / iPad 一键安装。
+> 🎉 **反重力智能体移动伴侣 iOS 版现已正式上架 Apple App Store！**  
+> 无需本地编译或自签，直接前往 **[App Store 下载 Multigravity](https://apps.apple.com/app/id6835508934)**（支持美区等海外 174 地区，中文系统自动展示简体中文介绍与展示图，并内置零配置**离线演示模式**）；想抢先体验最新公测版也可加入 **[TestFlight 公开测试](https://testflight.apple.com/join/YM7f4aSK)**。
 
 https://github.com/user-attachments/assets/37360cde-3875-45bf-947e-7774e800094c
 
@@ -61,7 +63,7 @@ irm https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/scripts/in
 </details>
 
 ### 2. 安装或打开移动端
-- **iOS**：🎉 现已正式上架 Apple App Store，直接前往 **[App Store 下载 Multigravity](https://apps.apple.com/app/id6835508934)** 一键安装（如需自行源码编译调试，仍可参考 [iOS 本地构建与真机调试指南](docs/ios_build_guide.md)）。
+- **iOS**：🎉 现已正式上架 Apple App Store，直接前往 **[App Store 下载 Multigravity](https://apps.apple.com/app/id6835508934)** 一键安装（中文系统自动优先展示中文介绍与演示截图），也可通过 **[TestFlight 公开测试](https://testflight.apple.com/join/YM7f4aSK)** 抢先体验最新构建（如需自行源码编译调试，仍可参考 [iOS 本地构建与真机调试指南](docs/ios_build_guide.md)）。
 - **Android**：前往 [GitHub Releases](https://github.com/GHSaiMo/antigravity-mobile/releases/latest) 直接下载安装 `Multigravity-v1.2.0.apk`（支持覆盖升级，请仅从官方 Releases 下载）。
 - **PWA / Web**：无需安装 App，手机浏览器直接访问网关地址（或 `/?view=pwa`）即可添加到主屏幕。
 
@@ -113,7 +115,7 @@ mgy
 
 ### 4. 全双工实时语音与多模态交互
 - **实时语音通话、听写与朗读**：四端支持 Antigravity 全双工实时语音协议（iOS 启用硬件级回声消除 AEC），支持原生流式语音听写（Dictation）、回答语音朗读（Narration）、实时字幕、打断与倍速播放。
-- **多模态输入与产出**：支持 `@` 上下文提及、音视频（`≤200MB`，含 `.amr` 语音）与常规文件（`≤50MB`）上传预览、**微信聊天记录 ZIP 智能识别与原生排版预览**、iOS 文稿扫描、AI 生图与 7 款精选皮肤（含 Solarized Light、Nord 等桌面配色）长图海报分享。
+- **多模态输入与产出**：支持 `@` 上下文提及、音视频（`≤200MB`，含 `.amr` 语音）与常规文件（`≤50MB`）环形进度流式上传、**微信聊天记录 ZIP 智能识别、离线归档缓存与原生排版预览**、双端统一长按自由选词浮层、iOS 文稿扫描、AI 生图与 7 款精选皮肤（含 Solarized Light、Nord 等桌面配色）长图海报分享。
 
 ### 5. 上下文水位、速率监控与配额仪表盘
 - **实时上下文水位与速率**：聊天顶栏实时展示上下文占用圆环与 `TTFT / TPS` 吐字速率，遇到上下文溢出自动升级为带「一键压缩 `/compact`」和「开启新会话」的救援卡片。
