@@ -26,7 +26,7 @@
 </p>
 
 <p align="center">
-  🌐 <b>官网</b>：<a href="https://mgy.jiuge.space">mgy.jiuge.space</a> &nbsp;·&nbsp; 🍎 <b>App Store</b>：<a href="https://apps.apple.com/app/id6835508934">iOS 正式版下载</a> &nbsp;·&nbsp; 🧪 <b>TestFlight</b>：<a href="https://testflight.apple.com/join/YM7f4aSK">公开测试通道</a> &nbsp;·&nbsp; 📦 <a href="https://github.com/GHSaiMo/antigravity-mobile/releases/latest">最新版 v1.2.0</a>
+  🌐 <b>官网</b>：<a href="https://mgy.jiuge.space">mgy.jiuge.space</a> &nbsp;·&nbsp; 🍎 <b>App Store</b>：<a href="https://apps.apple.com/app/id6835508934">iOS 正式版下载</a> &nbsp;·&nbsp; 🧪 <b>TestFlight</b>：<a href="https://testflight.apple.com/join/YM7f4aSK">公开测试通道</a> &nbsp;·&nbsp; 📦 <a href="https://github.com/GHSaiMo/antigravity-mobile/releases/latest">最新版 v1.2.1</a>
 </p>
 
 > 🎉 **反重力智能体移动伴侣 iOS 版现已正式上架 Apple App Store！**  
@@ -68,7 +68,7 @@ irm https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/scripts/in
 
 ### 2. 安装或打开移动端
 - **iOS**：🎉 现已正式上架 Apple App Store，直接前往 **[App Store 下载 Multigravity](https://apps.apple.com/app/id6835508934)** 一键安装（中文系统自动优先展示中文介绍与演示截图），也可通过 **[TestFlight 公开测试](https://testflight.apple.com/join/YM7f4aSK)** 抢先体验最新构建（如需自行源码编译调试，仍可参考 [iOS 本地构建与真机调试指南](docs/ios_build_guide.md)）。
-- **Android**：前往 [GitHub Releases](https://github.com/GHSaiMo/antigravity-mobile/releases/latest) 直接下载安装 `Multigravity-v1.2.0.apk`（支持覆盖升级，请仅从官方 Releases 下载）。
+- **Android**：前往 [GitHub Releases](https://github.com/GHSaiMo/antigravity-mobile/releases/latest) 直接下载安装 `Multigravity-v1.2.1.apk`（支持覆盖升级，请仅从官方 Releases 下载）。
 - **PWA / Web**：无需安装 App，手机浏览器直接访问网关地址（或 `/?view=pwa`）即可添加到主屏幕。
 
 ### 3. 启动并扫码配对
