@@ -738,11 +738,10 @@ public final class AppSettings {
             let cleanCustom = savedCustom.trimmingCharacters(in: CharacterSet(charactersIn: "/")).lowercased()
             let cleanLan = savedLan?.trimmingCharacters(in: CharacterSet(charactersIn: "/")).lowercased()
             let cleanCloud = savedCloud?.trimmingCharacters(in: CharacterSet(charactersIn: "/")).lowercased()
-            let cleanURL = savedURL.trimmingCharacters(in: CharacterSet(charactersIn: "/")).lowercased()
             
             if cleanCustom == cleanLan ||
                cleanCustom == cleanCloud ||
-               (!cleanURL.isEmpty && cleanCustom == cleanURL && !NetworkTransport.isLocalOrPrivateHost(savedURL)) {
+               cleanCustom.hasSuffix(".mgy.jiuge.space") {
                 self.customServerURL = nil
                 UserDefaults.standard.removeObject(forKey: customServerURLKey)
             } else {

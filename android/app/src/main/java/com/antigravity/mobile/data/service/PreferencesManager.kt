@@ -100,10 +100,9 @@ class PreferencesManager(context: Context) {
         if (!legacyCustom.isNullOrBlank()) {
             val lan = prefs.getString(KEY_LAN_URL, null)?.trim()?.trimEnd('/')
             val cloud = prefs.getString(KEY_PRIMARY_CLOUD_URL, null)?.trim()?.trimEnd('/')
-            val gateway = prefs.getString(KEY_GATEWAY_URL, null)?.trim()?.trimEnd('/')
             if (legacyCustom.equals(lan, ignoreCase = true) ||
                 (!cloud.isNullOrBlank() && legacyCustom.equals(cloud, ignoreCase = true)) ||
-                (!gateway.isNullOrBlank() && legacyCustom.equals(gateway, ignoreCase = true) && !ConnectionManager.isLanHost(ConnectionManager.extractHost(gateway)))) {
+                legacyCustom.endsWith(".mgy.jiuge.space", ignoreCase = true)) {
                 prefs.edit().remove(KEY_CUSTOM_URL).apply()
             }
         }
@@ -418,7 +417,7 @@ class PreferencesManager(context: Context) {
 
     var lanServerUrl: String?
         get() = prefs.getString(KEY_LAN_URL, null)
-        set(value) = prefs.edit().putString(KEY_LAN_URL, value?.trimEnd('/')).apply()
+        set(value) = prefs.edit().putString(KEY_LAN_URL, normalizeUrl(value)).apply()
 
     var relayServerUrl: String?
         get() = prefs.getString(KEY_RELAY_URL, null)
@@ -430,17 +429,16 @@ class PreferencesManager(context: Context) {
             if (saved.isNullOrBlank()) return null
             val lan = prefs.getString(KEY_LAN_URL, null)?.trim()?.trimEnd('/')
             val cloud = prefs.getString(KEY_PRIMARY_CLOUD_URL, null)?.trim()?.trimEnd('/')
-            val gateway = prefs.getString(KEY_GATEWAY_URL, null)?.trim()?.trimEnd('/')
             if (saved.equals(lan, ignoreCase = true) ||
                 (!cloud.isNullOrBlank() && saved.equals(cloud, ignoreCase = true)) ||
-                (!gateway.isNullOrBlank() && saved.equals(gateway, ignoreCase = true) && !ConnectionManager.isLanHost(ConnectionManager.extractHost(gateway)))) {
+                saved.endsWith(".mgy.jiuge.space", ignoreCase = true)) {
                 prefs.edit().remove(KEY_CUSTOM_URL).apply()
                 return null
             }
             return saved
         }
         set(value) {
-            val clean = value?.trim()?.trimEnd('/')
+            val clean = normalizeUrl(value)
             val lan = prefs.getString(KEY_LAN_URL, null)?.trim()?.trimEnd('/')
             val cloud = prefs.getString(KEY_PRIMARY_CLOUD_URL, null)?.trim()?.trimEnd('/')
             if (clean.isNullOrBlank() || clean.equals(lan, ignoreCase = true) || clean.equals(cloud, ignoreCase = true)) {
@@ -921,6 +919,16 @@ class PreferencesManager(context: Context) {
     }
 
     companion object {
+        fun normalizeUrl(raw: String?): String? {
+            if (raw.isNullOrBlank()) return null
+            var clean = raw.trim().trimEnd('/')
+            if (clean.isBlank()) return null
+            if (!clean.startsWith("http://", ignoreCase = true) && !clean.startsWith("https://", ignoreCase = true)) {
+                clean = "http://$clean"
+            }
+            return clean
+        }
+
         fun bodyScaleFactor(scale: String): Float = when (scale) {
             "compact" -> 0.88f
             "comfortable" -> 1.15f

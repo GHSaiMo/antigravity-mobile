@@ -178,6 +178,17 @@ fun SettingsSheet(
                     textAlign = TextAlign.Center,
                     modifier = Modifier.fillMaxWidth()
                 )
+                TextButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.align(Alignment.CenterEnd)
+                ) {
+                    Text(
+                        text = "完成".loc,
+                        color = colors.accentBlue,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
             }
 
             HorizontalDivider(thickness = 0.5.dp, color = colors.border)
@@ -315,6 +326,67 @@ private fun MainSettingsContent(
 
     var lanAddress by remember { mutableStateOf(prefs.lanServerUrl ?: "") }
     var customAddress by remember { mutableStateOf(prefs.customServerUrl ?: "") }
+    val keyboardController = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+
+    val saveLanAddress: () -> Unit = {
+        val clean = lanAddress.trim().trimEnd('/')
+        if (clean.isBlank()) {
+            prefs.lanServerUrl = null
+            lanAddress = ""
+            Toast.makeText(localContext, "已清除局域网地址".loc, Toast.LENGTH_SHORT).show()
+        } else {
+            val normalized = PreferencesManager.normalizeUrl(clean) ?: clean
+            prefs.lanServerUrl = normalized
+            lanAddress = normalized
+            Toast.makeText(localContext, "已保存局域网地址".loc, Toast.LENGTH_SHORT).show()
+        }
+        keyboardController?.hide()
+        focusManager.clearFocus()
+        coroutineScope.launch {
+            connectionManager.probeEndpoints(prefs)
+        }
+    }
+
+    val saveCustomAddress: () -> Unit = {
+        val clean = customAddress.trim().trimEnd('/')
+        if (clean.isBlank()) {
+            prefs.customServerUrl = null
+            customAddress = ""
+            Toast.makeText(localContext, "已清除自定义网络地址".loc, Toast.LENGTH_SHORT).show()
+        } else {
+            val normalized = PreferencesManager.normalizeUrl(clean) ?: clean
+            prefs.customServerUrl = normalized
+            customAddress = normalized
+            Toast.makeText(localContext, "已保存自定义网络地址".loc, Toast.LENGTH_SHORT).show()
+        }
+        keyboardController?.hide()
+        focusManager.clearFocus()
+        coroutineScope.launch {
+            connectionManager.probeEndpoints(prefs)
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            val cleanCustom = customAddress.trim().trimEnd('/')
+            if (cleanCustom != (prefs.customServerUrl ?: "")) {
+                if (cleanCustom.isBlank()) {
+                    prefs.customServerUrl = null
+                } else {
+                    prefs.customServerUrl = PreferencesManager.normalizeUrl(cleanCustom) ?: cleanCustom
+                }
+            }
+            val cleanLan = lanAddress.trim().trimEnd('/')
+            if (cleanLan != (prefs.lanServerUrl ?: "")) {
+                if (cleanLan.isBlank()) {
+                    prefs.lanServerUrl = null
+                } else {
+                    prefs.lanServerUrl = PreferencesManager.normalizeUrl(cleanLan) ?: cleanLan
+                }
+            }
+        }
+    }
     val currentAppLanguage by prefs.appLanguageFlow.collectAsState()
     val languageOptions = remember {
         listOf(
@@ -420,7 +492,8 @@ private fun MainSettingsContent(
 
         // MARK: - 2. 网络 (局域网与自定义平铺，主域名后台智能路由，1:1 对齐 iOS)
         SettingsSection(
-            title = "网络".loc
+            title = "网络".loc,
+            footer = "配置局域网或自定义节点直连地址（如 Tailscale/VPN/DDNS）。点击「保存」即可保存并立即测速探活。".loc
         ) {
             Column(
                 modifier = Modifier
@@ -436,21 +509,60 @@ private fun MainSettingsContent(
                         .padding(horizontal = 16.dp, vertical = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Text(
-                        text = "局域网".loc,
-                        color = colors.textPrimary,
-                        fontSize = 15.sp
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "局域网".loc,
+                            color = colors.textPrimary,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+
+                        val currentSavedLan = prefs.lanServerUrl ?: ""
+                        val isLanDirty = lanAddress.trim().trimEnd('/') != currentSavedLan
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(if (isLanDirty) colors.accentIndigo else colors.accentIndigo.copy(alpha = 0.12f))
+                                .clickable { saveLanAddress() }
+                                .padding(horizontal = 10.dp, vertical = 4.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                if (!isLanDirty && currentSavedLan.isNotBlank()) {
+                                    Icon(
+                                        imageVector = Icons.Default.Check,
+                                        contentDescription = null,
+                                        tint = colors.accentIndigo,
+                                        modifier = Modifier.size(13.dp)
+                                    )
+                                    Text(
+                                        text = "已保存".loc,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = colors.accentIndigo
+                                    )
+                                } else {
+                                    Text(
+                                        text = "保存".loc,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = if (isLanDirty) Color.White else colors.accentIndigo
+                                    )
+                                }
+                            }
+                        }
+                    }
 
                     BasicTextField(
                         value = lanAddress,
                         onValueChange = { newVal ->
                             lanAddress = newVal
-                            val clean = newVal.trim().trimEnd('/')
-                            prefs.lanServerUrl = if (clean.isBlank()) null else clean
-                            coroutineScope.launch {
-                                connectionManager.probeEndpoints(prefs)
-                            }
                         },
                         textStyle = androidx.compose.ui.text.TextStyle(
                             color = colors.textPrimary,
@@ -458,6 +570,13 @@ private fun MainSettingsContent(
                             fontFamily = FontFamily.Monospace
                         ),
                         singleLine = true,
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                            keyboardType = androidx.compose.ui.text.input.KeyboardType.Uri,
+                            imeAction = androidx.compose.ui.text.input.ImeAction.Done
+                        ),
+                        keyboardActions = androidx.compose.foundation.text.KeyboardActions(
+                            onDone = { saveLanAddress() }
+                        ),
                         modifier = Modifier.fillMaxWidth(),
                         decorationBox = { innerTextField ->
                             if (lanAddress.isBlank()) {
@@ -482,21 +601,60 @@ private fun MainSettingsContent(
                         .padding(horizontal = 16.dp, vertical = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Text(
-                        text = "自定义".loc,
-                        color = colors.textPrimary,
-                        fontSize = 15.sp
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "自定义".loc,
+                            color = colors.textPrimary,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+
+                        val currentSavedCustom = prefs.customServerUrl ?: ""
+                        val isCustomDirty = customAddress.trim().trimEnd('/') != currentSavedCustom
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(if (isCustomDirty) colors.accentIndigo else colors.accentIndigo.copy(alpha = 0.12f))
+                                .clickable { saveCustomAddress() }
+                                .padding(horizontal = 10.dp, vertical = 4.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                if (!isCustomDirty && currentSavedCustom.isNotBlank()) {
+                                    Icon(
+                                        imageVector = Icons.Default.Check,
+                                        contentDescription = null,
+                                        tint = colors.accentIndigo,
+                                        modifier = Modifier.size(13.dp)
+                                    )
+                                    Text(
+                                        text = "已保存".loc,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = colors.accentIndigo
+                                    )
+                                } else {
+                                    Text(
+                                        text = "保存".loc,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = if (isCustomDirty) Color.White else colors.accentIndigo
+                                    )
+                                }
+                            }
+                        }
+                    }
 
                     BasicTextField(
                         value = customAddress,
                         onValueChange = { newVal ->
                             customAddress = newVal
-                            val clean = newVal.trim().trimEnd('/')
-                            prefs.customServerUrl = if (clean.isBlank()) null else clean
-                            coroutineScope.launch {
-                                connectionManager.probeEndpoints(prefs)
-                            }
                         },
                         textStyle = androidx.compose.ui.text.TextStyle(
                             color = colors.textPrimary,
@@ -504,6 +662,13 @@ private fun MainSettingsContent(
                             fontFamily = FontFamily.Monospace
                         ),
                         singleLine = true,
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                            keyboardType = androidx.compose.ui.text.input.KeyboardType.Uri,
+                            imeAction = androidx.compose.ui.text.input.ImeAction.Done
+                        ),
+                        keyboardActions = androidx.compose.foundation.text.KeyboardActions(
+                            onDone = { saveCustomAddress() }
+                        ),
                         modifier = Modifier.fillMaxWidth(),
                         decorationBox = { innerTextField ->
                             if (customAddress.isBlank()) {

@@ -72,37 +72,88 @@ public struct SettingsSheet: View {
                 }
                 
                 // MARK: - 2. 网络 (局域网与自定义平铺，主域名后台智能路由)
-                Section(header: Text("网络")) {
+                Section(
+                    header: Text("网络"),
+                    footer: Text("配置局域网或自定义节点直连地址（如 Tailscale/VPN/DDNS）。点击「保存」即可保存并立即测速探活。")
+                ) {
                     // 局域网 (扫码配对默认填写)
                     VStack(alignment: .leading, spacing: 6) {
-                        Text("局域网")
+                        HStack {
+                            Text("局域网")
+                            Spacer()
+                            let isLanDirty = normalizeURLString(lanAddress) != (settings.lanServerURL ?? "")
+                            Button(action: saveLanAddress) {
+                                if !isLanDirty && settings.lanServerURL != nil {
+                                    HStack(spacing: 3) {
+                                        Image(systemName: "checkmark")
+                                            .font(.system(size: 10, weight: .bold))
+                                        Text("已保存")
+                                            .font(.system(size: 12, weight: .medium))
+                                    }
+                                    .foregroundColor(.secondary)
+                                } else {
+                                    Text("保存")
+                                        .font(.system(size: 12, weight: .semibold))
+                                        .foregroundColor(isLanDirty ? .white : Color.accentColor)
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 3)
+                                        .background(
+                                            Capsule()
+                                                .fill(isLanDirty ? Color.accentColor : Color.accentColor.opacity(0.12))
+                                        )
+                                }
+                            }
+                            .buttonStyle(.plain)
+                        }
                         
                         TextField("如 http://192.168.1.50:58900", text: $lanAddress)
                             .font(.system(size: 13, design: .monospaced))
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
                             .keyboardType(.URL)
-                            .onChange(of: lanAddress) { _, newValue in
-                                let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
-                                settings.lanServerURL = trimmed.isEmpty ? nil : trimmed
-                                scheduleProbeEndpoints()
+                            .onSubmit {
+                                saveLanAddress()
                             }
                     }
                     .padding(.vertical, 2)
                     
                     // 自定义 (留给用户配置，如 Tailscale)
                     VStack(alignment: .leading, spacing: 6) {
-                        Text("自定义")
+                        HStack {
+                            Text("自定义")
+                            Spacer()
+                            let isCustomDirty = normalizeURLString(customAddress) != (settings.customServerURL ?? "")
+                            Button(action: saveCustomAddress) {
+                                if !isCustomDirty && settings.customServerURL != nil {
+                                    HStack(spacing: 3) {
+                                        Image(systemName: "checkmark")
+                                            .font(.system(size: 10, weight: .bold))
+                                        Text("已保存")
+                                            .font(.system(size: 12, weight: .medium))
+                                    }
+                                    .foregroundColor(.secondary)
+                                } else {
+                                    Text("保存")
+                                        .font(.system(size: 12, weight: .semibold))
+                                        .foregroundColor(isCustomDirty ? .white : Color.accentColor)
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 3)
+                                        .background(
+                                            Capsule()
+                                                .fill(isCustomDirty ? Color.accentColor : Color.accentColor.opacity(0.12))
+                                        )
+                                }
+                            }
+                            .buttonStyle(.plain)
+                        }
                         
                         TextField("如 http://100.x.x.x:58900", text: $customAddress)
                             .font(.system(size: 13, design: .monospaced))
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
                             .keyboardType(.URL)
-                            .onChange(of: customAddress) { _, newValue in
-                                let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
-                                settings.customServerURL = trimmed.isEmpty ? nil : trimmed
-                                scheduleProbeEndpoints()
+                            .onSubmit {
+                                saveCustomAddress()
                             }
                     }
                     .padding(.vertical, 2)
@@ -366,6 +417,13 @@ public struct SettingsSheet: View {
             }
             .navigationTitle("设置")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(String(localized: "完成")) {
+                        dismiss()
+                    }
+                }
+            }
             .presentationDragIndicator(.visible)
         }
         .presentationDragIndicator(.visible)
@@ -375,6 +433,14 @@ public struct SettingsSheet: View {
         }
         .onDisappear {
             probeTask?.cancel()
+            let normCustom = normalizeURLString(customAddress)
+            if normCustom != (settings.customServerURL ?? "") {
+                settings.customServerURL = normCustom.isEmpty ? nil : normCustom
+            }
+            let normLan = normalizeURLString(lanAddress)
+            if normLan != (settings.lanServerURL ?? "") {
+                settings.lanServerURL = normLan.isEmpty ? nil : normLan
+            }
         }
         .task {
             await pushManager.refreshAuthorizationStatus()
@@ -479,6 +545,29 @@ public struct SettingsSheet: View {
         .sheet(isPresented: $showLicensesSheet) {
             OpenSourceLicensesSheet()
         }
+    }
+
+    private func normalizeURLString(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        guard !trimmed.isEmpty else { return "" }
+        if !trimmed.lowercased().hasPrefix("http://") && !trimmed.lowercased().hasPrefix("https://") {
+            return "http://" + trimmed
+        }
+        return trimmed
+    }
+
+    private func saveLanAddress() {
+        let normalized = normalizeURLString(lanAddress)
+        lanAddress = normalized
+        settings.lanServerURL = normalized.isEmpty ? nil : normalized
+        scheduleProbeEndpoints()
+    }
+
+    private func saveCustomAddress() {
+        let normalized = normalizeURLString(customAddress)
+        customAddress = normalized
+        settings.customServerURL = normalized.isEmpty ? nil : normalized
+        scheduleProbeEndpoints()
     }
 
     private func scheduleProbeEndpoints() {
