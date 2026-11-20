@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -14,17 +15,14 @@ import (
 //
 // Cockpit Tools <= v1.3 kept one JSON index at <dataDir>/accounts.json holding
 // { current_account_id, accounts[] }. Since v1.4 the index moved into a SQLite
-// database (<dataDir>/antigravity_accounts.sqlite, table `summaries`) and
-// accounts.json is no longer written at all.
+// database (<dataDir>/antigravity_accounts.sqlite, table `summaries` +
+// `account_index_state`). Upgrading from <= v1.3 to v1.4+ migrates accounts
+// into SQLite while often leaving the legacy accounts.json frozen on disk.
 //
 // Everything else kept its shape, which is why the blast radius here is small:
 //   - encrypted per-account files <dataDir>/accounts/<id>.json  (AES-256-GCM, unchanged)
 //   - quota cache <dataDir>/cache/quota_api_v1_desktop/authorized/<sha256(email)>.json (unchanged)
-//   - current account <dataDir>/current_account.json  (now the only "who is active" hint)
-//
-// Before this file existed, every caller stat/read accounts.json directly, so a
-// v1.4 install looked "not installed" and /cockpit/quotas returned
-// { accounts: [], cockpit_installed: false } even though the data was all there.
+//   - current account <dataDir>/current_account.json  (active email hint written by both Cockpit Tools and mgy)
 
 const (
 	legacyAccountsIndexName = "accounts.json"
@@ -35,14 +33,49 @@ const (
 	// Tools uses for Antigravity accounts (0). Other clients (codex/cursor/...)
 	// live in their own source buckets and are out of scope here.
 	antigravitySummarySource = 0
+
+	modernIndexCacheTTL = 5 * time.Second
 )
 
 // accountSummariesSQL selects the Antigravity bucket in stable display order.
 // COALESCE keeps nullable columns out of the JSON payload as empty strings.
-// The source filter is inlined because it is a compile-time constant and the
-// statement is handed to sqlite3 verbatim.
-const accountSummariesSQL = "SELECT account_id, email, COALESCE(name, '') AS name " +
-	"FROM summaries WHERE source = 0 ORDER BY position;"
+var accountSummariesSQL = fmt.Sprintf(
+	"SELECT account_id, email, COALESCE(name, '') AS name FROM summaries WHERE source = %d ORDER BY position;",
+	antigravitySummarySource,
+)
+
+const accountIndexStateSQL = "SELECT state FROM account_index_state WHERE singleton = 1 LIMIT 1;"
+
+// accountIndexLookPath allows unit tests to exercise sqlite3/python fallback
+// behavior deterministically without mutating process-wide PATH.
+var accountIndexLookPath = exec.LookPath
+
+type modernSQLiteStat struct {
+	dbModNano  int64
+	dbSize     int64
+	walExists  bool
+	walModNano int64
+	walSize    int64
+}
+
+type modernIndexCacheEntry struct {
+	stat               modernSQLiteStat
+	accounts           []indexedAccount
+	stateCurrentLoaded bool
+	stateCurrentID     string
+	expiresAt          time.Time
+}
+
+var (
+	modernIndexCacheMu sync.RWMutex
+	modernIndexCache   = make(map[string]*modernIndexCacheEntry)
+)
+
+func invalidateModernAccountIndexCache() {
+	modernIndexCacheMu.Lock()
+	modernIndexCache = make(map[string]*modernIndexCacheEntry)
+	modernIndexCacheMu.Unlock()
+}
 
 // indexedAccount is the version-agnostic row shape used by quota resolution.
 type indexedAccount struct {
@@ -57,28 +90,36 @@ type cockpitAccountIndex struct {
 	Accounts         []indexedAccount
 }
 
-// LoadAccountIndex returns the authoritative account list, tolerating both
-// storage generations. A readable legacy index wins when it actually has rows;
-// otherwise the SQLite summaries table is used.
+// LoadAccountIndex returns the authoritative account list across Cockpit Tools
+// storage generations.
 //
-// An existing but unparsable accounts.json is returned as an error instead of
-// being silently skipped: a truncated legacy file should surface, not degrade
-// into a misleading "no accounts" response.
+// Resolution order:
+//  1. Modern SQLite index (antigravity_accounts.sqlite, summaries WHERE source=0):
+//     Cockpit Tools <= v1.3 never creates this file, and upgrading to v1.4+
+//     leaves the old accounts.json frozen on disk. Whenever SQLite contains
+//     Antigravity accounts, it is the authoritative source.
+//  2. Legacy JSON index (accounts.json): used for <= v1.3 installs, or when the
+//     SQLite database is absent / has no Antigravity rows (e.g. only other
+//     clients) / cannot be read while a valid legacy index exists.
+//
+// An existing but unparsable accounts.json (when SQLite did not provide
+// accounts) is returned as an error instead of silently degrading into "no
+// accounts".
 func LoadAccountIndex(dataDir string) (*cockpitAccountIndex, error) {
-	legacyPath := filepath.Join(dataDir, legacyAccountsIndexName)
-	if _, err := os.Stat(legacyPath); err == nil {
-		idx, parseErr := parseLegacyAccountsIndex(legacyPath)
-		if parseErr != nil {
-			return nil, parseErr
-		}
-		if len(idx.Accounts) > 0 {
-			return idx, nil
-		}
-		// Empty legacy index (e.g. left behind during a v1.4 migration): fall
-		// through and let the SQLite index answer.
+	modernIdx, modernErr := loadModernAccountIndex(dataDir)
+	if modernErr == nil && len(modernIdx.Accounts) > 0 {
+		return modernIdx, nil
 	}
 
-	return loadModernAccountIndex(dataDir)
+	legacyPath := filepath.Join(dataDir, legacyAccountsIndexName)
+	if _, err := os.Stat(legacyPath); err == nil {
+		return parseLegacyAccountsIndex(legacyPath)
+	}
+
+	if modernErr != nil {
+		return nil, modernErr
+	}
+	return modernIdx, nil
 }
 
 func parseLegacyAccountsIndex(path string) (*cockpitAccountIndex, error) {
@@ -105,21 +146,79 @@ func parseLegacyAccountsIndex(path string) (*cockpitAccountIndex, error) {
 	return idx, nil
 }
 
+func statModernSQLite(dbPath string) (modernSQLiteStat, bool) {
+	fi, err := os.Stat(dbPath)
+	if err != nil || fi.IsDir() {
+		return modernSQLiteStat{}, false
+	}
+	st := modernSQLiteStat{
+		dbModNano: fi.ModTime().UnixNano(),
+		dbSize:    fi.Size(),
+	}
+	if wfi, wErr := os.Stat(dbPath + "-wal"); wErr == nil && !wfi.IsDir() {
+		st.walExists = true
+		st.walModNano = wfi.ModTime().UnixNano()
+		st.walSize = wfi.Size()
+	}
+	return st, true
+}
+
 // loadModernAccountIndex reads the v1.4+ SQLite index. A missing database is not
 // an error: it simply means Cockpit Tools was never installed or has no accounts.
 func loadModernAccountIndex(dataDir string) (*cockpitAccountIndex, error) {
-	dbPath := filepath.Join(dataDir, modernAccountsIndexName)
-	if fi, err := os.Stat(dbPath); err != nil || fi.IsDir() {
+	dbPath := filepath.Clean(filepath.Join(dataDir, modernAccountsIndexName))
+	st, ok := statModernSQLite(dbPath)
+	if !ok {
 		return &cockpitAccountIndex{}, nil
 	}
 
-	rows, err := queryAccountSummaries(dbPath)
-	if err != nil {
-		return nil, err
+	now := time.Now()
+	var rows []indexedAccount
+	var stateCurrentLoaded bool
+	var stateCurrentID string
+	cacheHit := false
+
+	modernIndexCacheMu.RLock()
+	if entry, exists := modernIndexCache[dbPath]; exists && entry.stat == st && now.Before(entry.expiresAt) {
+		rows = append([]indexedAccount(nil), entry.accounts...)
+		stateCurrentLoaded = entry.stateCurrentLoaded
+		stateCurrentID = entry.stateCurrentID
+		cacheHit = true
+	}
+	modernIndexCacheMu.RUnlock()
+
+	if !cacheHit {
+		queried, err := queryAccountSummaries(dbPath)
+		if err != nil {
+			return nil, err
+		}
+		rows = queried
+		modernIndexCacheMu.Lock()
+		if len(modernIndexCache) > 16 {
+			modernIndexCache = make(map[string]*modernIndexCacheEntry)
+		}
+		modernIndexCache[dbPath] = &modernIndexCacheEntry{
+			stat:      st,
+			accounts:  append([]indexedAccount(nil), rows...),
+			expiresAt: now.Add(modernIndexCacheTTL),
+		}
+		modernIndexCacheMu.Unlock()
 	}
 
 	idx := &cockpitAccountIndex{Accounts: rows}
 	idx.CurrentAccountID = resolveCurrentAccountID(rows, readCurrentAccountEmail(dataDir))
+	if idx.CurrentAccountID == "" && len(rows) > 0 {
+		if !stateCurrentLoaded {
+			stateCurrentID = queryModernStateCurrentID(dbPath)
+			modernIndexCacheMu.Lock()
+			if entry, exists := modernIndexCache[dbPath]; exists && entry.stat == st {
+				entry.stateCurrentLoaded = true
+				entry.stateCurrentID = stateCurrentID
+			}
+			modernIndexCacheMu.Unlock()
+		}
+		idx.CurrentAccountID = matchAccountID(rows, stateCurrentID)
+	}
 	return idx, nil
 }
 
@@ -135,36 +234,36 @@ func queryAccountSummaries(dbPath string) ([]indexedAccount, error) {
 
 	var out []byte
 	var lastErr error
+	ranOK := false
 
-	if p, lookErr := exec.LookPath("sqlite3"); lookErr == nil && isExecutableValid(p) {
-		out, lastErr = runCmdCombinedTimeout(5*time.Second, p, "-batch", "-json", "-cmd", ".timeout 3000", cleanDB, accountSummariesSQL)
+	if p, lookErr := accountIndexLookPath("sqlite3"); lookErr == nil && isExecutableValid(p) {
+		out, lastErr = runCmdTimeout(5*time.Second, p, "-readonly", "-batch", "-json", "-cmd", ".timeout 3000", cleanDB, accountSummariesSQL)
+		if lastErr == nil {
+			ranOK = true
+		}
 	}
 
-	if len(out) == 0 {
-		const pyScript = "import json,sqlite3,sys\n" +
-			"conn=sqlite3.connect(sys.argv[1],timeout=3.0)\n" +
-			"rows=conn.execute('SELECT account_id, email, COALESCE(name, \\'\\') FROM summaries WHERE source=0 ORDER BY position').fetchall()\n" +
-			"sys.stdout.write(json.dumps([{'account_id':r[0],'email':r[1] or '','name':r[2] or ''} for r in rows]))\n"
-		for _, pyExe := range pythonCandidates() {
-			p, lookErr := exec.LookPath(pyExe)
-			if lookErr != nil || !isExecutableValid(p) {
-				continue
-			}
-			if pyOut, pyErr := runCmdTimeout(5*time.Second, p, "-c", pyScript, cleanDB); pyErr == nil && len(pyOut) > 0 {
-				out = pyOut
-				lastErr = nil
-				break
-			}
+	if !ranOK {
+		pyOut, pyFound, pyErr := queryAccountSummariesPython(cleanDB)
+		if pyErr == nil && pyFound {
+			out = pyOut
+			lastErr = nil
+			ranOK = true
+		} else if pyErr != nil {
+			lastErr = pyErr
 		}
+	}
+
+	if !ranOK {
+		if lastErr != nil {
+			return nil, fmt.Errorf("failed to read %s: %w", modernAccountsIndexName, lastErr)
+		}
+		return nil, fmt.Errorf("failed to read %s: no sqlite3 or python3 executable available", modernAccountsIndexName)
 	}
 
 	trimmed := strings.TrimSpace(string(out))
 	if trimmed == "" {
-		// sqlite3 -json prints nothing for an empty result set. Keep the original
-		// error (if any) out of the way: no rows is a valid, non-installed state.
-		if lastErr != nil {
-			return nil, fmt.Errorf("failed to read %s: %w", modernAccountsIndexName, lastErr)
-		}
+		// sqlite3 -json prints nothing for an empty result set.
 		return nil, nil
 	}
 
@@ -192,6 +291,85 @@ func queryAccountSummaries(dbPath string) ([]indexedAccount, error) {
 	return accounts, nil
 }
 
+func queryAccountSummariesPython(cleanDB string) ([]byte, bool, error) {
+	const pyScript = "import json,pathlib,sqlite3,sys\n" +
+		"uri=pathlib.Path(sys.argv[1]).resolve().as_uri()+'?mode=ro'\n" +
+		"conn=sqlite3.connect(uri,uri=True,timeout=3.0)\n" +
+		"try:\n" +
+		"    rows=conn.execute(sys.argv[2]).fetchall()\n" +
+		"finally:\n" +
+		"    conn.close()\n" +
+		"sys.stdout.write(json.dumps([{'account_id':r[0],'email':r[1] or '','name':r[2] or ''} for r in rows]))\n"
+
+	var lastErr error
+	found := false
+	for _, pyExe := range pythonCandidates() {
+		p, lookErr := accountIndexLookPath(pyExe)
+		if lookErr != nil || !isExecutableValid(p) {
+			continue
+		}
+		found = true
+		pyOut, pyErr := runCmdTimeout(5*time.Second, p, "-c", pyScript, cleanDB, accountSummariesSQL)
+		if pyErr == nil {
+			return pyOut, true, nil
+		}
+		lastErr = pyErr
+	}
+	return nil, found, lastErr
+}
+
+// queryModernStateCurrentID performs a best-effort read of `account_index_state`
+// for the `current_id` field when current_account.json is missing or unmatched.
+func queryModernStateCurrentID(cleanDB string) string {
+	if cleanDB == "" || strings.ContainsAny(cleanDB, "\x00\r\n") {
+		return ""
+	}
+
+	var out []byte
+	ranOK := false
+
+	if p, lookErr := accountIndexLookPath("sqlite3"); lookErr == nil && isExecutableValid(p) {
+		if raw, err := runCmdTimeout(5*time.Second, p, "-readonly", "-batch", "-noheader", "-cmd", ".timeout 3000", cleanDB, accountIndexStateSQL); err == nil {
+			out = raw
+			ranOK = true
+		}
+	}
+
+	if !ranOK {
+		const pyScript = "import pathlib,sqlite3,sys\n" +
+			"uri=pathlib.Path(sys.argv[1]).resolve().as_uri()+'?mode=ro'\n" +
+			"conn=sqlite3.connect(uri,uri=True,timeout=3.0)\n" +
+			"try:\n" +
+			"    row=conn.execute(sys.argv[2]).fetchone()\n" +
+			"finally:\n" +
+			"    conn.close()\n" +
+			"if row and row[0]:\n" +
+			"    sys.stdout.write(str(row[0]))\n"
+		for _, pyExe := range pythonCandidates() {
+			p, lookErr := accountIndexLookPath(pyExe)
+			if lookErr != nil || !isExecutableValid(p) {
+				continue
+			}
+			if raw, err := runCmdTimeout(5*time.Second, p, "-c", pyScript, cleanDB, accountIndexStateSQL); err == nil {
+				out = raw
+				break
+			}
+		}
+	}
+
+	trimmed := strings.TrimSpace(string(out))
+	if trimmed == "" {
+		return ""
+	}
+	var doc struct {
+		CurrentID string `json:"current_id"`
+	}
+	if json.Unmarshal([]byte(trimmed), &doc) != nil {
+		return ""
+	}
+	return strings.TrimSpace(doc.CurrentID)
+}
+
 // readCurrentAccountEmail reads the "active account" hint written by both
 // storage generations. It only carries an email, not an id.
 func readCurrentAccountEmail(dataDir string) string {
@@ -214,6 +392,19 @@ func resolveCurrentAccountID(accounts []indexedAccount, email string) string {
 	}
 	for _, acc := range accounts {
 		if strings.EqualFold(strings.TrimSpace(acc.Email), email) {
+			return acc.ID
+		}
+	}
+	return ""
+}
+
+func matchAccountID(accounts []indexedAccount, id string) string {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return ""
+	}
+	for _, acc := range accounts {
+		if acc.ID == id {
 			return acc.ID
 		}
 	}

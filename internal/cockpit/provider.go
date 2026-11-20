@@ -430,6 +430,7 @@ func InvalidateQuotaCache() {
 	quotaCacheByEmail = make(map[string]*quotaCacheEntry)
 	decryptedQuotaCache = make(map[string]decryptedQuotaCacheEntry)
 	quotaCacheMu.Unlock()
+	invalidateModernAccountIndexCache()
 }
 
 func getCachedStoredAccountQuota(dataDir, accountID string) *storedAccountQuota {
