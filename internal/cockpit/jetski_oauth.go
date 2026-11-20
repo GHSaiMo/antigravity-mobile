@@ -277,12 +277,8 @@ func resolveAccountEmail(accountID string) string {
 	if err != nil {
 		return ""
 	}
-	raw, err := os.ReadFile(filepath.Join(dataDir, "accounts.json"))
+	idx, err := LoadAccountIndex(dataDir)
 	if err != nil {
-		return ""
-	}
-	var idx accountsIndex
-	if json.Unmarshal(raw, &idx) != nil {
 		return ""
 	}
 	for _, acc := range idx.Accounts {

@@ -139,12 +139,8 @@ func ResolveAccountID(accountIDOrEmail string) (string, error) {
 	if err != nil {
 		return target, nil
 	}
-	accBytes, err := os.ReadFile(filepath.Join(dataDir, "accounts.json"))
+	idx, err := LoadAccountIndex(dataDir)
 	if err != nil {
-		return target, nil
-	}
-	var idx accountsIndex
-	if err := json.Unmarshal(accBytes, &idx); err != nil {
 		return target, nil
 	}
 
@@ -306,14 +302,12 @@ func ListAccountsFromStorage() ([]*CockpitAccountDetail, error) {
 	if err != nil {
 		return nil, err
 	}
-	accountsFile := filepath.Join(dataDir, "accounts.json")
-	accBytes, err := os.ReadFile(accountsFile)
+	idx, err := LoadAccountIndex(dataDir)
 	if err != nil {
 		return nil, err
 	}
-	var idx accountsIndex
-	if err := json.Unmarshal(accBytes, &idx); err != nil {
-		return nil, err
+	if len(idx.Accounts) == 0 {
+		return nil, os.ErrNotExist
 	}
 
 	results := make([]*CockpitAccountDetail, 0, len(idx.Accounts))
