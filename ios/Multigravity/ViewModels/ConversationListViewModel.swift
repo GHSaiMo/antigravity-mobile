@@ -5,8 +5,52 @@ import SwiftUI
 @Observable
 @MainActor
 public final class ConversationListViewModel {
+    public enum WorkspaceFilter: Equatable, Hashable, Sendable {
+        case chat
+        case workspace(String)
+
+        public var displayName: String {
+            switch self {
+            case .chat:
+                return "Chat"
+            case .workspace(let name):
+                return name
+            }
+        }
+
+        public var isPureChat: Bool {
+            if case .chat = self { return true }
+            return false
+        }
+
+        public func matches(_ item: ConversationItem) -> Bool {
+            switch self {
+            case .chat:
+                return item.isPureChat
+            case .workspace(let name):
+                return !item.isPureChat && item.workspaceName == name
+            }
+        }
+    }
+
+    public struct WorkspaceFilterOption: Identifiable, Hashable, Sendable {
+        public let filter: WorkspaceFilter
+        public let count: Int
+        public let latestModified: Date
+
+        public var id: String {
+            switch filter {
+            case .chat:
+                return "__pure_chat__"
+            case .workspace(let name):
+                return "ws:\(name)"
+            }
+        }
+    }
+
     public var conversations: [ConversationItem] = []
     public var searchQuery: String = ""
+    public var selectedWorkspaceFilter: WorkspaceFilter? = nil
     public var isLoading: Bool = false
     public var errorMessage: String? = nil
     
@@ -114,7 +158,7 @@ public final class ConversationListViewModel {
         recentlyDeletedIDs = recentlyDeletedIDs.filter { now.timeIntervalSince($0.value) < tombstoneTTL }
     }
     
-    /// 列表里实际可见的会话（不含子代理与已删除/删除中的），不受搜索框影响。
+    /// 列表里实际可见的会话（不含子代理与已删除/删除中的），不受搜索框与项目筛选影响。
     private var visibleConversations: [ConversationItem] {
         conversations.filter { item in
             !item.isSubagent &&
@@ -122,6 +166,59 @@ public final class ConversationListViewModel {
             (recentlyDeletedIDs[item.id] == nil) &&
             !cacheManager.isDeletedConversation(cascadeId: item.id)
         }
+    }
+
+    public var totalVisibleCount: Int {
+        visibleConversations.count
+    }
+
+    /// 按当前选中的工作区/Chat 过滤后的会话列表。
+    public var workspaceFilteredConversations: [ConversationItem] {
+        guard let filter = selectedWorkspaceFilter else { return visibleConversations }
+        return visibleConversations.filter { filter.matches($0) }
+    }
+
+    public var workspaceTotalCount: Int {
+        workspaceFilteredConversations.count
+    }
+
+    /// 供筛选条下拉菜单使用的工作区列表（含 Chat 与各项目，按最近活跃倒序排列）。
+    public var availableWorkspaceFilters: [WorkspaceFilterOption] {
+        var chatCount = 0
+        var chatLatest: Date = .distantPast
+        var workspaces: [String: (count: Int, latest: Date)] = [:]
+
+        for item in visibleConversations {
+            let modified = item.effectiveLastModified
+            if item.isPureChat {
+                chatCount += 1
+                if modified > chatLatest { chatLatest = modified }
+            } else {
+                let name = item.workspaceName
+                if var entry = workspaces[name] {
+                    entry.count += 1
+                    if modified > entry.latest { entry.latest = modified }
+                    workspaces[name] = entry
+                } else {
+                    workspaces[name] = (1, modified)
+                }
+            }
+        }
+
+        var result: [WorkspaceFilterOption] = []
+        if chatCount > 0 {
+            result.append(WorkspaceFilterOption(filter: .chat, count: chatCount, latestModified: chatLatest))
+        }
+        let sortedProjects = workspaces
+            .map { WorkspaceFilterOption(filter: .workspace($0.key), count: $0.value.count, latestModified: $0.value.latest) }
+            .sorted { a, b in
+                if a.latestModified != b.latestModified {
+                    return a.latestModified > b.latestModified
+                }
+                return a.filter.displayName.localizedCaseInsensitiveCompare(b.filter.displayName) == .orderedAscending
+            }
+        result.append(contentsOf: sortedProjects)
+        return result
     }
 
     // MARK: - 会话内容搜索（language_server SearchConversations）
@@ -155,7 +252,7 @@ public final class ConversationListViewModel {
             do {
                 let results = try await self.apiClient.searchConversations(query: query, baseURL: baseURL)
                 guard !Task.isCancelled else { return }
-                let byID = Dictionary(self.visibleConversations.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+                let byID = Dictionary(self.workspaceFilteredConversations.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
                 self.contentHits = results.compactMap { r in
                     byID[r.cascadeId].map { ContentSearchHit(result: r, item: $0) }
                 }
@@ -178,9 +275,9 @@ public final class ConversationListViewModel {
 
     public var filteredConversations: [ConversationItem] {
         let q = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let nonSubagents = visibleConversations
-        if q.isEmpty { return nonSubagents }
-        return nonSubagents.filter {
+        let scoped = workspaceFilteredConversations
+        if q.isEmpty { return scoped }
+        return scoped.filter {
             $0.title.lowercased().contains(q) ||
             $0.workspaceName.lowercased().contains(q) ||
             $0.id.lowercased().contains(q)

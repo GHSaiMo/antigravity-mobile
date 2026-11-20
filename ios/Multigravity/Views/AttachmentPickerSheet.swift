@@ -6,26 +6,77 @@ import UIKit
 import UniformTypeIdentifiers
 import VisionKit
 
-/// Observes the photo library and exposes the most recent photos for the "+" panel grid.
+/// Represents a selectable photo album (smart album or user album) in the attachment picker.
+struct PhotoAlbumItem: Identifiable, Equatable {
+    nonisolated static let recentsFallbackId = "__all_photos__"
+
+    let id: String
+    let title: String
+    let collection: PHAssetCollection?
+    let count: Int
+    let coverAsset: PHAsset?
+    let isRecents: Bool
+
+    static func == (lhs: PhotoAlbumItem, rhs: PhotoAlbumItem) -> Bool {
+        lhs.id == rhs.id &&
+        lhs.title == rhs.title &&
+        lhs.count == rhs.count &&
+        lhs.coverAsset?.localIdentifier == rhs.coverAsset?.localIdentifier &&
+        lhs.isRecents == rhs.isRecents
+    }
+}
+
+/// Observes the photo library, enumerates albums (image-only), and exposes a lazy PHFetchResult
+/// so large photo libraries scroll smoothly without an artificial item cap.
 @MainActor
 final class RecentPhotosModel: NSObject, ObservableObject, PHPhotoLibraryChangeObserver {
     @Published var authorization: PHAuthorizationStatus = PHPhotoLibrary.authorizationStatus(for: .readWrite)
-    @Published var assets: [PHAsset] = []
-    
-    static let limit = 150
-    private var result: PHFetchResult<PHAsset>?
-    
+    @Published var albums: [PhotoAlbumItem] = []
+    @Published var selectedAlbumId: String = PhotoAlbumItem.recentsFallbackId
+    @Published var currentFetchResult: PHFetchResult<PHAsset>? = nil
+    @Published var reloadToken: UUID = UUID()
+
+    private var albumLoadGeneration: Int = 0
+
     override init() {
         super.init()
         PHPhotoLibrary.shared().register(self)
     }
-    
+
     deinit {
         PHPhotoLibrary.shared().unregisterChangeObserver(self)
     }
-    
+
     var hasAccess: Bool { authorization == .authorized || authorization == .limited }
-    
+
+    var currentAlbum: PhotoAlbumItem? {
+        albums.first(where: { $0.id == selectedAlbumId }) ?? albums.first
+    }
+
+    var isShowingRecents: Bool {
+        currentAlbum?.isRecents ?? true
+    }
+
+    var currentAlbumTitle: String {
+        currentAlbum?.title ?? String(localized: "最近项目")
+    }
+
+    var assetCount: Int {
+        currentFetchResult?.count ?? 0
+    }
+
+    func asset(at index: Int) -> PHAsset? {
+        guard let result = currentFetchResult, index >= 0, index < result.count else { return nil }
+        return result.object(at: index)
+    }
+
+    nonisolated static func imageFetchOptions() -> PHFetchOptions {
+        let options = PHFetchOptions()
+        options.predicate = NSPredicate(format: "mediaType == %d", PHAssetMediaType.image.rawValue)
+        options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
+        return options
+    }
+
     /// 仅在已获得相册权限时静默加载最近照片；未授权时不自动弹窗，避免打断只想用文件/录音/拍照的用户。
     func start() {
         authorization = PHPhotoLibrary.authorizationStatus(for: .readWrite)
@@ -41,31 +92,160 @@ final class RecentPhotosModel: NSObject, ObservableObject, PHPhotoLibraryChangeO
             self.reload()
         }
     }
-    
+
+    func selectAlbum(_ album: PhotoAlbumItem) {
+        guard hasAccess else { return }
+        selectedAlbumId = album.id
+        fetchAssetsForCurrentSelection(preferredCollection: album.collection)
+    }
+
     func reload() {
         authorization = PHPhotoLibrary.authorizationStatus(for: .readWrite)
-        guard hasAccess else { assets = []; return }
-        let options = PHFetchOptions()
-        options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
-        options.fetchLimit = Self.limit
-        let fetched = PHAsset.fetchAssets(with: options)
-        result = fetched
-        var list: [PHAsset] = []
-        fetched.enumerateObjects { asset, _, _ in list.append(asset) }
-        assets = list
+        guard hasAccess else {
+            albums = []
+            currentFetchResult = nil
+            selectedAlbumId = PhotoAlbumItem.recentsFallbackId
+            reloadToken = UUID()
+            return
+        }
+
+        // 1. 立即加载当前选中相册（或全部图片）的照片结果，保证首屏秒开
+        fetchAssetsForCurrentSelection(preferredCollection: currentAlbum?.collection)
+
+        // 2. 后台扫描全部智能相簿与用户自定义相簿
+        albumLoadGeneration += 1
+        let gen = albumLoadGeneration
+        let previouslySelectedId = selectedAlbumId
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let discovered = Self.discoverImageAlbums()
+            DispatchQueue.main.async {
+                guard let self, self.albumLoadGeneration == gen else { return }
+                self.albums = discovered
+                if let existing = discovered.first(where: { $0.id == previouslySelectedId }) {
+                    self.selectedAlbumId = existing.id
+                    self.fetchAssetsForCurrentSelection(preferredCollection: existing.collection)
+                } else if let recents = discovered.first {
+                    self.selectedAlbumId = recents.id
+                    self.fetchAssetsForCurrentSelection(preferredCollection: recents.collection)
+                }
+            }
+        }
     }
-    
+
+    private func fetchAssetsForCurrentSelection(preferredCollection: PHAssetCollection?) {
+        let options = Self.imageFetchOptions()
+        if let collection = preferredCollection {
+            currentFetchResult = PHAsset.fetchAssets(in: collection, options: options)
+        } else {
+            currentFetchResult = PHAsset.fetchAssets(with: .image, options: options)
+        }
+        reloadToken = UUID()
+    }
+
+    private nonisolated static func discoverImageAlbums() -> [PhotoAlbumItem] {
+        let imageOptions = imageFetchOptions()
+        var smartItems: [PhotoAlbumItem] = []
+        var seenCollectionIDs: Set<String> = []
+        var hasRecents = false
+
+        let smartSubtypes: [(PHAssetCollectionSubtype, Bool)] = [
+            (.smartAlbumUserLibrary, true),
+            (.smartAlbumFavorites, false),
+            (.smartAlbumScreenshots, false),
+            (.smartAlbumSelfPortraits, false),
+            (.smartAlbumLivePhotos, false),
+            (.smartAlbumPanoramas, false)
+        ]
+
+        for (subtype, isRecents) in smartSubtypes {
+            let fetched = PHAssetCollection.fetchAssetCollections(with: .smartAlbum, subtype: subtype, options: nil)
+            fetched.enumerateObjects { collection, _, _ in
+                guard seenCollectionIDs.insert(collection.localIdentifier).inserted else { return }
+                let assets = PHAsset.fetchAssets(in: collection, options: imageOptions)
+                if assets.count == 0 && !isRecents { return }
+                let title: String
+                if isRecents {
+                    hasRecents = true
+                    title = String(localized: "最近项目")
+                } else {
+                    title = collection.localizedTitle?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+                        ? (collection.localizedTitle ?? "")
+                        : String(localized: "未命名相簿")
+                }
+                smartItems.append(PhotoAlbumItem(
+                    id: collection.localIdentifier,
+                    title: title,
+                    collection: collection,
+                    count: assets.count,
+                    coverAsset: assets.firstObject,
+                    isRecents: isRecents
+                ))
+            }
+        }
+
+        if !hasRecents {
+            let allImages = PHAsset.fetchAssets(with: .image, options: imageOptions)
+            smartItems.insert(PhotoAlbumItem(
+                id: PhotoAlbumItem.recentsFallbackId,
+                title: String(localized: "最近项目"),
+                collection: nil,
+                count: allImages.count,
+                coverAsset: allImages.firstObject,
+                isRecents: true
+            ), at: 0)
+        }
+
+        // 用户自定义相簿 + 同步相簿，按最新照片时间倒序
+        var userEntries: [(item: PhotoAlbumItem, latestDate: Date)] = []
+        let userSubtypes: [PHAssetCollectionSubtype] = [.albumRegular, .albumSyncedAlbum, .albumImported]
+        for subtype in userSubtypes {
+            let fetched = PHAssetCollection.fetchAssetCollections(with: .album, subtype: subtype, options: nil)
+            fetched.enumerateObjects { collection, _, _ in
+                guard seenCollectionIDs.insert(collection.localIdentifier).inserted else { return }
+                let assets = PHAsset.fetchAssets(in: collection, options: imageOptions)
+                guard assets.count > 0 else { return }
+                let title = collection.localizedTitle?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+                    ? (collection.localizedTitle ?? "")
+                    : String(localized: "未命名相簿")
+                let cover = assets.firstObject
+                let item = PhotoAlbumItem(
+                    id: collection.localIdentifier,
+                    title: title,
+                    collection: collection,
+                    count: assets.count,
+                    coverAsset: cover,
+                    isRecents: false
+                )
+                userEntries.append((item, cover?.creationDate ?? .distantPast))
+            }
+        }
+
+        userEntries.sort { a, b in
+            if a.latestDate != b.latestDate {
+                return a.latestDate > b.latestDate
+            }
+            return a.item.title.localizedCaseInsensitiveCompare(b.item.title) == .orderedAscending
+        }
+
+        return smartItems + userEntries.map(\.item)
+    }
+
     nonisolated func photoLibraryDidChange(_ changeInstance: PHChange) {
         Task { @MainActor in self.reload() }
     }
 }
 
-/// Square thumbnail of a photo-library asset.
+/// Square thumbnail of a photo-library asset with request cancellation for fast scrolling.
 private struct PhotoThumbnail: View {
     let asset: PHAsset
     let manager: PHCachingImageManager
+    var targetPoints: CGFloat = 120
+
+    @Environment(\.displayScale) private var displayScale
     @State private var image: UIImage?
-    
+    @State private var loadedAssetId: String?
+    @State private var requestID: PHImageRequestID = PHInvalidImageRequestID
+
     var body: some View {
         Color(uiColor: .secondarySystemBackground)
             .aspectRatio(1, contentMode: .fit)
@@ -78,22 +258,42 @@ private struct PhotoThumbnail: View {
             }
             .clipped()
             .contentShape(Rectangle())
-            .onAppear { load() }
+            .task(id: asset.localIdentifier) {
+                load()
+            }
+            .onDisappear {
+                cancelPending()
+            }
     }
-    
+
     private func load() {
-        guard image == nil else { return }
-        let scale = UIScreen.main.scale
-        let targetSide = 120 * scale
+        let currentId = asset.localIdentifier
+        if loadedAssetId == currentId && image != nil { return }
+        cancelPending()
+        if loadedAssetId != currentId {
+            image = nil
+            loadedAssetId = currentId
+        }
+        let targetSide = targetPoints * max(displayScale, 1)
         let target = CGSize(width: targetSide, height: targetSide)
         let options = PHImageRequestOptions()
         options.deliveryMode = .opportunistic
         options.resizeMode = .fast
         options.isNetworkAccessAllowed = true
-        manager.requestImage(for: asset, targetSize: target, contentMode: .aspectFill, options: options) { img, _ in
-            if let img {
-                DispatchQueue.main.async { image = img }
+        requestID = manager.requestImage(for: asset, targetSize: target, contentMode: .aspectFill, options: options) { img, _ in
+            guard let img else { return }
+            DispatchQueue.main.async {
+                if loadedAssetId == currentId {
+                    image = img
+                }
             }
+        }
+    }
+
+    private func cancelPending() {
+        if requestID != PHInvalidImageRequestID {
+            manager.cancelImageRequest(requestID)
+            requestID = PHInvalidImageRequestID
         }
     }
 }
@@ -105,7 +305,7 @@ private struct PhotoGridCell: View {
     let selectionOrder: Int?
     let imageManager: PHCachingImageManager
     let onToggle: () -> Void
-    
+
     var body: some View {
         Button(action: onToggle) {
             PhotoThumbnail(asset: asset, manager: imageManager)
@@ -131,24 +331,6 @@ private struct PhotoGridCell: View {
                     .shadow(color: Color.black.opacity(0.35), radius: 2, x: 0, y: 1)
                     .padding(6)
                 }
-                .overlay(alignment: .bottomLeading) {
-                    if asset.mediaType == .video {
-                        let sec = Int(asset.duration)
-                        let text = String(format: "%d:%02d", sec / 60, sec % 60)
-                        HStack(spacing: 3) {
-                            Image(systemName: "video.fill")
-                                .font(.system(size: 8))
-                            Text(text)
-                                .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                        }
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 4)
-                        .padding(.vertical, 2)
-                        .background(Color.black.opacity(0.6))
-                        .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
-                        .padding(5)
-                    }
-                }
                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
@@ -156,9 +338,9 @@ private struct PhotoGridCell: View {
     }
 }
 
-/// Full-height pull-up sheet behind the chat "+" button: a camera tile followed by the recent
-/// photos (multi-select), with a pinned "添加文件" row at the bottom. Presented as a large sheet
-/// with the standard drag indicator, like the other sheets in the app.
+/// Full-height pull-up sheet behind the chat "+" button: quick action tiles in Recents,
+/// WeChat-style album switcher in the navigation title, and lazy image-only photo grid
+/// with cross-album multi-selection.
 struct AttachmentPickerSheet: View {
     let remainingImageSlots: Int
     /// Called with the selected photos (in selection order); the sheet dismisses itself first.
@@ -167,22 +349,29 @@ struct AttachmentPickerSheet: View {
     let onOpenCamera: () -> Void
     let onOpenDocumentScanner: () -> Void
     let onFilesPicked: ([URL]) -> Void
-    
+
     @Environment(\.dismiss) private var dismiss
     @StateObject private var photos = RecentPhotosModel()
-    @State private var selected: [String] = []   // PHAsset.localIdentifier, in selection order
+    @State private var selected: [String] = []                // PHAsset.localIdentifier, in selection order
+    @State private var selectedAssetMap: [String: PHAsset] = [:] // Preserves PHAsset references across album switches
+    @State private var showAlbumDrawer = false
     @State private var showFileImporter = false
     private let imageManager = PHCachingImageManager()
-    
+
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 6), count: 4)
-    
+    private let gridTopAnchorId = "attachment_grid_top"
+
     var body: some View {
         // Same structure as NewConversationSheet (NavigationStack + inline title) so the title
         // sits at the same distance from the drag indicator.
         NavigationStack {
             content
-                .navigationTitle("最近项目")
                 .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .principal) {
+                        albumTitleTrigger
+                    }
+                }
         }
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
@@ -198,56 +387,226 @@ struct AttachmentPickerSheet: View {
             }
         }
     }
-    
-    private var content: some View {
-        VStack(spacing: 0) {
-            ScrollView {
-                if photos.authorization == .limited {
-                    limitedBanner
+
+    @ViewBuilder
+    private var albumTitleTrigger: some View {
+        if photos.hasAccess && photos.albums.count > 1 {
+            Button {
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
+                    showAlbumDrawer.toggle()
                 }
-                LazyVGrid(columns: columns, spacing: 6) {
-                    fileTile
-                    recordAudioTile
-                    if VNDocumentCameraViewController.isSupported {
-                        documentScannerTile
-                    }
-                    cameraTile
-                    if !photos.hasAccess {
-                        permissionTile
-                    }
-                    ForEach(photos.assets, id: \.localIdentifier) { asset in
-                        let order = selected.firstIndex(of: asset.localIdentifier)
-                        PhotoGridCell(
-                            asset: asset,
-                            isSelected: order != nil,
-                            selectionOrder: order,
-                            imageManager: imageManager
-                        ) {
-                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                            if let order {
-                                selected.remove(at: order)
-                            } else if selected.count < remainingImageSlots {
-                                selected.append(asset.localIdentifier)
-                            } else {
-                                UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
+            } label: {
+                HStack(spacing: 5) {
+                    Text(photos.currentAlbumTitle)
+                        .font(.system(size: 16.5, weight: .semibold))
+                        .foregroundColor(.primary)
+                        .lineLimit(1)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundColor(.secondary)
+                        .rotationEffect(.degrees(showAlbumDrawer ? 180 : 0))
+                        .animation(.spring(response: 0.28, dampingFraction: 0.82), value: showAlbumDrawer)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(String(localized: "切换相册，当前：\(photos.currentAlbumTitle)"))
+        } else {
+            Text(photos.currentAlbumTitle)
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundColor(.primary)
+                .lineLimit(1)
+        }
+    }
+
+    private var content: some View {
+        let _ = photos.reloadToken
+        return GeometryReader { geo in
+            ScrollViewReader { proxy in
+                ZStack(alignment: .top) {
+                    ScrollView {
+                        Color.clear
+                            .frame(height: 0)
+                            .id(gridTopAnchorId)
+
+                        if photos.authorization == .limited {
+                            limitedBanner
+                        }
+
+                        if photos.hasAccess && photos.assetCount == 0 && !photos.isShowingRecents {
+                            VStack(spacing: 10) {
+                                Image(systemName: "photo.on.rectangle.angled")
+                                    .font(.system(size: 32))
+                                    .foregroundColor(.secondary)
+                                Text("该相册暂无照片")
+                                    .font(.system(size: 14, weight: .medium))
+                                    .foregroundColor(.secondary)
                             }
+                            .frame(maxWidth: .infinity)
+                            .padding(.top, 80)
+                        } else {
+                            LazyVGrid(columns: columns, spacing: 6) {
+                                if photos.isShowingRecents {
+                                    fileTile
+                                    recordAudioTile
+                                    if VNDocumentCameraViewController.isSupported {
+                                        documentScannerTile
+                                    }
+                                    cameraTile
+                                }
+                                if !photos.hasAccess {
+                                    permissionTile
+                                } else {
+                                    ForEach(0..<photos.assetCount, id: \.self) { index in
+                                        if let asset = photos.asset(at: index) {
+                                            let order = selected.firstIndex(of: asset.localIdentifier)
+                                            PhotoGridCell(
+                                                asset: asset,
+                                                isSelected: order != nil,
+                                                selectionOrder: order,
+                                                imageManager: imageManager
+                                            ) {
+                                                toggleSelection(for: asset)
+                                            }
+                                            .id("\(photos.selectedAlbumId)_\(asset.localIdentifier)")
+                                        }
+                                    }
+                                }
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.top, 8)
+                            .padding(.bottom, selected.isEmpty ? 16 : 84)
                         }
                     }
+                    .background(Color(uiColor: .systemBackground))
+
+                    // WeChat-style slide-down album drawer
+                    if showAlbumDrawer {
+                        Color.black.opacity(0.32)
+                            .ignoresSafeArea()
+                            .transition(.opacity)
+                            .onTapGesture {
+                                withAnimation(.spring(response: 0.3, dampingFraction: 0.88)) {
+                                    showAlbumDrawer = false
+                                }
+                            }
+                            .zIndex(1)
+
+                        albumDrawerList(maxHeight: min(geo.size.height * 0.66, 520)) { album in
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            photos.selectAlbum(album)
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.88)) {
+                                showAlbumDrawer = false
+                            }
+                            withAnimation(.easeOut(duration: 0.18)) {
+                                proxy.scrollTo(gridTopAnchorId, anchor: .top)
+                            }
+                        }
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                        .zIndex(2)
+                    }
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
+                .clipped()
+                // The confirm button floats centered over the grid once photos are selected.
+                .overlay(alignment: .bottom) {
+                    if !selected.isEmpty && !showAlbumDrawer {
+                        footer
+                            .padding(.bottom, 12)
+                            .transition(.scale(scale: 0.9).combined(with: .opacity))
+                    }
+                }
+                .animation(.easeOut(duration: 0.18), value: selected.isEmpty || showAlbumDrawer)
             }
         }
         .background(Color(uiColor: .systemBackground))
-        // The confirm button floats centered over the grid once photos are selected.
-        .overlay(alignment: .bottom) {
-            if !selected.isEmpty {
-                footer
-                    .padding(.bottom, 12)
-                    .transition(.scale(scale: 0.9).combined(with: .opacity))
-            }
+    }
+
+    private func toggleSelection(for asset: PHAsset) {
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        if let order = selected.firstIndex(of: asset.localIdentifier) {
+            selected.remove(at: order)
+            selectedAssetMap.removeValue(forKey: asset.localIdentifier)
+        } else if selected.count < remainingImageSlots {
+            selected.append(asset.localIdentifier)
+            selectedAssetMap[asset.localIdentifier] = asset
+        } else {
+            UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
         }
-        .animation(.easeOut(duration: 0.18), value: selected.isEmpty)
+    }
+
+    private func albumDrawerList(
+        maxHeight: CGFloat,
+        onSelect: @escaping (PhotoAlbumItem) -> Void
+    ) -> some View {
+        ScrollView {
+            LazyVStack(spacing: 0) {
+                ForEach(Array(photos.albums.enumerated()), id: \.element.id) { idx, album in
+                    Button {
+                        onSelect(album)
+                    } label: {
+                        HStack(spacing: 12) {
+                            Group {
+                                if let cover = album.coverAsset {
+                                    PhotoThumbnail(asset: cover, manager: imageManager, targetPoints: 60)
+                                } else {
+                                    ZStack {
+                                        Color(uiColor: .secondarySystemBackground)
+                                        Image(systemName: "photo.on.rectangle")
+                                            .font(.system(size: 18))
+                                            .foregroundColor(.secondary)
+                                    }
+                                }
+                            }
+                            .frame(width: 52, height: 52)
+                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(album.title)
+                                    .font(.system(size: 15.5, weight: .medium))
+                                    .foregroundColor(.primary)
+                                    .lineLimit(1)
+                                Text("\(album.count)")
+                                    .font(.system(size: 13))
+                                    .foregroundColor(.secondary)
+                            }
+
+                            Spacer(minLength: 8)
+
+                            if album.id == photos.selectedAlbumId {
+                                Image(systemName: "checkmark")
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundColor(.indigo)
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 9)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+
+                    if idx < photos.albums.count - 1 {
+                        Divider()
+                            .padding(.leading, 80)
+                    }
+                }
+            }
+            .padding(.vertical, 6)
+        }
+        .frame(maxHeight: maxHeight)
+        .background(Color(uiColor: .systemBackground))
+        .clipShape(
+            UnevenRoundedRectangle(
+                topLeadingRadius: 0,
+                bottomLeadingRadius: 18,
+                bottomTrailingRadius: 18,
+                topTrailingRadius: 0,
+                style: .continuous
+            )
+        )
+        .shadow(color: Color.black.opacity(0.14), radius: 14, x: 0, y: 6)
     }
     
     private var limitedBanner: some View {
@@ -390,8 +749,7 @@ struct AttachmentPickerSheet: View {
     private var footer: some View {
         Button {
             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-            let byId = Dictionary(uniqueKeysWithValues: photos.assets.map { ($0.localIdentifier, $0) })
-            let picked = selected.compactMap { byId[$0] }
+            let picked = selected.compactMap { selectedAssetMap[$0] }
             dismiss()
             onPhotosPicked(picked)
         } label: {

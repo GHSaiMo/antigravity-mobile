@@ -68,6 +68,8 @@ import com.antigravity.mobile.ui.components.*
 import com.antigravity.mobile.ui.theme.AntigravityTheme
 import com.antigravity.mobile.ui.viewmodel.ConversationListUiState
 import com.antigravity.mobile.ui.viewmodel.ConversationListViewModel
+import com.antigravity.mobile.ui.viewmodel.WorkspaceFilter
+import com.antigravity.mobile.ui.viewmodel.WorkspaceFilterOption
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -79,6 +81,10 @@ fun ConversationListScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
+    val selectedWorkspaceFilter by viewModel.selectedWorkspaceFilter.collectAsStateWithLifecycle()
+    val workspaceFilterOptions by viewModel.workspaceFilterOptions.collectAsStateWithLifecycle()
+    val totalVisibleCount by viewModel.totalVisibleCount.collectAsStateWithLifecycle()
+    val workspaceTotalCount by viewModel.workspaceTotalCount.collectAsStateWithLifecycle()
     val contentResults by viewModel.contentResults.collectAsStateWithLifecycle()
     val compat by com.antigravity.mobile.data.model.GatewayCompatStore.state.collectAsStateWithLifecycle()
     val linkSnapshot by viewModel.linkSnapshot.collectAsStateWithLifecycle()
@@ -143,12 +149,24 @@ fun ConversationListScreen(
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
     var previousSearchQuery by rememberSaveable { mutableStateOf(searchQuery) }
+    var previousFilterKey by rememberSaveable { mutableStateOf(selectedWorkspaceFilter?.let { if (it.isPureChat) "__chat__" else "ws:${it.displayName}" }) }
 
     // 仅在搜索词真正发生变化时回到顶部，避免从详情页返回重建组合后把已恢复的列表滚动位置重置回 0
     LaunchedEffect(searchQuery) {
         swipedConversationId = null
         if (searchQuery != previousSearchQuery) {
             previousSearchQuery = searchQuery
+            if (listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 0) {
+                listState.scrollToItem(0)
+            }
+        }
+    }
+
+    LaunchedEffect(selectedWorkspaceFilter) {
+        swipedConversationId = null
+        val currentKey = selectedWorkspaceFilter?.let { if (it.isPureChat) "__chat__" else "ws:${it.displayName}" }
+        if (currentKey != previousFilterKey) {
+            previousFilterKey = currentKey
             if (listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 0) {
                 listState.scrollToItem(0)
             }
@@ -315,7 +333,32 @@ fun ConversationListScreen(
                             globalBackgroundTasks = globalBackgroundTasks,
                             compat = compat,
                             searchQuery = searchQuery,
-                            contentResults = contentResults.filter { hit -> state.conversations.none { it.id == hit.cascadeId } },
+                            selectedWorkspaceFilter = selectedWorkspaceFilter,
+                            workspaceFilterOptions = workspaceFilterOptions,
+                            totalVisibleCount = totalVisibleCount,
+                            workspaceTotalCount = workspaceTotalCount,
+                            onWorkspaceTagTap = { item ->
+                                swipedConversationId = null
+                                haptic.light()
+                                viewModel.toggleWorkspaceFilter(item)
+                            },
+                            onSelectWorkspaceFilter = { filter ->
+                                swipedConversationId = null
+                                haptic.light()
+                                viewModel.selectWorkspaceFilter(filter)
+                            },
+                            onClearWorkspaceFilter = {
+                                swipedConversationId = null
+                                haptic.light()
+                                viewModel.clearWorkspaceFilter()
+                            },
+                            contentResults = contentResults.filter { hit ->
+                                val matchesFilter = selectedWorkspaceFilter?.let { filter ->
+                                    val known = viewModel.getConversation(hit.cascadeId)
+                                    known != null && filter.matches(known)
+                                } ?: true
+                                matchesFilter && state.conversations.none { it.id == hit.cascadeId }
+                            },
                             isSearchingContent = isSearchingContent,
                             onSelectContentHit = { hit ->
                                 val known = viewModel.getConversation(hit.cascadeId)
@@ -403,10 +446,15 @@ fun ConversationListScreen(
                         cursorBrush = SolidColor(colors.accentIndigo),
                         decorationBox = { innerTextField ->
                             if (searchQuery.isEmpty()) {
+                                val placeholderText = selectedWorkspaceFilter?.let {
+                                    "在「${it.displayName}」中搜索...".loc
+                                } ?: "搜索会话或工作区...".loc
                                 Text(
-                                    text = "搜索会话或工作区...".loc,
+                                    text = placeholderText,
                                     color = colors.textSecondary,
-                                    fontSize = 15.sp
+                                    fontSize = 15.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
                             innerTextField()
@@ -506,8 +554,17 @@ fun ConversationListScreen(
                         indication = null,
                         onClick = {
                             swipedConversationId = null
-                            viewModel.loadProjects()
-                            showNewConvSheet = true
+                            val activeFilter = selectedWorkspaceFilter
+                            val directProject = activeFilter?.let { viewModel.resolveProjectForFilter(it) }
+                            if (directProject != null) {
+                                haptic.light()
+                                val draftSession = viewModel.createLocalDraftSession(directProject)
+                                val title = if (directProject.isPureChat) "新对话".loc else directProject.displayName
+                                onSelectConversation(draftSession.id, title, true, false, com.antigravity.mobile.data.model.ConversationStatus.IDLE, null)
+                            } else {
+                                viewModel.loadProjects()
+                                showNewConvSheet = true
+                            }
                         }
                     ),
                 contentAlignment = Alignment.Center
@@ -870,6 +927,13 @@ private fun ConversationListContent(
     globalBackgroundTasks: List<com.antigravity.mobile.data.model.GlobalBackgroundTaskItem>,
     compat: com.antigravity.mobile.data.model.GatewayCompat,
     searchQuery: String,
+    selectedWorkspaceFilter: WorkspaceFilter?,
+    workspaceFilterOptions: List<WorkspaceFilterOption>,
+    totalVisibleCount: Int,
+    workspaceTotalCount: Int,
+    onWorkspaceTagTap: (ConversationItem) -> Unit,
+    onSelectWorkspaceFilter: (WorkspaceFilter) -> Unit,
+    onClearWorkspaceFilter: () -> Unit,
     contentResults: List<com.antigravity.mobile.data.model.ConversationSearchResult>,
     isSearchingContent: Boolean,
     onSelectContentHit: (com.antigravity.mobile.data.model.ConversationSearchResult) -> Unit,
@@ -1037,8 +1101,29 @@ private fun ConversationListContent(
             }
         }
 
+        // Workspace Filter Capsule (appears below quota / background tasks when filtering by project or Chat)
+        selectedWorkspaceFilter?.let { activeFilter ->
+            item(key = "header_workspace_filter") {
+                WorkspaceFilterCapsule(
+                    activeFilter = activeFilter,
+                    options = workspaceFilterOptions,
+                    totalVisibleCount = totalVisibleCount,
+                    workspaceTotalCount = workspaceTotalCount,
+                    onSelectFilter = onSelectWorkspaceFilter,
+                    onClear = onClearWorkspaceFilter,
+                    modifier = Modifier.animateItem(
+                        placementSpec = spring(
+                            dampingRatio = Spring.DampingRatioMediumBouncy,
+                            stiffness = Spring.StiffnessLow
+                        )
+                    )
+                )
+            }
+        }
+
         if (conversations.isEmpty() && contentResults.isEmpty() && !isSearchingContent) {
             item(key = "empty_placeholder") {
+                val activeFilter = selectedWorkspaceFilter
                 Column(
                     modifier = Modifier
                         .animateItem(
@@ -1053,26 +1138,48 @@ private fun ConversationListContent(
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Icon(
-                        imageVector = if (searchQuery.isEmpty()) Icons.Default.ChatBubbleOutline else Icons.Default.Search,
+                        imageVector = when {
+                            searchQuery.isNotEmpty() -> Icons.Default.Search
+                            activeFilter != null && !activeFilter.isPureChat -> Icons.Default.Folder
+                            else -> Icons.Default.ChatBubbleOutline
+                        },
                         contentDescription = "Empty",
                         tint = colors.textMuted,
                         modifier = Modifier.size(44.dp)
                     )
                     Spacer(modifier = Modifier.height(12.dp))
                     Text(
-                        text = if (searchQuery.isEmpty()) "暂无会话".loc else "未找到匹配会话".loc,
+                        text = when {
+                            activeFilter != null && searchQuery.isNotEmpty() -> "在「${activeFilter.displayName}」中未找到匹配会话".loc
+                            activeFilter != null -> "「${activeFilter.displayName}」暂无会话".loc
+                            searchQuery.isEmpty() -> "暂无会话".loc
+                            else -> "未找到匹配会话".loc
+                        },
                         color = colors.textPrimary,
                         fontSize = 17.sp,
-                        fontWeight = FontWeight.SemiBold
+                        fontWeight = FontWeight.SemiBold,
+                        textAlign = TextAlign.Center
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = if (searchQuery.isEmpty()) "可点击右上角 + 开启新会话，或下拉刷新同步".loc else "请尝试其他关键词搜索".loc,
+                        text = when {
+                            activeFilter != null -> "可点击右上角 + 新建会话，或返回全部会话".loc
+                            searchQuery.isEmpty() -> "可点击右上角 + 开启新会话，或下拉刷新同步".loc
+                            else -> "请尝试其他关键词搜索".loc
+                        },
                         color = colors.textSecondary,
                         fontSize = 13.sp,
                         textAlign = TextAlign.Center
                     )
-                    if (searchQuery.isEmpty()) {
+                    if (activeFilter != null) {
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Button(
+                            onClick = onClearWorkspaceFilter,
+                            colors = ButtonDefaults.buttonColors(containerColor = colors.accentIndigo)
+                        ) {
+                            Text("查看全部会话".loc)
+                        }
+                    } else if (searchQuery.isEmpty()) {
                         Spacer(modifier = Modifier.height(16.dp))
                         Button(
                             onClick = onRefresh,
@@ -1121,6 +1228,13 @@ private fun ConversationListContent(
                                 conversation.status,
                                 conversation.lastModifiedTime
                             )
+                        }
+                    },
+                    onWorkspaceTap = {
+                        if (swipedConversationId != null) {
+                            onSwipedConversationIdChange(null)
+                        } else {
+                            onWorkspaceTagTap(conversation)
                         }
                     },
                     onLongClick = { onRename(conversation) },
@@ -1229,6 +1343,153 @@ private fun ContentHitCard(
 }
 
 @Composable
+private fun WorkspaceFilterCapsule(
+    activeFilter: WorkspaceFilter,
+    options: List<WorkspaceFilterOption>,
+    totalVisibleCount: Int,
+    workspaceTotalCount: Int,
+    onSelectFilter: (WorkspaceFilter) -> Unit,
+    onClear: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val colors = AntigravityTheme.colors
+    var menuExpanded by remember { mutableStateOf(false) }
+
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(CircleShape)
+            .background(colors.surface)
+            .border(0.8.dp, colors.accentIndigo.copy(alpha = 0.28f), CircleShape)
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Box(modifier = Modifier.weight(1f)) {
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) { menuExpanded = true }
+                    .padding(vertical = 1.dp, horizontal = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(5.dp)
+            ) {
+                Icon(
+                    imageVector = if (activeFilter.isPureChat) Icons.Default.ChatBubbleOutline else Icons.Default.Folder,
+                    contentDescription = null,
+                    tint = colors.accentIndigo,
+                    modifier = Modifier.size(14.dp)
+                )
+                Text(
+                    text = activeFilter.displayName,
+                    fontSize = 12.5.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    fontFamily = if (activeFilter.isPureChat) FontFamily.Default else FontFamily.Monospace,
+                    color = colors.textPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+                Icon(
+                    imageVector = Icons.Default.KeyboardArrowDown,
+                    contentDescription = "Switch workspace".loc,
+                    tint = colors.textSecondary,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+
+            DropdownMenu(
+                expanded = menuExpanded,
+                onDismissRequest = { menuExpanded = false },
+                containerColor = colors.surface
+            ) {
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            text = "全部会话 ($totalVisibleCount)".loc,
+                            color = colors.textPrimary,
+                            fontSize = 14.sp
+                        )
+                    },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.Inbox,
+                            contentDescription = null,
+                            tint = colors.textSecondary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    },
+                    onClick = {
+                        menuExpanded = false
+                        onClear()
+                    }
+                )
+                if (options.isNotEmpty()) {
+                    HorizontalDivider(thickness = 0.5.dp, color = colors.border)
+                    options.forEach { opt ->
+                        val isCurrent = opt.filter == activeFilter
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    text = "${opt.filter.displayName} (${opt.count})",
+                                    color = if (isCurrent) colors.accentIndigo else colors.textPrimary,
+                                    fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Normal,
+                                    fontSize = 14.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = if (opt.filter.isPureChat) Icons.Default.ChatBubbleOutline else Icons.Default.Folder,
+                                    contentDescription = null,
+                                    tint = if (isCurrent) colors.accentIndigo else colors.textSecondary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            },
+                            trailingIcon = if (isCurrent) {
+                                {
+                                    Icon(
+                                        imageVector = Icons.Default.Check,
+                                        contentDescription = null,
+                                        tint = colors.accentIndigo,
+                                        modifier = Modifier.size(17.dp)
+                                    )
+                                }
+                            } else null,
+                            onClick = {
+                                menuExpanded = false
+                                onSelectFilter(opt.filter)
+                            }
+                        )
+                    }
+                }
+            }
+        }
+
+        Text(
+            text = "${workspaceTotalCount} 个会话".loc,
+            fontSize = 11.5.sp,
+            fontWeight = FontWeight.Medium,
+            color = colors.textSecondary
+        )
+
+        Icon(
+            imageVector = Icons.Default.Cancel,
+            contentDescription = "退出项目筛选".loc,
+            tint = colors.textMuted,
+            modifier = Modifier
+                .size(18.dp)
+                .clip(CircleShape)
+                .clickable(onClick = onClear)
+        )
+    }
+}
+
+@Composable
 private fun SwipeableConversationCard(
     conversation: ConversationItem,
     hasDraft: Boolean,
@@ -1237,6 +1498,7 @@ private fun SwipeableConversationCard(
     onSwipeClosed: () -> Unit,
     onStartDrag: () -> Unit,
     onClick: () -> Unit,
+    onWorkspaceTap: () -> Unit,
     onLongClick: () -> Unit,
     onDelete: () -> Unit,
     onPin: () -> Unit,
@@ -1386,6 +1648,16 @@ private fun SwipeableConversationCard(
                         onClick()
                     }
                 },
+                onWorkspaceTap = {
+                    if (offsetX.value != 0f) {
+                        onSwipeClosed()
+                        coroutineScope.launch {
+                            offsetX.animateTo(0f, spring(stiffness = Spring.StiffnessMediumLow))
+                        }
+                    } else {
+                        onWorkspaceTap()
+                    }
+                },
                 onLongClick = {
                     if (offsetX.value != 0f) {
                         onSwipeClosed()
@@ -1408,6 +1680,7 @@ fun ConversationCard(
     conversation: ConversationItem,
     hasDraft: Boolean = false,
     onClick: () -> Unit,
+    onWorkspaceTap: (() -> Unit)? = null,
     onLongClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -1493,20 +1766,39 @@ fun ConversationCard(
                     horizontalArrangement = Arrangement.spacedBy(5.dp),
                     modifier = Modifier.weight(1f, fill = false)
                 ) {
-                    Icon(
-                        imageVector = if (conversation.isPureChat) Icons.Default.ChatBubbleOutline else Icons.Default.Folder,
-                        contentDescription = "Workspace",
-                        tint = colors.textMuted,
-                        modifier = Modifier.size(13.dp)
-                    )
-                    Text(
-                        text = conversation.workspaceName,
-                        color = colors.textSecondary,
-                        fontSize = 12.sp,
-                        fontFamily = FontFamily.Monospace,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(5.dp),
+                        modifier = Modifier
+                            .weight(1f, fill = false)
+                            .then(
+                                if (onWorkspaceTap != null) {
+                                    Modifier.clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null,
+                                        onClick = onWorkspaceTap
+                                    )
+                                } else {
+                                    Modifier
+                                }
+                            )
+                            .padding(end = 4.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (conversation.isPureChat) Icons.Default.ChatBubbleOutline else Icons.Default.Folder,
+                            contentDescription = "Workspace",
+                            tint = colors.textMuted,
+                            modifier = Modifier.size(13.dp)
+                        )
+                        Text(
+                            text = conversation.workspaceName,
+                            color = colors.textSecondary,
+                            fontSize = 12.sp,
+                            fontFamily = FontFamily.Monospace,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                     conversation.pullRequest?.let { pr ->
                         GitHubPRPillBadge(item = pr, compact = true)
                     }

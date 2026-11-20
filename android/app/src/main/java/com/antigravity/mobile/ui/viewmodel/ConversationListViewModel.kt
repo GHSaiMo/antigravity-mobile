@@ -42,6 +42,31 @@ sealed interface ConversationListUiState {
     data class Error(val message: String) : ConversationListUiState
 }
 
+sealed interface WorkspaceFilter {
+    data object Chat : WorkspaceFilter
+    data class Workspace(val name: String) : WorkspaceFilter
+
+    val displayName: String
+        get() = when (this) {
+            is Chat -> "Chat"
+            is Workspace -> name
+        }
+
+    val isPureChat: Boolean
+        get() = this is Chat
+
+    fun matches(item: ConversationItem): Boolean = when (this) {
+        is Chat -> item.isPureChat
+        is Workspace -> !item.isPureChat && item.workspaceName == name
+    }
+}
+
+data class WorkspaceFilterOption(
+    val filter: WorkspaceFilter,
+    val count: Int,
+    val latestModifiedMs: Long
+)
+
 class ConversationListViewModel(
     private val apiClient: ApiClient,
     val prefs: PreferencesManager,
@@ -54,6 +79,18 @@ class ConversationListViewModel(
 
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
+
+    private val _selectedWorkspaceFilter = MutableStateFlow<WorkspaceFilter?>(null)
+    val selectedWorkspaceFilter: StateFlow<WorkspaceFilter?> = _selectedWorkspaceFilter.asStateFlow()
+
+    private val _workspaceFilterOptions = MutableStateFlow<List<WorkspaceFilterOption>>(emptyList())
+    val workspaceFilterOptions: StateFlow<List<WorkspaceFilterOption>> = _workspaceFilterOptions.asStateFlow()
+
+    private val _totalVisibleCount = MutableStateFlow(0)
+    val totalVisibleCount: StateFlow<Int> = _totalVisibleCount.asStateFlow()
+
+    private val _workspaceTotalCount = MutableStateFlow(0)
+    val workspaceTotalCount: StateFlow<Int> = _workspaceTotalCount.asStateFlow()
 
     /** 会话「内容」命中（language_server SearchConversations），与按标题过滤并行存在。 */
     private val _contentResults = MutableStateFlow<List<ConversationSearchResult>>(emptyList())
@@ -281,6 +318,7 @@ class ConversationListViewModel(
         val sorted = sortConversations(all)
         if (sorted.isNotEmpty()) {
             markReorderedNow()
+            updateWorkspaceFilterStats(sorted)
             _uiState.value = ConversationListUiState.Success(sorted)
             cacheManager?.prewarmSessions(sorted.take(15).map { it.id })
             liveActivityManager?.syncWithConversations(sorted)
@@ -724,6 +762,91 @@ class ConversationListViewModel(
         searchContent(query.trim())
     }
 
+    fun toggleWorkspaceFilter(item: ConversationItem) {
+        val target = if (item.isPureChat) WorkspaceFilter.Chat else WorkspaceFilter.Workspace(item.workspaceName)
+        _selectedWorkspaceFilter.value = if (_selectedWorkspaceFilter.value == target) null else target
+        applyFilter()
+        if (_searchQuery.value.isNotBlank()) {
+            searchContent(_searchQuery.value.trim())
+        }
+    }
+
+    fun selectWorkspaceFilter(filter: WorkspaceFilter) {
+        if (_selectedWorkspaceFilter.value == filter) return
+        _selectedWorkspaceFilter.value = filter
+        applyFilter()
+        if (_searchQuery.value.isNotBlank()) {
+            searchContent(_searchQuery.value.trim())
+        }
+    }
+
+    fun clearWorkspaceFilter() {
+        if (_selectedWorkspaceFilter.value == null) return
+        _selectedWorkspaceFilter.value = null
+        applyFilter()
+        if (_searchQuery.value.isNotBlank()) {
+            searchContent(_searchQuery.value.trim())
+        }
+    }
+
+    fun resolveProjectForFilter(filter: WorkspaceFilter): ProjectItem? {
+        return when (filter) {
+            is WorkspaceFilter.Chat -> ProjectItem.PURE_CHAT
+            is WorkspaceFilter.Workspace -> {
+                _projects.value.firstOrNull { !it.isPureChat && (it.name == filter.name || it.displayName == filter.name) }
+                    ?: rawConversations
+                        .asSequence()
+                        .filter { filter.matches(it) }
+                        .mapNotNull { it.draftProject }
+                        .firstOrNull { !it.isPureChat }
+            }
+        }
+    }
+
+    private fun updateWorkspaceFilterStats(source: List<ConversationItem>) {
+        val visible = source.filter { !it.isSubagent }
+        _totalVisibleCount.value = visible.size
+
+        var chatCount = 0
+        var chatLatest = 0L
+        val workspaces = LinkedHashMap<String, Pair<Int, Long>>()
+
+        for (item in visible) {
+            val modified = item.lastModifiedEpochMs
+            if (item.isPureChat) {
+                chatCount += 1
+                if (modified > chatLatest) chatLatest = modified
+            } else {
+                val existing = workspaces[item.workspaceName]
+                if (existing != null) {
+                    workspaces[item.workspaceName] = Pair(existing.first + 1, maxOf(existing.second, modified))
+                } else {
+                    workspaces[item.workspaceName] = Pair(1, modified)
+                }
+            }
+        }
+
+        val options = mutableListOf<WorkspaceFilterOption>()
+        if (chatCount > 0) {
+            options.add(WorkspaceFilterOption(WorkspaceFilter.Chat, chatCount, chatLatest))
+        }
+        val sortedProjects = workspaces
+            .map { (name, stats) -> WorkspaceFilterOption(WorkspaceFilter.Workspace(name), stats.first, stats.second) }
+            .sortedWith(
+                compareByDescending<WorkspaceFilterOption> { it.latestModifiedMs }
+                    .thenBy { it.filter.displayName.lowercase(Locale.getDefault()) }
+            )
+        options.addAll(sortedProjects)
+        _workspaceFilterOptions.value = options
+
+        val activeFilter = _selectedWorkspaceFilter.value
+        _workspaceTotalCount.value = if (activeFilter == null) {
+            visible.size
+        } else {
+            visible.count { activeFilter.matches(it) }
+        }
+    }
+
     /** 输入停顿 350ms 后再查；少于 2 个字符不查（单字命中太泛）。 */
     private fun searchContent(query: String) {
         contentSearchJob?.cancel()
@@ -738,9 +861,17 @@ class ConversationListViewModel(
             kotlinx.coroutines.delay(350)
             apiClient.searchConversations(query)
                 .onSuccess { results ->
-                    // 子代理会话不在列表里展示，也不作为搜索结果
-                    val visible = rawConversations.filter { !it.isSubagent }.map { it.id }.toSet()
-                    _contentResults.value = results.filter { visible.isEmpty() || it.cascadeId in visible }
+                    // 子代理会话不在列表里展示，也不作为搜索结果；同时遵守当前项目筛选
+                    val activeFilter = _selectedWorkspaceFilter.value
+                    val scopedIds = rawConversations
+                        .filter { !it.isSubagent && (activeFilter?.matches(it) ?: true) }
+                        .map { it.id }
+                        .toSet()
+                    _contentResults.value = if (activeFilter != null) {
+                        results.filter { it.cascadeId in scopedIds }
+                    } else {
+                        results.filter { scopedIds.isEmpty() || it.cascadeId in scopedIds }
+                    }
                 }
                 .onFailure {
                     Log.w("ConvListVM", "Content search failed: ${it.message}")
@@ -751,11 +882,18 @@ class ConversationListViewModel(
     }
 
     private fun applyFilter() {
-        val query = _searchQuery.value.trim().lowercase()
-        val filtered = if (query.isEmpty()) {
+        updateWorkspaceFilterStats(rawConversations)
+        val activeFilter = _selectedWorkspaceFilter.value
+        val scoped = if (activeFilter == null) {
             rawConversations
         } else {
-            rawConversations.filter {
+            rawConversations.filter { activeFilter.matches(it) }
+        }
+        val query = _searchQuery.value.trim().lowercase()
+        val filtered = if (query.isEmpty()) {
+            scoped
+        } else {
+            scoped.filter {
                 it.title.lowercase().contains(query) ||
                         it.workspaceName.lowercase().contains(query)
             }
@@ -796,6 +934,10 @@ class ConversationListViewModel(
         prefs.clear()
         _uiState.value = ConversationListUiState.Success(emptyList())
         rawConversations = emptyList()
+        _selectedWorkspaceFilter.value = null
+        _workspaceFilterOptions.value = emptyList()
+        _totalVisibleCount.value = 0
+        _workspaceTotalCount.value = 0
         lastReorderAtMs = 0L
         _projects.value = emptyList()
         _projectsError.value = null

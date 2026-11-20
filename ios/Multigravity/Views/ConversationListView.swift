@@ -422,6 +422,133 @@ public struct ConversationListView: View {
         .buttonStyle(.plain)
     }
     
+    private func toggleWorkspaceFilter(for item: ConversationItem) {
+        let target: ConversationListViewModel.WorkspaceFilter = item.isPureChat ? .chat : .workspace(item.workspaceName)
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        withAnimation(.spring(response: 0.36, dampingFraction: 0.82)) {
+            if viewModel.selectedWorkspaceFilter == target {
+                viewModel.selectedWorkspaceFilter = nil
+            } else {
+                viewModel.selectedWorkspaceFilter = target
+            }
+        }
+    }
+
+    private func selectWorkspaceFilter(_ filter: ConversationListViewModel.WorkspaceFilter) {
+        guard viewModel.selectedWorkspaceFilter != filter else { return }
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        withAnimation(.spring(response: 0.36, dampingFraction: 0.82)) {
+            viewModel.selectedWorkspaceFilter = filter
+        }
+    }
+
+    private func clearWorkspaceFilter() {
+        guard viewModel.selectedWorkspaceFilter != nil else { return }
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        withAnimation(.spring(response: 0.36, dampingFraction: 0.82)) {
+            viewModel.selectedWorkspaceFilter = nil
+        }
+    }
+
+    private func handleNewConversationTapped() {
+        guard let filter = viewModel.selectedWorkspaceFilter else {
+            showNewConversation = true
+            return
+        }
+        switch filter {
+        case .chat:
+            let session = CacheManager.shared.createLocalDraftSession(project: .pureChat)
+            openConversation(session.toConversationItem())
+        case .workspace(let wsName):
+            let cachedProjects = ProjectCacheManager.shared.loadProjects()
+            if let matched = cachedProjects.first(where: { !$0.isPureChat && ($0.name == wsName || $0.displayName == wsName) }) {
+                let session = CacheManager.shared.createLocalDraftSession(project: matched)
+                openConversation(session.toConversationItem())
+            } else if let draftProj = viewModel.workspaceFilteredConversations.compactMap(\.draftProject).first(where: { !$0.isPureChat }) {
+                let session = CacheManager.shared.createLocalDraftSession(project: draftProj)
+                openConversation(session.toConversationItem())
+            } else {
+                showNewConversation = true
+            }
+        }
+    }
+
+    private func workspaceFilterCapsule(for filter: ConversationListViewModel.WorkspaceFilter) -> some View {
+        let totalCount = viewModel.workspaceTotalCount
+        let options = viewModel.availableWorkspaceFilters
+        return HStack(spacing: 8) {
+            Menu {
+                Button {
+                    clearWorkspaceFilter()
+                } label: {
+                    Label(String(localized: "全部会话 (\(viewModel.totalVisibleCount))"), systemImage: "tray.full")
+                }
+
+                if !options.isEmpty {
+                    Divider()
+                    ForEach(options) { opt in
+                        Button {
+                            selectWorkspaceFilter(opt.filter)
+                        } label: {
+                            HStack {
+                                Label(
+                                    "\(opt.filter.displayName) (\(opt.count))",
+                                    systemImage: opt.filter.isPureChat ? "bubble.left" : "folder"
+                                )
+                                if opt.filter == filter {
+                                    Image(systemName: "checkmark")
+                                }
+                            }
+                        }
+                    }
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: filter.isPureChat ? "bubble.left.fill" : "folder.fill")
+                        .font(.system(size: 11.5, weight: .semibold))
+                        .foregroundColor(.indigo)
+                    Text(filter.displayName)
+                        .font(.system(size: 12.5, weight: .semibold, design: filter.isPureChat ? .default : .monospaced))
+                        .foregroundColor(.primary)
+                        .lineLimit(1)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 9.5, weight: .bold))
+                        .foregroundColor(.secondary)
+                }
+                .padding(.vertical, 2)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.borderless)
+
+            Spacer(minLength: 4)
+
+            Text(String(localized: "\(totalCount) 个会话"))
+                .font(.system(size: 11.5, weight: .medium))
+                .foregroundColor(.secondary)
+                .contentTransition(.numericText())
+
+            Button {
+                clearWorkspaceFilter()
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 15))
+                    .foregroundColor(.secondary)
+                    .padding(.leading, 2)
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel(String(localized: "退出项目筛选"))
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Color(uiColor: .secondarySystemBackground))
+        .clipShape(Capsule())
+        .overlay(
+            Capsule()
+                .stroke(Color.indigo.opacity(0.28), lineWidth: 0.8)
+        )
+    }
+
     /// The conversation list with its navigation chrome (title, search, toolbar).
     private var listWithChrome: some View {
         pairedContentView
@@ -432,9 +559,18 @@ public struct ConversationListView: View {
                 }
             }
             .navigationTitle("Multigravity")
-            .modifier(ConversationSearch(text: $viewModel.searchQuery, usesBottomCapsule: usesSplitLayout))
+            .modifier(ConversationSearch(
+                text: $viewModel.searchQuery,
+                usesBottomCapsule: usesSplitLayout,
+                filterName: viewModel.selectedWorkspaceFilter?.displayName
+            ))
             .onChange(of: viewModel.searchQuery) { _, _ in
                 viewModel.scheduleContentSearch()
+            }
+            .onChange(of: viewModel.selectedWorkspaceFilter) { _, _ in
+                if !viewModel.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    viewModel.scheduleContentSearch()
+                }
             }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -445,12 +581,12 @@ public struct ConversationListView: View {
                     .help("设置")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button(action: { showNewConversation = true }) {
+                    Button(action: handleNewConversationTapped) {
                         Image(systemName: "plus")
                             .font(.system(size: 16, weight: .semibold))
                     }
                     .keyboardShortcut("n", modifiers: .command)
-                    .help("新建会话")
+                    .help(viewModel.selectedWorkspaceFilter.map { String(localized: "在 \($0.displayName) 新建会话") } ?? String(localized: "新建会话"))
                 }
             }
             .background(NavigationBarTapHelper(onTap: handleEasterEggTap))
@@ -522,7 +658,7 @@ public struct ConversationListView: View {
             refreshingSkeletonView
         } else if let err = viewModel.errorMessage, viewModel.conversations.isEmpty {
             errorView(err)
-        } else if viewModel.filteredConversations.isEmpty && unmatchedContentHits.isEmpty && !viewModel.isSearchingContent {
+        } else if viewModel.selectedWorkspaceFilter == nil && viewModel.filteredConversations.isEmpty && unmatchedContentHits.isEmpty && !viewModel.isSearchingContent {
             emptyView
         } else {
             listView
@@ -665,6 +801,39 @@ public struct ConversationListView: View {
                     .listRowBackground(Color.clear)
                     .transition(.opacity.combined(with: .scale(scale: 0.94, anchor: .top)).combined(with: .move(edge: .top)))
             }
+
+            if let activeFilter = viewModel.selectedWorkspaceFilter {
+                workspaceFilterCapsule(for: activeFilter)
+                    .listRowInsets(EdgeInsets(top: 2, leading: 16, bottom: 6, trailing: 16))
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
+                    .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .top)).combined(with: .move(edge: .top)))
+            }
+
+            if let activeFilter = viewModel.selectedWorkspaceFilter,
+               viewModel.filteredConversations.isEmpty && unmatchedContentHits.isEmpty && !viewModel.isSearchingContent {
+                VStack(spacing: 10) {
+                    Image(systemName: viewModel.searchQuery.isEmpty ? (activeFilter.isPureChat ? "bubble.left" : "folder") : "magnifyingglass")
+                        .font(.system(size: 28))
+                        .foregroundColor(.secondary)
+                    Text(viewModel.searchQuery.isEmpty
+                         ? String(localized: "「\(activeFilter.displayName)」暂无会话")
+                         : String(localized: "在「\(activeFilter.displayName)」中未找到匹配会话"))
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(.secondary)
+                    Button("查看全部会话") {
+                        clearWorkspaceFilter()
+                    }
+                    .font(.system(size: 13.5, weight: .semibold))
+                    .buttonStyle(.bordered)
+                    .padding(.top, 2)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 44)
+                .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
+            }
             
             ForEach(viewModel.filteredConversations) { item in
                 conversationCard(for: item)
@@ -794,15 +963,19 @@ public struct ConversationListView: View {
         }
         .listStyle(.plain)
         .animation(.spring(response: 0.42, dampingFraction: 0.72), value: viewModel.globalBackgroundTasks.isEmpty)
+        .animation(.spring(response: 0.36, dampingFraction: 0.82), value: viewModel.selectedWorkspaceFilter)
         .refreshable {
             await viewModel.fetchConversations()
         }
     }
 
-    /// 内容命中里去掉已经按标题/工作区出现在上面列表中的会话。
+    /// 内容命中里去掉已经按标题/工作区出现在上面列表中的会话，同时遵守当前项目筛选。
     private var unmatchedContentHits: [ConversationListViewModel.ContentSearchHit] {
         let shown = Set(viewModel.filteredConversations.map(\.id))
-        return viewModel.contentHits.filter { !shown.contains($0.item.id) }
+        let activeFilter = viewModel.selectedWorkspaceFilter
+        return viewModel.contentHits.filter { hit in
+            !shown.contains(hit.item.id) && (activeFilter?.matches(hit.item) ?? true)
+        }
     }
 
     private func contentHitRow(_ hit: ConversationListViewModel.ContentSearchHit) -> some View {
@@ -869,6 +1042,7 @@ public struct ConversationListView: View {
         settings.unpair()
         viewModel.stopAutoRefresh()
         viewModel.conversations.removeAll()
+        viewModel.selectedWorkspaceFilter = nil
         viewModel.errorMessage = nil
         viewModel.isLoading = false
         navigationPath = []
@@ -1111,11 +1285,27 @@ public struct ConversationListView: View {
             
             HStack {
                 HStack(spacing: 4) {
-                    Image(systemName: item.isPureChat ? "bubble.left" : "folder")
-                        .font(.system(size: item.isPureChat ? 10.5 : 11))
-                        .frame(width: 15, height: 14)
-                    Text(item.workspaceName)
-                        .font(.system(size: 12, design: .monospaced))
+                    Button {
+                        toggleWorkspaceFilter(for: item)
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: item.isPureChat ? "bubble.left" : "folder")
+                                .font(.system(size: item.isPureChat ? 10.5 : 11))
+                                .frame(width: 15, height: 14)
+                            Text(item.workspaceName)
+                                .font(.system(size: 12, design: .monospaced))
+                                .lineLimit(1)
+                        }
+                        .foregroundColor(.secondary)
+                        .padding(.vertical, 6)
+                        .padding(.trailing, 8)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.borderless)
+                    .padding(.vertical, -6)
+                    .padding(.trailing, -8)
+                    .accessibilityLabel(String(localized: "筛选 \(item.workspaceName) 的会话"))
+
                     if let pr = item.pullRequest {
                         GitHubPRPillBadge(item: pr, compact: true)
                     }
@@ -1516,7 +1706,14 @@ private struct SidebarToggleToolbarItem: ToolbarContent {
 private struct ConversationSearch: ViewModifier {
     @Binding var text: String
     let usesBottomCapsule: Bool
-    private let prompt = String(localized: "搜索会话或工作区...")
+    var filterName: String? = nil
+
+    private var prompt: String {
+        if let filterName, !filterName.isEmpty {
+            return String(localized: "在「\(filterName)」中搜索...")
+        }
+        return String(localized: "搜索会话或工作区...")
+    }
     
     func body(content: Content) -> some View {
         if usesBottomCapsule {
