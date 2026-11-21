@@ -26,7 +26,7 @@
 </p>
 
 <p align="center">
-  🌐 <b>Website</b>: <a href="https://mgy.jiuge.space">mgy.jiuge.space</a> &nbsp;·&nbsp; 🍎 <b>App Store</b>: <a href="https://apps.apple.com/app/id6835508934">Download for iOS</a> &nbsp;·&nbsp; 🧪 <b>TestFlight</b>: <a href="https://testflight.apple.com/join/YM7f4aSK">Public Beta</a> &nbsp;·&nbsp; 📦 <a href="https://github.com/GHSaiMo/antigravity-mobile/releases/latest">Latest Release v1.2.1</a>
+  🌐 <b>Website</b>: <a href="https://mgy.jiuge.space">mgy.jiuge.space</a> &nbsp;·&nbsp; 🍎 <b>App Store</b>: <a href="https://apps.apple.com/app/id6835508934">Download for iOS</a> &nbsp;·&nbsp; 🧪 <b>TestFlight</b>: <a href="https://testflight.apple.com/join/YM7f4aSK">Public Beta</a> &nbsp;·&nbsp; 📦 <a href="https://github.com/GHSaiMo/antigravity-mobile/releases/latest">Latest Release v1.2.2</a>
 </p>
 
 > 🎉 **Multigravity for iOS is officially available on the Apple App Store!**  
@@ -68,7 +68,7 @@ irm https://ghfast.top/https://raw.githubusercontent.com/GHSaiMo/antigravity-mob
 
 ### 2. Install or Open the Mobile Client
 - **iOS**: 🎉 Officially released on the Apple App Store! Install directly via **[App Store](https://apps.apple.com/app/id6835508934)** with one tap, or join the **[TestFlight Public Beta](https://testflight.apple.com/join/YM7f4aSK)** to test pre-release builds (for building from source or debugging on physical devices, refer to the [iOS Local Build & Device Debugging Guide](docs/ios_build_guide.md)).
-- **Android**: Download `Multigravity-v1.2.1.apk` directly from [GitHub Releases](https://github.com/GHSaiMo/antigravity-mobile/releases/latest) (supports in-place upgrade; please download only from official Releases).
+- **Android**: Download `Multigravity-v1.2.2.apk` directly from [GitHub Releases](https://github.com/GHSaiMo/antigravity-mobile/releases/latest) (supports in-place upgrade; please download only from official Releases).
 - **PWA / Web**: No app installation needed. Open the gateway URL (or `/?view=pwa`) directly in your mobile browser and add it to your Home Screen.
 
 ### 3. Launch & Scan QR Code to Pair
@@ -105,28 +105,28 @@ When launched in the foreground, the gateway prints a one-time pairing QR code i
 ### 1. Consistent Real-Time Streaming Across All Platforms
 - **Cross-Platform Parity**: Native **iOS** (SwiftUI / Swift 6), native **Android** (Jetpack Compose Material 3), and zero-build embedded **PWA Web**. Supports System/Light/Dark themes and an independent "Compact Mode" toggle for reduced visual noise.
 - **Low-Latency Streaming & Resumable Sessions**: Reactive Connect streaming Hub + WebSocket `sinceRev` incremental resumption, heartbeat keep-alive during prolonged reasoning periods, content-hash verification, Markdown LRU caching, step rail navigation, long-conversation Table of Contents (TOC), and steady-state instant sending. Ultra-long sessions remain silky smooth.
-- **Professional-Grade Rich Media Rendering**: 180+ languages offline syntax highlighting (including `R / R Markdown`), word-level inline code diffs, LaTeX math equations, fault-tolerant Mermaid rendering, **Find in Page**, and high-density PDF lazy loading.
+- **Professional-Grade Rich Media & Interactive Rendering**: 180+ languages offline syntax highlighting (including `R / R Markdown`), single-gutter line-numbered & word-level inline code diffs, LaTeX math equations, fault-tolerant Mermaid rendering, **interactive MCP Apps (`ui://`) bridging**, **Find in Page**, and high-density PDF lazy loading.
 
 ### 2. Critical Decisions, Tiered Permissions & Model Synergy
-- **Interactive Decision Cards, Tiered Permissions & Workspace Trust**: Full support for multi-question decision cards (`askQuestion`), high-risk command approvals, 3-tier permission modes, and one-click authorization banners for untrusted workspaces.
-- **Fast Model Switching & Desktop Sync**: Configure primary and secondary models. New conversations default to the primary model while existing conversations automatically synchronize the latest model from desktop. Tap the model pill to quickly toggle between primary and secondary, or long-press to pick from all available models.
-- **Plan Approvals, `/btw` Side Questions & Undo**: One-click `Proceed` execution for plans, conversation Fork/Worktree branching, code rollback, and queued follow-up prompts. Initiate independent **`/btw` side questions** from the input bar or chat bubbles, with one-tap insertion back into the main conversation.
+- **Interactive Decision Cards, Tiered Permissions & Workspace Trust**: Full support for multi-question decision cards (`askQuestion`), high-risk command approvals, 3-tier permission modes (locally cached to prevent flicker), and one-click authorization banners for untrusted workspaces.
+- **Full Antigravity 2.34.0 Model Parity**: Native support for **Gemini 4 Neon** (including Extra thinking effort), **Orchestrator (Neon)**, Hydrogen, Carbon, and Claude 5.5 models. Configure primary/secondary favorites with desktop active-model sync; tap the model pill to quick-toggle or long-press to pick any model.
+- **Plan Approvals, `/btw` Side Questions & Clickable Skill Pills**: One-click `Proceed` execution for plans, conversation Fork/Worktree branching, code rollback, and queued follow-ups. Initiate independent **`/btw` side questions** with one-tap insertion back into the main chat, and tap `/skill` pills in chat bubbles to inspect `SKILL.md` directly.
 
 ### 3. Multi-Agent Workflows, Swarm Board, Terminal & Automations
 - **Dynamic Workflow Lifecycle (`run_workflow`)**: Quick start from built-in workflow templates; intercept Python orchestration scripts with security approval cards; live visualization of stage pipelines, concurrent sub-agent grids, terminal logs, and structured JSON artifacts. Jump straight to details by tapping running sub-agent status bars.
 - **Swarm Board & Live Terminal**: Desktop-grade Swarm collaboration board (`/swarm`), native PTY terminal WebSocket interactive stream, dynamic MCP Server toggles, Agent Memories CRUD, and browser sub-agent whitelist/skip controls.
-- **Automations & Global Task Center**: Create and manage scheduled automations on mobile (with dual offline local scan backup and "Run Now" triggers); monitor global background tasks across all conversations with live terminal log tailing.
+- **Automations & Global Task Center**: Create, inspect, edit, and toggle scheduled automations across all platforms (with offline local scan backup and "Run Now" triggers); monitor global background tasks across all conversations with live terminal log tailing.
 
 ### 4. Full-Duplex Real-Time Voice & Multimodal Interaction
 - **Real-Time Voice Calls, Dictation & Narration**: Antigravity full-duplex real-time voice protocol supported on all platforms (iOS includes hardware-level Acoustic Echo Cancellation / AEC); streaming voice dictation, audio narration of answers, live subtitles, conversational interruption, and multi-speed playback.
-- **Multimodal Inputs & Artifacts**: Supports `@` context mentions, audio/video (`≤200MB`, including `.amr` voice clips) and general file uploads (`≤50MB`) with circular progress rings; **smart WeChat chat history ZIP extraction, offline archive caching, and native typography rendering**; unified cross-platform free text selection popup; iOS document scanning; AI image generation; and one-click long-image poster sharing with 7 curated themes (including Solarized Light, Nord, etc.).
+- **Multimodal Inputs & Artifacts**: Supports `@` context mentions, album switcher with cross-album multi-photo selection, audio/video (`≤200MB`, including `.amr` voice clips) and general file uploads (`≤50MB`) with circular progress rings; **smart WeChat chat history ZIP extraction, offline archive caching, and native typography rendering**; unified cross-platform free text selection popup; iOS document scanning; AI image generation; and one-click long-image poster sharing with 7 curated themes (including Solarized Light, Nord, etc.).
 
 ### 5. Context Watermarks, Rate Monitoring & Quota Dashboard
 - **Real-Time Context Watermarks & Throughput**: Chat top bar displays live context token utilization rings alongside `TTFT / TPS` output rates. When context approaches limits, an automatic rescue card surfaces with one-tap `/compact` and "New Session".
-- **Quota Burn-Rate Gauges & 52-Week Heatmap**: Real-time quota monitoring for Claude / Gemini (5h & Weekly) and Argon, overlaid with consumption velocity needles and pacing analytics. Built-in 52-week token consumption heatmap (with sub-agent model attribution), cost breakdown, and one-click exportable visual report posters. Pair with Cockpit Tools for seamless zero-downtime multi-account switching.
+- **Quota Burn-Rate Gauges & 52-Week Heatmap**: Real-time quota monitoring for Claude / Gemini (5h & Weekly) and Argon, overlaid with consumption velocity needles and pacing analytics. Built-in 52-week token consumption heatmap (with Neon / Orchestrator / sub-agent attribution), cost breakdown, and one-click exportable visual report posters. Compatible with **Cockpit Tools v1.4+ SQLite index** for seamless zero-downtime multi-account switching.
 
 ### 6. Mobile Engineering Loop & Hardware Ecosystem
-- **Code & Workspace Management**: Create local workspaces, clone GitHub repositories, instant full-text search across conversations (SQLite FTS5), export Markdown, inspect `Changes` diffs, native `Commit & Push`, and git branch management. Conversation list and chat bubbles automatically display **real-time GitHub PR status pills and detail popups**, with support for `/slash` commands and MCP/skill health status.
+- **Code & Workspace Management**: Inline project/Chat filtering on the home list, local workspace creation, GitHub repo cloning, instant full-text search across conversations (SQLite FTS5), Markdown export, `Changes` diffs, cached fast `git status` + native `Commit & Push` and branch management. Conversation list and chat bubbles automatically display **real-time GitHub PR status pills and detail popups**, alongside `/slash` commands, Tips & Gestures Guide, and MCP/skill health boards.
 - **Cross-Device Cursor & Physical Peripherals**: Follow-Me cursor engine intelligently arbitrates active sessions between desktop and mobile. Hardware integration via `integrations/yoooclaw/` enables wearable push-to-talk buttons to inject voice directly into the active session.
 
 ### 7. Zero-Config Remote Access, Smart Routing & Secure Push

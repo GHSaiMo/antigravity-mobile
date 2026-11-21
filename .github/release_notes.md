@@ -1,30 +1,57 @@
-# 🚀 Multigravity v1.2.1
+# 🚀 Multigravity v1.2.2
 
 > 🎉 **Multigravity（反重力智能体移动伴侣）iOS 版现已正式上架 Apple App Store！**  
-> 无需本地 Xcode 编译或自签，直接前往 👉 **[App Store 下载 Multigravity](https://apps.apple.com/app/id6835508934)**（海外 174 地区，中文系统设备自动优先展示简体中文商店页与展示图，并内置零配置**离线演示模式**）；如需第一时间抢先体验最新构建，也可通过 👉 **[TestFlight 公开测试通道](https://testflight.apple.com/join/YM7f4aSK)** 安装。
+> 无需本地编译或自签，前往 👉 **[App Store 下载 Multigravity](https://apps.apple.com/app/id6835508934)**（覆盖海外 174 个国家/地区，内置零配置**离线演示模式**）；也可加入 👉 **[TestFlight 公开测试](https://testflight.apple.com/join/YM7f4aSK)** 抢先体验最新构建。
+>
+> 🎉 **Multigravity for iOS is officially available on the Apple App Store!**  
+> Install directly from the 👉 **[App Store](https://apps.apple.com/app/id6835508934)** (174 countries & regions, with built-in zero-config **offline Demo Mode**), or join the 👉 **[TestFlight Public Beta](https://testflight.apple.com/join/YM7f4aSK)** for pre-release builds.
 
-### ✨ 核心修复与重要更新
+---
 
-- 📂 **首页按项目 / Chat 原地筛选（Android / iOS）**：
-  - 点击会话卡片左下角的 `📁 项目名` 或 `💬 Chat` 即可原地收窄列表查看该项目的全部会话，默认列表视觉零增量、不增加普通用户心智；
-  - 进入筛选态后顶部浮现轻量筛选胶囊，支持点击 `项目名 ▾` 下拉快速切换全部会话 / Chat / 其他项目、查看会话数及一键 `✕` 退出；
-  - 筛选态下点击右上角 `+` 可直接在当前项目新建会话，底部搜索框与全文内容搜索同步限定在当前项目范围内。
-- 🖼️ **附件面板「最近项目 ▾」微信式相册切换（Android / iOS）**：
-  - 顶部标题升级为可点击的 `最近项目 ▾`，平滑下滑展开带封面缩略图、相册名与照片数的微信式相册列表，支持切换常用智能相簿（最近项目、个人收藏、截屏等）与全部自定义相册；
-  - 切入指定相册时自动收起顶部 4 个快捷功能格，首屏全留给照片；支持跨相册累计多选照片且不丢失计数与顺序；
-  - 取消原 150 张照片上限，改为全量懒加载图片（仅展示图片、过滤视频），解决老照片与指定相册图片难找的问题。
-- 🌐 **设置页自定义与局域网网络保存体验全面升级（Android / iOS）**：
-  - 新增显式交互「保存 / 已保存」状态按钮，未修改时展示「已保存」，输入变更时高亮触发「保存」；
-  - 接入软键盘 `Done` / `回车` 快捷提交保存，并在设置面板导航栏右上角补充「完成」按钮，离开面板时自动持久化脏数据；
-  - 自动为缺少协议头的自定义输入（如 `100.x.x.x:58900`）补齐 `http://` 规范化协议头，防止网络请求解析异常。
-- 🐛 **修复底层误清除自定义网络地址的关键 Bug**：
-  - 彻底修复 `PreferencesManager`（Android）与 `AppSettings`（iOS）在自定义网络连接成功或应用重启时，误将非局域网的活跃网关判定为旧残留而静默删除的 Bug；
-  - 确保 Tailscale（`100.x.x.x` / `*.ts.net`）、WireGuard、私有 VPS、DDNS 等自定义直连通道在重连与重启后稳定留存。
-- 🔌 **兼容 Cockpit Tools v1.4+ SQLite 账号索引（感谢 PR #6 `@iamtmac`）**：
-  - 适配 Cockpit Tools v1.4+ 将账号索引从 `accounts.json` 迁移至 `antigravity_accounts.sqlite`（`summaries` / `account_index_state`）的存储变更，解决升级后手机端提示「未检测到 Cockpit Tools」及无法查看多账号额度、切换账号的问题；
-  - 优先读取新版 SQLite 索引以兼容 v1.3 → v1.4+ 原地升级后残留的过期 `accounts.json`，无新库时平滑回退旧版索引；
-  - `sqlite3` CLI 不可用或执行失败时自动以只读方式回退 Python `sqlite3`，并基于文件修改时间与大小做轻量缓存避免高频轮询反复创建子进程。
-- 📦 **双端版本号与客户端对齐**：
-  - 同步更新 Android 版本号至 `1.2.1`（Version Code `22`）；
-  - 同步更新 iOS 版本号至 `1.2.1`（Project Version `21`）；
-  - 网关 `mgy` 桌面与服务器端版本号同步升至 `1.2.1`。
+## 🇨🇳 中文更新说明
+
+### ✨ 核心亮点与新特性
+
+- 🧠 **Antigravity 2.34.0 全端深度对齐（Gemini 4 Neon & Orchestrator）**：
+  - 刷新 Language Server RPC 基线至 `2.34.0`（378 个接口全量校验通过）；
+  - Go 网关、iOS、Android 与 Web 全端原生支持 **Gemini 4 Neon**（Low / Medium / High / Extra）与 **Orchestrator (Neon)**，补齐模型枚举、紧凑胶囊短名（`Neon · High` / `Orch · Neon`）、默认推荐及 Token 历史账单归因。
+- 🧩 **MCP Apps 完整交互闭环 & 点击 Skill 徽章直达 `SKILL.md`**：
+  - 网关透明桥接 `ui://` 资源（自动解析 `serverName` 并在首次加载时自动 `LaunchMcpApp`），三端 `<agent-embed>` 补齐 `resources/read` 与工具调用结果回传；
+  - 对话气泡内带定义路径的 `/skill` 徽章保持原有简洁外观，点击即可直接复用现有 Markdown 预览页查看对应 `SKILL.md`。
+- ⚡ **大仓库 Git 状态缓存 & 单列行号槽 Diff 排版**：
+  - 网关 `git status` 增加短时 TTL 缓存与并发请求合并（提交、推送、切分支、丢弃改动时自动失效），显著提升大型代码仓的刷新速度；
+  - 三端 Diff 视图升级为单列紧凑行号槽 + 左侧彩色变更竖条，小屏代码审查更清晰。
+- ⏰ **定时任务（Automations）详情编辑与移动端启动修复（iOS / Android / Web）**：
+  - 新增全端定时任务详情与编辑页面（支持修改名称、Cron 计划、模型、工作区、提示词及查看运行历史）；
+  - 彻底修复移动端新建、启停与「立即运行 Run Now」的状态同步与启动问题。
+- 🧭 **交互提示与手势指南 & 移动端细节打磨（iOS / Android）**：
+  - 新增「使用技巧与手势指南」页面，并加入一次性模型胶囊长按提示与左滑轻提示；
+  - 权限预设本地缓存消除设置页闪烁，收敛首页项目筛选点击热区至图标防止误触；
+  - 修复 iOS 根视图 `preferredColorScheme` 覆盖导致弹窗在「跟随系统」外观下样式重置的问题。
+- 📦 **全端版本号对齐**：
+  - Android 升至 `1.2.2`（Version Code `23`）；iOS 升至 `1.2.2`（Build `22`）；桌面/服务端网关 `mgy` 同步升至 `1.2.2`。
+
+---
+
+## 🇺🇸 English Release Notes
+
+### ✨ Highlights & New Features
+
+- 🧠 **Antigravity 2.34.0 Full-Stack Parity (Gemini 4 Neon & Orchestrator)**:
+  - Updated the Language Server RPC baseline to `2.34.0` (378 RPCs verified);
+  - Added full support across Go gateway, iOS, Android, and Web for **Gemini 4 Neon** (Low / Medium / High / Extra) and **Orchestrator (Neon)**, including model enums, compact pill labels (`Neon · High` / `Orch · Neon`), defaults, and Token history attribution.
+- 🧩 **Complete MCP Apps Loop & Clickable Skill Pills**:
+  - Transparently bridges `ui://` MCP App resources in the gateway (auto-resolving `serverName` and auto-launching via `LaunchMcpApp` on first load) and returns `tools/call` / `resources/read` results back to `<agent-embed>` across all clients;
+  - Tapping a `/skill` pill in chat bubbles opens its `SKILL.md` directly in the existing Markdown viewer with zero extra visual clutter.
+- ⚡ **Large-Repo Git Status Cache & Single-Gutter Diff View**:
+  - Added short-TTL caching with concurrent request deduplication for `git status` (automatically invalidated on commit, push, checkout, and discard) for snappier refreshes in large repositories;
+  - Upgraded diff viewers on iOS, Android, and Web with a compact single-column line-number gutter and color-coded change strips.
+- ⏰ **Cross-Platform Automations Detail/Edit & Mobile Launch Fixes (iOS / Android / Web)**:
+  - Added full Automations detail and editing views across all clients (schedule, prompt, model, workspace, and run history);
+  - Fixed mobile automation start/toggle and "Run Now" reliability issues.
+- 🧭 **Tips & Gestures Guide & Mobile UX Polish (iOS / Android)**:
+  - Added a dedicated Tips & Gestures Guide page along with subtle one-time discovery hints for model long-press and swipe actions;
+  - Cached Agent permission presets locally to eliminate Settings flicker and narrowed workspace filter tap targets to the icon to avoid accidental taps;
+  - Fixed an iOS issue where root `preferredColorScheme` caused sheets to reset appearance in Follow System mode.
+- 📦 **Version Alignment**:
+  - Android updated to `1.2.2` (Version Code `23`); iOS updated to `1.2.2` (Build `22`); desktop/server gateway `mgy` updated to `1.2.2`.
