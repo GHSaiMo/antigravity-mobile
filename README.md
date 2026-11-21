@@ -26,7 +26,7 @@
 </p>
 
 <p align="center">
-  🌐 <b>官网</b>：<a href="https://mgy.jiuge.space">mgy.jiuge.space</a> &nbsp;·&nbsp; 🍎 <b>App Store</b>：<a href="https://apps.apple.com/app/id6835508934">iOS 正式版下载</a> &nbsp;·&nbsp; 🧪 <b>TestFlight</b>：<a href="https://testflight.apple.com/join/YM7f4aSK">公开测试通道</a> &nbsp;·&nbsp; 📦 <a href="https://github.com/GHSaiMo/antigravity-mobile/releases/latest">最新版 v1.2.3</a>
+  🌐 <b>官网</b>：<a href="https://mgy.jiuge.space">mgy.jiuge.space</a> &nbsp;·&nbsp; 🍎 <b>App Store</b>：<a href="https://apps.apple.com/app/id6835508934">iOS 正式版下载</a> &nbsp;·&nbsp; 🧪 <b>TestFlight</b>：<a href="https://testflight.apple.com/join/YM7f4aSK">公开测试通道</a> &nbsp;·&nbsp; 📦 <a href="https://github.com/GHSaiMo/antigravity-mobile/releases/latest">最新版 v1.2.3</a> &nbsp;·&nbsp; 💬 <a href="#wechat-group">微信用户群</a>
 </p>
 
 > 🎉 **反重力智能体移动伴侣 iOS 版现已正式上架 Apple App Store！**  
@@ -192,6 +192,17 @@ make run            # 本地测试运行
 make install-local  # 安装到 ~/.local/bin/mgy
 make test           # 运行 Go 单元与集成测试
 ```
+
+---
+
+<a id="wechat-group"></a>
+## 💬 微信用户群
+
+欢迎扫码加入 **mgy 微信用户群**，交流使用心得、反馈建议或第一时间获取版本更新动态（二维码 7 天内有效，若过期请提交 [Issue](https://github.com/GHSaiMo/antigravity-mobile/issues) 提醒更新）：
+
+<p align="center">
+  <img src="images/wechat_group.jpg" alt="mgy 微信用户群二维码" width="260" />
+</p>
 
 ---
 

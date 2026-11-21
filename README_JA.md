@@ -26,7 +26,7 @@
 </p>
 
 <p align="center">
-  🌐 <b>公式サイト</b>：<a href="https://mgy.jiuge.space/ja.html">mgy.jiuge.space/ja.html</a> &nbsp;·&nbsp; 🍎 <b>App Store</b>：<a href="https://apps.apple.com/app/id6835508934">iOS 正式版をダウンロード</a> &nbsp;·&nbsp; 🧪 <b>TestFlight</b>：<a href="https://testflight.apple.com/join/YM7f4aSK">パブリックベータ</a> &nbsp;·&nbsp; 📦 <a href="https://github.com/GHSaiMo/antigravity-mobile/releases/latest">最新リリース v1.2.3</a>
+  🌐 <b>公式サイト</b>：<a href="https://mgy.jiuge.space/ja.html">mgy.jiuge.space/ja.html</a> &nbsp;·&nbsp; 🍎 <b>App Store</b>：<a href="https://apps.apple.com/app/id6835508934">iOS 正式版をダウンロード</a> &nbsp;·&nbsp; 🧪 <b>TestFlight</b>：<a href="https://testflight.apple.com/join/YM7f4aSK">パブリックベータ</a> &nbsp;·&nbsp; 📦 <a href="https://github.com/GHSaiMo/antigravity-mobile/releases/latest">最新リリース v1.2.3</a> &nbsp;·&nbsp; 💬 <a href="#wechat-group">WeChat ユーザーグループ</a>
 </p>
 
 > 🎉 **Multigravity for iOS が Apple App Store にて正式公開されました！**  
@@ -192,6 +192,17 @@ make run            # ローカルテスト起動
 make install-local  # ~/.local/bin/mgy へインストール
 make test           # Go のユニットテストおよび結合テストを実行
 ```
+
+---
+
+<a id="wechat-group"></a>
+## 💬 WeChat ユーザーグループ
+
+以下の QR コードをスキャンして **mgy WeChat ユーザーグループ** に参加できます。使い方の共有、フィードバック、最新リリースの確認などにご活用ください（QR コードの有効期限は 7 日間です。期限切れの場合は [Issue](https://github.com/GHSaiMo/antigravity-mobile/issues) よりお知らせください）：
+
+<p align="center">
+  <img src="images/wechat_group.jpg" alt="mgy WeChat ユーザーグループ QR コード" width="260" />
+</p>
 
 ---
 

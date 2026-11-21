@@ -26,7 +26,7 @@
 </p>
 
 <p align="center">
-  🌐 <b>Website</b>: <a href="https://mgy.jiuge.space">mgy.jiuge.space</a> &nbsp;·&nbsp; 🍎 <b>App Store</b>: <a href="https://apps.apple.com/app/id6835508934">Download for iOS</a> &nbsp;·&nbsp; 🧪 <b>TestFlight</b>: <a href="https://testflight.apple.com/join/YM7f4aSK">Public Beta</a> &nbsp;·&nbsp; 📦 <a href="https://github.com/GHSaiMo/antigravity-mobile/releases/latest">Latest Release v1.2.3</a>
+  🌐 <b>Website</b>: <a href="https://mgy.jiuge.space">mgy.jiuge.space</a> &nbsp;·&nbsp; 🍎 <b>App Store</b>: <a href="https://apps.apple.com/app/id6835508934">Download for iOS</a> &nbsp;·&nbsp; 🧪 <b>TestFlight</b>: <a href="https://testflight.apple.com/join/YM7f4aSK">Public Beta</a> &nbsp;·&nbsp; 📦 <a href="https://github.com/GHSaiMo/antigravity-mobile/releases/latest">Latest Release v1.2.3</a> &nbsp;·&nbsp; 💬 <a href="#wechat-group">WeChat Group</a>
 </p>
 
 > 🎉 **Multigravity for iOS is officially available on the Apple App Store!**  
@@ -192,6 +192,17 @@ make run            # Run local test instance
 make install-local  # Install binary to ~/.local/bin/mgy
 make test           # Run Go unit and integration tests
 ```
+
+---
+
+<a id="wechat-group"></a>
+## 💬 WeChat User Group
+
+Scan the QR code below to join the **mgy WeChat User Group** for discussions, feedback, and release updates (valid for 7 days; if expired, please open an [Issue](https://github.com/GHSaiMo/antigravity-mobile/issues) to request a refreshed QR code):
+
+<p align="center">
+  <img src="images/wechat_group.jpg" alt="mgy WeChat User Group QR Code" width="260" />
+</p>
 
 ---
 
