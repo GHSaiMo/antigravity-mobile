@@ -21,12 +21,13 @@
 - ⚡ **大仓库 Git 状态缓存 & 单列行号槽 Diff 排版**：
   - 网关 `git status` 增加短时 TTL 缓存与并发请求合并（提交、推送、切分支、丢弃改动时自动失效），显著提升大型代码仓的刷新速度；
   - 三端 Diff 视图升级为单列紧凑行号槽 + 左侧彩色变更竖条，小屏代码审查更清晰。
-- ⏰ **定时任务（Automations）详情编辑与移动端启动修复（iOS / Android / Web）**：
+- ⏰ **定时任务（Automations）详情编辑、下次运行时间对齐与移动端启动修复（iOS / Android / Web）**：
   - 新增全端定时任务详情与编辑页面（支持修改名称、Cron 计划、模型、工作区、提示词及查看运行历史）；
-  - 彻底修复移动端新建、启停与「立即运行 Run Now」的状态同步与启动问题。
+  - 彻底修复移动端新建、启停与「立即运行 Run Now」的状态同步与启动问题；
+  - 网关改由 Cron 表达式（含 `CRON_TZ` / `TZ` 时区）直接推算下一次未来运行时间，彻底解决 Antigravity 调度器 Jitter 窗口期内三端显示已过期整点、与电脑端相差 1 小时的问题，手机端修改计划后亦即时同步生效。
 - 🧭 **交互提示与手势指南 & 移动端细节打磨（iOS / Android）**：
-  - 新增「使用技巧与手势指南」页面，并加入一次性模型胶囊长按提示与左滑轻提示；
-  - 权限预设本地缓存消除设置页闪烁，收敛首页项目筛选点击热区至图标防止误触；
+  - 新增「使用技巧与手势指南」页面（Android 集成至设置平滑侧滑子页），并加入一次性模型胶囊长按提示与左滑轻提示；
+  - 权限预设本地缓存消除设置页闪烁，收敛首页项目筛选点击热区至图标防止误触，Android 应用语言统一跟随系统语言；
   - 修复 iOS 根视图 `preferredColorScheme` 覆盖导致弹窗在「跟随系统」外观下样式重置的问题。
 - 📦 **全端版本号对齐**：
   - Android 升至 `1.2.2`（Version Code `23`）；iOS 升至 `1.2.2`（Build `22`）；桌面/服务端网关 `mgy` 同步升至 `1.2.2`。
@@ -46,12 +47,13 @@
 - ⚡ **Large-Repo Git Status Cache & Single-Gutter Diff View**:
   - Added short-TTL caching with concurrent request deduplication for `git status` (automatically invalidated on commit, push, checkout, and discard) for snappier refreshes in large repositories;
   - Upgraded diff viewers on iOS, Android, and Web with a compact single-column line-number gutter and color-coded change strips.
-- ⏰ **Cross-Platform Automations Detail/Edit & Mobile Launch Fixes (iOS / Android / Web)**:
+- ⏰ **Cross-Platform Automations Detail/Edit, Next-Run Alignment & Mobile Launch Fixes (iOS / Android / Web)**:
   - Added full Automations detail and editing views across all clients (schedule, prompt, model, workspace, and run history);
-  - Fixed mobile automation start/toggle and "Run Now" reliability issues.
+  - Fixed mobile automation start/toggle and "Run Now" reliability issues;
+  - Computed `nextRunAt` directly from the Cron expression (including `CRON_TZ`/`TZ`) in the gateway to match Antigravity Desktop exactly, fixing the 1-hour offset during scheduler jitter windows and reflecting mobile schedule edits immediately.
 - 🧭 **Tips & Gestures Guide & Mobile UX Polish (iOS / Android)**:
-  - Added a dedicated Tips & Gestures Guide page along with subtle one-time discovery hints for model long-press and swipe actions;
-  - Cached Agent permission presets locally to eliminate Settings flicker and narrowed workspace filter tap targets to the icon to avoid accidental taps;
+  - Added a dedicated Tips & Gestures Guide (integrated as a smooth slide-in Settings subpage on Android) along with subtle one-time discovery hints for model long-press and swipe actions;
+  - Cached Agent permission presets locally to eliminate Settings flicker, narrowed workspace filter tap targets to the icon to avoid accidental taps, and aligned Android app language to follow the system locale;
   - Fixed an iOS issue where root `preferredColorScheme` caused sheets to reset appearance in Follow System mode.
 - 📦 **Version Alignment**:
   - Android updated to `1.2.2` (Version Code `23`); iOS updated to `1.2.2` (Build `22`); desktop/server gateway `mgy` updated to `1.2.2`.

@@ -349,8 +349,8 @@ func (p *Proxy) HandleGetAutomations(w http.ResponseWriter, r *http.Request) {
 						existing.StartTimeMs = sc.StartTimeMs
 						if cron != "" {
 							existing.CronExpression = cron
-						}
-						if tz != "" {
+							existing.TimeZone = tz
+						} else if tz != "" {
 							existing.TimeZone = tz
 						}
 						if model != "" {
@@ -402,13 +402,12 @@ func (p *Proxy) HandleGetAutomations(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 3. Collect events and enrich LastRunAt / NextRunAt
+	now := time.Now()
 	allEvents := make([]AutomationEvent, 0)
 	for sid, sc := range schedulesMap {
-		// Only report NextRunAt when the schedule is enabled (avoid stale log timestamps when paused)
+		// Only report NextRunAt when the schedule is enabled (avoid stale timestamps when paused)
 		if sc.Enabled {
-			if nextRun := extractNextRunFromLog(sid); nextRun != "" {
-				sc.NextRunAt = nextRun
-			}
+			sc.NextRunAt = resolveNextRunAt(sid, sc.CronExpression, now)
 		} else {
 			sc.NextRunAt = ""
 		}
@@ -1112,18 +1111,40 @@ func readLocalSidecarEvents(sidecarID, displayName string, limit int) []Automati
 
 var nextRunRegex = regexp.MustCompile(`\(at\s+(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})\s+UTC\)`)
 
+// resolveNextRunAt returns the formatted local next-run timestamp for an enabled schedule.
+// It matches Antigravity desktop's semantics by computing the next future cron slot directly
+// from cronExpr (avoiding past nominal slots emitted in sidecar.log during jitter windows or
+// stale log entries after editing a schedule). If cronExpr cannot be parsed, it falls back
+// to sidecar.log only when the logged timestamp is still in the future.
+func resolveNextRunAt(sidecarID, cronExpr string, now time.Time) string {
+	if next, ok := computeNextRunFromCron(cronExpr, now); ok {
+		return next.In(time.Local).Format("2006-01-02 15:04:05")
+	}
+	if t, ok := extractNextRunFromLogTime(sidecarID); ok && t.After(now) {
+		return t.In(time.Local).Format("2006-01-02 15:04:05")
+	}
+	return ""
+}
+
 // extractNextRunFromLog searches ~/.gemini/antigravity/sidecar_data/<sidecarID>/logs/sidecar.log
-// for the latest "Next execution scheduled ... (at YYYY-MM-DD HH:MM:SS UTC)" line.
+// for the latest "Next execution scheduled ... (at YYYY-MM-DD HH:MM:SS UTC)" line in the current run.
 func extractNextRunFromLog(sidecarID string) string {
+	if t, ok := extractNextRunFromLogTime(sidecarID); ok {
+		return t.In(time.Local).Format("2006-01-02 15:04:05")
+	}
+	return ""
+}
+
+func extractNextRunFromLogTime(sidecarID string) (time.Time, bool) {
 	home, err := os.UserHomeDir()
 	if err != nil || home == "" {
-		return ""
+		return time.Time{}, false
 	}
 
 	logPath := filepath.Join(home, ".gemini", "antigravity", "sidecar_data", sidecarID, "logs", "sidecar.log")
 	data, err := os.ReadFile(logPath)
 	if err != nil {
-		return ""
+		return time.Time{}, false
 	}
 
 	lines := strings.Split(string(data), "\n")
@@ -1132,14 +1153,233 @@ func extractNextRunFromLog(sidecarID string) string {
 		if strings.Contains(line, "Next execution scheduled") {
 			matches := nextRunRegex.FindStringSubmatch(line)
 			if len(matches) > 1 {
-				utcStr := matches[1]
-				if t, err := time.Parse("2006-01-02 15:04:05", utcStr); err == nil {
-					return t.In(time.Local).Format("2006-01-02 15:04:05")
+				if t, err := time.Parse("2006-01-02 15:04:05", matches[1]); err == nil {
+					return t, true
 				}
 			}
 		}
+		// Stop at the start banner of the current sidecar launch so stale schedules
+		// from previous launches / previous cron expressions are never reused.
+		if strings.HasPrefix(line, "=== sidecar ") && strings.Contains(line, " started at ") {
+			break
+		}
 	}
-	return ""
+	return time.Time{}, false
+}
+
+var cronMonthNames = map[string]int{
+	"JAN": 1, "FEB": 2, "MAR": 3, "APR": 4, "MAY": 5, "JUN": 6,
+	"JUL": 7, "AUG": 8, "SEP": 9, "OCT": 10, "NOV": 11, "DEC": 12,
+}
+
+var cronDowNames = map[string]int{
+	"SUN": 0, "MON": 1, "TUE": 2, "WED": 3, "THU": 4, "FRI": 5, "SAT": 6,
+}
+
+// computeNextRunFromCron computes the next future execution time strictly after now
+// for a standard 5-field cron expression (with optional CRON_TZ=/TZ= prefix or @descriptors),
+// matching robfig/cron / Antigravity desktop semantics.
+func computeNextRunFromCron(cronExpr string, now time.Time) (time.Time, bool) {
+	expr := strings.TrimSpace(cronExpr)
+	if expr == "" {
+		return time.Time{}, false
+	}
+
+	loc := now.Location()
+	if loc == nil {
+		loc = time.Local
+	}
+	if m := cronTZPrefixRe.FindStringSubmatch(expr); len(m) == 3 {
+		tzLoc, err := time.LoadLocation(m[1])
+		if err != nil {
+			return time.Time{}, false
+		}
+		loc = tzLoc
+		expr = strings.TrimSpace(m[2])
+	}
+
+	if strings.HasPrefix(expr, "@") {
+		lower := strings.ToLower(expr)
+		switch {
+		case lower == "@yearly" || lower == "@annually":
+			expr = "0 0 1 1 *"
+		case lower == "@monthly":
+			expr = "0 0 1 * *"
+		case lower == "@weekly":
+			expr = "0 0 * * 0"
+		case lower == "@daily" || lower == "@midnight":
+			expr = "0 0 * * *"
+		case lower == "@hourly":
+			expr = "0 * * * *"
+		case strings.HasPrefix(lower, "@every "):
+			durStr := strings.TrimSpace(expr[len("@every "):])
+			d, err := time.ParseDuration(durStr)
+			if err != nil || d <= 0 {
+				return time.Time{}, false
+			}
+			return now.In(loc).Add(d).Truncate(time.Second), true
+		default:
+			return time.Time{}, false
+		}
+	}
+
+	fields := strings.Fields(expr)
+	if len(fields) != 5 {
+		return time.Time{}, false
+	}
+
+	minMask, _, ok := parseCronField(fields[0], 0, 59, nil, false)
+	if !ok {
+		return time.Time{}, false
+	}
+	hourMask, _, ok := parseCronField(fields[1], 0, 23, nil, false)
+	if !ok {
+		return time.Time{}, false
+	}
+	domMask, domWild, ok := parseCronField(fields[2], 1, 31, nil, false)
+	if !ok {
+		return time.Time{}, false
+	}
+	monthMask, _, ok := parseCronField(fields[3], 1, 12, cronMonthNames, false)
+	if !ok {
+		return time.Time{}, false
+	}
+	dowMask, dowWild, ok := parseCronField(fields[4], 0, 6, cronDowNames, true)
+	if !ok {
+		return time.Time{}, false
+	}
+
+	// Start at the next whole minute strictly after now in the schedule's location.
+	base := now.In(loc)
+	t := time.Date(base.Year(), base.Month(), base.Day(), base.Hour(), base.Minute(), 0, 0, loc).Add(time.Minute)
+	yearLimit := t.Year() + 5
+
+	for {
+		if t.Year() > yearLimit {
+			return time.Time{}, false
+		}
+		if (monthMask & (1 << uint(t.Month()))) == 0 {
+			t = time.Date(t.Year(), t.Month()+1, 1, 0, 0, 0, 0, loc)
+			continue
+		}
+		if !cronDayMatches(t, domMask, domWild, dowMask, dowWild) {
+			t = time.Date(t.Year(), t.Month(), t.Day()+1, 0, 0, 0, 0, loc)
+			continue
+		}
+		if (hourMask & (1 << uint(t.Hour()))) == 0 {
+			t = t.Add(time.Duration(60-t.Minute()) * time.Minute)
+			continue
+		}
+		if (minMask & (1 << uint(t.Minute()))) == 0 {
+			t = t.Add(time.Minute)
+			continue
+		}
+		return t, true
+	}
+}
+
+func cronDayMatches(t time.Time, domMask uint64, domWild bool, dowMask uint64, dowWild bool) bool {
+	domOK := (domMask & (1 << uint(t.Day()))) != 0
+	dowOK := (dowMask & (1 << uint(t.Weekday()))) != 0
+	if !domWild && !dowWild {
+		return domOK || dowOK
+	}
+	return domOK && dowOK
+}
+
+// parseCronField parses a single cron field into a bitmask.
+// isWildcard is true when any sub-expression uses '*' or '?' (matching robfig/cron starBit).
+func parseCronField(field string, minVal, maxVal int, names map[string]int, allowSevenAsZero bool) (mask uint64, isWildcard bool, ok bool) {
+	if field == "" {
+		return 0, false, false
+	}
+	maxParse := maxVal
+	if allowSevenAsZero && maxParse < 7 {
+		maxParse = 7
+	}
+
+	parts := strings.Split(field, ",")
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			return 0, false, false
+		}
+		rangePart := part
+		step := 1
+		if slashIdx := strings.IndexByte(part, '/'); slashIdx >= 0 {
+			if strings.IndexByte(part[slashIdx+1:], '/') >= 0 {
+				return 0, false, false
+			}
+			s, err := strconv.Atoi(part[slashIdx+1:])
+			if err != nil || s <= 0 {
+				return 0, false, false
+			}
+			step = s
+			rangePart = part[:slashIdx]
+		}
+
+		var start, end int
+		switch {
+		case rangePart == "*" || rangePart == "?":
+			isWildcard = true
+			start = minVal
+			end = maxVal
+		case strings.Contains(rangePart, "-"):
+			bounds := strings.Split(rangePart, "-")
+			if len(bounds) != 2 {
+				return 0, false, false
+			}
+			s, ok1 := parseCronValue(bounds[0], minVal, maxParse, names)
+			e, ok2 := parseCronValue(bounds[1], minVal, maxParse, names)
+			if !ok1 || !ok2 || s > e {
+				return 0, false, false
+			}
+			start, end = s, e
+		default:
+			v, ok1 := parseCronValue(rangePart, minVal, maxParse, names)
+			if !ok1 {
+				return 0, false, false
+			}
+			start = v
+			if strings.Contains(part, "/") {
+				end = maxVal
+				if allowSevenAsZero && start == 7 {
+					start = 0
+				}
+			} else {
+				end = v
+			}
+		}
+
+		for v := start; v <= end; v += step {
+			bit := v
+			if allowSevenAsZero && bit == 7 {
+				bit = 0
+			}
+			if bit < minVal || bit > maxVal {
+				return 0, false, false
+			}
+			mask |= 1 << uint(bit)
+		}
+	}
+	return mask, isWildcard, mask != 0
+}
+
+func parseCronValue(raw string, minVal, maxVal int, names map[string]int) (int, bool) {
+	s := strings.ToUpper(strings.TrimSpace(raw))
+	if s == "" {
+		return 0, false
+	}
+	if names != nil {
+		if v, ok := names[s]; ok {
+			return v, true
+		}
+	}
+	v, err := strconv.Atoi(s)
+	if err != nil || v < minVal || v > maxVal {
+		return 0, false
+	}
+	return v, true
 }
 
 // updateLocalSidecarEnabled updates the enabled state of a sidecar in ~/.gemini/config/config.json.

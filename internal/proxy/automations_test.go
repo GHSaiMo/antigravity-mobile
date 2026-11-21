@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestAutomationsLocalReading(t *testing.T) {
@@ -409,5 +410,250 @@ func TestHandleGetAutomationLogs(t *testing.T) {
 	p.HandleGetAutomationLogs(wBad, reqBad)
 	if wBad.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 for bad sidecarId, got %d", wBad.Code)
+	}
+}
+
+func TestComputeNextRunFromCron(t *testing.T) {
+	shanghai, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		t.Fatalf("load Asia/Shanghai: %v", err)
+	}
+	now := time.Date(2026, 11, 21, 11, 42, 6, 0, shanghai) // Saturday
+
+	tests := []struct {
+		name string
+		expr string
+		base time.Time
+		want time.Time
+		ok   bool
+	}{
+		{
+			name: "hourly with CRON_TZ during jitter window matches desktop",
+			expr: "CRON_TZ=Asia/Shanghai 0 * * * *",
+			base: now,
+			want: time.Date(2026, 11, 21, 12, 0, 0, 0, shanghai),
+			ok:   true,
+		},
+		{
+			name: "exact top of hour advances to next hour",
+			expr: "CRON_TZ=Asia/Shanghai 0 * * * *",
+			base: time.Date(2026, 11, 21, 11, 0, 0, 0, shanghai),
+			want: time.Date(2026, 11, 21, 12, 0, 0, 0, shanghai),
+			ok:   true,
+		},
+		{
+			name: "daily 23:00",
+			expr: "0 23 * * *",
+			base: now,
+			want: time.Date(2026, 11, 21, 23, 0, 0, 0, shanghai),
+			ok:   true,
+		},
+		{
+			name: "weekly Friday 08:00 from Saturday",
+			expr: "0 8 * * 5",
+			base: now,
+			want: time.Date(2026, 11, 27, 8, 0, 0, 0, shanghai),
+			ok:   true,
+		},
+		{
+			name: "step and hour range",
+			expr: "*/15 1-8 * * *",
+			base: now,
+			want: time.Date(2026, 11, 22, 1, 0, 0, 0, shanghai),
+			ok:   true,
+		},
+		{
+			name: "quarter hour within same hour",
+			expr: "*/15 * * * *",
+			base: now,
+			want: time.Date(2026, 11, 21, 11, 45, 0, 0, shanghai),
+			ok:   true,
+		},
+		{
+			name: "month and weekday names",
+			expr: "30 9 * JAN-MAR MON-FRI",
+			base: now,
+			want: time.Date(2027, 1, 1, 9, 30, 0, 0, shanghai), // 2027-01-01 is Friday
+			ok:   true,
+		},
+		{
+			name: "sunday as 7",
+			expr: "0 9 * * 7",
+			base: now,
+			want: time.Date(2026, 11, 22, 9, 0, 0, 0, shanghai),
+			ok:   true,
+		},
+		{
+			name: "dow range including 7",
+			expr: "0 9 * * 5-7",
+			base: now,
+			want: time.Date(2026, 11, 22, 9, 0, 0, 0, shanghai),
+			ok:   true,
+		},
+		{
+			name: "dom and dow both restricted uses OR semantics",
+			expr: "0 9 23 * 0", // 23rd (Mon) OR Sunday (22nd)
+			base: now,
+			want: time.Date(2026, 11, 22, 9, 0, 0, 0, shanghai),
+			ok:   true,
+		},
+		{
+			name: "UTC timezone prefix converts cleanly",
+			expr: "CRON_TZ=UTC 0 4 * * *",
+			base: now,
+			want: time.Date(2026, 11, 21, 4, 0, 0, 0, time.UTC),
+			ok:   true,
+		},
+		{
+			name: "descriptor @hourly",
+			expr: "@hourly",
+			base: now,
+			want: time.Date(2026, 11, 21, 12, 0, 0, 0, shanghai),
+			ok:   true,
+		},
+		{
+			name: "descriptor @every 30m",
+			expr: "@every 30m",
+			base: now,
+			want: time.Date(2026, 11, 21, 12, 12, 6, 0, shanghai),
+			ok:   true,
+		},
+		{
+			name: "impossible date Feb 31",
+			expr: "0 9 31 2 *",
+			base: now,
+			ok:   false,
+		},
+		{
+			name: "invalid cron expression",
+			expr: "not a cron",
+			base: now,
+			ok:   false,
+		},
+		{
+			name: "invalid timezone",
+			expr: "CRON_TZ=Invalid/Zone 0 * * * *",
+			base: now,
+			ok:   false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := computeNextRunFromCron(tc.expr, tc.base)
+			if ok != tc.ok {
+				t.Fatalf("computeNextRunFromCron(%q) ok=%v, want %v (got=%v)", tc.expr, ok, tc.ok, got)
+			}
+			if tc.ok && !got.Equal(tc.want) {
+				t.Errorf("computeNextRunFromCron(%q) = %v, want %v", tc.expr, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestResolveNextRunAtIgnoresStaleJitterLogAndReflectsCronUpdate(t *testing.T) {
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+
+	shanghai, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		t.Fatalf("load Asia/Shanghai: %v", err)
+	}
+	now := time.Date(2026, 11, 21, 11, 42, 6, 0, shanghai)
+
+	logsDir := filepath.Join(tmpHome, ".gemini", "antigravity", "sidecar_data", "x-outreach", "logs")
+	if err := os.MkdirAll(logsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	// Exact real-world log pattern during a 45m jitter window: nominal slot is 11:00 CST (03:00 UTC), already in the past.
+	logContent := "=== sidecar \"x-outreach\" started at 2026-11-21T11:41:03+08:00 ===\n" +
+		"2026-11-21 03:41:03 [schedule] Calculated jitter: 45m27.404618906s\n" +
+		"2026-11-21 03:41:03 [schedule] Next execution scheduled in -41m4s (at 2026-11-21 03:00:00 UTC), will run by 2026-11-21 03:46:27 UTC\n"
+	if err := os.WriteFile(filepath.Join(logsDir, "sidecar.log"), []byte(logContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. Hourly schedule aligns with desktop (12:00 CST), not past 11:00 CST from log.
+	wantHourly := time.Date(2026, 11, 21, 12, 0, 0, 0, shanghai).In(time.Local).Format("2006-01-02 15:04:05")
+	if got := resolveNextRunAt("x-outreach", "CRON_TZ=Asia/Shanghai 0 * * * *", now); got != wantHourly {
+		t.Errorf("hourly nextRun = %q, want %q", got, wantHourly)
+	}
+
+	// 2. Updating cron on mobile immediately reflects the new schedule even before sidecar.log updates.
+	wantDaily := time.Date(2026, 11, 21, 23, 0, 0, 0, shanghai).In(time.Local).Format("2006-01-02 15:04:05")
+	if got := resolveNextRunAt("x-outreach", "CRON_TZ=Asia/Shanghai 0 23 * * *", now); got != wantDaily {
+		t.Errorf("updated cron nextRun = %q, want %q", got, wantDaily)
+	}
+
+	// 3. Unparseable cron falls back to log ONLY if logged time is still in the future.
+	if got := resolveNextRunAt("x-outreach", "bad-cron", now); got != "" {
+		t.Errorf("expected empty nextRun for unparseable cron with past log timestamp, got %q", got)
+	}
+
+	// 4. Stale log line before the latest start banner is NOT reused.
+	restartedLog := "=== sidecar \"x-outreach\" started at 2026-11-21T10:00:00+08:00 ===\n" +
+		"2026-11-21 02:00:00 [schedule] Next execution scheduled in 2h (at 2026-11-21 15:00:00 UTC), will run by 2026-11-21 15:01:00 UTC\n" +
+		"=== sidecar \"x-outreach\" started at 2026-11-21T11:41:03+08:00 ===\n"
+	if err := os.WriteFile(filepath.Join(logsDir, "sidecar.log"), []byte(restartedLog), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if got := resolveNextRunAt("x-outreach", "bad-cron", now); got != "" {
+		t.Errorf("expected empty nextRun across restart banner, got %q", got)
+	}
+}
+
+func TestHandleGetAutomationsUsesCronOverStaleLog(t *testing.T) {
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+
+	sidecarsDir := filepath.Join(tmpHome, ".gemini", "config", "sidecars", "x-outreach")
+	if err := os.MkdirAll(sidecarsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	scJSON := `{
+		"builtin": "schedule",
+		"args": ["CRON_TZ=Asia/Shanghai 0 * * * *", "agentapi", "new-conversation", "Prompt"],
+		"display_name": "X Outreach"
+	}`
+	if err := os.WriteFile(filepath.Join(sidecarsDir, "sidecar.json"), []byte(scJSON), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cfgJSON := `{"sidecars":{"x-outreach":{"enabled":true}}}`
+	if err := os.WriteFile(filepath.Join(tmpHome, ".gemini", "config", "config.json"), []byte(cfgJSON), 0644); err != nil {
+		t.Fatal(err)
+	}
+	logsDir := filepath.Join(tmpHome, ".gemini", "antigravity", "sidecar_data", "x-outreach", "logs")
+	if err := os.MkdirAll(logsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	staleLog := "2020-01-01 00:00:00 [schedule] Next execution scheduled in -41m (at 2020-01-01 01:00:00 UTC), will run by 2020-01-01 01:46:00 UTC\n"
+	if err := os.WriteFile(filepath.Join(logsDir, "sidecar.log"), []byte(staleLog), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	p := &Proxy{}
+	req := httptest.NewRequest(http.MethodGet, "/gateway/automations", nil)
+	w := httptest.NewRecorder()
+	p.HandleGetAutomations(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("unexpected status %d: %s", w.Code, w.Body.String())
+	}
+	var resp AutomationsResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Automations) != 1 {
+		t.Fatalf("expected 1 automation, got %d", len(resp.Automations))
+	}
+	gotNext := resp.Automations[0].NextRunAt
+	parsed, err := time.ParseInLocation("2006-01-02 15:04:05", gotNext, time.Local)
+	if err != nil {
+		t.Fatalf("failed to parse NextRunAt %q: %v", gotNext, err)
+	}
+	if !parsed.After(time.Now().Add(-time.Second)) {
+		t.Errorf("expected NextRunAt in the future, got %q", gotNext)
+	}
+	if parsed.Minute() != 0 || parsed.Second() != 0 {
+		t.Errorf("expected top-of-hour NextRunAt, got %q", gotNext)
 	}
 }

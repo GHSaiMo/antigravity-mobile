@@ -9,12 +9,15 @@ import android.os.Build
 import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -31,9 +34,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
@@ -41,7 +48,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
-import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -61,12 +67,14 @@ import kotlinx.coroutines.launch
 
 private enum class SettingsSubpage {
     MAIN,
-    COMPACT;
+    COMPACT,
+    TIPS;
 
     val title: String
         get() = when (this) {
             MAIN -> "设置".loc
             COMPACT -> "精简模式".loc
+            TIPS -> "手势与使用技巧".loc
         }
 }
 
@@ -84,17 +92,27 @@ fun SettingsSheet(
     var showClearCacheAlert by remember { mutableStateOf(false) }
     var showMcpSkillsSheet by remember { mutableStateOf(false) }
     var activeSubpage by remember { mutableStateOf(SettingsSubpage.MAIN) }
+    var renderedSubpage by remember { mutableStateOf<SettingsSubpage?>(null) }
+    val subpageProgress by animateFloatAsState(
+        targetValue = if (activeSubpage != SettingsSubpage.MAIN) 1f else 0f,
+        animationSpec = tween(durationMillis = 260, easing = FastOutSlowInEasing),
+        label = "settings_subpage_slide"
+    )
+    LaunchedEffect(activeSubpage, subpageProgress) {
+        if (activeSubpage == SettingsSubpage.MAIN && subpageProgress == 0f) {
+            renderedSubpage = null
+        }
+    }
     val colors = AntigravityTheme.colors
     val context = LocalContext.current
+    val focusManager = LocalFocusManager.current
     val connectionManager = remember { ConnectionManager(context) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val currentThemeMode by prefs.themeModeFlow.collectAsState()
-    val isNotificationPermissionGranted = remember {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
-        } else {
-            NotificationManagerCompat.from(context).areNotificationsEnabled()
-        }
+    val openSubpage: (SettingsSubpage) -> Unit = { target ->
+        focusManager.clearFocus()
+        renderedSubpage = target
+        activeSubpage = target
     }
 
     ModalBottomSheet(
@@ -111,99 +129,109 @@ fun SettingsSheet(
             .fillMaxHeight()
     ) {
         TallSheetBody(containerColor = colors.background, onDismiss = onDismiss) {
-        BackHandler {
-            if (activeSubpage != SettingsSubpage.MAIN) {
+            BackHandler(enabled = activeSubpage != SettingsSubpage.MAIN) {
                 activeSubpage = SettingsSubpage.MAIN
-            } else {
-                onDismiss()
             }
-        }
 
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .fillMaxHeight()
-        ) {
-            // Floating grab handle hinting pull-down dismissal (matching iOS Capsule 38x5)
-            Box(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 10.dp, bottom = 14.dp),
-                contentAlignment = Alignment.Center
+                    .fillMaxHeight()
             ) {
+                // Floating grab handle hinting pull-down dismissal (matching iOS Capsule 38x5)
                 Box(
                     modifier = Modifier
-                        .size(width = 38.dp, height = 5.dp)
-                        .clip(CircleShape)
-                        .background(colors.textMuted.copy(alpha = 0.35f))
-                )
-            }
-
-            // Header title row: back button when on subpage, centered title
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp)
-                    .padding(bottom = 12.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                if (activeSubpage != SettingsSubpage.MAIN) {
-                    Row(
+                        .fillMaxWidth()
+                        .padding(top = 10.dp, bottom = 14.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Box(
                         modifier = Modifier
-                            .align(Alignment.CenterStart)
-                            .clip(RoundedCornerShape(8.dp))
-                            .clickable { activeSubpage = SettingsSubpage.MAIN }
-                            .padding(horizontal = 4.dp, vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
-                            contentDescription = "返回设置".loc,
-                            tint = colors.accentBlue,
-                            modifier = Modifier.size(22.dp)
-                        )
-                        Text(
-                            text = "设置".loc,
-                            color = colors.accentBlue,
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-                }
-                Text(
-                    text = activeSubpage.title,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 18.sp,
-                    color = colors.textPrimary,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-
-            HorizontalDivider(thickness = 0.5.dp, color = colors.border)
-
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-            ) {
-                when (activeSubpage) {
-                    SettingsSubpage.MAIN -> MainSettingsContent(
-                        prefs = prefs,
-                        connectionManager = connectionManager,
-                        currentThemeMode = currentThemeMode,
-                        onThemeModeChange = onThemeModeChange,
-                        onOpenCompactSettings = { activeSubpage = SettingsSubpage.COMPACT },
-                        onPromptUnpair = { showUnpairAlert = true },
-                        onPromptClearCache = { showClearCacheAlert = true },
-                        onOpenMcpSkills = { showMcpSkillsSheet = true },
-                        onLoadModels = onLoadModels
+                            .size(width = 38.dp, height = 5.dp)
+                            .clip(CircleShape)
+                            .background(colors.textMuted.copy(alpha = 0.35f))
                     )
-                    SettingsSubpage.COMPACT -> CompactModeSubpageContent(prefs = prefs)
+                }
+
+                // Sliding navigation container: keep MAIN mounted so its scroll position is never reset
+                BoxWithConstraints(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .clipToBounds()
+                ) {
+                    val widthPx = constraints.maxWidth.toFloat()
+
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer {
+                                translationX = -widthPx * subpageProgress
+                            }
+                    ) {
+                        SettingsPageHeader(
+                            title = SettingsSubpage.MAIN.title,
+                            showBack = false,
+                            onBack = {}
+                        )
+                        HorizontalDivider(thickness = 0.5.dp, color = colors.border)
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f)
+                        ) {
+                            MainSettingsContent(
+                                prefs = prefs,
+                                connectionManager = connectionManager,
+                                currentThemeMode = currentThemeMode,
+                                onThemeModeChange = onThemeModeChange,
+                                onOpenCompactSettings = { openSubpage(SettingsSubpage.COMPACT) },
+                                onOpenTipsGuide = { openSubpage(SettingsSubpage.TIPS) },
+                                onPromptUnpair = { showUnpairAlert = true },
+                                onPromptClearCache = { showClearCacheAlert = true },
+                                onOpenMcpSkills = { showMcpSkillsSheet = true },
+                                onLoadModels = onLoadModels
+                            )
+                        }
+                    }
+
+                    val currentSubpage = renderedSubpage
+                    if (currentSubpage != null && currentSubpage != SettingsSubpage.MAIN) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .graphicsLayer {
+                                    translationX = widthPx * (1f - subpageProgress)
+                                }
+                                .background(colors.background)
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null,
+                                    onClick = {}
+                                )
+                        ) {
+                            SettingsPageHeader(
+                                title = currentSubpage.title,
+                                showBack = true,
+                                onBack = { activeSubpage = SettingsSubpage.MAIN }
+                            )
+                            HorizontalDivider(thickness = 0.5.dp, color = colors.border)
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .weight(1f)
+                            ) {
+                                when (currentSubpage) {
+                                    SettingsSubpage.COMPACT -> CompactModeSubpageContent(prefs = prefs)
+                                    SettingsSubpage.TIPS -> TipsAndGesturesSubpageContent()
+                                    SettingsSubpage.MAIN -> Unit
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
-            }
     }
 
     if (showUnpairAlert) {
@@ -287,12 +315,66 @@ fun SettingsSheet(
 }
 
 @Composable
+private fun SettingsPageHeader(
+    title: String,
+    showBack: Boolean,
+    onBack: () -> Unit
+) {
+    val colors = AntigravityTheme.colors
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 34.dp)
+            .padding(horizontal = 12.dp)
+            .padding(bottom = 10.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        if (showBack) {
+            Row(
+                modifier = Modifier
+                    .align(Alignment.CenterStart)
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable(onClick = onBack)
+                    .padding(horizontal = 4.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                    contentDescription = "返回设置".loc,
+                    tint = colors.accentBlue,
+                    modifier = Modifier.size(22.dp)
+                )
+                Text(
+                    text = "设置".loc,
+                    color = colors.accentBlue,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+        }
+        Text(
+            text = title,
+            fontWeight = FontWeight.Bold,
+            fontSize = 18.sp,
+            color = colors.textPrimary,
+            textAlign = TextAlign.Center,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = if (showBack) 68.dp else 0.dp)
+        )
+    }
+}
+
+@Composable
 private fun MainSettingsContent(
     prefs: PreferencesManager,
     connectionManager: ConnectionManager,
     currentThemeMode: String,
     onThemeModeChange: (String) -> Unit,
     onOpenCompactSettings: () -> Unit,
+    onOpenTipsGuide: () -> Unit,
     onPromptUnpair: () -> Unit,
     onPromptClearCache: () -> Unit,
     onOpenMcpSkills: () -> Unit,
@@ -375,14 +457,6 @@ private fun MainSettingsContent(
                 }
             }
         }
-    }
-    val currentAppLanguage by prefs.appLanguageFlow.collectAsState()
-    val languageOptions = remember {
-        listOf(
-            PickerMenuOption("system", "跟随系统 (System Default)".loc),
-            PickerMenuOption("zh", "简体中文".loc),
-            PickerMenuOption("en", "English")
-        )
     }
     val currentPlatform by prefs.gatewayPlatformFlow.collectAsState()
     val gatewayDesc = when (currentPlatform?.lowercase()) {
@@ -920,18 +994,6 @@ private fun MainSettingsContent(
                     onSelect = { prefs.fontSizeScale = it }
                 )
                 HorizontalDivider(color = colors.separator.copy(alpha = 0.4f), thickness = 0.5.dp)
-                SettingsMenuPickerRow(
-                    label = "语言 / Language".loc,
-                    selectedLabel = when (currentAppLanguage) {
-                        "en" -> "English"
-                        "zh" -> "简体中文".loc
-                        else -> "跟随系统 (System Default)".loc
-                    },
-                    selectedId = currentAppLanguage,
-                    options = languageOptions,
-                    onSelect = { prefs.appLanguage = it }
-                )
-                HorizontalDivider(color = colors.separator.copy(alpha = 0.4f), thickness = 0.5.dp)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1005,7 +1067,6 @@ private fun MainSettingsContent(
         }
 
         // MARK: - 6. 手势与使用技巧
-        var showTipsGuide by remember { mutableStateOf(false) }
         SettingsSection(
             title = "手势与使用技巧".loc,
             footer = "掌握常用快捷手势与界面隐蔽功能，大幅提升移动端操作效率。".loc
@@ -1016,7 +1077,7 @@ private fun MainSettingsContent(
                     .clip(RoundedCornerShape(12.dp))
                     .background(colors.surface)
                     .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
-                    .clickable { showTipsGuide = true }
+                    .clickable { onOpenTipsGuide() }
                     .padding(horizontal = 16.dp, vertical = 14.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
@@ -1047,16 +1108,12 @@ private fun MainSettingsContent(
                     }
                 }
                 Icon(
-                    imageVector = Icons.Default.ChevronRight,
+                    imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
                     contentDescription = null,
                     tint = colors.textMuted,
-                    modifier = Modifier.size(16.dp)
+                    modifier = Modifier.size(18.dp)
                 )
             }
-        }
-
-        if (showTipsGuide) {
-            TipsAndGesturesGuideDialog(onDismiss = { showTipsGuide = false })
         }
 
         // MARK: - 7. 存储 (整体下移一行，放在关于的上面)
@@ -1434,7 +1491,8 @@ private fun CompactModeSubpageContent(prefs: PreferencesManager) {
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp, vertical = 14.dp),
+            .padding(horizontal = 16.dp, vertical = 14.dp)
+            .navigationBarsPadding(),
         verticalArrangement = Arrangement.spacedBy(20.dp)
     ) {
         SettingsSection(

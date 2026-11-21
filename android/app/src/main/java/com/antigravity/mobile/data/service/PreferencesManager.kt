@@ -107,7 +107,12 @@ class PreferencesManager(context: Context) {
             }
         }
         _gatewayPlatformFlow.value = gatewayPlatform
-        com.antigravity.mobile.ui.util.L10n.setLanguagePreference(appLanguage)
+        // Language always follows system locale; clear any legacy manual override.
+        if (prefs.contains(KEY_APP_LANGUAGE)) {
+            prefs.edit().remove(KEY_APP_LANGUAGE).apply()
+        }
+        _appLanguageFlow.value = "system"
+        com.antigravity.mobile.ui.util.L10n.setLanguagePreference("system")
     }
 
     var gatewayPlatform: String?
@@ -196,16 +201,11 @@ class PreferencesManager(context: Context) {
         }
 
     var appLanguage: String
-        get() = prefs.getString(KEY_APP_LANGUAGE, "system") ?: "system"
-        set(value) {
-            val normalized = when (value.lowercase()) {
-                "en" -> "en"
-                "zh" -> "zh"
-                else -> "system"
-            }
-            prefs.edit().putString(KEY_APP_LANGUAGE, normalized).apply()
-            _appLanguageFlow.value = normalized
-            com.antigravity.mobile.ui.util.L10n.setLanguagePreference(normalized)
+        get() = "system"
+        set(_) {
+            prefs.edit().remove(KEY_APP_LANGUAGE).apply()
+            _appLanguageFlow.value = "system"
+            com.antigravity.mobile.ui.util.L10n.setLanguagePreference("system")
         }
 
     var themeMode: String
