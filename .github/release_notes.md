@@ -28,8 +28,11 @@
 - 📚 **GitHub 与官方文档三语体系上线**：
   - 新增原生日语文档 [`README_JA.md`](https://github.com/GHSaiMo/antigravity-mobile/blob/main/README_JA.md)，`README.md` / `README_EN.md` / `README_JA.md` 顶部统一接入 **简体中文 | English | 日本語** 三语互链；
   - 官方网站同步上线原生日语门户 [mgy.jiuge.space/ja.html](https://mgy.jiuge.space/ja.html)（含 `/ja` 路由、全交互演示日语化、三语切换器与 4 向 `hreflang`）。
+- 🔧 **稳定性与交互修复**：
+  - 修复刚发出消息立即撤回时「确认撤回」按钮置灰、错误被遮挡、运行态回退冲突及多轮对话误匹配问题（#9）；
+  - 修复 `sidecar://swarm` 跳转 401、多行输入框上下裁切及多问题确认卡切换选项/滚动时键盘不收起的问题（#7, #8）。
 - 📦 **全端版本号对齐**：
-  - Android `1.2.3`（Version Code `24`）；iOS `1.2.3`（Build `24`）；桌面/服务端网关 `mgy` `1.2.3`。
+  - Android `1.2.3`（Version Code `24`）；iOS `1.2.3`（Build `25`）；桌面/服务端网关 `mgy` `1.2.3`。
 
 ---
 
@@ -50,8 +53,11 @@
 - 📚 **Trilingual GitHub Docs & Official Website**:
   - Added native Japanese GitHub documentation ([`README_JA.md`](https://github.com/GHSaiMo/antigravity-mobile/blob/main/README_JA.md)) with a unified **简体中文 | English | 日本語** switcher across all READMEs;
   - Launched the native Japanese landing page at [mgy.jiuge.space/ja.html](https://mgy.jiuge.space/ja.html) (with `/ja` route, localized interactive demos, 3-way language switcher, and `hreflang` metadata).
+- 🔧 **Stability & UX Fixes**:
+  - Fixed immediate message undo button staying disabled, hidden error messages, running-state revert conflicts, and multi-turn step resolution edge cases (#9);
+  - Fixed `sidecar://swarm` 401 auth, multiline input box clipping, and soft keyboard dismissal in multi-question interaction cards (#7, #8).
 - 📦 **Version Alignment**:
-  - Android `1.2.3` (Version Code `24`); iOS `1.2.3` (Build `24`); desktop/server gateway `mgy` `1.2.3`.
+  - Android `1.2.3` (Version Code `24`); iOS `1.2.3` (Build `25`); desktop/server gateway `mgy` `1.2.3`.
 
 ---
 
@@ -61,4 +67,4 @@
 - 🚗 **CarPlay ダッシュボード＆Apple Watch ライブアクティビティ詳細ステップ表示**：`.supplementalActivityFamilies([.small])` に対応し、運転中もひと目で分かる 2 段構成（セッションタイトル＋ステップ/承認バッジ＋現在の実行アクション）へ刷新しました。
 - 🇯🇵 **iOS アプリ完全日本語対応（`ja`）**：メインアプリ・Dynamic Island / ウィジェット拡張・権限ダイアログを 100% ネイティブ日本語化。
 - 📚 **GitHub・公式サイトの日本語版を公開**：[`README_JA.md`](https://github.com/GHSaiMo/antigravity-mobile/blob/main/README_JA.md) および日本語公式サイト [mgy.jiuge.space/ja.html](https://mgy.jiuge.space/ja.html) を公開しました。
-- 📦 **バージョン統一**：iOS `1.2.3` (Build `24`) / Android `1.2.3` (Version Code `24`) / ゲートウェイ `mgy` `1.2.3`。
+- 📦 **バージョン統一**：iOS `1.2.3` (Build `25`) / Android `1.2.3` (Version Code `24`) / ゲートウェイ `mgy` `1.2.3`。
