@@ -49,6 +49,9 @@ type AuthStore struct {
 
 	// P5: channel-based worker for UpdateLastSeen, avoiding per-request goroutine spawns.
 	lastSeenCh chan lastSeenUpdate
+	stopCh     chan struct{}
+	workerDone chan struct{}
+	closeOnce  sync.Once
 
 	// S9: ticket store for short-lived one-time WebSocket / media authorization.
 	wsTickets *WSTicketStore
@@ -181,7 +184,9 @@ func NewAuthStore(filePath string) (*AuthStore, error) {
 		tokenMap:        make(map[string]string),
 		filePath:        resolved,
 		lastSeenCh:      make(chan lastSeenUpdate, 64), // P5: buffered channel; drops when full (debounce handles correctness)
-		wsTickets:       NewWSTicketStore(),             // S9: one-time WS ticket store
+		stopCh:          make(chan struct{}),
+		workerDone:      make(chan struct{}),
+		wsTickets:       NewWSTicketStore(), // S9: one-time WS ticket store
 		sidecarSessions: NewSidecarSessionStore(),
 	}
 
@@ -213,18 +218,57 @@ func NewAuthStore(filePath string) (*AuthStore, error) {
 
 // lastSeenWorker drains the lastSeenCh channel and calls UpdateLastSeen sequentially.
 func (s *AuthStore) lastSeenWorker() {
-	for upd := range s.lastSeenCh {
-		s.UpdateLastSeen(upd.deviceID, upd.remoteAddr)
+	defer close(s.workerDone)
+	for {
+		select {
+		case <-s.stopCh:
+			return
+		case upd := <-s.lastSeenCh:
+			select {
+			case <-s.stopCh:
+				return
+			default:
+				s.UpdateLastSeen(upd.deviceID, upd.remoteAddr)
+			}
+		}
 	}
+}
+
+// Close stops the background lastSeenWorker and waits for any in-flight atomic disk write
+// to finish (preventing t.TempDir() RemoveAll races in unit tests).
+func (s *AuthStore) Close() {
+	if s.stopCh == nil {
+		return
+	}
+	s.closeOnce.Do(func() {
+		close(s.stopCh)
+		<-s.workerDone
+	})
 }
 
 // EnqueueLastSeen sends a non-blocking update to the background worker.
 // If the channel is full the update is silently dropped — the debounce logic
 // in UpdateLastSeen ensures eventual consistency without data loss.
 func (s *AuthStore) EnqueueLastSeen(deviceID, remoteAddr string) {
+	if s.lastSeenCh == nil {
+		return
+	}
+	if s.stopCh != nil {
+		select {
+		case <-s.stopCh:
+			return
+		default:
+		}
+		select {
+		case <-s.stopCh:
+		case s.lastSeenCh <- lastSeenUpdate{deviceID: deviceID, remoteAddr: remoteAddr}:
+		default: // channel full — drop; the 30s debounce means we'll catch it next time
+		}
+		return
+	}
 	select {
 	case s.lastSeenCh <- lastSeenUpdate{deviceID: deviceID, remoteAddr: remoteAddr}:
-	default: // channel full — drop; the 30s debounce means we'll catch it next time
+	default:
 	}
 }
 

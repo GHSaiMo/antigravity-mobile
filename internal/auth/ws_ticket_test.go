@@ -57,6 +57,7 @@ func TestAuthMiddleware_WSTicketAuth(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(store.Close)
 
 	deviceToken := "valid-device-token-12345"
 	dev := PairedDevice{
@@ -193,6 +194,7 @@ func TestAuthMiddleware_EventsEndpointTicket(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(store.Close)
 	deviceToken := "valid-device-token-67890"
 	if err := store.AddDevice(PairedDevice{DeviceID: "dev-evt", DeviceName: "Pixel", Platform: "android", TokenHash: HashToken(deviceToken), CreatedAt: time.Now()}); err != nil {
 		t.Fatal(err)
@@ -242,6 +244,7 @@ func TestHandleWSTicket_ImplicitTrustLoopbackAndRebinding(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(store.Close)
 	policy := AuthPolicy{ListenLoopback: true}
 	authHandler := NewAuthHandler(store, NewPairingManager(), "127.0.0.1", 58900, false)
 	authHandler.SetAuthPolicy(policy)
@@ -291,6 +294,7 @@ func TestAuthMiddleware_SidecarUITicket(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(store.Close)
 	deviceToken := "valid-device-token-sidecar"
 	if err := store.AddDevice(PairedDevice{DeviceID: "dev-sidecar", DeviceName: "iPhone", Platform: "ios", TokenHash: HashToken(deviceToken), CreatedAt: time.Now()}); err != nil {
 		t.Fatal(err)
