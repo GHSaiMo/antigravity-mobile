@@ -520,9 +520,20 @@ public final class ConversationListViewModel {
         do {
             self.quotaResponse = try await apiClient.fetchCockpitQuotas(baseURL: url)
             self.lastQuotaFetchTime = now
+            publishQuotaToWidget()
         } catch {
             // Silently ignore quota fetch error to not disturb chat list
         }
+    }
+
+    @MainActor
+    public func publishQuotaToWidget() {
+        settings.syncWidgetConfiguration(reloadWidget: false)
+        QuotaWidgetStore.shared.publishFromApp(
+            response: quotaResponse,
+            preferredBucket: settings.selectedQuotaBucket,
+            isDemo: settings.isDemoMode
+        )
     }
 
     @MainActor
@@ -557,6 +568,7 @@ public final class ConversationListViewModel {
         if let direct = directRes, direct.updatedAt > initialUpdatedAt {
             self.quotaResponse = direct
             self.lastQuotaFetchTime = Date()
+            publishQuotaToWidget()
             return
         }
         
@@ -568,6 +580,7 @@ public final class ConversationListViewModel {
                 if res.updatedAt > initialUpdatedAt {
                     self.quotaResponse = res
                     self.lastQuotaFetchTime = Date()
+                    publishQuotaToWidget()
                     return
                 }
             }
@@ -577,6 +590,7 @@ public final class ConversationListViewModel {
         if let res = try? await apiClient.fetchCockpitQuotas(baseURL: url) {
             self.quotaResponse = res
             self.lastQuotaFetchTime = Date()
+            publishQuotaToWidget()
         }
     }
     

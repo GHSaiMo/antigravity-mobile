@@ -124,6 +124,7 @@ mgy
 ### 5. 上下文水位、速率监控与配额仪表盘
 - **实时上下文水位与速率**：聊天顶栏实时展示上下文占用圆环与 `TTFT / TPS` 吐字速率，遇到上下文溢出自动升级为带「一键压缩 `/compact`」和「开启新会话」的救援卡片。
 - **配额匀速刻度与 52 周热力图**：实时监控 Claude / Gemini（5h & Weekly）及 Argon 额度，叠加均速消耗刻度针与节奏分析；内置 52 周 Token 消耗热力图（含 Neon / Orchestrator / Subagent 模型归因）、成本统计与多皮肤报告长图一键保存/分享，配合 **Cockpit Tools v1.4+ SQLite 索引**支持多账号无感热切。
+- **全端常驻额度小组件与 CarPlay / Apple Watch 实时步骤（iOS）**：内置锁屏圆环/矩形与 `systemSmall` 额度小组件（一稿复用 iPhone 桌面、StandBy、iOS 26 CarPlay 小组件页与 Mac 桌面），实时展示 5h/7d 双窗余量与走秒倒计时、支持桌面一键轻刷及点击直达额度面板；CarPlay 仪表盘与 Apple Watch 智能叠放同步支持两段式高对比实时步骤与待审批高亮卡片。
 
 ### 6. 移动端工程闭环与外设生态
 - **代码与工作区管理直达**：支持首页按项目 / Chat 原地筛选、新建本地工作区、克隆 GitHub 仓库、会话全文秒搜（SQLite FTS5）、导出 Markdown、查看 `Changes` Diff、带短时缓存提速的原生 `Commit & Push` 与分支管理；会话列表与气泡自动关联 **GitHub PR 实时状态胶囊与详情弹窗**，同时支持 `/slash` 斜杠命令、交互提示与手势指南及 MCP/技能健康看板。

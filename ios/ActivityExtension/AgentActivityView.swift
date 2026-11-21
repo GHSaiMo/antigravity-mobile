@@ -11,8 +11,8 @@ public struct AgentActivityWidget: Widget {
     
     public var body: some WidgetConfiguration {
         ActivityConfiguration(for: AgentActivityAttributes.self) { context in
-            // Lock Screen Live Activity View (JD-style prominent layout & Light/Dark adaptive)
-            AgentLockScreenView(context: context)
+            // Routes .small (CarPlay Dashboard / Apple Watch Smart Stack) vs .medium (iPhone Lock Screen)
+            AgentActivityPresentationView(context: context)
                 .widgetURL(URL(string: "antigravity://cascade/\(context.attributes.cascadeId)"))
         } dynamicIsland: { context in
             DynamicIsland {
@@ -37,6 +37,7 @@ public struct AgentActivityWidget: Widget {
             }
             .widgetURL(URL(string: "antigravity://cascade/\(context.attributes.cascadeId)"))
         }
+        .supplementalActivityFamilies([.small])
     }
     
     // MARK: - Dynamic Island Subviews
@@ -297,6 +298,172 @@ public struct AgentActivityWidget: Widget {
         }
         .padding(.horizontal, 4)
         .padding(.top, 4)
+    }
+}
+
+// MARK: - Activity Family Router (iPhone Lock Screen vs CarPlay / Apple Watch .small)
+
+private struct AgentActivityPresentationView: View {
+    let context: ActivityViewContext<AgentActivityAttributes>
+    @Environment(\.activityFamily) private var activityFamily
+
+    var body: some View {
+        switch activityFamily {
+        case .small:
+            AgentSmallActivityView(context: context)
+        default:
+            AgentLockScreenView(context: context)
+        }
+    }
+}
+
+/// Glancable 2-row high-contrast Live Activity view shared by CarPlay Dashboard (iOS 26+)
+/// and Apple Watch Smart Stack. Pure informational (no interactive buttons for driving safety).
+private struct AgentSmallActivityView: View {
+    let context: ActivityViewContext<AgentActivityAttributes>
+    @Environment(\.colorScheme) private var colorScheme
+
+    private var isDark: Bool { colorScheme == .dark }
+
+    private var primaryColor: Color {
+        isDark ? Color(red: 0.98, green: 0.98, blue: 0.99) : Color(red: 0.08, green: 0.09, blue: 0.12)
+    }
+
+    private var secondaryColor: Color {
+        isDark ? Color(red: 0.86, green: 0.88, blue: 0.92) : Color(red: 0.22, green: 0.24, blue: 0.29)
+    }
+
+    private var accentColor: Color {
+        isDark ? Color(red: 0.45, green: 0.72, blue: 1.0) : Color(red: 0.12, green: 0.36, blue: 0.88)
+    }
+
+    private var statusBadgeLabel: String {
+        if context.state.hasPendingAction {
+            return String(localized: "待审批")
+        }
+        switch context.state.status {
+        case "COMPLETED":
+            return String(localized: "已完成")
+        case "FAILED":
+            return String(localized: "失败")
+        case "CANCELLED":
+            return String(localized: "已停止")
+        default:
+            return String(localized: "第 \(context.state.stepCount) 步")
+        }
+    }
+
+    private var statusBadgeColor: Color {
+        if context.state.hasPendingAction {
+            return .orange
+        }
+        switch context.state.status {
+        case "COMPLETED":
+            return Color(red: 0.20, green: 0.78, blue: 0.40)
+        case "FAILED":
+            return .red
+        case "CANCELLED":
+            return .secondary
+        default:
+            return accentColor
+        }
+    }
+
+    private var detailText: String {
+        let trimmedAction = context.state.latestAction.trimmingCharacters(in: .whitespacesAndNewlines)
+        if context.state.hasPendingAction {
+            if !trimmedAction.isEmpty {
+                return trimmedAction
+            }
+            return String(localized: "请在手机上确认审批")
+        }
+        if context.state.runningTaskCount > 0 {
+            let taskTitle = (context.state.activeTaskTitle ?? context.state.runningTasks.first?.title ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !taskTitle.isEmpty {
+                if context.state.runningTaskCount > 1 {
+                    return "\(taskTitle) (+\(context.state.runningTaskCount - 1))"
+                }
+                return taskTitle
+            }
+        }
+        if !trimmedAction.isEmpty {
+            return trimmedAction
+        }
+        if context.state.status == "COMPLETED" {
+            return String(localized: "任务已完成 · 共 \(context.state.stepCount) 步")
+        }
+        return String(localized: "正在执行第 \(context.state.stepCount) 步")
+    }
+
+    @ViewBuilder
+    private var leadingIcon: some View {
+        if context.state.hasPendingAction {
+            Image(systemName: "exclamationmark.circle.fill")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundColor(.orange)
+        } else if context.state.status == "COMPLETED" {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundColor(Color(red: 0.20, green: 0.78, blue: 0.40))
+        } else if context.state.status == "FAILED" {
+            Image(systemName: "xmark.circle.fill")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundColor(.red)
+        } else {
+            Image("AppLogoTransparent")
+                .renderingMode(.original)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(width: 20, height: 14)
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            // Row 1: Brand/status icon + Conversation Title + Step/Status pill
+            HStack(alignment: .center, spacing: 6) {
+                leadingIcon
+
+                Text(resolvedTitle(context: context))
+                    .font(.system(size: 14.5, weight: .bold))
+                    .foregroundColor(primaryColor)
+                    .lineLimit(1)
+
+                Spacer(minLength: 4)
+
+                Text(statusBadgeLabel)
+                    .font(.system(size: 11.5, weight: .bold, design: .rounded))
+                    .foregroundColor(statusBadgeColor)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 2.5)
+                    .background(statusBadgeColor.opacity(isDark ? 0.22 : 0.14))
+                    .clipShape(Capsule())
+                    .lineLimit(1)
+            }
+
+            // Row 2: Concrete current step / active background task (up to 2 lines, high legibility)
+            HStack(alignment: .top, spacing: 6) {
+                let iconInfo = dynamicActionIcon(
+                    for: detailText,
+                    hasPendingAction: context.state.hasPendingAction,
+                    hasRunningTasks: context.state.runningTaskCount > 0
+                )
+                Image(systemName: iconInfo.name)
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundColor(iconInfo.color)
+                    .padding(.top, 2)
+
+                Text(renderMarkdownText(detailText, defaultColor: secondaryColor, isDark: isDark))
+                    .font(.system(size: 13.5, weight: .medium))
+                    .lineLimit(2)
+                    .lineSpacing(1.5)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
     }
 }
 

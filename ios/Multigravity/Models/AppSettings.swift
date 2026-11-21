@@ -281,6 +281,7 @@ public final class AppSettings {
     public var selectedQuotaBucket: QuotaBucketKind {
         didSet {
             UserDefaults.standard.set(selectedQuotaBucket.rawValue, forKey: selectedQuotaBucketKey)
+            syncWidgetConfiguration()
         }
     }
 
@@ -644,11 +645,13 @@ public final class AppSettings {
         UserDefaults.standard.set(true, forKey: demoModeKey)
         self.isDemoMode = true
         self.isPaired = true
+        syncWidgetConfiguration()
     }
     
     public func refreshPairedState() {
         let token = KeychainHelper.shared.read(key: .deviceToken)
         self.isPaired = isDemoMode || (token != nil && !token!.isEmpty)
+        syncWidgetConfiguration()
     }
     
     public func updateEndpoints(
@@ -687,6 +690,7 @@ public final class AppSettings {
                 self.primaryCloudURL = active
             }
         }
+        syncWidgetConfiguration()
     }
     
     public func unpair() {
@@ -710,6 +714,52 @@ public final class AppSettings {
         UserDefaults.standard.removeObject(forKey: activeServerURLKey)
         UserDefaults.standard.removeObject(forKey: gatewayPlatformKey)
         self.gatewayPlatform = nil
+        QuotaWidgetStore.shared.clearAll()
+        QuotaWidgetStore.shared.reloadWidgetTimelines()
+    }
+
+    /// Mirrors gateway endpoints, auth token, and preferred provider into the shared App Group container
+    /// so `QuotaStatusWidget` can refresh in the background while the phone is locked.
+    public func syncWidgetConfiguration(reloadWidget: Bool = true) {
+        var urls: [String] = []
+        var seen = Set<String>()
+        let rawCandidates: [String?] = [
+            serverURL?.absoluteString,
+            activeServerURL,
+            primaryCloudURL,
+            lanServerURL,
+            customServerURL,
+            relayServerURL,
+            rawServerURL,
+        ]
+        for raw in rawCandidates {
+            guard let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !trimmed.isEmpty,
+                  trimmed.hasPrefix("http://") || trimmed.hasPrefix("https://") else {
+                continue
+            }
+            let normalized = trimmed.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            let key = normalized.lowercased()
+            if seen.insert(key).inserted {
+                urls.append(normalized)
+            }
+        }
+
+        let preferClaude = (selectedQuotaBucket == .claude5h || selectedQuotaBucket == .claudeWeekly)
+        let config = QuotaWidgetEndpointConfig(
+            candidateBaseURLs: urls,
+            deviceToken: isDemoMode ? nil : deviceToken,
+            preferClaude: preferClaude,
+            isDemoMode: isDemoMode,
+            isPaired: isPaired
+        )
+        QuotaWidgetStore.shared.saveConfig(config)
+        if isDemoMode {
+            QuotaWidgetStore.shared.saveSnapshot(QuotaWidgetSnapshot.demoPlaceholder())
+        }
+        if reloadWidget {
+            QuotaWidgetStore.shared.reloadWidgetTimelines()
+        }
     }
     
     public init() {
@@ -836,5 +886,6 @@ public final class AppSettings {
         self.gatewayPlatform = UserDefaults.standard.string(forKey: gatewayPlatformKey)
         self.workspaceNotes = (UserDefaults.standard.dictionary(forKey: workspaceNotesKey) as? [String: String]) ?? [:]
         self.cachedPermissionPreset = UserDefaults.standard.string(forKey: cachedPermissionPresetKey) ?? "strict"
+        syncWidgetConfiguration(reloadWidget: false)
     }
 }

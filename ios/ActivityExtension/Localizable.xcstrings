@@ -177,6 +177,50 @@
         }
       }
     },
+    "从本地 Multigravity 网关拉取最新 5 小时与 7 天额度。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fetch the latest 5h and 7d quota from your local Multigravity gateway."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ローカルのMultigravityゲートウェイから最新の5h/7d枠を取得します。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从本地 Multigravity 网关拉取最新 5 小时与 7 天额度。"
+          }
+        }
+      }
+    },
+    "任务已完成 · 共 %lld 步": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Completed · %lld steps"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完了・全%lldステップ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "任务已完成 · 共 %lld 步"
+          }
+        }
+      }
+    },
     "停止": {
       "localizations": {
         "en": {
@@ -265,6 +309,28 @@
         }
       }
     },
+    "刷新额度": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Refresh Quota"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クォータを更新"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "刷新额度"
+          }
+        }
+      }
+    },
     "另有 %lld 个任务在队列中...": {
       "localizations": {
         "en": {
@@ -309,6 +375,72 @@
         }
       }
     },
+    "后重置": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "to reset"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "後にリセット"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "后重置"
+          }
+        }
+      }
+    },
+    "在锁屏、主屏幕与 CarPlay 随时查看 5 小时与 7 天额度余量及重置倒计时。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Track your 5h and 7d quota balance and reset countdown on Lock Screen, Home Screen, and CarPlay."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ロック画面・ホーム画面・CarPlayで5時間/7日間のクォータ残量とリセット時刻を確認できます。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在锁屏、主屏幕与 CarPlay 随时查看 5 小时与 7 天额度余量及重置倒计时。"
+          }
+        }
+      }
+    },
+    "失败": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "失敗"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "失败"
+          }
+        }
+      }
+    },
     "审批内容已更新，请重新确认": {
       "localizations": {
         "en": {
@@ -327,6 +459,50 @@
           "stringUnit": {
             "state": "translated",
             "value": "审批内容已更新，请重新确认"
+          }
+        }
+      }
+    },
+    "尚未配对网关": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not paired"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未ペアリング"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚未配对网关"
+          }
+        }
+      }
+    },
+    "已停止": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stopped"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停止済み"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已停止"
           }
         }
       }
@@ -529,6 +705,28 @@
         }
       }
     },
+    "打开 App 同步额度": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open app to sync"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリを開いて同期"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开 App 同步额度"
+          }
+        }
+      }
+    },
     "拒绝": {
       "localizations": {
         "en": {
@@ -569,6 +767,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "拒绝操作"
+          }
+        }
+      }
+    },
+    "正在执行第 %lld 步": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Running step %lld"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ステップ %lld を実行中"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在执行第 %lld 步"
+          }
+        }
+      }
+    },
+    "点击打开 App 扫码配对本机网关": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap to open app and pair with local gateway"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タップしてローカルゲートウェイと接続"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "点击打开 App 扫码配对本机网关"
+          }
+        }
+      }
+    },
+    "点击打开 App 获取最新 5h/7d 额度": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap to open app and sync 5h/7d quota"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タップして最新の5h/7d枠を取得"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "点击打开 App 获取最新 5h/7d 额度"
           }
         }
       }
@@ -617,6 +881,28 @@
         }
       }
     },
+    "等待同步额度": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting for sync"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同期待ち"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等待同步额度"
+          }
+        }
+      }
+    },
     "结束并发送": {
       "localizations": {
         "en": {
@@ -657,6 +943,50 @@
           "stringUnit": {
             "state": "translated",
             "value": "结束录音"
+          }
+        }
+      }
+    },
+    "请先打开 App 配对": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open app to pair"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリでペアリング"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请先打开 App 配对"
+          }
+        }
+      }
+    },
+    "请在手机上确认审批": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Approve on iPhone"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhoneで承認してください"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请在手机上确认审批"
           }
         }
       }
@@ -745,6 +1075,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "进 App 确认"
+          }
+        }
+      }
+    },
+    "额度监控": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quota Monitor"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クォータ監視"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "额度监控"
           }
         }
       }

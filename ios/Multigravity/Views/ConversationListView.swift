@@ -299,6 +299,9 @@ public struct ConversationListView: View {
                 handleDeepLink(url)
             }
         }
+        .onChange(of: settings.selectedQuotaBucket) { _, _ in
+            viewModel.publishQuotaToWidget()
+        }
         .sheet(isPresented: $shareInbox.showSheet, onDismiss: {
             if let item = pendingShareItem {
                 pendingShareItem = nil
@@ -1131,6 +1134,17 @@ public struct ConversationListView: View {
                 showPairingConfirm = true
             case .failure(let err):
                 pairingErrorMessage = err.localizedDescription
+            }
+            return
+        }
+
+        // Handle antigravity://quota deep link (from Lock Screen / Home Screen / CarPlay Quota Widget)
+        if url.host == "quota" {
+            if settings.isPaired {
+                showAccountQuota = true
+                Task {
+                    await viewModel.fetchQuotas(force: true)
+                }
             }
             return
         }
