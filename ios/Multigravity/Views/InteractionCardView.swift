@@ -28,6 +28,8 @@ public struct InteractionCardView: View {
     @State private var settings = AppSettings.shared
     @FocusState private var isSingleWriteInFocused: Bool
     @FocusState private var focusedMultiQuestionIndex: Int?
+    @State private var pendingAutoFocusSingleWriteIn: Bool = false
+    @State private var pendingAutoFocusQuestionIndex: Int? = nil
     
     // Multi-question state: questionIndex -> selectedOptionId, questionIndex -> writeInText
     @State private var selectedOptionsByQuestion: [Int: String] = [:]
@@ -286,7 +288,16 @@ public struct InteractionCardView: View {
         return optId == "5" || optId == "__write_in__" || optId.lowercased() == "other"
     }
     
+    private func dismissKeyboard() {
+        pendingAutoFocusQuestionIndex = nil
+        pendingAutoFocusSingleWriteIn = false
+        focusedMultiQuestionIndex = nil
+        isSingleWriteInFocused = false
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+    }
+
     private func toggleExpansion() {
+        dismissKeyboard()
         UISelectionFeedbackGenerator().selectionChanged()
         withAnimation(.spring(response: 0.35, dampingFraction: 0.82)) {
             isExpanded.toggle()
@@ -295,7 +306,7 @@ public struct InteractionCardView: View {
     }
     
     private func handleSkip() {
-        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+        dismissKeyboard()
         if hasMultipleQuestions, let questions = interaction.questions {
             let responses = questions.enumerated().map { idx, _ in
                 QuestionResponse(questionIndex: idx, selectedOptionIds: [], writeInResponse: "", skipped: true)
@@ -307,7 +318,7 @@ public struct InteractionCardView: View {
     }
     
     private func handleSubmit() {
-        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+        dismissKeyboard()
         if hasMultipleQuestions, let questions = interaction.questions {
             let responses = questions.enumerated().map { idx, q in
                 let qFallback = (q.hasWriteIn == true) ? "__write_in__" : "1"
@@ -457,6 +468,11 @@ public struct InteractionCardView: View {
                     .multilineTextAlignment(.leading)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                dismissKeyboard()
+            }
             
             VStack(spacing: 6) {
                 ForEach(Array(opts.enumerated()), id: \.element.id) { optIdx, option in
@@ -487,7 +503,10 @@ public struct InteractionCardView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .focused($focusedMultiQuestionIndex, equals: qIdx)
                             .onAppear {
-                                focusedMultiQuestionIndex = qIdx
+                                if pendingAutoFocusQuestionIndex == qIdx {
+                                    pendingAutoFocusQuestionIndex = nil
+                                    focusedMultiQuestionIndex = qIdx
+                                }
                             }
                         } else {
                             let currentText = writeInByQuestion[qIdx] ?? ""
@@ -521,11 +540,10 @@ public struct InteractionCardView: View {
                             selectedOptionsByQuestion[qIdx] = option.id
                         }
                         if isWriteIn {
+                            pendingAutoFocusQuestionIndex = qIdx
                             focusedMultiQuestionIndex = qIdx
                         } else {
-                            if focusedMultiQuestionIndex == qIdx {
-                                focusedMultiQuestionIndex = nil
-                            }
+                            dismissKeyboard()
                         }
                     }
                 }
@@ -562,7 +580,10 @@ public struct InteractionCardView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .focused($isSingleWriteInFocused)
                         .onAppear {
-                            isSingleWriteInFocused = true
+                            if pendingAutoFocusSingleWriteIn {
+                                pendingAutoFocusSingleWriteIn = false
+                                isSingleWriteInFocused = true
+                            }
                         }
                     } else {
                         Text(isWriteIn && !writeInText.isEmpty ? writeInText : option.text)
@@ -595,9 +616,10 @@ public struct InteractionCardView: View {
                         selectedOptionId = option.id
                     }
                     if isWriteIn {
+                        pendingAutoFocusSingleWriteIn = true
                         isSingleWriteInFocused = true
                     } else {
-                        isSingleWriteInFocused = false
+                        dismissKeyboard()
                     }
                 }
             }
@@ -697,6 +719,7 @@ public struct InteractionCardView: View {
                         }
                     )
                 }
+                .scrollDismissesKeyboard(.immediately)
                 .frame(height: targetScrollHeight)
                 
                 if showBottomDivider {
