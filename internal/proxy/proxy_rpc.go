@@ -621,6 +621,10 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 	// Enrich hierarchy metadata (parent-child relationship) with zero-subprocess memory cache + sqlite3 fast path
 	EnrichSummariesHierarchy(listCtx, summaries)
 
+	// Filter out half-deleted in-memory zombies (e.g. desktop DeleteCascadeTrajectory failed
+	// on "unlinkat brain/<id>: directory not empty" after already removing conversations/<id>.db).
+	filterDeletedZombieSummaries(summaries)
+
 	runningSubagentParents := make(map[string]bool)
 	sidecarProjectIDs := fetchSidecarProjectIDs()
 	resolveWorkspace := p.BuildWorkspaceDisplayNameResolver()
@@ -1128,6 +1132,99 @@ func isSubagentTrajectoryMap(s map[string]interface{}, id string) bool {
 	}
 
 	return false
+}
+
+const deletedZombieGracePeriod = 10 * time.Second
+
+// filterDeletedZombieSummaries removes in-memory zombie trajectories that upstream
+// language_server failed to evict after a partial DeleteCascadeTrajectory (for example
+// when desktop Antigravity deletes a conversation and hits "unlinkat brain/<id>: directory
+// not empty" after already removing conversations/<id>.db and conversation_summaries.db).
+//
+// Safety invariants to prevent false positives in tests, non-default app_data_dir setups,
+// or brand-new conversations:
+//   - Only activates when ~/.gemini/antigravity/conversations exists and at least one
+//     entry in summaries is backed by a .db/.pb file there (or the missing entry itself
+//     still has a brain/<id> or annotations/<id>.pbtxt residue under ~/.gemini/antigravity).
+//   - Never filters 0-step drafts, currently running sessions, or sessions modified within
+//     deletedZombieGracePeriod.
+func filterDeletedZombieSummaries(summaries map[string]map[string]interface{}) {
+	if len(summaries) == 0 {
+		return
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return
+	}
+	agDir := filepath.Join(home, ".gemini", "antigravity")
+	convDir := filepath.Join(agDir, "conversations")
+	entries, err := os.ReadDir(convDir)
+	if err != nil {
+		return
+	}
+
+	diskConvIDs := make(map[string]struct{}, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if strings.HasSuffix(name, ".db") {
+			diskConvIDs[strings.TrimSuffix(name, ".db")] = struct{}{}
+		} else if strings.HasSuffix(name, ".pb") {
+			diskConvIDs[strings.TrimSuffix(name, ".pb")] = struct{}{}
+		}
+	}
+
+	matchedOnDisk := false
+	for id := range summaries {
+		if _, ok := diskConvIDs[id]; ok {
+			matchedOnDisk = true
+			break
+		}
+	}
+
+	now := time.Now()
+	for id, s := range summaries {
+		if _, ok := diskConvIDs[id]; ok {
+			continue
+		}
+		if !cascadeIDRe.MatchString(id) || s == nil {
+			continue
+		}
+		if summaryStepCount(s["stepCount"]) <= 0 {
+			continue
+		}
+		if status, _ := s["status"].(string); status == "CASCADE_RUN_STATUS_RUNNING" {
+			continue
+		}
+
+		tsStr, _ := s["lastModifiedTime"].(string)
+		if tsStr == "" {
+			tsStr, _ = s["createdTime"].(string)
+		}
+		if tsStr == "" {
+			continue
+		}
+		ts, err := parseTime(tsStr)
+		if err != nil || now.Sub(ts) < deletedZombieGracePeriod {
+			continue
+		}
+
+		if !matchedOnDisk {
+			hasResidue := false
+			if _, serr := os.Stat(filepath.Join(agDir, "brain", id)); serr == nil {
+				hasResidue = true
+			} else if _, serr := os.Stat(filepath.Join(agDir, "annotations", id+".pbtxt")); serr == nil {
+				hasResidue = true
+			}
+			if !hasResidue {
+				continue
+			}
+		}
+
+		delete(summaries, id)
+	}
 }
 
 // isGrpcWebFramed checks if data matches gRPC-Web / Connect framed streaming format:

@@ -1718,3 +1718,175 @@ func TestDeleteCascadeTrajectoryRetriesBrainDirNotEmpty(t *testing.T) {
 		t.Fatalf("expected tombstone to be released on unrelated error")
 	}
 }
+
+func TestGetAllCascadeTrajectoriesFiltersDesktopHalfDeletedZombies(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+
+	agDir := filepath.Join(home, ".gemini", "antigravity")
+	convDir := filepath.Join(agDir, "conversations")
+	if err := os.MkdirAll(convDir, 0o755); err != nil {
+		t.Fatalf("mkdir conversations: %v", err)
+	}
+
+	const (
+		liveID    = "a8acc4e3-014b-4b20-8e91-be8bfa9d09c1"
+		zombieID  = "113d61b4-edc1-4b6c-95ff-b807843f9172"
+		draftID   = "22222222-1111-2222-3333-444444444444"
+		runningID = "33333333-1111-2222-3333-444444444444"
+		recentID  = "44444444-1111-2222-3333-444444444444"
+	)
+
+	// Only liveID has a backing .db file on disk.
+	if err := os.WriteFile(filepath.Join(convDir, liveID+".db"), []byte("sqlite"), 0o644); err != nil {
+		t.Fatalf("write live .db: %v", err)
+	}
+	// Simulate desktop half-delete residue for zombieID: .db is gone, only brain/.user_uploaded remains.
+	if err := os.MkdirAll(filepath.Join(agDir, "brain", zombieID, ".user_uploaded"), 0o755); err != nil {
+		t.Fatalf("mkdir zombie brain residue: %v", err)
+	}
+
+	oldTime := time.Now().Add(-45 * time.Minute).UTC().Format(time.RFC3339)
+	recentTime := time.Now().Add(-2 * time.Second).UTC().Format(time.RFC3339)
+
+	mockUpstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if strings.HasSuffix(r.URL.Path, "/GetAllCascadeTrajectories") {
+			resp := map[string]interface{}{
+				"trajectorySummaries": map[string]interface{}{
+					liveID: map[string]interface{}{
+						"summary":          "Live Task",
+						"stepCount":        114,
+						"status":           "CASCADE_RUN_STATUS_IDLE",
+						"lastModifiedTime": oldTime,
+					},
+					zombieID: map[string]interface{}{
+						"summary":          "请先读取并严格遵循全局 Skill ...",
+						"stepCount":        205,
+						"status":           "CASCADE_RUN_STATUS_IDLE",
+						"lastModifiedTime": oldTime,
+					},
+					draftID: map[string]interface{}{
+						"summary":          "",
+						"stepCount":        0,
+						"status":           "CASCADE_RUN_STATUS_IDLE",
+						"lastModifiedTime": recentTime,
+					},
+					runningID: map[string]interface{}{
+						"summary":          "Active Run",
+						"stepCount":        5,
+						"status":           "CASCADE_RUN_STATUS_RUNNING",
+						"lastModifiedTime": oldTime,
+					},
+					recentID: map[string]interface{}{
+						"summary":          "Just Finished",
+						"stepCount":        3,
+						"status":           "CASCADE_RUN_STATUS_IDLE",
+						"lastModifiedTime": recentTime,
+					},
+				},
+			}
+			_ = json.NewEncoder(w).Encode(resp)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer mockUpstream.Close()
+
+	port := mockUpstream.Listener.Addr().(*net.TCPAddr).Port
+	p := NewProxy(inspector.NewInspector(5 * time.Second))
+	p.mediumClient = mockUpstream.Client()
+	p.updateUpstream(inspector.InstanceInfo{
+		PID:       1234,
+		Port:      port,
+		CSRFToken: "test-token",
+		IsHealthy: true,
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/exa.language_server_pb.LanguageServerService/GetAllCascadeTrajectories", strings.NewReader(`{}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	p.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var out struct {
+		TrajectorySummaries map[string]interface{} `json:"trajectorySummaries"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	if _, exists := out.TrajectorySummaries[zombieID]; exists {
+		t.Fatalf("expected half-deleted zombie %s to be filtered out", zombieID)
+	}
+	for _, keepID := range []string{liveID, draftID, runningID, recentID} {
+		if _, exists := out.TrajectorySummaries[keepID]; !exists {
+			t.Fatalf("expected valid session %s to be preserved", keepID)
+		}
+	}
+
+	// Watcher/summary helper must apply the same zombie filter.
+	rawSummaries, _, err := p.FetchRawCascadeSummariesWithMaxAge(0)
+	if err != nil {
+		t.Fatalf("FetchRawCascadeSummariesWithMaxAge failed: %v", err)
+	}
+	if _, exists := rawSummaries[zombieID]; exists {
+		t.Fatalf("expected zombie %s to be filtered from FetchRawCascadeSummariesWithMaxAge", zombieID)
+	}
+	if _, exists := rawSummaries[liveID]; !exists {
+		t.Fatalf("expected live session %s in FetchRawCascadeSummariesWithMaxAge", liveID)
+	}
+}
+
+func TestFilterDeletedZombieSummaries_SingleZombieAndForeignStoreSafety(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+
+	agDir := filepath.Join(home, ".gemini", "antigravity")
+	convDir := filepath.Join(agDir, "conversations")
+	if err := os.MkdirAll(convDir, 0o755); err != nil {
+		t.Fatalf("mkdir conversations: %v", err)
+	}
+
+	const (
+		soloZombieID = "835b3ec2-1dce-41bf-bc75-973d25471f82"
+		foreignID    = "99999999-1111-2222-3333-444444444444"
+	)
+	if err := os.MkdirAll(filepath.Join(agDir, "brain", soloZombieID, ".user_uploaded"), 0o755); err != nil {
+		t.Fatalf("mkdir solo zombie residue: %v", err)
+	}
+
+	oldTime := time.Now().Add(-2 * time.Hour).UTC().Format(time.RFC3339)
+
+	// 1. Even when 0 live .db files match, a solo zombie with local brain/annotations residue is filtered.
+	solo := map[string]map[string]interface{}{
+		soloZombieID: {
+			"stepCount":        427,
+			"status":           "CASCADE_RUN_STATUS_IDLE",
+			"lastModifiedTime": oldTime,
+		},
+	}
+	filterDeletedZombieSummaries(solo)
+	if len(solo) != 0 {
+		t.Fatalf("expected solo zombie with local residue to be filtered, got %v", solo)
+	}
+
+	// 2. Foreign store / test IDs with no matching .db and no local residue must NOT be filtered.
+	foreign := map[string]map[string]interface{}{
+		foreignID: {
+			"stepCount":        50,
+			"status":           "CASCADE_RUN_STATUS_IDLE",
+			"lastModifiedTime": oldTime,
+		},
+	}
+	filterDeletedZombieSummaries(foreign)
+	if _, ok := foreign[foreignID]; !ok {
+		t.Fatalf("expected foreign-store session %s to be preserved", foreignID)
+	}
+}

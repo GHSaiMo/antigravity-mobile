@@ -30,7 +30,8 @@
   - 官方网站同步上线原生日语门户 [mgy.jiuge.space/ja.html](https://mgy.jiuge.space/ja.html)（含 `/ja` 路由、全交互演示日语化、三语切换器与 4 向 `hreflang`）。
 - 🔧 **稳定性与交互修复**：
   - 修复刚发出消息立即撤回时「确认撤回」按钮置灰、错误被遮挡、运行态回退冲突及多轮对话误匹配问题（#9）；
-  - 修复 `sidecar://swarm` 跳转 401、多行输入框上下裁切及多问题确认卡切换选项/滚动时键盘不收起的问题（#7, #8）。
+  - 修复 `sidecar://swarm` 跳转 401、多行输入框上下裁切及多问题确认卡切换选项/滚动时键盘不收起的问题（#7, #8）；
+  - 过滤电脑桌面端删除会话中途异常（`brain/<id>` 非空）残留在上游内存中的半删僵尸会话，避免手机端多出重复或原始 prompt 标题会话。
 - 📦 **全端版本号对齐**：
   - Android `1.2.3`（Version Code `24`）；iOS `1.2.3`（Build `25`）；桌面/服务端网关 `mgy` `1.2.3`。
 
@@ -55,7 +56,8 @@
   - Launched the native Japanese landing page at [mgy.jiuge.space/ja.html](https://mgy.jiuge.space/ja.html) (with `/ja` route, localized interactive demos, 3-way language switcher, and `hreflang` metadata).
 - 🔧 **Stability & UX Fixes**:
   - Fixed immediate message undo button staying disabled, hidden error messages, running-state revert conflicts, and multi-turn step resolution edge cases (#9);
-  - Fixed `sidecar://swarm` 401 auth, multiline input box clipping, and soft keyboard dismissal in multi-question interaction cards (#7, #8).
+  - Fixed `sidecar://swarm` 401 auth, multiline input box clipping, and soft keyboard dismissal in multi-question interaction cards (#7, #8);
+  - Filtered half-deleted in-memory zombie conversations left behind when desktop Antigravity deletion hits a non-empty `brain/<id>` error, preventing duplicate raw-prompt ghost entries on mobile.
 - 📦 **Version Alignment**:
   - Android `1.2.3` (Version Code `24`); iOS `1.2.3` (Build `25`); desktop/server gateway `mgy` `1.2.3`.
 
@@ -67,4 +69,5 @@
 - 🚗 **CarPlay ダッシュボード＆Apple Watch ライブアクティビティ詳細ステップ表示**：`.supplementalActivityFamilies([.small])` に対応し、運転中もひと目で分かる 2 段構成（セッションタイトル＋ステップ/承認バッジ＋現在の実行アクション）へ刷新しました。
 - 🇯🇵 **iOS アプリ完全日本語対応（`ja`）**：メインアプリ・Dynamic Island / ウィジェット拡張・権限ダイアログを 100% ネイティブ日本語化。
 - 📚 **GitHub・公式サイトの日本語版を公開**：[`README_JA.md`](https://github.com/GHSaiMo/antigravity-mobile/blob/main/README_JA.md) および日本語公式サイト [mgy.jiuge.space/ja.html](https://mgy.jiuge.space/ja.html) を公開しました。
+- 🔧 **安定性の改善**：デスクトップ側で削除に失敗しメモリに残留した半削除ゾンビセッションをフィルタリングし、モバイル一覧での重複表示を防止しました。
 - 📦 **バージョン統一**：iOS `1.2.3` (Build `25`) / Android `1.2.3` (Version Code `24`) / ゲートウェイ `mgy` `1.2.3`。

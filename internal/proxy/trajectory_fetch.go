@@ -593,9 +593,15 @@ func (p *Proxy) FetchRawCascadeSummariesWithMaxAge(maxAge time.Duration) (map[st
 		summaries = make(map[string]map[string]interface{})
 	}
 
+	filterDeletedZombieSummaries(summaries)
+
 	runningSubagents := make(map[string]bool)
 	// Filter out internal subagent sessions while tracking parents of actively running subagents
 	for id, s := range summaries {
+		if IsDeletedCascade(id) {
+			delete(summaries, id)
+			continue
+		}
 		if isSubagentTrajectoryMap(s, id) {
 			status, _ := s["status"].(string)
 			if status == "CASCADE_RUN_STATUS_RUNNING" {
