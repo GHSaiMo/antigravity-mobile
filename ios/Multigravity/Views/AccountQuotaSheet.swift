@@ -16,6 +16,9 @@ public struct AccountQuotaSheet: View {
     @State private var paceDetailItem: WeeklyPaceDetailItem? = nil
     @State private var selectedTab: Int = 0
     @State private var selectedHeatmapDate: String? = nil
+    @State private var selectedChartType: TokenHistoryChartType
+    @State private var hasInitializedChartType: Bool
+    @State private var suppressNextChartPersist: Bool = false
     @State private var showTokenHistoryShareSheet: Bool = false
     @State private var isCockpitGuideExpanded: Bool = false
     @State private var copiedFeedbackText: String? = nil
@@ -52,6 +55,18 @@ public struct AccountQuotaSheet: View {
         self.onRefresh = onRefresh
         self.onAppearFetch = onAppearFetch
         self.enableSwitchButton = enableSwitchButton
+        if let history = tokenHistory {
+            let resolved = TokenHistoryChartType.resolveDefault(
+                savedRawValue: AppSettings.shared.tokenHistoryChartType,
+                activeDays: history.summary.activeDays
+            )
+            self._selectedChartType = State(initialValue: resolved)
+            self._hasInitializedChartType = State(initialValue: true)
+        } else {
+            let fallback = TokenHistoryChartType(rawValue: AppSettings.shared.tokenHistoryChartType) ?? .dailyBars
+            self._selectedChartType = State(initialValue: fallback)
+            self._hasInitializedChartType = State(initialValue: false)
+        }
     }
     
     private var currentAccount: CockpitAccountQuota? {
@@ -394,7 +409,11 @@ public struct AccountQuotaSheet: View {
                         ?? history.dailyMatrix.last(where: { $0.total > 0 })?.date
                         ?? history.dailyMatrix.last?.date
                     let selectedRec = history.dailyMatrix.first(where: { $0.date == activeDate })
-                    TokenHistoryShareCardSheet(history: history, selectedRecord: selectedRec)
+                    TokenHistoryShareCardSheet(
+                        history: history,
+                        selectedRecord: selectedRec,
+                        chartType: selectedChartType
+                    )
                 }
             }
         }
@@ -1042,16 +1061,50 @@ extension AccountQuotaSheet {
                         .font(.system(size: 12, weight: .medium))
                         .foregroundColor(.secondary)
                     Spacer()
-                    Text("近 52 周热力图")
+                    Text(selectedChartType.statusBarLabel)
                         .font(.system(size: 11))
                         .foregroundColor(.secondary.opacity(0.75))
+                        .contentTransition(.numericText())
+                        .animation(.easeInOut(duration: 0.18), value: selectedChartType)
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 9)
                 .background(Color(uiColor: .secondarySystemGroupedBackground))
                 .clipShape(RoundedRectangle(cornerRadius: 10))
 
-                tokenHeatmapCard(matrix: matrix, selectedDate: activeDate)
+                TokenHistoryChartCarouselCard(
+                    matrix: matrix,
+                    selectedDate: activeDate,
+                    selectedChart: $selectedChartType,
+                    onSelectDate: { date in
+                        selectedHeatmapDate = date
+                    },
+                    onUserSelectChart: { chart in
+                        AppSettings.shared.tokenHistoryChartType = chart.rawValue
+                    }
+                )
+                .onAppear {
+                    if !hasInitializedChartType {
+                        let resolved = TokenHistoryChartType.resolveDefault(
+                            savedRawValue: AppSettings.shared.tokenHistoryChartType,
+                            activeDays: s.activeDays
+                        )
+                        hasInitializedChartType = true
+                        if resolved != selectedChartType {
+                            suppressNextChartPersist = true
+                            selectedChartType = resolved
+                        }
+                    }
+                }
+                .onChange(of: selectedChartType) { _, newValue in
+                    if suppressNextChartPersist {
+                        suppressNextChartPersist = false
+                        return
+                    }
+                    if hasInitializedChartType {
+                        AppSettings.shared.tokenHistoryChartType = newValue.rawValue
+                    }
+                }
 
                 if let rec = selectedRec {
                     tokenInspectorCard(record: rec)
@@ -1097,73 +1150,6 @@ extension AccountQuotaSheet {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-    }
-
-    private func tokenHeatmapCard(matrix: [DailyTokenRecord], selectedDate: String?) -> some View {
-        let maxTotal = max(Int64(1), matrix.map(\.total).max() ?? 1)
-        let weeks = Self.buildHeatmapWeeks(matrix)
-        return VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("每日活跃密度")
-                    .font(.system(size: 12, weight: .semibold))
-                Spacer()
-                HStack(spacing: 3) {
-                    Text("少").font(.system(size: 10)).foregroundColor(.secondary)
-                    ForEach(0..<5, id: \.self) { lvl in
-                        RoundedRectangle(cornerRadius: 2)
-                            .fill(Self.heatColor(level: lvl))
-                            .frame(width: 9, height: 9)
-                    }
-                    Text("多").font(.system(size: 10)).foregroundColor(.secondary)
-                }
-            }
-
-            ScrollViewReader { proxy in
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 3) {
-                        ForEach(Array(weeks.enumerated()), id: \.offset) { wIdx, week in
-                            VStack(spacing: 3) {
-                                ForEach(0..<7, id: \.self) { dIdx in
-                                    if dIdx < week.count, let rec = week[dIdx] {
-                                        let ratio = Double(rec.total) / Double(maxTotal)
-                                        let level: Int = {
-                                            if rec.total <= 0 { return 0 }
-                                            if ratio < 0.2 { return 1 }
-                                            if ratio < 0.45 { return 2 }
-                                            if ratio < 0.75 { return 3 }
-                                            return 4
-                                        }()
-                                        let isSel = (rec.date == selectedDate)
-                                        RoundedRectangle(cornerRadius: 2.5)
-                                            .fill(Self.heatColor(level: level))
-                                            .frame(width: 12, height: 12)
-                                            .overlay(
-                                                RoundedRectangle(cornerRadius: 2.5)
-                                                    .stroke(isSel ? Color.blue : Color.clear, lineWidth: 1.5)
-                                            )
-                                            .onTapGesture {
-                                                selectedHeatmapDate = rec.date
-                                            }
-                                    } else {
-                                        Color.clear.frame(width: 12, height: 12)
-                                    }
-                                }
-                            }
-                            .id("week_\(wIdx)")
-                        }
-                    }
-                    .padding(.vertical, 2)
-                }
-                .onAppear {
-                    if !weeks.isEmpty {
-                        proxy.scrollTo("week_\(weeks.count - 1)", anchor: .trailing)
-                    }
-                }
-            }
-        }
-        .padding(12)
         .background(Color(uiColor: .secondarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: 12))
     }
@@ -1218,38 +1204,6 @@ extension AccountQuotaSheet {
         }
     }
 
-    private static func buildHeatmapWeeks(_ matrix: [DailyTokenRecord]) -> [[DailyTokenRecord?]] {
-        guard !matrix.isEmpty else { return [] }
-        let df = DateFormatter()
-        df.locale = Locale(identifier: "en_US_POSIX")
-        df.dateFormat = "yyyy-MM-dd"
-        let cal = Calendar.current
-        var padStart = 0
-        if let firstDate = df.date(from: matrix[0].date) {
-            padStart = max(0, cal.component(.weekday, from: firstDate) - 1)
-        }
-        var padded: [DailyTokenRecord?] = Array(repeating: nil, count: padStart)
-        padded.append(contentsOf: matrix.map { Optional.some($0) })
-        var weeks: [[DailyTokenRecord?]] = []
-        var idx = 0
-        while idx < padded.count {
-            let end = min(idx + 7, padded.count)
-            weeks.append(Array(padded[idx..<end]))
-            idx = end
-        }
-        return weeks
-    }
-
-    private static func heatColor(level: Int) -> Color {
-        switch level {
-        case 0: return Color.secondary.opacity(0.14)
-        case 1: return Color(red: 0.61, green: 0.91, blue: 0.66).opacity(0.7)
-        case 2: return Color(red: 0.25, green: 0.77, blue: 0.39).opacity(0.85)
-        case 3: return Color(red: 0.19, green: 0.63, blue: 0.31)
-        default: return Color(red: 0.13, green: 0.43, blue: 0.22)
-        }
-    }
-
     public static func formatTokensCompact(_ tokens: Int64) -> String {
         if tokens >= 1_000_000_000 { return String(format: "%.2fB", Double(tokens) / 1_000_000_000.0) }
         if tokens >= 1_000_000 { return String(format: "%.2fM", Double(tokens) / 1_000_000.0) }
@@ -1270,6 +1224,7 @@ extension AccountQuotaSheet {
         let card = TokenHistoryShareCardView(
             history: history,
             selectedRecord: selectedRec,
+            chartType: selectedChartType,
             colorScheme: colorScheme,
             skin: AppSettings.shared.resolvedShareCardSkin(for: colorScheme),
             exportDate: Date()

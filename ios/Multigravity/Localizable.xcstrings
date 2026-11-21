@@ -705,6 +705,28 @@
         }
       }
     },
+    "%lld 款模型": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld models"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld モデル"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 款模型"
+          }
+        }
+      }
+    },
     "%lld 步": {
       "localizations": {
         "en": {
@@ -6799,6 +6821,28 @@
         }
       }
     },
+    "其他": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Other"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "その他"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "其他"
+          }
+        }
+      }
+    },
     "其他会话任务 (%lld)": {
       "localizations": {
         "en": {
@@ -10998,6 +11042,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "展开队列"
+          }
+        }
+      }
+    },
+    "峰值 %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Peak %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ピーク %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "峰值 %@"
           }
         }
       }
@@ -17163,6 +17229,50 @@
         }
       }
     },
+    "暂无数据": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No data"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "データなし"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暂无数据"
+          }
+        }
+      }
+    },
+    "暂无模型明细数据": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No model breakdown data"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モデル別データがありません"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暂无模型明细数据"
+          }
+        }
+      }
+    },
     "暂无注册工具": {
       "localizations": {
         "en": {
@@ -17203,6 +17313,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "暂无活动终端输出"
+          }
+        }
+      }
+    },
+    "暂无用量": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No usage"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用量なし"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暂无用量"
           }
         }
       }
@@ -18787,6 +18919,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "模型"
+          }
+        }
+      }
+    },
+    "模型消耗占比": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Model Breakdown"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モデル別消費割合"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模型消耗占比"
           }
         }
       }
@@ -22157,6 +22311,28 @@
         }
       }
     },
+    "累计模型占比": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Model Breakdown"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モデル別割合"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "累计模型占比"
+          }
+        }
+      }
+    },
     "终止": {
       "localizations": {
         "en": {
@@ -25215,6 +25391,28 @@
         }
       }
     },
+    "近 14 日趋势": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "14-Day Trend"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "直近 14 日推移"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "近 14 日趋势"
+          }
+        }
+      }
+    },
     "近 18 周活跃热力": {
       "localizations": {
         "en": {
@@ -25233,6 +25431,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "近 18 周活跃热力"
+          }
+        }
+      }
+    },
+    "近 20 周热力图": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "20-Week Heatmap"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "直近 20 週ヒートマップ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "近 20 周热力图"
           }
         }
       }

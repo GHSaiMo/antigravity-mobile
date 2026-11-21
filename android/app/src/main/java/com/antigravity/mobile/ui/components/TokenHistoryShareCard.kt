@@ -74,6 +74,7 @@ fun TokenHistoryShareCard(
     tokenHistory: TokenHistoryResponse,
     selectedRecord: DailyTokenRecord?,
     modifier: Modifier = Modifier,
+    chartType: TokenHistoryChartType = TokenHistoryChartType.HEATMAP,
     skin: ThemePreset? = null
 ) {
     val baseColors = AntigravityTheme.colors
@@ -110,12 +111,13 @@ fun TokenHistoryShareCard(
             KpiGridSection(summary = summary, colors = cardColors)
 
             // 3. Source ratio bar
-            SourceRatioSection(summary = summary, colors = cardColors)
+            SourceRatioSection(summary = summary, chartType = chartType, colors = cardColors)
 
-            // 4. Heatmap (近 18 周活跃区)
-            HeatmapCardSection(
+            // 4. Chart card (所见即所得，跟随当前选中的图表页)
+            ChartCardSection(
                 dailyMatrix = matrix,
                 selectedDate = selectedRecord?.date,
+                chartType = chartType,
                 colors = cardColors
             )
 
@@ -290,6 +292,7 @@ private fun KpiCell(
 @Composable
 private fun SourceRatioSection(
     summary: com.antigravity.mobile.data.model.TokenHistorySummary,
+    chartType: TokenHistoryChartType,
     colors: AppColors
 ) {
     val totalSources = (summary.desktopTokens + summary.cliTokens).coerceAtLeast(1L)
@@ -317,7 +320,7 @@ private fun SourceRatioSection(
                 color = colors.textSecondary
             )
             Text(
-                text = "近 18 周活跃热力".loc,
+                text = chartType.statusBarLabel(),
                 fontSize = 10.5.sp,
                 color = colors.textMuted
             )
@@ -342,102 +345,37 @@ private fun SourceRatioSection(
 }
 
 @Composable
-private fun HeatmapCardSection(
+private fun ChartCardSection(
     dailyMatrix: List<DailyTokenRecord>,
     selectedDate: String?,
+    chartType: TokenHistoryChartType,
     colors: AppColors
 ) {
-    val maxTotal = remember(dailyMatrix) {
-        dailyMatrix.maxOfOrNull { it.total }?.coerceAtLeast(1L) ?: 1L
-    }
-    val allWeeks = remember(dailyMatrix) {
-        buildWeeks(dailyMatrix)
-    }
-    val displayWeeks = remember(allWeeks) {
-        allWeeks.takeLast(18)
-    }
-
-    Column(
+    val innerWidthDp = TOKEN_HISTORY_SHARE_CARD_WIDTH - 32.dp - 24.dp
+    Box(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
             .background(colors.surface)
             .border(0.8.dp, colors.border, RoundedCornerShape(12.dp))
-            .padding(12.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+            .padding(12.dp)
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = "每日活跃密度".loc,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = colors.textPrimary
+        when (chartType) {
+            TokenHistoryChartType.DAILY_BARS -> TokenDailyBarsChartContent(
+                dailyMatrix = dailyMatrix,
+                selectedDate = selectedDate,
+                colors = colors
             )
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(3.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("少".loc, fontSize = 10.sp, color = colors.textMuted)
-                (0..4).forEach { lvl ->
-                    Box(
-                        modifier = Modifier
-                            .size(8.dp)
-                            .clip(RoundedCornerShape(2.dp))
-                            .background(heatColor(lvl, colors))
-                    )
-                }
-                Text("多".loc, fontSize = 10.sp, color = colors.textMuted)
-            }
-        }
-
-        // 平铺 18 周（左对齐，与 App 内部显示保持一致）
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 2.dp),
-            horizontalArrangement = Arrangement.Start
-        ) {
-            Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-                displayWeeks.forEach { week ->
-                    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                        for (dayIdx in 0 until 7) {
-                            val rec = week.getOrNull(dayIdx)
-                            if (rec == null) {
-                                Spacer(modifier = Modifier.size(12.dp))
-                            } else {
-                                val ratio = rec.total.toDouble() / maxTotal.toDouble()
-                                val level = when {
-                                    rec.total <= 0L -> 0
-                                    ratio < 0.2 -> 1
-                                    ratio < 0.45 -> 2
-                                    ratio < 0.75 -> 3
-                                    else -> 4
-                                }
-                                val isSelected = rec.date == selectedDate
-                                Box(
-                                    modifier = Modifier
-                                        .size(12.dp)
-                                        .clip(RoundedCornerShape(2.5.dp))
-                                        .background(heatColor(level, colors))
-                                        .then(
-                                            if (isSelected) {
-                                                Modifier.border(
-                                                    1.5.dp,
-                                                    colors.accentBlue,
-                                                    RoundedCornerShape(2.5.dp)
-                                                )
-                                            } else Modifier
-                                        )
-                                )
-                            }
-                        }
-                    }
-                }
-            }
+            TokenHistoryChartType.MODEL_BREAKDOWN -> TokenModelBreakdownChartContent(
+                dailyMatrix = dailyMatrix,
+                colors = colors
+            )
+            TokenHistoryChartType.HEATMAP -> TokenHeatmapGridChartContent(
+                dailyMatrix = dailyMatrix,
+                selectedDate = selectedDate,
+                colors = colors,
+                fixedWidthDp = innerWidthDp
+            )
         }
     }
 }
@@ -569,48 +507,12 @@ private fun FooterSection(
     }
 }
 
-private fun heatColor(level: Int, colors: AppColors): Color {
-    return when (level) {
-        0 -> colors.textMuted.copy(alpha = 0.12f)
-        1 -> Color(0xFF9BE9A8).copy(alpha = 0.65f)
-        2 -> Color(0xFF40C463).copy(alpha = 0.85f)
-        3 -> Color(0xFF30A14E)
-        else -> Color(0xFF216E39)
-    }
-}
-
-private fun buildWeeks(dailyMatrix: List<DailyTokenRecord>): List<List<DailyTokenRecord?>> {
-    if (dailyMatrix.isEmpty()) return emptyList()
-    val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
-    val cal = Calendar.getInstance()
-    var padStart = 0
-    try {
-        val firstDate = sdf.parse(dailyMatrix[0].date)
-        if (firstDate != null) {
-            cal.time = firstDate
-            padStart = (cal.get(Calendar.DAY_OF_WEEK) - Calendar.SUNDAY).coerceAtLeast(0)
-        }
-    } catch (_: Exception) {}
-
-    val padded = ArrayList<DailyTokenRecord?>()
-    repeat(padStart) { padded.add(null) }
-    padded.addAll(dailyMatrix)
-
-    val weeks = ArrayList<List<DailyTokenRecord?>>()
-    var idx = 0
-    while (idx < padded.size) {
-        val end = (idx + 7).coerceAtMost(padded.size)
-        weeks.add(padded.subList(idx, end))
-        idx = end
-    }
-    return weeks
-}
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TokenHistoryShareCardSheet(
     tokenHistory: TokenHistoryResponse,
     selectedRecord: DailyTokenRecord?,
+    chartType: TokenHistoryChartType = TokenHistoryChartType.HEATMAP,
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
@@ -717,6 +619,7 @@ fun TokenHistoryShareCardSheet(
                         TokenHistoryShareCard(
                             tokenHistory = tokenHistory,
                             selectedRecord = selectedRecord,
+                            chartType = chartType,
                             skin = selectedSkin
                         )
                     }

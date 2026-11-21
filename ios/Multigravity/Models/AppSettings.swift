@@ -74,6 +74,7 @@ public final class AppSettings {
     private let selectedQuotaBucketKey = "antigravity.selected_quota_bucket"
     private let themeModeKey = "antigravity.theme_mode"
     private let shareCardSkinKey = "antigravity.share_card_skin_id"
+    private let tokenHistoryChartKey = "antigravity.token_history_chart_type"
     private let fontSizeScaleKey = "antigravity.font_size_scale"
     private let knowledgeModeKey = "antigravity.knowledge_mode_enabled"
     private let compactCollapseToolsKey = "antigravity.compact_collapse_tools"
@@ -301,6 +302,13 @@ public final class AppSettings {
     public var shareCardSkinID: String {
         didSet {
             UserDefaults.standard.set(shareCardSkinID, forKey: shareCardSkinKey)
+        }
+    }
+
+    /// Token 历史页用户手动选择过的图表类型（空字符串表示自动按活跃天数决定）
+    public var tokenHistoryChartType: String {
+        didSet {
+            UserDefaults.standard.set(tokenHistoryChartType, forKey: tokenHistoryChartKey)
         }
     }
 
@@ -871,6 +879,7 @@ public final class AppSettings {
             self.themeMode = rawThemeMode
         }
         self.shareCardSkinID = UserDefaults.standard.string(forKey: shareCardSkinKey) ?? "auto"
+        self.tokenHistoryChartType = UserDefaults.standard.string(forKey: tokenHistoryChartKey) ?? ""
         let savedScale = UserDefaults.standard.string(forKey: fontSizeScaleKey) ?? "standard"
         self.fontSizeScale = FontSizeScale(rawValue: savedScale) ?? .standard
         self.isKnowledgeModeEnabled = UserDefaults.standard.bool(forKey: knowledgeModeKey)

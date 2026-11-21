@@ -77,6 +77,8 @@ object L10n {
         PatternRule(Regex("""^(\d+)\s*步$""")) { m -> "${m.groupValues[1]} steps" },
         PatternRule(Regex("""^(\d+)\s*轮$""")) { m -> "${m.groupValues[1]} turns" },
         PatternRule(Regex("""^(\d+)\s*轮采样$""")) { m -> "${m.groupValues[1]} samples" },
+        PatternRule(Regex("""^(\d+)\s*款模型$""")) { m -> "${m.groupValues[1]} models" },
+        PatternRule(Regex("""^峰值\s+(.+)$""")) { m -> "Peak ${m.groupValues[1]}" },
         PatternRule(Regex("""^(\d+)\s*活跃日$""")) { m -> "${m.groupValues[1]} active days" },
         PatternRule(Regex("""^(\d+)\s*会话$""")) { m -> "${m.groupValues[1]} chats" },
         PatternRule(Regex("""^(\d+)\s*参数$""")) { m -> "${m.groupValues[1]} params" },
@@ -131,6 +133,8 @@ object L10n {
         PatternRule(Regex("""^(\d+)\s*步$""")) { m -> "${m.groupValues[1]} ステップ" },
         PatternRule(Regex("""^(\d+)\s*轮$""")) { m -> "${m.groupValues[1]} ターン" },
         PatternRule(Regex("""^(\d+)\s*轮采样$""")) { m -> "${m.groupValues[1]} サンプル" },
+        PatternRule(Regex("""^(\d+)\s*款模型$""")) { m -> "${m.groupValues[1]} モデル" },
+        PatternRule(Regex("""^峰值\s+(.+)$""")) { m -> "ピーク ${m.groupValues[1]}" },
         PatternRule(Regex("""^(\d+)\s*活跃日$""")) { m -> "${m.groupValues[1]} アクティブ日" },
         PatternRule(Regex("""^(\d+)\s*会话$""")) { m -> "${m.groupValues[1]} 会話" },
         PatternRule(Regex("""^(\d+)\s*参数$""")) { m -> "${m.groupValues[1]} パラメータ" },
@@ -1271,6 +1275,13 @@ object L10n {
         map["运行终端命令"] = "Run Terminal Command"
         map["近 18 周活跃热力"] = "18-Week Activity"
         map["近 52 周热力图"] = "52-Week Heatmap"
+        map["近 20 周热力图"] = "20-Week Heatmap"
+        map["近 14 日趋势"] = "14-Day Trend"
+        map["累计模型占比"] = "Model Breakdown"
+        map["模型消耗占比"] = "Model Breakdown"
+        map["暂无用量"] = "No usage"
+        map["暂无模型明细数据"] = "No model breakdown data"
+        map["其他"] = "Other"
         map["近 7 日"] = "Last 7 Days"
         map["进 App 确认"] = "Review in App"
         map["进入子会话"] = "Open Sub-session"
@@ -2887,6 +2898,13 @@ object L10n {
         map["运行终端命令"] = "ターミナルコマンドを実行"
         map["近 18 周活跃热力"] = "直近 18 週の活動量"
         map["近 52 周热力图"] = "直近 52 週ヒートマップ"
+        map["近 20 周热力图"] = "直近 20 週ヒートマップ"
+        map["近 14 日趋势"] = "直近 14 日推移"
+        map["累计模型占比"] = "モデル別割合"
+        map["模型消耗占比"] = "モデル別消費割合"
+        map["暂无用量"] = "使用量なし"
+        map["暂无模型明细数据"] = "モデル別データがありません"
+        map["其他"] = "その他"
         map["近 7 日"] = "直近 7 日"
         map["进 App 确认"] = "アプリで確認"
         map["进入子会话"] = "サブ会話を開く"

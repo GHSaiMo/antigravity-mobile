@@ -225,6 +225,13 @@ class PreferencesManager(context: Context) {
             prefs.edit().putString(KEY_SHARE_CARD_SKIN_ID, value).apply()
         }
 
+    /** Token 历史页用户手动选择过的图表类型（空字符串表示自动按活跃天数决定） */
+    var tokenHistoryChartType: String
+        get() = prefs.getString(KEY_TOKEN_HISTORY_CHART_TYPE, "") ?: ""
+        set(value) {
+            prefs.edit().putString(KEY_TOKEN_HISTORY_CHART_TYPE, value).apply()
+        }
+
     fun resolvedShareCardSkin(isSystemDark: Boolean): com.antigravity.mobile.ui.theme.ThemePreset {
         val saved = shareCardSkinId
         if (saved != "auto") {
@@ -960,6 +967,7 @@ class PreferencesManager(context: Context) {
         private const val KEY_THEME_MODE = "theme_mode"
         private const val KEY_APP_LANGUAGE = "app_language"
         private const val KEY_SHARE_CARD_SKIN_ID = "share_card_skin_id"
+        private const val KEY_TOKEN_HISTORY_CHART_TYPE = "token_history_chart_type"
         private const val KEY_FONT_SIZE_SCALE = "font_size_scale"
         private const val KEY_KNOWLEDGE_MODE = "knowledge_mode_enabled"
         private const val KEY_COMPACT_COLLAPSE_TOOLS = "compact_collapse_tools"

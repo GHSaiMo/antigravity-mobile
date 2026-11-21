@@ -92,6 +92,25 @@ fun AccountQuotaSheet(
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val prefs = remember(context) { com.antigravity.mobile.data.service.PreferencesManager(context) }
+    var hasInitializedChartType by remember { mutableStateOf(tokenHistory != null) }
+    var selectedChartType by remember {
+        mutableStateOf(
+            if (tokenHistory != null) {
+                TokenHistoryChartType.resolveDefault(prefs.tokenHistoryChartType, tokenHistory.summary.activeDays)
+            } else {
+                TokenHistoryChartType.fromStorageKey(prefs.tokenHistoryChartType) ?: TokenHistoryChartType.DAILY_BARS
+            }
+        )
+    }
+    LaunchedEffect(tokenHistory) {
+        if (!hasInitializedChartType && tokenHistory != null) {
+            selectedChartType = TokenHistoryChartType.resolveDefault(
+                prefs.tokenHistoryChartType,
+                tokenHistory.summary.activeDays
+            )
+            hasInitializedChartType = true
+        }
+    }
     val isSystemDark = androidx.compose.foundation.isSystemInDarkTheme()
     val density = LocalDensity.current
     val cardGraphicsLayer = rememberGraphicsLayer()
@@ -355,7 +374,13 @@ fun AccountQuotaSheet(
                         isLoading = isLoadingTokenHistory,
                         onRetry = { onLoadTokenHistory(true) },
                         selectedDate = selectedHeatmapDate,
-                        onSelectDate = { selectedHeatmapDate = it }
+                        onSelectDate = { selectedHeatmapDate = it },
+                        selectedChart = selectedChartType,
+                        onSelectChart = { chart ->
+                            selectedChartType = chart
+                            hasInitializedChartType = true
+                            prefs.tokenHistoryChartType = chart.storageKey
+                        }
                     )
                 } else {
                 // Section 1: 当前使用账号
@@ -625,6 +650,7 @@ fun AccountQuotaSheet(
                     TokenHistoryShareCard(
                         tokenHistory = tokenHistory,
                         selectedRecord = selectedRecord,
+                        chartType = selectedChartType,
                         skin = prefs.resolvedShareCardSkin(isSystemDark)
                     )
                 }
@@ -685,6 +711,7 @@ fun AccountQuotaSheet(
         TokenHistoryShareCardSheet(
             tokenHistory = tokenHistory,
             selectedRecord = selectedRecord,
+            chartType = selectedChartType,
             onDismiss = { showTokenHistoryShareSheet = false }
         )
     }

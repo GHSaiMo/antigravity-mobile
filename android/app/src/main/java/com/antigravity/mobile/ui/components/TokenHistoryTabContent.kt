@@ -35,7 +35,9 @@ fun TokenHistoryTabContent(
     onRetry: () -> Unit,
     modifier: Modifier = Modifier,
     selectedDate: String? = null,
-    onSelectDate: ((String) -> Unit)? = null
+    onSelectDate: ((String) -> Unit)? = null,
+    selectedChart: TokenHistoryChartType = TokenHistoryChartType.DAILY_BARS,
+    onSelectChart: ((TokenHistoryChartType) -> Unit)? = null
 ) {
     val colors = AntigravityTheme.colors
     if (tokenHistory == null && isLoading) {
@@ -179,17 +181,19 @@ fun TokenHistoryTabContent(
                 fontWeight = FontWeight.Medium
             )
             Text(
-                text = "近 52 周热力图".loc,
+                text = selectedChart.statusBarLabel(),
                 fontSize = 11.sp,
                 color = colors.textMuted
             )
         }
 
-        // 52-week horizontally scrollable heatmap
-        TokenHeatmapSection(
+        // Swipeable 3-chart carousel (14d bars / model breakdown / 20w heatmap)
+        TokenHistoryChartCarouselCard(
             dailyMatrix = matrix,
             selectedDate = effectiveSelectedDate,
-            onSelectDate = handleSelectDate
+            selectedChart = selectedChart,
+            onSelectDate = handleSelectDate,
+            onUserSelectChart = { chart -> onSelectChart?.invoke(chart) }
         )
 
         // Inline inspector card
@@ -254,137 +258,6 @@ private fun TokenKpiCard(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
-    }
-}
-
-@Composable
-private fun TokenHeatmapSection(
-    dailyMatrix: List<DailyTokenRecord>,
-    selectedDate: String?,
-    onSelectDate: (String) -> Unit
-) {
-    val colors = AntigravityTheme.colors
-    val maxTotal = remember(dailyMatrix) {
-        dailyMatrix.maxOfOrNull { it.total }?.coerceAtLeast(1L) ?: 1L
-    }
-
-    // Group into columns of 7 days (Sunday..Saturday alignment)
-    val weeks = remember(dailyMatrix) {
-        if (dailyMatrix.isEmpty()) emptyList()
-        else {
-            val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
-            val cal = Calendar.getInstance()
-            val first = runCatching { sdf.parse(dailyMatrix.first().date) }.getOrNull()
-            val padStart = if (first != null) {
-                cal.time = first
-                (cal.get(Calendar.DAY_OF_WEEK) - Calendar.SUNDAY).coerceIn(0, 6)
-            } else 0
-            val padded = MutableList<DailyTokenRecord?>(padStart) { null }
-            padded.addAll(dailyMatrix)
-            padded.chunked(7)
-        }
-    }
-
-    val scrollState = rememberScrollState()
-    LaunchedEffect(weeks.size) {
-        if (weeks.isNotEmpty()) {
-            scrollState.scrollTo(scrollState.maxValue)
-        }
-    }
-
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(colors.surface)
-            .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
-            .padding(12.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = "每日活跃密度".loc,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = colors.textPrimary
-            )
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(3.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("少".loc, fontSize = 10.sp, color = colors.textMuted)
-                (0..4).forEach { lvl ->
-                    Box(
-                        modifier = Modifier
-                            .size(9.dp)
-                            .clip(RoundedCornerShape(2.dp))
-                            .background(heatLevelColor(lvl, colors))
-                    )
-                }
-                Text("多".loc, fontSize = 10.sp, color = colors.textMuted)
-            }
-        }
-
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(scrollState),
-            horizontalArrangement = Arrangement.spacedBy(3.dp)
-        ) {
-            weeks.forEach { week ->
-                Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    for (dayIdx in 0 until 7) {
-                        val rec = week.getOrNull(dayIdx)
-                        if (rec == null) {
-                            Spacer(modifier = Modifier.size(12.dp))
-                        } else {
-                            val ratio = rec.total.toDouble() / maxTotal.toDouble()
-                            val level = when {
-                                rec.total <= 0L -> 0
-                                ratio < 0.2 -> 1
-                                ratio < 0.45 -> 2
-                                ratio < 0.75 -> 3
-                                else -> 4
-                            }
-                            val isSelected = rec.date == selectedDate
-                            Box(
-                                modifier = Modifier
-                                    .size(12.dp)
-                                    .clip(RoundedCornerShape(2.5.dp))
-                                    .background(heatLevelColor(level, colors))
-                                    .then(
-                                        if (isSelected) {
-                                            Modifier.border(
-                                                1.5.dp,
-                                                colors.accentBlue,
-                                                RoundedCornerShape(2.5.dp)
-                                            )
-                                        } else Modifier
-                                    )
-                                    .clickable { onSelectDate(rec.date) }
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-private fun heatLevelColor(
-    level: Int,
-    colors: AppColors
-): Color {
-    return when (level) {
-        0 -> colors.textMuted.copy(alpha = 0.12f)
-        1 -> Color(0xFF9BE9A8).copy(alpha = 0.65f)
-        2 -> Color(0xFF40C463).copy(alpha = 0.85f)
-        3 -> Color(0xFF30A14E)
-        else -> Color(0xFF216E39)
     }
 }
 

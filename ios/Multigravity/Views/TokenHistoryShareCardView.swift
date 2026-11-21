@@ -4,6 +4,7 @@ import SwiftUI
 public struct TokenHistoryShareCardView: View {
     public let history: TokenHistoryResponse
     public let selectedRecord: DailyTokenRecord?
+    public let chartType: TokenHistoryChartType
     public let colorScheme: ColorScheme
     public let skin: ThemePreset?
     public let exportDate: Date
@@ -13,12 +14,14 @@ public struct TokenHistoryShareCardView: View {
     public init(
         history: TokenHistoryResponse,
         selectedRecord: DailyTokenRecord? = nil,
+        chartType: TokenHistoryChartType = .heatmap,
         colorScheme: ColorScheme = .dark,
         skin: ThemePreset? = nil,
         exportDate: Date = Date()
     ) {
         self.history = history
         self.selectedRecord = selectedRecord
+        self.chartType = chartType
         self.colorScheme = colorScheme
         self.skin = skin
         self.exportDate = exportDate
@@ -86,7 +89,7 @@ public struct TokenHistoryShareCardView: View {
             header
             kpiGrid
             sourceRatioBar
-            heatmapCard
+            chartCard
             if let record = selectedRecord {
                 inspectorCard(record: record)
             }
@@ -190,7 +193,7 @@ public struct TokenHistoryShareCardView: View {
                     .font(.system(size: 11.5, weight: .medium))
                     .foregroundColor(secondaryTextColor)
                 Spacer()
-                Text("近 18 周活跃热力")
+                Text(chartType.statusBarLabel)
                     .font(.system(size: 10.5))
                     .foregroundColor(secondaryTextColor.opacity(0.8))
             }
@@ -214,61 +217,37 @@ public struct TokenHistoryShareCardView: View {
         .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(cardBorderColor, lineWidth: 0.8))
     }
 
-    // MARK: - Heatmap Card (最近 18 周)
-    private var heatmapCard: some View {
-        let matrix = history.dailyMatrix
-        let maxTotal = max(Int64(1), matrix.map(\.total).max() ?? 1)
-        let allWeeks = buildHeatmapWeeks(matrix)
-        let displayWeeks = Array(allWeeks.suffix(18))
+    // MARK: - Chart Card (所见即所得，跟随当前所选图表)
+    private var chartCard: some View {
+        let palette = TokenHistoryChartPalette.shareCard(
+            primaryText: primaryTextColor,
+            secondaryText: secondaryTextColor,
+            accent: accentBlue,
+            isDark: isDark
+        )
+        let innerWidth = Self.designWidth - 32 - 24
 
-        return VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("每日活跃密度")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(primaryTextColor)
-                Spacer()
-                HStack(spacing: 3) {
-                    Text("少").font(.system(size: 10)).foregroundColor(secondaryTextColor)
-                    ForEach(0..<5, id: \.self) { lvl in
-                        RoundedRectangle(cornerRadius: 2)
-                            .fill(heatColor(level: lvl))
-                            .frame(width: 8, height: 8)
-                    }
-                    Text("多").font(.system(size: 10)).foregroundColor(secondaryTextColor)
-                }
+        return Group {
+            switch chartType {
+            case .dailyBars:
+                TokenDailyBarsChartView(
+                    matrix: history.dailyMatrix,
+                    selectedDate: selectedRecord?.date,
+                    palette: palette
+                )
+            case .modelBreakdown:
+                TokenModelBreakdownChartView(
+                    matrix: history.dailyMatrix,
+                    palette: palette
+                )
+            case .heatmap:
+                TokenHeatmapGridChartView(
+                    matrix: history.dailyMatrix,
+                    selectedDate: selectedRecord?.date,
+                    palette: palette,
+                    fixedWidth: innerWidth
+                )
             }
-
-            // 平铺 18 周，无需 ScrollView，适应长图海报（左对齐，与 App 内部显示保持一致）
-            HStack(spacing: 3) {
-                ForEach(Array(displayWeeks.enumerated()), id: \.offset) { _, week in
-                    VStack(spacing: 3) {
-                        ForEach(0..<7, id: \.self) { dIdx in
-                            if dIdx < week.count, let rec = week[dIdx] {
-                                let ratio = Double(rec.total) / Double(maxTotal)
-                                let level: Int = {
-                                    if rec.total <= 0 { return 0 }
-                                    if ratio < 0.2 { return 1 }
-                                    if ratio < 0.45 { return 2 }
-                                    if ratio < 0.75 { return 3 }
-                                    return 4
-                                }()
-                                let isSel = (rec.date == selectedRecord?.date)
-                                RoundedRectangle(cornerRadius: 2.5)
-                                    .fill(heatColor(level: level))
-                                    .frame(width: 12, height: 12)
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 2.5)
-                                            .stroke(isSel ? accentBlue : Color.clear, lineWidth: 1.5)
-                                    )
-                            } else {
-                                Color.clear.frame(width: 12, height: 12)
-                            }
-                        }
-                    }
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.vertical, 2)
         }
         .padding(12)
         .background(cardBackground)
@@ -349,43 +328,6 @@ public struct TokenHistoryShareCardView: View {
     }
 
     // MARK: - Helpers
-    private func buildHeatmapWeeks(_ matrix: [DailyTokenRecord]) -> [[DailyTokenRecord?]] {
-        guard !matrix.isEmpty else { return [] }
-        let df = DateFormatter()
-        df.locale = Locale(identifier: "en_US_POSIX")
-        df.dateFormat = "yyyy-MM-dd"
-        let cal = Calendar.current
-        var padStart = 0
-        if let firstDate = df.date(from: matrix[0].date) {
-            padStart = max(0, cal.component(.weekday, from: firstDate) - 1)
-        }
-        var padded: [DailyTokenRecord?] = Array(repeating: nil, count: padStart)
-        padded.append(contentsOf: matrix.map { Optional.some($0) })
-        var weeks: [[DailyTokenRecord?]] = []
-        var idx = 0
-        while idx < padded.count {
-            let end = min(idx + 7, padded.count)
-            weeks.append(Array(padded[idx..<end]))
-            idx = end
-        }
-        return weeks
-    }
-
-    private func heatColor(level: Int) -> Color {
-        switch level {
-        case 0:
-            return isDark ? Color.white.opacity(0.08) : Color.black.opacity(0.06)
-        case 1:
-            return Color(red: 0.61, green: 0.91, blue: 0.66).opacity(0.7)
-        case 2:
-            return Color(red: 0.25, green: 0.77, blue: 0.39).opacity(0.85)
-        case 3:
-            return Color(red: 0.19, green: 0.63, blue: 0.31)
-        default:
-            return Color(red: 0.13, green: 0.43, blue: 0.22)
-        }
-    }
-
     private static let dateFormatter: DateFormatter = {
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
@@ -408,6 +350,7 @@ public struct TokenHistoryShareCardView: View {
 public struct TokenHistoryShareCardSheet: View {
     public let history: TokenHistoryResponse
     public let selectedRecord: DailyTokenRecord?
+    public let chartType: TokenHistoryChartType
 
     @Environment(\.colorScheme) private var systemScheme
     @Environment(\.displayScale) private var displayScale
@@ -419,9 +362,14 @@ public struct TokenHistoryShareCardSheet: View {
     @State private var isRendering = false
     @State private var renderFailed = false
 
-    public init(history: TokenHistoryResponse, selectedRecord: DailyTokenRecord? = nil) {
+    public init(
+        history: TokenHistoryResponse,
+        selectedRecord: DailyTokenRecord? = nil,
+        chartType: TokenHistoryChartType = .heatmap
+    ) {
         self.history = history
         self.selectedRecord = selectedRecord
+        self.chartType = chartType
     }
 
     public var body: some View {
@@ -533,6 +481,7 @@ public struct TokenHistoryShareCardSheet: View {
         let card = TokenHistoryShareCardView(
             history: history,
             selectedRecord: selectedRecord,
+            chartType: chartType,
             colorScheme: systemScheme,
             skin: selectedSkin,
             exportDate: Date()
