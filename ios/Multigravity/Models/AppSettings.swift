@@ -374,6 +374,10 @@ public final class AppSettings {
 
     public var isNordTheme: Bool { false }
 
+    /// 供需要显式读取目标 ColorScheme 的组件使用。
+    /// 注意：不要在根视图上挂载 `.preferredColorScheme(settings.colorScheme)`，
+    /// SwiftUI 在 `.dark/.light -> nil` 切换时不会重置已弹出 `.sheet` 的外观，
+    /// 全应用外观统一由 `applyAppearance()` 通过 `UIWindow.overrideUserInterfaceStyle` 驱动。
     public var colorScheme: ColorScheme? {
         switch themeMode {
         case "light": return .light
@@ -397,12 +401,8 @@ public final class AppSettings {
             for scene in scenes {
                 for window in scene.windows {
                     window.overrideUserInterfaceStyle = style
-                    var currentVC = window.rootViewController
-                    while let vc = currentVC {
-                        if !(vc is SingleImagePreviewController) && !(vc is FullScreenGalleryViewController) {
-                            vc.overrideUserInterfaceStyle = style
-                        }
-                        currentVC = vc.presentedViewController
+                    if let rootVC = window.rootViewController {
+                        Self.clearViewControllerAppearanceOverrides(from: rootVC)
                     }
                 }
             }
@@ -411,6 +411,23 @@ public final class AppSettings {
             update()
         } else {
             DispatchQueue.main.async(execute: update)
+        }
+    }
+
+    /// 让所有非强制深色画廊的视图控制器保持 `.unspecified`，统一从所属 `UIWindow` 实时继承外观，
+    /// 避免已弹出的 `.sheet` 或 `NavigationStack` 子控制器残留旧的 `overrideUserInterfaceStyle`。
+    private static func clearViewControllerAppearanceOverrides(from vc: UIViewController) {
+        if vc is SingleImagePreviewController || vc is FullScreenGalleryViewController {
+            return
+        }
+        if vc.overrideUserInterfaceStyle != .unspecified {
+            vc.overrideUserInterfaceStyle = .unspecified
+        }
+        for child in vc.children {
+            clearViewControllerAppearanceOverrides(from: child)
+        }
+        if let presented = vc.presentedViewController {
+            clearViewControllerAppearanceOverrides(from: presented)
         }
     }
     

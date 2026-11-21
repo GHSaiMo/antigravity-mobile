@@ -3,6 +3,7 @@ import SwiftUI
 @main
 struct MultigravityApp: App {
     @UIApplicationDelegateAdaptor(MultigravityAppDelegate.self) private var appDelegate
+    @Environment(\.scenePhase) private var scenePhase
     @State private var settings = AppSettings.shared
 
     init() {
@@ -19,11 +20,15 @@ struct MultigravityApp: App {
         WindowGroup {
             ConversationListView()
                 .tint(.indigo)
-                .preferredColorScheme(settings.colorScheme)
                 .onAppear {
                     settings.applyAppearance()
                     ActivityManager.shared.startRemoteTokenObservers()
                     PushNotificationManager.shared.syncAllTokensIfPaired()
+                }
+                .onChange(of: scenePhase) { _, newPhase in
+                    if newPhase == .active {
+                        settings.applyAppearance()
+                    }
                 }
         }
     }
