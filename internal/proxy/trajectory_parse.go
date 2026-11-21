@@ -946,9 +946,10 @@ func modelDisplayNameFor(activeModel string) string {
 }
 
 // resolveTrajectoryTitle picks the title from annotations, summary, the on-disk annotation file,
-// or the first user prompt, and remembers it in the cascade title cache.
+// an authoritative cached title, or the first user prompt, and remembers it in the cascade title cache.
 func resolveTrajectoryTitle(rawResp *upstreamTrajectoryResp, steps []TrajectoryStep) string {
 	title := ""
+	isFallback := false
 	if rawResp.Trajectory.Annotations != nil && rawResp.Trajectory.Annotations.Title != "" {
 		title = rawResp.Trajectory.Annotations.Title
 	} else if rawResp.Trajectory.Summary != "" {
@@ -962,10 +963,17 @@ func resolveTrajectoryTitle(rawResp *upstreamTrajectoryResp, steps []TrajectoryS
 	}
 
 	if title == "" || title == "未命名会话" {
+		if t := getAuthoritativeCachedCascadeTitle(rawResp.Trajectory.CascadeID); t != "" {
+			title = t
+		}
+	}
+
+	if title == "" || title == "未命名会话" {
 		for _, s := range steps {
 			if s.Type == "CORTEX_STEP_TYPE_USER_INPUT" {
 				if t := extractTitleFromUserInput(s); t != "" && t != "未命名会话" {
 					title = t
+					isFallback = true
 					break
 				}
 			}
@@ -973,7 +981,11 @@ func resolveTrajectoryTitle(rawResp *upstreamTrajectoryResp, steps []TrajectoryS
 	}
 
 	if title != "" && title != "未命名会话" && rawResp.Trajectory.CascadeID != "" {
-		setCachedCascadeTitle(rawResp.Trajectory.CascadeID, title)
+		if isFallback {
+			setCachedCascadeTitleFallback(rawResp.Trajectory.CascadeID, title)
+		} else {
+			setCachedCascadeTitle(rawResp.Trajectory.CascadeID, title)
+		}
 	}
 	return title
 }

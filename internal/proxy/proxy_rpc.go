@@ -675,13 +675,15 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 			continue
 		}
 
-		// Enrich missing title
+		// Enrich missing title (authoritative sources first: annotations -> disk .pbtxt -> upstream summary;
+		// in-memory cascadeTitles is last-resort fallback so a prompt-derived fallback never shadows upstream summary).
 		hasTitle := false
 		if ann, ok := s["annotations"].(map[string]interface{}); ok {
 			if t, ok := ann["title"].(string); ok && strings.TrimSpace(t) != "" && t != "未命名会话" {
 				cleanTitle := SanitizeTitle(t)
 				if cleanTitle != "" {
 					ann["title"] = cleanTitle
+					setCachedCascadeTitle(id, cleanTitle)
 					hasTitle = true
 				}
 			}
@@ -697,6 +699,23 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 					ann["title"] = cleanTitle
 					s["annotations"] = ann
 					s["summary"] = cleanTitle
+					setCachedCascadeTitle(id, cleanTitle)
+					hasTitle = true
+				}
+			}
+		}
+		if !hasTitle {
+			if sm, ok := s["summary"].(string); ok && strings.TrimSpace(sm) != "" && sm != "未命名会话" {
+				cleanTitle := SanitizeTitle(sm)
+				if cleanTitle != "" {
+					ann, _ := s["annotations"].(map[string]interface{})
+					if ann == nil {
+						ann = make(map[string]interface{})
+					}
+					ann["title"] = cleanTitle
+					s["annotations"] = ann
+					s["summary"] = cleanTitle
+					setCachedCascadeTitle(id, cleanTitle)
 					hasTitle = true
 				}
 			}
@@ -707,21 +726,6 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 			defaultTrajCache.cascadeTitlesMu.RUnlock()
 			if cachedT != "" && cachedT != "未命名会话" {
 				cleanTitle := SanitizeTitle(cachedT)
-				if cleanTitle != "" {
-					ann, _ := s["annotations"].(map[string]interface{})
-					if ann == nil {
-						ann = make(map[string]interface{})
-					}
-					ann["title"] = cleanTitle
-					s["annotations"] = ann
-					s["summary"] = cleanTitle
-					hasTitle = true
-				}
-			}
-		}
-		if !hasTitle {
-			if sm, ok := s["summary"].(string); ok && strings.TrimSpace(sm) != "" && sm != "未命名会话" {
-				cleanTitle := SanitizeTitle(sm)
 				if cleanTitle != "" {
 					ann, _ := s["annotations"].(map[string]interface{})
 					if ann == nil {

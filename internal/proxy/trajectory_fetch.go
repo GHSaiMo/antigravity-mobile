@@ -110,26 +110,15 @@ func (p *Proxy) lookupCascadeTitle(cascadeID string, port int, token string) str
 
 	defaultTrajCache.cascadeTitlesMu.RLock()
 	cachedTitle, ok := defaultTrajCache.cascadeTitles[cascadeID]
+	isFallback := defaultTrajCache.cascadeTitleFallback[cascadeID]
 	defaultTrajCache.cascadeTitlesMu.RUnlock()
 
-	if ok && cachedTitle != "" && cachedTitle != "未命名会话" {
+	if ok && !isFallback && cachedTitle != "" && cachedTitle != "未命名会话" {
 		return cachedTitle
 	}
 
 	if t := readAnnotationTitle(cascadeID); t != "" && t != "未命名会话" {
-		defaultTrajCache.cascadeTitlesMu.Lock()
-		if len(defaultTrajCache.cascadeTitles) > maxMetadataMapSize {
-			count := 0
-			for k := range defaultTrajCache.cascadeTitles {
-				delete(defaultTrajCache.cascadeTitles, k)
-				count++
-				if count >= maxMetadataMapSize/2 {
-					break
-				}
-			}
-		}
-		defaultTrajCache.cascadeTitles[cascadeID] = t
-		defaultTrajCache.cascadeTitlesMu.Unlock()
+		setCachedCascadeTitle(cascadeID, t)
 		return t
 	}
 
@@ -144,10 +133,14 @@ func (p *Proxy) lookupCascadeTitle(cascadeID string, port int, token string) str
 			defaultTrajCache.cascadeTitlesMu.Lock()
 			defaultTrajCache.lastTitlesFetchTime = time.Now()
 			if err == nil && len(summaries) > 0 {
+				if defaultTrajCache.cascadeTitleFallback == nil {
+					defaultTrajCache.cascadeTitleFallback = make(map[string]bool)
+				}
 				if len(defaultTrajCache.cascadeTitles) > maxMetadataMapSize {
 					count := 0
 					for k := range defaultTrajCache.cascadeTitles {
 						delete(defaultTrajCache.cascadeTitles, k)
+						delete(defaultTrajCache.cascadeTitleFallback, k)
 						count++
 						if count >= maxMetadataMapSize/2 {
 							break
@@ -157,11 +150,13 @@ func (p *Proxy) lookupCascadeTitle(cascadeID string, port int, token string) str
 				for cid, t := range summaries {
 					if t != "" && t != "未命名会话" {
 						defaultTrajCache.cascadeTitles[cid] = t
+						delete(defaultTrajCache.cascadeTitleFallback, cid)
 					}
 				}
 				newTitle := defaultTrajCache.cascadeTitles[cascadeID]
+				newIsFallback := defaultTrajCache.cascadeTitleFallback[cascadeID]
 				defaultTrajCache.cascadeTitlesMu.Unlock()
-				if newTitle != "" && newTitle != "未命名会话" {
+				if !newIsFallback && newTitle != "" && newTitle != "未命名会话" {
 					return newTitle
 				}
 			} else {
@@ -170,7 +165,7 @@ func (p *Proxy) lookupCascadeTitle(cascadeID string, port int, token string) str
 		}
 	}
 
-	// Fallback to cached trajectory first user prompt
+	// Fallback to cached trajectory first user prompt (never overwrites an authoritative title).
 	defaultTrajCache.trajCacheMu.RLock()
 	entry, hasEntry := defaultTrajCache.trajCache[cascadeID]
 	defaultTrajCache.trajCacheMu.RUnlock()
@@ -178,15 +173,16 @@ func (p *Proxy) lookupCascadeTitle(cascadeID string, port int, token string) str
 		for _, s := range entry.data.Trajectory.Steps {
 			if s.Type == "CORTEX_STEP_TYPE_USER_INPUT" {
 				if t := extractTitleFromUserInput(s); t != "" && t != "未命名会话" {
-					defaultTrajCache.cascadeTitlesMu.Lock()
-					defaultTrajCache.cascadeTitles[cascadeID] = t
-					defaultTrajCache.cascadeTitlesMu.Unlock()
+					setCachedCascadeTitleFallback(cascadeID, t)
 					return t
 				}
 			}
 		}
 	}
 
+	if ok && cachedTitle != "" && cachedTitle != "未命名会话" {
+		return cachedTitle
+	}
 	return ""
 }
 

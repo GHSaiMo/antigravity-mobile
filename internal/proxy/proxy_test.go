@@ -1477,3 +1477,244 @@ func TestHandleCascadeTaskStop_CamelAndSnakeCase(t *testing.T) {
 		t.Fatalf("expected 400 for missing cascadeId, got %d", rec4.Code)
 	}
 }
+
+func TestGetAllCascadeTrajectoriesSummaryOverridesPromptFallback(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+
+	const cid = "cascade-title-priority-test"
+	ClearTrajectoryCache(cid)
+	t.Cleanup(func() { ClearTrajectoryCache(cid) })
+
+	// 1. Simulate early trajectory parse before AI summary exists: caches prompt truncation as fallback.
+	raw := &upstreamTrajectoryResp{
+		Status: "CASCADE_RUN_STATUS_RUNNING",
+	}
+	raw.Trajectory.CascadeID = cid
+	raw.Trajectory.Steps = []TrajectoryStep{
+		{
+			Type: "CORTEX_STEP_TYPE_USER_INPUT",
+			UserInput: &TrajectoryUserInput{
+				UserResponse: "请先读取并严格遵循全局 Skill `/Users/hal9000/.gemini/config/skills/mgy-growth-ops/SKILL.md`",
+			},
+		},
+	}
+	gotEarly := resolveTrajectoryTitle(raw, raw.Trajectory.Steps)
+	if !strings.HasPrefix(gotEarly, "请先读取并严格遵循全局 Skill") {
+		t.Fatalf("expected prompt fallback title, got %q", gotEarly)
+	}
+
+	// 2. Upstream GetAllCascadeTrajectories now returns the real AI summary (annotations.title still empty).
+	mockUpstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if strings.HasSuffix(r.URL.Path, "/GetAllCascadeTrajectories") {
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"trajectorySummaries": map[string]interface{}{
+					cid: map[string]interface{}{
+						"status":    "CASCADE_RUN_STATUS_IDLE",
+						"stepCount": 12,
+						"summary":   "Multigravity X Channel Inspection",
+					},
+				},
+			})
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer mockUpstream.Close()
+
+	port := mockUpstream.Listener.Addr().(*net.TCPAddr).Port
+	p := NewProxy(inspector.NewInspector(5 * time.Second))
+	p.mediumClient = mockUpstream.Client()
+	p.updateUpstream(inspector.InstanceInfo{
+		PID:       1234,
+		Port:      port,
+		CSRFToken: "test-token",
+		IsHealthy: true,
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/exa.language_server_pb.LanguageServerService/GetAllCascadeTrajectories", strings.NewReader("{}"))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	p.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp struct {
+		TrajectorySummaries map[string]struct {
+			Summary     string `json:"summary"`
+			Annotations struct {
+				Title string `json:"title"`
+			} `json:"annotations"`
+		} `json:"trajectorySummaries"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	entry := resp.TrajectorySummaries[cid]
+	if entry.Summary != "Multigravity X Channel Inspection" {
+		t.Fatalf("expected upstream summary to override prompt fallback, got summary=%q", entry.Summary)
+	}
+	if entry.Annotations.Title != "Multigravity X Channel Inspection" {
+		t.Fatalf("expected annotations.title to reflect upstream summary, got %q", entry.Annotations.Title)
+	}
+
+	// 3. Subsequent trajectory parse without summary/annotations must keep the authoritative title,
+	// not downgrade back to the first user prompt.
+	gotAfter := resolveTrajectoryTitle(raw, raw.Trajectory.Steps)
+	if gotAfter != "Multigravity X Channel Inspection" {
+		t.Fatalf("expected resolveTrajectoryTitle to preserve authoritative title, got %q", gotAfter)
+	}
+}
+
+func TestLookupCascadeTitleUpgradesFallback(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+
+	const cid = "cascade-lookup-upgrade-test"
+	ClearTrajectoryCache(cid)
+	t.Cleanup(func() { ClearTrajectoryCache(cid) })
+
+	setCachedCascadeTitleFallback(cid, "Prompt fallback...")
+
+	mockUpstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if strings.HasSuffix(r.URL.Path, "/GetAllCascadeTrajectories") {
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"trajectorySummaries": map[string]interface{}{
+					cid: map[string]interface{}{
+						"status":    "CASCADE_RUN_STATUS_IDLE",
+						"stepCount": 5,
+						"summary":   "Upgraded Upstream Title",
+					},
+				},
+			})
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer mockUpstream.Close()
+
+	port := mockUpstream.Listener.Addr().(*net.TCPAddr).Port
+	p := NewProxy(inspector.NewInspector(5 * time.Second))
+	p.mediumClient = mockUpstream.Client()
+
+	got := p.lookupCascadeTitle(cid, port, "test-token")
+	if got != "Upgraded Upstream Title" {
+		t.Fatalf("expected lookupCascadeTitle to upgrade fallback to %q, got %q", "Upgraded Upstream Title", got)
+	}
+	if auth := getAuthoritativeCachedCascadeTitle(cid); auth != "Upgraded Upstream Title" {
+		t.Fatalf("expected authoritative cached title %q, got %q", "Upgraded Upstream Title", auth)
+	}
+}
+
+func TestDeleteCascadeTrajectoryRetriesBrainDirNotEmpty(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+
+	const cid = "e39e47aa-9794-4862-aab7-c708f5389dfb"
+	brainSub := filepath.Join(home, ".gemini", "antigravity", "brain", cid, ".user_uploaded")
+	if err := os.MkdirAll(brainSub, 0o755); err != nil {
+		t.Fatalf("mkdir brain subdir: %v", err)
+	}
+	brainDir := filepath.Dir(brainSub)
+
+	attempts := 0
+	mockUpstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if strings.HasSuffix(r.URL.Path, "/DeleteCascadeTrajectory") {
+			attempts++
+			if attempts == 1 {
+				w.WriteHeader(http.StatusInternalServerError)
+				_, _ = w.Write([]byte(`{"code":"unknown","message":"Failed to delete trajectory ` + cid + `: unlinkat ` + brainDir + `: directory not empty"}`))
+				return
+			}
+			if _, err := os.Stat(brainDir); !os.IsNotExist(err) {
+				w.WriteHeader(http.StatusInternalServerError)
+				_, _ = w.Write([]byte(`{"code":"unknown","message":"brain dir still exists"}`))
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{}`))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer mockUpstream.Close()
+
+	port := mockUpstream.Listener.Addr().(*net.TCPAddr).Port
+	p := NewProxy(inspector.NewInspector(5 * time.Second))
+	p.updateUpstream(inspector.InstanceInfo{
+		PID:       1234,
+		Port:      port,
+		CSRFToken: "test-token",
+		IsHealthy: true,
+	})
+	t.Cleanup(func() { RemoveDeletedCascadeTombstone(cid) })
+
+	req := httptest.NewRequest(http.MethodPost, "/api/exa.language_server_pb.LanguageServerService/DeleteCascadeTrajectory", strings.NewReader(`{"cascadeId":"`+cid+`"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	p.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected retry to succeed with 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if attempts != 2 {
+		t.Fatalf("expected 2 upstream attempts, got %d", attempts)
+	}
+	if _, err := os.Stat(brainDir); !os.IsNotExist(err) {
+		t.Fatalf("expected brain dir to be removed, stat err=%v", err)
+	}
+	if !IsDeletedCascade(cid) {
+		t.Fatalf("expected cascade %q to remain marked deleted", cid)
+	}
+
+	// Unrelated 500 error must NOT remove brain dir or retry.
+	const otherCID = "a1b2c3d4-1111-2222-3333-444455556666"
+	otherBrainDir := filepath.Join(home, ".gemini", "antigravity", "brain", otherCID)
+	if err := os.MkdirAll(otherBrainDir, 0o755); err != nil {
+		t.Fatalf("mkdir other brain dir: %v", err)
+	}
+	otherAttempts := 0
+	mockUpstream2 := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if strings.HasSuffix(r.URL.Path, "/DeleteCascadeTrajectory") {
+			otherAttempts++
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"code":"internal","message":"database locked"}`))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer mockUpstream2.Close()
+
+	p2 := NewProxy(inspector.NewInspector(5 * time.Second))
+	p2.updateUpstream(inspector.InstanceInfo{
+		PID:       1234,
+		Port:      mockUpstream2.Listener.Addr().(*net.TCPAddr).Port,
+		CSRFToken: "test-token",
+		IsHealthy: true,
+	})
+	req2 := httptest.NewRequest(http.MethodPost, "/api/exa.language_server_pb.LanguageServerService/DeleteCascadeTrajectory", strings.NewReader(`{"cascadeId":"`+otherCID+`"}`))
+	req2.Header.Set("Content-Type", "application/json")
+	rec2 := httptest.NewRecorder()
+	p2.ServeHTTP(rec2, req2)
+
+	if rec2.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 on unrelated error, got %d", rec2.Code)
+	}
+	if otherAttempts != 1 {
+		t.Fatalf("expected 1 attempt on unrelated error, got %d", otherAttempts)
+	}
+	if _, err := os.Stat(otherBrainDir); err != nil {
+		t.Fatalf("expected unrelated brain dir to remain untouched, err=%v", err)
+	}
+	if IsDeletedCascade(otherCID) {
+		t.Fatalf("expected tombstone to be released on unrelated error")
+	}
+}

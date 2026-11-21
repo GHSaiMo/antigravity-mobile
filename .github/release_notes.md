@@ -28,7 +28,11 @@
 - 🧭 **交互提示与手势指南 & 移动端细节打磨（iOS / Android）**：
   - 新增「使用技巧与手势指南」页面（Android 集成至设置平滑侧滑子页），并加入一次性模型胶囊长按提示与左滑轻提示；
   - 权限预设本地缓存消除设置页闪烁，收敛首页项目筛选点击热区至图标防止误触，Android 应用语言统一跟随系统语言；
-  - 修复 iOS 根视图 `preferredColorScheme` 覆盖导致弹窗在「跟随系统」外观下样式重置的问题。
+  - 修复 iOS 根视图 `preferredColorScheme` 覆盖导致弹窗在「跟随系统」外观下样式重置的问题；
+  - 新增 iOS 原生及 GitHub 文档日语（`ja`）本地化支持。
+- 🛡️ **网关会话标题优先级与删除健壮性修复**：
+  - 区分权威标题与首条 Prompt 临时兜底缓存，修复列表接口中旧兜底标题可能盖掉上游 AI `summary` 标题的问题，并支持后续自动升级；
+  - 修复上游 `DeleteCascadeTrajectory` 因 `brain/<id>` 目录非空中断导致半删除僵尸会话的问题，自动清理空/残留目录后重试一次删除。
 - 📦 **全端版本号对齐**：
   - Android 升至 `1.2.2`（Version Code `23`）；iOS 升至 `1.2.2`（Build `22`）；桌面/服务端网关 `mgy` 同步升至 `1.2.2`。
 
@@ -54,6 +58,10 @@
 - 🧭 **Tips & Gestures Guide & Mobile UX Polish (iOS / Android)**:
   - Added a dedicated Tips & Gestures Guide (integrated as a smooth slide-in Settings subpage on Android) along with subtle one-time discovery hints for model long-press and swipe actions;
   - Cached Agent permission presets locally to eliminate Settings flicker, narrowed workspace filter tap targets to the icon to avoid accidental taps, and aligned Android app language to follow the system locale;
-  - Fixed an iOS issue where root `preferredColorScheme` caused sheets to reset appearance in Follow System mode.
+  - Fixed an iOS issue where root `preferredColorScheme` caused sheets to reset appearance in Follow System mode;
+  - Added native Japanese (`ja`) localization for the iOS app and GitHub README.
+- 🛡️ **Gateway Title Priority & Resilient Cascade Deletion**:
+  - Separated authoritative titles from temporary first-prompt fallbacks so cached prompt snippets never shadow upstream AI `summary` titles and upgrade automatically once ready;
+  - Added automatic `brain/<id>` cleanup and one-shot retry when upstream `DeleteCascadeTrajectory` fails with `directory not empty`, preventing half-deleted zombie sessions.
 - 📦 **Version Alignment**:
   - Android updated to `1.2.2` (Version Code `23`); iOS updated to `1.2.2` (Build `22`); desktop/server gateway `mgy` updated to `1.2.2`.

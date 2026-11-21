@@ -51,9 +51,10 @@ type TrajectoryCache struct {
 	// started before the invalidation does not write its now-stale result back into trajCache.
 	trajCacheGen uint64
 
-	cascadeTitles       map[string]string
-	cascadeTitlesMu     sync.RWMutex
-	lastTitlesFetchTime time.Time
+	cascadeTitles        map[string]string
+	cascadeTitleFallback map[string]bool
+	cascadeTitlesMu      sync.RWMutex
+	lastTitlesFetchTime  time.Time
 
 	lastKnownConfig   json.RawMessage
 	lastKnownConfigMu sync.RWMutex
@@ -87,6 +88,7 @@ func NewTrajectoryCache() *TrajectoryCache {
 	return &TrajectoryCache{
 		trajCache:            make(map[string]*trajectoryCacheEntry),
 		cascadeTitles:        make(map[string]string),
+		cascadeTitleFallback: make(map[string]bool),
 		cascadeConfigs:       make(map[string]json.RawMessage),
 		cascadeModels:        make(map[string]string),
 		loadedCascades:       make(map[string]bool),
@@ -98,23 +100,29 @@ func NewTrajectoryCache() *TrajectoryCache {
 
 const maxCascadeTitlesSize = 1024
 
-// setCachedCascadeTitle updates cascadeTitles using an RLock fast-path when unchanged.
+// setCachedCascadeTitle records an authoritative title (from annotations, .pbtxt, or upstream summary)
+// using an RLock fast-path when unchanged.
 func setCachedCascadeTitle(cascadeID, title string) {
 	if cascadeID == "" || title == "" || title == "未命名会话" {
 		return
 	}
 	defaultTrajCache.cascadeTitlesMu.RLock()
 	cur, ok := defaultTrajCache.cascadeTitles[cascadeID]
+	isFallback := defaultTrajCache.cascadeTitleFallback[cascadeID]
 	defaultTrajCache.cascadeTitlesMu.RUnlock()
-	if ok && cur == title {
+	if ok && !isFallback && cur == title {
 		return
 	}
 	defaultTrajCache.cascadeTitlesMu.Lock()
+	if defaultTrajCache.cascadeTitleFallback == nil {
+		defaultTrajCache.cascadeTitleFallback = make(map[string]bool)
+	}
 	if len(defaultTrajCache.cascadeTitles) >= maxCascadeTitlesSize {
 		// Batch prune ~25% when bounded cap is reached
 		removed := 0
 		for k := range defaultTrajCache.cascadeTitles {
 			delete(defaultTrajCache.cascadeTitles, k)
+			delete(defaultTrajCache.cascadeTitleFallback, k)
 			removed++
 			if removed >= maxCascadeTitlesSize/4 {
 				break
@@ -122,7 +130,61 @@ func setCachedCascadeTitle(cascadeID, title string) {
 		}
 	}
 	defaultTrajCache.cascadeTitles[cascadeID] = title
+	delete(defaultTrajCache.cascadeTitleFallback, cascadeID)
 	defaultTrajCache.cascadeTitlesMu.Unlock()
+}
+
+// setCachedCascadeTitleFallback records a temporary prompt-derived fallback title.
+// It never overwrites an existing authoritative title for the same cascade.
+func setCachedCascadeTitleFallback(cascadeID, title string) {
+	if cascadeID == "" || title == "" || title == "未命名会话" {
+		return
+	}
+	defaultTrajCache.cascadeTitlesMu.RLock()
+	cur, ok := defaultTrajCache.cascadeTitles[cascadeID]
+	isFallback := defaultTrajCache.cascadeTitleFallback[cascadeID]
+	defaultTrajCache.cascadeTitlesMu.RUnlock()
+	if ok && (!isFallback || cur == title) {
+		return
+	}
+	defaultTrajCache.cascadeTitlesMu.Lock()
+	if defaultTrajCache.cascadeTitleFallback == nil {
+		defaultTrajCache.cascadeTitleFallback = make(map[string]bool)
+	}
+	if cur, exists := defaultTrajCache.cascadeTitles[cascadeID]; exists && cur != "" && !defaultTrajCache.cascadeTitleFallback[cascadeID] {
+		defaultTrajCache.cascadeTitlesMu.Unlock()
+		return
+	}
+	if len(defaultTrajCache.cascadeTitles) >= maxCascadeTitlesSize {
+		removed := 0
+		for k := range defaultTrajCache.cascadeTitles {
+			delete(defaultTrajCache.cascadeTitles, k)
+			delete(defaultTrajCache.cascadeTitleFallback, k)
+			removed++
+			if removed >= maxCascadeTitlesSize/4 {
+				break
+			}
+		}
+	}
+	defaultTrajCache.cascadeTitles[cascadeID] = title
+	defaultTrajCache.cascadeTitleFallback[cascadeID] = true
+	defaultTrajCache.cascadeTitlesMu.Unlock()
+}
+
+// getAuthoritativeCachedCascadeTitle returns a cached title only if it came from an
+// authoritative source (not a first-user-prompt fallback).
+func getAuthoritativeCachedCascadeTitle(cascadeID string) string {
+	if cascadeID == "" {
+		return ""
+	}
+	defaultTrajCache.cascadeTitlesMu.RLock()
+	title := defaultTrajCache.cascadeTitles[cascadeID]
+	isFallback := defaultTrajCache.cascadeTitleFallback[cascadeID]
+	defaultTrajCache.cascadeTitlesMu.RUnlock()
+	if isFallback || title == "" || title == "未命名会话" {
+		return ""
+	}
+	return title
 }
 
 // maxDeletedCascades is the upper bound on in-memory deletion tombstones.
@@ -301,6 +363,7 @@ func ClearTrajectoryCache(cascadeID string) {
 
 	defaultTrajCache.cascadeTitlesMu.Lock()
 	delete(defaultTrajCache.cascadeTitles, cascadeID)
+	delete(defaultTrajCache.cascadeTitleFallback, cascadeID)
 	defaultTrajCache.lastTitlesFetchTime = time.Time{}
 	defaultTrajCache.cascadeTitlesMu.Unlock()
 

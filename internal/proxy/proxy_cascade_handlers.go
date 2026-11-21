@@ -511,6 +511,16 @@ func (p *Proxy) handleStartCascadeProxy(w http.ResponseWriter, r *http.Request, 
 	rp.ServeHTTP(w, r)
 }
 
+func isBrainDirNotEmptyDeleteError(respBody []byte, cascadeID string) bool {
+	if cascadeID == "" || len(respBody) == 0 {
+		return false
+	}
+	lower := strings.ToLower(string(respBody))
+	return strings.Contains(lower, "directory not empty") &&
+		strings.Contains(lower, "brain") &&
+		strings.Contains(lower, strings.ToLower(cascadeID))
+}
+
 func (p *Proxy) handleDeleteCascadeTrajectory(w http.ResponseWriter, r *http.Request, rp http.Handler, reqPath string) {
 	bodyBytes, cleanup, err := readBodyToPool(r.Body, 5*1024*1024)
 	if err != nil {
@@ -540,8 +550,33 @@ func (p *Proxy) handleDeleteCascadeTrajectory(w http.ResponseWriter, r *http.Req
 	fwdReq.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 
 	rec := newBufferedResponseWriter()
-	defer rec.release()
+	defer func() {
+		if rec != nil {
+			rec.release()
+		}
+	}()
 	rp.ServeHTTP(rec, fwdReq)
+
+	// Upstream language_server can fail midway through DeleteCascadeTrajectory with
+	// "unlinkat ~/.gemini/antigravity/brain/<id>: directory not empty" (e.g. lingering
+	// .user_uploaded subdir), leaving a half-deleted zombie in memory after already
+	// deleting the .db / summary / annotations. Clean the brain dir and retry once.
+	if isSafeCascadeID && rec.statusCode >= 500 && isBrainDirNotEmptyDeleteError(rec.body.Bytes(), reqData.CascadeID) {
+		if home, err := os.UserHomeDir(); err == nil {
+			brainDir := filepath.Join(home, ".gemini", "antigravity", "brain", reqData.CascadeID)
+			if rmErr := os.RemoveAll(brainDir); rmErr == nil {
+				slog.Warn("[Proxy] DeleteCascadeTrajectory hit brain directory-not-empty; cleaned brain dir and retrying",
+					"cascadeId", shortCascadeID(reqData.CascadeID))
+				rec.release()
+				rec = newBufferedResponseWriter()
+				retryReq := r.Clone(r.Context())
+				retryReq.URL.Path = reqPath
+				retryReq.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+				retryReq.ContentLength = int64(len(bodyBytes))
+				rp.ServeHTTP(rec, retryReq)
+			}
+		}
+	}
 
 	if rec.statusCode >= 200 && rec.statusCode < 300 {
 		if isSafeCascadeID {
