@@ -20,7 +20,7 @@ import (
 	"time"
 )
 
-//go:embed index.html style.css js manifest.json manifest-en.json sw.js icons mermaid.min.js favicon.ico
+//go:embed index.html style.css js manifest.json manifest-en.json manifest-ja.json sw.js icons mermaid.min.js favicon.ico
 var staticFiles embed.FS
 
 var gzipPool = sync.Pool{

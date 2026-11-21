@@ -1170,8 +1170,8 @@
         const url = URL.createObjectURL(blob);
         const audio = new Audio(url);
         this.narrationAudio = audio;
-        if (title) title.textContent = "🔊 正在语音播报";
-        document.getElementById("btn-narr-toggle").textContent = "暂停";
+        if (title) title.textContent = typeof t === "function" ? t("🔊 正在语音播报") : "🔊 正在语音播报";
+        document.getElementById("btn-narr-toggle").textContent = typeof t === "function" ? t("暂停") : "暂停";
         audio.onended = () => {
           URL.revokeObjectURL(url);
           this.stopNarration();
@@ -1181,12 +1181,14 @@
         // Browser speechSynthesis fallback
         if (typeof speechSynthesis !== "undefined") {
           const u = new SpeechSynthesisUtterance(cleaned);
-          u.lang = "zh-CN";
-          if (title) title.textContent = "🔊 系统朗读中";
+          u.lang = (window.I18n && window.I18n.isJa && window.I18n.isJa())
+            ? "ja-JP"
+            : ((window.I18n && window.I18n.isEn && window.I18n.isEn()) ? "en-US" : "zh-CN");
+          if (title) title.textContent = typeof t === "function" ? t("🔊 系统朗读中") : "🔊 系统朗读中";
           u.onend = () => this.stopNarration();
           speechSynthesis.speak(u);
         } else {
-          showToast?.("当前浏览器不支持语音播报");
+          showToast?.(typeof t === "function" ? t("当前浏览器不支持语音播报") : "当前浏览器不支持语音播报");
           this.stopNarration();
         }
       }

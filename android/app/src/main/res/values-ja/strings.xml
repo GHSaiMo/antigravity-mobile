@@ -1,0 +1,17 @@
+<resources>
+    <string name="app_name">Multigravity</string>
+    <string name="pair_title">端末ペアリング</string>
+    <string name="conversations_title">会話一覧</string>
+    <string name="chat_placeholder">Multigravity に指示を送信...</string>
+    <string name="send">送信</string>
+    <string name="stop">停止</string>
+    <string name="proceed">続行</string>
+    <string name="approve">承認</string>
+    <string name="reject">拒否</string>
+    <string name="channel_task_status">Antigravity タスク通知</string>
+    <string name="channel_task_status_desc">エージェントタスクのリアルタイム進捗、ツール呼び出し、完了通知</string>
+    <string name="channel_live_activity">ライブアクティビティ通知</string>
+    <string name="channel_live_activity_desc">ロック画面およびステータスバーのリアルタイム進捗カード</string>
+    <string name="channel_approval">承認と手動確認</string>
+    <string name="channel_approval_desc">ユーザーの許可または確認が必要な高優先度アラート</string>
+</resources>

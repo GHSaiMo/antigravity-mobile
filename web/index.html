@@ -21,18 +21,18 @@
         }
       } catch (_) {}
       try {
-        var l = localStorage.getItem("antigravity_language") || "system";
+        localStorage.removeItem("antigravity_language");
         var navLangs = (navigator.languages && navigator.languages.length)
           ? navigator.languages
           : [navigator.language || navigator.userLanguage || ""];
         var primary = (navLangs[0] || "").toLowerCase().trim();
-        var isZh = l === "zh-CN" || (l === "system" && primary.indexOf("zh") === 0);
-        var isEn = !isZh;
-        document.documentElement.setAttribute("lang", isEn ? "en" : "zh-CN");
-        document.documentElement.setAttribute("data-lang", isEn ? "en" : "zh-CN");
+        var lang = primary.indexOf("zh") === 0 ? "zh-CN" : (primary.indexOf("ja") === 0 ? "ja" : "en");
+        document.documentElement.setAttribute("lang", lang);
+        document.documentElement.setAttribute("data-lang", lang);
         var manifestLink = document.querySelector('link[rel="manifest"]');
         if (manifestLink) {
-          manifestLink.setAttribute("href", isEn ? "/manifest-en.json" : "/manifest.json");
+          var manifestHref = lang === "zh-CN" ? "/manifest.json" : (lang === "ja" ? "/manifest-ja.json" : "/manifest-en.json");
+          manifestLink.setAttribute("href", manifestHref);
         }
       } catch (_) {}
     })();
@@ -566,14 +566,6 @@
                 <button type="button" class="settings-seg-btn" data-theme-mode="dark" aria-pressed="false">深色</button>
               </div>
             </div>
-            <div class="ios-cell between settings-mode-row">
-              <span class="cell-label">界面语言</span>
-              <div id="settings-lang-seg" class="settings-segmented" role="radiogroup" aria-label="界面语言">
-                <button type="button" class="settings-seg-btn" data-lang-mode="system" aria-pressed="true">跟随系统</button>
-                <button type="button" class="settings-seg-btn" data-lang-mode="zh-CN" aria-pressed="false">中文</button>
-                <button type="button" class="settings-seg-btn" data-lang-mode="en" aria-pressed="false">English</button>
-              </div>
-            </div>
             <div class="ios-cell between">
               <span class="cell-label">界面与代码字号</span>
               <select id="settings-font-size-scale" style="background: transparent; color: var(--ios-label, #fff); border: none; font-size: 13px; font-weight: 500; outline: none; padding: 4px;">
@@ -590,7 +582,7 @@
               </span>
             </button>
           </div>
-          <div class="settings-note" style="margin: 6px 4px 12px;">选择外观模式、界面语言与字号缩放；点进「精简模式」可自定义对话降噪选项。</div>
+          <div class="settings-note" style="margin: 6px 4px 12px;">选择外观模式与界面字号缩放；点进「精简模式」可自定义对话降噪选项。</div>
 
           <!-- Section 3: 本地数据与缓存 -->
           <div class="ios-grouped-section">
@@ -1117,14 +1109,14 @@
     </div>
   </dialog>
 
-  <script src="/js/i18n.js?v=2"></script>
+  <script src="/js/i18n.js?v=3"></script>
   <script defer src="/js/core.js?v=41"></script>
   <script defer src="/js/nav.js?v=47"></script>
   <script defer src="/js/wechat_archive.js?v=1"></script>
   <script defer src="/js/chat.js?v=44"></script>
   <script defer src="/js/actions.js?v=36"></script>
   <script defer src="/js/media.js?v=35"></script>
-  <script defer src="/js/cockpit.js?v=32"></script>
+  <script defer src="/js/cockpit.js?v=33"></script>
   <script defer src="/js/scan.js?v=2"></script>
   <script defer src="/js/msgmenu.js?v=5"></script>
   <script defer src="/js/slash.js?v=3"></script>
@@ -1135,8 +1127,8 @@
   <script defer src="/js/subagents.js?v=5"></script>
   <script defer src="/js/swarm.js?v=2"></script>
   <script defer src="/js/egg.js?v=1"></script>
-  <script defer src="/js/phase3.js?v=2"></script>
-  <script defer src="/js/v233.js?v=3"></script>
+  <script defer src="/js/phase3.js?v=3"></script>
+  <script defer src="/js/v233.js?v=4"></script>
   <!-- init.js 必须最后加载：它在执行时就会调用 initApp()，依赖前面所有脚本里的函数 -->
   <script defer src="/js/init.js?v=44"></script>
 </body>

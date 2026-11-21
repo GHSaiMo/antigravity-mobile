@@ -464,7 +464,8 @@ function renderQuotaSheet(data) {
 
   const footerEl = document.getElementById("quota-footer");
   if (footerEl && data.updated_at) {
-    footerEl.textContent = `配额数据更新于 ${new Date(data.updated_at).toLocaleTimeString()}`;
+    const updatedLabel = typeof t === "function" ? t("配额数据更新于") : "配额数据更新于";
+    footerEl.textContent = `${updatedLabel} ${new Date(data.updated_at).toLocaleTimeString()}`;
   }
 
   const currentContainer = document.getElementById("quota-current-card");
@@ -843,13 +844,14 @@ function renderInspector(rec) {
   const stepsEl = document.getElementById("inspector-steps");
   const modelsContainer = document.getElementById("inspector-models");
 
-  if (dateEl) dateEl.textContent = rec.date || "当日明细";
-  if (costEl) costEl.textContent = rec.cost_usd ? `参考 API: $${rec.cost_usd.toFixed(4)}` : "$0.00";
+  const tr = typeof t === "function" ? t : (s) => s;
+  if (dateEl) dateEl.textContent = rec.date || tr("当日明细");
+  if (costEl) costEl.textContent = rec.cost_usd ? `${tr("参考 API:")} $${rec.cost_usd.toFixed(4)}` : "$0.00";
   if (totalEl) totalEl.textContent = (rec.total || 0).toLocaleString() + " Tokens";
   if (breakdownEl) {
-    breakdownEl.textContent = `输入 ${(rec.input || 0).toLocaleString()} · 缓存 ${(rec.cache_read || 0).toLocaleString()} · 输出 ${(rec.output || 0).toLocaleString()}`;
+    breakdownEl.textContent = `${tr("输入")} ${(rec.input || 0).toLocaleString()} · ${tr("缓存")} ${(rec.cache_read || 0).toLocaleString()} · ${tr("输出")} ${(rec.output || 0).toLocaleString()}`;
   }
-  if (stepsEl) stepsEl.textContent = `${rec.steps || 0} 轮交互`;
+  if (stepsEl) stepsEl.textContent = tr(`${rec.steps || 0} 轮交互`);
 
   if (modelsContainer) {
     modelsContainer.innerHTML = "";

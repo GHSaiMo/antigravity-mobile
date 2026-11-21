@@ -67,4 +67,9 @@ func TestHandlerFallbackAnd404(t *testing.T) {
 	if rec := get(t, h, "/", nil); rec.Header().Get("Cache-Control") != "no-cache, must-revalidate" {
 		t.Fatalf("index cache-control: %q", rec.Header().Get("Cache-Control"))
 	}
+	for _, p := range []string{"/manifest.json", "/manifest-en.json", "/manifest-ja.json", "/js/i18n.js"} {
+		if rec := get(t, h, p, nil); rec.Code != http.StatusOK {
+			t.Fatalf("expected 200 for %s, got %d", p, rec.Code)
+		}
+	}
 }

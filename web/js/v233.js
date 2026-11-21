@@ -144,33 +144,6 @@
     });
   }
 
-  function updateLanguageSegmentedUI(mode) {
-    document.querySelectorAll("#settings-lang-seg .settings-seg-btn").forEach((btn) => {
-      const active = btn.getAttribute("data-lang-mode") === mode;
-      btn.classList.toggle("active", active);
-      btn.setAttribute("aria-pressed", active ? "true" : "false");
-    });
-  }
-
-  function initLanguageSettings() {
-    const pref = window.I18n ? window.I18n.getPreference() : "system";
-    updateLanguageSegmentedUI(pref);
-    document.querySelectorAll("#settings-lang-seg .settings-seg-btn").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        const mode = btn.getAttribute("data-lang-mode");
-        if (mode && window.I18n) {
-          window.I18n.setLanguage(mode);
-          updateLanguageSegmentedUI(mode);
-        }
-      });
-    });
-    window.addEventListener("mgy:languagechange", (e) => {
-      if (e && e.detail && e.detail.preference) {
-        updateLanguageSegmentedUI(e.detail.preference);
-      }
-    });
-  }
-
   // --- 2. R & R Markdown Syntax Highlighting ---
   const R_KEYWORDS = new Set([
     "if", "else", "repeat", "while", "function", "for", "in", "next", "break",
@@ -960,7 +933,6 @@
 
   function init() {
     initThemeSettings();
-    initLanguageSettings();
     installRHighlighter();
     initTrustBanner();
     initBtwDialog();
