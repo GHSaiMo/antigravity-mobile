@@ -298,13 +298,15 @@ public struct SlashCommandOption: Codable, Sendable, Identifiable, Hashable {
     public let icon: String?
     /// "system" 系统命令 | "skill" 技能。
     public let kind: String
+    public let definitionPath: String?
 
-    public init(name: String, title: String = "", description: String = "", icon: String? = nil, kind: String = "system") {
+    public init(name: String, title: String = "", description: String = "", icon: String? = nil, kind: String = "system", definitionPath: String? = nil) {
         self.name = name
         self.title = title
         self.description = description
         self.icon = icon
         self.kind = kind
+        self.definitionPath = definitionPath
     }
 
     public init(from decoder: Decoder) throws {
@@ -314,8 +316,9 @@ public struct SlashCommandOption: Codable, Sendable, Identifiable, Hashable {
         description = try c.decodeIfPresent(String.self, forKey: .description) ?? ""
         icon = try c.decodeIfPresent(String.self, forKey: .icon)
         kind = try c.decodeIfPresent(String.self, forKey: .kind) ?? "system"
+        definitionPath = try c.decodeIfPresent(String.self, forKey: .definitionPath)
     }
-    enum CodingKeys: String, CodingKey { case name, title, description, icon, kind }
+    enum CodingKeys: String, CodingKey { case name, title, description, icon, kind, definitionPath }
 }
 
 struct SlashCommandsResponse: Decodable {
@@ -401,11 +404,13 @@ public struct SlashCommandMention: Codable, Sendable, Hashable {
     public let name: String
     public let icon: String?
     public let kind: String
+    public let definitionPath: String?
 
-    public init(name: String, icon: String? = nil, kind: String = "skill") {
+    public init(name: String, icon: String? = nil, kind: String = "skill", definitionPath: String? = nil) {
         self.name = name
         self.icon = icon
         self.kind = kind
+        self.definitionPath = definitionPath
     }
 
     public init(from decoder: Decoder) throws {
@@ -413,8 +418,9 @@ public struct SlashCommandMention: Codable, Sendable, Hashable {
         name = try c.decode(String.self, forKey: .name)
         icon = try c.decodeIfPresent(String.self, forKey: .icon)
         kind = try c.decodeIfPresent(String.self, forKey: .kind) ?? "skill"
+        definitionPath = try c.decodeIfPresent(String.self, forKey: .definitionPath)
     }
-    enum CodingKeys: String, CodingKey { case name, icon, kind }
+    enum CodingKeys: String, CodingKey { case name, icon, kind, definitionPath }
 }
 
 /// 桌面端（Antigravity Desktop）斜杠命令与技能图标矢量目录（统一归一化到 0..960 坐标系，仅含 M/L/Q/Z 指令）。
@@ -568,11 +574,12 @@ public enum SlashCommandTextTokenizer {
         }
         for cmd in availableCommands {
             let icon = SlashCommandIconCatalog.resolveIcon(name: cmd.name, icon: cmd.icon, kind: cmd.kind)
-            lookup[cmd.name] = SlashCommandMention(name: cmd.name, icon: icon, kind: cmd.kind)
+            lookup[cmd.name] = SlashCommandMention(name: cmd.name, icon: icon, kind: cmd.kind, definitionPath: cmd.definitionPath)
         }
         for m in mentions {
             let icon = SlashCommandIconCatalog.resolveIcon(name: m.name, icon: m.icon, kind: m.kind)
-            lookup[m.name] = SlashCommandMention(name: m.name, icon: icon, kind: m.kind)
+            let defPath = m.definitionPath ?? lookup[m.name]?.definitionPath
+            lookup[m.name] = SlashCommandMention(name: m.name, icon: icon, kind: m.kind, definitionPath: defPath)
         }
 
         guard let regex = try? NSRegularExpression(pattern: #"(^|\s)\/([A-Za-z0-9_-]+)(?=$|\s)"#) else {

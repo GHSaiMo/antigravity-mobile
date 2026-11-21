@@ -279,7 +279,7 @@ internal fun ChatViewModel.sendMessage(
         val matched = _uiState.value.slashCommands.firstOrNull { it.name == slashCommand }
         val kind = matched?.kind ?: if (com.antigravity.mobile.data.model.SlashCommandIconCatalog.defaultSystemIcons.containsKey(slashCommand)) "system" else "skill"
         val icon = com.antigravity.mobile.data.model.SlashCommandIconCatalog.resolveIcon(slashCommand, matched?.icon, kind)
-        listOf(com.antigravity.mobile.data.model.SlashCommandMention(name = slashCommand, icon = icon, kind = kind))
+        listOf(com.antigravity.mobile.data.model.SlashCommandMention(name = slashCommand, icon = icon, kind = kind, definitionPath = matched?.definitionPath))
     } else null
     val optimisticUserMsg = GatewayMessageItem(
         id = optId,

@@ -40,6 +40,7 @@ import com.antigravity.mobile.data.model.FileContentResponse
 import com.antigravity.mobile.data.service.ApiClient
 import com.antigravity.mobile.data.service.PreferencesManager
 import com.antigravity.mobile.data.service.callMcpAppTool
+import com.antigravity.mobile.data.service.getMcpAppResource
 import com.antigravity.mobile.ui.theme.AntigravityTheme
 import com.antigravity.mobile.ui.theme.AppColors
 import com.antigravity.mobile.ui.util.rememberHaptic
@@ -509,8 +510,28 @@ private fun AgentEmbedWebViewContainer(
                     cacheMode = WebSettings.LOAD_DEFAULT
                 }
 
+                val selfWebView = this
                 addJavascriptInterface(
                     object {
+                        private fun dispatchBridgeReply(reqId: Any?, jsonrpc: String?, ok: Boolean, rawJson: String? = null, error: String? = null) {
+                            val env = JSONObject()
+                            env.put("ok", ok)
+                            if (reqId != null && reqId != JSONObject.NULL) env.put("id", reqId)
+                            if (!jsonrpc.isNullOrBlank()) env.put("jsonrpc", jsonrpc)
+                            if (ok) {
+                                val parsed = rawJson?.let {
+                                    runCatching { JSONObject(it) }.getOrNull()
+                                } ?: JSONObject().put("ok", true)
+                                env.put("result", parsed)
+                            } else {
+                                env.put("error", error ?: "request failed")
+                            }
+                            val js = "window.dispatchEvent(new MessageEvent('message', { data: ${env} }));"
+                            Handler(Looper.getMainLooper()).post {
+                                selfWebView.evaluateJavascript(js, null)
+                            }
+                        }
+
                         @JavascriptInterface
                         fun postSize(height: Int) {
                             Handler(Looper.getMainLooper()).post {
@@ -531,25 +552,51 @@ private fun AgentEmbedWebViewContainer(
                                 val obj = JSONObject(jsonStr)
                                 val kind = obj.optString("type").ifBlank { obj.optString("method") }
                                 val payload = obj.optJSONObject("payload") ?: obj.optJSONObject("params") ?: obj
+                                val reqId = obj.opt("id")
+                                val jsonrpc = obj.optString("jsonrpc").takeIf { it.isNotBlank() }
                                 val inst = ApiClient.defaultInstance ?: return
                                 when (kind) {
-                                    "sendMessage", "send_message" -> {
+                                    "sendMessage", "send_message", "ui/message" -> {
                                         val msg = payload.optString("text").ifBlank { payload.optString("message") }.ifBlank { payload.optString("content") }
                                         val cid = payload.optString("cascadeId").ifBlank { ApiClient.currentCascadeId.orEmpty() }
                                         if (msg.isNotBlank() && cid.isNotBlank()) {
                                             CoroutineScope(Dispatchers.IO).launch {
-                                                inst.sendMessage(cid, msg)
+                                                val res = runCatching { inst.sendMessage(cid, msg) }
+                                                if (res.isSuccess) {
+                                                    dispatchBridgeReply(reqId, jsonrpc, ok = true)
+                                                } else {
+                                                    dispatchBridgeReply(reqId, jsonrpc, ok = false, error = res.exceptionOrNull()?.message)
+                                                }
                                             }
                                         }
                                     }
                                     "callServerTool", "tools/call" -> {
                                         val tool = payload.optString("toolName").ifBlank { payload.optString("name") }
                                         val argsRaw = payload.opt("arguments")?.toString()
-                                        val appUri = payload.optString("appUri")
+                                        val appUri = payload.optString("appUri").ifBlank { payload.optString("uri") }
                                         if (tool.isNotBlank()) {
                                             val argsEl = argsRaw?.let { runCatching { Json.parseToJsonElement(it) }.getOrNull() }
                                             CoroutineScope(Dispatchers.IO).launch {
-                                                inst.callMcpAppTool(tool, argsEl, appUri)
+                                                val res = inst.callMcpAppTool(tool, argsEl, appUri)
+                                                res.onSuccess { raw ->
+                                                    dispatchBridgeReply(reqId, jsonrpc, ok = true, rawJson = raw)
+                                                }.onFailure { err ->
+                                                    dispatchBridgeReply(reqId, jsonrpc, ok = false, error = err.message)
+                                                }
+                                            }
+                                        }
+                                    }
+                                    "resources/read" -> {
+                                        val uri = payload.optString("uri")
+                                        val serverName = payload.optString("serverName")
+                                        if (uri.isNotBlank()) {
+                                            CoroutineScope(Dispatchers.IO).launch {
+                                                val res = inst.getMcpAppResource(uri, serverName)
+                                                res.onSuccess { raw ->
+                                                    dispatchBridgeReply(reqId, jsonrpc, ok = true, rawJson = raw)
+                                                }.onFailure { err ->
+                                                    dispatchBridgeReply(reqId, jsonrpc, ok = false, error = err.message)
+                                                }
                                             }
                                         }
                                     }

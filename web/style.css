@@ -4892,6 +4892,10 @@ html[data-unavail~="models"] [data-feature="models"] {
   vertical-align: -2px;
 }
 
+.user-slash-pill[data-skill-def] {
+  cursor: pointer;
+}
+
 .user-slash-pill-icon {
   flex: 0 0 16px;
   width: 16px;
@@ -5060,10 +5064,30 @@ html[data-unavail~="models"] [data-feature="models"] {
 .diff-line {
   display: flex;
   min-width: max-content;
+  border-left: 3px solid transparent;
 }
 
-.diff-line.ins { background: color-mix(in srgb, var(--ios-green) 16%, transparent); }
-.diff-line.del { background: color-mix(in srgb, var(--ios-red) 16%, transparent); }
+.diff-line.ins {
+  background: color-mix(in srgb, var(--ios-green) 16%, transparent);
+  border-left-color: var(--ios-green);
+}
+.diff-line.del {
+  background: color-mix(in srgb, var(--ios-red) 16%, transparent);
+  border-left-color: var(--ios-red);
+}
+
+.diff-gutter {
+  flex: 0 0 34px;
+  padding-right: 6px;
+  text-align: right;
+  font-size: 11px;
+  color: color-mix(in srgb, var(--ios-secondary-label) 72%, transparent);
+  user-select: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.diff-line.ins .diff-gutter { color: color-mix(in srgb, var(--ios-green) 80%, var(--ios-secondary-label)); }
+.diff-line.del .diff-gutter { color: color-mix(in srgb, var(--ios-red) 80%, var(--ios-secondary-label)); }
 
 .diff-token-ins {
   background: color-mix(in srgb, var(--ios-green) 38%, transparent);

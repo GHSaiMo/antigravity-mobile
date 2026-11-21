@@ -1207,34 +1207,66 @@
     bindAgentEmbedBridge() {
       window.addEventListener("message", async (e) => {
         const d = e.data;
-        if (!d || typeof d !== "object" || !d.type) return;
-        if (d.type === "sendMessage" && d.text && activeCascadeId) {
-          await rpc?.("SendUserCascadeMessage", {
-            cascadeId: activeCascadeId,
-            items: [{ text: String(d.text) }],
-            model: activeModel || undefined,
-          });
-          e.source?.postMessage?.({ id: d.id, ok: true }, "*");
-        } else if (d.type === "updateModelContext" && d.context && activeCascadeId) {
+        if (!d || typeof d !== "object") return;
+        const action = d.method || d.type;
+        if (!action) return;
+        const params = (d.params && typeof d.params === "object") ? d.params : d;
+        const reply = (ok, result, error) => {
+          const msg = { id: d.id, ok };
+          if (d.jsonrpc) msg.jsonrpc = d.jsonrpc;
+          if (ok) msg.result = result;
+          else msg.error = error;
+          e.source?.postMessage?.(msg, "*");
+        };
+        if ((action === "sendMessage" || action === "ui/message") && (params.text || params.message) && activeCascadeId) {
+          try {
+            await rpc?.("SendUserCascadeMessage", {
+              cascadeId: params.cascadeId || activeCascadeId,
+              items: [{ text: String(params.text || params.message) }],
+              model: activeModel || undefined,
+            });
+            reply(true, { ok: true });
+          } catch (err) {
+            reply(false, null, err.message);
+          }
+        } else if (action === "updateModelContext" && params.context && activeCascadeId) {
           this.contextItems.push({
             id: "embed-" + Date.now(),
             type: "file",
-            label: d.label || "交互上下文",
-            scopeItem: { codeContext: d.context },
+            label: params.label || "交互上下文",
+            scopeItem: { codeContext: params.context },
           });
           this.renderContextChips();
-          e.source?.postMessage?.({ id: d.id, ok: true }, "*");
-        } else if (d.type === "callServerTool" && d.toolName) {
+          reply(true, { ok: true });
+        } else if ((action === "callServerTool" || action === "tools/call") && (params.toolName || params.name)) {
           try {
+            const toolName = params.toolName || params.name;
             const res = await fetch("/gateway/mcp/app/call", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ toolName: d.toolName, arguments: d.arguments || {}, appUri: d.appUri || "" }),
+              body: JSON.stringify({
+                toolName,
+                arguments: params.arguments || {},
+                appUri: params.appUri || params.uri || "",
+                serverName: params.serverName || "",
+              }),
             });
             const payload = await res.json().catch(() => ({}));
-            e.source?.postMessage?.({ id: d.id, ok: res.ok, result: payload }, "*");
+            reply(res.ok, payload, res.ok ? undefined : (payload.error || `HTTP ${res.status}`));
           } catch (err) {
-            e.source?.postMessage?.({ id: d.id, ok: false, error: err.message }, "*");
+            reply(false, null, err.message);
+          }
+        } else if (action === "resources/read" && params.uri) {
+          try {
+            const res = await fetch("/gateway/mcp/app/resource", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ uri: params.uri, serverName: params.serverName || "" }),
+            });
+            const payload = await res.json().catch(() => ({}));
+            reply(res.ok, payload, res.ok ? undefined : (payload.error || `HTTP ${res.status}`));
+          } catch (err) {
+            reply(false, null, err.message);
           }
         }
       });

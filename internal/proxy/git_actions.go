@@ -33,12 +33,101 @@ import (
 //   - 不读取、不转发任何凭据，认证沿用本机 git 的现有配置。
 
 const (
-	gitStatusTimeout = 15 * time.Second
-	gitCommitTimeout = 60 * time.Second
-	gitPushTimeout   = 120 * time.Second
-	gitMaxOutput     = 64 * 1024
-	gitMaxMessageLen = 8000
+	gitStatusTimeout  = 15 * time.Second
+	gitStatusCacheTTL = 4 * time.Second
+	gitCommitTimeout  = 60 * time.Second
+	gitPushTimeout    = 120 * time.Second
+	gitMaxOutput      = 64 * 1024
+	gitMaxMessageLen  = 8000
 )
+
+type gitStatusCacheEntry struct {
+	res       GitStatusResponse
+	fetchedAt time.Time
+}
+
+type gitStatusInflight struct {
+	done chan struct{}
+	res  *GitStatusResponse
+	err  error
+}
+
+var (
+	gitStatusCacheMu sync.Mutex
+	gitStatusCache   = map[string]gitStatusCacheEntry{}
+	gitStatusCalls   = map[string]*gitStatusInflight{}
+)
+
+func cloneGitStatusResponse(src GitStatusResponse) *GitStatusResponse {
+	cp := src
+	if len(src.Files) > 0 {
+		cp.Files = append([]GitFileStatus(nil), src.Files...)
+	}
+	return &cp
+}
+
+func invalidateGitStatusCache(repoRoot string) {
+	key := filepath.Clean(strings.TrimSpace(repoRoot))
+	if key == "" || key == "." {
+		return
+	}
+	gitStatusCacheMu.Lock()
+	delete(gitStatusCache, key)
+	gitStatusCacheMu.Unlock()
+}
+
+// gitStatusCached reuses recent git status checks for large repos and deduplicates concurrent refreshes.
+func gitStatusCached(ctx context.Context, repoRoot string, forceRefresh bool) (*GitStatusResponse, error) {
+	key := filepath.Clean(strings.TrimSpace(repoRoot))
+	if key == "" {
+		return gitStatus(ctx, repoRoot)
+	}
+	now := time.Now()
+	gitStatusCacheMu.Lock()
+	if !forceRefresh {
+		if entry, ok := gitStatusCache[key]; ok && now.Sub(entry.fetchedAt) < gitStatusCacheTTL {
+			gitStatusCacheMu.Unlock()
+			return cloneGitStatusResponse(entry.res), nil
+		}
+		if inflight, ok := gitStatusCalls[key]; ok {
+			gitStatusCacheMu.Unlock()
+			select {
+			case <-inflight.done:
+				if inflight.err != nil {
+					return nil, inflight.err
+				}
+				return cloneGitStatusResponse(*inflight.res), nil
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+	}
+	inflight := &gitStatusInflight{done: make(chan struct{})}
+	gitStatusCalls[key] = inflight
+	gitStatusCacheMu.Unlock()
+
+	res, err := gitStatus(ctx, key)
+
+	gitStatusCacheMu.Lock()
+	if err == nil && res != nil {
+		gitStatusCache[key] = gitStatusCacheEntry{
+			res:       *cloneGitStatusResponse(*res),
+			fetchedAt: time.Now(),
+		}
+	}
+	if gitStatusCalls[key] == inflight {
+		delete(gitStatusCalls, key)
+	}
+	inflight.res = res
+	inflight.err = err
+	close(inflight.done)
+	gitStatusCacheMu.Unlock()
+
+	if err != nil {
+		return nil, err
+	}
+	return cloneGitStatusResponse(*res), nil
+}
 
 var errNotGitRepo = errors.New("该会话的工作区不是 Git 仓库")
 
@@ -844,7 +933,8 @@ func (p *Proxy) HandleGitStatus(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, err.Error(), gitErrorStatus(err))
 		return
 	}
-	st, err := gitStatus(r.Context(), repo)
+	forceRefresh := r.URL.Query().Get("refresh") == "1"
+	st, err := gitStatusCached(r.Context(), repo, forceRefresh)
 	if err != nil {
 		writeJSONError(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -874,6 +964,7 @@ func (p *Proxy) HandleGitCommit(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, err.Error(), http.StatusUnprocessableEntity)
 		return
 	}
+	invalidateGitStatusCache(repo)
 	slog.Info(fmt.Sprintf("[Git] committed %s for cascade %s", res.CommitID, shortCascadeID(cascadeID)))
 	if req.Push {
 		out, pushErr := gitPush(r.Context(), repo)
@@ -882,6 +973,7 @@ func (p *Proxy) HandleGitCommit(w http.ResponseWriter, r *http.Request) {
 		} else {
 			res.Pushed = true
 			res.Output = strings.TrimSpace(res.Output + "\n" + out)
+			invalidateGitStatusCache(repo)
 			invalidateGitPRCache(repo)
 		}
 	}
@@ -905,6 +997,7 @@ func (p *Proxy) HandleGitPush(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, err.Error(), http.StatusUnprocessableEntity)
 		return
 	}
+	invalidateGitStatusCache(repo)
 	invalidateGitPRCache(repo)
 	writeGitJSON(w, GitCommitResponse{Pushed: true, Output: out})
 }

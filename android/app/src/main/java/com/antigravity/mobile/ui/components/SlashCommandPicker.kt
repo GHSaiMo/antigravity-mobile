@@ -89,6 +89,8 @@ fun SlashCommandIcon(
 }
 
 object SlashCommandTextRenderer {
+    const val SKILL_DEF_ANNOTATION_TAG = "SKILL_DEF"
+
     fun buildInlineText(
         text: String,
         mentions: List<SlashCommandMention> = emptyList(),
@@ -106,10 +108,20 @@ object SlashCommandTextRenderer {
                     is SlashTextSegment.Text -> append(seg.content)
                     is SlashTextSegment.Slash -> {
                         val inlineId = "slash_${seg.mention.name}_${inlineMap.size}"
+                        val defPath = seg.mention.definitionPath?.trim().orEmpty()
+                        if (defPath.isNotEmpty()) {
+                            pushStringAnnotation(
+                                tag = SKILL_DEF_ANNOTATION_TAG,
+                                annotation = "$defPath\n${seg.mention.name}"
+                            )
+                        }
                         appendInlineContent(inlineId, alternateText = "/${seg.mention.name}")
                         append(" ")
                         withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) {
                             append(seg.mention.name)
+                        }
+                        if (defPath.isNotEmpty()) {
+                            pop()
                         }
                         inlineMap[inlineId] = InlineTextContent(
                             placeholder = Placeholder(

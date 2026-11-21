@@ -41,10 +41,12 @@ extension MessageBubbleView {
                 SlashCommandTextRenderer.render(
                     text: parsed.body,
                     mentions: message.slashCommands ?? [],
-                    iconColor: .white.withAlphaComponent(0.85)
+                    iconColor: .white.withAlphaComponent(0.85),
+                    enableSkillLinks: true
                 )
                 .font(.system(size: 15.5))
                 .foregroundColor(.white)
+                .tint(.white)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
                 .background(Color.indigo)

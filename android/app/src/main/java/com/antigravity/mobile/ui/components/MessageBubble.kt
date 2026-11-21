@@ -50,12 +50,15 @@ import com.antigravity.mobile.ui.theme.AntigravityTheme
 import com.antigravity.mobile.ui.util.rememberHaptic
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.material.icons.filled.ContentCopy
 import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
@@ -681,12 +684,51 @@ fun MessageBubble(
                             iconColor = colors.userBubbleText.copy(alpha = 0.85f)
                         )
                     }
+                    val hasSkillDefLinks = remember(userAnnotatedText) {
+                        userAnnotatedText.getStringAnnotations(
+                            tag = SlashCommandTextRenderer.SKILL_DEF_ANNOTATION_TAG,
+                            start = 0,
+                            end = userAnnotatedText.length
+                        ).isNotEmpty()
+                    }
+                    var userTextLayoutResult by remember { mutableStateOf<TextLayoutResult?>(null) }
                     Text(
                         text = userAnnotatedText,
                         inlineContent = inlineContentMap,
                         color = colors.userBubbleText,
                         fontSize = 15.5.sp,
-                        lineHeight = 21.sp
+                        lineHeight = 21.sp,
+                        onTextLayout = { userTextLayoutResult = it },
+                        modifier = if (hasSkillDefLinks && onPlanClick != null) {
+                            Modifier.pointerInput(userAnnotatedText, onPlanClick) {
+                                detectTapGestures(
+                                    onTap = { pos ->
+                                        val layout = userTextLayoutResult
+                                        val hit = layout?.let {
+                                            val offset = it.getOffsetForPosition(pos)
+                                            userAnnotatedText.getStringAnnotations(
+                                                tag = SlashCommandTextRenderer.SKILL_DEF_ANNOTATION_TAG,
+                                                start = offset,
+                                                end = offset
+                                            ).firstOrNull()
+                                        }
+                                        if (hit != null) {
+                                            val parts = hit.item.split("\n", limit = 2)
+                                            val defPath = parts.getOrNull(0).orEmpty()
+                                            val skillName = parts.getOrNull(1).orEmpty().ifBlank { "SKILL.md" }
+                                            if (defPath.isNotBlank()) {
+                                                onPlanClick(defPath, "$skillName · SKILL.md")
+                                                return@detectTapGestures
+                                            }
+                                        }
+                                        focusManager.clearFocus()
+                                    },
+                                    onLongPress = { showContextMenu = true }
+                                )
+                            }
+                        } else {
+                            Modifier
+                        }
                     )
 
                     DropdownMenu(

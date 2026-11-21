@@ -381,6 +381,32 @@ extension APIClient {
         return String(data: data, encoding: .utf8) ?? "{}"
     }
 
+    public func getMcpAppResource(
+        uri: String,
+        serverName: String = "",
+        baseURL: URL
+    ) async throws -> String {
+        var payload: [String: JSONValue] = [
+            "uri": .string(uri)
+        ]
+        if !serverName.isEmpty {
+            payload["serverName"] = .string(serverName)
+        }
+        let endpoint = baseURL.appendingPathComponent("gateway/mcp/app/resource")
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try Self.sharedEncoder.encode(payload)
+        request.timeoutInterval = 20
+        let (data, response) = try await transport.send(request: request)
+        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            let code = (response as? HTTPURLResponse)?.statusCode ?? -1
+            let text = String(data: data, encoding: .utf8) ?? "HTTP \(code)"
+            throw APIError.serverError(statusCode: code, message: text)
+        }
+        return String(data: data, encoding: .utf8) ?? "{}"
+    }
+
     // MARK: - Automations CRUD
 
     public func createAutomation(name: String, schedule: String, prompt: String, model: String = "", workspace: String = "", baseURL: URL) async throws {

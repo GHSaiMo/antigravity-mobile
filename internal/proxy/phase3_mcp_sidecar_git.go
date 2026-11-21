@@ -70,6 +70,102 @@ func (p *Proxy) HandleMcpManage(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// parseMcpAppURI extracts an optional serverName and cleaned ui:// URI.
+func parseMcpAppURI(rawURI string) (serverName, cleanURI string) {
+	cleanURI = strings.TrimSpace(rawURI)
+	if !strings.HasPrefix(strings.ToLower(cleanURI), "ui://") {
+		return "", cleanURI
+	}
+	u, err := url.Parse(cleanURI)
+	if err != nil {
+		return "", cleanURI
+	}
+	if sn := strings.TrimSpace(u.Query().Get("serverName")); sn != "" {
+		serverName = sn
+	} else if sn := strings.TrimSpace(u.Query().Get("server")); sn != "" {
+		serverName = sn
+	} else if h := strings.TrimSpace(u.Host); h != "" {
+		serverName = h
+	}
+	return serverName, cleanURI
+}
+
+// extractMcpAppResourceHTML normalizes HTML/text payloads returned by GetMcpAppResource.
+func extractMcpAppResourceHTML(body []byte) (content, mimeType string) {
+	var raw map[string]interface{}
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return "", ""
+	}
+	pick := func(m map[string]interface{}) (string, string) {
+		if m == nil {
+			return "", ""
+		}
+		mt, _ := m["mimeType"].(string)
+		for _, k := range []string{"html", "content", "text"} {
+			if s, ok := m[k].(string); ok && s != "" {
+				return s, mt
+			}
+		}
+		return "", mt
+	}
+	if c, mt := pick(raw); c != "" {
+		return c, mt
+	}
+	if res, ok := raw["resource"].(map[string]interface{}); ok {
+		if c, mt := pick(res); c != "" {
+			return c, mt
+		}
+	}
+	if contents, ok := raw["contents"].([]interface{}); ok {
+		for _, item := range contents {
+			if m, ok := item.(map[string]interface{}); ok {
+				if c, mt := pick(m); c != "" {
+					return c, mt
+				}
+			}
+		}
+	}
+	return "", ""
+}
+
+// fetchMcpAppResourceHTML fetches an MCP App ui:// resource via GetMcpAppResource,
+// launching the MCP App automatically once if the server instance is not yet active.
+func (p *Proxy) fetchMcpAppResourceHTML(ctx context.Context, rawURI, serverName string) (content, mimeType string, rawBody []byte, status int, err error) {
+	inferredServer, cleanURI := parseMcpAppURI(rawURI)
+	if strings.TrimSpace(serverName) == "" {
+		serverName = inferredServer
+	}
+	reqPayload := map[string]interface{}{
+		"uri": cleanURI,
+	}
+	if serverName != "" {
+		reqPayload["serverName"] = serverName
+	}
+
+	rawBody, status, err = p.callUpstreamRPC(ctx, "GetMcpAppResource", reqPayload)
+	if err != nil {
+		return "", "", rawBody, status, err
+	}
+	if status != http.StatusOK && serverName != "" {
+		// Auto-launch MCP App once on first load when server instance isn't active yet.
+		launchPayload := map[string]interface{}{
+			"serverName": serverName,
+			"uri":        cleanURI,
+		}
+		if _, lStatus, lErr := p.callUpstreamRPC(ctx, "LaunchMcpApp", launchPayload); lErr == nil && lStatus == http.StatusOK {
+			rawBody, status, err = p.callUpstreamRPC(ctx, "GetMcpAppResource", reqPayload)
+			if err != nil {
+				return "", "", rawBody, status, err
+			}
+		}
+	}
+	if status != http.StatusOK {
+		return "", "", rawBody, status, fmt.Errorf("GetMcpAppResource returned HTTP %d: %s", status, strings.TrimSpace(string(rawBody)))
+	}
+	content, mimeType = extractMcpAppResourceHTML(rawBody)
+	return content, mimeType, rawBody, status, nil
+}
+
 // HandleMcpApp bridges interactive <agent-embed> / MCP App lifecycle calls.
 func (p *Proxy) HandleMcpApp(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost && r.Method != http.MethodGet {
@@ -89,12 +185,49 @@ func (p *Proxy) HandleMcpApp(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if uriStr, _ := payload["uri"].(string); uriStr != "" {
+		inferredServer, cleanURI := parseMcpAppURI(uriStr)
+		payload["uri"] = cleanURI
+		if sn, _ := payload["serverName"].(string); strings.TrimSpace(sn) == "" && inferredServer != "" {
+			payload["serverName"] = inferredServer
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+
 	var rpcName string
 	switch r.URL.Path {
 	case "/gateway/mcp/app/launch":
 		rpcName = "LaunchMcpApp"
 	case "/gateway/mcp/app/resource":
-		rpcName = "GetMcpAppResource"
+		uriStr, _ := payload["uri"].(string)
+		serverName, _ := payload["serverName"].(string)
+		content, mimeType, body, status, err := p.fetchMcpAppResourceHTML(ctx, uriStr, serverName)
+		if err != nil && len(body) == 0 {
+			writeRPCError(w, status, err.Error())
+			return
+		}
+		if status == http.StatusOK && content != "" {
+			var merged map[string]interface{}
+			if json.Unmarshal(body, &merged) == nil && merged != nil {
+				if _, has := merged["content"]; !has {
+					merged["content"] = content
+				}
+				if mimeType != "" {
+					if _, has := merged["mimeType"]; !has {
+						merged["mimeType"] = mimeType
+					}
+				}
+				if out, mErr := json.Marshal(merged); mErr == nil {
+					body = out
+				}
+			}
+		}
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(status)
+		_, _ = w.Write(body)
+		return
 	case "/gateway/mcp/app/call":
 		rpcName = "CallMcpAppTool"
 	default:
@@ -102,8 +235,6 @@ func (p *Proxy) HandleMcpApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
-	defer cancel()
 	body, status, err := p.callUpstreamRPC(ctx, rpcName, payload)
 	if err != nil {
 		writeRPCError(w, status, err.Error())
@@ -414,6 +545,7 @@ func (p *Proxy) HandleGitExtra(w http.ResponseWriter, r *http.Request) {
 			writeRPCError(w, http.StatusBadRequest, firstNonEmpty(strings.TrimSpace(string(out)), err.Error()))
 			return
 		}
+		invalidateGitStatusCache(repoRoot)
 		branches, current, _ := gitListBranches(ctx, repoRoot)
 		writeJSONStatus(w, http.StatusOK, map[string]interface{}{
 			"ok":       true,
@@ -446,6 +578,7 @@ func (p *Proxy) HandleGitExtra(w http.ResponseWriter, r *http.Request) {
 			writeRPCError(w, http.StatusBadRequest, err.Error())
 			return
 		}
+		invalidateGitStatusCache(repoRoot)
 		writeJSONStatus(w, http.StatusOK, map[string]interface{}{"ok": true})
 	default:
 		http.NotFound(w, r)

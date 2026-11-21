@@ -45,11 +45,12 @@ var hiddenSlashCommands = map[string]bool{
 // SlashCommandOption is one entry of the phone's "/" menu. modelFacingText is deliberately omitted
 // (it can be 15 KB); the gateway re-attaches the authoritative info when the message is sent.
 type SlashCommandOption struct {
-	Name        string `json:"name"`
-	Title       string `json:"title"`
-	Description string `json:"description"`
-	Icon        string `json:"icon,omitempty"`
-	Kind        string `json:"kind"` // "system" | "skill"
+	Name           string `json:"name"`
+	Title          string `json:"title"`
+	Description    string `json:"description"`
+	Icon           string `json:"icon,omitempty"`
+	Kind           string `json:"kind"` // "system" | "skill"
+	DefinitionPath string `json:"definitionPath,omitempty"`
 }
 
 // SlashCommandsResponse is the response of /gateway/slash-commands.
@@ -81,9 +82,10 @@ func buildSlashCommandTables(raw []upstreamSlashCommand) ([]SlashCommandOption, 
 	var options []SlashCommandOption
 	for _, c := range raw {
 		var info struct {
-			Name string `json:"name"`
-			Type string `json:"type"`
-			Icon string `json:"icon"`
+			Name           string `json:"name"`
+			Type           string `json:"type"`
+			Icon           string `json:"icon"`
+			DefinitionPath string `json:"definitionPath"`
 		}
 		if err := json.Unmarshal(c.Info, &info); err != nil || info.Name == "" {
 			continue
@@ -103,7 +105,14 @@ func buildSlashCommandTables(raw []upstreamSlashCommand) ([]SlashCommandOption, 
 		if title == "" {
 			title = info.Name
 		}
-		options = append(options, SlashCommandOption{Name: info.Name, Title: title, Description: c.Description, Icon: info.Icon, Kind: kind})
+		options = append(options, SlashCommandOption{
+			Name:           info.Name,
+			Title:          title,
+			Description:    c.Description,
+			Icon:           info.Icon,
+			Kind:           kind,
+			DefinitionPath: strings.TrimSpace(info.DefinitionPath),
+		})
 	}
 
 	// 注入移动端首选动态多智能体工作流 (/workflow) 快捷入口

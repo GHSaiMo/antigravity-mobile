@@ -153,14 +153,19 @@ public struct ModelsResponse: Codable, Sendable {
 // MARK: - 默认模型与当前会话模型的解析规则（纯函数，便于单测）
 
 public enum ModelDefaultsLogic {
-    public static let fallbackGemini = "gemini-3.8-flash-high"
+    public static let fallbackGemini = "gemini-4-neon-high"
     public static let fallbackClaude = "claude-opus-4-6-thinking"
-    public static let fallbackOrchestrator = "gemini-pro-orchestrator"
+    public static let fallbackOrchestrator = "gemini-pro-orchestrator-neon"
 
     private static let claudeEnumTokens = ["m26", "m35", "m400", "m401", "m402", "m403", "m404", "m405"]
-    private static let orchestratorEnumTokens = ["m667", "m681"]
+    private static let orchestratorEnumTokens = ["m537", "m667", "m681"]
 
     public static let staticEnumByID: [String: String] = [
+        "gemini-4-neon-xhigh": "MODEL_PLACEHOLDER_M535",
+        "gemini-4-neon-high": "MODEL_PLACEHOLDER_M532",
+        "gemini-4-neon-medium": "MODEL_PLACEHOLDER_M533",
+        "gemini-4-neon-low": "MODEL_PLACEHOLDER_M534",
+        "gemini-4-neon": "MODEL_PLACEHOLDER_M532",
         "gemini-4-carbon-high": "MODEL_PLACEHOLDER_M427",
         "gemini-4-carbon-medium": "MODEL_PLACEHOLDER_M437",
         "gemini-4-carbon-low": "MODEL_PLACEHOLDER_M438",
@@ -172,10 +177,13 @@ public enum ModelDefaultsLogic {
         "gemini-4-hydrogen-high": "MODEL_PLACEHOLDER_M525",
         "gemini-4-hydrogen-medium": "MODEL_PLACEHOLDER_M526",
         "gemini-4-hydrogen-low": "MODEL_PLACEHOLDER_M527",
+        "gemini-pro-orchestrator-neon": "MODEL_PLACEHOLDER_M537",
         "gemini-pro-orchestrator": "MODEL_PLACEHOLDER_M667",
         "gemini-pro-orchestrator-argon": "MODEL_PLACEHOLDER_M681",
+        "orchestrator-neon": "MODEL_PLACEHOLDER_M537",
         "orchestrator-carbon": "MODEL_PLACEHOLDER_M667",
         "orchestrator-argon": "MODEL_PLACEHOLDER_M681",
+        "gemini-flash-worker-agy": "MODEL_PLACEHOLDER_M669",
         "gemini-3.8-flash-high": "MODEL_PLACEHOLDER_M318",
         "gemini-3.8-flash-medium": "MODEL_PLACEHOLDER_M319",
         "gemini-3.8-flash-low": "MODEL_PLACEHOLDER_M320",
@@ -201,6 +209,8 @@ public enum ModelDefaultsLogic {
         map["MODEL_PLACEHOLDER_M420"] = "gemini-4-carbon-high"
         map["MODEL_PLACEHOLDER_M421"] = "gemini-4-carbon-medium"
         map["MODEL_PLACEHOLDER_M422"] = "gemini-4-carbon-low"
+        map["MODEL_PLACEHOLDER_M532"] = "gemini-4-neon-high"
+        map["MODEL_PLACEHOLDER_M537"] = "gemini-pro-orchestrator-neon"
         map["MODEL_PLACEHOLDER_M667"] = "gemini-pro-orchestrator"
         map["MODEL_PLACEHOLDER_M681"] = "gemini-pro-orchestrator-argon"
         return map
@@ -208,6 +218,11 @@ public enum ModelDefaultsLogic {
 
     /// 内置/预设模型 ID → 统一展示名映射，避免离线、未拉取目录或切号过渡期露出小写裸 ID。
     public static let staticDisplayNameByID: [String: String] = [
+        "gemini-4-neon-xhigh": "Gemini 4 Neon (Extra)",
+        "gemini-4-neon-high": "Gemini 4 Neon (High)",
+        "gemini-4-neon-medium": "Gemini 4 Neon (Medium)",
+        "gemini-4-neon-low": "Gemini 4 Neon (Low)",
+        "gemini-4-neon": "Gemini 4 Neon",
         "gemini-4-carbon-high": "Gemini 4 Carbon (High)",
         "gemini-4-carbon-medium": "Gemini 4 Carbon (Medium)",
         "gemini-4-carbon-low": "Gemini 4 Carbon (Low)",
@@ -232,15 +247,23 @@ public enum ModelDefaultsLogic {
         "claude-sonnet-5-5-low": "Claude Sonnet 5.5 (Low)",
         "claude-opus-4-6-thinking": "Claude Opus 4.6 (Thinking)",
         "claude-sonnet-4-6": "Claude Sonnet 4.6 (Thinking)",
+        "gemini-pro-orchestrator-neon": "Orchestrator (Neon)",
+        "orchestrator-neon": "Orchestrator (Neon)",
         "gemini-pro-orchestrator": "Orchestrator (Carbon)",
         "gemini-pro-orchestrator-argon": "Orchestrator (Argon)",
         "orchestrator-carbon": "Orchestrator (Carbon)",
         "orchestrator-argon": "Orchestrator (Argon)",
+        "gemini-flash-worker-agy": "Gemini 4 Hydrogen (Orchestrator)",
         "gpt-oss-120b-medium": "GPT-OSS 120B (Medium)",
     ]
 
     /// 顶栏芯片紧凑展示名映射（如 `Gemini 4 Carbon (High)` → `Carbon · High`）。
     public static let staticCompactDisplayNameByID: [String: String] = [
+        "gemini-4-neon-xhigh": "Neon · Extra",
+        "gemini-4-neon-high": "Neon · High",
+        "gemini-4-neon-medium": "Neon · Med",
+        "gemini-4-neon-low": "Neon · Low",
+        "gemini-4-neon": "Neon",
         "gemini-4-carbon-high": "Carbon · High",
         "gemini-4-carbon-medium": "Carbon · Med",
         "gemini-4-carbon-low": "Carbon · Low",
@@ -265,6 +288,8 @@ public enum ModelDefaultsLogic {
         "claude-sonnet-5-5-low": "Sonnet 5.5 · Low",
         "claude-opus-4-6-thinking": "Opus 4.6 · Think",
         "claude-sonnet-4-6": "Sonnet 4.6 · Think",
+        "gemini-pro-orchestrator-neon": "Orch · Neon",
+        "orchestrator-neon": "Orch · Neon",
         "gemini-pro-orchestrator": "Orch · Carbon",
         "gemini-pro-orchestrator-argon": "Orch · Argon",
         "orchestrator-carbon": "Orch · Carbon",

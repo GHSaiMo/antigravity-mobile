@@ -410,7 +410,7 @@ public struct AgentEmbedWebView: UIViewRepresentable {
                         self.parent.onTitleDetected?(title)
                     }
                 } else if message.name == "agentEmbedBridge", let body = message.body as? [String: Any] {
-                    Self.handleBridgeAction(body)
+                    Self.handleBridgeAction(body, webView: self.webView)
                 }
             }
         }
@@ -431,30 +431,81 @@ public struct AgentEmbedWebView: UIViewRepresentable {
         }
 
         @MainActor
-        private static func handleBridgeAction(_ body: [String: Any]) {
+        private static func postBridgeReply(to webView: WKWebView?, id: Any?, jsonrpc: String?, ok: Bool, rawJSON: String? = nil, error: String? = nil) {
+            guard let webView else { return }
+            var envelope: [String: Any] = ["ok": ok]
+            if let id { envelope["id"] = id }
+            if let jsonrpc { envelope["jsonrpc"] = jsonrpc }
+            if ok {
+                if let rawJSON,
+                   let data = rawJSON.data(using: .utf8),
+                   let parsed = try? JSONSerialization.jsonObject(with: data) {
+                    envelope["result"] = parsed
+                } else {
+                    envelope["result"] = ["ok": true]
+                }
+            } else {
+                envelope["error"] = error ?? "request failed"
+            }
+            guard let jsonData = try? JSONSerialization.data(withJSONObject: envelope),
+                  let jsonText = String(data: jsonData, encoding: .utf8) else { return }
+            let js = "window.dispatchEvent(new MessageEvent('message', { data: \(jsonText) }));"
+            webView.evaluateJavaScript(js, completionHandler: nil)
+        }
+
+        @MainActor
+        private static func handleBridgeAction(_ body: [String: Any], webView: WKWebView?) {
             guard let gwUrl = AppSettings.shared.gatewayURL else { return }
             let action = (body["method"] as? String) ?? (body["type"] as? String) ?? ""
             let params = (body["params"] as? [String: Any]) ?? body
+            let reqId = body["id"]
+            let jsonrpc = body["jsonrpc"] as? String
             switch action {
             case "sendMessage", "ui/message":
                 let text = ((params["text"] as? String) ?? (params["message"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
                 let cid = (params["cascadeId"] as? String) ?? ChatViewModel.activeCascadeId
                 guard !text.isEmpty, !cid.isEmpty else { return }
-                Task {
-                    try? await APIClient.shared.sendMessage(cascadeId: cid, text: text, baseURL: gwUrl)
+                Task { @MainActor in
+                    do {
+                        try await APIClient.shared.sendMessage(cascadeId: cid, text: text, baseURL: gwUrl)
+                        postBridgeReply(to: webView, id: reqId, jsonrpc: jsonrpc, ok: true)
+                    } catch {
+                        postBridgeReply(to: webView, id: reqId, jsonrpc: jsonrpc, ok: false, error: error.localizedDescription)
+                    }
                 }
             case "callServerTool", "tools/call":
                 let toolName = (params["name"] as? String) ?? (params["toolName"] as? String) ?? ""
-                let appUri = (params["appUri"] as? String) ?? ""
+                let appUri = (params["appUri"] as? String) ?? (params["uri"] as? String) ?? ""
                 guard !toolName.isEmpty else { return }
                 let args = toJSONValue(params["arguments"])
-                Task {
-                    _ = try? await APIClient.shared.callMcpAppTool(
-                        toolName: toolName,
-                        arguments: args,
-                        appUri: appUri,
-                        baseURL: gwUrl
-                    )
+                Task { @MainActor in
+                    do {
+                        let raw = try await APIClient.shared.callMcpAppTool(
+                            toolName: toolName,
+                            arguments: args,
+                            appUri: appUri,
+                            baseURL: gwUrl
+                        )
+                        postBridgeReply(to: webView, id: reqId, jsonrpc: jsonrpc, ok: true, rawJSON: raw)
+                    } catch {
+                        postBridgeReply(to: webView, id: reqId, jsonrpc: jsonrpc, ok: false, error: error.localizedDescription)
+                    }
+                }
+            case "resources/read":
+                let uri = (params["uri"] as? String) ?? ""
+                let serverName = (params["serverName"] as? String) ?? ""
+                guard !uri.isEmpty else { return }
+                Task { @MainActor in
+                    do {
+                        let raw = try await APIClient.shared.getMcpAppResource(
+                            uri: uri,
+                            serverName: serverName,
+                            baseURL: gwUrl
+                        )
+                        postBridgeReply(to: webView, id: reqId, jsonrpc: jsonrpc, ok: true, rawJSON: raw)
+                    } catch {
+                        postBridgeReply(to: webView, id: reqId, jsonrpc: jsonrpc, ok: false, error: error.localizedDescription)
+                    }
                 }
             default:
                 break

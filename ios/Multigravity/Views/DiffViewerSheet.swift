@@ -15,11 +15,13 @@ public struct ProcessedDiffLine: Identifiable, Sendable {
     public let id: Int
     public let line: RevertDiffLine
     public let spans: [DiffSpan]
-    
-    public init(id: Int, line: RevertDiffLine, spans: [DiffSpan]) {
+    public let displayLineNumber: Int
+
+    public init(id: Int, line: RevertDiffLine, spans: [DiffSpan], displayLineNumber: Int = 0) {
         self.id = id
         self.line = line
         self.spans = spans
+        self.displayLineNumber = displayLineNumber
     }
 }
 
@@ -145,18 +147,39 @@ public struct DiffViewerSheet: View {
             return " "
         }()
         
-        HStack(alignment: .top, spacing: 8) {
+        let stripColor: Color = {
+            if isInsert { return Color.green }
+            if isDelete { return Color.red }
+            return Color.clear
+        }()
+
+        let gutterColor: Color = {
+            if isInsert { return Color.green.opacity(0.75) }
+            if isDelete { return Color.red.opacity(0.75) }
+            return Color.secondary.opacity(0.65)
+        }()
+
+        HStack(alignment: .top, spacing: 6) {
+            Rectangle()
+                .fill(stripColor)
+                .frame(width: 3)
+
+            Text(item.displayLineNumber > 0 ? "\(item.displayLineNumber)" : "")
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundColor(gutterColor)
+                .frame(width: 30, alignment: .trailing)
+
             Text(prefix)
                 .font(.system(size: 12, weight: .bold, design: .monospaced))
                 .foregroundColor(textColor)
-                .frame(width: 14, alignment: .center)
-            
+                .frame(width: 12, alignment: .center)
+
             Text(buildAttributedLine(spans: item.spans, isInsert: isInsert, isDelete: isDelete))
                 .font(.system(size: 12, design: .monospaced))
                 .foregroundColor(textColor)
                 .fixedSize(horizontal: true, vertical: false)
         }
-        .padding(.horizontal, 12)
+        .padding(.trailing, 12)
         .padding(.vertical, 2)
         .frame(minWidth: UIScreen.main.bounds.width, maxWidth: .infinity, alignment: .leading)
         .background(bgColor)
@@ -227,7 +250,24 @@ public struct DiffViewerSheet: View {
             result.append(ProcessedDiffLine(id: i, line: lines[i], spans: [DiffSpan(text: text, isChanged: false)]))
             i += 1
         }
-        return result
+        var oldLine = 0
+        var newLine = 0
+        return result.map { item in
+            let t = item.line.type.uppercased()
+            let lineNo: Int
+            if t == "INSERT" {
+                newLine += 1
+                lineNo = newLine
+            } else if t == "DELETE" {
+                oldLine += 1
+                lineNo = oldLine
+            } else {
+                oldLine += 1
+                newLine += 1
+                lineNo = newLine
+            }
+            return ProcessedDiffLine(id: item.id, line: item.line, spans: item.spans, displayLineNumber: lineNo)
+        }
     }
     
     public static func tokenize(_ text: String) -> [String] {

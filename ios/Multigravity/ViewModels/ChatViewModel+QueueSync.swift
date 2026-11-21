@@ -421,7 +421,7 @@ extension ChatViewModel {
             let matched = self.slashCommands.first(where: { $0.name == slash })
             let kind = matched?.kind ?? (SlashCommandIconCatalog.defaultSystemIcons[slash] != nil ? "system" : "skill")
             let icon = SlashCommandIconCatalog.resolveIcon(name: slash, icon: matched?.icon, kind: kind)
-            return [SlashCommandMention(name: slash, icon: icon, kind: kind)]
+            return [SlashCommandMention(name: slash, icon: icon, kind: kind, definitionPath: matched?.definitionPath)]
         }()
         messages.append(ChatMessage(id: optId, sender: .user, content: displayText, imageDataList: images ?? [], slashCommands: optSlashMentions, clientMessageId: clientMessageId))
         triggerScrollToBottom()

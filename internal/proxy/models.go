@@ -57,13 +57,17 @@ type ModelsResponse struct {
 
 // 兜底默认值候选（按优先级排列）：实时列表里存在时才会被采用。
 var preferredDefaults = map[string][]string{
-	"gemini":       {"gemini-3.8-flash-high", "gemini-4-carbon-high", "gemini-4-argon-high"},
+	"gemini":       {"gemini-4-neon-high", "gemini-4-hydrogen-high", "gemini-4-carbon-high", "gemini-3.8-flash-high", "gemini-4-argon-high"},
 	"claude":       {"claude-opus-4-6-thinking", "claude-opus-5-5-high"},
-	"orchestrator": {"gemini-pro-orchestrator", "gemini-pro-orchestrator-argon"},
+	"orchestrator": {"gemini-pro-orchestrator-neon", "gemini-pro-orchestrator", "gemini-pro-orchestrator-argon"},
 }
 
 // fallbackModels is used until the first successful query, or when language_server is unreachable.
 var fallbackModels = []ModelOption{
+	{ID: "gemini-4-neon-xhigh", Name: "Gemini 4 Neon (Extra)", Provider: "gemini", Enum: "MODEL_PLACEHOLDER_M535", SupportsImages: true, Thinking: true, Tag: "New"},
+	{ID: "gemini-4-neon-high", Name: "Gemini 4 Neon (High)", Provider: "gemini", Enum: "MODEL_PLACEHOLDER_M532", SupportsImages: true, Thinking: true, Tag: "New"},
+	{ID: "gemini-4-neon-medium", Name: "Gemini 4 Neon (Medium)", Provider: "gemini", Enum: "MODEL_PLACEHOLDER_M533", SupportsImages: true, Thinking: true, Tag: "New"},
+	{ID: "gemini-4-neon-low", Name: "Gemini 4 Neon (Low)", Provider: "gemini", Enum: "MODEL_PLACEHOLDER_M534", SupportsImages: true, Thinking: true, Tag: "New"},
 	{ID: "gemini-4-hydrogen-xhigh", Name: "Gemini 4 Hydrogen (Extra)", Provider: "gemini", Enum: "MODEL_PLACEHOLDER_M528", SupportsImages: true, Thinking: true, Tag: "New"},
 	{ID: "gemini-4-hydrogen-high", Name: "Gemini 4 Hydrogen (High)", Provider: "gemini", Enum: "MODEL_PLACEHOLDER_M525", SupportsImages: true, Thinking: true, Tag: "New"},
 	{ID: "gemini-4-hydrogen-medium", Name: "Gemini 4 Hydrogen (Medium)", Provider: "gemini", Enum: "MODEL_PLACEHOLDER_M526", SupportsImages: true, Thinking: true, Tag: "New"},
@@ -85,6 +89,9 @@ var fallbackModels = []ModelOption{
 	{ID: "claude-sonnet-5-5-low", Name: "Claude Sonnet 5.5 (Low)", Provider: "claude", Enum: "MODEL_PLACEHOLDER_M403", SupportsImages: true, Thinking: true, Tag: "New"},
 	{ID: "claude-opus-4-6-thinking", Name: "Claude Opus 4.6 (Thinking)", Provider: "claude", Enum: "MODEL_PLACEHOLDER_M26", SupportsImages: true, Thinking: true},
 	{ID: "claude-sonnet-4-6", Name: "Claude Sonnet 4.6 (Thinking)", Provider: "claude", Enum: "MODEL_PLACEHOLDER_M35", SupportsImages: true, Thinking: true},
+	{ID: "gemini-pro-orchestrator-neon", Name: "Orchestrator (Neon)", Provider: "orchestrator", Enum: "MODEL_PLACEHOLDER_M537", SupportsImages: true, Thinking: true, Tag: "New"},
+	{ID: "gemini-pro-orchestrator", Name: "Orchestrator (Carbon)", Provider: "orchestrator", Enum: "MODEL_PLACEHOLDER_M667", SupportsImages: true, Thinking: true, Tag: "New"},
+	{ID: "gemini-pro-orchestrator-argon", Name: "Orchestrator (Argon)", Provider: "orchestrator", Enum: "MODEL_PLACEHOLDER_M681", SupportsImages: true, Thinking: true, Tag: "New"},
 }
 
 // upstreamModel mirrors the fields of GetAvailableModels we care about.

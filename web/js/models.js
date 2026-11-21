@@ -5,22 +5,23 @@
 // 单击模型胶囊在两个常用模型间快速切换；长按/右键列出全部模型（Gemini 蓝 / Claude 橙 / Orchestrator 钛灰）及二级思考强度（Low -> Medium -> High -> Extra，默认 Medium）。
 
 const MODEL_FALLBACK = {
-  gemini: "gemini-3.8-flash-high",
+  gemini: "gemini-4-neon-high",
   claude: "claude-opus-4-6-thinking",
-  orchestrator: "gemini-pro-orchestrator"
+  orchestrator: "gemini-pro-orchestrator-neon"
 };
 const MODEL_ENUM_FALLBACK = {
-  gemini: "MODEL_PLACEHOLDER_M318",
+  gemini: "MODEL_PLACEHOLDER_M532",
   claude: "MODEL_PLACEHOLDER_M26",
-  orchestrator: "MODEL_PLACEHOLDER_M667"
+  orchestrator: "MODEL_PLACEHOLDER_M537"
 };
 const MODEL_CATALOG_KEY = "agy_model_catalog";
 const MODEL_DEFAULT_KEY = (provider) => `agy_default_${provider}_model`;
 const FAVORITE_MODEL_KEY = (slot) => `agy_favorite_model_${slot}`;
 const IGNORED_PICKER_TAGS = new Set(["new", "fast", "notice", "提示"]);
 const CLAUDE_ENUM_TOKENS = ["m26", "m35", "m400", "m401", "m402", "m403", "m404", "m405"];
-const ORCHESTRATOR_ENUM_TOKENS = ["m667", "m681"];
+const ORCHESTRATOR_ENUM_TOKENS = ["m537", "m667", "m681"];
 const MODEL_FALLBACK_ORDER = [
+  "gemini-4-neon-high", "gemini-4-neon-xhigh", "gemini-4-neon-medium", "gemini-4-neon-low",
   "gemini-4-carbon-medium", "gemini-4-carbon-high", "gemini-4-carbon-low",
   "gemini-4-argon-medium", "gemini-4-argon-high", "gemini-4-argon-low",
   "gemini-4-hydrogen-xhigh", "gemini-4-hydrogen-high", "gemini-4-hydrogen-medium", "gemini-4-hydrogen-low",
@@ -28,9 +29,14 @@ const MODEL_FALLBACK_ORDER = [
   "claude-opus-5-5-high", "claude-opus-5-5-medium", "claude-opus-5-5-low",
   "claude-sonnet-5-5-high", "claude-sonnet-5-5-medium", "claude-sonnet-5-5-low",
   "claude-opus-4-6-thinking", "claude-sonnet-4-6",
-  "gemini-pro-orchestrator", "gemini-pro-orchestrator-argon"
+  "gemini-pro-orchestrator-neon", "gemini-pro-orchestrator", "gemini-pro-orchestrator-argon"
 ];
 const MODEL_STATIC_NAMES = {
+  "gemini-4-neon-xhigh": "Gemini 4 Neon (Extra)",
+  "gemini-4-neon-high": "Gemini 4 Neon (High)",
+  "gemini-4-neon-medium": "Gemini 4 Neon (Medium)",
+  "gemini-4-neon-low": "Gemini 4 Neon (Low)",
+  "gemini-4-neon": "Gemini 4 Neon",
   "gemini-4-hydrogen-xhigh": "Gemini 4 Hydrogen (Extra)",
   "gemini-4-hydrogen-high": "Gemini 4 Hydrogen (High)",
   "gemini-4-hydrogen-medium": "Gemini 4 Hydrogen (Medium)",
@@ -55,10 +61,13 @@ const MODEL_STATIC_NAMES = {
   "claude-sonnet-5-5-low": "Claude Sonnet 5.5 (Low)",
   "claude-opus-4-6-thinking": "Claude Opus 4.6 (Thinking)",
   "claude-sonnet-4-6": "Claude Sonnet 4.6 (Thinking)",
+  "gemini-pro-orchestrator-neon": "Orchestrator (Neon)",
+  "orchestrator-neon": "Orchestrator (Neon)",
   "gemini-pro-orchestrator": "Orchestrator (Carbon)",
   "gemini-pro-orchestrator-argon": "Orchestrator (Argon)",
   "orchestrator-carbon": "Orchestrator (Carbon)",
   "orchestrator-argon": "Orchestrator (Argon)",
+  "gemini-flash-worker-agy": "Gemini 4 Hydrogen (Orchestrator)",
   "gpt-oss-120b-medium": "GPT-OSS 120B (Medium)",
 };
 

@@ -40,7 +40,8 @@ data class DiffSpan(
 data class ProcessedDiffLine(
     val id: Int,
     val line: RevertDiffLine,
-    val spans: List<DiffSpan>
+    val spans: List<DiffSpan>,
+    val displayLineNumber: Int = 0
 )
 
 @Composable
@@ -244,27 +245,59 @@ private fun DiffLineRow(
         }
     }
 
+    val stripColor = when {
+        isInsert -> Color(0xFF4CAF50)
+        isDelete -> Color(0xFFF44336)
+        else -> Color.Transparent
+    }
+
+    val gutterColor = when {
+        isInsert -> Color(0xFF4CAF50).copy(alpha = 0.78f)
+        isDelete -> Color(0xFFF44336).copy(alpha = 0.78f)
+        else -> colors.textMuted.copy(alpha = 0.7f)
+    }
+
     Row(
         modifier = modifier
             .fillMaxWidth()
+            .height(IntrinsicSize.Min)
             .background(bgColor)
-            .padding(horizontal = 12.dp, vertical = 2.dp),
+            .padding(end = 12.dp),
         verticalAlignment = Alignment.Top
     ) {
+        Box(
+            modifier = Modifier
+                .width(3.dp)
+                .fillMaxHeight()
+                .background(stripColor)
+        )
+        Text(
+            text = if (item.displayLineNumber > 0) item.displayLineNumber.toString() else "",
+            fontFamily = FontFamily.Monospace,
+            fontSize = 11.sp,
+            color = gutterColor,
+            textAlign = androidx.compose.ui.text.style.TextAlign.End,
+            modifier = Modifier
+                .width(34.dp)
+                .padding(start = 4.dp, end = 6.dp, top = 2.dp, bottom = 2.dp)
+        )
         Text(
             text = prefix,
             fontFamily = FontFamily.Monospace,
             fontSize = 12.sp,
             fontWeight = FontWeight.Bold,
             color = textColor,
-            modifier = Modifier.width(16.dp)
+            modifier = Modifier
+                .width(14.dp)
+                .padding(vertical = 2.dp)
         )
         Text(
             text = annotatedString,
             fontFamily = FontFamily.Monospace,
             fontSize = 12.sp,
             color = textColor,
-            softWrap = false
+            softWrap = false,
+            modifier = Modifier.padding(vertical = 2.dp)
         )
     }
 }
@@ -316,7 +349,26 @@ fun processDiffLines(lines: List<RevertDiffLine>): List<ProcessedDiffLine> {
         result.add(ProcessedDiffLine(i, lines[i], listOf(DiffSpan(text, false))))
         i++
     }
-    return result
+    var oldLine = 0
+    var newLine = 0
+    return result.map { item ->
+        val lineNo = when (item.line.type.uppercase()) {
+            "INSERT" -> {
+                newLine += 1
+                newLine
+            }
+            "DELETE" -> {
+                oldLine += 1
+                oldLine
+            }
+            else -> {
+                oldLine += 1
+                newLine += 1
+                newLine
+            }
+        }
+        item.copy(displayLineNumber = lineNo)
+    }
 }
 
 fun tokenize(text: String): List<String> {

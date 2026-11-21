@@ -86,7 +86,8 @@ function extractUserInputTextAndSlashCommands(userInput) {
           ? "system"
           : "skill";
       const icon = resolveSlashCommandIcon(name, scInfo.icon, kind);
-      slashCommands.push({ name, icon, kind });
+      const definitionPath = String(scInfo.definitionPath || "").trim();
+      slashCommands.push(definitionPath ? { name, icon, kind, definitionPath } : { name, icon, kind });
       itemParts.push("/" + name);
     } else if (typeof it?.text === "string" && it.text) {
       itemParts.push(it.text);
@@ -113,16 +114,19 @@ function renderUserTextWithSlashPills(text, slashCommands) {
         name: cmd.name,
         icon: resolveSlashCommandIcon(cmd.name, cmd.icon, cmd.kind),
         kind: cmd.kind || "skill",
+        definitionPath: String(cmd.definitionPath || "").trim(),
       });
     }
   }
   if (Array.isArray(slashCommands)) {
     for (const sc of slashCommands) {
       if (sc && sc.name) {
+        const existing = lookup.get(sc.name);
         lookup.set(sc.name, {
           name: sc.name,
           icon: resolveSlashCommandIcon(sc.name, sc.icon, sc.kind),
           kind: sc.kind || "skill",
+          definitionPath: String(sc.definitionPath || existing?.definitionPath || "").trim(),
         });
       }
     }
@@ -151,11 +155,37 @@ function renderUserTextWithSlashPills(text, slashCommands) {
 
     out += escapeHtml(raw.slice(lastIdx, slashStart));
     const svg = renderSlashCommandIconSvg(info.name, info.icon, info.kind, 16, "user-slash-pill-icon");
-    out += `<span class="user-slash-pill">${svg}<span class="user-slash-pill-name">${escapeHtml(info.name)}</span></span>`;
+    const defAttr = info.definitionPath
+      ? ` data-skill-def="${escapeHtml(info.definitionPath)}" data-skill-name="${escapeHtml(info.name)}" role="button" tabindex="0"`
+      : "";
+    out += `<span class="user-slash-pill"${defAttr}>${svg}<span class="user-slash-pill-name">${escapeHtml(info.name)}</span></span>`;
     lastIdx = tokenEnd;
   }
   out += escapeHtml(raw.slice(lastIdx));
   return out;
+}
+
+if (typeof document !== "undefined" && !window.__mgySkillPillBound) {
+  window.__mgySkillPillBound = true;
+  const openSkillPill = (pill) => {
+    const defPath = pill?.getAttribute("data-skill-def");
+    if (!defPath) return;
+    const skillName = pill.getAttribute("data-skill-name") || "SKILL.md";
+    window.openMarkdownViewer?.(defPath, `${skillName} · SKILL.md`);
+  };
+  document.addEventListener("click", (e) => {
+    const pill = e.target?.closest?.(".user-slash-pill[data-skill-def]");
+    if (!pill) return;
+    e.stopPropagation();
+    openSkillPill(pill);
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    const pill = e.target?.closest?.(".user-slash-pill[data-skill-def]");
+    if (!pill) return;
+    e.preventDefault();
+    openSkillPill(pill);
+  });
 }
 
 // 检测输入框末尾是否正在输入 "/xxx" 斜杠命令；若命中则返回要筛选的关键字（不含 "/"），否则返回 null。

@@ -111,18 +111,32 @@ function renderChangesSheet() {
     const lines = Array.isArray(f.diffLines) ? f.diffLines : [];
     const shown = lines.slice(0, DIFF_MAX_LINES);
     const processed = processDiffLines(shown);
+    let oldLineNo = 0;
+    let newLineNo = 0;
     const rows = processed
       .map(({ line: l, spans }) => {
         const t = String(l.type || "").toUpperCase();
         const cls = t === "INSERT" ? "ins" : t === "DELETE" ? "del" : "ctx";
         const sign = t === "INSERT" ? "+" : t === "DELETE" ? "−" : " ";
+        let lineNo = "";
+        if (t === "INSERT") {
+          newLineNo += 1;
+          lineNo = String(newLineNo);
+        } else if (t === "DELETE") {
+          oldLineNo += 1;
+          lineNo = String(oldLineNo);
+        } else {
+          oldLineNo += 1;
+          newLineNo += 1;
+          lineNo = String(newLineNo);
+        }
         const spanHtml = spans.map(s => {
           const escaped = escapeHtml(s.text);
           if (!s.isChanged) return escaped;
           const tokenCls = t === "INSERT" ? "diff-token-ins" : "diff-token-del";
           return `<span class="${tokenCls}">${escaped}</span>`;
         }).join("");
-        return `<div class="diff-line ${cls}"><span class="diff-sign">${sign}</span><span class="diff-text">${spanHtml || "&nbsp;"}</span></div>`;
+        return `<div class="diff-line ${cls}"><span class="diff-gutter">${lineNo}</span><span class="diff-sign">${sign}</span><span class="diff-text">${spanHtml || "&nbsp;"}</span></div>`;
       })
       .join("");
     const truncated = lines.length > shown.length ? `<div class="diff-truncated">仅显示前 ${DIFF_MAX_LINES} 行，共 ${lines.length} 行</div>` : "";

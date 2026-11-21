@@ -82,7 +82,8 @@ public struct UserInputPayload: Codable, Sendable {
                     return "skill"
                 }()
                 let icon = SlashCommandIconCatalog.resolveIcon(name: rawName, icon: scInfo.icon, kind: kind)
-                slashCommands.append(SlashCommandMention(name: rawName, icon: icon, kind: kind))
+                let defPath = scInfo.definitionPath?.trimmingCharacters(in: .whitespacesAndNewlines)
+                slashCommands.append(SlashCommandMention(name: rawName, icon: icon, kind: kind, definitionPath: defPath?.isEmpty == false ? defPath : nil))
                 parts.append("/" + rawName)
             } else if let text = it.text, !text.isEmpty {
                 parts.append(text)
@@ -125,6 +126,7 @@ public struct TextItem: Codable, Sendable {
         public let name: String?
         public let type: String?
         public let icon: String?
+        public let definitionPath: String?
     }
     public struct UserInputChunk: Codable, Sendable {
         public let text: String?

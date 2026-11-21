@@ -448,8 +448,8 @@ public final class AppSettings {
         if let known = ModelCatalogStore.shared.modelEnum(forID: activeModel) { return known }
         switch activeModelProviderKind {
         case .claude: return "MODEL_PLACEHOLDER_M26"
-        case .orchestrator: return "MODEL_PLACEHOLDER_M667"
-        case .gemini, .other: return "MODEL_PLACEHOLDER_M318"
+        case .orchestrator: return "MODEL_PLACEHOLDER_M537"
+        case .gemini, .other: return "MODEL_PLACEHOLDER_M532"
         }
     }
 

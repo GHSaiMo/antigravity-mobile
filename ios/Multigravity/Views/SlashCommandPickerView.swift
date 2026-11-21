@@ -44,7 +44,8 @@ public enum SlashCommandTextRenderer {
         mentions: [SlashCommandMention] = [],
         availableCommands: [SlashCommandOption] = [],
         iconColor: UIColor = .white,
-        iconSize: CGFloat = 15
+        iconSize: CGFloat = 15,
+        enableSkillLinks: Bool = false
     ) -> Text {
         let segments = SlashCommandTextTokenizer.tokenize(
             text: text,
@@ -62,8 +63,16 @@ public enum SlashCommandTextRenderer {
                 let iconKey = SlashCommandIconCatalog.resolveIcon(name: mention.name, icon: mention.icon, kind: mention.kind)
                 let img = SlashCommandIconCatalog.cachedImage(iconKey: iconKey, size: iconSize, color: iconColor)
                 let iconText = Text(Image(uiImage: img)).baselineOffset(-1.5)
-                let nameText = Text(verbatim: " \(mention.name)").fontWeight(.semibold)
-                result = result + iconText + nameText
+                if enableSkillLinks,
+                   let defPath = mention.definitionPath?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   !defPath.isEmpty {
+                    var attr = AttributedString(" \(mention.name)")
+                    attr.link = URL(fileURLWithPath: defPath)
+                    result = result + iconText + Text(attr).fontWeight(.semibold)
+                } else {
+                    let nameText = Text(verbatim: " \(mention.name)").fontWeight(.semibold)
+                    result = result + iconText + nameText
+                }
             }
         }
         return result

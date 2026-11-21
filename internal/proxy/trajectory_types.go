@@ -16,9 +16,10 @@ type ArtifactItem struct {
 
 // SlashCommandMention represents a slash command or skill invoked in a USER_INPUT step.
 type SlashCommandMention struct {
-	Name string `json:"name"`
-	Icon string `json:"icon,omitempty"`
-	Kind string `json:"kind,omitempty"` // "system" | "skill"
+	Name           string `json:"name"`
+	Icon           string `json:"icon,omitempty"`
+	Kind           string `json:"kind,omitempty"` // "system" | "skill"
+	DefinitionPath string `json:"definitionPath,omitempty"`
 }
 
 // ToolDetailItem describes a single tool call or step inside a folded tools/thinking capsule.
@@ -277,9 +278,10 @@ type TrajectoryUserInput struct {
 		Item *struct {
 			SlashCommand *struct {
 				Info *struct {
-					Name string `json:"name"`
-					Type string `json:"type,omitempty"`
-					Icon string `json:"icon,omitempty"`
+					Name           string `json:"name"`
+					Type           string `json:"type,omitempty"`
+					Icon           string `json:"icon,omitempty"`
+					DefinitionPath string `json:"definitionPath,omitempty"`
 				} `json:"info"`
 			} `json:"slashCommand"`
 		} `json:"item,omitempty"`
@@ -368,9 +370,10 @@ func (ui *TrajectoryUserInput) ExtractTextAndSlashCommands() (string, []SlashCom
 				if !seen[name] {
 					seen[name] = true
 					mentions = append(mentions, SlashCommandMention{
-						Name: name,
-						Icon: icon,
-						Kind: kind,
+						Name:           name,
+						Icon:           icon,
+						Kind:           kind,
+						DefinitionPath: strings.TrimSpace(info.DefinitionPath),
 					})
 				}
 				sb.WriteString("/")

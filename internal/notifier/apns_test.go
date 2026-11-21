@@ -444,7 +444,7 @@ func TestLiveActivityDispatcher_NoDuplicateStartAcrossRestartAndConcurrentSessio
 	updateTokB := sampleHexToken("8888")
 	_ = store.UpsertLiveActivityStartToken("dev-1", "ios", startTok, "production", nil)
 
-	curTime := time.Date(2026, 11, 19, 12, 0, 0, 0, time.UTC)
+	curTime := time.Now().UTC().Truncate(time.Second)
 	disp1 := NewLiveActivityDispatcher(NewAPNsRelayClient(relaySrv.URL, store), true)
 	disp1.nowFunc = func() time.Time { return curTime }
 
@@ -554,7 +554,7 @@ func TestLiveActivityDispatcher_CapThreeCardsApprovalPriority(t *testing.T) {
 	}
 	_ = store.UpsertLiveActivityStartToken("dev-1", "ios", sampleHexToken("7777"), "production", nil)
 
-	curTime := time.Date(2026, 11, 19, 12, 0, 0, 0, time.UTC)
+	curTime := time.Now().UTC().Truncate(time.Second)
 	disp := NewLiveActivityDispatcher(NewAPNsRelayClient(relaySrv.URL, store), true)
 	disp.nowFunc = func() time.Time { return curTime }
 

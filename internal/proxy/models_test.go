@@ -119,7 +119,7 @@ func TestRegistrySnapshotDefaults(t *testing.T) {
 	if live || res.Live || len(res.Models) == 0 {
 		t.Fatalf("fallback expected, got live=%v models=%d", live, len(res.Models))
 	}
-	if res.Defaults["gemini"] != "gemini-3.8-flash-high" || res.Defaults["claude"] != "claude-opus-4-6-thinking" {
+	if res.Defaults["gemini"] != "gemini-4-neon-high" || res.Defaults["claude"] != "claude-opus-4-6-thinking" || res.Defaults["orchestrator"] != "gemini-pro-orchestrator-neon" {
 		t.Fatalf("fallback defaults = %v", res.Defaults)
 	}
 

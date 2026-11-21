@@ -307,16 +307,22 @@ data class ModelsResponse(
 
 /** 默认模型与当前会话模型的解析规则（纯函数，便于单测）。 */
 object ModelDefaults {
-    const val FALLBACK_GEMINI = "gemini-3.8-flash-high"
+    const val FALLBACK_GEMINI = "gemini-4-neon-high"
     const val FALLBACK_CLAUDE = "claude-opus-4-6-thinking"
-    const val FALLBACK_ORCHESTRATOR = "gemini-pro-orchestrator"
+    const val FALLBACK_ORCHESTRATOR = "gemini-pro-orchestrator-neon"
 
     private val CLAUDE_ENUM_TOKENS = listOf("m26", "m35", "m400", "m401", "m402", "m403", "m404", "m405")
-    private val ORCHESTRATOR_ENUM_TOKENS = listOf("m667", "m681")
+    private val ORCHESTRATOR_ENUM_TOKENS = listOf("m537", "m667", "m681")
 
     private val STATIC_ID_BY_ENUM: Map<String, String> = mapOf(
+        "MODEL_PLACEHOLDER_M535" to "gemini-4-neon-xhigh",
+        "MODEL_PLACEHOLDER_M532" to "gemini-4-neon-high",
+        "MODEL_PLACEHOLDER_M533" to "gemini-4-neon-medium",
+        "MODEL_PLACEHOLDER_M534" to "gemini-4-neon-low",
+        "MODEL_PLACEHOLDER_M537" to "gemini-pro-orchestrator-neon",
         "MODEL_PLACEHOLDER_M667" to "gemini-pro-orchestrator",
-        "MODEL_PLACEHOLDER_M681" to "gemini-pro-orchestrator-argon"
+        "MODEL_PLACEHOLDER_M681" to "gemini-pro-orchestrator-argon",
+        "MODEL_PLACEHOLDER_M669" to "gemini-flash-worker-agy"
     )
 
     fun isClaude(modelId: String): Boolean =
@@ -327,6 +333,11 @@ object ModelDefaults {
 
     /** 内置/预设模型 ID → 统一展示名映射，避免离线、未拉取目录或切号过渡期露出小写裸 ID。 */
     val STATIC_DISPLAY_NAME_BY_ID: Map<String, String> = mapOf(
+        "gemini-4-neon-xhigh" to "Gemini 4 Neon (Extra)",
+        "gemini-4-neon-high" to "Gemini 4 Neon (High)",
+        "gemini-4-neon-medium" to "Gemini 4 Neon (Medium)",
+        "gemini-4-neon-low" to "Gemini 4 Neon (Low)",
+        "gemini-4-neon" to "Gemini 4 Neon",
         "gemini-4-carbon-high" to "Gemini 4 Carbon (High)",
         "gemini-4-carbon-medium" to "Gemini 4 Carbon (Medium)",
         "gemini-4-carbon-low" to "Gemini 4 Carbon (Low)",
@@ -351,15 +362,23 @@ object ModelDefaults {
         "gemini-4-hydrogen-xhigh" to "Gemini 4 Hydrogen (Extra)",
         "gemini-4-hydrogen-medium" to "Gemini 4 Hydrogen (Medium)",
         "gemini-4-hydrogen-low" to "Gemini 4 Hydrogen (Low)",
+        "gemini-pro-orchestrator-neon" to "Orchestrator (Neon)",
+        "orchestrator-neon" to "Orchestrator (Neon)",
         "gemini-pro-orchestrator" to "Orchestrator (Carbon)",
         "gemini-pro-orchestrator-argon" to "Orchestrator (Argon)",
         "orchestrator-carbon" to "Orchestrator (Carbon)",
         "orchestrator-argon" to "Orchestrator (Argon)",
+        "gemini-flash-worker-agy" to "Gemini 4 Hydrogen (Orchestrator)",
         "gpt-oss-120b-medium" to "GPT-OSS 120B (Medium)"
     )
 
     /** 顶栏芯片紧凑展示名映射（如 `Gemini 4 Carbon (High)` → `Carbon · High`）。 */
     val STATIC_COMPACT_DISPLAY_NAME_BY_ID: Map<String, String> = mapOf(
+        "gemini-4-neon-xhigh" to "Neon · Extra",
+        "gemini-4-neon-high" to "Neon · High",
+        "gemini-4-neon-medium" to "Neon · Med",
+        "gemini-4-neon-low" to "Neon · Low",
+        "gemini-4-neon" to "Neon",
         "gemini-4-carbon-high" to "Carbon · High",
         "gemini-4-carbon-medium" to "Carbon · Med",
         "gemini-4-carbon-low" to "Carbon · Low",
@@ -384,6 +403,8 @@ object ModelDefaults {
         "claude-sonnet-5-5-low" to "Sonnet 5.5 · Low",
         "claude-opus-4-6-thinking" to "Opus 4.6 · Think",
         "claude-sonnet-4-6" to "Sonnet 4.6 · Think",
+        "gemini-pro-orchestrator-neon" to "Orch · Neon",
+        "orchestrator-neon" to "Orch · Neon",
         "gemini-pro-orchestrator" to "Orch · Carbon",
         "gemini-pro-orchestrator-argon" to "Orch · Argon",
         "orchestrator-carbon" to "Orch · Carbon",
@@ -530,6 +551,7 @@ object ModelDefaults {
         options.any { providerKind(it.id) == "orchestrator" || it.provider.equals("orchestrator", ignoreCase = true) }
 
     private val FALLBACK_FAMILY_ORDER = listOf(
+        "gemini-4-neon-high", "gemini-4-neon-xhigh", "gemini-4-neon-medium", "gemini-4-neon-low",
         "gemini-4-carbon-medium", "gemini-4-carbon-high", "gemini-4-carbon-low",
         "gemini-4-argon-medium", "gemini-4-argon-high", "gemini-4-argon-low",
         "gemini-4-hydrogen-xhigh", "gemini-4-hydrogen-high", "gemini-4-hydrogen-medium", "gemini-4-hydrogen-low",
@@ -537,7 +559,7 @@ object ModelDefaults {
         "claude-opus-5-5-high", "claude-opus-5-5-medium", "claude-opus-5-5-low",
         "claude-sonnet-5-5-high", "claude-sonnet-5-5-medium", "claude-sonnet-5-5-low",
         "claude-opus-4-6-thinking", "claude-sonnet-4-6",
-        "gemini-pro-orchestrator", "gemini-pro-orchestrator-argon"
+        "gemini-pro-orchestrator-neon", "gemini-pro-orchestrator", "gemini-pro-orchestrator-argon"
     )
 
     private fun providerSortRank(provider: String): Int = when (provider.lowercase()) {
@@ -729,7 +751,8 @@ data class SlashCommandOption(
     val description: String = "",
     val icon: String? = null,
     /** "system" 系统命令 | "skill" 技能。 */
-    val kind: String = "system"
+    val kind: String = "system",
+    val definitionPath: String? = null
 )
 
 @Serializable
@@ -802,7 +825,8 @@ object SlashCommandFilter {
 data class SlashCommandMention(
     val name: String = "",
     val icon: String? = null,
-    val kind: String = "skill"
+    val kind: String = "skill",
+    val definitionPath: String? = null
 )
 
 /** 桌面端（Antigravity Desktop）斜杠命令与技能图标矢量目录（统一归一化到 0..960 坐标系，仅含 M/L/Q/Z 指令）。 */
@@ -878,11 +902,12 @@ object SlashCommandTextTokenizer {
         }
         for (cmd in availableCommands) {
             val icon = SlashCommandIconCatalog.resolveIcon(cmd.name, cmd.icon, cmd.kind)
-            lookup[cmd.name] = SlashCommandMention(name = cmd.name, icon = icon, kind = cmd.kind)
+            lookup[cmd.name] = SlashCommandMention(name = cmd.name, icon = icon, kind = cmd.kind, definitionPath = cmd.definitionPath)
         }
         for (m in mentions) {
             val icon = SlashCommandIconCatalog.resolveIcon(m.name, m.icon, m.kind)
-            lookup[m.name] = SlashCommandMention(name = m.name, icon = icon, kind = m.kind)
+            val defPath = m.definitionPath ?: lookup[m.name]?.definitionPath
+            lookup[m.name] = SlashCommandMention(name = m.name, icon = icon, kind = m.kind, definitionPath = defPath)
         }
 
         val matches = tokenRegex.findAll(text).toList()

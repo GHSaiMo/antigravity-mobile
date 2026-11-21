@@ -283,6 +283,14 @@ suspend fun ApiClient.callMcpAppTool(toolName: String, arguments: JsonElement?, 
     return p3PostJson("/gateway/mcp/app/call", payload)
 }
 
+suspend fun ApiClient.getMcpAppResource(uri: String, serverName: String = ""): Result<String> {
+    val payload = buildJsonObject {
+        put("uri", uri)
+        if (serverName.isNotBlank()) put("serverName", serverName)
+    }
+    return p3PostJson("/gateway/mcp/app/resource", payload)
+}
+
 suspend fun ApiClient.createAutomation(
     name: String,
     schedule: String,

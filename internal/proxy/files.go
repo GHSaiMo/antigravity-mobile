@@ -456,6 +456,45 @@ func (p *Proxy) HandleFileContent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Transparently bridge MCP App ui:// resources into the standard file content endpoint
+	// so <agent-embed src="ui://..."> renders cleanly across all clients without extra UI.
+	if strings.HasPrefix(strings.ToLower(uri), "ui://") {
+		content, _, _, status, err := p.fetchMcpAppResourceHTML(r.Context(), uri, strings.TrimSpace(q.Get("serverName")))
+		if err != nil {
+			if status < 400 {
+				status = http.StatusBadGateway
+			}
+			errBytes, _ := json.Marshal(map[string]string{"error": err.Error()})
+			w.Header().Set("Content-Type", "application/json; charset=utf-8")
+			w.Header().Set("Content-Length", strconv.Itoa(len(errBytes)))
+			w.WriteHeader(status)
+			_, _ = w.Write(errBytes)
+			return
+		}
+		name := "mcp_app.html"
+		if u, uErr := url.Parse(uri); uErr == nil {
+			if base := strings.TrimSpace(filepath.Base(u.Path)); base != "" && base != "." && base != "/" {
+				name = base
+			} else if strings.TrimSpace(u.Host) != "" {
+				name = strings.TrimSpace(u.Host)
+			}
+		}
+		data, err := json.Marshal(&FileContentResult{
+			URI:      uri,
+			Filename: name,
+			Content:  content,
+		})
+		if err != nil {
+			writeJSONError(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.Header().Set("Content-Length", strconv.Itoa(len(data)))
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(data)
+		return
+	}
+
 	result, err := GetFileContent(uri, cascadeID)
 	if err != nil {
 		errBytes, _ := json.Marshal(map[string]string{"error": err.Error()})

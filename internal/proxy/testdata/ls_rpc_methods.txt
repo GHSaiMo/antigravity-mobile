@@ -1,5 +1,5 @@
 # language_server RPC baseline
-# generated: 2026-11-18 ide_version: 2.33.0 count: 377
+# generated: 2026-11-21 ide_version: 2.34.0 count: 378
 AcceptTermsOfService
 AcknowledgeCascadeCodeEdit
 AcknowledgeCodeActionStep
@@ -123,6 +123,7 @@ GetGitHubPullRequests
 GetGoogleChatLinkInfo
 GetGrantedScopes
 GetHover
+GetHubOAuthAccessToken
 GetInputCompletion
 GetJJWorktrees
 GetKnowledgeItems
