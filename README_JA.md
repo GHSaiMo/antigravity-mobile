@@ -26,7 +26,7 @@
 </p>
 
 <p align="center">
-  🌐 <b>公式サイト</b>：<a href="https://mgy.jiuge.space/ja.html">mgy.jiuge.space/ja.html</a> &nbsp;·&nbsp; 🍎 <b>App Store</b>：<a href="https://apps.apple.com/app/id6835508934">iOS 正式版をダウンロード</a> &nbsp;·&nbsp; 🧪 <b>TestFlight</b>：<a href="https://testflight.apple.com/join/YM7f4aSK">パブリックベータ</a> &nbsp;·&nbsp; 📦 <a href="https://github.com/GHSaiMo/antigravity-mobile/releases/latest">最新リリース v1.2.3</a> &nbsp;·&nbsp; 💬 <a href="#wechat-group">WeChat ユーザーグループ</a>
+  🌐 <b>公式サイト</b>：<a href="https://mgy.jiuge.space/ja.html">mgy.jiuge.space/ja.html</a> &nbsp;·&nbsp; 🍎 <b>App Store</b>：<a href="https://apps.apple.com/app/id6835508934">iOS 正式版をダウンロード</a> &nbsp;·&nbsp; 🧪 <b>TestFlight</b>：<a href="https://testflight.apple.com/join/YM7f4aSK">パブリックベータ</a> &nbsp;·&nbsp; 📦 <a href="https://github.com/GHSaiMo/antigravity-mobile/releases/latest">最新リリース v1.2.4</a> &nbsp;·&nbsp; 💬 <a href="#wechat-group">WeChat ユーザーグループ</a>
 </p>
 
 > 🎉 **Multigravity for iOS が Apple App Store にて正式公開されました！**  
@@ -68,7 +68,7 @@ irm https://ghfast.top/https://raw.githubusercontent.com/GHSaiMo/antigravity-mob
 
 ### 2. モバイルクライアントのインストール・起動
 - **iOS**：🎉 Apple App Store にて正式配信中。**[App Store](https://apps.apple.com/app/id6835508934)** からワンタップでインストールできるほか、**[TestFlight パブリックベータ](https://testflight.apple.com/join/YM7f4aSK)** で最新ビルドを先行体験できます（ソースコードからのビルドや実機デバッグを行う場合は [iOS ローカルビルド＆実機デバッグガイド](docs/ios_build_guide.md) を参照してください）。
-- **Android**：[GitHub Releases](https://github.com/GHSaiMo/antigravity-mobile/releases/latest) から `Multigravity-v1.2.3.apk` を直接ダウンロードしてインストールしてください（上書きアップデート対応。必ず公式 Releases から入手してください）。
+- **Android**：[GitHub Releases](https://github.com/GHSaiMo/antigravity-mobile/releases/latest) から `Multigravity-v1.2.4.apk` を直接ダウンロードしてインストールしてください（上書きアップデート対応。必ず公式 Releases から入手してください）。
 - **PWA / Web**：アプリをインストールせず、モバイルブラウザからゲートウェイ URL（または `/?view=pwa`）を開いてホーム画面に追加するだけで利用できます。
 
 ### 3. 起動して QR コードでペアリング
@@ -103,7 +103,7 @@ mgy
 ## ✨ 主な機能
 
 ### 1. 全プラットフォームで一貫したリアルタイムストリーミング体験
-- **3 プラットフォーム完全対応**：ネイティブ **iOS**（SwiftUI / Swift 6）、ネイティブ **Android**（Jetpack Compose Material 3）、ビルド不要の組み込み **PWA Web** を提供。システム連動 / ライト / ダーク外観に加え、情報密度を抑える独立した「コンパクトモード」切替に対応しています。
+- **3 プラットフォーム＆3 言語完全対応**：ネイティブ **iOS**（SwiftUI / Swift 6）、ネイティブ **Android**（Jetpack Compose Material 3）、ビルド不要の組み込み **PWA Web** を提供し、全クライアントで**日本語 / English / 简体中文**の自動判別・切替に対応。システム連動 / ライト / ダーク外観に加え、情報密度を抑える独立した「コンパクトモード」切替も備えています。
 - **低遅延ストリーミングとレジューム対応**：リアクティブな Connect ストリーミング Hub と WebSocket `sinceRev` による差分レジュームを実装。長時間推論時のハートビート維持、コンテンツハッシュ検証、Markdown LRU キャッシュ、ステップレール、長文会話の目次（TOC）、定常状態での即時送信により、超長文セッションでも軽快に動作します。
 - **プロ品質のリッチメディア描画と操作性**：180 言語以上のオフライン構文ハイライト（`R / R Markdown` 対応）、単一ガター行番号＋単語単位インラインコード Diff、LaTeX 数式、フォールトトレラントな Mermaid 描画、**MCP Apps (`ui://`) インタラクティブコンポーネント連携**、**ドキュメント内検索（Find in Page）**、高密度 PDF 遅延読み込みプレビューを備えています。
 
@@ -123,8 +123,8 @@ mgy
 
 ### 5. コンテキスト使用率・生成速度モニタリング・クォータダッシュボード
 - **リアルタイムのコンテキスト水位とスループット**：チャット上部バーにコンテキスト使用率リングと `TTFT / TPS` 生成速度をリアルタイム表示。上限に近づくと、ワンタップ `/compact` と「新規セッション開始」を備えたレスキューカードへ自動昇格します。
-- **クォータ消費ペース計と 52 週間ヒートマップ**：Claude / Gemini（5時間枠＆週間枠）および Argon クォータをリアルタイム監視し、均等消費ペース針と消費傾向分析を重ねて表示。52 週間トークン消費ヒートマップ（Neon / Orchestrator / サブエージェント別の内訳付き）、コスト集計、複数テーマのレポート画像出力を内蔵し、**Cockpit Tools v1.4+ SQLite インデックス**と連携したシームレスなマルチアカウント切替にも対応します。
-- **ロック画面・CarPlay クォータウィジェット＆車載詳細ステップ（iOS）**：ロック画面（円形 / 長方形）と `systemSmall`（iPhone ホーム / StandBy / iOS 26 CarPlay ウィジェット / Mac デスクトップ共用）で 5h / 7d 残量とリアルタイムリセットカウントダウンを常時表示し、ワンタップ更新やクォータ画面への直行に対応。CarPlay ダッシュボードと Apple Watch スマートスタックでも、高コントラストな 2 段表示で現在ステップと承認待ちをひと目で確認できます。
+- **クォータ消費ペース計とスワイプ対応トークン履歴 3 ビューチャート**：Claude / Gemini（5時間枠＆週間枠）および Argon クォータをリアルタイム監視し、均等消費ペース針と消費傾向分析を重ねて表示。スワイプ切替対応の**トークン履歴 3 ビューカルーセル**（直近14日間の日別棒グラフ・モデル別累計内訳・20週間ヒートマップ、利用日数に応じたスマート初期表示付き）、コスト集計、選択チャート連動の WYSIWYG レポート画像出力を内蔵し、**Cockpit Tools v1.4+ SQLite インデックス**および **ULTRA 優先ソート**によるシームレスなマルチアカウント切替にも対応します。
+- **フルサイズクォータ＆アクティブチャットウィジェット・車載詳細ステップ（iOS）**：全サイズ対応のクォータウィジェット（`Inline` / `Circular` / `Rectangular` / `Small`〜`ExtraLarge`）に加え、複数セッションの進行状況を一覧できる **`AgentStatusWidget`（アクティブチャット `Small`〜`Large`）** を搭載（iPhone / iPad / StandBy / iOS 26 CarPlay / Mac デスクトップ対応）。CarPlay ダッシュボードと Apple Watch スマートスタックでも、高コントラストな 2 段表示で現在ステップと承認待ちをひと目で確認できます。
 
 ### 6. モバイル完結の開発ループとハードウェア連携
 - **コード＆ワークスペース管理**：ホーム画面でのプロジェクト / Chat インライン絞り込み、ローカルワークスペース新規作成、GitHub リポジトリのクローン、SQLite FTS5 による会話全文の高速検索、Markdown エクスポート、`Changes` Diff 閲覧、キャッシュ最適化された `git status` とネイティブ `Commit & Push`・ブランチ管理に対応。セッション一覧とチャット内には **GitHub PR のリアルタイムステータスバッジと詳細ポップアップ**が自動連携され、`/slash` コマンド、操作ヒント＆ジェスチャーガイド、MCP / スキルヘルスダッシュボードも備えています。

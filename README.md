@@ -26,7 +26,7 @@
 </p>
 
 <p align="center">
-  🌐 <b>官网</b>：<a href="https://mgy.jiuge.space">mgy.jiuge.space</a> &nbsp;·&nbsp; 🍎 <b>App Store</b>：<a href="https://apps.apple.com/app/id6835508934">iOS 正式版下载</a> &nbsp;·&nbsp; 🧪 <b>TestFlight</b>：<a href="https://testflight.apple.com/join/YM7f4aSK">公开测试通道</a> &nbsp;·&nbsp; 📦 <a href="https://github.com/GHSaiMo/antigravity-mobile/releases/latest">最新版 v1.2.3</a> &nbsp;·&nbsp; 💬 <a href="#wechat-group">微信用户群</a>
+  🌐 <b>官网</b>：<a href="https://mgy.jiuge.space">mgy.jiuge.space</a> &nbsp;·&nbsp; 🍎 <b>App Store</b>：<a href="https://apps.apple.com/app/id6835508934">iOS 正式版下载</a> &nbsp;·&nbsp; 🧪 <b>TestFlight</b>：<a href="https://testflight.apple.com/join/YM7f4aSK">公开测试通道</a> &nbsp;·&nbsp; 📦 <a href="https://github.com/GHSaiMo/antigravity-mobile/releases/latest">最新版 v1.2.4</a> &nbsp;·&nbsp; 💬 <a href="#wechat-group">微信用户群</a>
 </p>
 
 > 🎉 **反重力智能体移动伴侣 iOS 版现已正式上架 Apple App Store！**  
@@ -68,7 +68,7 @@ irm https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/scripts/in
 
 ### 2. 安装或打开移动端
 - **iOS**：🎉 现已正式上架 Apple App Store，直接前往 **[App Store 下载 Multigravity](https://apps.apple.com/app/id6835508934)** 一键安装（中文系统自动优先展示中文介绍与演示截图），也可通过 **[TestFlight 公开测试](https://testflight.apple.com/join/YM7f4aSK)** 抢先体验最新构建（如需自行源码编译调试，仍可参考 [iOS 本地构建与真机调试指南](docs/ios_build_guide.md)）。
-- **Android**：前往 [GitHub Releases](https://github.com/GHSaiMo/antigravity-mobile/releases/latest) 直接下载安装 `Multigravity-v1.2.3.apk`（支持覆盖升级，请仅从官方 Releases 下载）。
+- **Android**：前往 [GitHub Releases](https://github.com/GHSaiMo/antigravity-mobile/releases/latest) 直接下载安装 `Multigravity-v1.2.4.apk`（支持覆盖升级，请仅从官方 Releases 下载）。
 - **PWA / Web**：无需安装 App，手机浏览器直接访问网关地址（或 `/?view=pwa`）即可添加到主屏幕。
 
 ### 3. 启动并扫码配对
@@ -103,7 +103,7 @@ mgy
 ## ✨ 重点特性
 
 ### 1. 全端一致的实时流式体验
-- **三端全覆盖**：原生 **iOS**（SwiftUI / Swift 6）、原生 **Android**（Jetpack Compose Material 3）与零构建嵌入式 **PWA Web**，支持「跟随系统 / 浅色 / 深色」原生外观与独立「精简模式」二级降噪开关。
+- **三端全覆盖与原生三语自适应**：原生 **iOS**（SwiftUI / Swift 6）、原生 **Android**（Jetpack Compose Material 3）与零构建嵌入式 **PWA Web**，全端支持**简体中文 / English / 日本語**自动识别与切换，提供「跟随系统 / 浅色 / 深色」原生外观与独立「精简模式」二级降噪开关。
 - **低延迟增量推流与断点续传**：响应式 Connect 流 Hub + WebSocket `sinceRev` 增量断点续传、长思考静默期心跳保活与内容哈希校验，配合增量 Markdown LRU 缓存、步骤导轨、长对话目录（TOC）及稳态立即发送，超长会话依然丝滑。
 - **专业级富媒体排版与交互**：180+ 语言离线语法高亮（含 `R / R Markdown`）、单列行号槽 + 词级行内代码 Diff、LaTeX 公式、Mermaid 容错渲染、**MCP Apps (`ui://`) 交互式组件桥接**、**文档页内查找（Find in Page）**及高密度 PDF 懒加载预览。
 
@@ -123,8 +123,8 @@ mgy
 
 ### 5. 上下文水位、速率监控与配额仪表盘
 - **实时上下文水位与速率**：聊天顶栏实时展示上下文占用圆环与 `TTFT / TPS` 吐字速率，遇到上下文溢出自动升级为带「一键压缩 `/compact`」和「开启新会话」的救援卡片。
-- **配额匀速刻度与 52 周热力图**：实时监控 Claude / Gemini（5h & Weekly）及 Argon 额度，叠加均速消耗刻度针与节奏分析；内置 52 周 Token 消耗热力图（含 Neon / Orchestrator / Subagent 模型归因）、成本统计与多皮肤报告长图一键保存/分享，配合 **Cockpit Tools v1.4+ SQLite 索引**支持多账号无感热切。
-- **全端常驻额度小组件与 CarPlay / Apple Watch 实时步骤（iOS）**：内置锁屏圆环/矩形与 `systemSmall` 额度小组件（一稿复用 iPhone 桌面、StandBy、iOS 26 CarPlay 小组件页与 Mac 桌面），实时展示 5h/7d 双窗余量与走秒倒计时、支持桌面一键轻刷及点击直达额度面板；CarPlay 仪表盘与 Apple Watch 智能叠放同步支持两段式高对比实时步骤与待审批高亮卡片。
+- **配额匀速刻度与可滑动 Token 三视图图表**：实时监控 Claude / Gemini（5h & Weekly）及 Argon 额度，叠加均速消耗刻度针与节奏分析；内置可左右滑动的 **Token 历史三视图轮播**（近 14 天每日柱状图、模型累计占比与 20 周热力图，含智能冷启动默认与偏好记忆）、成本统计与所见即所得多皮肤报告海报一键保存/分享，配合 **Cockpit Tools v1.4+ SQLite 索引**与 **ULTRA 优先分级排序**支持多账号无感热切。
+- **全尺寸额度与活跃对话小组件 & CarPlay 实时步骤（iOS）**：内置全套尺寸锁屏与桌面额度小组件（`Inline` / `Circular` / `Rectangular` / `Small`～`ExtraLarge`）及 **`AgentStatusWidget` 活跃对话监控小组件**（`Small`～`Large`），覆盖 iPhone、iPad、StandBy、iOS 26 CarPlay 与 Mac 桌面，支持 5h/7d 双窗走秒倒计时、一键轻刷与多会话审批总览；CarPlay 仪表盘与 Apple Watch 智能叠放同步支持两段式高对比实时步骤卡片。
 
 ### 6. 移动端工程闭环与外设生态
 - **代码与工作区管理直达**：支持首页按项目 / Chat 原地筛选、新建本地工作区、克隆 GitHub 仓库、会话全文秒搜（SQLite FTS5）、导出 Markdown、查看 `Changes` Diff、带短时缓存提速的原生 `Commit & Push` 与分支管理；会话列表与气泡自动关联 **GitHub PR 实时状态胶囊与详情弹窗**，同时支持 `/slash` 斜杠命令、交互提示与手势指南及 MCP/技能健康看板。

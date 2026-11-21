@@ -26,7 +26,7 @@
 </p>
 
 <p align="center">
-  🌐 <b>Website</b>: <a href="https://mgy.jiuge.space">mgy.jiuge.space</a> &nbsp;·&nbsp; 🍎 <b>App Store</b>: <a href="https://apps.apple.com/app/id6835508934">Download for iOS</a> &nbsp;·&nbsp; 🧪 <b>TestFlight</b>: <a href="https://testflight.apple.com/join/YM7f4aSK">Public Beta</a> &nbsp;·&nbsp; 📦 <a href="https://github.com/GHSaiMo/antigravity-mobile/releases/latest">Latest Release v1.2.3</a> &nbsp;·&nbsp; 💬 <a href="#wechat-group">WeChat Group</a>
+  🌐 <b>Website</b>: <a href="https://mgy.jiuge.space">mgy.jiuge.space</a> &nbsp;·&nbsp; 🍎 <b>App Store</b>: <a href="https://apps.apple.com/app/id6835508934">Download for iOS</a> &nbsp;·&nbsp; 🧪 <b>TestFlight</b>: <a href="https://testflight.apple.com/join/YM7f4aSK">Public Beta</a> &nbsp;·&nbsp; 📦 <a href="https://github.com/GHSaiMo/antigravity-mobile/releases/latest">Latest Release v1.2.4</a> &nbsp;·&nbsp; 💬 <a href="#wechat-group">WeChat Group</a>
 </p>
 
 > 🎉 **Multigravity for iOS is officially available on the Apple App Store!**  
@@ -68,7 +68,7 @@ irm https://ghfast.top/https://raw.githubusercontent.com/GHSaiMo/antigravity-mob
 
 ### 2. Install or Open the Mobile Client
 - **iOS**: 🎉 Officially released on the Apple App Store! Install directly via **[App Store](https://apps.apple.com/app/id6835508934)** with one tap, or join the **[TestFlight Public Beta](https://testflight.apple.com/join/YM7f4aSK)** to test pre-release builds (for building from source or debugging on physical devices, refer to the [iOS Local Build & Device Debugging Guide](docs/ios_build_guide.md)).
-- **Android**: Download `Multigravity-v1.2.3.apk` directly from [GitHub Releases](https://github.com/GHSaiMo/antigravity-mobile/releases/latest) (supports in-place upgrade; please download only from official Releases).
+- **Android**: Download `Multigravity-v1.2.4.apk` directly from [GitHub Releases](https://github.com/GHSaiMo/antigravity-mobile/releases/latest) (supports in-place upgrade; please download only from official Releases).
 - **PWA / Web**: No app installation needed. Open the gateway URL (or `/?view=pwa`) directly in your mobile browser and add it to your Home Screen.
 
 ### 3. Launch & Scan QR Code to Pair
@@ -103,7 +103,7 @@ When launched in the foreground, the gateway prints a one-time pairing QR code i
 ## ✨ Key Features
 
 ### 1. Consistent Real-Time Streaming Across All Platforms
-- **Cross-Platform Parity**: Native **iOS** (SwiftUI / Swift 6), native **Android** (Jetpack Compose Material 3), and zero-build embedded **PWA Web**. Supports System/Light/Dark themes and an independent "Compact Mode" toggle for reduced visual noise.
+- **Cross-Platform & Trilingual Parity**: Native **iOS** (SwiftUI / Swift 6), native **Android** (Jetpack Compose Material 3), and zero-build embedded **PWA Web**, with native **English / 简体中文 / 日本語** localization and automatic locale detection. Supports System/Light/Dark themes and an independent "Compact Mode" toggle for reduced visual noise.
 - **Low-Latency Streaming & Resumable Sessions**: Reactive Connect streaming Hub + WebSocket `sinceRev` incremental resumption, heartbeat keep-alive during prolonged reasoning periods, content-hash verification, Markdown LRU caching, step rail navigation, long-conversation Table of Contents (TOC), and steady-state instant sending. Ultra-long sessions remain silky smooth.
 - **Professional-Grade Rich Media & Interactive Rendering**: 180+ languages offline syntax highlighting (including `R / R Markdown`), single-gutter line-numbered & word-level inline code diffs, LaTeX math equations, fault-tolerant Mermaid rendering, **interactive MCP Apps (`ui://`) bridging**, **Find in Page**, and high-density PDF lazy loading.
 
@@ -123,8 +123,8 @@ When launched in the foreground, the gateway prints a one-time pairing QR code i
 
 ### 5. Context Watermarks, Rate Monitoring & Quota Dashboard
 - **Real-Time Context Watermarks & Throughput**: Chat top bar displays live context token utilization rings alongside `TTFT / TPS` output rates. When context approaches limits, an automatic rescue card surfaces with one-tap `/compact` and "New Session".
-- **Quota Burn-Rate Gauges & 52-Week Heatmap**: Real-time quota monitoring for Claude / Gemini (5h & Weekly) and Argon, overlaid with consumption velocity needles and pacing analytics. Built-in 52-week token consumption heatmap (with Neon / Orchestrator / sub-agent attribution), cost breakdown, and one-click exportable visual report posters. Compatible with **Cockpit Tools v1.4+ SQLite index** for seamless zero-downtime multi-account switching.
-- **Native Quota Widgets & CarPlay / Apple Watch Live Activities (iOS)**: Lock Screen circular/rectangular and `systemSmall` quota widgets (shared across iPhone Home Screen, StandBy, iOS 26 CarPlay Widgets, and macOS Desktop) displaying live 5h/7d balances, ticking reset countdowns, one-tap refresh, and deep links to the quota sheet; CarPlay Dashboard and Apple Watch Smart Stack also display high-contrast two-row live execution steps and approval alerts.
+- **Quota Burn-Rate Gauges & Swipeable Token History Charts**: Real-time quota monitoring for Claude / Gemini (5h & Weekly) and Argon, overlaid with consumption velocity needles and pacing analytics. Built-in swipeable **3-view Token History carousel** (14-day daily trend bars, cumulative model breakdown, and 20-week heatmap with smart cold-start defaults), cost breakdown, and WYSIWYG multi-skin exportable report posters. Compatible with **Cockpit Tools v1.4+ SQLite index** and **ULTRA-first tier sorting** for seamless zero-downtime multi-account switching.
+- **Full-Size Quota & Active Chats Widgets + CarPlay Live Activities (iOS)**: Complete WidgetKit suite covering `QuotaStatusWidget` (`Inline` / `Circular` / `Rectangular` / `Small`–`ExtraLarge`) and **`AgentStatusWidget` (Active Chats `Small`–`Large`)** across iPhone, iPad, StandBy, iOS 26 CarPlay Widgets, and macOS Desktop — displaying live 5h/7d balances, ticking reset countdowns, one-tap refresh, and multi-session status; CarPlay Dashboard and Apple Watch Smart Stack also display high-contrast two-row live execution steps and approval alerts.
 
 ### 6. Mobile Engineering Loop & Hardware Ecosystem
 - **Code & Workspace Management**: Inline project/Chat filtering on the home list, local workspace creation, GitHub repo cloning, instant full-text search across conversations (SQLite FTS5), Markdown export, `Changes` diffs, cached fast `git status` + native `Commit & Push` and branch management. Conversation list and chat bubbles automatically display **real-time GitHub PR status pills and detail popups**, alongside `/slash` commands, Tips & Gestures Guide, and MCP/skill health boards.

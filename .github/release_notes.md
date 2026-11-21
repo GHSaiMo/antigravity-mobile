@@ -1,4 +1,4 @@
-# 🚀 Multigravity v1.2.3
+# 🚀 Multigravity v1.2.4
 
 > 🎉 **Multigravity（反重力智能体移动伴侣）iOS 版现已正式上架 Apple App Store！**  
 > 无需本地编译或自签，前往 👉 **[App Store 下载 Multigravity](https://apps.apple.com/app/id6835508934)**（覆盖海外 174 个国家/地区，内置零配置**离线演示模式**）；也可加入 👉 **[TestFlight 公开测试](https://testflight.apple.com/join/YM7f4aSK)** 抢先体验最新构建。
@@ -15,25 +15,24 @@
 
 ### ✨ 核心亮点与新特性
 
-- 📱 **iOS 锁屏 / 桌面 / CarPlay / Mac 全端额度小组件（`QuotaStatusWidget`）**：
-  - 新增黄金三件套小组件：**锁屏圆环**、**锁屏矩形**与 **`systemSmall` 小方格**（一稿复用覆盖 iPhone 桌面、StandBy 待机、iOS 26 CarPlay 小组件页与 Mac 桌面）；
-  - 同模型自动双窗展示 **5 小时 + 7 天剩余额度**与原生实时走秒重置倒计时（自动跟随 App 所选 Gemini / Claude 偏好，免费号优雅回退 7 天窗口）；
-  - 通过 App Group（`group.com.ghsaimo.antigravity`）实现后台定时拉新、桌面右上角一键轻刷（免打开 App）、离线无报错快照兜底，点击卡片 via `antigravity://quota` 一步直达额度面板。
-- 🚗 **CarPlay 仪表盘 & Apple Watch 实时活动详细步骤升级**：
-  - 为 `AgentActivityWidget` 接入 `.supplementalActivityFamilies([.small])`，告别车机仅显示「第 N 步」的空白兜底；
-  - 采用驾驶高对比两段式卡片：顶行展示会话标题 + 步数/状态胶囊（`待审批` 自动橙色高亮），主区最多 2 行大字实时显示当前执行步骤或后台任务名，同步适配中 / 英 / 日三语。
-- 🇯🇵 **iOS 原生日语（`ja`）全量本地化**：
-  - iOS 主 App、灵动岛/小组件 `ActivityExtension` 与系统权限弹窗 `InfoPlist` 实现 100% 原生日语覆盖，系统语言为日语的 iPhone / iPad 打开即自动切换地道日语界面与日语灵动岛/小组件；
-  - 全部格式占位符与 `xcodebuild` 无头编译全量校验通过（PWA 与 Android 暂维持现有中/英体系）。
-- 📚 **GitHub 与官方文档三语体系上线**：
-  - 新增原生日语文档 [`README_JA.md`](https://github.com/GHSaiMo/antigravity-mobile/blob/main/README_JA.md)，`README.md` / `README_EN.md` / `README_JA.md` 顶部统一接入 **简体中文 | English | 日本語** 三语互链；
-  - 官方网站同步上线原生日语门户 [mgy.jiuge.space/ja.html](https://mgy.jiuge.space/ja.html)（含 `/ja` 路由、全交互演示日语化、三语切换器与 4 向 `hreflang`）。
-- 🔧 **稳定性与交互修复**：
-  - 修复刚发出消息立即撤回时「确认撤回」按钮置灰、错误被遮挡、运行态回退冲突及多轮对话误匹配问题（#9）；
-  - 修复 `sidecar://swarm` 跳转 401、多行输入框上下裁切及多问题确认卡切换选项/滚动时键盘不收起的问题（#7, #8）；
-  - 过滤电脑桌面端删除会话中途异常（`brain/<id>` 非空）残留在上游内存中的半删僵尸会话，避免手机端多出重复或原始 prompt 标题会话。
-- 📦 **全端版本号对齐**：
-  - Android `1.2.3`（Version Code `24`）；iOS `1.2.3`（Build `25`）；桌面/服务端网关 `mgy` `1.2.3`。
+- 📊 **iOS & Android 可滑动 Token 历史三视图图表与所见即所得海报**：
+  - 新增三页左右滑动图表轮播：**近 14 天每日消耗柱状图**、**累计模型占比分析**与**右对齐铺满卡片的 20 周热力图**（彻底消除内层横向滚动手势冲突）；
+  - 智能冷启动默认策略：活跃天数 `< 28` 天自动默认展示每日柱状图，`≥ 28` 天默认展示周热力图，手动切换后自动持久化记忆偏好；
+  - Token 历史保存/分享长图海报与当前选中的图表视图保持所见即所得同步，完整覆盖全部主题皮肤与中 / 英 / 日三语。
+- 🧩 **iOS 全尺寸额度小组件矩阵 & 全新「活跃对话」小组件（`QuotaStatusWidget` & `AgentStatusWidget`）**：
+  - 额度监控小组件扩展支持全套 WidgetKit 尺寸（锁屏单行 `Inline` / 圆环 `Circular` / 矩形 `Rectangular`，以及桌面 `Small` / `Medium` / `Large` / iPad `ExtraLarge`）；
+  - 新增独立 **`AgentStatusWidget`（活跃对话监控）** 小 / 中 / 大号桌面小组件，在 iPhone、iPad、StandBy 与 Mac 桌面上实时总览多会话运行进度与待审批状态，100% 适配中 / 英 / 日三语。
+- 🇯🇵 **Android & PWA 原生日语（`ja`）全量覆盖，实现全端三语大满贯**：
+  - Android 原生客户端（`values-ja`、`locales_config.xml`、`L10n.kt`）与嵌入式 PWA Web（`i18n.js`、`manifest-ja.json`）全面支持原生日语并可根据系统/浏览器语言自动识别切换；
+  - 至此 iOS、Android、PWA Web、GitHub 文档与官方网站实现 100% 简体中文 / English / 日本語三语体验对齐。
+- ⚡ **Cockpit 备选账号智能分级排序**：
+  - 备选账号列表自动将 **ULTRA** 订阅账号置顶优先展示、**FREE** 免费账号排至末尾，多账号快速热切更直观高效。
+- 🔧 **iOS 长会话滚动稳定性与 Tailscale 全链路穿透修复**：
+  - 修复 iOS 超长对话浏览时 `LazyVStack` 偶发白屏、误触发回到底部吸附以及 Markdown 表格渲染高度跳变的问题；
+  - 将 iOS 文件下载、气泡图片/媒体加载、QuickLook 预览、语音听写/实时通话及辅助 WebSocket 全面路由至 `NetworkTransport` / `GatewayWebSocketTask` Tailscale ATS 旁路通道，彻底解决纯 HTTP Tailscale / 局域网链路下的媒体与附件加载受阻问题。
+- 💬 **社区与全端版本号对齐**：
+  - 三语 README 新增微信用户群扫码入口；
+  - Android `1.2.4`（Version Code `25`）；iOS `1.2.4`（Build `26`）；桌面/服务端网关 `mgy` `1.2.4`。
 
 ---
 
@@ -41,33 +40,31 @@
 
 ### ✨ Highlights & New Features
 
-- 📱 **Native iOS Quota Widgets across Lock Screen, Home Screen, StandBy, CarPlay & Mac (`QuotaStatusWidget`)**:
-  - Added three native WidgetKit families: **Lock Screen Circular**, **Lock Screen Rectangular**, and **`systemSmall`** (automatically powering iPhone Home Screen, StandBy, iOS 26 CarPlay Widgets, and macOS Desktop);
-  - Displays dual **5h + 7d remaining quota bars** with a native live-ticking reset countdown (automatically following your in-app Gemini / Claude preference, with graceful 7d fallback for Free-tier accounts);
-  - Backed by App Group (`group.com.ghsaimo.antigravity`) for periodic background gateway refreshes, an interactive Home Screen tap-to-refresh button without opening the app, graceful offline snapshot fallback, and `antigravity://quota` deep-linking straight to the Account Quota sheet.
-- 🚗 **Detailed CarPlay Dashboard & Apple Watch Smart Stack Live Activities**:
-  - Opted `AgentActivityWidget` into `.supplementalActivityFamilies([.small])`, replacing the sparse compact fallback with a dedicated high-contrast two-row glanceable layout;
-  - Shows conversation title + step/status pill (`Approval` highlighted in orange) on top and up to two lines of the live action or active background task below, fully localized in English, Japanese, and Simplified Chinese.
-- 🇯🇵 **Full Native Japanese (`ja`) Localization for iOS**:
-  - 100% native Japanese localization across the main iOS app, `ActivityExtension` (Dynamic Island, CarPlay, Widgets), and `InfoPlist` permission prompts; Japanese-locale iPhones and iPads automatically display native Japanese UI;
-  - Verified format-specifier parity and clean headless `xcodebuild` compilation (Web/PWA and Android localization deferred to a future release).
-- 📚 **Trilingual GitHub Docs & Official Website**:
-  - Added native Japanese GitHub documentation ([`README_JA.md`](https://github.com/GHSaiMo/antigravity-mobile/blob/main/README_JA.md)) with a unified **简体中文 | English | 日本語** switcher across all READMEs;
-  - Launched the native Japanese landing page at [mgy.jiuge.space/ja.html](https://mgy.jiuge.space/ja.html) (with `/ja` route, localized interactive demos, 3-way language switcher, and `hreflang` metadata).
-- 🔧 **Stability & UX Fixes**:
-  - Fixed immediate message undo button staying disabled, hidden error messages, running-state revert conflicts, and multi-turn step resolution edge cases (#9);
-  - Fixed `sidecar://swarm` 401 auth, multiline input box clipping, and soft keyboard dismissal in multi-question interaction cards (#7, #8);
-  - Filtered half-deleted in-memory zombie conversations left behind when desktop Antigravity deletion hits a non-empty `brain/<id>` error, preventing duplicate raw-prompt ghost entries on mobile.
-- 📦 **Version Alignment**:
-  - Android `1.2.3` (Version Code `24`); iOS `1.2.3` (Build `25`); desktop/server gateway `mgy` `1.2.3`.
+- 📊 **Swipeable 3-View Token History Charts & WYSIWYG Share Posters (iOS & Android)**:
+  - Added a 3-page swipeable chart carousel: **14-day daily trend bars**, **cumulative model breakdown**, and a **right-aligned 20-week heatmap** filling the card width without inner scroll gesture conflicts;
+  - Smart cold-start defaults (`< 28` active days defaults to daily trend bars, `≥ 28` days defaults to the heatmap) with local preference persistence once manually switched;
+  - Synced Token History save/share posters (WYSIWYG) with the currently active chart across all curated themes and localized in Chinese, English, and Japanese.
+- 🧩 **Full-Size iOS Quota Widget Suite & New Active Chats Widget (`QuotaStatusWidget` & `AgentStatusWidget`)**:
+  - Expanded `QuotaStatusWidget` across all WidgetKit families (`accessoryInline`, `accessoryCircular`, `accessoryRectangular`, `systemSmall`, `systemMedium`, `systemLarge`, and iPad `systemExtraLarge`);
+  - Added a dedicated **`AgentStatusWidget` (Active Chats)** supporting `systemSmall`, `systemMedium`, and `systemLarge` across iPhone, iPad, StandBy, and macOS Desktop for at-a-glance multi-session status and approval tracking in Chinese, English, and Japanese.
+- 🇯🇵 **Full Native Japanese (`ja`) Support on Android & PWA Web**:
+  - Added complete native Japanese localization with automatic system/browser locale detection for Android (`values-ja`, `locales_config.xml`, `L10n.kt`) and PWA Web (`i18n.js`, `manifest-ja.json`), achieving 100% trilingual (`zh` / `en` / `ja`) parity across iOS, Android, PWA, GitHub docs, and the official website.
+- ⚡ **Tier-Aware Backup Account Sorting in Cockpit**:
+  - Automatically prioritizes **ULTRA** accounts at the top and deprioritizes **FREE** accounts at the bottom of the backup accounts list for faster high-tier hot-swapping.
+- 🔧 **iOS Long-Chat Scroll Stability & Tailscale Media/WebSocket Bypass Fixes**:
+  - Fixed `LazyVStack` blank screen rendering, false snap-to-bottom jumps, and Markdown table height shifts when scrolling long conversations on iOS;
+  - Routed iOS file downloads, inline media loaders, QuickLook previews, audio dictation, live voice calls, and secondary WebSockets through the custom `NetworkTransport` / `GatewayWebSocketTask` Tailscale ATS bypass so plain-HTTP Tailscale and LAN links work seamlessly end-to-end.
+- 💬 **Community & Version Alignment**:
+  - Added WeChat User Group QR code to trilingual READMEs;
+  - Android `1.2.4` (Version Code `25`); iOS `1.2.4` (Build `26`); desktop/server gateway `mgy` `1.2.4`.
 
 ---
 
 ## 🇯🇵 日本語リリースノート
 
-- 📱 **ロック画面・ホーム画面・CarPlay・Mac 対応クォータウィジェット（`QuotaStatusWidget`）**：ロック画面（円形 / 長方形）と `systemSmall`（iPhone ホーム / StandBy / iOS 26 CarPlay ウィジェット / Mac デスクトップ共用）で **5時間＆7日間クォータ残量とリアルタイムリセットカウントダウン** を常時確認可能。ホーム画面からのワンタップ更新・オフラインキャッシュ表示・タップでクォータ画面へ直行するディープリンク（`antigravity://quota`）に対応。
-- 🚗 **CarPlay ダッシュボード＆Apple Watch ライブアクティビティ詳細ステップ表示**：`.supplementalActivityFamilies([.small])` に対応し、運転中もひと目で分かる 2 段構成（セッションタイトル＋ステップ/承認バッジ＋現在の実行アクション）へ刷新しました。
-- 🇯🇵 **iOS アプリ完全日本語対応（`ja`）**：メインアプリ・Dynamic Island / ウィジェット拡張・権限ダイアログを 100% ネイティブ日本語化。
-- 📚 **GitHub・公式サイトの日本語版を公開**：[`README_JA.md`](https://github.com/GHSaiMo/antigravity-mobile/blob/main/README_JA.md) および日本語公式サイト [mgy.jiuge.space/ja.html](https://mgy.jiuge.space/ja.html) を公開しました。
-- 🔧 **安定性の改善**：デスクトップ側で削除に失敗しメモリに残留した半削除ゾンビセッションをフィルタリングし、モバイル一覧での重複表示を防止しました。
-- 📦 **バージョン統一**：iOS `1.2.3` (Build `25`) / Android `1.2.3` (Version Code `24`) / ゲートウェイ `mgy` `1.2.3`。
+- 📊 **スワイプ切替対応トークン履歴 3 ビューチャート＆WYSIWYG 共有ポスター（iOS & Android）**：**直近14日間の日別推移棒グラフ**・**モデル別累計内訳**・**右揃え20週間ヒートマップ**の3ページカルーセルを新搭載（スクロール競合を解消）。利用日数に応じたスマート初期表示（28日未満は日別グラフ、28日以上はヒートマップ）と選択状態の保存、現在表示中のチャートと連動するロング画像ポスター出力に対応しました。
+- 🧩 **iOS フルサイズクォータウィジェット＆新「アクティブチャット」ウィジェット（`QuotaStatusWidget` & `AgentStatusWidget`）**：クォータ監視が全サイズ（`Inline` / `Circular` / `Rectangular` / `Small`〜`ExtraLarge`）に対応したほか、複数セッションの進行状況や承認待ちをホーム画面・iPad・Mac で一覧できる **`AgentStatusWidget`**（小・中・大）を追加しました（日・英・中 3言語対応）。
+- 🇯🇵 **Android & PWA Web も完全日本語対応（全プラットフォーム 3言語統一）**：Android アプリおよび組み込み PWA Web がシステム / ブラウザ言語の自動判別によるネイティブ日本語表示に対応し、iOS・Android・PWA・GitHub・公式サイトすべてで日本語・英語・中国語の完全対応を達成しました。
+- ⚡ **Cockpit バックアップアカウントの優先度ソート**：予備アカウント一覧で **ULTRA** プランを最上部に優先表示し、**FREE** プランを下部に配置するよう改善しました。
+- 🔧 **iOS 長文チャットのスクロール安定化＆Tailscale 通信バイパス改善**：長文会話での `LazyVStack` 空白表示・意図しない最下部スナップ・Markdown テーブルの高さジャンプを修正。さらにファイルダウンロード・画像/メディア読込・QuickLook・音声入力/通話・補助 WebSocket を Tailscale ATS バイパス経路へ統合しました。
+- 📦 **バージョン統一**：iOS `1.2.4` (Build `26`) / Android `1.2.4` (Version Code `25`) / ゲートウェイ `mgy` `1.2.4`。
