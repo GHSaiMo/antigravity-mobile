@@ -18,7 +18,7 @@ extension ChatView {
     
     func alignMessages(proxy: ScrollViewProxy, animated: Bool = false) {
         guard !viewModel.messages.isEmpty else { return }
-        guard !hasUserInteracted, !preserveScrollOnReturn else { return }
+        guard !scrollHUD.hasUserInteracted, !preserveScrollOnReturn else { return }
         hasInitiallyAligned = true
         smartScroll(proxy: proxy, animated: animated)
     }
@@ -76,7 +76,7 @@ extension ChatView {
         
         // 当内容总高度小于等于视口可用高度时，所有消息均完整在可视区域内。
         // 此时强行向底部锚点滚动会促使 UIScrollView 产生负偏移越界，触发橡皮筋反弹、抖动与闪烁漂移。
-        if messagesContentHeight > 0 && currentViewportHeight > 0 && messagesContentHeight <= currentViewportHeight {
+        if scrollHUD.messagesContentHeight > 0 && currentViewportHeight > 0 && scrollHUD.messagesContentHeight <= currentViewportHeight {
             return
         }
         
@@ -91,15 +91,15 @@ extension ChatView {
     }
     
     func handleFloatingCardToggle(isExpanded: Bool) {
-        hasUserInteracted = false
+        scrollHUD.hasUserInteracted = false
         scrollHUD.isNearBottom = true
         cardToggleTrigger &+= 1
     }
     
     func performAdaptiveCardScroll(proxy: ScrollViewProxy) {
-        hasUserInteracted = false
+        scrollHUD.hasUserInteracted = false
         scrollHUD.isNearBottom = true
-        guard messagesContentHeight == 0 || currentViewportHeight == 0 || messagesContentHeight > currentViewportHeight else {
+        guard scrollHUD.messagesContentHeight == 0 || currentViewportHeight == 0 || scrollHUD.messagesContentHeight > currentViewportHeight else {
             return
         }
         
@@ -125,47 +125,38 @@ extension ChatView {
     
     /// 流式文本每播放一小段后调用：用户没有手动翻看时，无动画贴底，避免动画叠加造成的抖动。
     func followStreamGrowth(proxy: ScrollViewProxy) {
-        guard hasInitiallyAligned, !isUserDragging else { return }
-        guard scrollHUD.isNearBottom || !hasUserInteracted else { return }
+        guard hasInitiallyAligned, !scrollHUD.isUserDragging else { return }
+        guard scrollHUD.isNearBottom || !scrollHUD.hasUserInteracted else { return }
         let now = Date()
-        guard now.timeIntervalSince(lastFollowScrollAt) >= 0.06 else { return }
-        lastFollowScrollAt = now
+        guard now.timeIntervalSince(scrollHUD.lastFollowScrollAt) >= 0.06 else { return }
+        scrollHUD.lastFollowScrollAt = now
         DispatchQueue.main.async {
             scrollToBottom(proxy: proxy, animated: false)
         }
     }
     
-    /// 长会话里 LazyVStack 用估算高度滚到底，随后真实行高落定，
-    /// 偏移会停在内容末尾之后，底部出现大片空白。检测到“内容比视口长、底部锚点却悬在视口中间”
-    /// 且稳定一小会儿后，主动重新贴底。
-    func scheduleBlankSpaceHeal(anchorMaxY: CGFloat, viewportHeight: CGFloat, proxy: ScrollViewProxy) {
-        // 仅在用户期望贴底时执行底部自愈，用户手动翻阅或浏览历史轮次时绝不强行贴底
-        guard !hasUserInteracted || scrollHUD.isNearBottom else { return }
-        let hasBlank = messagesContentHeight > viewportHeight + 1
-            && viewportHeight > 0
-            && anchorMaxY < viewportHeight - 40
-        blankHealTask?.cancel()
-        guard hasBlank else {
-            blankHealTask = nil
+    /// 长会话里 LazyVStack 用估算高度滚到底，随后真实行高落定，偏移可能停在内容末尾之后导致底部留白。
+    /// 统一使用 ScrollGeometry 同源的越界量，且严格限定仅在用户未手动翻阅历史、且滚动已静止时执行底部贴合，
+    /// 绝不在用户浏览历史轮次或惯性减速途中强拉回底部。
+    func scheduleOvershootHeal(overshoot: CGFloat, proxy: ScrollViewProxy) {
+        guard !scrollHUD.hasUserInteracted, !preserveScrollOnReturn else {
+            scrollHUD.blankHealTask?.cancel()
+            scrollHUD.blankHealTask = nil
             return
         }
-        blankHealTask = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 250_000_000)
-            guard !Task.isCancelled, !isUserDragging, (!hasUserInteracted || scrollHUD.isNearBottom) else { return }
-            scrollToBottom(proxy: proxy, animated: false)
+        guard overshoot > 64 else {
+            scrollHUD.blankHealTask?.cancel()
+            scrollHUD.blankHealTask = nil
+            return
         }
-    }
-
-    /// 滚动偏移越过内容末尾（视口底部出现大片空白）且稳定一小会儿后，主动重新贴底。
-    /// 用户正在拖动、或下拉/上拉回弹的小幅越界不处理。
-    func scheduleOvershootHeal(overshoot: CGFloat, proxy: ScrollViewProxy) {
-        // 仅在用户期望贴底时执行底部自愈
-        guard !hasUserInteracted || scrollHUD.isNearBottom else { return }
-        guard overshoot > 120 else { return }
-        blankHealTask?.cancel()
-        blankHealTask = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 250_000_000)
-            guard !Task.isCancelled, !isUserDragging, (!hasUserInteracted || scrollHUD.isNearBottom) else { return }
+        scrollHUD.blankHealTask?.cancel()
+        scrollHUD.blankHealTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 220_000_000)
+            guard !Task.isCancelled,
+                  !scrollHUD.isUserDragging,
+                  !scrollHUD.isScrollMoving,
+                  !scrollHUD.hasUserInteracted,
+                  !preserveScrollOnReturn else { return }
             scrollToBottom(proxy: proxy, animated: false)
         }
     }
@@ -173,11 +164,81 @@ extension ChatView {
     /// 长会话（LazyVStack）程序化滚到底后，底部的行有时不被创建，整屏空白。
     /// 稳定后若最后一行仍未出现，先滚到最后一行再贴底，逼它创建。
     func healUnmaterializedBottom(proxy: ScrollViewProxy) {
-        guard !hasUserInteracted, !isUserDragging, !lastRowMaterialized, !preserveScrollOnReturn,
+        guard !scrollHUD.hasUserInteracted,
+              !scrollHUD.isUserDragging,
+              !scrollHUD.isScrollMoving,
+              !scrollHUD.lastRowMaterialized,
+              !preserveScrollOnReturn,
               let lastId = viewModel.messages.last?.id else { return }
         proxy.scrollTo(lastId, anchor: .bottom)
         DispatchQueue.main.async {
             scrollToBottom(proxy: proxy, animated: false)
+        }
+    }
+
+    /// 会话中途在 LazyVStack 里翻阅超长气泡后，若出现极端偏移失步导致视口内零可见消息（整屏纯白），
+    /// 在滚动完全静止（idle）后就地唤醒刚才阅读的消息行，绝不篡改用户当前阅读轮次或强跳回底部。
+    func scheduleMidScrollBlankHealIfNeeded(proxy: ScrollViewProxy, viewportHeight: CGFloat) {
+        guard useLazyMessagesStack,
+              hasInitiallyAligned,
+              !preserveScrollOnReturn,
+              !viewModel.isLoading,
+              !viewModel.messages.isEmpty,
+              !scrollHUD.isUserDragging,
+              !scrollHUD.isScrollMoving,
+              targetScrollTurnId == nil else {
+            scrollHUD.midScrollBlankHealTask?.cancel()
+            scrollHUD.midScrollBlankHealTask = nil
+            return
+        }
+        let effectiveVH = viewportHeight > 0 ? viewportHeight : (currentViewportHeight > 0 ? currentViewportHeight : 600)
+        let hasAnyRenderedInViewport = scrollHUD.lastVisibleMessageGeometries.contains {
+            $0.maxY >= -80 && $0.minY <= effectiveVH + 80
+        }
+        guard !hasAnyRenderedInViewport else {
+            scrollHUD.midScrollBlankHealTask?.cancel()
+            scrollHUD.midScrollBlankHealTask = nil
+            return
+        }
+        guard scrollHUD.midScrollBlankHealTask == nil else { return }
+        scrollHUD.midScrollBlankHealTask = Task { @MainActor in
+            defer { scrollHUD.midScrollBlankHealTask = nil }
+            try? await Task.sleep(nanoseconds: 180_000_000)
+            guard !Task.isCancelled,
+                  useLazyMessagesStack,
+                  hasInitiallyAligned,
+                  !preserveScrollOnReturn,
+                  !viewModel.isLoading,
+                  !viewModel.messages.isEmpty,
+                  !scrollHUD.isUserDragging,
+                  !scrollHUD.isScrollMoving,
+                  targetScrollTurnId == nil else { return }
+            let vh = currentViewportHeight > 0 ? currentViewportHeight : effectiveVH
+            let stillEmpty = !scrollHUD.lastVisibleMessageGeometries.contains {
+                $0.maxY >= -80 && $0.minY <= vh + 80
+            }
+            guard stillEmpty else { return }
+            let now = Date()
+            guard now.timeIntervalSince(scrollHUD.lastMidBlankHealAt) >= 1.2 else { return }
+            scrollHUD.lastMidBlankHealAt = now
+
+            if !scrollHUD.hasUserInteracted || scrollHUD.isNearBottom {
+                if let lastId = viewModel.messages.last?.id {
+                    proxy.scrollTo(lastId, anchor: .bottom)
+                }
+                DispatchQueue.main.async {
+                    scrollToBottom(proxy: proxy, animated: false)
+                }
+            } else if let anchorId = scrollHUD.lastKnownVisibleMessageId,
+                      viewModel.messages.contains(where: { $0.id == anchorId }) {
+                proxy.scrollTo(anchorId, anchor: .center)
+            } else {
+                let ch = max(scrollHUD.messagesContentHeight, 1)
+                let ratio = min(max(scrollHUD.lastQuantizedOffsetY / ch, 0), 1)
+                let approxIdx = min(max(Int((CGFloat(viewModel.messages.count - 1) * ratio).rounded()), 0), viewModel.messages.count - 1)
+                let fallbackId = viewModel.messages[approxIdx].id
+                proxy.scrollTo(fallbackId, anchor: .center)
+            }
         }
     }
 }

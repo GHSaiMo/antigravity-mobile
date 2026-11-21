@@ -46,7 +46,7 @@ extension ChatView {
         guard !text.isEmpty || !images.isEmpty || !files.isEmpty || slash != nil else { return }
         // Files are uploaded in the background; wait until they have all reached the gateway.
         guard files.allSatisfy({ $0.isUploaded }) else { return }
-        hasUserInteracted = false
+        scrollHUD.hasUserInteracted = false
         viewModel.inputText = ""
         viewModel.selectedImageData = []
         viewModel.selectedFiles = []
@@ -279,7 +279,7 @@ extension ChatView {
         } else {
             viewModel.inputText += "\n" + toAppend
         }
-        hasUserInteracted = false
+        scrollHUD.hasUserInteracted = false
         isInputFocused = true
     }
     

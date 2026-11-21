@@ -4,10 +4,19 @@ private struct CurrentCascadeIdKey: EnvironmentKey {
     static let defaultValue: String? = nil
 }
 
+private struct MarkdownAvailableWidthKey: EnvironmentKey {
+    static let defaultValue: CGFloat? = nil
+}
+
 extension EnvironmentValues {
     public var currentCascadeId: String? {
         get { self[CurrentCascadeIdKey.self] }
         set { self[CurrentCascadeIdKey.self] = newValue }
+    }
+
+    public var markdownAvailableWidth: CGFloat? {
+        get { self[MarkdownAvailableWidthKey.self] }
+        set { self[MarkdownAvailableWidthKey.self] = newValue }
     }
 }
 
@@ -22,6 +31,7 @@ public struct MarkdownContentView: View {
     @Environment(\.shareCardUseNord) var shareCardUseNord
     @Environment(\.shareCardThemeID) var shareCardThemeID
     @Environment(\.currentCascadeId) private var currentCascadeId
+    @Environment(\.markdownAvailableWidth) var markdownAvailableWidth
 
     private var fontScale: AppSettings.FontSizeScale {
         isShareExport ? .standard : AppSettings.shared.fontSizeScale

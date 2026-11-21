@@ -54,7 +54,7 @@ extension ChatView {
                             if newHeight != oldHeight {
                                 if !hasInitiallyAligned {
                                     alignMessages(proxy: proxy, animated: false)
-                                } else if scrollHUD.isNearBottom && !hasUserInteracted {
+                                } else if scrollHUD.isNearBottom && !scrollHUD.hasUserInteracted {
                                     scrollToBottom(proxy: proxy, animated: true)
                                 }
                             }
@@ -158,22 +158,25 @@ extension ChatView {
     }
 
     private func messagesScrollCore(proxy: ScrollViewProxy, viewportWidth: CGFloat, viewportHeight: CGFloat) -> some View {
-        ScrollView(.vertical, showsIndicators: true) {
+        let resolvedListWidth = horizontalSizeClass == .regular ? min(viewportWidth, chatReadableMaxWidth) : viewportWidth
+        let agentMarkdownWidth = max(resolvedListWidth - 88, 200)
+        return ScrollView(.vertical, showsIndicators: true) {
             messagesList(proxy: proxy)
-                .frame(width: horizontalSizeClass == .regular ? min(viewportWidth, chatReadableMaxWidth) : viewportWidth)
+                .environment(\.markdownAvailableWidth, agentMarkdownWidth)
+                .frame(width: resolvedListWidth)
                 .frame(maxWidth: .infinity)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .coordinateSpace(name: "ChatScrollViewSpace")
-        .onPreferenceChange(ChatContentHeightPreferenceKey.self) { height in
-            guard height > 0 else { return }
-            if abs(messagesContentHeight - height) > 1 {
-                messagesContentHeight = height
-            }
-        }
         .onPreferenceChange(ChatVisibleMessagesPreferenceKey.self) { visibleGeometries in
             scrollHUD.lastVisibleMessageGeometries = visibleGeometries
             updateCurrentVisibleTurn(viewportHeight: viewportHeight)
+            if visibleGeometries.isEmpty {
+                scheduleMidScrollBlankHealIfNeeded(proxy: proxy, viewportHeight: viewportHeight)
+            } else {
+                scrollHUD.midScrollBlankHealTask?.cancel()
+                scrollHUD.midScrollBlankHealTask = nil
+            }
         }
         .onChange(of: viewModel.turns.count) { _, _ in
             updateCurrentVisibleTurn(viewportHeight: viewportHeight)
@@ -195,8 +198,10 @@ extension ChatView {
             .simultaneousGesture(
                 DragGesture(minimumDistance: 10)
                     .onChanged { _ in
-                        hasUserInteracted = true
-                        isUserDragging = true
+                        scrollHUD.hasUserInteracted = true
+                        scrollHUD.isUserDragging = true
+                        scrollHUD.isScrollMoving = true
+                        scrollHUD.cancelScrollHealAndJumpTasks()
                         if !hasInitiallyAligned && !viewModel.messages.isEmpty {
                             hasInitiallyAligned = true
                         }
@@ -204,41 +209,89 @@ extension ChatView {
                             scrollHUD.lockedTurnIndex = nil
                         }
                     }
-                    .onEnded { _ in isUserDragging = false }
+                    .onEnded { _ in scrollHUD.isUserDragging = false }
             )
+            .onScrollPhaseChange { _, newPhase in
+                switch newPhase {
+                case .interacting:
+                    scrollHUD.hasUserInteracted = true
+                    scrollHUD.isUserDragging = true
+                    scrollHUD.isScrollMoving = true
+                    scrollHUD.cancelScrollHealAndJumpTasks()
+                    if !hasInitiallyAligned && !viewModel.messages.isEmpty {
+                        hasInitiallyAligned = true
+                    }
+                    if scrollHUD.lockedTurnIndex != nil {
+                        scrollHUD.lockedTurnIndex = nil
+                    }
+                case .tracking:
+                    scrollHUD.isUserDragging = true
+                    scrollHUD.cancelScrollHealAndJumpTasks()
+                case .decelerating, .animating:
+                    scrollHUD.isUserDragging = false
+                    scrollHUD.isScrollMoving = true
+                case .idle:
+                    scrollHUD.isUserDragging = false
+                    scrollHUD.isScrollMoving = false
+                    scheduleMidScrollBlankHealIfNeeded(proxy: proxy, viewportHeight: currentViewportHeight)
+                    if !scrollHUD.hasUserInteracted, scrollHUD.lastQuantizedDistanceFromBottom < -64 {
+                        scheduleOvershootHeal(overshoot: -scrollHUD.lastQuantizedDistanceFromBottom, proxy: proxy)
+                    }
+                @unknown default:
+                    scrollHUD.isUserDragging = false
+                    scrollHUD.isScrollMoving = newPhase.isScrolling
+                }
+            }
             .scrollDismissesKeyboard(.interactively)
             // 直接基于 ScrollView 几何状态计算距底距离与越界，避免 LazyVStack 中 BOTTOM_ANCHOR 离屏卸载后失灵
             .onScrollGeometryChange(for: ChatScrollMetrics.self) { geo in
                 let vh = geo.containerSize.height
                 let ch = geo.contentSize.height
-                let dist = ch - (geo.contentOffset.y + vh)
+                let offsetY = geo.contentOffset.y
+                let dist = ch - (offsetY + vh)
                 let qDist = (dist / 16).rounded() * 16
-                let overshoot: CGFloat = (ch > vh) ? (geo.contentOffset.y + vh - ch) : 0
-                let qOvershoot: CGFloat = overshoot > 120 ? (overshoot / 16).rounded() * 16 : 0
+                let qOffsetY = (offsetY / 16).rounded() * 16
+                let overshoot: CGFloat = (ch > vh) ? (offsetY + vh - ch) : 0
+                let qOvershoot: CGFloat = overshoot > 64 ? (overshoot / 16).rounded() * 16 : 0
                 return ChatScrollMetrics(
                     quantizedDistanceFromBottom: qDist,
+                    quantizedOffsetY: qOffsetY,
                     viewportHeight: vh.rounded(),
                     contentHeight: ch.rounded(),
                     overshoot: qOvershoot
                 )
             } action: { _, metrics in
-                if metrics.contentHeight > 0 && abs(messagesContentHeight - metrics.contentHeight) > 1 {
-                    messagesContentHeight = metrics.contentHeight
+                if metrics.contentHeight > 0 && abs(scrollHUD.messagesContentHeight - metrics.contentHeight) > 1 {
+                    scrollHUD.messagesContentHeight = metrics.contentHeight
                 }
+                let prevOffsetY = scrollHUD.lastQuantizedOffsetY
+                if prevOffsetY >= 0 {
+                    let offsetDelta = metrics.quantizedOffsetY - prevOffsetY
+                    if abs(offsetDelta) >= 16 && abs(offsetDelta) < 1200 {
+                        scrollHUD.wasScrollingDownward = offsetDelta > 0
+                    }
+                }
+                scrollHUD.lastQuantizedOffsetY = metrics.quantizedOffsetY
+                scrollHUD.lastQuantizedDistanceFromBottom = metrics.quantizedDistanceFromBottom
+
                 scheduleOvershootHeal(overshoot: metrics.overshoot, proxy: proxy)
                 guard metrics.viewportHeight > 0, metrics.contentHeight > 0 else { return }
                 let effectiveVH = currentViewportHeight > 0 ? currentViewportHeight : metrics.viewportHeight
                 let anchorMaxY = effectiveVH + metrics.quantizedDistanceFromBottom
                 let isContentFitting = metrics.contentHeight <= effectiveVH
-                let near = isContentFitting || (metrics.quantizedDistanceFromBottom <= 90)
-                if near && hasUserInteracted {
-                    hasUserInteracted = false
+                // 必须确认最后一行已实际挂载且距底落在合理区间 [-96, 90]，排除 LazyVStack 卸载超长行引起的负值假贴底
+                let near = isContentFitting || (
+                    (scrollHUD.lastRowMaterialized || viewModel.messages.isEmpty)
+                    && metrics.quantizedDistanceFromBottom >= -96
+                    && metrics.quantizedDistanceFromBottom <= 90
+                )
+                if near && scrollHUD.hasUserInteracted && (isContentFitting || scrollHUD.wasScrollingDownward) {
+                    scrollHUD.hasUserInteracted = false
                 }
                 if near != scrollHUD.isNearBottom {
                     scrollHUD.isNearBottom = near
                     updateCurrentVisibleTurn(viewportHeight: effectiveVH)
                 }
-                scheduleBlankSpaceHeal(anchorMaxY: anchorMaxY, viewportHeight: effectiveVH, proxy: proxy)
                 handleStepperScrollProgress(anchorMaxY: anchorMaxY, isNear: near)
             }
             .refreshable {
@@ -288,7 +341,7 @@ extension ChatView {
             }
             .onChange(of: viewModel.runningTasks.count) { oldVal, newVal in
                 if newVal != oldVal && hasInitiallyAligned {
-                    if scrollHUD.isNearBottom || !hasUserInteracted {
+                    if scrollHUD.isNearBottom || !scrollHUD.hasUserInteracted {
                         scrollToBottom(proxy: proxy, animated: true)
                     }
                 }
@@ -309,7 +362,7 @@ extension ChatView {
                     alignMessages(proxy: proxy, animated: false)
                     return
                 }
-                if !hasUserInteracted || scrollHUD.isNearBottom {
+                if !scrollHUD.hasUserInteracted || scrollHUD.isNearBottom {
                     // 新 Agent 气泡进入流式传输时无动画贴底，避免与 PacedAgentRow 的 followStreamGrowth 动画冲突抖动
                     let shouldAnimate = !(viewModel.messages.last?.isAgent == true && viewModel.isActivelyRunning)
                     scrollToBottom(proxy: proxy, animated: shouldAnimate)
@@ -320,13 +373,13 @@ extension ChatView {
                 guard hasInitiallyAligned else { return }
                 // 新消息 ID 切换已由上方 last?.id 处理；同一条 Agent 消息的文本增长由 PacedAgentRow 按节奏驱动滚动
                 guard oldMsg?.id == lastMsg.id, !lastMsg.isAgent else { return }
-                if !hasUserInteracted || scrollHUD.isNearBottom {
+                if !scrollHUD.hasUserInteracted || scrollHUD.isNearBottom {
                     scrollToBottom(proxy: proxy, animated: true)
                 }
             }
             .onChange(of: viewModel.queuedMessages) { oldVal, newVal in
                 if newVal != oldVal && hasInitiallyAligned {
-                    if scrollHUD.isNearBottom || !hasUserInteracted {
+                    if scrollHUD.isNearBottom || !scrollHUD.hasUserInteracted {
                         scrollToBottom(proxy: proxy, animated: true)
                     }
                 }
@@ -338,9 +391,11 @@ extension ChatView {
                         scrollToBottom(proxy: proxy, animated: true)
                     }
                 } else {
-                    // 等待键盘完全收起并恢复完整视口高度后，做底部对齐校准，消除悬空留白
+                    // 仅在用户期望贴底时，等待键盘完全收起后做底部对齐校准，避免翻阅历史时点空白收键盘被拉回底部
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.28) {
-                        scrollToBottom(proxy: proxy, animated: true)
+                        if !scrollHUD.hasUserInteracted || scrollHUD.isNearBottom {
+                            scrollToBottom(proxy: proxy, animated: true)
+                        }
                     }
                 }
             }
@@ -352,17 +407,27 @@ extension ChatView {
             }
             .onChange(of: targetScrollTurnId) { _, targetId in
                 guard let targetId = targetId else { return }
+                scrollHUD.cancelScrollHealAndJumpTasks()
                 if targetId == "BOTTOM_ANCHOR" {
-                    hasUserInteracted = false
+                    scrollHUD.hasUserInteracted = false
                     scrollHUD.isNearBottom = true
+                    scrollHUD.lastKnownVisibleMessageId = viewModel.messages.last?.id
                     withAnimation(.easeOut(duration: 0.2)) {
                         proxy.scrollTo("BOTTOM_ANCHOR", anchor: .bottom)
                     }
+                    scrollHUD.turnJumpTask = Task { @MainActor in
+                        try? await Task.sleep(nanoseconds: 240_000_000)
+                        guard !Task.isCancelled, !scrollHUD.isUserDragging, !scrollHUD.hasUserInteracted else { return }
+                        if !scrollHUD.lastRowMaterialized, let lastId = viewModel.messages.last?.id {
+                            proxy.scrollTo(lastId, anchor: .bottom)
+                        }
+                        proxy.scrollTo("BOTTOM_ANCHOR", anchor: .bottom)
+                    }
                 } else {
-                    hasUserInteracted = true
+                    scrollHUD.hasUserInteracted = true
+                    scrollHUD.wasScrollingDownward = false
                     scrollHUD.isNearBottom = false
-                    blankHealTask?.cancel()
-                    blankHealTask = nil
+                    scrollHUD.lastKnownVisibleMessageId = targetId
 
                     // 1. 若目标为首条消息或首轮，先对齐顶部锚点唤醒顶部区域渲染
                     if targetId == viewModel.messages.first?.id || targetId == "TOP_ANCHOR" {
@@ -372,9 +437,11 @@ extension ChatView {
                     // 2. 立即跳转至目标消息行
                     proxy.scrollTo(targetId, anchor: .top)
 
-                    // 3. 在 Sheet 转场关闭及 Lazy 视图实例化阶段做多级微调校准，避免大跨度跳转下的空白
-                    for delay in [0.08, 0.22, 0.4] {
-                        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                    // 3. 在 Sheet 转场关闭及 Lazy 视图实例化阶段做可取消的多级微调校准（用户一旦触摸拖动立即中止）
+                    scrollHUD.turnJumpTask = Task { @MainActor in
+                        for delayNs: UInt64 in [80_000_000, 140_000_000, 180_000_000] {
+                            try? await Task.sleep(nanoseconds: delayNs)
+                            guard !Task.isCancelled, !scrollHUD.isUserDragging else { return }
                             proxy.scrollTo(targetId, anchor: .top)
                         }
                     }
@@ -399,15 +466,17 @@ extension ChatView {
         return viewModel.messages.isEmpty && viewModel.stepCount == 0
     }
     
-    /// 消息极少且内容轻量时用普通 VStack：LazyVStack 在程序化大幅跳转或滚到底后可能不创建行，整屏空白。
-    /// 通过锁存的 `useLazyMessagesStack` 控制容器身份（综合消息条数、总文本量、工具调用数），
-    /// 绝不在流式输出跨过阈值瞬间切换容器，防止整屏视图与内嵌 WKWebView 销毁重挂载。
+    /// 消息极少且内容轻量时用普通 VStack；超长会话使用带 `.scrollTargetLayout()` 锚点保护的 LazyVStack，
+    /// 使上方未渲染超长气泡在向上回滚实例化时保持当前阅读行视觉位置稳定不乱跳。
+    /// 通过锁存的 `useLazyMessagesStack` 控制容器身份，绝不在流式输出跨过阈值瞬间切换容器。
     @ViewBuilder
     func messagesStack<C: View>(@ViewBuilder _ content: () -> C) -> some View {
         if !useLazyMessagesStack {
             VStack(spacing: 8) { content() }
+                .scrollTargetLayout()
         } else {
             LazyVStack(spacing: 8) { content() }
+                .scrollTargetLayout()
         }
     }
 
@@ -415,7 +484,7 @@ extension ChatView {
     func messagesList(proxy: ScrollViewProxy) -> some View {
         let lastId = viewModel.messages.last?.id
         let isStreamingOrRunning = viewModel.isRunning || viewModel.isAwaitingResponse
-        let shouldTrackVisibility = viewModel.turns.count >= 2
+        let shouldTrackVisibility = viewModel.turns.count >= 2 || useLazyMessagesStack
         let canRevert = GatewayCompatStore.shared.isAvailable(GatewayFeature.revert)
         let canExport = GatewayCompatStore.shared.isAvailable(GatewayFeature.export)
         let highlightedId = highlightedTurnMessageId
@@ -461,14 +530,6 @@ extension ChatView {
         .padding(.top, 12)
         .padding(.bottom, 4)
         .frame(maxWidth: .infinity)
-        .background(
-            GeometryReader { geo in
-                Color.clear.preference(
-                    key: ChatContentHeightPreferenceKey.self,
-                    value: geo.size.height
-                )
-            }
-        )
     }
     
     var shouldShowThinkingBubble: Bool {
@@ -535,7 +596,7 @@ extension ChatView {
                 if shouldTrackVisibility {
                     GeometryReader { geo in
                         let frame = geo.frame(in: .named("ChatScrollViewSpace"))
-                        let isPossiblyVisible = frame.maxY >= -40 && frame.minY <= 1600
+                        let isPossiblyVisible = frame.maxY >= -80 && frame.minY <= 1800
                         let qMinY = (frame.minY / 32).rounded() * 32
                         let qMaxY = (frame.maxY / 32).rounded() * 32
                         Color.clear.preference(
@@ -547,12 +608,37 @@ extension ChatView {
             }
         )
         .onAppear {
-            if isLast { lastRowMaterialized = true }
+            if isLast {
+                scrollHUD.lastRowMaterialized = true
+                let dist = scrollHUD.lastQuantizedDistanceFromBottom
+                if scrollHUD.hasUserInteracted && scrollHUD.wasScrollingDownward && dist >= -96 && dist <= 90 {
+                    scrollHUD.hasUserInteracted = false
+                    if !scrollHUD.isNearBottom {
+                        scrollHUD.isNearBottom = true
+                        updateCurrentVisibleTurn(viewportHeight: currentViewportHeight)
+                    }
+                }
+            }
         }
-        .onDisappear { if isLast { lastRowMaterialized = false } }
+        .onDisappear { if isLast { scrollHUD.lastRowMaterialized = false } }
     }
     
     func updateCurrentVisibleTurn(viewportHeight: CGFloat) {
+        let effectiveHeight = viewportHeight > 0 ? viewportHeight : (currentViewportHeight > 0 ? currentViewportHeight : 600)
+        let visibleInViewport = scrollHUD.lastVisibleMessageGeometries.filter { $0.maxY > 8 && $0.minY < effectiveHeight - 8 }
+        let anchorY = effectiveHeight * 0.45
+        let bestGeo = visibleInViewport.min { a, b in
+            let distA: CGFloat = (anchorY >= a.minY && anchorY <= a.maxY) ? 0 : min(abs(a.minY - anchorY), abs(a.maxY - anchorY))
+            let distB: CGFloat = (anchorY >= b.minY && anchorY <= b.maxY) ? 0 : min(abs(b.minY - anchorY), abs(b.maxY - anchorY))
+            if abs(distA - distB) > 1 {
+                return distA < distB
+            }
+            return a.minY > b.minY
+        }
+        if let bestId = bestGeo?.id {
+            scrollHUD.lastKnownVisibleMessageId = bestId
+        }
+
         let turns = viewModel.turns
         guard !turns.isEmpty else {
             if scrollHUD.currentVisibleTurnIndex != 1 { scrollHUD.currentVisibleTurnIndex = 1 }
@@ -577,8 +663,6 @@ extension ChatView {
         }
         
         // 3. 根据当前视口内可见的消息几何位置，计算处于阅读视觉重心处的消息所属轮次
-        let effectiveHeight = viewportHeight > 0 ? viewportHeight : (currentViewportHeight > 0 ? currentViewportHeight : 600)
-        let visibleInViewport = scrollHUD.lastVisibleMessageGeometries.filter { $0.maxY > 8 && $0.minY < effectiveHeight - 8 }
         guard !visibleInViewport.isEmpty else { return }
         
         // 若首条消息已在视口顶部附近，判定为第 1 轮
@@ -590,17 +674,6 @@ extension ChatView {
                 scrollHUD.currentVisibleTurnIndex = firstIdx
             }
             return
-        }
-        
-        // 取视口中上部（45% 高度处）作为阅读锚点，优先选择覆盖该锚点的消息，否则选择距离锚点最近的消息
-        let anchorY = effectiveHeight * 0.45
-        let bestGeo = visibleInViewport.min { a, b in
-            let distA: CGFloat = (anchorY >= a.minY && anchorY <= a.maxY) ? 0 : min(abs(a.minY - anchorY), abs(a.maxY - anchorY))
-            let distB: CGFloat = (anchorY >= b.minY && anchorY <= b.maxY) ? 0 : min(abs(b.minY - anchorY), abs(b.maxY - anchorY))
-            if abs(distA - distB) > 1 {
-                return distA < distB
-            }
-            return a.minY > b.minY
         }
         
         if let targetId = bestGeo?.id,
@@ -720,6 +793,9 @@ extension ChatView {
         
         let delta = anchorMaxY - scrollHUD.lastAnchorMaxY
         scrollHUD.lastAnchorMaxY = anchorMaxY
+        
+        // 仅在主动拖动或滚动惯性减速期间更新跳轮条显隐，忽略静止态的异步布局收敛
+        guard scrollHUD.isUserDragging || scrollHUD.isScrollMoving else { return }
         
         // 极端布局跳变防护（允许快速惯性滑动正常唤醒跳轮条）
         guard abs(delta) < 2000, abs(delta) > 2 else { return }

@@ -12,18 +12,11 @@ public struct ChatView: View {
     @State var hasInitiallyAligned = false
     /// 进入子代理等子页面再返回时，保持原滚动位置，不重新对齐到底部。
     @State var preserveScrollOnReturn = false
-    @State var hasUserInteracted = false
     @State var scrollHUD = ChatScrollHUDState()
-    @State var messagesContentHeight: CGFloat = 0
     @State var currentViewportHeight: CGFloat = 0
     @State var cardToggleTrigger = 0
-    @State var isUserDragging = false
-    @State var blankHealTask: Task<Void, Never>? = nil
-    /// 最后一条消息的行当前是否已被创建（LazyVStack 懒加载时可能迟迟不创建）。
-    @State var lastRowMaterialized = false
     /// 锁定当前会话列表容器类型（VStack vs LazyVStack），避免流式跨过阈值瞬间整棵子树与 WKWebView 被销毁重建。
     @State var useLazyMessagesStack = false
-    @State var lastFollowScrollAt: Date = .distantPast
     @State var showCameraPicker = false
     @State var showDocumentScanner = false
     @State var showCameraUnavailableAlert = false
@@ -115,10 +108,11 @@ public struct ChatView: View {
         }
     }
 
-    /// 根据消息数量、文本总字符数与工具调用总数判定是否启用 LazyVStack，
-    /// 避免“消息条数不多但工具批次与长文极大”的会话误用非懒加载 VStack。
+    /// 根据消息数量、文本总字符数与工具调用总数判定是否启用 LazyVStack：
+    /// 中短会话保持确定性零估算误差的 VStack（配合 EquatableMessageRow 与 Markdown 缓存开销极低），
+    /// 仅在超长历史或重度工具会话中启用带 scrollTargetLayout 锚点保护的 LazyVStack。
     static func shouldUseLazyStack(for messages: [ChatMessage]) -> Bool {
-        if messages.count > 40 {
+        if messages.count > 80 {
             return true
         }
         var totalChars = 0
@@ -126,7 +120,7 @@ public struct ChatView: View {
         for msg in messages {
             totalChars += msg.content.count
             totalTools += msg.toolCount
-            if totalChars > 15_000 || totalTools > 60 {
+            if totalChars > 60_000 || totalTools > 120 {
                 return true
             }
         }
@@ -825,11 +819,15 @@ public struct ChatView: View {
             preserveScrollOnReturn = true
         } else {
             hasInitiallyAligned = false
-            hasUserInteracted = false
+            scrollHUD.hasUserInteracted = false
             scrollHUD.isNearBottom = true
-            messagesContentHeight = 0
+            scrollHUD.messagesContentHeight = 0
+            scrollHUD.lastKnownVisibleMessageId = nil
             currentViewportHeight = 0
         }
+        scrollHUD.isUserDragging = false
+        scrollHUD.isScrollMoving = false
+        scrollHUD.cancelScrollHealAndJumpTasks()
         scrollHUD.stepperDimTask?.cancel()
         scrollHUD.stepperDimTask = nil
         scrollHUD.stepperHideTask?.cancel()

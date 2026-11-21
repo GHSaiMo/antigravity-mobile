@@ -228,6 +228,7 @@ extension MarkdownContentView {
             
             if !content.isEmpty {
                 MarkdownContentView(content: content, onImageTap: onImageTap)
+                    .environment(\.markdownAvailableWidth, markdownAvailableWidth.map { max($0 - 22, 160) })
             }
         }
         .padding(.leading, 12)
@@ -248,6 +249,7 @@ extension MarkdownContentView {
         VStack(alignment: .leading, spacing: 0) {
             if !content.isEmpty {
                 MarkdownContentView(content: content, onImageTap: onImageTap)
+                    .environment(\.markdownAvailableWidth, markdownAvailableWidth.map { max($0 - 22, 160) })
             }
         }
         .padding(.leading, 12)
@@ -267,44 +269,46 @@ extension MarkdownContentView {
 
 /// 表格：按内容自适应列宽并支持横向滚动，不强行压缩列宽。
 /// 短列保持单行完整显示；长文本列按舒适阅读宽度自动换行，总宽超出容器时交由外层横向滚动。
+/// 通过 `markdownAvailableWidth` 环境值在首帧同步提供准确宽度，避免 LazyVStack 懒加载挂载后二次排版引发高度跳变。
 struct MarkdownAutoTable<Content: View>: View {
     @Environment(\.isShareExport) private var isShareExport
+    @Environment(\.markdownAvailableWidth) private var envAvailableWidth
     let columnCount: Int
     let hasHeader: Bool
     @ViewBuilder let content: () -> Content
-    @State private var availableWidth: CGFloat = 0
+    @State private var measuredWidth: CGFloat = 0
+
+    private var effectiveWidth: CGFloat {
+        measuredWidth > 0 ? measuredWidth : (envAvailableWidth ?? 0)
+    }
 
     var body: some View {
-        VStack(spacing: 0) {
-            Color.clear
-                .frame(height: 0)
-                .background(GeometryReader { geo in
-                    Color.clear.preference(key: TableWidthKey.self, value: geo.size.width)
-                })
-            ExportAwareHorizontalScroll {
-                AutoTableLayout(
-                    columnCount: columnCount,
-                    hasHeader: hasHeader,
-                    availableWidth: availableWidth,
-                    isShareExport: isShareExport
-                ) {
-                    content()
-                }
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
-                )
+        ExportAwareHorizontalScroll {
+            AutoTableLayout(
+                columnCount: columnCount,
+                hasHeader: hasHeader,
+                availableWidth: effectiveWidth,
+                isShareExport: isShareExport
+            ) {
+                content()
             }
-            .fixedSize(horizontal: false, vertical: true)
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
+            )
         }
-        .onPreferenceChange(TableWidthKey.self) { availableWidth = $0 }
+        .fixedSize(horizontal: false, vertical: true)
+        .onGeometryChange(for: CGFloat.self) { proxy in
+            proxy.size.width
+        } action: { newWidth in
+            guard newWidth > 0 else { return }
+            let current = measuredWidth > 0 ? measuredWidth : (envAvailableWidth ?? 0)
+            if abs(current - newWidth) > 1.5 {
+                measuredWidth = newWidth
+            }
+        }
     }
-}
-
-private struct TableWidthKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
 }
 
 private struct AutoTableLayout: Layout {
