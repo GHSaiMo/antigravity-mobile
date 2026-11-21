@@ -244,8 +244,9 @@ func AuthMiddlewareWithPolicy(store *AuthStore, next http.Handler, policy AuthPo
 		isWS := strings.Contains(strings.ToLower(r.Header.Get("Upgrade")), "websocket") ||
 			isWebSocketPath(r.URL.Path)
 		isRawFile := strings.HasPrefix(r.URL.Path, "/api/v1/files/raw") || strings.HasPrefix(r.URL.Path, "/api/v1/files/zip-entry")
+		isSidecarUI := strings.HasPrefix(r.URL.Path, "/gateway/sidecar-ui/")
 
-		if (isWS || isRawFile) && r.URL.Query().Get("ticket") != "" {
+		if (isWS || isRawFile || isSidecarUI) && r.URL.Query().Get("ticket") != "" {
 			ticket := strings.TrimSpace(r.URL.Query().Get("ticket"))
 			device, ok = store.ValidateWSTicket(ticket)
 		}

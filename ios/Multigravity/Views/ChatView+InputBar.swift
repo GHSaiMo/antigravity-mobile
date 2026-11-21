@@ -446,9 +446,15 @@ private struct ChatInputTextAndSendRow: View {
                 isFocused: $isInputFocused,
                 pendingSelectFirstPlaceholder: $viewModel.pendingSelectFirstPlaceholder
             )
+            .padding(.horizontal, 14)
+            .padding(.vertical, 9)
             .frame(minHeight: 44)
             .background(Color(uiColor: .secondarySystemBackground))
             .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .onTapGesture {
+                isInputFocused = true
+            }
             
             if voiceCall.isInCall && !hasSendableDraft {
                 Button {
@@ -1082,8 +1088,8 @@ private struct BracketPlaceholderTextInput: View {
                 Text(placeholder)
                     .font(.system(size: 16))
                     .foregroundColor(Color(uiColor: .placeholderText))
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
+                    .padding(.horizontal, 2)
+                    .padding(.vertical, 2)
                     .allowsHitTesting(false)
             }
         }
@@ -1113,7 +1119,7 @@ private struct BracketPlaceholderUITextView: UIViewRepresentable {
         textView.font = .systemFont(ofSize: 16)
         textView.textColor = .label
         textView.backgroundColor = .clear
-        textView.textContainerInset = UIEdgeInsets(top: 12, left: 16, bottom: 12, right: 16)
+        textView.textContainerInset = UIEdgeInsets(top: 2, left: 2, bottom: 2, right: 2)
         textView.textContainer.lineFragmentPadding = 0
         textView.isScrollEnabled = false
         textView.showsVerticalScrollIndicator = true
@@ -1177,15 +1183,20 @@ private struct BracketPlaceholderUITextView: UIViewRepresentable {
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: UITextView, context: Context) -> CGSize? {
         let targetWidth = proposal.width ?? uiView.bounds.width
         guard targetWidth > 0 else { return nil }
-        let lineHeight = uiView.font?.lineHeight ?? 20
+        let lineHeight = max(uiView.font?.lineHeight ?? 20, 22.5)
         let verticalInset = uiView.textContainerInset.top + uiView.textContainerInset.bottom
-        let minHeight = max(44, ceil(lineHeight) + verticalInset)
+        let minHeight = max(26, ceil(lineHeight) + verticalInset)
         let maxHeight = ceil(lineHeight * 5) + verticalInset
         let fittingSize = uiView.sizeThatFits(CGSize(width: targetWidth, height: .greatestFiniteMagnitude))
         let clampedHeight = min(max(minHeight, ceil(fittingSize.height)), maxHeight)
         let needsScroll = ceil(fittingSize.height) > maxHeight
         if uiView.isScrollEnabled != needsScroll {
             uiView.isScrollEnabled = needsScroll
+            if needsScroll && uiView.isFirstResponder {
+                DispatchQueue.main.async {
+                    uiView.scrollRangeToVisible(uiView.selectedRange)
+                }
+            }
         }
         return CGSize(width: targetWidth, height: clampedHeight)
     }
@@ -1204,6 +1215,11 @@ private struct BracketPlaceholderUITextView: UIViewRepresentable {
                 parent.text = newText
             }
             textView.invalidateIntrinsicContentSize()
+            if textView.isScrollEnabled {
+                DispatchQueue.main.async {
+                    textView.scrollRangeToVisible(textView.selectedRange)
+                }
+            }
         }
 
         func textViewDidBeginEditing(_ textView: UITextView) {

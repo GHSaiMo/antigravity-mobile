@@ -202,6 +202,11 @@ extension ChatView {
             }
             if !sidecarId.isEmpty, let gwURL = AppSettings.shared.gatewayURL {
                 let relPath = url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+                if sidecarId.lowercased() == "swarm" || relPath.lowercased().contains("swarm_board") {
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    showSwarmSheet = true
+                    return .handled
+                }
                 var target = gwURL.appendingPathComponent("gateway/sidecar-ui/\(sidecarId)")
                 if !relPath.isEmpty {
                     target = target.appendingPathComponent(relPath)
@@ -211,7 +216,20 @@ extension ChatView {
                     if let full = comps.url { target = full }
                 }
                 UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                viewModel.openInAppBrowser(url: target)
+                Task { @MainActor in
+                    var finalTarget = target
+                    if let ticket = try? await APIClient.shared.fetchWSTicket(baseURL: gwURL),
+                       var comps = URLComponents(url: target, resolvingAgainstBaseURL: false) {
+                        var items = comps.queryItems ?? []
+                        items.removeAll { $0.name == "ticket" }
+                        items.append(URLQueryItem(name: "ticket", value: ticket))
+                        comps.queryItems = items
+                        if let authedURL = comps.url {
+                            finalTarget = authedURL
+                        }
+                    }
+                    viewModel.openInAppBrowser(url: finalTarget)
+                }
                 return .handled
             }
         }
