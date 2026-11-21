@@ -246,23 +246,36 @@ func (p *Proxy) HandleMcpApp(w http.ResponseWriter, r *http.Request) {
 }
 
 // HandleSidecarUI reverse-proxies /gateway/sidecar-ui/<sidecarID>/* to the local sidecar web UI port.
+// Supports both standalone sidecars ("my-sidecar") and namespaced plugin sidecars ("<plugin>/<folder>").
 func (p *Proxy) HandleSidecarUI(w http.ResponseWriter, r *http.Request) {
 	trimmed := strings.TrimPrefix(r.URL.Path, "/gateway/sidecar-ui/")
-	parts := strings.SplitN(trimmed, "/", 2)
-	sidecarID := strings.TrimSpace(parts[0])
-	if sidecarID == "" {
+	if strings.TrimSpace(trimmed) == "" {
 		http.Error(w, "Missing sidecar ID", http.StatusBadRequest)
 		return
 	}
-	subPath := "/"
-	if len(parts) == 2 && parts[1] != "" {
-		subPath = "/" + parts[1]
-	}
 
-	targetBase := p.resolveSidecarUIURL(r.Context(), sidecarID)
-	if targetBase == nil {
+	targetBase, matchedID, rest, hasTrailingSlash := p.resolveSidecarUITarget(r.Context(), trimmed)
+	if targetBase == nil || matchedID == "" {
 		http.Error(w, "Sidecar web UI not running or not found", http.StatusBadGateway)
 		return
+	}
+
+	// Ensure bare "/gateway/sidecar-ui/<matchedID>" (no trailing slash) redirects to "<matchedID>/"
+	// on GET/HEAD so relative assets like <script src="app.js"> resolve inside the sidecar root.
+	if rest == "" && !hasTrailingSlash && (r.Method == http.MethodGet || r.Method == http.MethodHead) {
+		q := r.URL.Query()
+		q.Del("ticket")
+		redir := r.URL.Path + "/"
+		if encoded := q.Encode(); encoded != "" {
+			redir += "?" + encoded
+		}
+		http.Redirect(w, r, redir, http.StatusTemporaryRedirect)
+		return
+	}
+
+	subPath := "/"
+	if rest != "" {
+		subPath = "/" + rest
 	}
 
 	rp := httputil.NewSingleHostReverseProxy(targetBase)
@@ -270,6 +283,7 @@ func (p *Proxy) HandleSidecarUI(w http.ResponseWriter, r *http.Request) {
 	rp.Director = func(req *http.Request) {
 		origDirector(req)
 		req.URL.Path = subPath
+		req.URL.RawPath = ""
 		if req.URL.RawQuery != "" {
 			q := req.URL.Query()
 			if q.Has("ticket") {
@@ -277,43 +291,96 @@ func (p *Proxy) HandleSidecarUI(w http.ResponseWriter, r *http.Request) {
 				req.URL.RawQuery = q.Encode()
 			}
 		}
+		// Strip gateway auth cookies before forwarding to local sidecar process.
+		if cookies := req.Cookies(); len(cookies) > 0 {
+			req.Header.Del("Cookie")
+			for _, c := range cookies {
+				if c.Name == "agy_dt" || c.Name == "agy_sidecar_st" {
+					continue
+				}
+				req.AddCookie(c)
+			}
+		}
 		req.Host = targetBase.Host
 	}
 	rp.ServeHTTP(w, r)
 }
 
-func (p *Proxy) resolveSidecarUIURL(ctx context.Context, sidecarID string) *url.URL {
-	if port, _ := p.ActiveUpstream(); port > 0 {
-		c, cancel := context.WithTimeout(ctx, 2*time.Second)
-		body, status, err := p.callUpstreamRPC(c, "GetSidecars", map[string]interface{}{})
-		cancel()
-		if err == nil && status == http.StatusOK {
-			var up struct {
-				Sidecars []struct {
-					ID      string `json:"id"`
-					WebPort int    `json:"webPort"`
-					BaseURL string `json:"baseUrl"`
-				} `json:"sidecars"`
+func (p *Proxy) resolveSidecarUITarget(ctx context.Context, trimmedPath string) (target *url.URL, matchedID string, rest string, hasTrailingSlash bool) {
+	port, _ := p.ActiveUpstream()
+	if port <= 0 {
+		return nil, "", "", false
+	}
+
+	c, cancel := context.WithTimeout(ctx, 2*time.Second)
+	body, status, err := p.callUpstreamRPC(c, "GetSidecars", map[string]interface{}{})
+	cancel()
+	if err != nil || status != http.StatusOK {
+		return nil, "", "", false
+	}
+
+	var up struct {
+		Sidecars []struct {
+			SidecarID string `json:"sidecarId"`
+			ID        string `json:"id"`
+			WebPort   int    `json:"webPort"`
+			WebUIPort int    `json:"webUiPort"`
+			BaseURL   string `json:"baseUrl"`
+			WebUIURL  string `json:"webUiUrl"`
+		} `json:"sidecars"`
+	}
+	if json.Unmarshal(body, &up) != nil {
+		return nil, "", "", false
+	}
+
+	cleanTrimmed := strings.TrimLeft(trimmedPath, "/")
+	for _, sc := range up.Sidecars {
+		id := strings.TrimSpace(firstNonEmpty(sc.SidecarID, sc.ID))
+		if id == "" {
+			continue
+		}
+		var candidateRest string
+		var candidateTrailing bool
+		if cleanTrimmed == id {
+			candidateRest = ""
+			candidateTrailing = false
+		} else if strings.HasPrefix(cleanTrimmed, id+"/") {
+			candidateRest = strings.TrimPrefix(cleanTrimmed, id+"/")
+			candidateTrailing = true
+		} else {
+			continue
+		}
+
+		// Prefer the longest matching sidecar ID (e.g. "plugin/panel" over "plugin").
+		if len(id) <= len(matchedID) {
+			continue
+		}
+
+		var candidateURL *url.URL
+		if rawURL := strings.TrimSpace(firstNonEmpty(sc.BaseURL, sc.WebUIURL)); rawURL != "" {
+			if u, pErr := url.Parse(rawURL); pErr == nil && isLoopbackHost(u.Hostname()) {
+				candidateURL = u
 			}
-			if json.Unmarshal(body, &up) == nil {
-				for _, sc := range up.Sidecars {
-					if sc.ID == sidecarID {
-						if sc.BaseURL != "" {
-							if u, err := url.Parse(sc.BaseURL); err == nil && isLoopbackHost(u.Hostname()) {
-								return u
-							}
-						}
-						if sc.WebPort > 0 {
-							if u, err := url.Parse(fmt.Sprintf("http://127.0.0.1:%d", sc.WebPort)); err == nil {
-								return u
-							}
-						}
-					}
+		}
+		if candidateURL == nil {
+			webPort := sc.WebPort
+			if webPort <= 0 {
+				webPort = sc.WebUIPort
+			}
+			if webPort > 0 {
+				if u, pErr := url.Parse(fmt.Sprintf("http://127.0.0.1:%d", webPort)); pErr == nil {
+					candidateURL = u
 				}
 			}
 		}
+		if candidateURL != nil {
+			target = candidateURL
+			matchedID = id
+			rest = candidateRest
+			hasTrailingSlash = candidateTrailing
+		}
 	}
-	return nil
+	return target, matchedID, rest, hasTrailingSlash
 }
 
 func isLoopbackHost(host string) bool {

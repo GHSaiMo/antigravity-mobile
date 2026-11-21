@@ -39,6 +39,7 @@ fun ConfirmUndoBottomSheet(
     preview: RevertPreviewResponse?,
     isLoadingPreview: Boolean,
     isReverting: Boolean,
+    errorMessage: String? = null,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
@@ -221,6 +222,25 @@ fun ConfirmUndoBottomSheet(
                 }
             }
 
+            if (!errorMessage.isNullOrBlank()) {
+                Spacer(modifier = Modifier.height(14.dp))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Color(0xFFE53935).copy(alpha = 0.12f))
+                        .padding(horizontal = 12.dp, vertical = 9.dp)
+                ) {
+                    Text(
+                        text = errorMessage,
+                        fontSize = 12.5.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = Color(0xFFE53935),
+                        lineHeight = 17.sp
+                    )
+                }
+            }
+
             Spacer(modifier = Modifier.height(20.dp))
 
             // Action Buttons: Cancel and Confirm Undo
@@ -242,7 +262,7 @@ fun ConfirmUndoBottomSheet(
 
                 Button(
                     onClick = onConfirm,
-                    enabled = !isReverting && !isLoadingPreview,
+                    enabled = !isReverting,
                     modifier = Modifier
                         .weight(1f)
                         .height(46.dp),

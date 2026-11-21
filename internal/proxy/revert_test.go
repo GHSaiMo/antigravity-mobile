@@ -164,3 +164,66 @@ func TestHandleCascadeRevertExecute_Success(t *testing.T) {
 		t.Errorf("expected targetStepIndex -1, got %v", res["targetStepIndex"])
 	}
 }
+
+func TestHandleCascadeRevertExecute_CancelsRunningAndPreservesExistingPlanModel(t *testing.T) {
+	var callOrder []string
+	var capturedRevert map[string]interface{}
+
+	mockUpstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/exa.language_server_pb.LanguageServerService/CancelCascadeInvocation":
+			callOrder = append(callOrder, "cancel")
+			_, _ = w.Write([]byte(`{}`))
+		case "/exa.language_server_pb.LanguageServerService/GetCascadeTrajectory":
+			_, _ = w.Write([]byte(`{
+				"trajectory": {
+					"executorMetadatas": [{
+						"cascadeConfig": {
+							"plannerConfig": {
+								"planModel": "MODEL_PLACEHOLDER_M26",
+								"modelName": "claude-opus-4-6-thinking"
+							}
+						}
+					}]
+				}
+			}`))
+		case "/exa.language_server_pb.LanguageServerService/RevertToCascadeStep":
+			callOrder = append(callOrder, "revert")
+			_ = json.NewDecoder(r.Body).Decode(&capturedRevert)
+			_, _ = w.Write([]byte(`{}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer mockUpstream.Close()
+
+	p := &Proxy{
+		shortClient:  mockUpstream.Client(),
+		mediumClient: mockUpstream.Client(),
+		longClient:   mockUpstream.Client(),
+	}
+	p.SetTestUpstream(mockUpstream.Listener.Addr().(*net.TCPAddr).Port, "test-token")
+
+	payload := `{"cascadeId":"desktop-claude-cascade","stepIndex":3}`
+	req := httptest.NewRequest(http.MethodPost, "/gateway/cascade/revert/execute", bytes.NewBufferString(payload))
+	w := httptest.NewRecorder()
+	p.HandleCascadeRevertExecute(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if len(callOrder) != 2 || callOrder[0] != "cancel" || callOrder[1] != "revert" {
+		t.Fatalf("expected cancel before revert, got %v", callOrder)
+	}
+
+	overrideCfg, _ := capturedRevert["overrideConfig"].(map[string]interface{})
+	plannerCfg, _ := overrideCfg["plannerConfig"].(map[string]interface{})
+	if got := plannerCfg["planModel"]; got != "MODEL_PLACEHOLDER_M26" {
+		t.Fatalf("expected existing planModel MODEL_PLACEHOLDER_M26 to be preserved, got %v", got)
+	}
+	reqModel, _ := plannerCfg["requestedModel"].(map[string]interface{})
+	if got := reqModel["model"]; got != "MODEL_PLACEHOLDER_M26" {
+		t.Fatalf("expected requestedModel.model backfilled to MODEL_PLACEHOLDER_M26, got %v", got)
+	}
+}

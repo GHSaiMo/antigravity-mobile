@@ -449,12 +449,16 @@ private struct ChatInputTextAndSendRow: View {
             .padding(.horizontal, 14)
             .padding(.vertical, 9)
             .frame(minHeight: 44)
-            .background(Color(uiColor: .secondarySystemBackground))
+            .background(
+                Color(uiColor: .secondarySystemBackground)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        if !isInputFocused {
+                            isInputFocused = true
+                        }
+                    }
+            )
             .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-            .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-            .onTapGesture {
-                isInputFocused = true
-            }
             
             if voiceCall.isInCall && !hasSendableDraft {
                 Button {
@@ -1192,11 +1196,15 @@ private struct BracketPlaceholderUITextView: UIViewRepresentable {
         let needsScroll = ceil(fittingSize.height) > maxHeight
         if uiView.isScrollEnabled != needsScroll {
             uiView.isScrollEnabled = needsScroll
-            if needsScroll && uiView.isFirstResponder {
+            if !needsScroll && uiView.contentOffset != .zero {
+                uiView.setContentOffset(.zero, animated: false)
+            } else if needsScroll && uiView.isFirstResponder {
                 DispatchQueue.main.async {
                     uiView.scrollRangeToVisible(uiView.selectedRange)
                 }
             }
+        } else if !needsScroll && uiView.contentOffset != .zero {
+            uiView.setContentOffset(.zero, animated: false)
         }
         return CGSize(width: targetWidth, height: clampedHeight)
     }

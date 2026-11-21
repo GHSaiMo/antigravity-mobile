@@ -124,6 +124,7 @@ data class ChatUiState(
     val showConfirmUndoSheet: Boolean = false,
     val isReverting: Boolean = false,
     val isLoadingRevertPreview: Boolean = false,
+    val undoErrorMessage: String? = null,
     val slashCommands: List<SlashCommandOption> = emptyList(),
     val isLoadingSlashCommands: Boolean = false,
     /** 输入框里已选中的斜杠命令（显示为标签），发送时随消息一起带上。 */
@@ -227,6 +228,7 @@ class ChatViewModel(
     internal var fetchJob: Job? = null
     internal var runningFallbackPollJob: Job? = null
     internal var mentionSearchJob: Job? = null
+    internal var undoPreviewJob: Job? = null
     internal var pendingOptimisticMessageId: String? = null
     internal var awaitingStartedAtMs: Long = 0L
     internal var hasObservedServerRunningForAwaiting: Boolean = false
@@ -437,12 +439,19 @@ class ChatViewModel(
     // MARK: - Revert / Undo Operations
 
     fun dismissConfirmUndo() {
-        _uiState.value = _uiState.value.copy(
-            showConfirmUndoSheet = false,
-            activeUndoMessage = null,
-            revertPreview = null,
-            isLoadingRevertPreview = false
-        )
+        undoPreviewJob?.cancel()
+        undoPreviewJob = null
+        if (!_uiState.value.isReverting) {
+            _uiState.value = _uiState.value.copy(
+                showConfirmUndoSheet = false,
+                activeUndoMessage = null,
+                revertPreview = null,
+                isLoadingRevertPreview = false,
+                undoErrorMessage = null
+            )
+        } else {
+            _uiState.value = _uiState.value.copy(isLoadingRevertPreview = false)
+        }
     }
 
     fun reconnectWebSocketIfDisconnected() {

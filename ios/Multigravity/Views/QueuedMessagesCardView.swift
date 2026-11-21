@@ -86,17 +86,21 @@ public struct QueuedMessagesCardView: View {
                             isActionDisabled: isItemActionDisabled,
                             onSendNow: {
                                 guard !tappedActionItemIds.contains(item.id) else { return }
-                                tappedActionItemIds.insert(item.id)
+                                // When background work is active, onSendNow only opens a confirmation alert;
+                                // do not lock the row disabled in case the user cancels the alert.
+                                if !hasActiveBackgroundWork {
+                                    lockItemActionBriefly(item.id)
+                                }
                                 onSendNow(item)
                             },
                             onEdit: {
                                 guard !tappedActionItemIds.contains(item.id) else { return }
-                                tappedActionItemIds.insert(item.id)
+                                lockItemActionBriefly(item.id)
                                 onEdit(item)
                             },
                             onDelete: {
                                 guard !tappedActionItemIds.contains(item.id) else { return }
-                                tappedActionItemIds.insert(item.id)
+                                lockItemActionBriefly(item.id)
                                 onDelete(item)
                             },
                             onPreviewImage: { image in
@@ -140,6 +144,14 @@ public struct QueuedMessagesCardView: View {
             ImageViewerSheet(item: item)
                 .presentationBackground(.clear)
                 .ignoresSafeArea()
+        }
+    }
+
+    private func lockItemActionBriefly(_ itemId: String) {
+        tappedActionItemIds.insert(itemId)
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            tappedActionItemIds.remove(itemId)
         }
     }
 }

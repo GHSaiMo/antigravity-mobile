@@ -1283,6 +1283,12 @@
         const sid = slashIdx >= 0 ? rest.slice(0, slashIdx) : rest;
         const sub = slashIdx >= 0 ? rest.slice(slashIdx) : "/";
         if (!sid) return;
+        if (sid.toLowerCase() === "swarm" || sub.toLowerCase().includes("swarm_board")) {
+          if (typeof SwarmManager !== "undefined" && SwarmManager.toggleSwarmModal) {
+            SwarmManager.toggleSwarmModal(true);
+            return;
+          }
+        }
         if (/^(dashboard|automations|sidecars|schedule|schedules)$/i.test(sid)) {
           this._selectedAutomationId = null;
           this.openToolsBoard("automations");

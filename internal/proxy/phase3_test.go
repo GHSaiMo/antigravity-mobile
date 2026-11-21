@@ -697,3 +697,61 @@ func TestHandleNarration_VoiceSelection(t *testing.T) {
 	}
 }
 
+func TestHandleSidecarUI_NamespacedSidecarID(t *testing.T) {
+	var seenPath, seenRawQuery, seenCookie string
+	sidecarSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seenPath = r.URL.Path
+		seenRawQuery = r.URL.RawQuery
+		seenCookie = r.Header.Get("Cookie")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok:" + r.URL.Path))
+	}))
+	defer sidecarSrv.Close()
+	sidecarPort := sidecarSrv.Listener.Addr().(*net.TCPAddr).Port
+
+	p := newFakeLSProxy(t, func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/GetSidecars") {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"sidecars": []map[string]interface{}{
+					{
+						"sidecarId": "demo-plugin/panel_board",
+						"status":    "SIDECAR_STATUS_RUNNING",
+						"webPort":   sidecarPort,
+					},
+				},
+			})
+			return
+		}
+		http.NotFound(w, r)
+	})
+
+	// 1. Bare sidecar URL without trailing slash redirects to trailing slash and strips ?ticket=
+	reqBare := httptest.NewRequest(http.MethodGet, "/gateway/sidecar-ui/demo-plugin/panel_board?ticket=one-time&view=aux", nil)
+	recBare := httptest.NewRecorder()
+	p.HandleSidecarUI(recBare, reqBare)
+	if recBare.Code != http.StatusTemporaryRedirect {
+		t.Fatalf("expected 307 redirect for bare sidecar root, got %d", recBare.Code)
+	}
+	if loc := recBare.Header().Get("Location"); loc != "/gateway/sidecar-ui/demo-plugin/panel_board/?view=aux" {
+		t.Fatalf("unexpected redirect location: %q", loc)
+	}
+
+	// 2. Sub-resource request under namespaced sidecarId proxies cleanly and strips gateway cookies & ticket
+	reqAsset := httptest.NewRequest(http.MethodGet, "/gateway/sidecar-ui/demo-plugin/panel_board/app.js?ticket=secret&v=1", nil)
+	reqAsset.AddCookie(&http.Cookie{Name: "agy_sidecar_st", Value: "scoped-sess"})
+	reqAsset.AddCookie(&http.Cookie{Name: "plugin_pref", Value: "dark"})
+	recAsset := httptest.NewRecorder()
+	p.HandleSidecarUI(recAsset, reqAsset)
+	if recAsset.Code != http.StatusOK || recAsset.Body.String() != "ok:/app.js" {
+		t.Fatalf("expected 200 ok:/app.js, got %d %q", recAsset.Code, recAsset.Body.String())
+	}
+	if seenPath != "/app.js" || seenRawQuery != "v=1" {
+		t.Fatalf("unexpected upstream path/query: path=%q query=%q", seenPath, seenRawQuery)
+	}
+	if strings.Contains(seenCookie, "agy_sidecar_st") || !strings.Contains(seenCookie, "plugin_pref=dark") {
+		t.Fatalf("expected gateway cookie stripped and plugin cookie preserved, got %q", seenCookie)
+	}
+}
+
+

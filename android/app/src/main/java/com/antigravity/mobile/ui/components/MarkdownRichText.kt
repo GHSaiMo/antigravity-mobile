@@ -176,14 +176,18 @@ internal fun RichTextRenderer(
                                 }
 
                                 if (url.startsWith("sidecar://")) {
-                                    val resolved = resolveSidecarGatewayUrl(url)
-                                    if (resolved != null) {
-                                        try {
-                                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(resolved)).apply {
-                                                flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                                            }
-                                            context.startActivity(intent)
-                                        } catch (_: Exception) {}
+                                    if (onPlanClick != null) {
+                                        onPlanClick(url, decodedTitle)
+                                    } else {
+                                        val resolved = resolveSidecarGatewayUrl(url)
+                                        if (resolved != null) {
+                                            try {
+                                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(resolved)).apply {
+                                                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                                }
+                                                context.startActivity(intent)
+                                            } catch (_: Exception) {}
+                                        }
                                     }
                                 } else if (onPlanClick != null && FileIconResolver.isAccessibleDocument(url)) {
                                     onPlanClick(url, decodedTitle)

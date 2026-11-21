@@ -140,3 +140,123 @@ func (s *WSTicketStore) gc() {
 		s.mu.Unlock()
 	}
 }
+
+// SidecarSessionTTL bounds how long a scoped sidecar-ui browser session cookie stays valid
+// so static sub-resources (CSS/JS/API) and refreshes inside SFSafariViewController / Custom Tabs
+// continue working after the one-time ?ticket= is consumed, without exposing the permanent device token.
+const SidecarSessionTTL = 30 * time.Minute
+
+const (
+	maxSidecarSessionsPerDevice = 4
+	maxTotalSidecarSessions     = 500
+)
+
+type sidecarSession struct {
+	deviceID  string
+	createdAt time.Time
+}
+
+// SidecarSessionStore manages short-lived, path-scoped session tokens for /gateway/sidecar-ui/.
+type SidecarSessionStore struct {
+	mu       sync.Mutex
+	sessions map[string]*sidecarSession
+}
+
+// NewSidecarSessionStore creates a new sidecar session store with periodic GC.
+func NewSidecarSessionStore() *SidecarSessionStore {
+	s := &SidecarSessionStore{
+		sessions: make(map[string]*sidecarSession),
+	}
+	go s.gc()
+	return s
+}
+
+// Issue creates a short-lived multi-read session token bound to deviceID.
+func (s *SidecarSessionStore) Issue(deviceID string) (string, error) {
+	raw := make([]byte, 24)
+	if _, err := rand.Read(raw); err != nil {
+		return "", err
+	}
+	token := hex.EncodeToString(raw)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var oldestDeviceKey string
+	var oldestDeviceTime time.Time
+	deviceCount := 0
+	for k, sess := range s.sessions {
+		if sess.deviceID == deviceID {
+			deviceCount++
+			if oldestDeviceTime.IsZero() || sess.createdAt.Before(oldestDeviceTime) {
+				oldestDeviceTime = sess.createdAt
+				oldestDeviceKey = k
+			}
+		}
+	}
+	if deviceCount >= maxSidecarSessionsPerDevice && oldestDeviceKey != "" {
+		delete(s.sessions, oldestDeviceKey)
+	}
+
+	if len(s.sessions) >= maxTotalSidecarSessions {
+		cutoff := time.Now().Add(-SidecarSessionTTL)
+		for k, sess := range s.sessions {
+			if sess.createdAt.Before(cutoff) {
+				delete(s.sessions, k)
+			}
+		}
+		if len(s.sessions) >= maxTotalSidecarSessions {
+			var oldestKey string
+			var oldestTime time.Time
+			for k, sess := range s.sessions {
+				if oldestTime.IsZero() || sess.createdAt.Before(oldestTime) {
+					oldestTime = sess.createdAt
+					oldestKey = k
+				}
+			}
+			if oldestKey != "" {
+				delete(s.sessions, oldestKey)
+			}
+		}
+	}
+
+	s.sessions[token] = &sidecarSession{
+		deviceID:  deviceID,
+		createdAt: time.Now(),
+	}
+	return token, nil
+}
+
+// Validate checks a sidecar session token without consuming it until SidecarSessionTTL expires.
+func (s *SidecarSessionStore) Validate(token string) (deviceID string, ok bool) {
+	if token == "" {
+		return "", false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	sess, exists := s.sessions[token]
+	if !exists {
+		return "", false
+	}
+	if time.Since(sess.createdAt) > SidecarSessionTTL {
+		delete(s.sessions, token)
+		return "", false
+	}
+	return sess.deviceID, true
+}
+
+func (s *SidecarSessionStore) gc() {
+	ticker := time.NewTicker(2 * time.Minute)
+	defer ticker.Stop()
+	for range ticker.C {
+		cutoff := time.Now().Add(-SidecarSessionTTL)
+		s.mu.Lock()
+		for k, sess := range s.sessions {
+			if sess.createdAt.Before(cutoff) {
+				delete(s.sessions, k)
+			}
+		}
+		s.mu.Unlock()
+	}
+}

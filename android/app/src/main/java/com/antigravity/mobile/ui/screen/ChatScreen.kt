@@ -217,6 +217,7 @@ fun ChatScreen(
     // 对话导轨与章节大纲状态 (Antigravity 2.28.1 对齐)
     var showNavigatorSheet by remember { mutableStateOf(false) }
     var showMcpSkillsSheet by remember { mutableStateOf(false) }
+    var mcpSkillsInitialTabOverride by remember { mutableStateOf<McpSkillsTab?>(null) }
     var showSwarmSheet by remember { mutableStateOf(false) }
     var showContextAuditSheet by remember { mutableStateOf(false) }
     var showSendQueuedNowConfirmDialog by remember { mutableStateOf(false) }
@@ -1047,8 +1048,32 @@ fun ChatScreen(
             rawName
         }
 
-        // Script and code files do not need to be accessible (aligned 1:1 with iOS)
-        if (!com.antigravity.mobile.data.service.FileIconResolver.isScriptFile(clean) &&
+        // 0. Native Sidecar UI links (sidecar://<id>/...)
+        if (lower.startsWith("sidecar://")) {
+            val rest = clean.substring("sidecar://".length).trimStart('/')
+            val sidecarId = rest.substringBefore('/').trim()
+            if (sidecarId.equals("swarm", ignoreCase = true) || rest.contains("swarm_board", ignoreCase = true)) {
+                haptic.light()
+                showSwarmSheet = true
+            } else if (sidecarId.lowercase() in setOf("dashboard", "automations", "sidecars", "schedule", "schedules")) {
+                haptic.light()
+                mcpSkillsInitialTabOverride = McpSkillsTab.AUTOMATIONS
+                showMcpSkillsSheet = true
+            } else if (rest.isNotEmpty()) {
+                val base = viewModel.apiClient.currentBaseUrl?.trimEnd('/').orEmpty()
+                if (base.isNotEmpty()) {
+                    haptic.light()
+                    val rawTarget = "$base/gateway/sidecar-ui/$rest"
+                    coroutineScope.launch {
+                        val authedUrl = viewModel.apiClient.getWsTicket().getOrNull()?.let { ticket ->
+                            val sep = if (rawTarget.contains('?')) "&" else "?"
+                            "${rawTarget}${sep}ticket=${java.net.URLEncoder.encode(ticket, "UTF-8")}"
+                        } ?: rawTarget
+                        com.antigravity.mobile.ui.util.InAppBrowserUtils.openUrl(context, authedUrl)
+                    }
+                }
+            }
+        } else if (!com.antigravity.mobile.data.service.FileIconResolver.isScriptFile(clean) &&
             !com.antigravity.mobile.data.service.FileIconResolver.isScriptFile(decodedFileName)
         ) {
             val isZipFile = lower.endsWith(".zip") || decodedFileName.lowercase().endsWith(".zip") ||
@@ -2448,7 +2473,7 @@ fun ChatScreen(
     if (showMcpSkillsSheet) {
         val hasAnyBgTasks = uiState.runningTasks.isNotEmpty() || uiState.globalBackgroundTasks.isNotEmpty()
         McpSkillsSheet(
-            initialTab = if (hasAnyBgTasks) McpSkillsTab.TASKS else McpSkillsTab.MCP,
+            initialTab = mcpSkillsInitialTabOverride ?: if (hasAnyBgTasks) McpSkillsTab.TASKS else McpSkillsTab.MCP,
             currentConversationId = uiState.cascadeId,
             hasActiveSwarm = uiState.swarmBrief?.active == true,
             onSelectConversation = { targetId, targetTitle ->
@@ -2462,7 +2487,10 @@ fun ChatScreen(
             },
             onTasksChanged = { viewModel.updateGlobalBackgroundTasks(it) },
             onOpenSwarm = { showSwarmSheet = true },
-            onDismiss = { showMcpSkillsSheet = false }
+            onDismiss = {
+                showMcpSkillsSheet = false
+                mcpSkillsInitialTabOverride = null
+            }
         )
     }
 
@@ -2599,6 +2627,7 @@ fun ChatScreen(
             preview = uiState.revertPreview,
             isLoadingPreview = uiState.isLoadingRevertPreview,
             isReverting = uiState.isReverting,
+            errorMessage = uiState.undoErrorMessage,
             onConfirm = { viewModel.confirmUndo() },
             onDismiss = { viewModel.dismissConfirmUndo() }
         )

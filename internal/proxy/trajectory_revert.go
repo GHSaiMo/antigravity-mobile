@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -206,24 +207,45 @@ func (p *Proxy) ExecuteRevert(cascadeID string, messageStepIndex int, targetInde
 		targetIndex = *targetIndexOverride
 	}
 
+	client := p.mediumClient
+	if client == nil {
+		client = &http.Client{
+			Transport: &http.Transport{
+				TLSClientConfig: localtls.ClientConfig(),
+				DialTLSContext:  localtls.DialTLSContext,
+			},
+			Timeout: 10 * time.Second,
+		}
+	}
+
+	// Stop any active invocation first so reverting a just-sent / RUNNING turn is not rejected upstream.
+	p.cancelBeforeRevert(client, cascadeID, port, token)
+
 	apiURL := fmt.Sprintf("https://127.0.0.1:%d/exa.language_server_pb.LanguageServerService/RevertToCascadeStep", port)
 
 	// Build overrideConfig to supply plannerConfig.planModel and plannerConfig.requestedModel
-	// which upstream RevertToCascadeStep strictly requires.
+	// which upstream RevertToCascadeStep strictly requires, without clobbering an existing model
+	// when the in-memory cascade model cache is empty (e.g. after gateway restart or desktop-initiated sessions).
 	var cfgObj interface{}
 	configBytes := p.GetCascadeConfig(cascadeID, port, token)
 	if len(configBytes) > 0 {
 		_ = json.Unmarshal(configBytes, &cfgObj)
 	}
-	modelEnum := "MODEL_PLACEHOLDER_M318"
-	modelName := "gemini-2.5-flash"
 	if lastModel, _ := GetCascadeModel(cascadeID); lastModel != "" {
 		if enum := resolveModelEnum(lastModel); enum != "" {
-			modelEnum = enum
-			modelName = canonicalModelName(lastModel)
+			cfgObj = applyModelToCascadeConfig(cfgObj, enum, canonicalModelName(lastModel))
 		}
 	}
-	cfgObj = applyModelToCascadeConfig(cfgObj, modelEnum, modelName)
+	if !hasValidPlanModel(cfgObj) {
+		defaultModel := "gemini-3.8-flash-high"
+		defaultEnum := resolveModelEnum(defaultModel)
+		if defaultEnum == "" {
+			defaultEnum = "MODEL_PLACEHOLDER_M318"
+		}
+		cfgObj = applyModelToCascadeConfig(cfgObj, defaultEnum, defaultModel)
+	} else {
+		cfgObj = ensureRequestedModelFromPlanModel(cfgObj)
+	}
 
 	reqPayload, _ := json.Marshal(map[string]interface{}{
 		"cascadeId":        cascadeID,
@@ -240,17 +262,6 @@ func (p *Proxy) ExecuteRevert(cascadeID string, messageStepIndex int, targetInde
 	req.Header.Set("Connect-Protocol-Version", "1")
 	if token != "" {
 		req.Header.Set("x-codeium-csrf-token", token)
-	}
-
-	client := p.mediumClient
-	if client == nil {
-		client = &http.Client{
-			Transport: &http.Transport{
-				TLSClientConfig: localtls.ClientConfig(),
-				DialTLSContext:  localtls.DialTLSContext,
-			},
-			Timeout: 10 * time.Second,
-		}
 	}
 
 	resp, err := client.Do(req)
@@ -272,4 +283,95 @@ func (p *Proxy) ExecuteRevert(cascadeID string, messageStepIndex int, targetInde
 	slog.Info(fmt.Sprintf("[Proxy] Reverted cascade %s to step %d (message step %d, conversationOnly=%v)", shortCascadeID(cascadeID), targetIndex, messageStepIndex, conversationOnly))
 
 	return targetIndex, nil
+}
+
+func (p *Proxy) cancelBeforeRevert(client *http.Client, cascadeID string, port int, token string) {
+	if cascadeID == "" || port <= 0 || client == nil {
+		return
+	}
+	hasDaemon := false
+	defaultTrajCache.trajCacheMu.RLock()
+	entry := defaultTrajCache.trajCache[cascadeID]
+	defaultTrajCache.trajCacheMu.RUnlock()
+	if entry != nil && entry.data != nil {
+		for _, t := range buildRunningTasks(entry.data.Trajectory.Steps) {
+			if t.IsDaemon {
+				hasDaemon = true
+				break
+			}
+		}
+	}
+
+	cancelPayload, _ := json.Marshal(map[string]interface{}{
+		"cascadeId":           cascadeID,
+		"killBackgroundTasks": !hasDaemon,
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 2500*time.Millisecond)
+	defer cancel()
+
+	cancelURL := fmt.Sprintf("https://127.0.0.1:%d/exa.language_server_pb.LanguageServerService/CancelCascadeInvocation", port)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, cancelURL, bytes.NewReader(cancelPayload))
+	if err != nil {
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Connect-Protocol-Version", "1")
+	if token != "" {
+		req.Header.Set("x-codeium-csrf-token", token)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return
+	}
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+	_ = resp.Body.Close()
+	if resp.StatusCode == http.StatusOK {
+		time.Sleep(25 * time.Millisecond)
+	}
+}
+
+func hasValidPlanModel(cfgObj interface{}) bool {
+	cfgMap, ok := cfgObj.(map[string]interface{})
+	if !ok || cfgMap == nil {
+		return false
+	}
+	plannerCfg, ok := cfgMap["plannerConfig"].(map[string]interface{})
+	if !ok || plannerCfg == nil {
+		return false
+	}
+	if pm, ok := plannerCfg["planModel"].(string); ok && strings.TrimSpace(pm) != "" {
+		return true
+	}
+	if reqModel, ok := plannerCfg["requestedModel"].(map[string]interface{}); ok && reqModel != nil {
+		if m, ok := reqModel["model"].(string); ok && strings.TrimSpace(m) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func ensureRequestedModelFromPlanModel(cfgObj interface{}) interface{} {
+	cfgMap, ok := cfgObj.(map[string]interface{})
+	if !ok || cfgMap == nil {
+		return cfgObj
+	}
+	plannerCfg, ok := cfgMap["plannerConfig"].(map[string]interface{})
+	if !ok || plannerCfg == nil {
+		return cfgObj
+	}
+	pm, _ := plannerCfg["planModel"].(string)
+	pm = strings.TrimSpace(pm)
+	reqModel, _ := plannerCfg["requestedModel"].(map[string]interface{})
+	var rm string
+	if reqModel != nil {
+		rm, _ = reqModel["model"].(string)
+		rm = strings.TrimSpace(rm)
+	}
+	if pm == "" && rm != "" {
+		plannerCfg["planModel"] = rm
+	} else if pm != "" && rm == "" {
+		plannerCfg["requestedModel"] = map[string]interface{}{"model": pm}
+	}
+	cfgMap["plannerConfig"] = plannerCfg
+	return cfgMap
 }

@@ -81,7 +81,10 @@ func IsQueryTokenDisabled() bool {
 	return v == "1" || v == "true" || v == "yes"
 }
 
-const DeviceCookieName = "agy_dt"
+const (
+	DeviceCookieName         = "agy_dt"
+	SidecarSessionCookieName = "agy_sidecar_st"
+)
 
 // IsWhitelistedPath checks if a request path should bypass authentication.
 func IsWhitelistedPath(path string) bool {
@@ -249,6 +252,40 @@ func AuthMiddlewareWithPolicy(store *AuthStore, next http.Handler, policy AuthPo
 		if (isWS || isRawFile || isSidecarUI) && r.URL.Query().Get("ticket") != "" {
 			ticket := strings.TrimSpace(r.URL.Query().Get("ticket"))
 			device, ok = store.ValidateWSTicket(ticket)
+			if ok && device != nil && isSidecarUI {
+				// Mint a short-lived cookie strictly scoped to /gateway/sidecar-ui/ so subsequent
+				// CSS/JS/API sub-requests and refreshes inside SFSafariViewController / Custom Tabs succeed
+				// after the one-time ticket is consumed, without exposing the permanent device token.
+				if sidecarSess, err := store.IssueSidecarSession(device.DeviceID); err == nil && sidecarSess != "" {
+					isSSL := r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
+					http.SetCookie(w, &http.Cookie{
+						Name:     SidecarSessionCookieName,
+						Value:    sidecarSess,
+						Path:     "/gateway/sidecar-ui/",
+						MaxAge:   int(SidecarSessionTTL.Seconds()),
+						HttpOnly: true,
+						Secure:   isSSL,
+						SameSite: http.SameSiteLaxMode,
+					})
+				}
+			}
+		}
+
+		if (!ok || device == nil) && isSidecarUI {
+			if c, err := r.Cookie(SidecarSessionCookieName); err == nil {
+				if sessTok := strings.TrimSpace(c.Value); sessTok != "" {
+					if !CookieWriteCSRFOK(r) {
+						auditWarn("CSRF_REJECTED", "ip", ExtractClientIP(r), "path", r.URL.Path, "origin", r.Header.Get("Origin"))
+						w.Header().Set("Content-Type", "application/json")
+						w.WriteHeader(http.StatusForbidden)
+						json.NewEncoder(w).Encode(map[string]string{
+							"error": "forbidden: cross-origin cookie request rejected",
+						})
+						return
+					}
+					device, ok = store.ValidateSidecarSession(sessTok)
+				}
+			}
 		}
 
 		if !ok || device == nil {
@@ -326,12 +363,26 @@ var defaultSecurityHeaders = []staticHeaderItem{
 
 const defaultHSTSValue = "max-age=31536000; includeSubDomains"
 
+const sidecarSameOriginCSP = "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.gstatic.com https://fonts.googleapis.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https: ws: wss:; object-src 'none'; base-uri 'self'; frame-ancestors 'self'; form-action 'self'"
+
 // SecurityHeadersMiddleware injects defensive HTTP security response headers.
 func SecurityHeadersMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
+		isSidecarUI := strings.HasPrefix(r.URL.Path, "/gateway/sidecar-ui/")
 		for i := 0; i < len(defaultSecurityHeaders); i++ {
-			h.Set(defaultSecurityHeaders[i].key, defaultSecurityHeaders[i].val)
+			item := defaultSecurityHeaders[i]
+			if isSidecarUI {
+				if item.key == "X-Frame-Options" {
+					h.Set(item.key, "SAMEORIGIN")
+					continue
+				}
+				if item.key == "Content-Security-Policy" {
+					h.Set(item.key, sidecarSameOriginCSP)
+					continue
+				}
+			}
+			h.Set(item.key, item.val)
 		}
 		isSSL := r.TLS != nil ||
 			strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")

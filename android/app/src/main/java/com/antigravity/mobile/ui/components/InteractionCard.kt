@@ -43,6 +43,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -160,6 +162,19 @@ fun InteractionCard(
     LaunchedEffect(interactionKey) {
         scrollState.scrollTo(0)
     }
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
+    var pendingAutoFocusKey by remember(interactionKey) { mutableStateOf<String?>(null) }
+    val dismissCardKeyboard = {
+        pendingAutoFocusKey = null
+        focusManager.clearFocus()
+        keyboardController?.hide()
+    }
+    LaunchedEffect(scrollState.isScrollInProgress) {
+        if (scrollState.isScrollInProgress) {
+            dismissCardKeyboard()
+        }
+    }
     val canExpand = isExpanded || (scrollState.maxValue > 0 && fullHeight > halfHeight + 24.dp)
 
     val arrowRotation by animateFloatAsState(
@@ -204,6 +219,7 @@ fun InteractionCard(
                     .then(
                         if (canExpand) {
                             Modifier.clickable {
+                                dismissCardKeyboard()
                                 haptic.light()
                                 isExpanded = !isExpanded
                                 onToggleExpand?.invoke(isExpanded)
@@ -379,13 +395,29 @@ fun InteractionCard(
 
                 if (hasMultipleQuestions) {
                     questions?.forEachIndexed { qIdx, q ->
+                        val currentSelected = multiSelections[qIdx] ?: q.defaultOptionId ?: "1"
                         QuestionSection(
                             questionIndex = qIdx,
                             question = q,
-                            selectedOptionId = multiSelections[qIdx] ?: q.defaultOptionId ?: "1",
-                            onSelectOption = { optId ->
+                            selectedOptionId = currentSelected,
+                            onSelectOption = { optId, isWriteInOpt ->
                                 haptic.light()
+                                val wasSelected = currentSelected == optId
                                 multiSelections[qIdx] = optId
+                                if (isWriteInOpt) {
+                                    if (!wasSelected) {
+                                        pendingAutoFocusKey = "multi:$qIdx"
+                                    }
+                                } else {
+                                    dismissCardKeyboard()
+                                }
+                            },
+                            onHeaderTap = { dismissCardKeyboard() },
+                            pendingAutoFocusKey = pendingAutoFocusKey,
+                            onConsumeAutoFocus = {
+                                if (pendingAutoFocusKey == "multi:$qIdx") {
+                                    pendingAutoFocusKey = null
+                                }
                             },
                             writeInText = multiWriteIns[qIdx] ?: "",
                             onWriteInChange = { multiWriteIns[qIdx] = it }
@@ -418,10 +450,24 @@ fun InteractionCard(
                                     isSelected = isSelected,
                                     onClick = {
                                         haptic.light()
+                                        val wasSelected = isSelected
                                         selectedOptionId = opt.id
+                                        if (isWriteIn) {
+                                            if (!wasSelected) {
+                                                pendingAutoFocusKey = "single"
+                                            }
+                                        } else {
+                                            dismissCardKeyboard()
+                                        }
                                     },
                                     displayIndex = optIdx,
                                     isWriteIn = isWriteIn,
+                                    shouldAutoFocus = pendingAutoFocusKey == "single",
+                                    onConsumeAutoFocus = {
+                                        if (pendingAutoFocusKey == "single") {
+                                            pendingAutoFocusKey = null
+                                        }
+                                    },
                                     writeInText = singleWriteInText,
                                     onWriteInChange = { singleWriteInText = it },
                                     placeholderText = placeholderText
@@ -446,6 +492,7 @@ fun InteractionCard(
             ) {
                 OutlinedButton(
                     onClick = {
+                        dismissCardKeyboard()
                         haptic.medium()
                         if (hasMultipleQuestions) {
                             val responses = questions?.mapIndexed { idx, _ ->
@@ -467,6 +514,7 @@ fun InteractionCard(
 
                 Button(
                     onClick = {
+                        dismissCardKeyboard()
                         haptic.heavy()
                         if (hasMultipleQuestions) {
                             val responses = questions?.mapIndexed { idx, q ->
@@ -503,7 +551,10 @@ private fun QuestionSection(
     questionIndex: Int,
     question: InteractionQuestion,
     selectedOptionId: String,
-    onSelectOption: (String) -> Unit,
+    onSelectOption: (String, Boolean) -> Unit,
+    onHeaderTap: () -> Unit = {},
+    pendingAutoFocusKey: String? = null,
+    onConsumeAutoFocus: () -> Unit = {},
     writeInText: String,
     onWriteInChange: (String) -> Unit
 ) {
@@ -523,7 +574,10 @@ private fun QuestionSection(
         // Question title with Q[index] badge
         Row(
             verticalAlignment = Alignment.Top,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onHeaderTap)
         ) {
             Box(
                 modifier = Modifier
@@ -558,9 +612,11 @@ private fun QuestionSection(
                 OptionRow(
                     option = opt,
                     isSelected = isSelected,
-                    onClick = { onSelectOption(opt.id) },
+                    onClick = { onSelectOption(opt.id, isWriteIn) },
                     displayIndex = optIdx,
                     isWriteIn = isWriteIn,
+                    shouldAutoFocus = pendingAutoFocusKey == "multi:$questionIndex",
+                    onConsumeAutoFocus = onConsumeAutoFocus,
                     writeInText = writeInText,
                     onWriteInChange = onWriteInChange,
                     placeholderText = placeholderText
@@ -577,6 +633,8 @@ private fun OptionRow(
     onClick: () -> Unit,
     displayIndex: Int = -1,
     isWriteIn: Boolean = false,
+    shouldAutoFocus: Boolean = false,
+    onConsumeAutoFocus: () -> Unit = {},
     writeInText: String = "",
     onWriteInChange: (String) -> Unit = {},
     placeholderText: String = "输入自定义回答...".loc
@@ -584,8 +642,9 @@ private fun OptionRow(
     val colors = AntigravityTheme.colors
     val focusRequester = remember { FocusRequester() }
 
-    LaunchedEffect(isSelected, isWriteIn) {
-        if (isSelected && isWriteIn) {
+    LaunchedEffect(isSelected, isWriteIn, shouldAutoFocus) {
+        if (isSelected && isWriteIn && shouldAutoFocus) {
+            onConsumeAutoFocus()
             focusRequester.requestFocus()
         }
     }

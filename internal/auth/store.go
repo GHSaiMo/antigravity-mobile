@@ -53,6 +53,9 @@ type AuthStore struct {
 	// S9: ticket store for short-lived one-time WebSocket / media authorization.
 	wsTickets *WSTicketStore
 
+	// Scoped short-lived session store for /gateway/sidecar-ui/ sub-resources.
+	sidecarSessions *SidecarSessionStore
+
 	// Optional lifecycle hooks (e.g. purging APNs push tokens when a device is unpaired/cleared).
 	onDeviceRemoved func(deviceID string)
 	onClearAll      func()
@@ -174,11 +177,12 @@ func NewAuthStore(filePath string) (*AuthStore, error) {
 	resolved := ResolvePath(filePath)
 
 	store := &AuthStore{
-		devices:    make(map[string]PairedDevice),
-		tokenMap:   make(map[string]string),
-		filePath:   resolved,
-		lastSeenCh: make(chan lastSeenUpdate, 64), // P5: buffered channel; drops when full (debounce handles correctness)
-		wsTickets:  NewWSTicketStore(),             // S9: one-time WS ticket store
+		devices:         make(map[string]PairedDevice),
+		tokenMap:        make(map[string]string),
+		filePath:        resolved,
+		lastSeenCh:      make(chan lastSeenUpdate, 64), // P5: buffered channel; drops when full (debounce handles correctness)
+		wsTickets:       NewWSTicketStore(),             // S9: one-time WS ticket store
+		sidecarSessions: NewSidecarSessionStore(),
 	}
 
 	saltOnce.Do(func() {
@@ -241,6 +245,31 @@ func (s *AuthStore) ValidateWSTicket(ticket string) (*PairedDevice, bool) {
 	if !ok || deviceID == "" {
 		return nil, false
 	}
+	return s.resolveSessionDevice(deviceID)
+}
+
+// IssueSidecarSession creates a short-lived session token scoped to /gateway/sidecar-ui/.
+func (s *AuthStore) IssueSidecarSession(deviceID string) (string, error) {
+	if s.sidecarSessions == nil {
+		s.sidecarSessions = NewSidecarSessionStore()
+	}
+	return s.sidecarSessions.Issue(deviceID)
+}
+
+// ValidateSidecarSession validates a scoped sidecar session token without consuming it,
+// ensuring the underlying paired device has not been revoked.
+func (s *AuthStore) ValidateSidecarSession(sessionToken string) (*PairedDevice, bool) {
+	if s.sidecarSessions == nil || sessionToken == "" {
+		return nil, false
+	}
+	deviceID, ok := s.sidecarSessions.Validate(sessionToken)
+	if !ok || deviceID == "" {
+		return nil, false
+	}
+	return s.resolveSessionDevice(deviceID)
+}
+
+func (s *AuthStore) resolveSessionDevice(deviceID string) (*PairedDevice, bool) {
 	if deviceID == "admin-local" {
 		now := time.Now()
 		return &PairedDevice{

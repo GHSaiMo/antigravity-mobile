@@ -536,11 +536,14 @@ public struct InteractionCardView: View {
                     .contentShape(Rectangle())
                     .onTapGesture {
                         UISelectionFeedbackGenerator().selectionChanged()
+                        let wasAlreadySelected = isSelected
                         withAnimation(.easeInOut(duration: 0.15)) {
                             selectedOptionsByQuestion[qIdx] = option.id
                         }
                         if isWriteIn {
-                            pendingAutoFocusQuestionIndex = qIdx
+                            if !wasAlreadySelected {
+                                pendingAutoFocusQuestionIndex = qIdx
+                            }
                             focusedMultiQuestionIndex = qIdx
                         } else {
                             dismissKeyboard()
@@ -612,11 +615,14 @@ public struct InteractionCardView: View {
                 .contentShape(Rectangle())
                 .onTapGesture {
                     UISelectionFeedbackGenerator().selectionChanged()
+                    let wasAlreadySelected = isSelected
                     withAnimation(.easeInOut(duration: 0.15)) {
                         selectedOptionId = option.id
                     }
                     if isWriteIn {
-                        pendingAutoFocusSingleWriteIn = true
+                        if !wasAlreadySelected {
+                            pendingAutoFocusSingleWriteIn = true
+                        }
                         isSingleWriteInFocused = true
                     } else {
                         dismissKeyboard()
@@ -749,6 +755,16 @@ public struct InteractionCardView: View {
             .onPreferenceChange(HeaderHeightKey.self) { height in
                 if height > 0, abs(self.headerHeight - height) > 0.5 {
                     self.headerHeight = height
+                }
+            }
+            .onChange(of: focusedMultiQuestionIndex) { _, newFocus in
+                if newFocus == nil {
+                    pendingAutoFocusQuestionIndex = nil
+                }
+            }
+            .onChange(of: isSingleWriteInFocused) { _, newFocus in
+                if !newFocus {
+                    pendingAutoFocusSingleWriteIn = false
                 }
             }
         }

@@ -311,9 +311,9 @@ func TestAuthMiddleware_SidecarUITicket(t *testing.T) {
 		return resp.Ticket
 	}
 
-	router := AuthMiddlewareWithPolicy(store, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	router := SecurityHeadersMiddleware(AuthMiddlewareWithPolicy(store, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-	}), AuthPolicy{})
+	}), AuthPolicy{}))
 
 	// 1. Missing token/ticket returns 401
 	rec := httptest.NewRecorder()
@@ -322,18 +322,69 @@ func TestAuthMiddleware_SidecarUITicket(t *testing.T) {
 		t.Fatalf("/gateway/sidecar-ui/test-plugin/ without credentials: got %d, want 401", rec.Code)
 	}
 
-	// 2. Valid one-time ticket returns 200
+	// 2. Valid one-time ticket returns 200 and issues scoped sidecar session cookie + SAMEORIGIN headers
 	ticket := issue()
 	rec = httptest.NewRecorder()
 	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/gateway/sidecar-ui/test-plugin/?ticket="+ticket, nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("/gateway/sidecar-ui/test-plugin/ with valid ticket: got %d, want 200", rec.Code)
 	}
+	if got := rec.Header().Get("X-Frame-Options"); got != "SAMEORIGIN" {
+		t.Fatalf("expected X-Frame-Options=SAMEORIGIN on sidecar-ui, got %q", got)
+	}
+	var sidecarCookie *http.Cookie
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == SidecarSessionCookieName {
+			sidecarCookie = c
+			break
+		}
+	}
+	if sidecarCookie == nil || sidecarCookie.Value == "" {
+		t.Fatalf("expected %s cookie to be issued on valid sidecar-ui ticket", SidecarSessionCookieName)
+	}
+	if sidecarCookie.Path != "/gateway/sidecar-ui/" || !sidecarCookie.HttpOnly {
+		t.Fatalf("unexpected sidecar cookie attributes: path=%q httpOnly=%v", sidecarCookie.Path, sidecarCookie.HttpOnly)
+	}
 
-	// 3. Reusing the same one-time ticket returns 401
+	// 3. Reusing the same one-time ticket without cookie returns 401
 	rec = httptest.NewRecorder()
 	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/gateway/sidecar-ui/test-plugin/?ticket="+ticket, nil))
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("/gateway/sidecar-ui/test-plugin/ reusing consumed ticket: got %d, want 401", rec.Code)
+	}
+
+	// 4. Subsequent CSS/JS sub-requests and refreshes with scoped sidecar cookie succeed without ?ticket=
+	for _, subPath := range []string{"/gateway/sidecar-ui/test-plugin/styles.css", "/gateway/sidecar-ui/test-plugin/app.js"} {
+		subReq := httptest.NewRequest(http.MethodGet, subPath, nil)
+		subReq.AddCookie(sidecarCookie)
+		subRec := httptest.NewRecorder()
+		router.ServeHTTP(subRec, subReq)
+		if subRec.Code != http.StatusOK {
+			t.Fatalf("%s with sidecar session cookie: got %d, want 200", subPath, subRec.Code)
+		}
+	}
+
+	// 5. Sidecar cookie CANNOT authenticate non-sidecar gateway/API routes
+	apiReq := httptest.NewRequest(http.MethodGet, "/gateway/models", nil)
+	apiReq.AddCookie(sidecarCookie)
+	apiRec := httptest.NewRecorder()
+	router.ServeHTTP(apiRec, apiReq)
+	if apiRec.Code != http.StatusUnauthorized {
+		t.Fatalf("/gateway/models with sidecar cookie must be rejected: got %d, want 401", apiRec.Code)
+	}
+	if got := apiRec.Header().Get("X-Frame-Options"); got != "DENY" {
+		t.Fatalf("expected X-Frame-Options=DENY outside sidecar-ui, got %q", got)
+	}
+
+	// 6. Unpairing the device immediately invalidates active sidecar session cookies
+	if err := store.RemoveDevice("dev-sidecar"); err != nil {
+		t.Fatalf("RemoveDevice failed: %v", err)
+	}
+	revokedReq := httptest.NewRequest(http.MethodGet, "/gateway/sidecar-ui/test-plugin/app.js", nil)
+	revokedReq.AddCookie(sidecarCookie)
+	revokedRec := httptest.NewRecorder()
+	router.ServeHTTP(revokedRec, revokedReq)
+	if revokedRec.Code != http.StatusUnauthorized {
+		t.Fatalf("sidecar cookie after device removal: got %d, want 401", revokedRec.Code)
 	}
 }

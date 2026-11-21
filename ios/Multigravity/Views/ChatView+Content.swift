@@ -68,7 +68,9 @@ extension ChatView {
         .task(id: "\(viewModel.cascadeId)|\(viewModel.isRunning)|\(viewModel.gitSheet == nil)") {
             await viewModel.refreshActionAvailability()
         }
-        .sheet(isPresented: $viewModel.showConfirmUndoSheet) {
+        .sheet(isPresented: $viewModel.showConfirmUndoSheet, onDismiss: {
+            viewModel.cancelUndoSheet()
+        }) {
             ConfirmUndoSheet(viewModel: viewModel)
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)

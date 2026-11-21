@@ -99,15 +99,32 @@ public struct ConfirmUndoSheet: View {
                     .padding(16)
                 }
                 
+                if let err = viewModel.undoErrorMessage, !err.isEmpty {
+                    HStack(spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundColor(.red)
+                            .font(.system(size: 14))
+                        Text(err)
+                            .font(.system(size: 12.5, weight: .medium))
+                            .foregroundColor(.red)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 9)
+                    .background(Color.red.opacity(0.1))
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 10)
+                }
+
                 Divider()
                 
                 // Bottom Action Buttons (Native Material Capsule Style from Image 4)
                 HStack(spacing: 12) {
                     Button(action: {
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                        viewModel.showConfirmUndoSheet = false
-                        viewModel.activeUndoMessage = nil
-                        viewModel.revertPreview = nil
+                        viewModel.cancelUndoSheet()
                     }) {
                         Text("取消")
                             .font(.system(size: 16, weight: .medium))
@@ -135,7 +152,7 @@ public struct ConfirmUndoSheet: View {
                         .frame(height: 50)
                     }
                     .buttonStyle(NativeMaterialCapsuleButtonStyle(isDestructive: true))
-                    .disabled(viewModel.isReverting || viewModel.isLoadingRevertPreview)
+                    .disabled(viewModel.isReverting)
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 14)

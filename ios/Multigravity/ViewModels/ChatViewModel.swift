@@ -378,6 +378,8 @@ public final class ChatViewModel {
     public var showConfirmUndoSheet: Bool = false
     public var isReverting: Bool = false
     public var isLoadingRevertPreview: Bool = false
+    public var undoErrorMessage: String? = nil
+    @ObservationIgnored var undoPreviewTask: Task<Void, Never>? = nil
     public var focusInputTrigger: Int = 0
 
     // 本会话改动 / Git 提交 / Markdown 导出
