@@ -151,6 +151,9 @@ func (p *Proxy) GetCascadeChapters(ctx context.Context, cascadeID string, ranges
 			StartStepIndex:        start,
 			EndStepIndexExclusive: end,
 		})
+		if len(validRanges) >= 32 {
+			break
+		}
 	}
 
 	if len(validRanges) == 0 {

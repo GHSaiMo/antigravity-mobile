@@ -350,6 +350,9 @@ func NewProxy(insp inspector.UpstreamDiscoverer) *Proxy {
 // The returned cleanup function must be deferred by the caller.
 func (p *Proxy) trackWSConn(conn *websocket.Conn) func() {
 	p.wsConnsMu.Lock()
+	if p.wsConns == nil {
+		p.wsConns = make(map[*websocket.Conn]struct{})
+	}
 	p.wsConns[conn] = struct{}{}
 	p.wsConnsMu.Unlock()
 	return func() {
@@ -495,7 +498,9 @@ func (p *Proxy) updateUpstream(info inspector.InstanceInfo) {
 	p.invalidateProjectsCache()
 	if upstreamSwitched {
 		liveModels.invalidate()
-		go p.ensureLiveModels(context.Background())
+		if p.mediumClient != nil {
+			go p.ensureLiveModels(context.Background())
+		}
 		go func(prt int) {
 			p.agentStateHub.OnUpstreamChanged(p, prt)
 			p.summariesHub.OnUpstreamChanged(p, prt)
@@ -510,13 +515,15 @@ func (p *Proxy) updateUpstream(info inspector.InstanceInfo) {
 
 	// Reset historical sync state and asynchronously sync historical trajectories
 	ResetHistoricalSyncState()
-	go func(prt int, tok string) {
-		_ = p.SyncHistoricalTrajectories(prt, tok)
-	}(port, token)
+	if port > 0 && p.shortClient != nil {
+		go func(prt int, tok string) {
+			_ = p.SyncHistoricalTrajectories(prt, tok)
+		}(port, token)
+	}
 
 	// Clear and warm up desktop static cache in background
 	ClearDesktopStaticCache()
-	if port > 0 {
+	if port > 0 && p.mediumClient != nil {
 		go p.WarmupDesktopStatic(port, token)
 	}
 }
@@ -893,6 +900,10 @@ func (p *Proxy) handleStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (p *Proxy) handleCascadeTouch(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
 	cascadeID := strings.TrimSpace(r.URL.Query().Get("cascadeId"))
 	if cascadeID == "" && r.Body != nil {
 		var body struct {
@@ -916,6 +927,10 @@ func (p *Proxy) handleCascadeTouch(w http.ResponseWriter, r *http.Request) {
 }
 
 func (p *Proxy) handleRescan(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
 	info := p.insp.Scan()
 	status := "failed"
 	if info != nil && info.IsHealthy {

@@ -226,7 +226,8 @@ public final class ConnectionManager {
                        let eps = json["endpoints"] as? [[String: Any]] {
                         for item in eps {
                             if let type = item["type"] as? String, type.lowercased() == "cloudflare",
-                               let epUrl = item["url"] as? String, !NetworkTransport.isLocalOrPrivateHost(epUrl) {
+                               let epUrl = item["url"] as? String,
+                               NetworkTransport.isValidAdvertisedCloudURL(epUrl) {
                                 settings.primaryCloudURL = epUrl
                                 break
                             }

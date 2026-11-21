@@ -115,13 +115,19 @@ func TestHandleRPCMuxRejectsForeignPath(t *testing.T) {
 	}
 	defer conn.Close()
 
-	_ = conn.WriteMessage(websocket.BinaryMessage, muxOpenFrame(t, 1, "/gateway/projects", nil))
-	_ = conn.SetReadDeadline(time.Now().Add(3 * time.Second))
-	_, msg, err := conn.ReadMessage()
-	if err != nil {
-		t.Fatalf("read: %v", err)
-	}
-	if msg[0] != muxErr {
-		t.Errorf("expected error frame, got type %d", msg[0])
+	for i, badPath := range []string{
+		"/gateway/projects",
+		"/exa.language_server_pb.LanguageServerService/../../gateway/projects",
+		"/exa.language_server_pb.LanguageServerService/GetStatus?foo=bar",
+	} {
+		_ = conn.WriteMessage(websocket.BinaryMessage, muxOpenFrame(t, uint32(i+1), badPath, nil))
+		_ = conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+		_, msg, err := conn.ReadMessage()
+		if err != nil {
+			t.Fatalf("read (%s): %v", badPath, err)
+		}
+		if msg[0] != muxErr {
+			t.Errorf("expected error frame for %q, got type %d", badPath, msg[0])
+		}
 	}
 }

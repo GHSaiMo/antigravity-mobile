@@ -1,7 +1,8 @@
 import Foundation
 
 extension APIClient {
-    /// Resolves a raw media/image URI into an authenticated, loadable HTTP URL for the mobile client.
+    /// Resolves a raw media/image URI into a loadable HTTP URL for the mobile client.
+    /// Authentication is injected via HTTP `Authorization: Bearer` header in `NetworkTransport` (never in query URLs).
     public func resolveMediaURL(_ raw: String, baseURL: URL) -> String {
         var clean = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         if clean.hasPrefix("MEDIA:") {
@@ -10,17 +11,16 @@ extension APIClient {
         clean = clean.trimmingCharacters(in: CharacterSet(charactersIn: "`\"'()[]<>"))
         if clean.hasPrefix("data:image/") { return clean }
         
-        let token = KeychainHelper.shared.read(key: .deviceToken) ?? AppSettings.shared.deviceToken ?? ""
-        
         if clean.hasPrefix("http://") || clean.hasPrefix("https://") {
-            if let remote = URL(string: clean),
-               Self.isSameGatewayHost(remote, gateway: baseURL),
-               (remote.path.contains("/api/v1/files/raw") || remote.path.contains("/api/v1/files/zip-entry")),
-               !clean.contains("auth_token="),
-               !clean.contains("token="),
-               !token.isEmpty {
-                let separator = clean.contains("?") ? "&" : "?"
-                return "\(clean)\(separator)auth_token=\(token)"
+            if var comps = URLComponents(string: clean), let items = comps.queryItems, !items.isEmpty {
+                let filtered = items.filter { item in
+                    let n = item.name.lowercased()
+                    return n != "auth_token" && n != "device_token"
+                }
+                if filtered.count != items.count {
+                    comps.queryItems = filtered.isEmpty ? nil : filtered
+                    return comps.url?.absoluteString ?? clean
+                }
             }
             return clean
         }
@@ -35,11 +35,7 @@ extension APIClient {
         }
         
         var comps = URLComponents(url: baseURL.appendingPathComponent("api/v1/files/raw"), resolvingAgainstBaseURL: false)
-        var qItems = [URLQueryItem(name: "uri", value: clean)]
-        if !token.isEmpty {
-            qItems.append(URLQueryItem(name: "auth_token", value: token))
-        }
-        comps?.queryItems = qItems
+        comps?.queryItems = [URLQueryItem(name: "uri", value: clean)]
         return comps?.url?.absoluteString ?? clean
     }
 
@@ -290,10 +286,6 @@ extension APIClient {
         }
         if thumb {
             queryItems.append(URLQueryItem(name: "thumb", value: "1"))
-        }
-        let token = KeychainHelper.shared.read(key: .deviceToken) ?? AppSettings.shared.deviceToken ?? ""
-        if !token.isEmpty {
-            queryItems.append(URLQueryItem(name: "auth_token", value: token))
         }
         components?.queryItems = queryItems
         return components?.url

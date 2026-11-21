@@ -8,7 +8,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.serialization.json.Json
 import okhttp3.*
+import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
+import kotlin.random.Random
 
 enum class ConnectionStatus {
     DISCONNECTED,
@@ -43,9 +45,18 @@ class StreamWebSocketClient(
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var reconnectJob: Job? = null
     private var reconnectAttempt = 0
+    @Volatile private var openedAtMs: Long = 0L
+    @Volatile private var lastFrameAtMs: Long = 0L
     @Volatile private var lastStreamRev: Long = 0L
     @Volatile private var revCascadeId: String? = null
     private val deltaReassembler = StreamDeltaReassembler()
+
+    fun hasRecentFrame(withinMs: Long = 20_000L): Boolean {
+        val last = lastFrameAtMs
+        return _connectionStatus.value == ConnectionStatus.CONNECTED &&
+            last > 0L &&
+            (System.currentTimeMillis() - last) <= withinMs
+    }
 
     init {
         connectionManager?.addOnRouteChangedListener { newUrl ->
@@ -119,7 +130,8 @@ class StreamWebSocketClient(
         webSocket = client.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 Log.d("StreamWS", "Connected to cascade stream: $cascadeId")
-                reconnectAttempt = 0
+                openedAtMs = System.currentTimeMillis()
+                lastFrameAtMs = openedAtMs
                 if (lastStreamRev == 0L) {
                     deltaReassembler.reset()
                 }
@@ -129,7 +141,9 @@ class StreamWebSocketClient(
             override fun onMessage(webSocket: WebSocket, text: String) {
                 try {
                     val raw = json.decodeFromString<StreamUpdatePayload>(text)
+                    lastFrameAtMs = System.currentTimeMillis()
                     if (raw.type == "noop") {
+                        reconnectAttempt = 0
                         if (raw.rev > 0L) {
                             lastStreamRev = raw.rev
                             revCascadeId = cascadeId
@@ -146,6 +160,7 @@ class StreamWebSocketClient(
                         webSocket.close(1000, "delta resync")
                         return
                     }
+                    reconnectAttempt = 0
                     if (raw.rev > 0L) {
                         lastStreamRev = raw.rev
                         revCascadeId = cascadeId
@@ -157,13 +172,32 @@ class StreamWebSocketClient(
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                Log.w("StreamWS", "WebSocket failure: ${t.message}")
+                val httpCode = response?.code ?: 0
+                Log.w("StreamWS", "WebSocket failure (http=$httpCode): ${t.message}")
+                if (httpCode == 401 || httpCode == 403) {
+                    isIntentionallyClosed = true
+                    _connectionStatus.value = ConnectionStatus.FAILED
+                    return
+                }
+                if (openedAtMs > 0L && (System.currentTimeMillis() - openedAtMs) >= 15_000L) {
+                    reconnectAttempt = 0
+                }
+                openedAtMs = 0L
                 _connectionStatus.value = ConnectionStatus.FAILED
                 scheduleReconnect()
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                 Log.d("StreamWS", "WebSocket closed: $code - $reason")
+                if (code == 4001 || code == 4003) {
+                    isIntentionallyClosed = true
+                    _connectionStatus.value = ConnectionStatus.FAILED
+                    return
+                }
+                if (openedAtMs > 0L && (System.currentTimeMillis() - openedAtMs) >= 15_000L) {
+                    reconnectAttempt = 0
+                }
+                openedAtMs = 0L
                 if (!isIntentionallyClosed) {
                     _connectionStatus.value = ConnectionStatus.DISCONNECTED
                     scheduleReconnect()
@@ -178,11 +212,13 @@ class StreamWebSocketClient(
 
         val attempt = reconnectAttempt
         val isLan = ConnectionManager.isLanHost(ConnectionManager.extractHost(prefs.gatewayBaseUrl ?: ""))
-        val delayMs = if (isLan && !prefs.primaryCloudUrl.isNullOrBlank() && attempt == 0) {
+        val baseDelayMs = if (isLan && !prefs.primaryCloudUrl.isNullOrBlank() && attempt == 0) {
             500L
         } else {
             (2500L * (1 shl attempt.coerceAtMost(5))).coerceAtMost(60_000L)
         }
+        val jitterFactor = 0.75 + Random.nextDouble() * 0.50
+        val delayMs = (baseDelayMs * jitterFactor).toLong().coerceAtLeast(350L)
         reconnectAttempt++
 
         reconnectJob = scope.launch {
@@ -199,13 +235,14 @@ class StreamWebSocketClient(
         val cleanBase = baseUrl.trimEnd('/')
         val wsScheme = if (cleanBase.startsWith("https://", ignoreCase = true)) "wss" else "ws"
         val hostAndPort = cleanBase.substringAfter("://")
+        val encodedCid = URLEncoder.encode(cascadeId, "UTF-8")
 
-        var url = "$wsScheme://$hostAndPort/gateway/cascade/stream?cascadeId=$cascadeId&client=android&format=messages&delta=1"
+        var url = "$wsScheme://$hostAndPort/gateway/cascade/stream?cascadeId=$encodedCid&client=android&format=messages&delta=1"
         if (lastStreamRev > 0L && revCascadeId == cascadeId) {
             url += "&sinceRev=$lastStreamRev"
         }
         if (!ticket.isNullOrBlank()) {
-            url += "&ticket=$ticket"
+            url += "&ticket=${URLEncoder.encode(ticket, "UTF-8")}"
         }
         return url
     }

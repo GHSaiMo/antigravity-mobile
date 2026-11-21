@@ -67,6 +67,7 @@ public final class StreamWebSocketClient {
     private var activeCascadeId: String?
     private var isIntentionallyClosed: Bool = false
     private var reconnectAttempt: Int = 0
+    private var openedAt: Date? = nil
     private var lastStreamRev: UInt64 = 0
     private var revCascadeId: String?
     private var deltaReassembler = StreamDeltaReassembler<PaginatedMessagesResponse.GatewayMessageItem>(idOf: { $0.id })
@@ -201,7 +202,14 @@ public final class StreamWebSocketClient {
             onFail: { [weak self] error in
                 Task { @MainActor [weak self] in
                     guard let self, self.connectionGeneration == gen, !self.isIntentionallyClosed else { return }
-                    print("[StreamWS] Connection failed: \(error.localizedDescription)")
+                    let errDesc = error.localizedDescription
+                    print("[StreamWS] Connection failed: \(errDesc)")
+                    if errDesc.contains(" 401") || errDesc.contains(" 403") || errDesc.contains("4001") || errDesc.contains("4003") {
+                        self.isIntentionallyClosed = true
+                        self.updateStatus(.failed)
+                        self.cleanupCurrentSocket()
+                        return
+                    }
                     self.handleConnectionLoss()
                 }
             }
@@ -224,7 +232,9 @@ public final class StreamWebSocketClient {
         guard self.connectionGeneration == gen, !isIntentionallyClosed else { return }
         connectionWatchdogTask?.cancel()
         connectionWatchdogTask = nil
-        reconnectAttempt = 0
+        if openedAt == nil {
+            openedAt = Date()
+        }
         if lastStreamRev == 0 {
             deltaReassembler.reset()
         }
@@ -284,6 +294,7 @@ public final class StreamWebSocketClient {
             var payload = try JSONDecoder().decode(StreamUpdatePayload.self, from: data)
             if payload.cascadeId == expectedCascadeId {
                 if payload.type == "noop" {
+                    reconnectAttempt = 0
                     if let r = payload.rev, r > 0 {
                         lastStreamRev = r
                         revCascadeId = expectedCascadeId
@@ -300,6 +311,7 @@ public final class StreamWebSocketClient {
                     handleConnectionLoss()
                     return
                 }
+                reconnectAttempt = 0
                 if let r = payload.rev, r > 0 {
                     lastStreamRev = r
                     revCascadeId = expectedCascadeId
@@ -312,6 +324,10 @@ public final class StreamWebSocketClient {
     }
 
     private func handleConnectionLoss() {
+        if let opened = openedAt, Date().timeIntervalSince(opened) >= 15.0 {
+            reconnectAttempt = 0
+        }
+        openedAt = nil
         updateStatus(.failed)
         cleanupCurrentSocket()
 
@@ -321,7 +337,8 @@ public final class StreamWebSocketClient {
         reconnectTask = Task { [weak self] in
             guard let self, !self.isIntentionallyClosed else { return }
             self.reconnectAttempt += 1
-            let delay = min(2.5 * pow(2.0, Double(min(self.reconnectAttempt, 5))), 60.0)
+            let baseDelay = min(2.5 * pow(2.0, Double(min(self.reconnectAttempt - 1, 5))), 60.0)
+            let delay = baseDelay * Double.random(in: 0.75...1.25)
             let delayNano = UInt64(delay * 1_000_000_000)
             try? await Task.sleep(nanoseconds: delayNano)
             guard !self.isIntentionallyClosed else { return }
@@ -332,6 +349,7 @@ public final class StreamWebSocketClient {
     }
 
     private func cleanupCurrentSocket() {
+        openedAt = nil
         connectionWatchdogTask?.cancel()
         connectionWatchdogTask = nil
         pingTask?.cancel()

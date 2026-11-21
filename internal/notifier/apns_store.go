@@ -13,6 +13,7 @@ import (
 )
 
 const (
+	maxStoredPushDevices       = 32
 	maxActivityTokensPerDevice = 20
 	liveActivityStartRunTTL    = 2 * time.Hour
 	apnsEnvProduction          = "production"
@@ -116,6 +117,19 @@ func (s *PushDeviceStore) getOrCreateLocked(deviceID, platform, apnsEnv string) 
 		}
 		if rec.Platform == "" {
 			rec.Platform = "ios"
+		}
+		if len(s.devices) >= maxStoredPushDevices {
+			var oldestID string
+			var oldestAt time.Time
+			for id, existing := range s.devices {
+				if oldestID == "" || existing.UpdatedAt.Before(oldestAt) {
+					oldestID = id
+					oldestAt = existing.UpdatedAt
+				}
+			}
+			if oldestID != "" {
+				delete(s.devices, oldestID)
+			}
 		}
 		s.devices[deviceID] = rec
 	} else {
@@ -624,5 +638,11 @@ func (s *PushDeviceStore) saveLocked() error {
 	if err := os.WriteFile(tmp, data, 0600); err != nil {
 		return err
 	}
-	return os.Rename(tmp, s.filePath)
+	_ = os.Chmod(tmp, 0600)
+	if err := os.Rename(tmp, s.filePath); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	_ = os.Chmod(s.filePath, 0600)
+	return nil
 }

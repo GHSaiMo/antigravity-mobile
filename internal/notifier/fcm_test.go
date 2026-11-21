@@ -220,3 +220,23 @@ func TestNotifier_UpdateFCMDeviceToken(t *testing.T) {
 		t.Errorf("expected token dynamic_token_999, got %q", lastReceivedToken)
 	}
 }
+
+func TestPushClients_RejectNonLoopbackPlainHTTP(t *testing.T) {
+	fcm := NewFCMClient(config.NotificationConfig{
+		Enabled:        true,
+		FCMEnabled:     true,
+		FCMServerKey:   "k",
+		FCMDeviceToken: "tok",
+		FCMEndpoint:    "http://evil.example.com/fcm/send",
+	})
+	if err := fcm.Send(context.Background(), PushPayload{Title: "T", Body: "B"}); err == nil {
+		t.Fatal("expected FCMClient to reject non-loopback http:// endpoint")
+	}
+
+	store, _ := NewPushDeviceStore("")
+	_ = store.UpsertAlertToken("dev-1", "ios", sampleHexToken("abcd"), "production", nil, nil)
+	apns := NewAPNsRelayClient("http://evil.example.com", store)
+	if err := apns.Send(context.Background(), PushPayload{Title: "T", Body: "B"}); err == nil {
+		t.Fatal("expected APNsRelayClient to reject non-loopback http:// endpoint")
+	}
+}

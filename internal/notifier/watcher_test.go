@@ -333,3 +333,66 @@ func TestWatcherTransientFetchFailureRetry(t *testing.T) {
 	}
 }
 
+func TestWatcherQueueFullRetainsStateForRetry(t *testing.T) {
+	var mu sync.Mutex
+	statusVal := "CASCADE_RUN_STATUS_RUNNING"
+	stepCountVal := 4
+
+	mockUpstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		mu.Lock()
+		curStatus := statusVal
+		curSteps := stepCountVal
+		mu.Unlock()
+
+		if strings.HasSuffix(r.URL.Path, "/GetAllCascadeTrajectories") {
+			_, _ = w.Write([]byte(`{"trajectorySummaries":{"cas_qfull":{"summary":"Queue Full Test","status":"` + curStatus + `","stepCount":` + jsonNumber(curSteps) + `}}}`))
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, "/GetCascadeTrajectory") {
+			_, _ = w.Write([]byte(`{"status":"` + curStatus + `","trajectory":{"trajectoryId":"cas_qfull","cascadeId":"cas_qfull","steps":[{"type":"CORTEX_STEP_TYPE_PLANNER_RESPONSE","status":"CORTEX_STEP_STATUS_DONE","plannerResponse":{"response":"Finished!"}}]}}`))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer mockUpstream.Close()
+
+	port := mockUpstream.Listener.Addr().(*net.TCPAddr).Port
+	sender := &mockSender{}
+	p := proxy.NewProxy(inspector.NewInspector(10 * time.Second))
+	p.SetTestUpstream(port, "test-token")
+	notif := NewNotifierWithSender(config.NotificationConfig{Enabled: true}, sender)
+	watcher := NewWatcher(p, notif)
+
+	// Baseline sync while RUNNING
+	watcher.scanOnce()
+
+	// Simulate alertCh saturated (capacity 1, already occupied)
+	fullCh := make(chan func(), 1)
+	fullCh <- func() {}
+	watcher.mu.Lock()
+	watcher.alertCh = fullCh
+	watcher.mu.Unlock()
+
+	time.Sleep(300 * time.Millisecond)
+	mu.Lock()
+	statusVal = "CASCADE_RUN_STATUS_IDLE"
+	stepCountVal = 6
+	mu.Unlock()
+
+	// Scan while queue is full -> must keep runningCount > 0 and NOT lose the transition!
+	if running := watcher.scanOnce(); running == 0 {
+		t.Fatalf("expected runningCount > 0 when transition alert was deferred due to full queue")
+	}
+
+	// Drain queue and run next tick -> completion alert must now enqueue and deliver!
+	<-fullCh
+	watcher.scanOnce()
+	fn := <-fullCh
+	fn()
+
+	if sender.count.Load() != 1 {
+		t.Fatalf("expected deferred completion notification to succeed on retry tick, got %d", sender.count.Load())
+	}
+}
+

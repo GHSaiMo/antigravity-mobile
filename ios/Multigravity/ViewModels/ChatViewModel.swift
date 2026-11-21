@@ -556,6 +556,7 @@ public final class ChatViewModel {
     var lastResumeTime: Date = .distantPast
     @ObservationIgnored var backgroundTaskId: UIBackgroundTaskIdentifier = .invalid
     @ObservationIgnored var backgroundDisconnectTask: Task<Void, Never>? = nil
+    @ObservationIgnored var decodedStreamMediaCache: [String: (rawMedia: [String], decoded: [Data])] = [:]
     
     public init(
         cascadeId: String,
@@ -595,11 +596,15 @@ public final class ChatViewModel {
             self.isNewConversation = true
         }
         
+        let memCachedSession: CachedChatSession? = (!cascadeId.isEmpty && !isDraftCascade)
+            ? resolvedCacheManager.loadMemoryCachedSession(for: cascadeId)
+            : nil
+
         var initialModel = resolvedSettings.favoriteModel1
         var initialModelName: String? = nil
         var resolvedFromSessionCache = false
         if !cascadeId.isEmpty && !isDraftCascade {
-            if let cached = resolvedCacheManager.loadSession(for: cascadeId),
+            if let cached = memCachedSession,
                let cfg = cached.cascadeConfigRaw {
                 if let enumName = ModelDefaultsLogic.extractModelEnum(fromConfig: cfg),
                    let knownID = ModelCatalogStore.shared.id(forEnum: enumName) {
@@ -644,75 +649,101 @@ public final class ChatViewModel {
         
         self.setupStreamClient()
         
-        // Restore draft from local cache
-        self.selectedImageData = resolvedCacheManager.getDraftImages(for: cascadeId)
+        // Restore draft from memory cache without blocking @MainActor on disk I/O
+        if let memDraftImgs = resolvedCacheManager.getMemoryDraftImages(for: cascadeId) {
+            self.selectedImageData = memDraftImgs
+        } else {
+            self.selectedImageData = []
+        }
         self.inputText = resolvedCacheManager.getDraft(for: cascadeId)
         self.isInitializing = false
+        if resolvedCacheManager.getMemoryDraftImages(for: cascadeId) == nil {
+            self.restoreDraftsIfNeeded()
+        }
         
-        // Instant restore from local cache
-        if let cached = resolvedCacheManager.loadSession(for: cascadeId) {
-            if let ws = cached.workspaceName, !ws.isEmpty, ws != "Chat" {
-                self.workspaceName = ws
-            }
-            let healed = self.sanitizeMessageOrder(cached.messages)
-            self.messages = healed
-            self.duration = cached.duration
-            self.stepCount = cached.stepCount
-            self.totalTools = cached.totalTools
-            let hasEarliest = healed.contains(where: { self.extractStepIndex(from: $0) == 0 })
-            self.hasMore = hasEarliest ? false : cached.hasMore
-            self.nextOffset = hasEarliest ? 0 : cached.nextOffset
-            self.isRunning = (cached.status == "CASCADE_RUN_STATUS_RUNNING")
-            let lastUserIdx = healed.lastIndex(where: { $0.isUser }) ?? -1
-            let latestTurn = lastUserIdx >= 0 ? healed.suffix(from: lastUserIdx + 1) : healed[...]
-            let latestEndedInError = latestTurn.last?.isError == true
-            self.hasError = (cached.status == "CASCADE_RUN_STATUS_ERROR" || (!self.isRunning && latestEndedInError))
-            if self.hasError {
-                self.trajectoryErrorMessage = latestTurn.last(where: { $0.isError })?.content
-            }
-            self.cascadeConfigRaw = cached.cascadeConfigRaw
-            self.canProceed = cached.canProceed ?? false
-            self.proceedArtifactUri = cached.proceedArtifactUri
-            self.pendingInteraction = cached.pendingInteraction
-            let userMsgs = healed.filter { $0.isUser }
-            self.queuedMessages = (cached.queuedMessages ?? []).filter { qm in
-                Self.isUserQueuedItem(qm) && !Self.isQueuedItemInMessages(qm, userMessages: userMsgs)
-            }
-            self.knownServerMessageIds = Set(healed.map(\.id))
-            if let cachedTitle = cached.title?.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines), !cachedTitle.isEmpty, cachedTitle != "未命名会话" {
-                self.currentTitle = cachedTitle
-                resolvedCacheManager.updateConversationTitle(cascadeId: cascadeId, newTitle: cachedTitle)
-            } else if self.currentTitle == "未命名会话" || self.currentTitle.isEmpty {
-                if let firstUserMsg = healed.first(where: { $0.isUser }),
-                   let prompt = firstUserMsg.content.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines).components(separatedBy: CharacterSet.newlines).first(where: { !$0.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines).isEmpty }) {
-                    let derived = String(prompt.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines).prefix(36))
-                    if !derived.isEmpty {
-                        self.currentTitle = derived
-                        resolvedCacheManager.updateConversationTitle(cascadeId: cascadeId, newTitle: derived)
-                    }
+        // Instant restore from memory cache if warm; otherwise hydrate off-main-thread
+        if let cached = memCachedSession {
+            self.applyCachedSessionSnapshot(cached, cascadeId: cascadeId, resolvedCacheManager: resolvedCacheManager)
+        } else if !cascadeId.isEmpty && !isDraftCascade && !isNewConversation {
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                guard let coldCached = await resolvedCacheManager.loadSessionAsync(for: cascadeId) else { return }
+                guard self.cascadeId == cascadeId, self.messages.isEmpty, self.knownServerMessageIds.isEmpty else { return }
+                self.applyCachedSessionSnapshot(coldCached, cascadeId: cascadeId, resolvedCacheManager: resolvedCacheManager)
+                if !self.hasUserManuallySelectedModel, !self.hasResolvedSessionModel, let cfg = coldCached.cascadeConfigRaw {
+                    self.syncModel(from: ModelDefaultsLogic.extractModelEnum(fromConfig: cfg) ?? cfg)
+                    self.hasResolvedSessionModel = true
                 }
             }
-            if healed.count != cached.messages.count {
-                resolvedCacheManager.saveSession(CachedChatSession(
-                    cascadeId: cached.cascadeId,
-                    status: cached.status,
-                    duration: cached.duration,
-                    stepCount: cached.stepCount,
-                    totalTools: cached.totalTools,
-                    hasMore: self.hasMore,
-                    nextOffset: self.nextOffset,
-                    messages: healed,
-                    title: self.currentTitle,
-                    cascadeConfigRaw: cached.cascadeConfigRaw,
-                    canProceed: cached.canProceed,
-                    proceedArtifactUri: cached.proceedArtifactUri,
-                    pendingInteraction: cached.pendingInteraction,
-                    queuedMessages: cached.queuedMessages,
-                    runningTasks: cached.runningTasks,
-                    workspaceName: cached.workspaceName,
-                    savedAt: cached.savedAt
-                ))
+        }
+    }
+
+    private func applyCachedSessionSnapshot(
+        _ cached: CachedChatSession,
+        cascadeId: String,
+        resolvedCacheManager: CacheManager
+    ) {
+        if let ws = cached.workspaceName, !ws.isEmpty, ws != "Chat" {
+            self.workspaceName = ws
+        }
+        let healed = self.sanitizeMessageOrder(cached.messages)
+        self.messages = healed
+        self.duration = cached.duration
+        self.stepCount = cached.stepCount
+        self.totalTools = cached.totalTools
+        let hasEarliest = healed.contains(where: { self.extractStepIndex(from: $0) == 0 })
+        self.hasMore = hasEarliest ? false : cached.hasMore
+        self.nextOffset = hasEarliest ? 0 : cached.nextOffset
+        self.isRunning = (cached.status == "CASCADE_RUN_STATUS_RUNNING")
+        let lastUserIdx = healed.lastIndex(where: { $0.isUser }) ?? -1
+        let latestTurn = lastUserIdx >= 0 ? healed.suffix(from: lastUserIdx + 1) : healed[...]
+        let latestEndedInError = latestTurn.last?.isError == true
+        self.hasError = (cached.status == "CASCADE_RUN_STATUS_ERROR" || (!self.isRunning && latestEndedInError))
+        if self.hasError {
+            self.trajectoryErrorMessage = latestTurn.last(where: { $0.isError })?.content
+        }
+        self.cascadeConfigRaw = cached.cascadeConfigRaw
+        self.canProceed = cached.canProceed ?? false
+        self.proceedArtifactUri = cached.proceedArtifactUri
+        self.pendingInteraction = cached.pendingInteraction
+        let userMsgs = healed.filter { $0.isUser }
+        self.queuedMessages = (cached.queuedMessages ?? []).filter { qm in
+            Self.isUserQueuedItem(qm) && !Self.isQueuedItemInMessages(qm, userMessages: userMsgs)
+        }
+        self.knownServerMessageIds = Set(healed.map(\.id))
+        if let cachedTitle = cached.title?.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines), !cachedTitle.isEmpty, cachedTitle != "未命名会话" {
+            self.currentTitle = cachedTitle
+            resolvedCacheManager.updateConversationTitle(cascadeId: cascadeId, newTitle: cachedTitle)
+        } else if self.currentTitle == "未命名会话" || self.currentTitle.isEmpty {
+            if let firstUserMsg = healed.first(where: { $0.isUser }),
+               let prompt = firstUserMsg.content.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines).components(separatedBy: CharacterSet.newlines).first(where: { !$0.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines).isEmpty }) {
+                let derived = String(prompt.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines).prefix(36))
+                if !derived.isEmpty {
+                    self.currentTitle = derived
+                    resolvedCacheManager.updateConversationTitle(cascadeId: cascadeId, newTitle: derived)
+                }
             }
+        }
+        if healed.count != cached.messages.count {
+            resolvedCacheManager.saveSession(CachedChatSession(
+                cascadeId: cached.cascadeId,
+                status: cached.status,
+                duration: cached.duration,
+                stepCount: cached.stepCount,
+                totalTools: cached.totalTools,
+                hasMore: self.hasMore,
+                nextOffset: self.nextOffset,
+                messages: healed,
+                title: self.currentTitle,
+                cascadeConfigRaw: cached.cascadeConfigRaw,
+                canProceed: cached.canProceed,
+                proceedArtifactUri: cached.proceedArtifactUri,
+                pendingInteraction: cached.pendingInteraction,
+                queuedMessages: cached.queuedMessages,
+                runningTasks: cached.runningTasks,
+                workspaceName: cached.workspaceName,
+                savedAt: cached.savedAt
+            ))
         }
     }
     
@@ -740,11 +771,15 @@ public final class ChatViewModel {
         self.streamClient = StreamWebSocketClient()
         self.activeModel = resolvedSettings.favoriteModel1
         let draftKey = "draft_project_\(draftProject.id)"
-        self.selectedImageData = resolvedCacheManager.getDraftImages(for: draftKey)
+        let memImgs = resolvedCacheManager.getMemoryDraftImages(for: draftKey)
+        self.selectedImageData = memImgs ?? []
         self.inputText = resolvedCacheManager.getDraft(for: draftKey)
         
         self.setupStreamClient()
         self.isInitializing = false
+        if memImgs == nil {
+            self.restoreDraftsIfNeeded()
+        }
     }
     
     public init(
@@ -771,7 +806,8 @@ public final class ChatViewModel {
         self.cacheManager = resolvedCacheManager
         self.streamClient = StreamWebSocketClient()
         self.activeModel = resolvedSettings.favoriteModel1
-        let sessionImages = !draftSession.draftImages.isEmpty ? draftSession.draftImages : resolvedCacheManager.getDraftImages(for: draftSession.id)
+        let memImgs = resolvedCacheManager.getMemoryDraftImages(for: draftSession.id)
+        let sessionImages = !draftSession.draftImages.isEmpty ? draftSession.draftImages : (memImgs ?? [])
         self.selectedImageData = sessionImages
         if !sessionImages.isEmpty {
             resolvedCacheManager.saveDraftImages(key: draftSession.id, images: sessionImages)
@@ -781,6 +817,9 @@ public final class ChatViewModel {
         
         self.setupStreamClient()
         self.isInitializing = false
+        if draftSession.draftImages.isEmpty && memImgs == nil {
+            self.restoreDraftsIfNeeded()
+        }
     }
     
     @MainActor

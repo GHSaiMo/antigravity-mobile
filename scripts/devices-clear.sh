@@ -1,16 +1,27 @@
 #!/usr/bin/env bash
 set -euo pipefail
+umask 077
 
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-ADMIN_TOKEN_FILE="${HOME}/.antigravity-mobile/admin_token"
-DEFAULT_STORE_FILE="${HOME}/.antigravity-mobile/auth_store.json"
+DATA_DIR="${MULTIGRAVITY_DATA_DIR:-${HOME}/.multigravity}"
+DATA_DIR="${DATA_DIR/#\~/$HOME}"
+ADMIN_TOKEN_FILE="${DATA_DIR}/admin_token"
+DEFAULT_STORE_FILE="${DATA_DIR}/auth_store.json"
 
 read_env_val() {
     local key="$1"
-    local file="${PROJECT_DIR}/.env"
-    if [ -f "${file}" ]; then
-        grep -E "^${key}=" "${file}" 2>/dev/null | tail -n 1 | cut -d'=' -f2- | tr -d '\r' | sed -e 's/^[[:space:]]*["'"'"']//' -e 's/["'"'"'][[:space:]]*$//' || true
-    fi
+    local val=""
+    for file in "${PROJECT_DIR}/.env" "${DATA_DIR}/.env"; do
+        if [ -f "${file}" ]; then
+            local found
+            found="$(grep -E "^${key}=" "${file}" 2>/dev/null | tail -n 1 | cut -d'=' -f2- | tr -d '\r' | sed -e 's/^[[:space:]]*["'"'"']//' -e 's/["'"'"'][[:space:]]*$//' || true)"
+            if [ -n "${found}" ]; then
+                val="${found}"
+                break
+            fi
+        fi
+    done
+    printf '%s' "${val}"
 }
 
 # Read configuration safely without sourcing (M-5)
@@ -220,9 +231,9 @@ except Exception:
     print(1)
 ' "$(cat "${TMP_RESP}")" "${TARGET}")
 else
-    # Offline mode: perform file modification
+    # Offline mode: perform file modification with strict 0600 permissions (MED-05)
     if [ -f "${STORE_FILE}" ]; then
-        cp -f "${STORE_FILE}" "${STORE_FILE}.bak"
+        install -m 600 "${STORE_FILE}" "${STORE_FILE}.bak"
     fi
     python3 -c '
 import json, sys, os
@@ -239,15 +250,18 @@ if os.path.exists(store_file):
 
 if target == "all":
     cleared = len(data)
-    with open(store_file, "w") as f:
-        json.dump([], f, indent=2)
-    print(cleared)
+    new_data = []
 else:
     new_data = [d for d in data if d.get("device_id") != target]
     cleared = len(data) - len(new_data)
-    with open(store_file, "w") as f:
-        json.dump(new_data, f, indent=2)
-    print(cleared)
+
+os.makedirs(os.path.dirname(store_file) or ".", mode=0o700, exist_ok=True)
+fd = os.open(store_file + ".tmp", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+with os.fdopen(fd, "w") as f:
+    json.dump(new_data, f, indent=2)
+os.replace(store_file + ".tmp", store_file)
+os.chmod(store_file, 0o600)
+print(cleared)
 ' "${STORE_FILE}" "${TARGET}" > "${TMP_RESP}"
     CLEARED_COUNT="$(cat "${TMP_RESP}")"
 fi

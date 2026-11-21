@@ -266,7 +266,7 @@ func TestRun_TarGzUpdateWithChecksumAndSymlink(t *testing.T) {
 	}
 }
 
-func TestRun_CheckOnlyAndUpToDateAndWithoutChecksums(t *testing.T) {
+func TestRun_CheckOnlyAndFailClosedWithoutOfficialChecksums(t *testing.T) {
 	tmpDir := t.TempDir()
 	targetBin := filepath.Join(tmpDir, "mgy")
 	if err := os.WriteFile(targetBin, []byte("old"), 0755); err != nil {
@@ -274,6 +274,7 @@ func TestRun_CheckOnlyAndUpToDateAndWithoutChecksums(t *testing.T) {
 	}
 
 	archive := makeTarGz(t, "mgy", []byte("new-binary-bytes"))
+	fakeChecksumLine := fmt.Sprintf("%s  multigravity-linux-amd64.tar.gz\n", sha256Hex(archive))
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/org/repo/releases/latest":
@@ -281,6 +282,11 @@ func TestRun_CheckOnlyAndUpToDateAndWithoutChecksums(t *testing.T) {
 		case "/org/repo/releases/download/v1.2.0/multigravity-linux-amd64.tar.gz":
 			_, _ = w.Write(archive)
 		default:
+			// Simulate compromised mirror trying to serve checksums.txt when official GitHub returns 404.
+			if strings.HasPrefix(r.URL.Path, "/mirror/") && strings.HasSuffix(r.URL.Path, "/checksums.txt") {
+				_, _ = w.Write([]byte(fakeChecksumLine))
+				return
+			}
 			http.NotFound(w, r)
 		}
 	}))
@@ -295,7 +301,7 @@ func TestRun_CheckOnlyAndUpToDateAndWithoutChecksums(t *testing.T) {
 		Out:               &bytes.Buffer{},
 		GitHubBaseURL:     srv.URL,
 		APIBaseURL:        srv.URL,
-		MirrorPrefixes:    []string{},
+		MirrorPrefixes:    []string{srv.URL + "/mirror/"},
 		HTTPClientFactory: func(_ string, _ time.Duration) *http.Client { return srv.Client() },
 		SkipVerifyExec:    true,
 		SkipDarwinSign:    true,
@@ -315,19 +321,15 @@ func TestRun_CheckOnlyAndUpToDateAndWithoutChecksums(t *testing.T) {
 		t.Fatalf("Normal same version: res=%+v err=%v", res, err)
 	}
 
-	// 3. Force Run without checksums.txt (404) -> skips checksum cleanly and updates
+	// 3. Force Run without official checksums.txt (even if mirror has one) -> MUST fail closed (HIGH-02)
 	opts = baseOpts
 	opts.Force = true
-	res, err = Run(context.Background(), opts)
-	if err != nil {
-		t.Fatalf("Force run failed: %v", err)
-	}
-	if !res.Updated || res.ChecksumVerified || !res.ChecksumSkipped {
-		t.Fatalf("unexpected force result: %+v", res)
+	if _, err := Run(context.Background(), opts); err == nil {
+		t.Fatalf("expected Force run without official checksums.txt to fail closed, got nil")
 	}
 	got, _ := os.ReadFile(targetBin)
-	if string(got) != "new-binary-bytes" {
-		t.Fatalf("binary content = %q, want new-binary-bytes", string(got))
+	if string(got) != "old" {
+		t.Fatalf("binary must remain untouched on checksum failure, got %q", string(got))
 	}
 }
 
@@ -339,8 +341,11 @@ func TestRun_WindowsZipUpdate(t *testing.T) {
 	}
 
 	winZip := makeZip(t, "mgy.exe", []byte("new-windows-exe"))
+	winChecksum := fmt.Sprintf("%s  multigravity-windows-amd64.zip\n", sha256Hex(winZip))
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		case "/org/repo/releases/download/v1.2.1/checksums.txt":
+			_, _ = w.Write([]byte(winChecksum))
 		case "/org/repo/releases/download/v1.2.1/multigravity-windows-amd64.zip":
 			_, _ = w.Write(winZip)
 		default:

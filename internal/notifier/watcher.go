@@ -1,9 +1,9 @@
 package notifier
 
 import (
-	"log/slog"
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -11,7 +11,12 @@ import (
 	"antigravity-mobile/internal/proxy"
 )
 
-const actionNotifyCooldown = 20 * time.Second
+const (
+	actionNotifyCooldown          = 20 * time.Second
+	watcherAlertQueueSize         = 64
+	watcherAlertWorkers           = 4
+	watcherDetailFetchConcurrency = 4
+)
 
 type sessionTrackingState struct {
 	lastStatus           string
@@ -31,7 +36,7 @@ type Watcher struct {
 	notifier       *Notifier
 	knownSessions  map[string]*sessionTrackingState
 	hasInitialSync bool
-	asyncCh        chan func()
+	alertCh        chan func()
 }
 
 // NewWatcher creates a new background Watcher instance.
@@ -43,20 +48,45 @@ func NewWatcher(p *proxy.Proxy, n *Notifier) *Watcher {
 	}
 }
 
-func (w *Watcher) dispatchNotify(fn func()) {
+// dispatchAlert dispatches high-priority state-transition notifications (Action / Proceed / Completed / Failed / EndSession)
+// to the dedicated multi-worker alert pool, isolated from routine Live Activity updates.
+// Returns false if the bounded queue is full so callers can retain previous state and retry on the next tick.
+func (w *Watcher) dispatchAlert(fn func()) bool {
 	w.mu.RLock()
-	ch := w.asyncCh
+	ch := w.alertCh
 	w.mu.RUnlock()
 	if ch == nil {
 		// Synchronous fallback for direct unit-test scanOnce() calls
 		fn()
-		return
+		return true
 	}
 	select {
 	case ch <- fn:
+		return true
 	default:
-		slog.Warn("[Watcher] Notification dispatch queue full, dropping low-priority task")
+		slog.Warn("[Watcher] Critical alert dispatch queue full, deferring state transition for next tick retry")
+		return false
 	}
+}
+
+// dispatchLiveUpdate routes routine Live Activity updates to the per-cascade single-slot latest-wins coalescer.
+func (w *Watcher) dispatchLiveUpdate(details *proxy.TrajectoryDetails) {
+	if details == nil {
+		return
+	}
+	la := w.notifier.LiveActivity()
+	if la == nil {
+		return
+	}
+	w.mu.RLock()
+	ch := w.alertCh
+	w.mu.RUnlock()
+	if ch == nil {
+		snap := *details
+		la.SyncFromDetails(context.Background(), &snap)
+		return
+	}
+	la.EnqueueLatest(details)
 }
 
 // Start initiates the background monitoring loop in a separate goroutine.
@@ -68,22 +98,24 @@ func (w *Watcher) Start(ctx context.Context) {
 }
 
 func (w *Watcher) run(ctx context.Context) {
-	asyncCh := make(chan func(), 32)
+	alertCh := make(chan func(), watcherAlertQueueSize)
 	w.mu.Lock()
-	w.asyncCh = asyncCh
+	w.alertCh = alertCh
 	w.mu.Unlock()
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case fn := <-asyncCh:
-				if fn != nil {
-					fn()
+	for i := 0; i < watcherAlertWorkers; i++ {
+		go func() {
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case fn := <-alertCh:
+					if fn != nil {
+						fn()
+					}
 				}
 			}
-		}
-	}()
+		}()
+	}
 
 	cleanupTicker := time.NewTicker(15 * time.Minute)
 	defer cleanupTicker.Stop()
@@ -141,6 +173,26 @@ func (w *Watcher) scanOnce() int {
 	return w.scanOnceWithMaxAge(0)
 }
 
+type watcherDetailJob struct {
+	id            string
+	status        string
+	steps         int
+	title         string
+	hasSubagent   bool
+	prev          *sessionTrackingState
+	existed       bool
+	prevStatus    string
+	prevSteps     int
+	wasWaitingBg  bool
+	prevRetries   int
+	cooldownUntil time.Time
+}
+
+type watcherDetailResult struct {
+	details *proxy.TrajectoryDetails
+	err     error
+}
+
 func (w *Watcher) scanOnceWithMaxAge(summaryMaxAge time.Duration) int {
 	port, _ := w.proxy.ActiveUpstream()
 	if port == 0 {
@@ -152,11 +204,12 @@ func (w *Watcher) scanOnceWithMaxAge(summaryMaxAge time.Duration) int {
 		return 0
 	}
 
+	now := time.Now()
+
 	// 1. Initial baseline synchronization:
 	// Record already-completed historical sessions so we don't spam notifications on startup.
 	w.mu.Lock()
 	if !w.hasInitialSync {
-		// Reconcile closures are dispatched only after w.mu is released (dispatchNotify takes w.mu.RLock).
 		var deferred []func()
 		for id, s := range summaries {
 			status, _ := s["status"].(string)
@@ -167,7 +220,7 @@ func (w *Watcher) scanOnceWithMaxAge(summaryMaxAge time.Duration) int {
 				lastStatus:  status,
 				lastSteps:   steps,
 				title:       title,
-				lastUpdated: time.Now(),
+				lastUpdated: now,
 			}
 
 			// Pre-mark completed sessions in dedup cache
@@ -204,7 +257,7 @@ func (w *Watcher) scanOnceWithMaxAge(summaryMaxAge time.Duration) int {
 		w.hasInitialSync = true
 		w.mu.Unlock()
 		for _, fn := range deferred {
-			w.dispatchNotify(fn)
+			_ = w.dispatchAlert(fn)
 		}
 		return 0
 	}
@@ -214,7 +267,9 @@ func (w *Watcher) scanOnceWithMaxAge(summaryMaxAge time.Duration) int {
 	hasAlert := w.notifier.IsEnabled()
 	hasLive := w.notifier.HasLiveActivityTargets()
 
-	// 2. Continuous delta inspection (all mutations on sessionTrackingState guarded by w.mu)
+	var jobs []watcherDetailJob
+
+	// 2. Pass 1: fast state scan & collect active/transitioning sessions requiring detail fetch
 	for id, s := range summaries {
 		status, _ := s["status"].(string)
 		steps := extractStepCount(s["stepCount"])
@@ -228,50 +283,105 @@ func (w *Watcher) scanOnceWithMaxAge(summaryMaxAge time.Duration) int {
 				lastStatus:  "CASCADE_RUN_STATUS_INITIAL",
 				lastSteps:   0,
 				title:       title,
-				lastUpdated: time.Now(),
+				lastUpdated: now,
 			}
 			w.knownSessions[id] = prev
 		}
 		prevStatus := prev.lastStatus
+		prevSteps := prev.lastSteps
 		wasWaitingBg := prev.waitingForBackground
 		prevRetries := prev.fetchRetryCount
 		cooldownUntil := prev.actionRetryAfter
-		w.mu.Unlock()
 
-		// No push channels or Live Activity devices subscribed yet: keep baseline state fresh without extra detail RPCs.
-		if !hasAlert && !hasLive {
-			w.mu.Lock()
+		needsDetail := (hasAlert || hasLive) &&
+			(status == "CASCADE_RUN_STATUS_RUNNING" ||
+				(prevStatus == "CASCADE_RUN_STATUS_RUNNING" && status != "CASCADE_RUN_STATUS_RUNNING") ||
+				wasWaitingBg)
+
+		if !needsDetail {
+			if status == "CASCADE_RUN_STATUS_RUNNING" {
+				runningCount++
+			}
+			if !exists || prevStatus != status || prevSteps != steps || status == "CASCADE_RUN_STATUS_RUNNING" {
+				prev.lastUpdated = now
+			}
 			prev.lastStatus = status
 			prev.lastSteps = steps
-			prev.lastUpdated = time.Now()
 			if title != "" && title != MsgUntitledSession {
 				prev.title = title
 			}
 			w.mu.Unlock()
 			continue
 		}
+		w.mu.Unlock()
 
-		nextWaitingBg := wasWaitingBg
-		nextRetries := prevRetries
+		jobs = append(jobs, watcherDetailJob{
+			id:            id,
+			status:        status,
+			steps:         steps,
+			title:         title,
+			hasSubagent:   hasSubagent,
+			prev:          prev,
+			existed:       exists,
+			prevStatus:    prevStatus,
+			prevSteps:     prevSteps,
+			wasWaitingBg:  wasWaitingBg,
+			prevRetries:   prevRetries,
+			cooldownUntil: cooldownUntil,
+		})
+	}
+
+	if len(jobs) == 0 {
+		return runningCount
+	}
+
+	// 3. Pass 2: bounded concurrent FetchTrajectoryDetails (cap = 4)
+	results := make([]watcherDetailResult, len(jobs))
+	if len(jobs) == 1 {
+		d, fErr := w.proxy.FetchTrajectoryDetails(jobs[0].id, 250*time.Millisecond)
+		results[0] = watcherDetailResult{details: d, err: fErr}
+	} else {
+		sem := make(chan struct{}, watcherDetailFetchConcurrency)
+		var wg sync.WaitGroup
+		for idx := range jobs {
+			wg.Add(1)
+			go func(i int) {
+				defer wg.Done()
+				sem <- struct{}{}
+				defer func() { <-sem }()
+				d, fErr := w.proxy.FetchTrajectoryDetails(jobs[i].id, 250*time.Millisecond)
+				results[i] = watcherDetailResult{details: d, err: fErr}
+			}(idx)
+		}
+		wg.Wait()
+	}
+
+	// 4. Pass 3: evaluate state transitions & dispatch notifications
+	for idx, job := range jobs {
+		id := job.id
+		status := job.status
+		steps := job.steps
+		title := job.title
+		prev := job.prev
+		details := results[idx].details
+		fetchErr := results[idx].err
+
+		nextWaitingBg := job.wasWaitingBg
+		nextRetries := job.prevRetries
 
 		if status == "CASCADE_RUN_STATUS_RUNNING" {
 			runningCount++
 			nextWaitingBg = false
 			nextRetries = 0
-			// Fetch real-time trajectory to check for PendingInteraction, CanProceed, and Live Activity state
-			details, err := w.proxy.FetchTrajectoryDetails(id, 250*time.Millisecond)
-			if err == nil && details != nil {
+			if fetchErr == nil && details != nil {
 				if hasLive {
-					if la := w.notifier.LiveActivity(); la != nil {
-						snap := *details
-						w.dispatchNotify(func() { la.SyncFromDetails(context.Background(), &snap) })
-					}
+					w.dispatchLiveUpdate(details)
 				}
-				if hasAlert && time.Now().After(cooldownUntil) {
+				if hasAlert && now.After(job.cooldownUntil) {
 					if details.PendingInteraction != nil {
 						cid, dTitle, pi := id, details.Title, details.PendingInteraction
 						pState := prev
-						w.dispatchNotify(func() {
+						_ = w.dispatchAlert(func() {
 							if nErr := w.notifier.NotifyAction(cid, dTitle, pi); nErr != nil {
 								w.mu.Lock()
 								pState.actionRetryAfter = time.Now().Add(actionNotifyCooldown)
@@ -282,7 +392,7 @@ func (w *Watcher) scanOnceWithMaxAge(summaryMaxAge time.Duration) int {
 					if details.CanProceed {
 						cid, dTitle, totalSteps := id, details.Title, details.TotalSteps
 						pState := prev
-						w.dispatchNotify(func() {
+						_ = w.dispatchAlert(func() {
 							if nErr := w.notifier.NotifyProceed(cid, dTitle, totalSteps); nErr != nil {
 								w.mu.Lock()
 								pState.actionRetryAfter = time.Now().Add(actionNotifyCooldown)
@@ -292,17 +402,16 @@ func (w *Watcher) scanOnceWithMaxAge(summaryMaxAge time.Duration) int {
 					}
 				}
 			}
-		} else if prevStatus == "CASCADE_RUN_STATUS_RUNNING" && status != "CASCADE_RUN_STATUS_RUNNING" {
+		} else if job.prevStatus == "CASCADE_RUN_STATUS_RUNNING" && status != "CASCADE_RUN_STATUS_RUNNING" {
 			// Transition: Running -> Finished / Waiting / Idle
-			details, err := w.proxy.FetchTrajectoryDetails(id, 250*time.Millisecond)
-			if err != nil || details == nil {
+			if fetchErr != nil || details == nil {
 				nextRetries++
 				if nextRetries <= 3 {
-					slog.Warn(fmt.Sprintf("[Watcher] ⚠️ Session %s status transitioned from RUNNING to %s, but FetchTrajectoryDetails failed (retry %d/3)", id, status, nextRetries), "err", err)
+					slog.Warn(fmt.Sprintf("[Watcher] ⚠️ Session %s status transitioned from RUNNING to %s, but FetchTrajectoryDetails failed (retry %d/3)", id, status, nextRetries), "err", fetchErr)
 					runningCount++
 					w.mu.Lock()
 					prev.fetchRetryCount = nextRetries
-					prev.lastUpdated = time.Now()
+					prev.lastUpdated = now
 					w.mu.Unlock()
 					// Do not advance prev.lastStatus yet so we retry on the next tick!
 					continue
@@ -310,126 +419,155 @@ func (w *Watcher) scanOnceWithMaxAge(summaryMaxAge time.Duration) int {
 				slog.Warn(fmt.Sprintf("[Watcher] ⚠️ Session %s transition retries exhausted, notifying based on summary status", id))
 				if steps > 0 {
 					cid, dTitle, st := id, title, steps
-					w.dispatchNotify(func() { _ = w.notifier.NotifyCompleted(cid, dTitle, st) })
+					enqueued := true
+					if hasAlert {
+						if !w.dispatchAlert(func() { _ = w.notifier.NotifyCompleted(cid, dTitle, st) }) {
+							enqueued = false
+						}
+					}
 					if hasLive {
 						if la := w.notifier.LiveActivity(); la != nil {
-							w.dispatchNotify(func() { la.EndSession(context.Background(), cid, dTitle, "COMPLETED", st) })
+							if !w.dispatchAlert(func() { la.EndSession(context.Background(), cid, dTitle, "COMPLETED", st) }) {
+								enqueued = false
+							}
 						}
+					}
+					if !enqueued {
+						runningCount++
+						continue
 					}
 				}
 				nextRetries = 0
 			} else {
 				nextRetries = 0
+				enqueued := true
 				if details.PendingInteraction != nil {
 					cid, dTitle, pi := id, details.Title, details.PendingInteraction
-					w.dispatchNotify(func() { _ = w.notifier.NotifyAction(cid, dTitle, pi) })
+					if hasAlert && !w.dispatchAlert(func() { _ = w.notifier.NotifyAction(cid, dTitle, pi) }) {
+						enqueued = false
+					}
 					if hasLive {
-						if la := w.notifier.LiveActivity(); la != nil {
-							snap := *details
-							w.dispatchNotify(func() { la.SyncFromDetails(context.Background(), &snap) })
-						}
+						w.dispatchLiveUpdate(details)
 					}
 				} else if details.CanProceed {
 					cid, dTitle, totalSteps := id, details.Title, details.TotalSteps
-					w.dispatchNotify(func() { _ = w.notifier.NotifyProceed(cid, dTitle, totalSteps) })
+					if hasAlert && !w.dispatchAlert(func() { _ = w.notifier.NotifyProceed(cid, dTitle, totalSteps) }) {
+						enqueued = false
+					}
 					if hasLive {
-						if la := w.notifier.LiveActivity(); la != nil {
-							snap := *details
-							w.dispatchNotify(func() { la.SyncFromDetails(context.Background(), &snap) })
-						}
+						w.dispatchLiveUpdate(details)
 					}
 				} else if (details.Status == "CASCADE_RUN_STATUS_FAILED" || details.Status == "CASCADE_RUN_STATUS_ERROR" || details.HasError) && details.TotalSteps > 0 {
 					cid, dTitle, totalSteps := id, details.Title, details.TotalSteps
-					w.dispatchNotify(func() { _ = w.notifier.NotifyFailed(cid, dTitle, totalSteps) })
+					if hasAlert && !w.dispatchAlert(func() { _ = w.notifier.NotifyFailed(cid, dTitle, totalSteps) }) {
+						enqueued = false
+					}
 					if hasLive {
 						if la := w.notifier.LiveActivity(); la != nil {
-							w.dispatchNotify(func() { la.EndSession(context.Background(), cid, dTitle, "FAILED", totalSteps) })
+							if !w.dispatchAlert(func() { la.EndSession(context.Background(), cid, dTitle, "FAILED", totalSteps) }) {
+								enqueued = false
+							}
 						}
 					}
 				} else if (details.Status == "CASCADE_RUN_STATUS_COMPLETED" || details.Status == "CASCADE_RUN_STATUS_IDLE") && details.TotalSteps > 0 {
-					inProgress, _ := IsCascadeInProgress(details, hasSubagent)
+					inProgress, _ := IsCascadeInProgress(details, job.hasSubagent)
 					if inProgress {
 						nextWaitingBg = true
 						runningCount++
 						if hasLive {
-							if la := w.notifier.LiveActivity(); la != nil {
-								snap := *details
-								w.dispatchNotify(func() { la.SyncFromDetails(context.Background(), &snap) })
-							}
+							w.dispatchLiveUpdate(details)
 						}
 					} else {
 						nextWaitingBg = false
 						cid, dTitle, totalSteps := id, details.Title, details.TotalSteps
-						w.dispatchNotify(func() { _ = w.notifier.NotifyCompleted(cid, dTitle, totalSteps) })
+						if hasAlert && !w.dispatchAlert(func() { _ = w.notifier.NotifyCompleted(cid, dTitle, totalSteps) }) {
+							enqueued = false
+						}
 						if hasLive {
 							if la := w.notifier.LiveActivity(); la != nil {
-								w.dispatchNotify(func() { la.EndSession(context.Background(), cid, dTitle, "COMPLETED", totalSteps) })
+								if !w.dispatchAlert(func() { la.EndSession(context.Background(), cid, dTitle, "COMPLETED", totalSteps) }) {
+									enqueued = false
+								}
 							}
 						}
 					}
 				}
+				if !enqueued {
+					// Queue full: retain RUNNING state so next tick retries instead of dropping terminal alert.
+					runningCount++
+					continue
+				}
 			}
-		} else if wasWaitingBg {
+		} else if job.wasWaitingBg {
 			// Session was waiting for background task or transitional step to finish while in IDLE
-			details, err := w.proxy.FetchTrajectoryDetails(id, 250*time.Millisecond)
-			if err == nil && details != nil {
-				inProgress, _ := IsCascadeInProgress(details, hasSubagent)
+			if fetchErr == nil && details != nil {
+				inProgress, _ := IsCascadeInProgress(details, job.hasSubagent)
 				if !inProgress {
-					nextWaitingBg = false
+					enqueued := true
 					slog.Info(fmt.Sprintf("[Watcher] ✅ 会话 %s 后台任务已完成", shortID(id)))
 					if details.PendingInteraction != nil {
 						cid, dTitle, pi := id, details.Title, details.PendingInteraction
-						w.dispatchNotify(func() { _ = w.notifier.NotifyAction(cid, dTitle, pi) })
+						if hasAlert && !w.dispatchAlert(func() { _ = w.notifier.NotifyAction(cid, dTitle, pi) }) {
+							enqueued = false
+						}
 						if hasLive {
-							if la := w.notifier.LiveActivity(); la != nil {
-								snap := *details
-								w.dispatchNotify(func() { la.SyncFromDetails(context.Background(), &snap) })
-							}
+							w.dispatchLiveUpdate(details)
 						}
 					} else if details.CanProceed {
 						cid, dTitle, totalSteps := id, details.Title, details.TotalSteps
-						w.dispatchNotify(func() { _ = w.notifier.NotifyProceed(cid, dTitle, totalSteps) })
+						if hasAlert && !w.dispatchAlert(func() { _ = w.notifier.NotifyProceed(cid, dTitle, totalSteps) }) {
+							enqueued = false
+						}
 						if hasLive {
-							if la := w.notifier.LiveActivity(); la != nil {
-								snap := *details
-								w.dispatchNotify(func() { la.SyncFromDetails(context.Background(), &snap) })
-							}
+							w.dispatchLiveUpdate(details)
 						}
 					} else if (details.Status == "CASCADE_RUN_STATUS_FAILED" || details.Status == "CASCADE_RUN_STATUS_ERROR" || details.HasError) && details.TotalSteps > 0 {
 						cid, dTitle, totalSteps := id, details.Title, details.TotalSteps
-						w.dispatchNotify(func() { _ = w.notifier.NotifyFailed(cid, dTitle, totalSteps) })
+						if hasAlert && !w.dispatchAlert(func() { _ = w.notifier.NotifyFailed(cid, dTitle, totalSteps) }) {
+							enqueued = false
+						}
 						if hasLive {
 							if la := w.notifier.LiveActivity(); la != nil {
-								w.dispatchNotify(func() { la.EndSession(context.Background(), cid, dTitle, "FAILED", totalSteps) })
+								if !w.dispatchAlert(func() { la.EndSession(context.Background(), cid, dTitle, "FAILED", totalSteps) }) {
+									enqueued = false
+								}
 							}
 						}
 					} else if details.TotalSteps > 0 {
 						cid, dTitle, totalSteps := id, details.Title, details.TotalSteps
-						w.dispatchNotify(func() { _ = w.notifier.NotifyCompleted(cid, dTitle, totalSteps) })
+						if hasAlert && !w.dispatchAlert(func() { _ = w.notifier.NotifyCompleted(cid, dTitle, totalSteps) }) {
+							enqueued = false
+						}
 						if hasLive {
 							if la := w.notifier.LiveActivity(); la != nil {
-								w.dispatchNotify(func() { la.EndSession(context.Background(), cid, dTitle, "COMPLETED", totalSteps) })
+								if !w.dispatchAlert(func() { la.EndSession(context.Background(), cid, dTitle, "COMPLETED", totalSteps) }) {
+									enqueued = false
+								}
 							}
 						}
 					}
+					if !enqueued {
+						runningCount++
+						continue
+					}
+					nextWaitingBg = false
 				} else {
 					runningCount++ // Still waiting, keep scan frequency fast (1500ms)
 					if hasLive {
-						if la := w.notifier.LiveActivity(); la != nil {
-							snap := *details
-							w.dispatchNotify(func() { la.SyncFromDetails(context.Background(), &snap) })
-						}
+						w.dispatchLiveUpdate(details)
 					}
 				}
 			}
 		}
 
 		w.mu.Lock()
+		if !job.existed || prev.lastStatus != status || prev.lastSteps != steps || status == "CASCADE_RUN_STATUS_RUNNING" || nextWaitingBg || prev.waitingForBackground != nextWaitingBg {
+			prev.lastUpdated = now
+		}
 		prev.waitingForBackground = nextWaitingBg
 		prev.fetchRetryCount = nextRetries
 		prev.lastStatus = status
 		prev.lastSteps = steps
-		prev.lastUpdated = time.Now()
 		if title != "" && title != MsgUntitledSession {
 			prev.title = title
 		}
@@ -510,4 +648,3 @@ func shortID(id string) string {
 	}
 	return id[:8] + "..."
 }
-

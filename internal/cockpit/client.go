@@ -1,20 +1,23 @@
 package cockpit
 
 import (
-	"log/slog"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
 )
+
+var switchMu sync.Mutex
 
 // CockpitServerInfo contains runtime server details from ~/.antigravity_cockpit/server.json.
 type CockpitServerInfo struct {
@@ -182,6 +185,9 @@ func SwitchAccount(accountID string) (err error) {
 	if accountID == "" {
 		return errors.New("account_id is required")
 	}
+
+	switchMu.Lock()
+	defer switchMu.Unlock()
 
 	// Auto-align Cockpit config to prevent APP_PATH_NOT_FOUND during switch
 	_ = EnsureCockpitAntigravityConfig()
@@ -366,6 +372,9 @@ func fetchAccountOAuth(accountID string) (*parsedOAuth, error) {
 		var p accountsWithTokensPayload
 		if json.Unmarshal(envelope.Payload, &p) != nil {
 			return nil, fmt.Errorf("parse accounts_with_tokens payload")
+		}
+		if p.RequestID != reqID {
+			continue
 		}
 		want := strings.TrimSpace(accountID)
 		for _, acc := range p.Accounts {

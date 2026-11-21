@@ -14,6 +14,8 @@ import kotlinx.serialization.json.*
 import okhttp3.Cache
 import okhttp3.Call
 import okhttp3.Callback
+import okhttp3.HttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -72,6 +74,33 @@ class ApiClient(
 
         val currentBaseUrl: String?
             get() = defaultInstance?.currentBaseUrl
+
+        /**
+         * Strictly verifies that [url]'s `(scheme, host, port)` matches one of the explicitly paired
+         * gateway endpoints stored in [prefs], preventing Bearer/device-token leakage to third-party origins.
+         */
+        fun isConfiguredGatewayOrigin(url: HttpUrl, prefs: PreferencesManager?): Boolean {
+            if (prefs == null) return false
+            val endpoints = listOfNotNull(
+                prefs.gatewayBaseUrl,
+                prefs.primaryCloudUrl,
+                prefs.lanServerUrl,
+                prefs.customServerUrl,
+                prefs.relayServerUrl
+            )
+            for (raw in endpoints) {
+                val clean = raw.trim().trimEnd('/')
+                if (clean.isEmpty()) continue
+                val candidate = clean.toHttpUrlOrNull() ?: continue
+                if (candidate.scheme.equals(url.scheme, ignoreCase = true) &&
+                    candidate.host.equals(url.host, ignoreCase = true) &&
+                    candidate.port == url.port
+                ) {
+                    return true
+                }
+            }
+            return false
+        }
     }
 
     val currentBaseUrl: String?
@@ -562,8 +591,12 @@ class ApiClient(
         limit: Int = 15,
         offset: Int? = null
     ): Result<StreamUpdatePayload> = withContext(Dispatchers.IO) {
+        if (!CacheManager.isValidCascadeId(cascadeId)) {
+            return@withContext Result.failure(IllegalArgumentException("无效的会话 ID".loc))
+        }
         val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址".loc))
-        val urlBuilder = StringBuilder("$baseUrl/gateway/cascade/messages?cascadeId=$cascadeId&limit=$limit")
+        val encodedCid = URLEncoder.encode(cascadeId, "UTF-8")
+        val urlBuilder = StringBuilder("$baseUrl/gateway/cascade/messages?cascadeId=$encodedCid&limit=$limit")
         offset?.let { urlBuilder.append("&offset=$it") }
 
         try {
@@ -1080,11 +1113,16 @@ class ApiClient(
     ): Result<java.io.File> = withContext(Dispatchers.IO) {
         try {
             val resolvedUrl = resolveMediaURL(uri)
+            val parsedTarget = resolvedUrl.toHttpUrlOrNull()
+                ?: return@withContext Result.failure(IllegalArgumentException("无效的文件链接".loc))
+            val isGatewayOrigin = isConfiguredGatewayOrigin(parsedTarget, prefs)
             val request = Request.Builder()
-                .url(resolvedUrl)
+                .url(parsedTarget)
                 .apply {
-                    prefs.deviceToken?.takeIf { it.isNotBlank() }?.let { token ->
-                        header("Authorization", "Bearer $token")
+                    if (isGatewayOrigin) {
+                        prefs.deviceToken?.takeIf { it.isNotBlank() }?.let { token ->
+                            header("Authorization", "Bearer $token")
+                        }
                     }
                 }
                 .build()
@@ -1768,6 +1806,9 @@ class RouteFailoverInterceptor(
         val request = chain.request()
         val originalUrl = request.url
         val originalHost = originalUrl.host
+        if (!ApiClient.isConfiguredGatewayOrigin(originalUrl, prefs)) {
+            return chain.proceed(request)
+        }
 
         // If communicating with LAN host, shorten connect timeout to 1800ms so off-network failover is snappy
         val isLan = ConnectionManager.isLanHost(originalHost)

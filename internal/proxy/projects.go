@@ -42,6 +42,7 @@ func (p *Proxy) invalidateProjectsCache() {
 	p.cachedProjectsList = nil
 	p.cachedProjectsAt = time.Time{}
 	p.projectsCacheMu.Unlock()
+	invalidateGeminiConfigCaches()
 }
 
 // GetProjects discovers all projects from local IDE database and trajectory history.

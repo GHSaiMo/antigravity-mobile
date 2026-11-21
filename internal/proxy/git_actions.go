@@ -74,6 +74,7 @@ func invalidateGitStatusCache(repoRoot string) {
 	gitStatusCacheMu.Lock()
 	delete(gitStatusCache, key)
 	gitStatusCacheMu.Unlock()
+	invalidateGitRepoRootFastCache()
 }
 
 // gitStatusCached reuses recent git status checks for large repos and deduplicates concurrent refreshes.
@@ -476,8 +477,11 @@ func gitPush(ctx context.Context, repoRoot string) (string, error) {
 		return "", errors.New("当前处于游离 HEAD，无法推送")
 	}
 	if status.Upstream == "" {
+		if status.Branch == "" || strings.HasPrefix(status.Branch, "-") {
+			return "", fmt.Errorf("非法的分支名称: %q", status.Branch)
+		}
 		// 首次推送：只设置 upstream 到同名分支，不接受自定义 remote/refspec
-		return runGit(ctx, repoRoot, gitPushTimeout, "push", "--set-upstream", "origin", status.Branch)
+		return runGit(ctx, repoRoot, gitPushTimeout, "push", "--set-upstream", "--", "origin", status.Branch)
 	}
 	return runGit(ctx, repoRoot, gitPushTimeout, "push")
 }
@@ -1057,7 +1061,31 @@ func truncatePRBody(raw string, maxRunes int) string {
 	return string(r[:maxRunes]) + "..."
 }
 
+func isAllowedGitHubPRHost(host string) bool {
+	h := strings.ToLower(strings.TrimSpace(host))
+	if h == "" || h == "github.com" {
+		return true
+	}
+	if ghe := strings.ToLower(strings.TrimSpace(os.Getenv("GITHUB_ENTERPRISE_HOST"))); ghe != "" && h == ghe {
+		return true
+	}
+	return false
+}
+
+func isValidGitHubPRRef(ref GitHubPullRequestRef) bool {
+	if ref.Number <= 0 || !isAllowedGitHubPRHost(ref.Host) {
+		return false
+	}
+	if ref.Owner == "." || ref.Owner == ".." || ref.Repo == "." || ref.Repo == ".." {
+		return false
+	}
+	return gitHubSlugSegmentRe.MatchString(ref.Owner) && gitHubSlugSegmentRe.MatchString(ref.Repo)
+}
+
 func lookupGitHubPRViaGH(ctx context.Context, ref GitHubPullRequestRef) (GitPullRequestItem, bool) {
+	if !isValidGitHubPRRef(ref) {
+		return GitPullRequestItem{}, false
+	}
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 	repoSlug := ref.Owner + "/" + ref.Repo
@@ -1116,7 +1144,7 @@ func (p *Proxy) HandleGitHubPullRequests(w http.ResponseWriter, r *http.Request)
 		Refs []GitHubPullRequestRef `json:"refs"`
 		URLs []string               `json:"urls"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.NewDecoder(io.LimitReader(r.Body, 128*1024)).Decode(&req); err != nil {
 		writeRPCError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
@@ -1124,11 +1152,14 @@ func (p *Proxy) HandleGitHubPullRequests(w http.ResponseWriter, r *http.Request)
 	var refs []GitHubPullRequestRef
 	seen := make(map[string]bool)
 	addRef := func(ref GitHubPullRequestRef) {
-		if ref.Owner == "" || ref.Repo == "" || ref.Number <= 0 {
-			return
-		}
+		ref.Host = strings.ToLower(strings.TrimSpace(ref.Host))
+		ref.Owner = strings.TrimSpace(ref.Owner)
+		ref.Repo = strings.TrimSpace(ref.Repo)
 		if ref.Host == "" {
 			ref.Host = "github.com"
+		}
+		if !isValidGitHubPRRef(ref) {
+			return
 		}
 		key := prRefCacheKey(ref)
 		if seen[key] {
@@ -1256,18 +1287,23 @@ func (p *Proxy) HandleGitHubPullRequests(w http.ResponseWriter, r *http.Request)
 			}
 		}
 
-		// Best-effort `gh pr view` fallback for unresolved items when gh is available on host.
+		// Best-effort `gh pr view` fallback for unresolved items when gh is available on host (4s overall budget).
 		if os.Getenv("MGY_DISABLE_GH_CLI") != "1" {
 			if _, err := exec.LookPath("gh"); err == nil {
+				ghCtx, ghCancel := context.WithTimeout(r.Context(), 4*time.Second)
 				for _, ref := range missing {
+					if ghCtx.Err() != nil {
+						break
+					}
 					key := prRefCacheKey(ref)
 					existing, has := resultsByKey[key]
 					if !has || (existing.Title == "" && existing.Error == "") {
-						if ghItem, ok := lookupGitHubPRViaGH(r.Context(), ref); ok {
+						if ghItem, ok := lookupGitHubPRViaGH(ghCtx, ref); ok {
 							resultsByKey[key] = ghItem
 						}
 					}
 				}
+				ghCancel()
 			}
 		}
 
@@ -1298,9 +1334,40 @@ func (p *Proxy) HandleGitHubPullRequests(w http.ResponseWriter, r *http.Request)
 	writeJSONStatus(w, http.StatusOK, map[string]interface{}{"pullRequests": out})
 }
 
-// findGitRepoRootFast walks up at most 4 parent directories looking for .git without spawning git.
+type gitRepoRootFastEntry struct {
+	root      string
+	branch    string
+	fetchedAt time.Time
+}
+
+var (
+	gitRepoRootFastMu    sync.RWMutex
+	gitRepoRootFastCache = make(map[string]gitRepoRootFastEntry)
+)
+
+func invalidateGitRepoRootFastCache() {
+	gitRepoRootFastMu.Lock()
+	gitRepoRootFastCache = make(map[string]gitRepoRootFastEntry)
+	gitRepoRootFastMu.Unlock()
+}
+
+// findGitRepoRootFast walks up at most 4 parent directories looking for .git without spawning git,
+// with a short 3s in-memory cache to avoid per-conversation Stat/ReadFile storms on list polls.
 func findGitRepoRootFast(dir string) (string, string) {
 	cur := filepath.Clean(dir)
+	if cur == "" {
+		return "", ""
+	}
+	now := time.Now()
+	gitRepoRootFastMu.RLock()
+	if entry, ok := gitRepoRootFastCache[cur]; ok && now.Sub(entry.fetchedAt) < 3*time.Second {
+		gitRepoRootFastMu.RUnlock()
+		return entry.root, entry.branch
+	}
+	gitRepoRootFastMu.RUnlock()
+
+	startKey := cur
+	foundRoot, foundBranch := "", ""
 	for i := 0; i < 4 && cur != "" && cur != string(filepath.Separator); i++ {
 		dotGit := filepath.Join(cur, ".git")
 		fi, err := os.Stat(dotGit)
@@ -1318,16 +1385,14 @@ func findGitRepoRootFast(dir string) (string, string) {
 					}
 				}
 			}
-			headBytes, err := os.ReadFile(filepath.Join(gitDir, "HEAD"))
-			if err != nil {
-				return cur, ""
+			foundRoot = cur
+			if headBytes, err := os.ReadFile(filepath.Join(gitDir, "HEAD")); err == nil {
+				head := strings.TrimSpace(string(headBytes))
+				if strings.HasPrefix(head, "ref: refs/heads/") {
+					foundBranch = strings.TrimPrefix(head, "ref: refs/heads/")
+				}
 			}
-			head := strings.TrimSpace(string(headBytes))
-			branch := ""
-			if strings.HasPrefix(head, "ref: refs/heads/") {
-				branch = strings.TrimPrefix(head, "ref: refs/heads/")
-			}
-			return cur, branch
+			break
 		}
 		parent := filepath.Dir(cur)
 		if parent == cur {
@@ -1335,7 +1400,19 @@ func findGitRepoRootFast(dir string) (string, string) {
 		}
 		cur = parent
 	}
-	return "", ""
+
+	gitRepoRootFastMu.Lock()
+	if len(gitRepoRootFastCache) >= 512 {
+		gitRepoRootFastCache = make(map[string]gitRepoRootFastEntry)
+	}
+	gitRepoRootFastCache[startKey] = gitRepoRootFastEntry{
+		root:      foundRoot,
+		branch:    foundBranch,
+		fetchedAt: now,
+	}
+	gitRepoRootFastMu.Unlock()
+
+	return foundRoot, foundBranch
 }
 
 func selectPrimaryPRForBranch(prs []GitPullRequestItem, branch string) *GitPullRequestItem {

@@ -12,8 +12,9 @@ import (
 )
 
 func TestHandleListBackgroundTasks_AndLogTail(t *testing.T) {
-	tmpDir := t.TempDir()
-	tasksDir := filepath.Join(tmpDir, "brain", "conv-1", ".system_generated", "tasks")
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	tasksDir := filepath.Join(home, ".gemini", "antigravity", "brain", "conv-1", ".system_generated", "tasks")
 	if err := os.MkdirAll(tasksDir, 0o755); err != nil {
 		t.Fatal(err)
 	}

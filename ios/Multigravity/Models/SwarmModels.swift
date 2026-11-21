@@ -74,12 +74,21 @@ public struct SwarmMemberInfo: Codable, Sendable, Identifiable, Equatable {
     public let killed: Bool
     public let status: String // "working", "waiting", "killed", "error", "stuck"
     public let lastActivity: String?
+    public let activityKind: String?
+    public let steps: Int
+    public let posts: Int
+    public let lastPostSeq: Int
+    public let workspace: String?
+    public let workspaceMode: String?
+    public let roleWorker: Bool
     public let unreadCount: Int
     public let isCurrent: Bool
 
     enum CodingKeys: String, CodingKey {
         case name, conversationId, model, role, wakeMode, waitSince
-        case lastReadSeq, lastNudgedSeq, killed, status, lastActivity, unreadCount, isCurrent
+        case lastReadSeq, lastNudgedSeq, killed, status, lastActivity
+        case activityKind, steps, posts, lastPostSeq, workspace, workspaceMode, roleWorker
+        case unreadCount, isCurrent
     }
 
     public init(from decoder: Decoder) throws {
@@ -95,6 +104,13 @@ public struct SwarmMemberInfo: Codable, Sendable, Identifiable, Equatable {
         self.killed = try c.decodeIfPresent(Bool.self, forKey: .killed) ?? false
         self.status = try c.decodeIfPresent(String.self, forKey: .status) ?? "waiting"
         self.lastActivity = try c.decodeIfPresent(String.self, forKey: .lastActivity)
+        self.activityKind = try c.decodeIfPresent(String.self, forKey: .activityKind)
+        self.steps = try c.decodeIfPresent(Int.self, forKey: .steps) ?? 0
+        self.posts = try c.decodeIfPresent(Int.self, forKey: .posts) ?? 0
+        self.lastPostSeq = try c.decodeIfPresent(Int.self, forKey: .lastPostSeq) ?? 0
+        self.workspace = try c.decodeIfPresent(String.self, forKey: .workspace)
+        self.workspaceMode = try c.decodeIfPresent(String.self, forKey: .workspaceMode)
+        self.roleWorker = try c.decodeIfPresent(Bool.self, forKey: .roleWorker) ?? false
         self.unreadCount = try c.decodeIfPresent(Int.self, forKey: .unreadCount) ?? 0
         self.isCurrent = try c.decodeIfPresent(Bool.self, forKey: .isCurrent) ?? false
     }
@@ -185,14 +201,85 @@ public struct SwarmViewTextItem: Codable, Sendable, Identifiable, Equatable {
     }
 }
 
+public struct SwarmPlanGoal: Codable, Sendable, Equatable {
+    public let title: String
+    public let line: String?
+
+    public init(title: String = "", line: String? = nil) {
+        self.title = title
+        self.line = line
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.title = try c.decodeIfPresent(String.self, forKey: .title) ?? ""
+        self.line = try c.decodeIfPresent(String.self, forKey: .line)
+    }
+}
+
+public struct SwarmPlanThread: Codable, Sendable, Identifiable, Equatable {
+    public let id: String
+    public let title: String
+    public let goal: String?
+    public let tasks: [String]
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let tVal = try c.decodeIfPresent(String.self, forKey: .title) ?? ""
+        self.id = try c.decodeIfPresent(String.self, forKey: .id) ?? tVal
+        self.title = tVal
+        self.goal = try c.decodeIfPresent(String.self, forKey: .goal)
+        self.tasks = try c.decodeIfPresent([String].self, forKey: .tasks) ?? []
+    }
+}
+
+public struct SwarmPlan: Codable, Sendable, Equatable {
+    public let goal: SwarmPlanGoal?
+    public let tasks: [String: String]
+    public let threads: [SwarmPlanThread]
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.goal = try c.decodeIfPresent(SwarmPlanGoal.self, forKey: .goal)
+        self.tasks = try c.decodeIfPresent([String: String].self, forKey: .tasks) ?? [:]
+        self.threads = try c.decodeIfPresent([SwarmPlanThread].self, forKey: .threads) ?? []
+    }
+}
+
+public struct SwarmViewThread: Codable, Sendable, Identifiable, Equatable {
+    public let id: String
+    public let title: String
+    public let goal: String?
+    public let now: String?
+    public let state: String?
+    public let workstreams: [String]
+    public let attention: [String]
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let tVal = try c.decodeIfPresent(String.self, forKey: .title) ?? ""
+        self.id = try c.decodeIfPresent(String.self, forKey: .id) ?? tVal
+        self.title = tVal
+        self.goal = try c.decodeIfPresent(String.self, forKey: .goal)
+        self.now = try c.decodeIfPresent(String.self, forKey: .now)
+        self.state = try c.decodeIfPresent(String.self, forKey: .state)
+        self.workstreams = try c.decodeIfPresent([String].self, forKey: .workstreams) ?? []
+        self.attention = try c.decodeIfPresent([String].self, forKey: .attention) ?? []
+    }
+}
+
 public struct SwarmView: Codable, Sendable, Equatable {
     public let version: String?
     public let asOfSeq: Int?
     public let updatedAt: String?
     public let headline: String?
+    public let goal: SwarmPlanGoal?
+    public let runningSummary: String?
     public let phase: SwarmViewPhase?
     public let attention: [SwarmViewAttention]
     public let workstreams: [SwarmViewWorkstream]
+    public let threads: [SwarmViewThread]
+    public let now: [String: String]
     public let milestones: [SwarmViewTextItem]
     public let risks: [SwarmViewTextItem]
 
@@ -201,9 +288,13 @@ public struct SwarmView: Codable, Sendable, Equatable {
         case asOfSeq = "as_of_seq"
         case updatedAt = "updated_at"
         case headline
+        case goal
+        case runningSummary = "running_summary"
         case phase
         case attention
         case workstreams
+        case threads
+        case now
         case milestones
         case risks
     }
@@ -214,9 +305,13 @@ public struct SwarmView: Codable, Sendable, Equatable {
         self.asOfSeq = try c.decodeIfPresent(Int.self, forKey: .asOfSeq)
         self.updatedAt = try c.decodeIfPresent(String.self, forKey: .updatedAt)
         self.headline = try c.decodeIfPresent(String.self, forKey: .headline)
+        self.goal = try c.decodeIfPresent(SwarmPlanGoal.self, forKey: .goal)
+        self.runningSummary = try c.decodeIfPresent(String.self, forKey: .runningSummary)
         self.phase = try c.decodeIfPresent(SwarmViewPhase.self, forKey: .phase)
         self.attention = try c.decodeIfPresent([SwarmViewAttention].self, forKey: .attention) ?? []
         self.workstreams = try c.decodeIfPresent([SwarmViewWorkstream].self, forKey: .workstreams) ?? []
+        self.threads = try c.decodeIfPresent([SwarmViewThread].self, forKey: .threads) ?? []
+        self.now = try c.decodeIfPresent([String: String].self, forKey: .now) ?? [:]
         self.milestones = try c.decodeIfPresent([SwarmViewTextItem].self, forKey: .milestones) ?? []
         self.risks = try c.decodeIfPresent([SwarmViewTextItem].self, forKey: .risks) ?? []
     }
@@ -231,9 +326,10 @@ public struct SwarmSnapshot: Codable, Sendable, Equatable {
     public let members: [SwarmMemberInfo]
     public let messages: [SwarmBoardMessage]
     public let view: SwarmView?
+    public let plan: SwarmPlan?
 
     enum CodingKeys: String, CodingKey {
-        case cascadeId, coordinatorId, title, etag, brief, members, messages, view
+        case cascadeId, coordinatorId, title, etag, brief, members, messages, view, plan
     }
 
     public init(from decoder: Decoder) throws {
@@ -246,6 +342,7 @@ public struct SwarmSnapshot: Codable, Sendable, Equatable {
         self.members = try c.decodeIfPresent([SwarmMemberInfo].self, forKey: .members) ?? []
         self.messages = try c.decodeIfPresent([SwarmBoardMessage].self, forKey: .messages) ?? []
         self.view = try c.decodeIfPresent(SwarmView.self, forKey: .view)
+        self.plan = try c.decodeIfPresent(SwarmPlan.self, forKey: .plan)
     }
 }
 

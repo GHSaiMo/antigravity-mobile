@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -31,44 +33,152 @@ type allTrajectoriesParsed struct {
 	liveByID  map[string]subagentLive
 }
 
-func parseAllTrajectoriesIndex(raw []byte) *allTrajectoriesParsed {
+func parseSingleSummaryEntry(entry json.RawMessage) (uint64, subagentLive, bool) {
+	h := fnv.New64a()
+	_, _ = h.Write(entry)
+	sig := h.Sum64()
+
+	var s struct {
+		Status             string `json:"status"`
+		StepCount          int    `json:"stepCount"`
+		Summary            string `json:"summary"`
+		TrajectoryMetadata struct {
+			ParentConversationID string `json:"parentConversationId"`
+		} `json:"trajectoryMetadata"`
+	}
+	if json.Unmarshal(entry, &s) == nil {
+		return sig, subagentLive{
+			Status:    s.Status,
+			StepCount: s.StepCount,
+			Title:     s.Summary,
+			Parent:    strings.TrimSpace(s.TrajectoryMetadata.ParentConversationID),
+		}, true
+	}
+	return sig, subagentLive{}, false
+}
+
+func parseAllTrajectoriesWithEntries(raw []byte) (map[string]json.RawMessage, *allTrajectoriesParsed) {
 	var env struct {
 		TrajectorySummaries map[string]json.RawMessage `json:"trajectorySummaries"`
 	}
 	if err := json.Unmarshal(raw, &env); err != nil {
-		return nil
+		return nil, nil
 	}
-	n := len(env.TrajectorySummaries)
-	idx := &allTrajectoriesParsed{
-		sortedIDs: make([]string, 0, n),
-		sigByID:   make(map[string]uint64, n),
-		liveByID:  make(map[string]subagentLive, n),
+	entries := env.TrajectorySummaries
+	if entries == nil {
+		entries = make(map[string]json.RawMessage)
 	}
-	for id, entry := range env.TrajectorySummaries {
-		idx.sortedIDs = append(idx.sortedIDs, id)
-		h := fnv.New64a()
-		_, _ = h.Write(entry)
-		idx.sigByID[id] = h.Sum64()
+	return entries, buildTrajectoriesIndexFromMap(entries)
+}
 
-		var s struct {
-			Status             string `json:"status"`
-			StepCount          int    `json:"stepCount"`
-			Summary            string `json:"summary"`
-			TrajectoryMetadata struct {
-				ParentConversationID string `json:"parentConversationId"`
-			} `json:"trajectoryMetadata"`
-		}
-		if json.Unmarshal(entry, &s) == nil {
-			idx.liveByID[id] = subagentLive{
-				Status:    s.Status,
-				StepCount: s.StepCount,
-				Title:     s.Summary,
-				Parent:    strings.TrimSpace(s.TrajectoryMetadata.ParentConversationID),
-			}
+func parseAllTrajectoriesIndex(raw []byte) *allTrajectoriesParsed {
+	_, parsed := parseAllTrajectoriesWithEntries(raw)
+	return parsed
+}
+
+// cloneWithDelta produces a new immutable *allTrajectoriesParsed by applying O(|delta|) pre-parsed
+// updates and removals without re-hashing or re-unmarshaling unchanged entries.
+func (idx *allTrajectoriesParsed) cloneWithDelta(
+	deltaSigs map[string]uint64,
+	deltaLive map[string]subagentLive,
+	hasLive map[string]bool,
+	removed []string,
+) *allTrajectoriesParsed {
+	if idx == nil {
+		return &allTrajectoriesParsed{
+			sortedIDs: []string{},
+			sigByID:   make(map[string]uint64),
+			liveByID:  make(map[string]subagentLive),
 		}
 	}
-	sort.Strings(idx.sortedIDs)
-	return idx
+	newCap := len(idx.sigByID) + len(deltaSigs)
+	sigByID := make(map[string]uint64, newCap)
+	for k, v := range idx.sigByID {
+		sigByID[k] = v
+	}
+	liveByID := make(map[string]subagentLive, len(idx.liveByID)+len(deltaLive))
+	for k, v := range idx.liveByID {
+		liveByID[k] = v
+	}
+
+	idsChanged := false
+	for _, id := range removed {
+		if _, existed := sigByID[id]; existed {
+			delete(sigByID, id)
+			delete(liveByID, id)
+			idsChanged = true
+		}
+	}
+	for id, sig := range deltaSigs {
+		if _, existed := sigByID[id]; !existed {
+			idsChanged = true
+		}
+		sigByID[id] = sig
+		if hasLive[id] {
+			liveByID[id] = deltaLive[id]
+		} else {
+			delete(liveByID, id)
+		}
+	}
+
+	var sortedIDs []string
+	if !idsChanged {
+		sortedIDs = idx.sortedIDs
+	} else {
+		sortedIDs = make([]string, 0, len(sigByID))
+		for id := range sigByID {
+			sortedIDs = append(sortedIDs, id)
+		}
+		sort.Strings(sortedIDs)
+	}
+	return &allTrajectoriesParsed{
+		sortedIDs: sortedIDs,
+		sigByID:   sigByID,
+		liveByID:  liveByID,
+	}
+}
+
+func marshalTrajectorySummariesMap(entries map[string]json.RawMessage, sortedIDs []string) []byte {
+	total := 32
+	for id, raw := range entries {
+		total += len(id) + len(raw) + 6
+	}
+	var buf bytes.Buffer
+	buf.Grow(total)
+	buf.WriteString(`{"trajectorySummaries":{`)
+	first := true
+	if len(sortedIDs) > 0 {
+		for _, id := range sortedIDs {
+			raw, ok := entries[id]
+			if !ok || len(raw) == 0 {
+				continue
+			}
+			if !first {
+				buf.WriteByte(',')
+			}
+			first = false
+			buf.WriteString(strconv.Quote(id))
+			buf.WriteByte(':')
+			buf.Write(raw)
+		}
+	} else {
+		for id, raw := range entries {
+			if len(raw) == 0 {
+				continue
+			}
+			if !first {
+				buf.WriteByte(',')
+			}
+			first = false
+			buf.WriteString(strconv.Quote(id))
+			buf.WriteByte(':')
+			buf.Write(raw)
+		}
+	}
+	buf.WriteString(`}}`)
+	out := make([]byte, buf.Len())
+	copy(out, buf.Bytes())
+	return out
 }
 
 func (idx *allTrajectoriesParsed) computeListSignature() (uint64, bool) {
@@ -113,7 +223,8 @@ type allTrajectoriesSnapshot struct {
 	port      int
 	token     string
 	fetchedAt time.Time
-	body      []byte
+	entries   map[string]json.RawMessage
+	body      []byte // lazily encoded when nil and entries != nil
 	parsed    *allTrajectoriesParsed
 	flight    *allTrajectoriesFlight
 	gen       uint64 // bumped by invalidate so an in-flight result fetched before a mutation is not cached
@@ -126,7 +237,7 @@ func (p *Proxy) fetchAllTrajectoriesRaw(ctx context.Context, port int, token str
 }
 
 func (p *Proxy) fetchAllTrajectoriesIndex(ctx context.Context, port int, token string) (*allTrajectoriesParsed, error) {
-	_, idx, err := p.fetchAllTrajectoriesMaxAge(ctx, port, token, allTrajectoriesTTL)
+	_, idx, err := p.fetchAllTrajectoriesMaxAgeOpts(ctx, port, token, allTrajectoriesTTL, false)
 	return idx, err
 }
 
@@ -134,18 +245,29 @@ func (p *Proxy) fetchAllTrajectoriesIndex(ctx context.Context, port int, token s
 // maxAge <= 0 forces a refresh (joining one already in flight) and re-populates the shared snapshot,
 // so a periodic poller such as the Watcher keeps it warm for everyone else.
 func (p *Proxy) fetchAllTrajectoriesRawMaxAge(ctx context.Context, port int, token string, maxAge time.Duration) ([]byte, error) {
-	body, _, err := p.fetchAllTrajectoriesMaxAge(ctx, port, token, maxAge)
+	body, _, err := p.fetchAllTrajectoriesMaxAgeOpts(ctx, port, token, maxAge, true)
 	return body, err
 }
 
 func (p *Proxy) fetchAllTrajectoriesMaxAge(ctx context.Context, port int, token string, maxAge time.Duration) ([]byte, *allTrajectoriesParsed, error) {
+	return p.fetchAllTrajectoriesMaxAgeOpts(ctx, port, token, maxAge, true)
+}
+
+func (p *Proxy) fetchAllTrajectoriesMaxAgeOpts(ctx context.Context, port int, token string, maxAge time.Duration, needBody bool) ([]byte, *allTrajectoriesParsed, error) {
 	if port == 0 {
 		return nil, nil, fmt.Errorf("antigravity upstream not connected")
 	}
 	s := &p.allTrajectories
 
 	s.mu.Lock()
-	if s.body != nil && s.port == port && s.token == token && time.Since(s.fetchedAt) < maxAge {
+	if (s.body != nil || s.entries != nil) && s.port == port && s.token == token && time.Since(s.fetchedAt) < maxAge {
+		if needBody && s.body == nil && s.entries != nil {
+			var sorted []string
+			if s.parsed != nil {
+				sorted = s.parsed.sortedIDs
+			}
+			s.body = marshalTrajectorySummariesMap(s.entries, sorted)
+		}
 		b, idx := s.body, s.parsed
 		s.mu.Unlock()
 		return b, idx, nil
@@ -159,15 +281,25 @@ func (p *Proxy) fetchAllTrajectoriesMaxAge(ctx context.Context, port int, token 
 			// Detached from any single caller's context so one cancelled waiter cannot fail the others;
 			// mediumClient still enforces its own timeout.
 			body, err := p.fetchAllTrajectoriesUpstream(context.Background(), port, token)
-			var parsed *allTrajectoriesParsed
+			var (
+				entries map[string]json.RawMessage
+				parsed  *allTrajectoriesParsed
+			)
 			if err == nil {
-				parsed = parseAllTrajectoriesIndex(body)
+				entries, parsed = parseAllTrajectoriesWithEntries(body)
 			}
 			s.mu.Lock()
 			if err == nil {
 				if s.gen == gen {
-					s.port, s.token, s.body, s.parsed, s.fetchedAt = port, token, body, parsed, time.Now()
-				} else if s.body != nil && s.port == port && s.token == token {
+					s.port, s.token, s.entries, s.body, s.parsed, s.fetchedAt = port, token, entries, body, parsed, time.Now()
+				} else if (s.body != nil || s.entries != nil) && s.port == port && s.token == token {
+					if s.body == nil && s.entries != nil {
+						var sorted []string
+						if s.parsed != nil {
+							sorted = s.parsed.sortedIDs
+						}
+						s.body = marshalTrajectorySummariesMap(s.entries, sorted)
+					}
 					body, parsed = s.body, s.parsed
 				}
 			}
@@ -191,6 +323,7 @@ func (p *Proxy) fetchAllTrajectoriesMaxAge(ctx context.Context, port int, token 
 func (p *Proxy) invalidateAllTrajectories() {
 	s := &p.allTrajectories
 	s.mu.Lock()
+	s.entries = nil
 	s.body = nil
 	s.parsed = nil
 	s.gen++

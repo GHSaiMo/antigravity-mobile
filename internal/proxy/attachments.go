@@ -18,6 +18,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 	"unicode/utf8"
@@ -268,10 +269,20 @@ func findAttachment(inbox, id string) (Attachment, bool) {
 	return Attachment{}, false
 }
 
-func inboxSize(inbox string) int64 {
+var (
+	inboxQuotaMu      sync.Mutex
+	trackedInboxDir   string
+	trackedInboxBytes int64
+	trackedInboxInit  bool
+)
+
+func inboxSizeScan(inbox string) int64 {
 	var total int64
 	_ = filepath.WalkDir(inbox, func(_ string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
+			return nil
+		}
+		if strings.Contains(d.Name(), "upload-") {
 			return nil
 		}
 		if info, err := d.Info(); err == nil {
@@ -280,6 +291,46 @@ func inboxSize(inbox string) int64 {
 		return nil
 	})
 	return total
+}
+
+func inboxSize(inbox string) int64 {
+	clean := filepath.Clean(inbox)
+	inboxQuotaMu.Lock()
+	defer inboxQuotaMu.Unlock()
+	if !trackedInboxInit || trackedInboxDir != clean {
+		trackedInboxDir = clean
+		trackedInboxBytes = inboxSizeScan(clean)
+		trackedInboxInit = true
+	}
+	return trackedInboxBytes
+}
+
+func commitInboxBytes(inbox string, delta int64, quota int64) bool {
+	clean := filepath.Clean(inbox)
+	inboxQuotaMu.Lock()
+	defer inboxQuotaMu.Unlock()
+	if !trackedInboxInit || trackedInboxDir != clean {
+		trackedInboxDir = clean
+		trackedInboxBytes = inboxSizeScan(clean)
+		trackedInboxInit = true
+	}
+	if quota > 0 && delta > 0 && trackedInboxBytes >= quota {
+		return false
+	}
+	trackedInboxBytes += delta
+	if trackedInboxBytes < 0 {
+		trackedInboxBytes = 0
+	}
+	return true
+}
+
+func invalidateInboxSizeCache(inbox string) {
+	clean := filepath.Clean(inbox)
+	inboxQuotaMu.Lock()
+	if trackedInboxDir == clean {
+		trackedInboxInit = false
+	}
+	inboxQuotaMu.Unlock()
 }
 
 func writeAttachmentError(w http.ResponseWriter, status int, code, msg string) {
@@ -370,13 +421,19 @@ func (p *Proxy) HandleAttachmentUpload(w http.ResponseWriter, r *http.Request) {
 
 	att, exists := findAttachment(inbox, id)
 	if !exists {
+		if !commitInboxBytes(inbox, n, quota) {
+			writeAttachmentError(w, http.StatusInsufficientStorage, "quota_exceeded", "电脑端收件箱已满")
+			return
+		}
 		monthDir := filepath.Join(inbox, time.Now().Format("2006-01"))
 		if err := os.MkdirAll(monthDir, 0o700); err != nil {
+			commitInboxBytes(inbox, -n, 0)
 			writeAttachmentError(w, http.StatusInternalServerError, "write_failed", err.Error())
 			return
 		}
 		finalPath := filepath.Join(monthDir, id+"-"+name)
 		if err := os.Rename(tmpPath, finalPath); err != nil {
+			commitInboxBytes(inbox, -n, 0)
 			writeAttachmentError(w, http.StatusInternalServerError, "write_failed", err.Error())
 			return
 		}
@@ -589,17 +646,24 @@ func applyAttachmentsToMessage(rawMap map[string]interface{}) (bool, error) {
 func CleanupInbox(inbox string, ttl time.Duration) int {
 	cutoff := time.Now().Add(-ttl)
 	removed := 0
+	var bytesRemoved int64
 	_ = filepath.WalkDir(inbox, func(path string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return nil
 		}
 		if info, err := d.Info(); err == nil && info.ModTime().Before(cutoff) {
+			sz := info.Size()
 			if os.Remove(path) == nil {
 				removed++
+				bytesRemoved += sz
 			}
 		}
 		return nil
 	})
+	if removed > 0 {
+		commitInboxBytes(inbox, -bytesRemoved, 0)
+		invalidateInboxSizeCache(inbox)
+	}
 	entries, _ := os.ReadDir(inbox)
 	for _, e := range entries {
 		if e.IsDir() && e.Name() != ".tmp" {
@@ -609,9 +673,12 @@ func CleanupInbox(inbox string, ttl time.Duration) int {
 	return removed
 }
 
-// StartInboxJanitor periodically cleans expired attachments until stop is closed.
+// StartInboxJanitor periodically cleans expired attachments and zip-entry temp cache until stop is closed.
 func StartInboxJanitor(stop <-chan struct{}) {
 	run := func() {
+		if n := CleanupZipEntryCache(zipEntryCacheDir(), defaultZipCacheTTL, defaultZipCacheMaxBytes); n > 0 {
+			slog.Info("[ZipCache] pruned cached zip entries", "count", n)
+		}
 		inbox, err := AttachmentInboxDir()
 		if err != nil {
 			return

@@ -1,14 +1,16 @@
 package cockpit
 
 import (
-	"log/slog"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -139,17 +141,12 @@ func SaveCockpitReportSettings(enabled bool, port int, token string) error {
 
 	// Backup previous config (not updatedBytes) with restricted 0600 permissions
 	if len(existingBytes) > 0 {
-		_ = os.WriteFile(configFile+".bak", existingBytes, 0600)
+		_ = writeFileAtomic0600(configFile+".bak", existingBytes)
 	}
 
-	tmpFile := configFile + ".tmp"
-	if err := os.WriteFile(tmpFile, updatedBytes, 0600); err != nil {
-		return fmt.Errorf("failed to write tmp config: %w", err)
+	if err := writeFileAtomic0600(configFile, updatedBytes); err != nil {
+		return fmt.Errorf("failed to write config: %w", err)
 	}
-	if err := os.Rename(tmpFile, configFile); err != nil {
-		return fmt.Errorf("failed to rename config file: %w", err)
-	}
-	_ = os.Chmod(configFile, 0600)
 
 	InvalidatePortCache()
 	return nil
@@ -324,6 +321,7 @@ func isArgonModelOrBucket(id string) bool {
 var (
 	refreshMutex       sync.Mutex
 	isRefreshing       bool
+	refreshDone        chan struct{}
 	lastRefreshAttempt time.Time
 )
 
@@ -437,10 +435,17 @@ type decryptedQuotaCacheEntry struct {
 	quota   *storedAccountQuota
 }
 
+type rawQuotaFileCacheEntry struct {
+	modTime int64
+	size    int64
+	payload cachePayload
+}
+
 var (
 	quotaCacheMu        sync.RWMutex
 	quotaCacheByEmail   = make(map[string]*quotaCacheEntry)
 	decryptedQuotaCache = make(map[string]decryptedQuotaCacheEntry)
+	rawQuotaFileCache   = make(map[string]rawQuotaFileCacheEntry)
 	quotaCacheTTL       = 3 * time.Second
 )
 
@@ -449,8 +454,47 @@ func InvalidateQuotaCache() {
 	quotaCacheMu.Lock()
 	quotaCacheByEmail = make(map[string]*quotaCacheEntry)
 	decryptedQuotaCache = make(map[string]decryptedQuotaCacheEntry)
+	rawQuotaFileCache = make(map[string]rawQuotaFileCacheEntry)
 	quotaCacheMu.Unlock()
 	invalidateModernAccountIndexCache()
+}
+
+func loadCachedQuotaPayloadFile(cachePath string) (cachePayload, bool) {
+	fi, err := os.Stat(cachePath)
+	if err != nil || fi.IsDir() {
+		return cachePayload{}, false
+	}
+	mtime := fi.ModTime().UnixNano()
+	sz := fi.Size()
+
+	quotaCacheMu.RLock()
+	if cached, ok := rawQuotaFileCache[cachePath]; ok && cached.modTime == mtime && cached.size == sz {
+		cp := cached.payload
+		quotaCacheMu.RUnlock()
+		return cp, true
+	}
+	quotaCacheMu.RUnlock()
+
+	cBytes, err := os.ReadFile(cachePath)
+	if err != nil {
+		return cachePayload{}, false
+	}
+	var cp cachePayload
+	if err := json.Unmarshal(cBytes, &cp); err != nil {
+		return cachePayload{}, false
+	}
+
+	quotaCacheMu.Lock()
+	if len(rawQuotaFileCache) > 64 {
+		rawQuotaFileCache = make(map[string]rawQuotaFileCacheEntry)
+	}
+	rawQuotaFileCache[cachePath] = rawQuotaFileCacheEntry{
+		modTime: mtime,
+		size:    sz,
+		payload: cp,
+	}
+	quotaCacheMu.Unlock()
+	return cp, true
 }
 
 func getCachedStoredAccountQuota(dataDir, accountID string) *storedAccountQuota {
@@ -603,9 +647,8 @@ func GetQuotas(activeEmails ...string) (*CockpitQuotaResponse, error) {
 			item.SubscriptionTier = normalizeSubscriptionTier(sq.SubscriptionTier)
 		}
 
-		if cBytes, err := os.ReadFile(cachePath); err == nil {
-			var cp cachePayload
-			if err := json.Unmarshal(cBytes, &cp); err == nil {
+		if cp, ok := loadCachedQuotaPayloadFile(cachePath); ok {
+			{
 				item.UpdatedAt = cp.UpdatedAt
 				if cp.UpdatedAt > maxUpdatedAt {
 					maxUpdatedAt = cp.UpdatedAt
@@ -793,34 +836,39 @@ func GetQuotas(activeEmails ...string) (*CockpitQuotaResponse, error) {
 	return resp, nil
 }
 
-// TriggerRefresh triggers a fresh quota fetch across all accounts in Cockpit Tools.
-// Optional force parameter bypasses the attempt debounce if set to true.
-func TriggerRefresh(force ...bool) error {
+func triggerRefreshWithWaitChannel(isForce bool) (<-chan struct{}, error) {
 	refreshMutex.Lock()
-	isForce := len(force) > 0 && force[0]
-
 	if isRefreshing {
+		ch := refreshDone
 		refreshMutex.Unlock()
-		return nil
+		return ch, nil
 	}
 	if !isForce && time.Since(lastRefreshAttempt) < 10*time.Second {
 		refreshMutex.Unlock()
-		return nil
+		return nil, nil
 	}
 	lastRefreshAttempt = time.Now()
 	isRefreshing = true
+	done := make(chan struct{})
+	refreshDone = done
 	refreshMutex.Unlock()
+
+	finishRefresh := func() {
+		refreshMutex.Lock()
+		isRefreshing = false
+		if refreshDone == done {
+			refreshDone = nil
+		}
+		close(done)
+		refreshMutex.Unlock()
+	}
 
 	cfg, err := getCockpitConfig()
 	if err != nil {
 		// Cockpit Tools config.json not found (e.g. headless Linux/NAS without Cockpit desktop app).
 		// Fall directly to native Google Cloud Code API quota fetch.
 		go func() {
-			defer func() {
-				refreshMutex.Lock()
-				isRefreshing = false
-				refreshMutex.Unlock()
-			}()
+			defer finishRefresh()
 			slog.Info("[Cockpit] Cockpit config not available; triggering direct native quota fetch...")
 			if fErr := FetchAllRemoteQuotas(); fErr != nil {
 				slog.Warn("[Cockpit] Direct native quota fetch failed", "err", fErr)
@@ -828,7 +876,7 @@ func TriggerRefresh(force ...bool) error {
 				InvalidateQuotaCache()
 			}
 		}()
-		return nil
+		return done, nil
 	}
 
 	reportPort := cfg.ReportPort
@@ -840,29 +888,23 @@ func TriggerRefresh(force ...bool) error {
 
 	if reportPort > 0 && cfg.ReportToken != "" && IsCockpitListening(reportPort, 300*time.Millisecond) {
 		go func(port int, token string) {
-			defer func() {
-				refreshMutex.Lock()
-				isRefreshing = false
-				refreshMutex.Unlock()
-			}()
+			defer finishRefresh()
 
 			if err := QueryReport(port, token); err != nil {
 				slog.Warn(fmt.Sprintf("[Cockpit] Report request error: %v; falling back to direct quota fetch", err))
-				_ = FetchAllRemoteQuotas()
+				if fErr := FetchAllRemoteQuotas(); fErr == nil {
+					InvalidateQuotaCache()
+				}
 			} else {
 				InvalidateQuotaCache()
 			}
 		}(reportPort, cfg.ReportToken)
-		return nil
+		return done, nil
 	}
 
 	// Native path: Cockpit Tools desktop process not running, query directly via Google Cloud Code API
 	go func() {
-		defer func() {
-			refreshMutex.Lock()
-			isRefreshing = false
-			refreshMutex.Unlock()
-		}()
+		defer finishRefresh()
 		slog.Info("[Cockpit] Cockpit Tools desktop process not listening; triggering direct native quota fetch...")
 		if err := FetchAllRemoteQuotas(); err != nil {
 			slog.Warn("[Cockpit] Direct native quota fetch failed", "err", err)
@@ -870,16 +912,44 @@ func TriggerRefresh(force ...bool) error {
 			InvalidateQuotaCache()
 		}
 	}()
-	return nil
+	return done, nil
+}
+
+// TriggerRefresh triggers a fresh quota fetch across all accounts in Cockpit Tools.
+// Optional force parameter bypasses the attempt debounce if set to true.
+func TriggerRefresh(force ...bool) error {
+	isForce := len(force) > 0 && force[0]
+	_, err := triggerRefreshWithWaitChannel(isForce)
+	return err
+}
+
+func buildReportURL(port int, token string) string {
+	q := url.Values{}
+	if token != "" {
+		q.Set("token", token)
+	}
+	q.Set("format", "yaml")
+	return fmt.Sprintf("http://127.0.0.1:%d/report?%s", port, q.Encode())
+}
+
+func sanitizeReportError(err error, port int) error {
+	if err == nil {
+		return nil
+	}
+	var uErr *url.Error
+	if errors.As(err, &uErr) {
+		return fmt.Errorf("%s http://127.0.0.1:%d/report: %w", uErr.Op, port, uErr.Err)
+	}
+	return err
 }
 
 // QueryReport sends an HTTP GET request to the local Cockpit Tools report endpoint to trigger fresh quota collection.
 func QueryReport(port int, token string) error {
-	url := fmt.Sprintf("http://127.0.0.1:%d/report?token=%s&format=yaml", port, token)
+	reqURL := buildReportURL(port, token)
 	client := &http.Client{Timeout: 60 * time.Second}
-	resp, err := client.Get(url)
+	resp, err := client.Get(reqURL)
 	if err != nil {
-		return err
+		return sanitizeReportError(err, port)
 	}
 	defer resp.Body.Close()
 
@@ -894,30 +964,29 @@ func QueryReport(port int, token string) error {
 	return nil
 }
 
-// RefreshQuotas triggers a refresh and polls up to 10 seconds for updated cache data.
+// RefreshQuotas triggers a refresh and awaits completion via event channel (bounded at 10 seconds).
 func RefreshQuotas(activeEmails ...string) (*CockpitQuotaResponse, error) {
 	ResetAutoRefreshCooldown()
-	currentQuotas, _ := GetQuotas(activeEmails...)
-	var initialUpdatedAt int64
-	if currentQuotas != nil {
-		initialUpdatedAt = currentQuotas.UpdatedAt
-	}
-
-	if err := TriggerRefresh(true); err != nil {
+	doneCh, err := triggerRefreshWithWaitChannel(true)
+	if err != nil {
+		currentQuotas, _ := GetQuotas(activeEmails...)
 		return currentQuotas, err
 	}
 
-	// Poll GetQuotas every 500ms up to 10 seconds (well within client's 15s timeout)
-	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) {
-		time.Sleep(500 * time.Millisecond)
-		latest, err := GetQuotas(activeEmails...)
-		if err == nil && latest != nil && latest.UpdatedAt > initialUpdatedAt {
-			return latest, nil
+	if doneCh != nil {
+		timer := time.NewTimer(10 * time.Second)
+		select {
+		case <-doneCh:
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+		case <-timer.C:
 		}
 	}
 
-	// If timeout reached before updates observed, return the latest available snapshot
 	return GetQuotas(activeEmails...)
 }
 
@@ -1048,15 +1117,11 @@ func EnsureCockpitAntigravityConfig() error {
 		return fmt.Errorf("marshal updated config: %w", err)
 	}
 
-	// Backup existing config
-	_ = os.WriteFile(configFile+".bak", cfgBytes, 0644)
+	// Backup existing config with restricted 0600 permissions
+	_ = writeFileAtomic0600(configFile+".bak", cfgBytes)
 
-	tmpFile := configFile + ".tmp"
-	if err := os.WriteFile(tmpFile, append(updatedBytes, '\n'), 0644); err != nil {
-		return fmt.Errorf("write tmp config: %w", err)
-	}
-	if err := os.Rename(tmpFile, configFile); err != nil {
-		return fmt.Errorf("rename config: %w", err)
+	if err := writeFileAtomic0600(configFile, append(updatedBytes, '\n')); err != nil {
+		return fmt.Errorf("write config: %w", err)
 	}
 
 	slog.Info("[Cockpit] Auto-aligned config.json: antigravity_launch_on_switch=false", "antigravity_app_path", rawMap["antigravity_app_path"])

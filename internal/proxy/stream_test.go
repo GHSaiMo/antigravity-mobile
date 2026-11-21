@@ -183,19 +183,26 @@ func TestIsAllowedOrigin(t *testing.T) {
 		t.Errorf("expected empty origin to be allowed")
 	}
 
-	// 2. Localhost and loopback origins must be allowed
+	// 2. Localhost and loopback origins on matching port must be allowed
 	loopbackOrigins := []string{
-		"http://localhost",
 		"http://localhost:58900",
-		"http://127.0.0.1",
 		"http://127.0.0.1:58900",
 		"http://[::1]:58900",
-		"https://localhost",
+		"https://localhost:58900",
 	}
 	for _, orig := range loopbackOrigins {
 		if !IsAllowedOrigin(orig, "localhost:58900") {
 			t.Errorf("expected %s to be allowed", orig)
 		}
+	}
+	// Cross-port loopback origins must be rejected unless explicitly listed in ALLOWED_ORIGINS
+	for _, crossPortOrig := range []string{"http://localhost", "http://localhost:3000", "http://127.0.0.1:8080"} {
+		if IsAllowedOrigin(crossPortOrig, "localhost:58900") {
+			t.Errorf("expected cross-port loopback origin %s to be rejected", crossPortOrig)
+		}
+	}
+	if !IsAllowedOrigin("http://localhost", "localhost") {
+		t.Errorf("expected default-port http://localhost against localhost to be allowed")
 	}
 
 	// 3. Same-host LAN origins are allowed; a different private IP is not.

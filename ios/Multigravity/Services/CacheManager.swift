@@ -80,6 +80,78 @@ public final class CacheManager: @unchecked Sendable {
     private var memMcpServers: [McpServerState]?
     private var memSkills: [SkillInfo]?
     private var memSessions: [String: CachedChatSession] = [:]
+    private var memSessionOrder: [String] = []
+    private var memSessionTitles: [String: String] = [:]
+    private static let maxMemSessions = 15
+    private static let maxDiskSessions = 100
+    private static let safeCascadeIDRegex = try! NSRegularExpression(
+        pattern: #"^(?:local_draft_|draft_)?[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"#
+    )
+
+    public static func isValidCascadeId(_ raw: String) -> Bool {
+        guard !raw.isEmpty, raw.utf8.count <= 145 else { return false }
+        let range = NSRange(raw.startIndex..<raw.endIndex, in: raw)
+        return safeCascadeIDRegex.firstMatch(in: raw, options: [], range: range) != nil
+    }
+
+    private func insertMemSessionLocked(_ session: CachedChatSession) {
+        let id = session.cascadeId
+        if let existingIdx = memSessionOrder.firstIndex(of: id) {
+            memSessionOrder.remove(at: existingIdx)
+        } else if memSessions[id] == nil && memSessions.count >= Self.maxMemSessions {
+            if let oldestId = memSessionOrder.first {
+                memSessionOrder.removeFirst()
+                memSessions.removeValue(forKey: oldestId)
+            } else if let anyKey = memSessions.keys.first {
+                memSessions.removeValue(forKey: anyKey)
+            }
+        }
+        memSessions[id] = session
+        memSessionOrder.append(id)
+        if let derived = Self.deriveTitle(from: session) {
+            memSessionTitles[id] = derived
+        }
+    }
+
+    private static func deriveTitle(from session: CachedChatSession) -> String? {
+        if let t = session.title?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !t.isEmpty, t != "未命名会话", t != "会话详情" {
+            return t
+        }
+        if let firstUserMsg = session.messages.first(where: { $0.isUser }),
+           let prompt = firstUserMsg.content
+               .trimmingCharacters(in: .whitespacesAndNewlines)
+               .components(separatedBy: .newlines)
+               .first(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) {
+            let trimmed = String(prompt.trimmingCharacters(in: .whitespacesAndNewlines).prefix(36))
+            if !trimmed.isEmpty { return trimmed }
+        }
+        return nil
+    }
+
+    public func cachedSessionTitle(for cascadeId: String) -> String? {
+        guard Self.isValidCascadeId(cascadeId) else { return nil }
+        lock.lock()
+        if let hit = memSessionTitles[cascadeId] {
+            lock.unlock()
+            return hit
+        }
+        if let mem = memSessions[cascadeId] ?? pendingSessionWrites[cascadeId],
+           let derived = Self.deriveTitle(from: mem) {
+            memSessionTitles[cascadeId] = derived
+            lock.unlock()
+            return derived
+        }
+        lock.unlock()
+        if Thread.isMainThread {
+            prewarmSessions(for: [cascadeId])
+            return nil
+        }
+        if let disk = loadSession(for: cascadeId) {
+            return Self.deriveTitle(from: disk)
+        }
+        return nil
+    }
     /// Latest not-yet-written snapshot per session. The chat stream saves on every frame (several per
     /// second while an agent runs); disk writes are coalesced to one per `sessionWriteInterval`.
     private var pendingSessionWrites: [String: CachedChatSession] = [:]
@@ -352,6 +424,7 @@ public final class CacheManager: @unchecked Sendable {
     public func handleMemoryWarning() {
         lock.lock()
         memSessions.removeAll()
+        memSessionOrder.removeAll()
         memDraftImages.removeAll()
         memConversations = nil
         memMcpServers = nil
@@ -664,20 +737,26 @@ public final class CacheManager: @unchecked Sendable {
         items.removeAll(where: { $0.id == cascadeId })
         memConversations = items
         memSessions.removeValue(forKey: cascadeId)
+        memSessionOrder.removeAll { $0 == cascadeId }
+        memSessionTitles.removeValue(forKey: cascadeId)
         pendingSessionWrites.removeValue(forKey: cascadeId)
         memLastViewDates.removeValue(forKey: cascadeId)
         UserDefaults.standard.removeObject(forKey: "ag_last_view_\(cascadeId)")
         clearDraft(key: cascadeId)
         
         let convFileURL = cacheDir.appendingPathComponent("conversations.json")
-        let sessionFileURL = cacheDir.appendingPathComponent("sessions/\(cascadeId).json")
+        let sessionFileURL: URL? = Self.isValidCascadeId(cascadeId)
+            ? cacheDir.appendingPathComponent("sessions/\(cascadeId).json")
+            : nil
         
         if let data = try? Self.encoder.encode(items) {
             ioQueue.async {
                 try? data.write(to: convFileURL, options: .atomic)
-                try? FileManager.default.removeItem(at: sessionFileURL)
+                if let sessionFileURL {
+                    try? FileManager.default.removeItem(at: sessionFileURL)
+                }
             }
-        } else {
+        } else if let sessionFileURL {
             ioQueue.async {
                 try? FileManager.default.removeItem(at: sessionFileURL)
             }
@@ -687,11 +766,9 @@ public final class CacheManager: @unchecked Sendable {
     // MARK: - Chat Session Cache
     
     public func saveSession(_ session: CachedChatSession) {
+        guard Self.isValidCascadeId(session.cascadeId) else { return }
         lock.lock()
-        if memSessions.count >= 15 {
-            memSessions.remove(at: memSessions.startIndex)
-        }
-        memSessions[session.cascadeId] = session
+        insertMemSessionLocked(session)
         lock.unlock()
         
         if let t = session.title?.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines), !t.isEmpty, t != "未命名会话" {
@@ -721,8 +798,31 @@ public final class CacheManager: @unchecked Sendable {
         lock.lock()
         let session = pendingSessionWrites.removeValue(forKey: cascadeId)
         lock.unlock()
-        guard let session, let data = try? Self.encoder.encode(session) else { return }
+        guard Self.isValidCascadeId(cascadeId),
+              let session,
+              let data = try? Self.encoder.encode(session) else { return }
         try? data.write(to: cacheDir.appendingPathComponent("sessions/\(cascadeId).json"), options: .atomic)
+        pruneSessionFiles(maxCount: Self.maxDiskSessions)
+    }
+
+    private func pruneSessionFiles(maxCount: Int = 100) {
+        let sessionsDir = cacheDir.appendingPathComponent("sessions", isDirectory: true)
+        let fm = FileManager.default
+        guard let urls = try? fm.contentsOfDirectory(
+            at: sessionsDir,
+            includingPropertiesForKeys: [.contentModificationDateKey],
+            options: [.skipsHiddenFiles]
+        ) else { return }
+        let jsonFiles = urls.filter { $0.pathExtension == "json" }
+        guard jsonFiles.count > maxCount else { return }
+        let sorted = jsonFiles.sorted { a, b in
+            let da = (try? a.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+            let db = (try? b.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+            return da < db
+        }
+        for stale in sorted.prefix(jsonFiles.count - maxCount) {
+            try? fm.removeItem(at: stale)
+        }
     }
 
     /// Writes every pending session now (e.g. when the app moves to the background).
@@ -738,13 +838,25 @@ public final class CacheManager: @unchecked Sendable {
         }
     }
     
-    public func loadSession(for cascadeId: String) -> CachedChatSession? {
+    public func loadMemoryCachedSession(for cascadeId: String) -> CachedChatSession? {
+        guard Self.isValidCascadeId(cascadeId) else { return nil }
         lock.lock()
+        defer { lock.unlock() }
         if let mem = memSessions[cascadeId] ?? pendingSessionWrites[cascadeId] {
-            lock.unlock()
+            if let existingIdx = memSessionOrder.firstIndex(of: cascadeId) {
+                memSessionOrder.remove(at: existingIdx)
+                memSessionOrder.append(cascadeId)
+            }
             return mem
         }
-        lock.unlock()
+        return nil
+    }
+
+    public func loadSession(for cascadeId: String) -> CachedChatSession? {
+        guard Self.isValidCascadeId(cascadeId) else { return nil }
+        if let mem = loadMemoryCachedSession(for: cascadeId) {
+            return mem
+        }
         
         let fileURL = cacheDir.appendingPathComponent("sessions/\(cascadeId).json")
         guard let data = try? Data(contentsOf: fileURL),
@@ -753,15 +865,13 @@ public final class CacheManager: @unchecked Sendable {
         }
         
         lock.lock()
-        if memSessions.count >= 15 {
-            memSessions.remove(at: memSessions.startIndex)
-        }
-        memSessions[cascadeId] = session
+        insertMemSessionLocked(session)
         lock.unlock()
         return session
     }
     
     public func loadSessionAsync(for cascadeId: String) async -> CachedChatSession? {
+        guard Self.isValidCascadeId(cascadeId) else { return nil }
         lock.lock()
         if let mem = memSessions[cascadeId] ?? pendingSessionWrites[cascadeId] {
             lock.unlock()
@@ -782,9 +892,11 @@ public final class CacheManager: @unchecked Sendable {
     
     public func prewarmSessions(for cascadeIds: [String]) {
         guard !cascadeIds.isEmpty else { return }
+        let boundedIds = Array(cascadeIds.filter { Self.isValidCascadeId($0) && !$0.hasPrefix("local_draft_") }.prefix(Self.maxMemSessions))
+        guard !boundedIds.isEmpty else { return }
         ioQueue.async { [weak self] in
             guard let self = self else { return }
-            for cid in cascadeIds {
+            for cid in boundedIds {
                 self.lock.lock()
                 let exists = self.memSessions[cid] != nil
                 self.lock.unlock()
@@ -794,10 +906,7 @@ public final class CacheManager: @unchecked Sendable {
                 if let data = try? Data(contentsOf: fileURL),
                    let session = try? Self.decoder.decode(CachedChatSession.self, from: data) {
                     self.lock.lock()
-                    if self.memSessions.count >= 15 {
-                        self.memSessions.remove(at: self.memSessions.startIndex)
-                    }
-                    self.memSessions[cid] = session
+                    self.insertMemSessionLocked(session)
                     self.lock.unlock()
                 }
             }
@@ -808,6 +917,8 @@ public final class CacheManager: @unchecked Sendable {
         lock.lock()
         memConversations = nil
         memSessions.removeAll()
+        memSessionOrder.removeAll()
+        memSessionTitles.removeAll()
         pendingSessionWrites.removeAll()
         memDrafts.removeAll()
         memDraftImages.removeAll()
@@ -985,10 +1096,17 @@ public final class CacheManager: @unchecked Sendable {
         }
     }
     
+    public func getMemoryDraftImages(for key: String) -> [Data]? {
+        guard !key.isEmpty else { return [] }
+        lock.lock()
+        defer { lock.unlock() }
+        return memDraftImages[key]
+    }
+
     public func getDraftImages(for key: String) -> [Data] {
         guard !key.isEmpty else { return [] }
         lock.lock()
-        if let mem = memDraftImages[key], !mem.isEmpty {
+        if let mem = memDraftImages[key] {
             lock.unlock()
             return mem
         }
@@ -1006,6 +1124,9 @@ public final class CacheManager: @unchecked Sendable {
         let dir = draftImagesDir(for: key)
         let fm = FileManager.default
         guard let files = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) else {
+            lock.lock()
+            memDraftImages[key] = []
+            lock.unlock()
             return []
         }
         let validFiles = files.filter { ["jpg", "jpeg", "png"].contains($0.pathExtension.lowercased()) }

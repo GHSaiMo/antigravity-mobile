@@ -3,6 +3,7 @@ package notifier
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -289,5 +290,24 @@ func TestNotifier_NotifyAction_Branches(t *testing.T) {
 
 	if count := len(sender.snapshot()); count != 2 {
 		t.Fatalf("expected 2 notification payloads, got %d", count)
+	}
+}
+
+func TestSanitizePushTextAndMaskEmail(t *testing.T) {
+	raw := `curl -H "Authorization: Bearer sk-live-secret123456" "https://admin:hunter2@api.example.com/v1?token=abc999&key=xyz888" --password mypass ya29.a0AfH6SM 1//0eRefresh user.name@example.com`
+	got := SanitizePushText(raw)
+	for _, secret := range []string{"sk-live-secret123456", "hunter2", "abc999", "xyz888", "mypass", "ya29.a0AfH6SM", "1//0eRefresh", "user.name@example.com"} {
+		if strings.Contains(got, secret) {
+			t.Errorf("SanitizePushText leaked %q in %q", secret, got)
+		}
+	}
+	if !strings.Contains(got, "us***@example.com") {
+		t.Errorf("expected masked email us***@example.com in %q", got)
+	}
+
+	// Benign commands and natural text must pass through intact
+	benign := "go test ./... && npm run build"
+	if SanitizePushText(benign) != benign {
+		t.Errorf("benign text altered: got %q, want %q", SanitizePushText(benign), benign)
 	}
 }

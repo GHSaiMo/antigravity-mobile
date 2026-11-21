@@ -685,6 +685,12 @@ func (p *Proxy) handleUpdateConversationAnnotations(w http.ResponseWriter, r *ht
 		if len(allIDs) == 0 && payload.CascadeID != "" {
 			allIDs = []string{payload.CascadeID}
 		}
+		for _, cid := range allIDs {
+			if cid != "" && !cascadeIDRe.MatchString(cid) {
+				writeJSONError(w, "invalid cascadeId", http.StatusBadRequest)
+				return
+			}
+		}
 
 		var activeIDs []string
 		for _, cid := range allIDs {
@@ -1007,7 +1013,7 @@ func (p *Proxy) handleCascadeTaskStop(w http.ResponseWriter, r *http.Request) {
 		TaskID     string `json:"taskId"`
 		TaskID2    string `json:"task_id"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.NewDecoder(io.LimitReader(r.Body, 64*1024)).Decode(&req); err != nil {
 		writeJSONError(w, "invalid request: "+err.Error(), http.StatusBadRequest)
 		return
 	}

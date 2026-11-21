@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -70,17 +71,48 @@ func (p *Proxy) HandleGetPlugins(w http.ResponseWriter, r *http.Request) {
 		enabled    bool
 		hasEnabled bool
 	}
-	var sidecars []sidecarState
-	sidecarsURL := fmt.Sprintf("https://127.0.0.1:%d/exa.language_server_pb.LanguageServerService/GetSidecars", port)
-	reqSidecars, _ := http.NewRequestWithContext(r.Context(), http.MethodPost, sidecarsURL, strings.NewReader("{}"))
-	reqSidecars.Header.Set("Content-Type", "application/json")
-	reqSidecars.Header.Set("Connect-Protocol-Version", "1")
-	if token != "" {
-		reqSidecars.Header.Set("x-codeium-csrf-token", token)
+	fetchUpstreamJSON := func(method string) ([]byte, bool) {
+		u := fmt.Sprintf("https://127.0.0.1:%d/exa.language_server_pb.LanguageServerService/%s", port, method)
+		reqUp, err := http.NewRequestWithContext(r.Context(), http.MethodPost, u, strings.NewReader("{}"))
+		if err != nil {
+			return nil, false
+		}
+		reqUp.Header.Set("Content-Type", "application/json")
+		reqUp.Header.Set("Connect-Protocol-Version", "1")
+		if token != "" {
+			reqUp.Header.Set("x-codeium-csrf-token", token)
+		}
+		resUp, err := p.mediumClient.Do(reqUp)
+		if err != nil {
+			return nil, false
+		}
+		defer resUp.Body.Close()
+		b, _ := io.ReadAll(io.LimitReader(resUp.Body, 4<<20))
+		return b, true
 	}
-	if resSc, err := p.mediumClient.Do(reqSidecars); err == nil {
-		defer resSc.Body.Close()
-		scBody, _ := io.ReadAll(resSc.Body)
+
+	var (
+		scBody, allPluginsBody, authProvidersBody []byte
+		okSc, okAll, okAuth                       bool
+		wg                                        sync.WaitGroup
+	)
+	wg.Add(3)
+	go func() {
+		defer wg.Done()
+		scBody, okSc = fetchUpstreamJSON("GetSidecars")
+	}()
+	go func() {
+		defer wg.Done()
+		allPluginsBody, okAll = fetchUpstreamJSON("GetAllPlugins")
+	}()
+	go func() {
+		defer wg.Done()
+		authProvidersBody, okAuth = fetchUpstreamJSON("ListPluginAuthProviders")
+	}()
+	wg.Wait()
+
+	var sidecars []sidecarState
+	if okSc {
 		var rawSc struct {
 			Sidecars []struct {
 				SidecarID  string `json:"sidecarId"`
@@ -107,19 +139,9 @@ func (p *Proxy) HandleGetPlugins(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Query GetAllPlugins
-	allURL := fmt.Sprintf("https://127.0.0.1:%d/exa.language_server_pb.LanguageServerService/GetAllPlugins", port)
-	req1, _ := http.NewRequestWithContext(r.Context(), http.MethodPost, allURL, strings.NewReader("{}"))
-	req1.Header.Set("Content-Type", "application/json")
-	req1.Header.Set("Connect-Protocol-Version", "1")
-	if token != "" {
-		req1.Header.Set("x-codeium-csrf-token", token)
-	}
-
-	res1, err := p.mediumClient.Do(req1)
-	if err == nil {
-		defer res1.Body.Close()
-		body, _ := io.ReadAll(res1.Body)
+	// Parse GetAllPlugins
+	if okAll {
+		body := allPluginsBody
 		var raw struct {
 			Plugins []struct {
 				ID          string `json:"id"`
@@ -220,18 +242,9 @@ func (p *Proxy) HandleGetPlugins(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Query ListPluginAuthProviders
-	authURL := fmt.Sprintf("https://127.0.0.1:%d/exa.language_server_pb.LanguageServerService/ListPluginAuthProviders", port)
-	req2, _ := http.NewRequestWithContext(r.Context(), http.MethodPost, authURL, strings.NewReader("{}"))
-	req2.Header.Set("Content-Type", "application/json")
-	req2.Header.Set("Connect-Protocol-Version", "1")
-	if token != "" {
-		req2.Header.Set("x-codeium-csrf-token", token)
-	}
-	res2, err := p.mediumClient.Do(req2)
-	if err == nil {
-		defer res2.Body.Close()
-		body, _ := io.ReadAll(res2.Body)
+	// Parse ListPluginAuthProviders
+	if okAuth {
+		body := authProvidersBody
 		// Antigravity 2.28.1+ returns {plugin, provider, connected, identity, accounts}.
 		// Older builds used {id, name, signedIn}. Accept both shapes, then normalise:
 		// the mobile clients treat the provider id as a list key (Android LazyColumn
@@ -346,7 +359,7 @@ func (p *Proxy) HandleInstallPlugin(w http.ResponseWriter, r *http.Request) {
 		AutoResume        *bool  `json:"autoResume"`
 		AutoResumeAlt     *bool  `json:"auto_resume"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.NewDecoder(io.LimitReader(r.Body, 64*1024)).Decode(&req); err != nil {
 		writeJSONError(w, "invalid request: "+err.Error(), http.StatusBadRequest)
 		return
 	}

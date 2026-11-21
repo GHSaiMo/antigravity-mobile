@@ -11,6 +11,7 @@ package logx
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log"
 	"log/slog"
@@ -114,8 +115,8 @@ func (h *compactHandler) Handle(_ context.Context, r slog.Record) error {
 		sb.WriteString(r.Level.String())
 		sb.WriteString("] ")
 	}
-	sb.WriteString(r.Message)
-	prefix := strings.Join(h.groups, ".")
+	sb.WriteString(sanitizeLogMessage(r.Message))
+	prefix := sanitizeLogMessage(strings.Join(h.groups, "."))
 	write := func(a slog.Attr) {
 		a.Value = a.Value.Resolve()
 		if a.Equal(slog.Attr{}) {
@@ -126,7 +127,7 @@ func (h *compactHandler) Handle(_ context.Context, r slog.Record) error {
 			sb.WriteString(prefix)
 			sb.WriteByte('.')
 		}
-		sb.WriteString(a.Key)
+		sb.WriteString(sanitizeLogKey(a.Key))
 		sb.WriteByte('=')
 		sb.WriteString(quoteIfNeeded(a.Value.String()))
 	}
@@ -157,9 +158,67 @@ func (h *compactHandler) WithGroup(name string) slog.Handler {
 	return &c
 }
 
+func hasControlRunes(s string) bool {
+	for _, r := range s {
+		if r < 0x20 || r == 0x7f || (r >= 0x80 && r <= 0x9f) {
+			return true
+		}
+	}
+	return false
+}
+
+func escapeControlRunes(s string, escapeQuotesAndSlashes bool) string {
+	var sb strings.Builder
+	sb.Grow(len(s) + 8)
+	for _, r := range s {
+		switch {
+		case escapeQuotesAndSlashes && r == '\\':
+			sb.WriteString(`\\`)
+		case escapeQuotesAndSlashes && r == '"':
+			sb.WriteString(`\"`)
+		case r == '\n':
+			sb.WriteString(`\n`)
+		case r == '\r':
+			sb.WriteString(`\r`)
+		case r == '\t':
+			sb.WriteString(`\t`)
+		case r == 0x1b:
+			sb.WriteString(`\x1b`)
+		case r < 0x20 || r == 0x7f:
+			fmt.Fprintf(&sb, `\x%02x`, r)
+		case r >= 0x80 && r <= 0x9f:
+			fmt.Fprintf(&sb, `\u%04x`, r)
+		default:
+			sb.WriteRune(r)
+		}
+	}
+	return sb.String()
+}
+
+func sanitizeLogMessage(s string) string {
+	if !hasControlRunes(s) {
+		return s
+	}
+	return escapeControlRunes(s, false)
+}
+
+func sanitizeLogKey(k string) string {
+	k = sanitizeLogMessage(k)
+	if strings.ContainsAny(k, " =\"") {
+		k = strings.Map(func(r rune) rune {
+			if r == ' ' || r == '=' || r == '"' {
+				return '_'
+			}
+			return r
+		}, k)
+	}
+	return k
+}
+
 func quoteIfNeeded(s string) string {
-	if s == "" || strings.ContainsAny(s, " \t\"=") {
-		return `"` + strings.ReplaceAll(s, `"`, `\"`) + `"`
+	ctrl := hasControlRunes(s)
+	if s == "" || ctrl || strings.ContainsAny(s, " \t\"=") {
+		return `"` + escapeControlRunes(s, true) + `"`
 	}
 	return s
 }

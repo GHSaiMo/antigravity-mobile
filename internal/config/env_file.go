@@ -36,7 +36,7 @@ func UpdateEnvVariables(updates map[string]string) (string, error) {
 
 	targetPath := GetActiveEnvPath()
 	targetDir := filepath.Dir(targetPath)
-	if err := os.MkdirAll(targetDir, 0755); err != nil {
+	if err := os.MkdirAll(targetDir, 0700); err != nil {
 		return targetPath, fmt.Errorf("failed to create config dir: %w", err)
 	}
 

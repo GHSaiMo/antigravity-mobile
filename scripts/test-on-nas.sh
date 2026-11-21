@@ -26,8 +26,8 @@
 set -euo pipefail
 
 NAS_HOST="${NAS_HOST:-nas}"
-NAS_WORKDIR="${NAS_WORKDIR:-/tmp/mgy-ci}"
 NAS_GOPROXY="${NAS_GOPROXY:-http://127.0.0.1:10001}"
+NAS_GOSUMDB="${NAS_GOSUMDB:-sum.golang.org}"
 NAS_IMAGE="${NAS_IMAGE:-alpine:latest}"
 NAS_CGO="${NAS_CGO:-1}"
 
@@ -40,7 +40,6 @@ if [ -z "${GO_VERSION}" ]; then
     exit 2
 fi
 TOOLCHAIN_MOD="v0.0.1-go${GO_VERSION}.linux-amd64"
-TOOLCHAIN_DIR="${NAS_WORKDIR}/toolchain/golang.org/toolchain@${TOOLCHAIN_MOD}"
 
 SSH=(ssh -o BatchMode=yes -o ConnectTimeout=10 "${NAS_HOST}")
 
@@ -49,12 +48,18 @@ if ! "${SSH[@]}" true 2>/dev/null; then
     exit 3
 fi
 
+# MED-05: 使用远端 SSH 用户私有目录（0700）与远端真实 UID:GID，避免共享 /tmp 下 0777 权限风险
+read -r REMOTE_HOME REMOTE_UID REMOTE_GID < <("${SSH[@]}" 'printf "%s %s %s\n" "$HOME" "$(id -u)" "$(id -g)"')
+NAS_WORKDIR="${NAS_WORKDIR:-${REMOTE_HOME}/.cache/mgy-ci}"
+TOOLCHAIN_DIR="${NAS_WORKDIR}/toolchain/golang.org/toolchain@${TOOLCHAIN_MOD}"
+
 echo "▶ [1/4] 准备 NAS 工作目录与 Go ${GO_VERSION} 工具链 (${NAS_HOST}:${NAS_WORKDIR})"
-"${SSH[@]}" "mkdir -p '${NAS_WORKDIR}/cache' '${NAS_WORKDIR}/gopath' && chmod a+rwx '${NAS_WORKDIR}' '${NAS_WORKDIR}/cache' '${NAS_WORKDIR}/gopath'"
+"${SSH[@]}" "mkdir -p -m 700 '${NAS_WORKDIR}' '${NAS_WORKDIR}/cache' '${NAS_WORKDIR}/gopath' && chmod 700 '${NAS_WORKDIR}' '${NAS_WORKDIR}/cache' '${NAS_WORKDIR}/gopath'"
 if ! "${SSH[@]}" "test -x '${TOOLCHAIN_DIR}/bin/go'"; then
     echo "  下载工具链 golang.org/toolchain@${TOOLCHAIN_MOD}（首次请求代理可能先返回 404，会自动重试）"
     "${SSH[@]}" bash -s <<EOF
 set -e
+umask 077
 cd '${NAS_WORKDIR}'
 ok=0
 for i in 1 2 3 4 5 6; do
@@ -63,8 +68,8 @@ for i in 1 2 3 4 5 6; do
     echo "  代理返回 \$code，10 秒后重试 (\$i/6)"; sleep 10
 done
 [ "\$ok" = "1" ] || { echo "❌ 无法从 ${NAS_GOPROXY} 下载 Go 工具链" >&2; exit 4; }
-rm -rf toolchain && mkdir toolchain
-docker run --rm -v '${NAS_WORKDIR}:/work' '${NAS_IMAGE}' sh -c 'unzip -q /work/go-toolchain.zip -d /work/toolchain && chmod -R a+rX /work/toolchain'
+rm -rf toolchain && mkdir -m 700 toolchain
+docker run --rm -u ${REMOTE_UID}:${REMOTE_GID} -v '${NAS_WORKDIR}:/work' '${NAS_IMAGE}' sh -c 'unzip -q /work/go-toolchain.zip -d /work/toolchain && chmod -R u+rwX,go-rwx /work/toolchain'
 rm -f go-toolchain.zip
 test -x '${TOOLCHAIN_DIR}/bin/go'
 EOF
@@ -76,10 +81,10 @@ FILELIST="$(mktemp)"
 trap 'rm -f "${FILELIST}"' EXIT
 git ls-files -z --cached --others --exclude-standard \
     | tr '\0' '\n' \
-    | grep -Ev '^(android|ios|images|logs|bin)/' \
+    | grep -Ev '^(android|ios|images|logs|bin|dist|build)/' \
     | while IFS= read -r f; do [ -e "$f" ] && printf '%s\n' "$f"; done > "${FILELIST}"
 COPYFILE_DISABLE=1 tar -cf - -T "${FILELIST}" \
-    | "${SSH[@]}" "rm -rf '${NAS_WORKDIR}/repo' && mkdir -p '${NAS_WORKDIR}/repo' && tar -xf - -C '${NAS_WORKDIR}/repo' 2>/dev/null; chmod -R a+rwX '${NAS_WORKDIR}/repo'"
+    | "${SSH[@]}" "umask 077 && rm -rf '${NAS_WORKDIR}/repo' && mkdir -p -m 700 '${NAS_WORKDIR}/repo' && tar -xf - -C '${NAS_WORKDIR}/repo' 2>/dev/null; chmod -R u+rwX,go-rwx '${NAS_WORKDIR}/repo'"
 
 echo "▶ [3/4] 在 Linux 容器中执行 vet / build / test"
 GO_TEST_ARGS=("$@")
@@ -90,13 +95,13 @@ fi
 QUOTED_ARGS="$(printf '%q ' "${GO_TEST_ARGS[@]}")"
 
 set +e
-"${SSH[@]}" "docker run --rm --network host -u 1001:1001 \
+"${SSH[@]}" "docker run --rm --network host -u ${REMOTE_UID}:${REMOTE_GID} \
   -v /usr:/usr:ro -v /lib:/lib:ro -v /lib64:/lib64:ro -v /bin:/bin:ro -v /sbin:/sbin:ro \
   -e HOME=/home/runner -e CI=true \
   -e GOROOT='/work/toolchain/golang.org/toolchain@${TOOLCHAIN_MOD}' \
-  -e GOTOOLCHAIN=local -e GOPROXY='${NAS_GOPROXY}' -e GOSUMDB=off -e GOFLAGS=-mod=mod -e CGO_ENABLED='${NAS_CGO}' \
+  -e GOTOOLCHAIN=local -e GOPROXY='${NAS_GOPROXY}' -e GOSUMDB='${NAS_GOSUMDB}' -e GOFLAGS=-mod=mod -e CGO_ENABLED='${NAS_CGO}' \
   -e GOCACHE=/work/cache -e GOPATH=/work/gopath \
-  --tmpfs /home/runner:rw,exec,uid=1001,gid=1001,mode=0755 \
+  --tmpfs /home/runner:rw,exec,uid=${REMOTE_UID},gid=${REMOTE_GID},mode=0700 \
   -v '${NAS_WORKDIR}:/work' -w /work/repo \
   --entrypoint /bin/bash '${NAS_IMAGE}' -c 'export PATH=\$GOROOT/bin:\$PATH; \
     go version && echo --- go vet && go vet ./... && echo --- go build && go build ./... \

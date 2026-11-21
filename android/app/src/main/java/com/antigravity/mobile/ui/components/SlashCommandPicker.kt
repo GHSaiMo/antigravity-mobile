@@ -76,6 +76,16 @@ fun SlashCommandIcon(
     val key = remember(name, icon, kind) {
         SlashCommandIconCatalog.resolveIcon(name, icon, kind)
     }
+    if (key == "swarm_bee") {
+        SwarmPixelBeeSprite(
+            name = "coordinator",
+            pose = SwarmBeePose.LANDED,
+            width = size * 1.22f,
+            height = size,
+            modifier = modifier
+        )
+        return
+    }
     val path = remember(key) {
         SlashCommandPathCache.getPath(key)
     }
@@ -108,6 +118,8 @@ object SlashCommandTextRenderer {
                     is SlashTextSegment.Text -> append(seg.content)
                     is SlashTextSegment.Slash -> {
                         val inlineId = "slash_${seg.mention.name}_${inlineMap.size}"
+                        val resolvedKey = SlashCommandIconCatalog.resolveIcon(seg.mention.name, seg.mention.icon, seg.mention.kind)
+                        val isBee = resolvedKey == "swarm_bee"
                         val defPath = seg.mention.definitionPath?.trim().orEmpty()
                         if (defPath.isNotEmpty()) {
                             pushStringAnnotation(
@@ -125,7 +137,7 @@ object SlashCommandTextRenderer {
                         }
                         inlineMap[inlineId] = InlineTextContent(
                             placeholder = Placeholder(
-                                width = 16.sp,
+                                width = if (isBee) 20.sp else 16.sp,
                                 height = 16.sp,
                                 placeholderVerticalAlign = PlaceholderVerticalAlign.Center
                             )
@@ -135,7 +147,7 @@ object SlashCommandTextRenderer {
                                 icon = seg.mention.icon,
                                 kind = seg.mention.kind,
                                 tint = iconColor,
-                                size = 15.dp
+                                size = if (isBee) 16.dp else 15.dp
                             )
                         }
                     }

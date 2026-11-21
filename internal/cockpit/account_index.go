@@ -34,7 +34,7 @@ const (
 	// live in their own source buckets and are out of scope here.
 	antigravitySummarySource = 0
 
-	modernIndexCacheTTL = 5 * time.Second
+	modernIndexCacheTTL = 10 * time.Minute
 )
 
 // accountSummariesSQL selects the Antigravity bucket in stable display order.
@@ -227,8 +227,8 @@ func loadModernAccountIndex(dataDir string) (*cockpitAccountIndex, error) {
 // pulling a cgo/pure-Go SQLite driver into a project that builds for
 // darwin/linux/windows without cgo.
 func queryAccountSummaries(dbPath string) ([]indexedAccount, error) {
-	cleanDB := filepath.Clean(dbPath)
-	if cleanDB == "" || strings.ContainsAny(cleanDB, "\x00\r\n") {
+	cleanDB, pathErr := safeSQLitePathArg(dbPath)
+	if pathErr != nil {
 		return nil, fmt.Errorf("invalid cockpit account index path")
 	}
 
@@ -320,8 +320,9 @@ func queryAccountSummariesPython(cleanDB string) ([]byte, bool, error) {
 
 // queryModernStateCurrentID performs a best-effort read of `account_index_state`
 // for the `current_id` field when current_account.json is missing or unmatched.
-func queryModernStateCurrentID(cleanDB string) string {
-	if cleanDB == "" || strings.ContainsAny(cleanDB, "\x00\r\n") {
+func queryModernStateCurrentID(rawDBPath string) string {
+	cleanDB, pathErr := safeSQLitePathArg(rawDBPath)
+	if pathErr != nil {
 		return ""
 	}
 

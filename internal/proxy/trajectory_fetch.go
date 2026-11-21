@@ -382,9 +382,10 @@ func (p *Proxy) fetchUpstreamTrajectoryWithMaxAgeContext(ctx context.Context, ca
 	defaultTrajCache.trajCacheMu.RUnlock()
 
 	// Coalesce concurrent cache misses for the same cascade into one upstream request,
-	// so N stream subscribers expiring the cache together don't each hit language_server.
-	return trajFlights.do(cascadeID, func() (*upstreamTrajectoryResp, error) {
-		return p.fetchUpstreamTrajectoryUncached(ctx, cascadeID, port, token)
+	// using a detached 10s upstream context so a short-deadline caller (e.g. 500ms probe)
+	// cannot cancel a shared in-flight fetch for stream subscribers.
+	return trajFlights.doCtx(ctx, cascadeID, func(upCtx context.Context) (*upstreamTrajectoryResp, error) {
+		return p.fetchUpstreamTrajectoryUncached(upCtx, cascadeID, port, token)
 	})
 }
 
@@ -411,31 +412,51 @@ func (g *trajFlightGroup) forget(key string) {
 }
 
 func (g *trajFlightGroup) do(key string, fn func() (*upstreamTrajectoryResp, error)) (*upstreamTrajectoryResp, error) {
+	return g.doCtx(context.Background(), key, func(context.Context) (*upstreamTrajectoryResp, error) {
+		return fn()
+	})
+}
+
+func (g *trajFlightGroup) doCtx(ctx context.Context, key string, fn func(context.Context) (*upstreamTrajectoryResp, error)) (*upstreamTrajectoryResp, error) {
+	if ctx != nil && ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
 	g.mu.Lock()
-	if c, ok := g.calls[key]; ok {
-		g.mu.Unlock()
+	c, ok := g.calls[key]
+	if !ok {
+		c = &trajFlightCall{done: make(chan struct{})}
+		g.calls[key] = c
+		go func() {
+			upCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer func() {
+				cancel()
+				g.mu.Lock()
+				if g.calls[key] == c {
+					delete(g.calls, key)
+				}
+				g.mu.Unlock()
+				close(c.done)
+			}()
+			c.data, c.err = fn(upCtx)
+		}()
+	}
+	g.mu.Unlock()
+
+	if ctx == nil {
 		<-c.done
 		return c.data, c.err
 	}
-	c := &trajFlightCall{done: make(chan struct{})}
-	g.calls[key] = c
-	g.mu.Unlock()
-
-	defer func() {
-		g.mu.Lock()
-		if g.calls[key] == c {
-			delete(g.calls, key)
-		}
-		g.mu.Unlock()
-		close(c.done)
-	}()
-	c.data, c.err = fn()
-	return c.data, c.err
+	select {
+	case <-c.done:
+		return c.data, c.err
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 }
 
 func (p *Proxy) fetchUpstreamTrajectoryUncached(ctx context.Context, cascadeID string, port int, token string) (*upstreamTrajectoryResp, error) {
 	defaultTrajCache.trajCacheMu.RLock()
-	gen := defaultTrajCache.trajCacheGen
+	gen := defaultTrajCache.cascadeGenLocked(cascadeID)
 	defaultTrajCache.trajCacheMu.RUnlock()
 
 	buf := GetSmallBuffer()
@@ -480,9 +501,10 @@ func (p *Proxy) fetchUpstreamTrajectoryUncached(ctx context.Context, cascadeID s
 	}
 
 	const maxRawCacheBytes = 8 * 1024 * 1024
+	const maxUpstreamTrajectoryBytes = 64 * 1024 * 1024
 	rawBuf := GetHugeBuffer()
 	defer PutHugeBuffer(rawBuf)
-	if _, err := rawBuf.ReadFrom(reader); err != nil {
+	if _, err := rawBuf.ReadFrom(io.LimitReader(reader, maxUpstreamTrajectoryBytes)); err != nil {
 		return nil, fmt.Errorf("failed to read upstream response: %w", err)
 	}
 
@@ -498,7 +520,7 @@ func (p *Proxy) fetchUpstreamTrajectoryUncached(ctx context.Context, cascadeID s
 	compactTrajectoryMedia(&data)
 
 	defaultTrajCache.trajCacheMu.Lock()
-	if defaultTrajCache.trajCacheGen == gen {
+	if defaultTrajCache.cascadeGenLocked(cascadeID) == gen {
 		defaultTrajCache.trajCache[cascadeID] = &trajectoryCacheEntry{
 			fetchedAt: time.Now(),
 			port:      port,

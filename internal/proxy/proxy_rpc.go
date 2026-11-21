@@ -1148,6 +1148,56 @@ const deletedZombieGracePeriod = 10 * time.Second
 //     still has a brain/<id> or annotations/<id>.pbtxt residue under ~/.gemini/antigravity).
 //   - Never filters 0-step drafts, currently running sessions, or sessions modified within
 //     deletedZombieGracePeriod.
+var (
+	diskConvIDsMu      sync.RWMutex
+	diskConvIDsDir     string
+	diskConvIDsModNano int64
+	diskConvIDsAt      time.Time
+	diskConvIDsMap     map[string]struct{}
+)
+
+func loadCachedDiskConvIDs(convDir string) (map[string]struct{}, bool) {
+	dirFi, err := os.Stat(convDir)
+	if err != nil || !dirFi.IsDir() {
+		return nil, false
+	}
+	modNano := dirFi.ModTime().UnixNano()
+	now := time.Now()
+
+	diskConvIDsMu.RLock()
+	if diskConvIDsMap != nil && diskConvIDsDir == convDir && diskConvIDsModNano == modNano && now.Sub(diskConvIDsAt) < 3*time.Second {
+		m := diskConvIDsMap
+		diskConvIDsMu.RUnlock()
+		return m, true
+	}
+	diskConvIDsMu.RUnlock()
+
+	entries, err := os.ReadDir(convDir)
+	if err != nil {
+		return nil, false
+	}
+	ids := make(map[string]struct{}, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if strings.HasSuffix(name, ".db") {
+			ids[strings.TrimSuffix(name, ".db")] = struct{}{}
+		} else if strings.HasSuffix(name, ".pb") {
+			ids[strings.TrimSuffix(name, ".pb")] = struct{}{}
+		}
+	}
+
+	diskConvIDsMu.Lock()
+	diskConvIDsDir = convDir
+	diskConvIDsModNano = modNano
+	diskConvIDsAt = now
+	diskConvIDsMap = ids
+	diskConvIDsMu.Unlock()
+	return ids, true
+}
+
 func filterDeletedZombieSummaries(summaries map[string]map[string]interface{}) {
 	if len(summaries) == 0 {
 		return
@@ -1158,22 +1208,9 @@ func filterDeletedZombieSummaries(summaries map[string]map[string]interface{}) {
 	}
 	agDir := filepath.Join(home, ".gemini", "antigravity")
 	convDir := filepath.Join(agDir, "conversations")
-	entries, err := os.ReadDir(convDir)
-	if err != nil {
+	diskConvIDs, ok := loadCachedDiskConvIDs(convDir)
+	if !ok {
 		return
-	}
-
-	diskConvIDs := make(map[string]struct{}, len(entries))
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		name := entry.Name()
-		if strings.HasSuffix(name, ".db") {
-			diskConvIDs[strings.TrimSuffix(name, ".db")] = struct{}{}
-		} else if strings.HasSuffix(name, ".pb") {
-			diskConvIDs[strings.TrimSuffix(name, ".pb")] = struct{}{}
-		}
 	}
 
 	matchedOnDisk := false
@@ -1306,9 +1343,14 @@ func isReadOnlyRPC(path string) bool {
 
 // handleSearchConversations handles SearchConversations RPC with instant FTS5 SQLite query.
 func (p *Proxy) handleSearchConversations(w http.ResponseWriter, r *http.Request, rp http.Handler, reqPath string) {
-	bodyBytes, err := io.ReadAll(r.Body)
+	const maxSearchReqBytes = 64 * 1024
+	bodyBytes, err := io.ReadAll(io.LimitReader(r.Body, maxSearchReqBytes+1))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if len(bodyBytes) > maxSearchReqBytes {
+		http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
 		return
 	}
 	r.Body = io.NopCloser(bytes.NewReader(bodyBytes))

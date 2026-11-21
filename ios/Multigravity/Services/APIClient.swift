@@ -9,16 +9,22 @@ public final class APIClient: Sendable {
         self.transport = transport
     }
     
-    /// True when `candidate` is the same host as the paired gateway (ignore port).
+    /// True when `candidate` matches the exact `(scheme, host, port)` origin of `gateway`.
     public static func isSameGatewayHost(_ candidate: URL, gateway: URL) -> Bool {
         func normalizedHost(_ url: URL) -> String {
             (url.host ?? "")
                 .trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
                 .lowercased()
         }
+        let remoteScheme = candidate.scheme?.lowercased() ?? ""
+        let localScheme = gateway.scheme?.lowercased() ?? ""
+        guard !remoteScheme.isEmpty, remoteScheme == localScheme else { return false }
         let remote = normalizedHost(candidate)
         let local = normalizedHost(gateway)
-        return !remote.isEmpty && remote == local
+        guard !remote.isEmpty, remote == local else { return false }
+        let remotePort = candidate.port ?? (remoteScheme == "https" ? 443 : 80)
+        let localPort = gateway.port ?? (localScheme == "https" ? 443 : 80)
+        return remotePort == localPort
     }
     
     public static let sharedDecoder = JSONDecoder()

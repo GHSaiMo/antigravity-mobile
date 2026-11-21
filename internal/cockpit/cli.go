@@ -239,7 +239,7 @@ func runCockpitTokenCmd(args []string) {
 
 	fmt.Println("✅ 已成功将 Token 保存至 ~/.antigravity_cockpit/config.json 并开启 HTTP 报表服务。")
 	fmt.Println("   • 报表端口: ", port)
-	fmt.Println("   • 访问 Token: ", token)
+	fmt.Println("   • 访问 Token: ", redactTokenDisplay(token))
 
 	if *restartFlag && isCockpitProcessRunning() {
 		fmt.Println("🔄 正在自动重启 Cockpit Tools 应用以载入新配置...")

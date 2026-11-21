@@ -678,12 +678,20 @@ nonisolated public final class QuotaWidgetStore: Sendable {
         return try? decoder.decode(QuotaWidgetSnapshot.self, from: data)
     }
 
+    private static func markExcludedFromBackup(_ url: URL) {
+        var mutableURL = url
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        try? mutableURL.setResourceValues(values)
+    }
+
     public func saveSnapshot(_ snapshot: QuotaWidgetSnapshot) {
         guard let url = snapshotURL else { return }
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         guard let data = try? encoder.encode(snapshot) else { return }
         try? data.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+        Self.markExcludedFromBackup(url)
     }
 
     public func clearSnapshot() {
@@ -709,6 +717,7 @@ nonisolated public final class QuotaWidgetStore: Sendable {
         encoder.dateEncodingStrategy = .iso8601
         guard let data = try? encoder.encode(snapshot) else { return }
         try? data.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+        Self.markExcludedFromBackup(url)
     }
 
     public func clearConversationsSnapshot() {
@@ -734,6 +743,7 @@ nonisolated public final class QuotaWidgetStore: Sendable {
         encoder.dateEncodingStrategy = .iso8601
         guard let data = try? encoder.encode(config) else { return }
         try? data.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+        Self.markExcludedFromBackup(url)
     }
 
     public func clearAll() {

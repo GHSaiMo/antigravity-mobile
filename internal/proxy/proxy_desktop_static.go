@@ -94,7 +94,7 @@ func ClearDesktopStaticCache() {
 // WarmupDesktopStatic proactively caches and localizes main.js in memory
 // so the user experiences instantaneous zero-latency page loads on desktop.
 func (p *Proxy) WarmupDesktopStatic(port int, token string) {
-	if port == 0 {
+	if port == 0 || p.mediumClient == nil {
 		return
 	}
 	targetURL := fmt.Sprintf("https://127.0.0.1:%d/main.js", port)
@@ -173,6 +173,13 @@ func (p *Proxy) WarmupDesktopStatic(port int, token string) {
 		}
 
 		// 2. Pre-warm GetCascadeNuxes (upstream latency 300-900ms)
+		nuxClient := p.shortClient
+		if nuxClient == nil {
+			nuxClient = p.mediumClient
+		}
+		if nuxClient == nil {
+			return
+		}
 		nuxURL := fmt.Sprintf("https://127.0.0.1:%d/exa.language_server_pb.LanguageServerService/GetCascadeNuxes", port)
 		nuxReq, err := http.NewRequestWithContext(context.Background(), http.MethodPost, nuxURL, strings.NewReader("{}"))
 		if err == nil {
@@ -181,7 +188,7 @@ func (p *Proxy) WarmupDesktopStatic(port int, token string) {
 			if token != "" {
 				nuxReq.Header.Set("x-codeium-csrf-token", token)
 			}
-			resp, err := p.shortClient.Do(nuxReq)
+			resp, err := nuxClient.Do(nuxReq)
 			if err == nil {
 				if resp.StatusCode == http.StatusOK {
 					if data, err := io.ReadAll(resp.Body); err == nil && len(data) > 0 {
@@ -409,6 +416,7 @@ func (p *Proxy) HandleDesktopIndex(w http.ResponseWriter, r *http.Request) {
 			Value:    effectiveToken,
 			Path:     "/",
 			SameSite: http.SameSiteLaxMode,
+			Secure:   r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https"),
 		})
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
@@ -453,6 +461,7 @@ func (p *Proxy) HandleDesktopIndex(w http.ResponseWriter, r *http.Request) {
 		Value:    effectiveToken,
 		Path:     "/",
 		SameSite: http.SameSiteLaxMode,
+		Secure:   r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https"),
 	})
 
 	// 2. Align productName to Multigravity in window.__APP_CONFIG__

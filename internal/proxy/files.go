@@ -204,74 +204,143 @@ func joinUnder(root, extra string) (string, error) {
 }
 
 var (
-	workspaceRootsOnce sync.Once
-	workspaceRoots     []string
+	workspaceRootsMu    sync.RWMutex
+	workspaceRootsHome  string
+	workspaceRootsExtra string
+	workspaceRoots      []string
 )
+
+// evalSymlinksExistingPrefix resolves symlinks along the longest existing ancestor prefix of p,
+// re-attaching any not-yet-created trailing path segments cleanly. This prevents parent-directory
+// symlink escapes even before a new file or subdirectory is created.
+func evalSymlinksExistingPrefix(p string) string {
+	clean := filepath.Clean(p)
+	if abs, err := filepath.Abs(clean); err == nil {
+		clean = abs
+	}
+	if resolved, err := filepath.EvalSymlinks(clean); err == nil {
+		return resolved
+	}
+	cur := clean
+	var tail []string
+	for {
+		parent := filepath.Dir(cur)
+		base := filepath.Base(cur)
+		if parent == cur {
+			break
+		}
+		tail = append(tail, base)
+		cur = parent
+		if resolvedAnc, err := filepath.EvalSymlinks(cur); err == nil {
+			out := resolvedAnc
+			for i := len(tail) - 1; i >= 0; i-- {
+				out = filepath.Join(out, tail[i])
+			}
+			return out
+		}
+	}
+	return clean
+}
+
+func appendNormalizedRootPrefix(dst []string, raw string) []string {
+	sep := string(filepath.Separator)
+	clean := filepath.Clean(raw)
+	if abs, err := filepath.Abs(clean); err == nil {
+		clean = abs
+	}
+	add := func(candidate string) {
+		p := candidate
+		if !strings.HasSuffix(p, sep) {
+			p += sep
+		}
+		for _, existing := range dst {
+			if existing == p {
+				return
+			}
+		}
+		dst = append(dst, p)
+	}
+	add(clean)
+	if resolved := evalSymlinksExistingPrefix(clean); resolved != "" && resolved != clean {
+		add(resolved)
+	}
+	return dst
+}
 
 // AllowedWorkspaceRoots returns directory prefixes that may be served via the file APIs.
 // ~/.gemini/antigravity is always included. If ALLOWED_WORKSPACE_ROOTS is set,
 // those roots replace the default. Otherwise the paired computer's home directory is allowed;
 // IsSafeFilePath still rejects credential stores and secret filenames.
 func AllowedWorkspaceRoots() []string {
-	workspaceRootsOnce.Do(func() {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return
-		}
-		sep := string(filepath.Separator)
-		always := []string{filepath.Join(home, ".gemini", "antigravity") + sep}
-		extra := strings.TrimSpace(os.Getenv("MULTIGRAVITY_ALLOWED_WORKSPACE_ROOTS"))
-		if extra == "" {
-			extra = strings.TrimSpace(os.Getenv("ALLOWED_WORKSPACE_ROOTS"))
-		}
-		if extra != "" {
-			workspaceRoots = always
-			for _, raw := range filepath.SplitList(extra) {
-				raw = strings.TrimSpace(raw)
-				if raw == "" {
-					continue
-				}
-				if strings.HasPrefix(raw, "~/") || strings.HasPrefix(raw, "~\\") {
-					raw = filepath.Join(home, raw[2:])
-				}
-				workspaceRoots = append(workspaceRoots, filepath.Clean(raw)+sep)
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return nil
+	}
+	extra := strings.TrimSpace(os.Getenv("MULTIGRAVITY_ALLOWED_WORKSPACE_ROOTS"))
+	if extra == "" {
+		extra = strings.TrimSpace(os.Getenv("ALLOWED_WORKSPACE_ROOTS"))
+	}
+
+	workspaceRootsMu.RLock()
+	if workspaceRoots != nil && workspaceRootsHome == home && workspaceRootsExtra == extra {
+		cached := workspaceRoots
+		workspaceRootsMu.RUnlock()
+		return cached
+	}
+	workspaceRootsMu.RUnlock()
+
+	var roots []string
+	roots = appendNormalizedRootPrefix(roots, filepath.Join(home, ".gemini", "antigravity"))
+	if extra != "" {
+		for _, raw := range filepath.SplitList(extra) {
+			raw = strings.TrimSpace(raw)
+			if raw == "" {
+				continue
 			}
-			return
-		}
-		workspaceRoots = append(always, home+sep)
-		if runtime.GOOS == "windows" {
-			for _, d := range "CDEFGHIJKLMNOPQRSTUVWXYZ" {
-				root := string(d) + ":\\"
-				if fi, err := os.Stat(root); err == nil && fi.IsDir() {
-					workspaceRoots = append(workspaceRoots, root)
-				}
+			if raw == "~" {
+				raw = home
+			} else if strings.HasPrefix(raw, "~/") || strings.HasPrefix(raw, "~\\") {
+				raw = filepath.Join(home, raw[2:])
 			}
+			roots = appendNormalizedRootPrefix(roots, raw)
 		}
-	})
-	return workspaceRoots
+	} else {
+		roots = appendNormalizedRootPrefix(roots, home)
+	}
+
+	workspaceRootsMu.Lock()
+	workspaceRootsHome = home
+	workspaceRootsExtra = extra
+	workspaceRoots = roots
+	workspaceRootsMu.Unlock()
+	return roots
 }
 
 func resetWorkspaceRootsForTest() {
-	workspaceRootsOnce = sync.Once{}
+	workspaceRootsMu.Lock()
+	workspaceRootsHome = ""
+	workspaceRootsExtra = ""
 	workspaceRoots = nil
+	workspaceRootsMu.Unlock()
 }
 
 // IsSafeFilePath validates that the resolved path is within an allowed directory
 // and is not a credential or secret file. Default allowlist is the user's home
 // (agent-generated PPTX/PDF/HTML/images live on Desktop, Downloads, Websites, etc.).
 func IsSafeFilePath(path string) bool {
-	clean := filepath.Clean(path)
-
-	resolved, err := filepath.EvalSymlinks(clean)
-	if err != nil {
-		resolved = clean
+	if strings.TrimSpace(path) == "" || strings.ContainsRune(path, 0) {
+		return false
 	}
+	clean := filepath.Clean(path)
+	resolved := evalSymlinksExistingPrefix(clean)
 
 	// Lower-cased: macOS/Windows file systems are case-insensitive, so ~/.AWS must match /.aws/.
 	slashPath := strings.ToLower(filepath.ToSlash(resolved))
 	sensitiveDirs := []string{
 		"/.ssh/", "/.gnupg/", "/.aws/", "/.docker/", "/Library/Keychains/",
 		"/Library/Application Support/",
+		"/Library/Cookies/", "/Library/Safari/", "/Library/Mail/",
+		"/Library/Messages/", "/Library/Containers/", "/Library/Group Containers/",
 		"/.kube/", "/.config/gcloud/", "/gcloud/",
 		"/.multigravity/",
 		"/.antigravity-mobile/",
@@ -289,16 +358,25 @@ func IsSafeFilePath(path string) bool {
 			return false
 		}
 	}
+	for _, sf := range []string{
+		"/.gemini/settings.json",
+		"/.gemini/config/config.json",
+		"/.gemini/antigravity/mcp_config.json",
+	} {
+		if strings.HasSuffix(slashPath, sf) {
+			return false
+		}
+	}
 
 	base := strings.ToLower(filepath.Base(resolved))
 	sensitiveNames := []string{
 		"id_rsa", "id_ed25519", "id_ecdsa", "id_dsa",
-		".env", ".envrc", ".git-credentials", ".netrc", ".dockercfg", ".npmrc", ".pypirc",
+		".env", ".envrc", ".git-credentials", ".gitconfig", ".netrc", ".dockercfg", ".npmrc", ".pypirc",
 		".bash_history", ".zsh_history", ".python_history", ".node_repl_history", ".psql_history", ".mysql_history",
 		".zshrc", ".zprofile", ".zshenv", ".bashrc", ".bash_profile", ".profile",
 		".pgpass", ".my.cnf", ".vault-token", ".s3cfg", ".boto", "credentials", "credentials.toml",
 		"hosts.yml", "secrets.json", "secrets.yml", "secrets.yaml", "service-account.json",
-		"oauth_creds.json", "jetski-standalone-oauth-token", "google_accounts.json",
+		"oauth_creds.json", "jetski-standalone-oauth-token", "google_accounts.json", "mcp_config.json",
 		"auth_store.json", "credentials.db", "credentials.json",
 		"secure-account-storage.key", "cf_tunnel.json", "admin_token",
 		"server.key", "client.key", "ca.key", "tls.key", "ssl.key", "privkey.key",
@@ -331,12 +409,98 @@ func IsSafeFilePath(path string) bool {
 		}
 	}
 
+	sep := string(filepath.Separator)
 	for _, prefix := range AllowedWorkspaceRoots() {
-		if strings.HasPrefix(resolved, prefix) {
+		if strings.HasPrefix(resolved, prefix) || resolved+sep == prefix {
 			return true
 		}
 	}
 	return false
+}
+
+// validateWorkspaceDir resolves symlinks and enforces that rawPath is an absolute directory
+// inside AllowedWorkspaceRoots() and passes IsSafeFilePath.
+func validateWorkspaceDir(rawPath string, mustExist bool) (string, error) {
+	p := strings.TrimSpace(rawPath)
+	p = strings.Trim(p, `"'`)
+	p = strings.TrimSpace(p)
+	if p == "" || strings.ContainsRune(p, 0) {
+		return "", fmt.Errorf("无效的工作区路径")
+	}
+	if strings.HasPrefix(p, "file://") {
+		p = uriToPath(p)
+	}
+	if strings.HasPrefix(p, "-") {
+		return "", fmt.Errorf("非法的工作区路径")
+	}
+	if p == "~" || strings.HasPrefix(p, "~/") || strings.HasPrefix(p, `~\`) {
+		home, err := os.UserHomeDir()
+		if err != nil || home == "" {
+			return "", fmt.Errorf("无法解析用户主目录")
+		}
+		if p == "~" {
+			p = home
+		} else {
+			p = filepath.Join(home, p[2:])
+		}
+	}
+	if !filepath.IsAbs(p) {
+		return "", fmt.Errorf("工作区路径必须为绝对路径")
+	}
+	clean := filepath.Clean(p)
+	if isDriveRoot(clean) {
+		return "", fmt.Errorf("不能将系统根目录作为工作区")
+	}
+	resolved := evalSymlinksExistingPrefix(clean)
+	if isDriveRoot(resolved) || strings.HasPrefix(resolved, "-") {
+		return "", fmt.Errorf("非法的工作区路径")
+	}
+	if !IsSafeFilePath(resolved) {
+		return "", fmt.Errorf("工作区路径不在允许访问的目录范围内")
+	}
+	if fi, err := os.Stat(resolved); err == nil {
+		if !fi.IsDir() {
+			return "", fmt.Errorf("工作区路径不是目录")
+		}
+	} else if mustExist {
+		return "", fmt.Errorf("工作区目录不存在")
+	}
+	return resolved, nil
+}
+
+// readRegularFileLimitedNoFollow opens a regular file without following symlinks and reads at most maxBytes.
+func readRegularFileLimitedNoFollow(path string, maxBytes int64) ([]byte, error) {
+	f, err := openRegularNoFollow(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !fi.Mode().IsRegular() {
+		return nil, fmt.Errorf("not a regular file")
+	}
+	if maxBytes > 0 && fi.Size() > maxBytes {
+		return nil, fmt.Errorf("file exceeds size limit")
+	}
+	if maxBytes <= 0 {
+		maxBytes = maxReadSizeBytes
+	}
+	return io.ReadAll(io.LimitReader(f, maxBytes))
+}
+
+// ensureNotSymlinkTarget refuses writes or deletes when path itself is a symbolic link.
+func ensureNotSymlinkTarget(path string) error {
+	if fi, err := os.Lstat(path); err == nil {
+		if fi.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("拒绝操作符号链接目标")
+		}
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	return nil
 }
 
 // isPrivateKeyFileHeader probes the start of a regular file to detect PEM/OpenSSH private key banners.

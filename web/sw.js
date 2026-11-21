@@ -1,38 +1,37 @@
-const CACHE_NAME = "antigravity-mobile-v65";
+const CACHE_NAME = "antigravity-mobile-v66";
 const ASSETS = [
   "/",
   "/index.html",
-  "/style.css",
-  "/js/i18n.js",
-  "/js/core.js",
-  "/js/nav.js",
-  "/js/chat.js",
-  "/js/actions.js",
-  "/js/media.js",
-  "/js/init.js",
-  "/js/cockpit.js",
-  "/js/scan.js",
-  "/js/msgmenu.js",
-  "/js/slash.js",
-  "/js/workflows.js",
-  "/js/changes.js",
-  "/js/git.js",
-  "/js/models.js",
-  "/js/subagents.js",
-  "/js/swarm.js",
-  "/js/egg.js",
-  "/js/phase3.js",
-  "/js/v233.js",
-  "/js/vendor/jsQR.js",
-  "/mermaid.min.js",
+  "/style.css?v=57",
+  "/js/i18n.js?v=4",
+  "/js/core.js?v=42",
+  "/js/nav.js?v=48",
+  "/js/wechat_archive.js?v=1",
+  "/js/chat.js?v=45",
+  "/js/actions.js?v=37",
+  "/js/media.js?v=36",
+  "/js/cockpit.js?v=34",
+  "/js/scan.js?v=2",
+  "/js/msgmenu.js?v=5",
+  "/js/slash.js?v=3",
+  "/js/workflows.js?v=2",
+  "/js/changes.js?v=2",
+  "/js/git.js?v=4",
+  "/js/models.js?v=2",
+  "/js/subagents.js?v=5",
+  "/js/swarm.js?v=3",
+  "/js/egg.js?v=1",
+  "/js/phase3.js?v=4",
+  "/js/v233.js?v=5",
+  "/js/init.js?v=45",
   "/manifest.json",
   "/manifest-en.json",
   "/manifest-ja.json",
-  "/favicon.ico",
-  "/icons/favicon-32.png",
-  "/icons/apple-touch-icon.png",
+  "/favicon.ico?v=4",
+  "/icons/favicon-32.png?v=4",
+  "/icons/apple-touch-icon.png?v=4",
   "/icons/icon.svg",
-  "/icons/icon-192.png",
+  "/icons/icon-192.png?v=4",
   "/icons/icon-512.png"
 ];
 
@@ -57,8 +56,9 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
 
-  // Network-only for APIs, dynamic gateway endpoints, websocket
+  // Network-only for cross-origin requests, APIs, dynamic gateway endpoints, websocket
   if (
+    url.origin !== self.location.origin ||
     url.pathname.startsWith("/api/") ||
     url.pathname.startsWith("/gateway/") ||
     url.pathname.startsWith("/static/") ||
@@ -92,16 +92,33 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Versioned assets (?v=...) must match their exact query string so bumping ?v= in index.html
-  // immediately fetches the new asset instead of serving a stale cached revision; unversioned
-  // shell assets keep ignoreSearch stale-while-revalidate with offline fallback.
+  // Immutable versioned assets (?v=...) use pure Cache-First: zero redundant background SWR fetches
+  // on startup, while on-demand heavy assets (e.g. mermaid.min.js?v=1, jsQR.js) lazy-cache on first use.
   const hasVersionParam = url.searchParams.has("v");
+  if (hasVersionParam) {
+    event.respondWith(
+      caches.open(CACHE_NAME).then(async (cache) => {
+        const cachedResponse = await cache.match(event.request);
+        if (cachedResponse) return cachedResponse;
+        try {
+          const networkResponse = await fetch(event.request);
+          if (networkResponse && networkResponse.ok) {
+            await cache.put(event.request, networkResponse.clone());
+          }
+          return networkResponse;
+        } catch (_) {
+          const fallback = await cache.match(event.request, { ignoreSearch: true });
+          return fallback || new Response("Asset not found", { status: 504 });
+        }
+      })
+    );
+    return;
+  }
+
+  // Unversioned same-origin shell assets: stale-while-revalidate with offline fallback
   event.respondWith(
     caches.open(CACHE_NAME).then(async (cache) => {
-      const cachedResponse = await cache.match(
-        event.request,
-        hasVersionParam ? undefined : { ignoreSearch: true }
-      );
+      const cachedResponse = await cache.match(event.request, { ignoreSearch: true });
       const networkFetch = fetch(event.request)
         .then(async (networkResponse) => {
           if (networkResponse && networkResponse.ok) {
@@ -111,14 +128,10 @@ self.addEventListener("fetch", (event) => {
         })
         .catch(async () => {
           if (cachedResponse) return cachedResponse;
-          const fallback = await cache.match(event.request, { ignoreSearch: true });
-          return fallback || new Response("Asset not found", { status: 504 });
+          return new Response("Asset not found", { status: 504 });
         });
 
-      // Keep the Service Worker alive until cache update finishes
       event.waitUntil(networkFetch.catch(() => {}));
-
-      // Return cached response immediately if available, while updating cache in background
       return cachedResponse || networkFetch;
     })
   );

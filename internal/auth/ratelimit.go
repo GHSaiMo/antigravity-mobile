@@ -5,45 +5,62 @@ import (
 	"time"
 )
 
-// maxRateLimitWindow is the largest window we ever use; keys silent longer than
-// this can be safely evicted from the hits map.
-const maxRateLimitWindow = 5 * time.Minute
-
 // maxRateLimiterEntries caps the number of keys held in memory to prevent memory
 // exhaustion under IP rotation or high-cardinality distributed attacks.
 const maxRateLimiterEntries = 10000
 
-// RateLimiter is a small in-memory sliding-window limiter keyed by string (usually IP + route).
+type rateBucket struct {
+	hits      []time.Time
+	expiresAt time.Time
+}
+
+// RateLimiter is a small in-memory sliding-window limiter keyed by string (usually IP + route or deviceID).
 type RateLimiter struct {
 	mu         sync.Mutex
-	hits       map[string][]time.Time
+	buckets    map[string]rateBucket
 	maxEntries int
+	stopCh     chan struct{}
+	closeOnce  sync.Once
 }
 
 func NewRateLimiter() *RateLimiter {
 	l := &RateLimiter{
-		hits:       make(map[string][]time.Time),
+		buckets:    make(map[string]rateBucket),
 		maxEntries: maxRateLimiterEntries,
+		stopCh:     make(chan struct{}),
 	}
 	go l.gc()
 	return l
 }
 
-// gc periodically removes keys whose last hit is older than maxRateLimitWindow,
-// preventing unbounded memory growth under IP-rotation or high-cardinality key attacks.
+// Close stops the background cleanup goroutine and releases its ticker.
+func (l *RateLimiter) Close() {
+	if l == nil || l.stopCh == nil {
+		return
+	}
+	l.closeOnce.Do(func() {
+		close(l.stopCh)
+	})
+}
+
+// gc periodically removes keys whose actual sliding window has expired,
+// preventing unbounded memory growth or 5x key retention inflation.
 func (l *RateLimiter) gc() {
-	ticker := time.NewTicker(2 * time.Minute)
+	ticker := time.NewTicker(time.Minute)
 	defer ticker.Stop()
-	for range ticker.C {
-		cutoff := time.Now().Add(-maxRateLimitWindow)
-		l.mu.Lock()
-		for k, ts := range l.hits {
-			// If the most recent hit is older than the max window, the key is fully expired.
-			if len(ts) == 0 || ts[len(ts)-1].Before(cutoff) {
-				delete(l.hits, k)
+	for {
+		select {
+		case <-l.stopCh:
+			return
+		case now := <-ticker.C:
+			l.mu.Lock()
+			for k, b := range l.buckets {
+				if len(b.hits) == 0 || !now.Before(b.expiresAt) {
+					delete(l.buckets, k)
+				}
 			}
+			l.mu.Unlock()
 		}
-		l.mu.Unlock()
 	}
 }
 
@@ -51,6 +68,9 @@ func (l *RateLimiter) gc() {
 func (l *RateLimiter) Allow(key string, max int, window time.Duration) bool {
 	if l == nil || max <= 0 {
 		return true
+	}
+	if window <= 0 {
+		window = time.Minute
 	}
 	now := time.Now()
 	cutoff := now.Add(-window)
@@ -63,31 +83,38 @@ func (l *RateLimiter) Allow(key string, max int, window time.Duration) bool {
 		limitMax = maxRateLimiterEntries
 	}
 
-	q, exists := l.hits[key]
-	if !exists && len(l.hits) >= limitMax {
-		// Capacity reached: perform an immediate eviction pass of expired entries
-		cutoffOld := now.Add(-maxRateLimitWindow)
-		for k, ts := range l.hits {
-			if len(ts) == 0 || ts[len(ts)-1].Before(cutoffOld) {
-				delete(l.hits, k)
+	b, exists := l.buckets[key]
+	if !exists && len(l.buckets) >= limitMax {
+		// Capacity reached: evict entries whose actual window has already expired.
+		for k, entry := range l.buckets {
+			if len(entry.hits) == 0 || !now.Before(entry.expiresAt) {
+				delete(l.buckets, k)
 			}
 		}
-		// If still at or above capacity, deny new keys to prevent OOM
-		if len(l.hits) >= limitMax {
+		// If still at or above capacity, deny new keys to prevent OOM.
+		if len(l.buckets) >= limitMax {
 			return false
 		}
 	}
 
-	kept := q[:0]
-	for _, ts := range q {
+	kept := b.hits[:0]
+	for _, ts := range b.hits {
 		if ts.After(cutoff) {
 			kept = append(kept, ts)
 		}
 	}
 	if len(kept) >= max {
-		l.hits[key] = kept
+		b.hits = kept
+		if len(kept) > 0 {
+			b.expiresAt = kept[len(kept)-1].Add(window)
+		}
+		l.buckets[key] = b
 		return false
 	}
-	l.hits[key] = append(kept, now)
+	kept = append(kept, now)
+	l.buckets[key] = rateBucket{
+		hits:      kept,
+		expiresAt: now.Add(window),
+	}
 	return true
 }

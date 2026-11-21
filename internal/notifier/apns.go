@@ -70,6 +70,7 @@ type APNsRelayClient struct {
 	store          *PushDeviceStore
 	client         *http.Client
 	nowFunc        func() time.Time
+	alertSem       chan struct{}
 	rateMu         sync.Mutex
 	rateLimitUntil time.Time
 }
@@ -84,6 +85,7 @@ func NewAPNsRelayClient(relayURL string, store *PushDeviceStore) *APNsRelayClien
 		relayURL: relayURL,
 		store:    store,
 		nowFunc:  time.Now,
+		alertSem: make(chan struct{}, 8),
 		client: &http.Client{
 			Timeout: 10 * time.Second,
 			Transport: &http.Transport{
@@ -146,20 +148,35 @@ func (c *APNsRelayClient) Send(ctx context.Context, payload PushPayload) error {
 		}
 	}
 
+	cleanTitle := truncateString(SanitizePushText(payload.Title), 80)
+	cleanBody := truncateString(SanitizePushText(payload.Body), 240)
+
 	var (
 		wg    sync.WaitGroup
 		errCh = make(chan error, len(targets))
 	)
 
+	sem := c.alertSem
+	if sem == nil {
+		sem = make(chan struct{}, 8)
+	}
+
 	for _, target := range targets {
 		wg.Add(1)
 		go func(t APNsAlertTarget) {
 			defer wg.Done()
+			select {
+			case sem <- struct{}{}:
+				defer func() { <-sem }()
+			case <-ctx.Done():
+				errCh <- ctx.Err()
+				return
+			}
 			req := APNsRelayAlertRequest{
 				DeviceToken:       t.Token,
 				Env:               t.Env,
-				Title:             truncateString(payload.Title, 80),
-				Body:              truncateString(payload.Body, 240),
+				Title:             cleanTitle,
+				Body:              cleanBody,
 				Sound:             resolveAlertSound(t, payload),
 				InterruptionLevel: interruption,
 				ThreadID:          "multigravity",
@@ -182,7 +199,7 @@ func (c *APNsRelayClient) Send(ctx context.Context, payload PushPayload) error {
 				errCh <- fmt.Errorf("apns alert rejected (%d %s)", resp.Status, resp.Reason)
 				return
 			}
-			slog.Info(fmt.Sprintf("[APNs] 🚀 推送成功: %s", payload.Title), "device_id", t.DeviceID, "env", t.Env)
+			slog.Info(fmt.Sprintf("[APNs] 🚀 推送成功: %s", cleanTitle), "device_id", t.DeviceID, "env", t.Env)
 		}(target)
 	}
 
@@ -253,6 +270,9 @@ func (c *APNsRelayClient) SendLiveActivity(ctx context.Context, target APNsLiveA
 }
 
 func (c *APNsRelayClient) postRelay(ctx context.Context, path string, body any) (*APNsRelayResponse, error) {
+	if err := validatePushEndpointURL(c.relayURL); err != nil {
+		return nil, err
+	}
 	bodyBytes, err := json.Marshal(body)
 	if err != nil {
 		return nil, fmt.Errorf("marshal apns relay payload: %w", err)

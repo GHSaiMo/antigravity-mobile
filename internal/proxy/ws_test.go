@@ -39,15 +39,17 @@ func TestIsAllowedOrigin_Comprehensive(t *testing.T) {
 		host   string
 		expect bool
 	}{
-		{"", "127.0.0.1:58900", true},                                 // Native app / CLI
-		{"http://localhost:58900", "127.0.0.1:58900", true},          // Localhost
-		{"http://127.0.0.1:58900", "127.0.0.1:58900", true},          // 127.0.0.1
-		{"http://192.168.1.50:58900", "192.168.1.50:58900", true},    // Private LAN
-		{"http://10.0.0.5:58900", "10.0.0.5:58900", true},            // Private 10.x
-		{"https://my-home.example.com:58900", "my-home.example.com:58900", true}, // DDNS host
-		{"https://sub.my-home.example.com:58900", "sub.my-home.example.com:58900", true}, // Subdomain of DDNS
-		{"http://attacker.com", "127.0.0.1:58900", false},             // Untrusted domain
-		{"http://my-home.example.com.evil.com", "127.0.0.1:58900", false}, // Trailing domain spoof
+		{"", "127.0.0.1:58900", true},                                                     // Native app / CLI
+		{"http://localhost:58900", "127.0.0.1:58900", true},                               // Localhost matching port
+		{"http://127.0.0.1:58900", "127.0.0.1:58900", true},                               // 127.0.0.1 matching port
+		{"http://localhost:3000", "127.0.0.1:58900", false},                               // Localhost mismatched port rejected
+		{"http://127.0.0.1", "127.0.0.1:58900", false},                                    // Loopback default port 80 vs 58900 rejected
+		{"http://192.168.1.50:58900", "192.168.1.50:58900", true},                         // Private LAN
+		{"http://10.0.0.5:58900", "10.0.0.5:58900", true},                                 // Private 10.x
+		{"https://my-home.example.com:58900", "my-home.example.com:58900", true},          // DDNS host
+		{"https://sub.my-home.example.com:58900", "sub.my-home.example.com:58900", true},  // Subdomain of DDNS
+		{"http://attacker.com", "127.0.0.1:58900", false},                                 // Untrusted domain
+		{"http://my-home.example.com.evil.com", "127.0.0.1:58900", false},                 // Trailing domain spoof
 	}
 
 	for _, tc := range tests {
@@ -85,7 +87,7 @@ func TestWebSocketUpgradeAndPingPong(t *testing.T) {
 
 	wsURL := "ws" + server.URL[len("http"):]
 	header := make(http.Header)
-	header.Set("Origin", "http://127.0.0.1")
+	header.Set("Origin", server.URL)
 
 	pongReceived := false
 	dialer := websocket.DefaultDialer
@@ -178,7 +180,7 @@ func TestWebSocketPermessageDeflateNegotiation(t *testing.T) {
 
 	wsURL := "ws" + server.URL[len("http"):]
 	header := make(http.Header)
-	header.Set("Origin", "http://127.0.0.1")
+	header.Set("Origin", server.URL)
 
 	dialer := websocket.Dialer{
 		EnableCompression: true,
@@ -252,7 +254,7 @@ func TestVoiceUpgraderSubprotocolAndBinaryFrames(t *testing.T) {
 
 	wsURL := "ws" + server.URL[len("http"):]
 	header := make(http.Header)
-	header.Set("Origin", "http://127.0.0.1")
+	header.Set("Origin", server.URL)
 
 	dialer := websocket.Dialer{
 		Subprotocols: []string{"jetski-voice-proto"},

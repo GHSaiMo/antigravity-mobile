@@ -114,6 +114,7 @@ nonisolated public struct ApproveAgentActionIntent: LiveActivityIntent {
 nonisolated public struct RejectAgentActionIntent: LiveActivityIntent {
     public static let title: LocalizedStringResource = "拒绝操作"
     public static let openAppWhenRun: Bool = false
+    public static var authenticationPolicy: IntentAuthenticationPolicy { .requiresAuthentication }
 
     @Parameter(title: "Cascade ID")
     public var cascadeId: String
@@ -190,6 +191,7 @@ nonisolated public struct RejectAgentActionIntent: LiveActivityIntent {
 nonisolated public struct StopAgentRunIntent: LiveActivityIntent {
     public static let title: LocalizedStringResource = "停止任务"
     public static let openAppWhenRun: Bool = false
+    public static var authenticationPolicy: IntentAuthenticationPolicy { .requiresAuthentication }
 
     @Parameter(title: "Cascade ID")
     public var cascadeId: String

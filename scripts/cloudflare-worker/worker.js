@@ -1,52 +1,82 @@
 /**
  * Multigravity Cloudflare Tunnel Dispatcher (Serverless Worker)
  *
- * 架构：方案 A - Cloudflare 原生隧道与 DNS 自动化联动（客户端智能 Anycast 优选加速 + 僵尸隧道自动 GC）
- * 作用：为 Multigravity 网关客户端自动按机器指纹创建、检索专属永久 Cloudflare Tunnel，并自动回收长期失联的僵尸隧道与孤儿 DNS 记录，防止触碰免费版 200 条 DNS 配额上限。
- * 特性：
- *   - 自动在 Zone DNS 中配置专属 CNAME 记录并开启 Proxied (橙色云朵)，严格校验 DNS 写入结果（杜绝配额超限时返回假成功）；
- *   - 支持 Cron 定时巡检 + 配额告警即时回收 + 后台低频惰性巡检，自动清理离线超 14 天（或创建超 3 天从未连接）的 mgy-<8hex> 僵尸隧道及孤儿 CNAME 记录；
- *   - 自动生成 Ingress 规则并提供本地网关全量兜底，绝不 404；
- *   - 完美适配根域通配符 Universal SSL (*.jiuge.space)，秒级自动覆盖，无需证书等待；
- *   - 原生支持手机客户端通过亚太 Anycast 优选节点（35~50ms）免 DNS 污染极速直连。
- *
- * 必需环境变量 / Secrets (在 Cloudflare Worker 设置页面配置):
- *   - CF_ACCOUNT_ID: Cloudflare 账户 ID
- *   - CF_API_TOKEN:  Cloudflare API Token (需包含 Account: Cloudflare Tunnel: Edit 与 Zone: DNS: Edit 权限)
- *   - CF_ZONE_ID:    域名的 Zone ID
- *   - BASE_DOMAIN:   基础域名 (推荐根域名 jiuge.space)
- *
- * 可选配置:
- *   - INVITE_CODE:        群专属接入暗号 (留空则全公开无感接入)
- *   - TARGET_PORT:        本地目标端口 (默认 58900，严格锁定禁止代理其他端口)
- *   - STALE_DAYS:         僵尸隧道离线回收天数 (默认 14 天)
- *   - NEVER_USED_DAYS:    创建后从未连接过的死隧道回收天数 (默认 3 天)
+ * 架构：方案 A - Cloudflare 原生隧道与 DNS 自动化联动（客户端智能 Anycast 优选加速 + 僵尸隧道自动 GC + TOFU 归属绑定）
+ * 作用：为 Multigravity 网关客户端自动按机器密钥创建、检索专属永久 Cloudflare Tunnel，并自动回收长期失联的僵尸隧道与孤儿 DNS 记录，防止触碰免费版 200 条 DNS 配额上限。
+ * 安全加固 (CRIT-02):
+ *   - 计算 256-bit `ownerHash = SHA256("mgy-owner:" + machineId)` 写入 Cloudflare Tunnel `metadata.owner_hash`；
+ *   - 命中已有同名 `mgy-<8hex>` 隧道时：若存量隧道尚无 `metadata.owner_hash` 则自动补写绑定（TOFU 平滑迁移）；若已存在则使用恒定时间比较强校验，彻底阻断 32-bit `shortId` 碰撞接管；
+ *   - 内置单 IP 滑动窗口注册限流（FIFO 满容淘汰）与 `INVITE_CODE` SHA-256 恒定时间校验。
  */
 
 const MGY_TUNNEL_NAME_RE = /^mgy-([0-9a-f]{8})$/;
 const OPPORTUNISTIC_GC_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours per Worker isolate
+const MAX_REGISTER_BODY_BYTES = 4096;
+
+const IP_RATE_WINDOW_MS = 60_000;
+const IP_MAX_REGISTERS_PER_WINDOW = 10;
+const IP_RATE_MAX_ENTRIES = 4096;
+const ipRegisterMap = new Map(); // clientIP -> { windowStartAt, count }
+
+// Isolate-level immediate TOFU cache so concurrent/rapid re-queries before CF API metadata propagation stay protected
+const ownerBindCache = new Map(); // tunnelId -> ownerHash (bounded FIFO)
+const OWNER_CACHE_MAX_ENTRIES = 4096;
+
 let lastOpportunisticGcAt = 0;
+
+function checkIPRegisterLimit(clientIP) {
+  const now = Date.now();
+  const key = String(clientIP || "unknown").slice(0, 64);
+  if (!ipRegisterMap.has(key) && ipRegisterMap.size >= IP_RATE_MAX_ENTRIES) {
+    for (const [k, v] of ipRegisterMap) {
+      if (now - v.windowStartAt >= IP_RATE_WINDOW_MS) {
+        ipRegisterMap.delete(k);
+      }
+      if (ipRegisterMap.size < IP_RATE_MAX_ENTRIES) break;
+    }
+    if (ipRegisterMap.size >= IP_RATE_MAX_ENTRIES) {
+      const oldestKey = ipRegisterMap.keys().next().value;
+      if (oldestKey !== undefined) {
+        ipRegisterMap.delete(oldestKey);
+      }
+    }
+  }
+
+  let entry = ipRegisterMap.get(key);
+  if (!entry || now - entry.windowStartAt >= IP_RATE_WINDOW_MS) {
+    entry = { windowStartAt: now, count: 0 };
+  }
+  entry.count += 1;
+  // Refresh insertion order for active keys
+  ipRegisterMap.delete(key);
+  ipRegisterMap.set(key, entry);
+  return entry.count <= IP_MAX_REGISTERS_PER_WINDOW;
+}
+
+function rememberOwnerBinding(tunnelId, ownerHash) {
+  if (!tunnelId || !ownerHash) return;
+  if (!ownerBindCache.has(tunnelId) && ownerBindCache.size >= OWNER_CACHE_MAX_ENTRIES) {
+    const oldest = ownerBindCache.keys().next().value;
+    if (oldest !== undefined) ownerBindCache.delete(oldest);
+  }
+  ownerBindCache.delete(tunnelId);
+  ownerBindCache.set(tunnelId, ownerHash);
+}
 
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
     if (request.method === "OPTIONS") {
-      return new Response(null, {
-        headers: {
-          "Access-Control-Allow-Origin": "*",
-          "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-          "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Invite-Code",
-        },
-      });
+      return new Response(null, { status: 204 });
     }
 
-    if (url.pathname === "/" || url.pathname === "/healthz") {
+    if (request.method === "GET" && (url.pathname === "/" || url.pathname === "/healthz")) {
       return jsonResponse({
         status: "ok",
         service: "Multigravity Cloudflare Tunnel Dispatcher",
-        version: "1.4.0",
-        architecture: "Scheme A (Native Tunnel + Anycast Edge Acceleration + Auto GC)",
+        version: "1.5.0",
+        architecture: "Scheme A (Native Tunnel + Anycast Edge Acceleration + Auto GC + TOFU Ownership)",
         base_domain: env.BASE_DOMAIN || "jiuge.space",
       });
     }
@@ -95,22 +125,44 @@ async function handleTunnelRegister(request, env, ctx) {
     }, 500);
   }
 
+  const clientIP = request.headers.get("CF-Connecting-IP") || "unknown";
+  if (!checkIPRegisterLimit(clientIP)) {
+    return jsonResponse({ error: "Too many registration requests, please retry later" }, 429);
+  }
+
+  const contentLen = Number(request.headers.get("content-length") || "0");
+  if (contentLen > MAX_REGISTER_BODY_BYTES) {
+    return jsonResponse({ error: "Payload too large" }, 413);
+  }
+
+  let rawText;
+  try {
+    rawText = await request.text();
+  } catch {
+    return jsonResponse({ error: "Failed to read request body" }, 400);
+  }
+  if (new TextEncoder().encode(rawText).byteLength > MAX_REGISTER_BODY_BYTES) {
+    return jsonResponse({ error: "Payload too large" }, 413);
+  }
+
   let body;
   try {
-    body = await request.json();
+    body = JSON.parse(rawText);
   } catch {
     return jsonResponse({ error: "Invalid JSON body" }, 400);
   }
 
-  const machineId = (body.machine_id || "").trim();
-  const inviteCode = (body.invite_code || request.headers.get("X-Invite-Code") || "").trim();
+  const machineId = String(body.machine_id || "").trim();
+  const inviteCode = String(body.invite_code || request.headers.get("X-Invite-Code") || "").trim();
 
-  if (!machineId) {
-    return jsonResponse({ error: "machine_id is required" }, 400);
+  if (machineId.length < 16 || machineId.length > 256) {
+    return jsonResponse({ error: "machine_id must be between 16 and 256 characters" }, 400);
   }
 
-  if (env.INVITE_CODE && env.INVITE_CODE.trim() !== "") {
-    if (inviteCode !== env.INVITE_CODE.trim()) {
+  const requiredInvite = (env.INVITE_CODE || "").trim();
+  if (requiredInvite !== "") {
+    const inviteOK = await constantTimeStringEqual(inviteCode, requiredInvite);
+    if (!inviteOK) {
       return jsonResponse({ error: "Invalid invite code" }, 403);
     }
   }
@@ -123,6 +175,7 @@ async function handleTunnelRegister(request, env, ctx) {
   }
 
   const shortId = await generateStableShortId(machineId);
+  const ownerHash = await computeOwnerHash(machineId);
   const tunnelName = `mgy-${shortId}`;
   const subdomain = `${shortId}.${cfg.baseDomain}`;
   const reqPort = String(body.target_port || "").trim();
@@ -139,6 +192,24 @@ async function handleTunnelRegister(request, env, ctx) {
     if (searchData.success && Array.isArray(searchData.result) && searchData.result.length > 0) {
       const existingTunnel = searchData.result[0];
       const tunnelId = existingTunnel.id;
+      const existingMeta = (existingTunnel && typeof existingTunnel.metadata === "object" && existingTunnel.metadata)
+        ? existingTunnel.metadata
+        : {};
+      const storedOwnerHash = String(existingMeta.owner_hash || ownerBindCache.get(tunnelId) || "").trim();
+
+      if (storedOwnerHash) {
+        // CRIT-02: Enforce cryptographic ownership match before issuing tunnel token
+        const ownerOK = await constantTimeStringEqual(ownerHash, storedOwnerHash);
+        if (!ownerOK) {
+          return jsonResponse({
+            error: "Forbidden: tunnel ownership verification failed",
+          }, 403);
+        }
+      } else {
+        // TOFU (Trust On First Use): seamlessly bind legacy tunnel without metadata.owner_hash
+        await bindTunnelOwnerMetadata(cfg.accountId, tunnelId, existingMeta, ownerHash, cfg.headers);
+        rememberOwnerBinding(tunnelId, ownerHash);
+      }
 
       const [, dnsSync] = await Promise.all([
         setTunnelConfigurations(cfg.accountId, tunnelId, subdomain, targetPort, cfg.headers),
@@ -153,6 +224,7 @@ async function handleTunnelRegister(request, env, ctx) {
 
       const token = await fetchTunnelToken(cfg.accountId, tunnelId, cfg.headers);
       if (token) {
+        rememberOwnerBinding(tunnelId, ownerHash);
         return jsonResponse({
           success: true,
           reused: true,
@@ -165,7 +237,7 @@ async function handleTunnelRegister(request, env, ctx) {
       }
     }
 
-    // 2. Create new Tunnel
+    // 2. Create new Tunnel with cryptographic owner_hash metadata
     const rawSecret = new Uint8Array(32);
     crypto.getRandomValues(rawSecret);
     const tunnelSecretBase64 = btoa(String.fromCharCode(...rawSecret));
@@ -178,6 +250,9 @@ async function handleTunnelRegister(request, env, ctx) {
         body: JSON.stringify({
           name: tunnelName,
           tunnel_secret: tunnelSecretBase64,
+          metadata: {
+            owner_hash: ownerHash,
+          },
         }),
       }
     );
@@ -189,6 +264,7 @@ async function handleTunnelRegister(request, env, ctx) {
       }, 502);
     }
     const tunnelId = createData.result.id;
+    rememberOwnerBinding(tunnelId, ownerHash);
 
     // 3. Configure Ingress & DNS (with automatic GC retry if DNS record quota is full)
     const [, dnsSync] = await Promise.all([
@@ -197,6 +273,7 @@ async function handleTunnelRegister(request, env, ctx) {
     ]);
     if (!dnsSync.ok) {
       // Roll back newly created orphan tunnel so we do not leak an unroutable tunnel
+      ownerBindCache.delete(tunnelId);
       await deleteTunnelSafe(cfg.accountId, tunnelId, cfg.headers);
       return jsonResponse({
         error: "Failed to provision Cloudflare DNS record (zone record quota may be full)",
@@ -225,6 +302,26 @@ async function handleTunnelRegister(request, env, ctx) {
       error: "Internal error processing tunnel dispatch",
       message: err.message,
     }, 500);
+  }
+}
+
+async function bindTunnelOwnerMetadata(accountId, tunnelId, existingMeta, ownerHash, headers) {
+  try {
+    await fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${accountId}/cfd_tunnel/${tunnelId}`,
+      {
+        method: "PATCH",
+        headers,
+        body: JSON.stringify({
+          metadata: {
+            ...existingMeta,
+            owner_hash: ownerHash,
+          },
+        }),
+      }
+    );
+  } catch (e) {
+    console.error("Failed to backfill tunnel owner_hash metadata:", tunnelId, e);
   }
 }
 
@@ -403,6 +500,7 @@ async function cleanupStaleTunnels(env) {
     await deleteDnsByNameAndTunnel(cfg.zoneId, subdomain, t.id, cfg.headers, deletedDns);
     const removed = await deleteTunnelSafe(cfg.accountId, t.id, cfg.headers);
     if (removed) {
+      ownerBindCache.delete(t.id);
       deletedTunnels.push(t.name);
     } else {
       activeTunnelIds.add(t.id);
@@ -509,12 +607,41 @@ async function fetchTunnelToken(accountId, tunnelId, headers) {
   return null;
 }
 
-async function generateStableShortId(input) {
-  const msgUint8 = new TextEncoder().encode(input.toLowerCase().trim());
+async function sha256Hex(input) {
+  const msgUint8 = new TextEncoder().encode(input);
   const hashBuffer = await crypto.subtle.digest("SHA-256", msgUint8);
   const hashArray = Array.from(new Uint8Array(hashBuffer));
-  const hex = hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+  return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+async function generateStableShortId(input) {
+  const hex = await sha256Hex(input.toLowerCase().trim());
   return hex.substring(0, 8);
+}
+
+async function computeOwnerHash(machineId) {
+  return sha256Hex("mgy-owner:" + machineId.toLowerCase().trim());
+}
+
+async function constantTimeStringEqual(a, b) {
+  if (!a || !b) {
+    return false;
+  }
+  const enc = new TextEncoder();
+  const [da, db] = await Promise.all([
+    crypto.subtle.digest("SHA-256", enc.encode(String(a))),
+    crypto.subtle.digest("SHA-256", enc.encode(String(b))),
+  ]);
+  if (typeof crypto.subtle.timingSafeEqual === "function") {
+    return crypto.subtle.timingSafeEqual(da, db);
+  }
+  const ua = new Uint8Array(da);
+  const ub = new Uint8Array(db);
+  let diff = 0;
+  for (let i = 0; i < ua.length; i++) {
+    diff |= ua[i] ^ ub[i];
+  }
+  return diff === 0;
 }
 
 function jsonResponse(data, status = 200) {
@@ -522,7 +649,7 @@ function jsonResponse(data, status = 200) {
     status,
     headers: {
       "Content-Type": "application/json; charset=utf-8",
-      "Access-Control-Allow-Origin": "*",
+      "Cache-Control": "no-store",
     },
   });
 }

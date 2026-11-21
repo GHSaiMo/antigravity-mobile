@@ -357,6 +357,7 @@ extension APIClient {
         toolName: String,
         arguments: JSONValue?,
         appUri: String = "",
+        serverName: String = "",
         baseURL: URL
     ) async throws -> String {
         var payload: [String: JSONValue] = [
@@ -365,6 +366,9 @@ extension APIClient {
         ]
         if !appUri.isEmpty {
             payload["appUri"] = .string(appUri)
+        }
+        if !serverName.isEmpty {
+            payload["serverName"] = .string(serverName)
         }
         let endpoint = baseURL.appendingPathComponent("gateway/mcp/app/call")
         var request = URLRequest(url: endpoint)

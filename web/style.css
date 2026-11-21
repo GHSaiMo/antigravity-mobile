@@ -485,6 +485,8 @@ html, body {
   touch-action: pan-y;
   transition: max-height 0.28s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.24s ease, margin 0.28s ease;
   max-height: 200px;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 68px;
 }
 
 .conv-card-wrapper.deleting {
@@ -7032,8 +7034,14 @@ body.font-comfortable pre, body.font-comfortable code {
   pointer-events: none;
 }
 .link-health-dot.link-connected { color: rgba(52, 199, 89, 0.45); }
-.link-health-dot.link-pulse::after { animation: link-health-pulse 0.8s ease-out; }
+.link-health-dot.link-pulse::after,
+.link-health-dot.link-pulse-a::after { animation: link-health-pulse 0.8s ease-out; }
+.link-health-dot.link-pulse-b::after { animation: link-health-pulse-b 0.8s ease-out; }
 @keyframes link-health-pulse {
+  from { opacity: 1; transform: scale(0.55); }
+  to { opacity: 0; transform: scale(1.5); }
+}
+@keyframes link-health-pulse-b {
   from { opacity: 1; transform: scale(0.55); }
   to { opacity: 0; transform: scale(1.5); }
 }

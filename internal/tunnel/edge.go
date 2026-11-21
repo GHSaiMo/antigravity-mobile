@@ -118,8 +118,8 @@ func defaultEdgeDialer(ctx context.Context, addr string) (time.Duration, error) 
 	defer conn.Close()
 
 	tlsConn := tls.Client(conn, &tls.Config{
-		ServerName:         "region1.v2.argotunnel.com",
-		InsecureSkipVerify: true,
+		ServerName: "region1.v2.argotunnel.com",
+		MinVersion: tls.VersionTLS12,
 	})
 	if dl, ok := ctx.Deadline(); ok {
 		_ = tlsConn.SetDeadline(dl)

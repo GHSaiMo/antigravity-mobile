@@ -184,10 +184,52 @@ public final class NetworkTransport: Sendable {
         return hosts
     }
 
+    nonisolated public static func configuredGatewayOrigins() -> Set<String> {
+        let keys = [
+            "antigravity.server_url",
+            "antigravity.primary_cloud_url",
+            "antigravity.lan_server_url",
+            "antigravity.relay_server_url",
+            "antigravity.custom_server_url",
+            "antigravity.active_server_url"
+        ]
+        var origins = Set<String>()
+        let defaults = UserDefaults.standard
+        for key in keys {
+            guard let raw = defaults.string(forKey: key)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !raw.isEmpty,
+                  let parsed = URL(string: raw),
+                  let scheme = parsed.scheme?.lowercased(),
+                  (scheme == "http" || scheme == "https") else {
+                continue
+            }
+            let host = (parsed.host ?? "").trimmingCharacters(in: CharacterSet(charactersIn: "[]")).lowercased()
+            guard !host.isEmpty else { continue }
+            let port = parsed.port ?? (scheme == "https" ? 443 : 80)
+            origins.insert("\(scheme)://\(host):\(port)")
+        }
+        return origins
+    }
+
+    nonisolated public static func isConfiguredGatewayOrigin(_ url: URL?) -> Bool {
+        guard let url,
+              let scheme = url.scheme?.lowercased(),
+              (scheme == "http" || scheme == "https") else {
+            return false
+        }
+        let host = (url.host ?? "").trimmingCharacters(in: CharacterSet(charactersIn: "[]")).lowercased()
+        guard !host.isEmpty else { return false }
+        if host == "demo.antigravity.local" {
+            return true
+        }
+        let port = url.port ?? (scheme == "https" ? 443 : 80)
+        return configuredGatewayOrigins().contains("\(scheme)://\(host):\(port)")
+    }
+
     nonisolated public static func isConfiguredOrLocalGatewayHost(_ host: String) -> Bool {
         let clean = extractHost(from: host)
         if clean.isEmpty { return false }
-        if isLocalOrPrivateHost(clean) || clean == "demo.antigravity.local" {
+        if clean == "demo.antigravity.local" {
             return true
         }
         return configuredGatewayHosts().contains(clean)
@@ -233,7 +275,9 @@ public final class NetworkTransport: Sendable {
             }
         }
         if let token = KeychainHelper.shared.read(key: .deviceToken), !token.isEmpty,
-           let targetHost = req.url?.host, Self.isConfiguredOrLocalGatewayHost(targetHost) {
+           let reqURL = req.url,
+           reqURL.path != "/healthz",
+           Self.isConfiguredGatewayOrigin(reqURL) {
             if req.value(forHTTPHeaderField: "Authorization") == nil {
                 req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
             }

@@ -1159,7 +1159,8 @@ public struct ConversationListView: View {
         if url.host == "recording" {
             let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
             let action = components?.queryItems?.first(where: { $0.name == "action" })?.value ?? "stop"
-            let cascadeId = components?.queryItems?.first(where: { $0.name == "cascadeId" })?.value ?? ""
+            let rawCid = components?.queryItems?.first(where: { $0.name == "cascadeId" })?.value ?? ""
+            let cascadeId = CacheManager.isValidCascadeId(rawCid) ? rawCid : ""
             let sendImmediately = (action == "send")
             
             _ = AudioRecorderManager.shared.finishRecordingFromLiveActivity(
@@ -1186,7 +1187,7 @@ public struct ConversationListView: View {
             cascadeId = url.lastPathComponent
         }
         
-        guard !cascadeId.isEmpty else { return }
+        guard CacheManager.isValidCascadeId(cascadeId) else { return }
         
         // Dismiss modal sheets that could cover the target conversation view
         showSettings = false

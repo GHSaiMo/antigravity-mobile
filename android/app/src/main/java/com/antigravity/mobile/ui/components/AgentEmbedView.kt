@@ -4,10 +4,15 @@ import com.antigravity.mobile.ui.util.loc
 import android.annotation.SuppressLint
 import android.os.Handler
 import android.os.Looper
+import android.net.Uri
 import android.util.LruCache
 import android.webkit.JavascriptInterface
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
+import android.webkit.WebViewClient
+import java.io.ByteArrayInputStream
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.spring
@@ -96,7 +101,7 @@ fun AgentEmbedView(
     val haptic = rememberHaptic()
     val isDark = isSystemInDarkTheme()
     val context = LocalContext.current
-    val fallbackBaseUrl = remember(context) { PreferencesManager(context).gatewayBaseUrl }
+    val hostCascadeId = LocalCurrentCascadeId.current.orEmpty()
 
     val defaultTitle = remember(src) {
         val clean = src.trim('`', '"', '\'', '(', ')', '[', ']', '<', '>')
@@ -329,7 +334,8 @@ fun AgentEmbedView(
                     AgentEmbedWebViewContainer(
                         htmlContent = htmlContent!!,
                         isDark = isDark,
-                        baseUrl = ApiClient.defaultInstance?.currentBaseUrl ?: fallbackBaseUrl,
+                        embedSrc = src,
+                        boundCascadeId = hostCascadeId,
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(embedHeightDp),
@@ -456,7 +462,8 @@ fun AgentEmbedView(
                     AgentEmbedWebViewContainer(
                         htmlContent = htmlContent!!,
                         isDark = isDark,
-                        baseUrl = ApiClient.defaultInstance?.currentBaseUrl ?: fallbackBaseUrl,
+                        embedSrc = src,
+                        boundCascadeId = hostCascadeId,
                         modifier = Modifier
                             .fillMaxWidth()
                             .weight(1f),
@@ -471,15 +478,68 @@ fun AgentEmbedView(
 
 private data class LoadedHtmlState(val url: String, val html: String)
 
+private object AgentEmbedSecurityPolicy {
+    fun extractMcpServer(rawUri: String): String {
+        val clean = rawUri.trim().trim('`', '"', '\'', '(', ')', '[', ']', '<', '>')
+        if (clean.isEmpty()) return ""
+        val lower = clean.lowercase()
+        if (lower.startsWith("ui://") || lower.startsWith("mcp://")) {
+            val parsed = runCatching { Uri.parse(clean) }.getOrNull() ?: return ""
+            val qServer = parsed.getQueryParameter("serverName")?.trim()?.takeIf { it.isNotEmpty() }
+                ?: parsed.getQueryParameter("server")?.trim()?.takeIf { it.isNotEmpty() }
+            if (qServer != null) return qServer
+            return parsed.host?.trim().orEmpty()
+        }
+        val parsed = runCatching { Uri.parse(clean) }.getOrNull() ?: return ""
+        val nested = parsed.getQueryParameter("uri") ?: parsed.getQueryParameter("appUri")
+        if (!nested.isNullOrBlank()) {
+            val extracted = extractMcpServer(nested)
+            if (extracted.isNotEmpty()) return extracted
+        }
+        if (parsed.path?.contains("/gateway/mcp/app/") == true) {
+            return (parsed.getQueryParameter("serverName") ?: parsed.getQueryParameter("server"))
+                ?.trim().orEmpty()
+        }
+        return ""
+    }
+
+    fun isToolAllowed(toolName: String, boundServer: String): Boolean {
+        val cleanTool = toolName.trim()
+        if (cleanTool.isEmpty() || boundServer.isEmpty()) return false
+        val expectedLower = boundServer.lowercase()
+        val slashIdx = cleanTool.indexOf('/')
+        if (slashIdx >= 0) {
+            return cleanTool.substring(0, slashIdx).lowercase() == expectedLower
+        }
+        val colonIdx = cleanTool.indexOf(':')
+        if (colonIdx >= 0) {
+            return cleanTool.substring(0, colonIdx).lowercase() == expectedLower
+        }
+        val lowerTool = cleanTool.lowercase()
+        if (lowerTool.startsWith("mcp_")) {
+            val prefix1 = "mcp_${expectedLower}_"
+            val prefix2 = "mcp_${expectedLower.replace('-', '_')}_"
+            return lowerTool.startsWith(prefix1) || lowerTool.startsWith(prefix2)
+        }
+        return true
+    }
+
+    fun isBlockedSubresourceScheme(scheme: String?): Boolean {
+        val s = scheme?.lowercase() ?: return false
+        return s == "file" || s == "content" || s == "intent" || s == "javascript"
+    }
+}
+
 /**
- * Native Android WebView wrapper rendering Agent Embed HTML.
+ * Native Android WebView wrapper rendering Agent Embed HTML in an isolated about:blank sandbox.
  */
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 private fun AgentEmbedWebViewContainer(
     htmlContent: String,
     isDark: Boolean,
-    baseUrl: String?,
+    embedSrc: String,
+    boundCascadeId: String,
     modifier: Modifier = Modifier,
     onHeightMeasured: ((Int) -> Unit)? = null,
     onTitleDetected: ((String) -> Unit)? = null
@@ -487,7 +547,11 @@ private fun AgentEmbedWebViewContainer(
     val enhancedHtml = remember(htmlContent, isDark) {
         AgentEmbedHtmlBuilder.build(htmlContent, isDark)
     }
-    val targetBaseUrl = baseUrl ?: "file:///android_asset/"
+    val targetBaseUrl = "about:blank"
+    val latestSrc by rememberUpdatedState(embedSrc)
+    val latestCascadeId by rememberUpdatedState(boundCascadeId)
+    val latestOnHeight by rememberUpdatedState(onHeightMeasured)
+    val latestOnTitle by rememberUpdatedState(onTitleDetected)
 
     AndroidView(
         modifier = modifier,
@@ -499,18 +563,58 @@ private fun AgentEmbedWebViewContainer(
 
                 settings.apply {
                     javaScriptEnabled = true
-                    domStorageEnabled = true
-                    allowFileAccess = true
+                    domStorageEnabled = false
+                    allowFileAccess = false
+                    allowContentAccess = false
+                    @Suppress("DEPRECATION")
+                    allowFileAccessFromFileURLs = false
+                    @Suppress("DEPRECATION")
+                    allowUniversalAccessFromFileURLs = false
                     loadWithOverviewMode = true
                     useWideViewPort = true
                     setSupportZoom(false)
                     builtInZoomControls = false
                     displayZoomControls = false
-                    mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-                    cacheMode = WebSettings.LOAD_DEFAULT
+                    mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+                    cacheMode = WebSettings.LOAD_NO_CACHE
                 }
 
                 val selfWebView = this
+                val activeMainOriginIsAbout = java.util.concurrent.atomic.AtomicBoolean(true)
+                webViewClient = object : WebViewClient() {
+                    override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
+                        super.onPageStarted(view, url, favicon)
+                        activeMainOriginIsAbout.set(url.isNullOrEmpty() || url.startsWith("about:"))
+                    }
+
+                    override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                        val reqUrl = request?.url ?: return true
+                        val scheme = reqUrl.scheme?.lowercase().orEmpty()
+                        if (reqUrl.toString() == "about:blank" || scheme == "about") {
+                            return false
+                        }
+                        if (request.isForMainFrame && request.hasGesture() && (scheme == "http" || scheme == "https")) {
+                            com.antigravity.mobile.ui.util.InAppBrowserUtils.openUrl(ctx, reqUrl.toString())
+                        }
+                        return true
+                    }
+
+                    override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
+                        val scheme = request?.url?.scheme
+                        if (AgentEmbedSecurityPolicy.isBlockedSubresourceScheme(scheme)) {
+                            return WebResourceResponse(
+                                "text/plain",
+                                "UTF-8",
+                                403,
+                                "Forbidden",
+                                emptyMap(),
+                                ByteArrayInputStream(ByteArray(0))
+                            )
+                        }
+                        return super.shouldInterceptRequest(view, request)
+                    }
+                }
+
                 addJavascriptInterface(
                     object {
                         private fun dispatchBridgeReply(reqId: Any?, jsonrpc: String?, ok: Boolean, rawJson: String? = null, error: String? = null) {
@@ -535,19 +639,26 @@ private fun AgentEmbedWebViewContainer(
                         @JavascriptInterface
                         fun postSize(height: Int) {
                             Handler(Looper.getMainLooper()).post {
-                                onHeightMeasured?.invoke(height)
+                                val currentUrl = selfWebView.url.orEmpty()
+                                if (currentUrl.isEmpty() || currentUrl.startsWith("about:")) {
+                                    latestOnHeight?.invoke(height)
+                                }
                             }
                         }
 
                         @JavascriptInterface
                         fun postTitle(title: String) {
                             Handler(Looper.getMainLooper()).post {
-                                onTitleDetected?.invoke(title)
+                                val currentUrl = selfWebView.url.orEmpty()
+                                if (currentUrl.isEmpty() || currentUrl.startsWith("about:")) {
+                                    latestOnTitle?.invoke(title)
+                                }
                             }
                         }
 
                         @JavascriptInterface
                         fun postMessage(jsonStr: String) {
+                            if (!activeMainOriginIsAbout.get()) return
                             try {
                                 val obj = JSONObject(jsonStr)
                                 val kind = obj.optString("type").ifBlank { obj.optString("method") }
@@ -555,10 +666,14 @@ private fun AgentEmbedWebViewContainer(
                                 val reqId = obj.opt("id")
                                 val jsonrpc = obj.optString("jsonrpc").takeIf { it.isNotBlank() }
                                 val inst = ApiClient.defaultInstance ?: return
+                                val srcSnapshot = latestSrc
+                                val cascadeSnapshot = latestCascadeId
+                                val boundServer = AgentEmbedSecurityPolicy.extractMcpServer(srcSnapshot)
                                 when (kind) {
                                     "sendMessage", "send_message", "ui/message" -> {
-                                        val msg = payload.optString("text").ifBlank { payload.optString("message") }.ifBlank { payload.optString("content") }
-                                        val cid = payload.optString("cascadeId").ifBlank { ApiClient.currentCascadeId.orEmpty() }
+                                        val msg = payload.optString("text").ifBlank { payload.optString("message") }.ifBlank { payload.optString("content") }.trim()
+                                        // Ignore JS-supplied cascadeId; bind strictly to host conversation.
+                                        val cid = cascadeSnapshot.ifBlank { ApiClient.currentCascadeId.orEmpty() }
                                         if (msg.isNotBlank() && cid.isNotBlank()) {
                                             CoroutineScope(Dispatchers.IO).launch {
                                                 val res = runCatching { inst.sendMessage(cid, msg) }
@@ -568,35 +683,67 @@ private fun AgentEmbedWebViewContainer(
                                                     dispatchBridgeReply(reqId, jsonrpc, ok = false, error = res.exceptionOrNull()?.message)
                                                 }
                                             }
+                                        } else {
+                                            dispatchBridgeReply(reqId, jsonrpc, ok = false, error = "No active conversation bound")
                                         }
                                     }
                                     "callServerTool", "tools/call" -> {
-                                        val tool = payload.optString("toolName").ifBlank { payload.optString("name") }
+                                        val tool = payload.optString("toolName").ifBlank { payload.optString("name") }.trim()
                                         val argsRaw = payload.opt("arguments")?.toString()
-                                        val appUri = payload.optString("appUri").ifBlank { payload.optString("uri") }
-                                        if (tool.isNotBlank()) {
-                                            val argsEl = argsRaw?.let { runCatching { Json.parseToJsonElement(it) }.getOrNull() }
-                                            CoroutineScope(Dispatchers.IO).launch {
-                                                val res = inst.callMcpAppTool(tool, argsEl, appUri)
-                                                res.onSuccess { raw ->
-                                                    dispatchBridgeReply(reqId, jsonrpc, ok = true, rawJson = raw)
-                                                }.onFailure { err ->
-                                                    dispatchBridgeReply(reqId, jsonrpc, ok = false, error = err.message)
-                                                }
+                                        val reqServer = payload.optString("serverName").trim()
+                                        val reqAppUri = payload.optString("appUri").ifBlank { payload.optString("uri") }.trim()
+                                        if (tool.isBlank()) return
+                                        if (boundServer.isEmpty()) {
+                                            dispatchBridgeReply(reqId, jsonrpc, ok = false, error = "MCP tool execution denied outside bound MCP App")
+                                            return
+                                        }
+                                        if (reqServer.isNotEmpty() && !reqServer.equals(boundServer, ignoreCase = true)) {
+                                            dispatchBridgeReply(reqId, jsonrpc, ok = false, error = "Cross-server MCP tool execution denied")
+                                            return
+                                        }
+                                        val reqUriServer = AgentEmbedSecurityPolicy.extractMcpServer(reqAppUri)
+                                        if (reqUriServer.isNotEmpty() && !reqUriServer.equals(boundServer, ignoreCase = true)) {
+                                            dispatchBridgeReply(reqId, jsonrpc, ok = false, error = "Cross-server MCP appUri denied")
+                                            return
+                                        }
+                                        if (!AgentEmbedSecurityPolicy.isToolAllowed(tool, boundServer)) {
+                                            dispatchBridgeReply(reqId, jsonrpc, ok = false, error = "Tool namespace mismatch for MCP server")
+                                            return
+                                        }
+                                        val argsEl = argsRaw?.let { runCatching { Json.parseToJsonElement(it) }.getOrNull() }
+                                        val lockedAppUri = srcSnapshot.trim()
+                                        CoroutineScope(Dispatchers.IO).launch {
+                                            val res = inst.callMcpAppTool(tool, argsEl, lockedAppUri, boundServer)
+                                            res.onSuccess { raw ->
+                                                dispatchBridgeReply(reqId, jsonrpc, ok = true, rawJson = raw)
+                                            }.onFailure { err ->
+                                                dispatchBridgeReply(reqId, jsonrpc, ok = false, error = err.message)
                                             }
                                         }
                                     }
                                     "resources/read" -> {
-                                        val uri = payload.optString("uri")
-                                        val serverName = payload.optString("serverName")
-                                        if (uri.isNotBlank()) {
-                                            CoroutineScope(Dispatchers.IO).launch {
-                                                val res = inst.getMcpAppResource(uri, serverName)
-                                                res.onSuccess { raw ->
-                                                    dispatchBridgeReply(reqId, jsonrpc, ok = true, rawJson = raw)
-                                                }.onFailure { err ->
-                                                    dispatchBridgeReply(reqId, jsonrpc, ok = false, error = err.message)
-                                                }
+                                        val uri = payload.optString("uri").trim()
+                                        val reqServer = payload.optString("serverName").trim()
+                                        if (uri.isBlank()) return
+                                        if (boundServer.isEmpty()) {
+                                            dispatchBridgeReply(reqId, jsonrpc, ok = false, error = "MCP resource read denied outside bound MCP App")
+                                            return
+                                        }
+                                        if (reqServer.isNotEmpty() && !reqServer.equals(boundServer, ignoreCase = true)) {
+                                            dispatchBridgeReply(reqId, jsonrpc, ok = false, error = "Cross-server MCP resource read denied")
+                                            return
+                                        }
+                                        val uriServer = AgentEmbedSecurityPolicy.extractMcpServer(uri)
+                                        if (uriServer.isNotEmpty() && !uriServer.equals(boundServer, ignoreCase = true)) {
+                                            dispatchBridgeReply(reqId, jsonrpc, ok = false, error = "Cross-server MCP resource URI denied")
+                                            return
+                                        }
+                                        CoroutineScope(Dispatchers.IO).launch {
+                                            val res = inst.getMcpAppResource(uri, boundServer)
+                                            res.onSuccess { raw ->
+                                                dispatchBridgeReply(reqId, jsonrpc, ok = true, rawJson = raw)
+                                            }.onFailure { err ->
+                                                dispatchBridgeReply(reqId, jsonrpc, ok = false, error = err.message)
                                             }
                                         }
                                     }

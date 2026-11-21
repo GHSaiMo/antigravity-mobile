@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -488,7 +489,14 @@ func (p *Proxy) fetchUpstreamModels(ctx context.Context, port int, token string)
 	if token != "" {
 		req.Header.Set("x-codeium-csrf-token", token)
 	}
-	resp, err := p.mediumClient.Do(req)
+	client := p.mediumClient
+	if client == nil {
+		client = p.shortClient
+	}
+	if client == nil {
+		return nil, fmt.Errorf("upstream http client not initialized")
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -597,35 +605,62 @@ func (p *Proxy) RefreshLiveModelsAfterSwitch(ctx context.Context) {
 	}
 }
 
-// readDesktopSelectedModel reads Antigravity Desktop's currently selected model
-// from ~/.gemini/antigravity/antigravity_state.pbtxt (`last_selected_agent_model`).
-func readDesktopSelectedModel() (id, displayName string) {
-	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
-		return "", ""
-	}
-	data, err := os.ReadFile(filepath.Join(home, ".gemini", "antigravity", "antigravity_state.pbtxt"))
-	if err != nil || len(data) == 0 {
-		return "", ""
-	}
-	var raw string
-	for _, line := range strings.Split(string(data), "\n") {
-		line = strings.TrimSpace(line)
-		if !strings.HasPrefix(line, "last_selected_agent_model:") {
+type desktopSelectedModelCacheState struct {
+	mu          sync.RWMutex
+	path        string
+	checkedAt   time.Time
+	exists      bool
+	modTimeNano int64
+	size        int64
+	rawModel    string
+}
+
+var desktopSelectedModelCache desktopSelectedModelCacheState
+
+func extractLastSelectedAgentModelBytes(data []byte) string {
+	const needle = "last_selected_agent_model:"
+	rem := data
+	for len(rem) > 0 {
+		idx := bytes.Index(rem, []byte(needle))
+		if idx < 0 {
+			return ""
+		}
+		// Ensure needle starts at beginning of line (ignoring leading spaces/tabs).
+		validLineStart := true
+		for i := idx - 1; i >= 0; i-- {
+			b := rem[i]
+			if b == '\n' || b == '\r' {
+				break
+			}
+			if b != ' ' && b != '\t' {
+				validLineStart = false
+				break
+			}
+		}
+		after := rem[idx+len(needle):]
+		lineEnd := bytes.IndexAny(after, "\r\n")
+		var valBytes []byte
+		if lineEnd >= 0 {
+			valBytes = after[:lineEnd]
+			rem = after[lineEnd+1:]
+		} else {
+			valBytes = after
+			rem = nil
+		}
+		if !validLineStart {
 			continue
 		}
-		parts := strings.SplitN(line, ":", 2)
-		if len(parts) != 2 {
-			continue
-		}
-		val := strings.TrimSpace(parts[1])
+		val := strings.TrimSpace(string(valBytes))
 		val = strings.Trim(val, `"'`)
 		if val == "" || strings.EqualFold(val, "MODEL_UNSPECIFIED") {
-			return "", ""
+			return ""
 		}
-		raw = val
-		break
+		return val
 	}
+	return ""
+}
+
+func resolveDesktopSelectedModelIDAndName(raw string) (id, displayName string) {
 	if raw == "" {
 		return "", ""
 	}
@@ -638,6 +673,81 @@ func readDesktopSelectedModel() (id, displayName string) {
 		displayName = liveModels.displayName(raw)
 	}
 	return id, displayName
+}
+
+// readDesktopSelectedModelCached reads Antigravity Desktop's currently selected model
+// with an optional statSkipTTL fast window (e.g. 1s on streaming hot paths) plus (mtime, size) caching
+// and zero-allocation bytes.Index scanning on file change.
+func readDesktopSelectedModelCached(statSkipTTL time.Duration) (id, displayName string) {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return "", ""
+	}
+	statePath := filepath.Join(home, ".gemini", "antigravity", "antigravity_state.pbtxt")
+	now := time.Now()
+
+	if statSkipTTL > 0 {
+		desktopSelectedModelCache.mu.RLock()
+		if desktopSelectedModelCache.path == statePath && now.Sub(desktopSelectedModelCache.checkedAt) < statSkipTTL {
+			raw := desktopSelectedModelCache.rawModel
+			desktopSelectedModelCache.mu.RUnlock()
+			return resolveDesktopSelectedModelIDAndName(raw)
+		}
+		desktopSelectedModelCache.mu.RUnlock()
+	}
+
+	fi, statErr := os.Stat(statePath)
+	exists := statErr == nil && !fi.IsDir()
+	var modNano, size int64
+	if exists {
+		modNano = fi.ModTime().UnixNano()
+		size = fi.Size()
+	}
+
+	desktopSelectedModelCache.mu.RLock()
+	if desktopSelectedModelCache.path == statePath &&
+		desktopSelectedModelCache.exists == exists &&
+		desktopSelectedModelCache.modTimeNano == modNano &&
+		desktopSelectedModelCache.size == size {
+		raw := desktopSelectedModelCache.rawModel
+		desktopSelectedModelCache.mu.RUnlock()
+		if statSkipTTL > 0 {
+			desktopSelectedModelCache.mu.Lock()
+			if desktopSelectedModelCache.path == statePath &&
+				desktopSelectedModelCache.exists == exists &&
+				desktopSelectedModelCache.modTimeNano == modNano &&
+				desktopSelectedModelCache.size == size {
+				desktopSelectedModelCache.checkedAt = now
+			}
+			desktopSelectedModelCache.mu.Unlock()
+		}
+		return resolveDesktopSelectedModelIDAndName(raw)
+	}
+	desktopSelectedModelCache.mu.RUnlock()
+
+	raw := ""
+	if exists && size > 0 {
+		if data, readErr := os.ReadFile(statePath); readErr == nil && len(data) > 0 {
+			raw = extractLastSelectedAgentModelBytes(data)
+		}
+	}
+
+	desktopSelectedModelCache.mu.Lock()
+	desktopSelectedModelCache.path = statePath
+	desktopSelectedModelCache.checkedAt = now
+	desktopSelectedModelCache.exists = exists
+	desktopSelectedModelCache.modTimeNano = modNano
+	desktopSelectedModelCache.size = size
+	desktopSelectedModelCache.rawModel = raw
+	desktopSelectedModelCache.mu.Unlock()
+
+	return resolveDesktopSelectedModelIDAndName(raw)
+}
+
+// readDesktopSelectedModel reads Antigravity Desktop's currently selected model
+// from ~/.gemini/antigravity/antigravity_state.pbtxt (`last_selected_agent_model`).
+func readDesktopSelectedModel() (id, displayName string) {
+	return readDesktopSelectedModelCached(0)
 }
 
 // HandleModels handles GET/POST /gateway/models.

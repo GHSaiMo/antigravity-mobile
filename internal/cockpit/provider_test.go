@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -228,9 +229,15 @@ func TestEnsureCockpitAntigravityConfig_AlignsConfig(t *testing.T) {
 		t.Errorf("expected other_field to be preserved, got %v", updated["other_field"])
 	}
 
-	// Verify .bak file created
-	if _, err := os.Stat(configFile + ".bak"); err != nil {
+	// Verify .bak file created and 0600 permissions enforced on POSIX
+	bakInfo, err := os.Stat(configFile + ".bak")
+	if err != nil {
 		t.Errorf("expected config.json.bak to exist: %v", err)
+	} else if runtime.GOOS != "windows" && bakInfo.Mode().Perm() != 0o600 {
+		t.Errorf("expected 0600 on config.json.bak, got %o", bakInfo.Mode().Perm())
+	}
+	if cfgInfo, sErr := os.Stat(configFile); sErr == nil && runtime.GOOS != "windows" && cfgInfo.Mode().Perm() != 0o600 {
+		t.Errorf("expected 0600 on config.json after EnsureCockpitAntigravityConfig, got %o", cfgInfo.Mode().Perm())
 	}
 }
 

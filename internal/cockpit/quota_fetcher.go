@@ -1,13 +1,14 @@
 package cockpit
 
 import (
-	"log/slog"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,10 +21,55 @@ const (
 	CloudCodeUserAgent    = "antigravity/2.25.0 (aidev_client; os_type=windows; arch=amd64; cl=1003475615)"
 )
 
+var (
+	localProxyCacheMu     sync.Mutex
+	localProxyCachedURL   *url.URL
+	localProxyCachedUntil time.Time
+)
+
+func cockpitTransportProxy(req *http.Request) (*url.URL, error) {
+	if req != nil && req.URL != nil {
+		h := strings.ToLower(strings.TrimSpace(req.URL.Hostname()))
+		if h == "127.0.0.1" || h == "localhost" || h == "::1" {
+			return nil, nil
+		}
+	}
+	if envURL, err := http.ProxyFromEnvironment(req); err != nil || envURL != nil {
+		return envURL, err
+	}
+	if cfg, err := getCockpitConfig(); err == nil && cfg != nil && cfg.GlobalProxyEnabled {
+		p := strings.TrimSpace(cfg.GlobalProxyURL)
+		if isSafeProxyURL(p) {
+			if u, uErr := url.Parse(p); uErr == nil && u.Host != "" {
+				return u, nil
+			}
+		}
+	}
+	now := time.Now()
+	localProxyCacheMu.Lock()
+	if now.Before(localProxyCachedUntil) {
+		u := localProxyCachedURL
+		localProxyCacheMu.Unlock()
+		return u, nil
+	}
+	localProxyCacheMu.Unlock()
+
+	var detected *url.URL
+	if IsProxyPortListening(7890, 150*time.Millisecond) {
+		detected, _ = url.Parse("http://127.0.0.1:7890")
+	}
+
+	localProxyCacheMu.Lock()
+	localProxyCachedURL = detected
+	localProxyCachedUntil = now.Add(30 * time.Second)
+	localProxyCacheMu.Unlock()
+	return detected, nil
+}
+
 var cockpitHTTPClient = &http.Client{
 	Timeout: 15 * time.Second,
 	Transport: &http.Transport{
-		Proxy:               http.ProxyFromEnvironment,
+		Proxy:               cockpitTransportProxy,
 		MaxIdleConns:        32,
 		MaxIdleConnsPerHost: 16,
 		IdleConnTimeout:     90 * time.Second,
@@ -141,12 +187,8 @@ func FetchRemoteQuotaForAccount(detail *CockpitAccountDetail) error {
 		return fmt.Errorf("marshal cachePayload: %w", err)
 	}
 
-	tmpFile := cacheFilePath + ".tmp"
-	if err := os.WriteFile(tmpFile, append(cpBytes, '\n'), 0600); err != nil {
-		return fmt.Errorf("write tmp cache file: %w", err)
-	}
-	if err := os.Rename(tmpFile, cacheFilePath); err != nil {
-		return fmt.Errorf("rename cache file: %w", err)
+	if err := writeFileAtomic0600(cacheFilePath, append(cpBytes, '\n')); err != nil {
+		return fmt.Errorf("write cache file: %w", err)
 	}
 
 	slog.Info(fmt.Sprintf("[Cockpit] Direct remote quota updated for %s", detail.Email))

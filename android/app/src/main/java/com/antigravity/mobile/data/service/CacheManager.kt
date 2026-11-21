@@ -33,6 +33,7 @@ class CacheManager(context: Context) {
     private val sessionsDir = File(cacheDir, "sessions").apply { mkdirs() }
 
     private val memSessions = LruCache<String, CachedChatSession>(MAX_MEM_SESSIONS)
+    private val sessionTitleCache = ConcurrentHashMap<String, String>()
 
     /**
      * Latest not-yet-written snapshot per session. The chat stream saves on every frame (several per
@@ -43,14 +44,33 @@ class CacheManager(context: Context) {
     /** Serialises session file operations so two writes never interleave on the same .tmp file. */
     private val fileMutex = Mutex()
 
+    private fun extractAndCacheTitle(session: CachedChatSession): String? {
+        val cid = session.cascadeId
+        if (!isValidCascadeId(cid)) return null
+        val explicit = session.title?.trim()?.takeIf { it.isNotBlank() && it != "未命名会话" && it != "会话详情" }
+        if (explicit != null) {
+            sessionTitleCache[cid] = explicit
+            return explicit
+        }
+        val firstUserMsg = session.messages.firstOrNull { it.isUser }
+        val prompt = firstUserMsg?.effectiveText?.trim()?.lines()?.firstOrNull { it.isNotBlank() }?.trim()
+        if (!prompt.isNullOrBlank()) {
+            val derived = if (prompt.length > 36) prompt.take(36) + "..." else prompt
+            sessionTitleCache[cid] = derived
+            return derived
+        }
+        return null
+    }
+
     /**
      * Persist chat session to memory immediately and to disk at most once per [SESSION_WRITE_INTERVAL_MS].
      */
     fun saveSession(session: CachedChatSession) {
         val cascadeId = session.cascadeId
-        if (cascadeId.isBlank() || cascadeId.startsWith("local_draft_")) return
+        if (cascadeId.isBlank() || cascadeId.startsWith("local_draft_") || !isValidCascadeId(cascadeId)) return
 
         memSessions.put(cascadeId, session)
+        extractAndCacheTitle(session)
 
         val alreadyScheduled = pendingWrites.put(cascadeId, session) != null
         if (!alreadyScheduled) {
@@ -71,6 +91,10 @@ class CacheManager(context: Context) {
     }
 
     private suspend fun writePendingSession(cascadeId: String) {
+        if (!isValidCascadeId(cascadeId)) {
+            pendingWrites.remove(cascadeId)
+            return
+        }
         fileMutex.withLock {
             val session = pendingWrites.remove(cascadeId) ?: return
             try {
@@ -104,14 +128,24 @@ class CacheManager(context: Context) {
     }
 
     /**
+     * Non-blocking memory-only lookup for hot/prewarmed sessions (never touches disk).
+     */
+    fun getMemoryCachedSession(cascadeId: String): CachedChatSession? {
+        if (cascadeId.isBlank() || cascadeId.startsWith("local_draft_") || !isValidCascadeId(cascadeId)) return null
+        memSessions.get(cascadeId)?.let { return it }
+        return pendingWrites[cascadeId]
+    }
+
+    /**
      * Load session from memory cache or disk.
      * Returns null if no cache is found.
      */
     fun loadSession(cascadeId: String): CachedChatSession? {
-        if (cascadeId.isBlank() || cascadeId.startsWith("local_draft_")) return null
+        if (cascadeId.isBlank() || cascadeId.startsWith("local_draft_") || !isValidCascadeId(cascadeId)) return null
 
         // 1. Memory cache hit
         memSessions.get(cascadeId)?.let { return it }
+        pendingWrites[cascadeId]?.let { return it }
 
         // 2. Disk cache lookup
         return try {
@@ -120,6 +154,7 @@ class CacheManager(context: Context) {
                 val content = file.readText(Charsets.UTF_8)
                 val session = json.decodeFromString<CachedChatSession>(content)
                 memSessions.put(cascadeId, session)
+                extractAndCacheTitle(session)
                 session
             } else {
                 null
@@ -138,7 +173,7 @@ class CacheManager(context: Context) {
         if (cascadeIds.isEmpty()) return
         ioScope.launch {
             for (cid in cascadeIds.take(MAX_MEM_SESSIONS)) {
-                if (cid.isBlank() || cid.startsWith("local_draft_")) continue
+                if (cid.isBlank() || cid.startsWith("local_draft_") || !isValidCascadeId(cid)) continue
                 if (memSessions.get(cid) != null) continue
 
                 try {
@@ -147,6 +182,7 @@ class CacheManager(context: Context) {
                         val content = file.readText(Charsets.UTF_8)
                         val session = json.decodeFromString<CachedChatSession>(content)
                         memSessions.put(cid, session)
+                        extractAndCacheTitle(session)
                     }
                 } catch (e: Exception) {
                     Log.w(TAG, "Prewarm failed for session $cid: ${e.message}")
@@ -159,8 +195,9 @@ class CacheManager(context: Context) {
      * Delete session from memory and disk.
      */
     fun deleteSession(cascadeId: String) {
-        if (cascadeId.isBlank()) return
+        if (cascadeId.isBlank() || !isValidCascadeId(cascadeId)) return
         memSessions.remove(cascadeId)
+        sessionTitleCache.remove(cascadeId)
         pendingWrites.remove(cascadeId)
 
         ioScope.launch {
@@ -196,26 +233,29 @@ class CacheManager(context: Context) {
     }
 
     /**
-     * Heal conversation title from cached session or first user message if title is missing.
+     * Heal conversation title from memory-cached title/session, or load on calling IO thread without blocking Main.
      */
     fun healConversationTitleIfNeeded(item: ConversationItem): ConversationItem {
         val t = item.title.trim()
         if (t.isNotEmpty() && t != "未命名会话" && t != "会话详情") return item
+        if (!isValidCascadeId(item.id)) return item
+
+        sessionTitleCache[item.id]?.let { cachedTitle ->
+            return item.copy(title = cachedTitle)
+        }
+        memSessions.get(item.id)?.let { memSession ->
+            extractAndCacheTitle(memSession)?.let { return item.copy(title = it) }
+            return item
+        }
+        if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
+            // Never perform synchronous JSON disk reads on Main thread; prewarm in background for next refresh.
+            prewarmSessions(listOf(item.id))
+            return item
+        }
 
         val session = loadSession(item.id) ?: return item
-        val sessionTitle = session.title?.trim()
-        if (!sessionTitle.isNullOrBlank() && sessionTitle != "未命名会话" && sessionTitle != "会话详情") {
-            return item.copy(title = sessionTitle)
-        }
-
-        val firstUserMsg = session.messages.firstOrNull { it.isUser }
-        val prompt = firstUserMsg?.effectiveText?.trim()?.lines()?.firstOrNull { it.isNotBlank() }?.trim()
-        if (!prompt.isNullOrBlank()) {
-            val derived = if (prompt.length > 36) prompt.take(36) + "..." else prompt
-            return item.copy(title = derived)
-        }
-
-        return item
+        val derived = extractAndCacheTitle(session)
+        return if (!derived.isNullOrBlank()) item.copy(title = derived) else item
     }
 
     /**
@@ -223,6 +263,7 @@ class CacheManager(context: Context) {
      */
     fun clearAllSessions() {
         memSessions.evictAll()
+        sessionTitleCache.clear()
         pendingWrites.clear()
         ioScope.launch {
             fileMutex.withLock {
@@ -250,5 +291,11 @@ class CacheManager(context: Context) {
         private const val MAX_MEM_SESSIONS = 24
         private const val MAX_CACHED_SESSIONS = 100
         private const val SESSION_WRITE_INTERVAL_MS = 1500L
+        private val SAFE_CASCADE_ID_REGEX = Regex("^(?:local_draft_|draft_)?[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
+
+        fun isValidCascadeId(id: String?): Boolean {
+            if (id.isNullOrBlank()) return false
+            return SAFE_CASCADE_ID_REGEX.matches(id)
+        }
     }
 }

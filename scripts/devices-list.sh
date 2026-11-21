@@ -1,16 +1,27 @@
 #!/usr/bin/env bash
 set -euo pipefail
+umask 077
 
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-ADMIN_TOKEN_FILE="${HOME}/.antigravity-mobile/admin_token"
-DEFAULT_STORE_FILE="${HOME}/.antigravity-mobile/auth_store.json"
+DATA_DIR="${MULTIGRAVITY_DATA_DIR:-${HOME}/.multigravity}"
+DATA_DIR="${DATA_DIR/#\~/$HOME}"
+ADMIN_TOKEN_FILE="${DATA_DIR}/admin_token"
+DEFAULT_STORE_FILE="${DATA_DIR}/auth_store.json"
 
 read_env_val() {
     local key="$1"
-    local file="${PROJECT_DIR}/.env"
-    if [ -f "${file}" ]; then
-        grep -E "^${key}=" "${file}" 2>/dev/null | tail -n 1 | cut -d'=' -f2- | tr -d '\r' | sed -e 's/^[[:space:]]*["'"'"']//' -e 's/["'"'"'][[:space:]]*$//' || true
-    fi
+    local val=""
+    for file in "${PROJECT_DIR}/.env" "${DATA_DIR}/.env"; do
+        if [ -f "${file}" ]; then
+            local found
+            found="$(grep -E "^${key}=" "${file}" 2>/dev/null | tail -n 1 | cut -d'=' -f2- | tr -d '\r' | sed -e 's/^[[:space:]]*["'"'"']//' -e 's/["'"'"'][[:space:]]*$//' || true)"
+            if [ -n "${found}" ]; then
+                val="${found}"
+                break
+            fi
+        fi
+    done
+    printf '%s' "${val}"
 }
 
 # Read configuration safely without sourcing (M-5)

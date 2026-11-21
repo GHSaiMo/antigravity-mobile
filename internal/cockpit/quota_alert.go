@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"math"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -150,13 +149,7 @@ func (a *quotaAlerter) saveState() {
 	if err != nil {
 		return
 	}
-	if err := os.MkdirAll(filepath.Dir(a.cfg.StatePath), 0o700); err != nil {
-		return
-	}
-	tmp := a.cfg.StatePath + ".tmp"
-	if os.WriteFile(tmp, data, 0o600) == nil {
-		_ = os.Rename(tmp, a.cfg.StatePath)
-	}
+	_ = writeFileAtomic0600(a.cfg.StatePath, data)
 }
 
 // pickMonitoredAccount returns the account to watch: the one the running language_server uses when known,
@@ -259,10 +252,25 @@ func alertTitle(level string, fraction float64) string {
 	}
 }
 
+func maskEmailForAlert(email string) string {
+	email = strings.TrimSpace(email)
+	at := strings.IndexByte(email, '@')
+	if at <= 0 || at == len(email)-1 {
+		return email
+	}
+	local := email[:at]
+	domain := email[at+1:]
+	runes := []rune(local)
+	if len(runes) > 2 {
+		return string(runes[:2]) + "***@" + domain
+	}
+	return string(runes[:1]) + "***@" + domain
+}
+
 func alertBody(acc *AccountQuota, m *QuotaMetric, reset time.Time, eta time.Time, hasEta bool, now time.Time) string {
 	var parts []string
 	if acc.Email != "" {
-		parts = append(parts, "账号 "+acc.Email)
+		parts = append(parts, "账号 "+maskEmailForAlert(acc.Email))
 	}
 	if !reset.IsZero() {
 		// 倒计时按当前时间现算：Cockpit 快照里的 reset_friendly 最多滞后一个刷新周期

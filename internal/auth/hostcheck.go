@@ -9,8 +9,9 @@ import (
 )
 
 // acceptableHostname reports whether a Host/Origin hostname may be served with address-based trust.
-// IP literals, localhost, mDNS (.local) and explicitly configured domains pass; any other
-// DNS name (e.g. an attacker domain rebound to 127.0.0.1) does not.
+// Only IP literals, localhost, and mDNS (.local) pass; public/DDNS domains and arbitrary DNS names
+// (e.g. an attacker domain rebound to 127.0.0.1 or a reverse-proxied public domain) never qualify
+// for unauthenticated implicit trust (CRIT-01).
 func acceptableHostname(h string) bool {
 	h = strings.ToLower(strings.Trim(strings.TrimSpace(h), "[]"))
 	if h == "" {
@@ -19,39 +20,39 @@ func acceptableHostname(h string) bool {
 	if net.ParseIP(h) != nil || h == "localhost" || strings.HasSuffix(h, ".localhost") || strings.HasSuffix(h, ".local") {
 		return true
 	}
-	for _, env := range []string{"DDNS_HOST", "MULTIGRAVITY_HOST", "GATEWAY_HOST"} {
-		if t := strings.ToLower(strings.TrimSpace(os.Getenv(env))); t != "" && (h == t || strings.HasSuffix(h, "."+t)) {
-			return true
-		}
-	}
-	for _, env := range []string{"MULTIGRAVITY_ALLOWED_ORIGINS", "ALLOWED_ORIGINS"} {
-		for _, o := range strings.Split(os.Getenv(env), ",") {
-			if u, err := url.Parse(strings.TrimSpace(o)); err == nil && u.Hostname() != "" && strings.EqualFold(u.Hostname(), h) {
-				return true
-			}
-		}
-	}
 	return false
 }
 
 // ImplicitTrustRequestOK gates loopback/LAN trust on request-level evidence that the request was
-// not issued by a hostile web page: the Host must be an IP/localhost/configured name (anti DNS
-// rebinding) and, for state-changing methods, any Origin must be acceptable too (anti CSRF).
-// Native clients and curl send no Origin and are unaffected.
+// not issued by a hostile web page: a non-empty Host must be an IP/localhost/mDNS name (anti DNS
+// rebinding), non-navigation cross-site Fetch requests are rejected, and any Origin header (even on
+// GET / WebSocket / SSE) must be acceptable too (anti CSRF & CSWSH, HIGH-01).
+// Native clients and curl send no Origin/Sec-Fetch-Site and are unaffected.
 func ImplicitTrustRequestOK(r *http.Request) bool {
-	host := r.Host
+	if r == nil {
+		return false
+	}
+	host := strings.TrimSpace(r.Host)
+	if host == "" {
+		return false
+	}
 	if h, _, err := net.SplitHostPort(host); err == nil {
 		host = h
 	}
-	if host != "" && !acceptableHostname(host) {
+	if !acceptableHostname(host) {
 		return false
 	}
-	switch r.Method {
-	case http.MethodGet, http.MethodHead, http.MethodOptions:
+	if sfs := strings.ToLower(strings.TrimSpace(r.Header.Get("Sec-Fetch-Site"))); sfs == "cross-site" {
+		sfm := strings.ToLower(strings.TrimSpace(r.Header.Get("Sec-Fetch-Mode")))
+		if sfm != "navigate" {
+			return false
+		}
+	}
+	origin := strings.TrimSpace(r.Header.Get("Origin"))
+	if origin == "" {
 		return true
 	}
-	origin := r.Header.Get("Origin")
-	if origin == "" {
+	if isConfiguredAllowedOrigin(origin) {
 		return true
 	}
 	u, err := url.Parse(origin)
@@ -155,4 +156,31 @@ func CookieWriteCSRFOK(r *http.Request) bool {
 	}
 
 	return true
+}
+
+// CookieWSOriginOK enforces strict same-origin verification on WebSocket upgrade requests
+// authenticated via browser session cookies (with no Bearer token and no one-time ?ticket=).
+// This blocks Cross-Site WebSocket Hijacking (CSWSH), including from sibling subdomains sharing
+// the same parent eTLD+1 such as *.jiuge.space where SameSite=Lax cookies are sent (HIGH-01).
+func CookieWSOriginOK(r *http.Request) bool {
+	if r == nil {
+		return false
+	}
+	if sfs := strings.ToLower(strings.TrimSpace(r.Header.Get("Sec-Fetch-Site"))); sfs != "" {
+		if sfs != "same-origin" && sfs != "none" {
+			return false
+		}
+	}
+	origin := strings.TrimSpace(r.Header.Get("Origin"))
+	if origin == "" || origin == "null" {
+		return false
+	}
+	if isConfiguredAllowedOrigin(origin) {
+		return true
+	}
+	u, err := url.Parse(origin)
+	if err != nil || u.Hostname() == "" {
+		return false
+	}
+	return sameOriginHost(u, r.Host)
 }

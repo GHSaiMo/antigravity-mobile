@@ -123,12 +123,8 @@ func StartQuotaAutoRefresher(ctx context.Context, defaultInterval time.Duration,
 				return
 			}
 
-			// If QueryReport failed, check and safely restore system proxy if local proxy is alive
-			if healed, hErr := EnsureSystemProxy(0); healed && hErr == nil {
-				slog.Info("[Cockpit] System proxy was restored; attempting direct native quota fetch")
-			}
-
 			// Direct native quota fetch fallback before entering GUI self-healing relaunch
+			// (uses in-process Transport proxy fallback without mutating host-wide OS networksetup)
 			if fErr := FetchAllRemoteQuotas(); fErr == nil {
 				InvalidateQuotaCache()
 				slog.Info("[Cockpit] Direct native quota fetch succeeded after Cockpit Tools query failure", "queryErr", queryErr)

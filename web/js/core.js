@@ -13,6 +13,7 @@ window.fetch = async function (url, options = {}) {
     localStorage.removeItem("agy_paired");
     localStorage.removeItem("agy_device_id");
     localStorage.removeItem("agy_device_token");
+    purgeAuthSessionData(false).catch(() => {});
     if (typeof updateAuthUI === "function") updateAuthUI();
     const inputEl = document.getElementById("input-pairing-code");
     const hasCode = inputEl && inputEl.value.trim().length > 0;
@@ -81,6 +82,9 @@ const PersistentStepsCache = {
   schedule(cascadeId, data) {
     if (!cascadeId || !data) return;
     this.pending.set(cascadeId, data);
+    // Defer synchronous Structured Clone IDB writes while actively streaming;
+    // snapshots remain readable via this.pending and flush on turn completion, route leave, or visibilitychange:hidden.
+    if (data.isRunning) return;
     if (!this.flushTimer) {
       this.flushTimer = setTimeout(() => this.flush(), this.WRITE_INTERVAL_MS);
     }
@@ -198,6 +202,47 @@ document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "hidden") PersistentStepsCache.flush();
 });
 window.addEventListener("pagehide", () => PersistentStepsCache.flush());
+
+async function purgeAuthSessionData(clearDrafts = false) {
+  if (pollTimer) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
+  if (typeof closeActiveWs === "function") {
+    try { closeActiveWs(); } catch (_) {}
+  }
+  if (typeof stopListEvents === "function") {
+    try { stopListEvents(); } catch (_) {}
+  }
+  if (window.Phase3) {
+    try { window.Phase3.activeTerminalWs?.close?.(); } catch (_) {}
+    window.Phase3.activeTerminalWs = null;
+    try { window.Phase3.stopDictation?.(); } catch (_) {}
+  }
+  if (typeof SwarmManager !== "undefined" && SwarmManager.toggleSwarmModal) {
+    try { SwarmManager.toggleSwarmModal(false); } catch (_) {}
+  }
+  sessionStepsCache = {};
+  sessionStepsLRU.length = 0;
+  currentTrajectories = {};
+  if (typeof streamResumeCache !== "undefined" && streamResumeCache?.clear) streamResumeCache.clear();
+  if (typeof mdContentCache !== "undefined" && mdContentCache?.clear) mdContentCache.clear();
+  if (typeof agentEmbedContentCache !== "undefined" && agentEmbedContentCache?.clear) agentEmbedContentCache.clear();
+  if (typeof markdownCache !== "undefined" && markdownCache?.clear) markdownCache.clear();
+  if (clearDrafts) {
+    try {
+      localStorage.removeItem("agy_session_drafts");
+      localStorage.removeItem("agy_steps_cache_lru");
+      for (let i = localStorage.length - 1; i >= 0; i--) {
+        const k = localStorage.key(i);
+        if (k && (k.startsWith("agy_queue_") || k.startsWith("running-tasks-card-expanded-"))) {
+          localStorage.removeItem(k);
+        }
+      }
+    } catch (_) {}
+  }
+  await PersistentStepsCache.clearAll();
+}
 
 // --- Session Drafts Manager ---
 const DraftManager = {
@@ -363,9 +408,9 @@ function renderImagePreviews() {
 
   bar.classList.remove("hidden");
   const imagesHtml = pendingImages.map(img => `
-    <div class="image-preview-item" data-id="${img.id}">
-      <img src="${img.previewUrl || img.dataUrl || ''}" alt="${escapeHtml(img.name || '图片')}" />
-      <button class="image-preview-remove" type="button" aria-label="删除图片" onclick="removePendingImage('${img.id}')">✕</button>
+    <div class="image-preview-item" data-id="${escapeHtml(img.id)}">
+      <img src="${escapeHtml(img.previewUrl || img.dataUrl || '')}" alt="${escapeHtml(img.name || '图片')}" />
+      <button class="image-preview-remove" type="button" aria-label="删除图片" data-action="remove-pending-image" data-id="${escapeHtml(img.id)}">✕</button>
     </div>
   `).join("");
   const filesHtml = pendingAttachments.map(att => {
@@ -376,7 +421,7 @@ function renderImagePreviews() {
         <span>${icon}</span>
         <span class="v233-attachment-name">${escapeHtml(att.name)}</span>
         ${meta ? `<span style="color:var(--ios-secondary-label);font-size:11px;flex-shrink:0;">${escapeHtml(meta)}</span>` : ""}
-        <button type="button" class="v233-mini-link" aria-label="删除附件" onclick="removePendingAttachment('${escapeHtml(att.id)}')">✕</button>
+        <button type="button" class="v233-mini-link" aria-label="删除附件" data-action="remove-pending-attachment" data-id="${escapeHtml(att.id)}">✕</button>
       </div>
     `;
   }).join("");
@@ -579,7 +624,7 @@ async function rescanGateway() {
   if (btn) btn.textContent = "正在重新探测...";
 
   try {
-    const resp = await fetch("/gateway/rescan");
+    const resp = await fetch("/gateway/rescan", { method: "POST" });
     await resp.json();
     await checkGatewayStatus();
     loadConversations();

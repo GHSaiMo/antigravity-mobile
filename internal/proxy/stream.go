@@ -301,6 +301,8 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 	var lastDetails TrajectoryDetails
 	var lastSummarySig uint64
 	haveSummarySig := false
+	var lastFetchAt time.Time
+	const streamTouchCoalesceWindow = 65 * time.Millisecond
 
 	emitJSON := func(v interface{}) error {
 		lastJSONWriteAt = time.Now()
@@ -309,6 +311,7 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 
 	// fetchAndSend does one poll + send cycle. Returns false if the connection should close.
 	fetchAndSend := func() bool {
+		lastFetchAt = time.Now()
 		p.mu.RLock()
 		port := p.activePort
 		token := p.activeToken
@@ -341,7 +344,7 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 		if time.Since(t1) > 100*time.Millisecond {
 			slog.Debug("stream perf: slow fetchUpstream", "cascade_id", cascadeID, "took", time.Since(t1))
 		}
-		desktopModel, desktopModelName := readDesktopSelectedModel()
+		desktopModel, desktopModelName := readDesktopSelectedModelCached(time.Second)
 		if err != nil {
 			if firstPush {
 				// Send empty init payload immediately so client never hangs spinning on load
@@ -362,7 +365,7 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 			return true
 		}
 
-		rawSig := rawTrajectorySignature(rawResp) + "|" + p.subagentLiveSignature(rawResp) + "|" + GetSwarmSignature(cascadeID) + "|" + desktopModel
+		rawSig := rawTrajectorySignature(rawResp) + "|" + p.subagentLiveSignature(rawResp) + "|" + GetSwarmSignature(cascadeID) + "|" + desktopModel + "|" + p.liveStreamAuxSignature(cascadeID)
 		if !firstPush && rawSig == lastRawSig && (time.Since(lastTitleLookupTime) < 2*time.Second || cachedStreamTitle != "") {
 			// Fast path: Upstream trajectory has not changed at all.
 			// Keep L7 stream alive across >5 minute silent thinking via lightweight JSON noop every 25s.
@@ -546,9 +549,13 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 		case <-closeCh:
 			return
 		case <-touchCh:
-			// Instant wake-up upon external touch/message injection without waiting for ticker!
-			lastRawSig = ""
-			ticker.Reset(10 * time.Millisecond)
+			// Coalesce bursty reactive delta wakeups within a 65ms window while preserving lastRawSig
+			// so unchanged frames hit the fast-path short-circuit cleanly.
+			wait := streamTouchCoalesceWindow - time.Since(lastFetchAt)
+			if wait < 10*time.Millisecond {
+				wait = 10 * time.Millisecond
+			}
+			ticker.Reset(wait)
 		case <-pingTicker.C:
 			writeMu.Lock()
 			clientConn.SetWriteDeadline(time.Now().Add(5 * time.Second))

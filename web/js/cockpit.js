@@ -623,7 +623,10 @@ function initQuotaModule() {
   }, 5 * 60 * 1000);
 
   setInterval(() => {
-    if (document.visibilityState === "visible") {
+    if (
+      document.visibilityState === "visible" &&
+      (typeof isConversationListActive !== "function" || isConversationListActive())
+    ) {
       fetchGlobalBackgroundTasksBar();
     }
   }, 8000);
@@ -764,6 +767,29 @@ function renderHeatmap(matrix) {
       maxDayTokens = rec.total;
     }
   });
+  container._heatmapRecords = recordMap;
+  if (!container._hasHeatmapDelegation) {
+    container._hasHeatmapDelegation = true;
+    container.addEventListener("click", (e) => {
+      const cell = e.target.closest(".heat-cell[data-date]");
+      if (!cell || !container.contains(cell)) return;
+      const dateStr = cell.getAttribute("data-date");
+      const map = container._heatmapRecords || {};
+      const rec = map[dateStr] || {
+        date: dateStr,
+        total: 0,
+        input: 0,
+        output: 0,
+        cache_read: 0,
+        steps: 0,
+        cost_usd: 0,
+      };
+      if (selectedHeatCell) selectedHeatCell.classList.remove("active");
+      cell.classList.add("active");
+      selectedHeatCell = cell;
+      renderInspector(rec);
+    });
+  }
 
   // Calculate 52 weeks (364 days ending today)
   const today = new Date();
@@ -774,6 +800,7 @@ function renderHeatmap(matrix) {
 
   const cells = [];
   const cur = new Date(startDate);
+  const frag = document.createDocumentFragment();
 
   while (cur <= today) {
     const y = cur.getFullYear();
@@ -805,17 +832,11 @@ function renderHeatmap(matrix) {
     cell.setAttribute("data-date", dateStr);
     cell.title = `${dateStr}: ${rec.total ? rec.total.toLocaleString() : "0"} tokens`;
 
-    cell.addEventListener("click", () => {
-      if (selectedHeatCell) selectedHeatCell.classList.remove("active");
-      cell.classList.add("active");
-      selectedHeatCell = cell;
-      renderInspector(rec);
-    });
-
-    container.appendChild(cell);
+    frag.appendChild(cell);
     cells.push({ dateStr, cell, rec });
     cur.setDate(cur.getDate() + 1);
   }
+  container.appendChild(frag);
 
   // Auto-scroll to the rightmost (most recent)
   if (scrollWrap) {

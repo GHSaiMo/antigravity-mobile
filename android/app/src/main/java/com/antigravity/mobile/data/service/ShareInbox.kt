@@ -90,25 +90,57 @@ object ShareInbox {
             val mime = context.contentResolver.getType(uri).orEmpty()
             val isImage = mime.startsWith("image/")
             val safeName = name.replace(Regex("""[\\/:*?"<>|\u0000-\u001f]"""), "_").take(100).ifBlank { "file" }
+            val fileCap = if (isImage) AttachmentRules.MAX_FILE_BYTES
+            else if (AttachmentRules.isLargeMediaName(safeName)) AttachmentRules.MAX_MEDIA_FILE_BYTES
+            else AttachmentRules.MAX_FILE_BYTES
+
             // Cheap rejection before copying; the chat pipeline validates again against the draft.
-            val reason = if (isImage) null
-            else com.antigravity.mobile.data.service.AttachmentRules.validate(safeName, if (declared >= 0) declared else 1, emptyList())
+            val reason = when {
+                declared > fileCap -> "文件超过 ${fileCap / 1024 / 1024}MB：$safeName"
+                isImage -> if (declared == 0L) "文件为空：$safeName" else null
+                else -> com.antigravity.mobile.data.service.AttachmentRules.validate(
+                    safeName,
+                    if (declared >= 0) declared else 1,
+                    emptyList()
+                )
+            }
             val dir = File(root(context), UUID.randomUUID().toString()).apply { mkdirs() }
             if (reason != null) dir.delete()
             val target = File(dir, safeName)
+            var exceededCap = false
             val copied = if (reason != null) declared.coerceAtLeast(0) else try {
                 context.contentResolver.openInputStream(uri)?.use { input ->
-                    target.outputStream().use { out -> input.copyTo(out) }
+                    target.outputStream().use { out ->
+                        val buf = ByteArray(16 * 1024)
+                        var total = 0L
+                        while (true) {
+                            val n = input.read(buf)
+                            if (n <= 0) break
+                            total += n
+                            if (total > fileCap) {
+                                exceededCap = true
+                                break
+                            }
+                            out.write(buf, 0, n)
+                        }
+                        total
+                    }
                 } ?: -1L
             } catch (_: Exception) {
                 -1L
             }
             val finalReason = when {
                 reason != null -> reason
+                exceededCap -> "文件超过 ${fileCap / 1024 / 1024}MB：$safeName"
                 copied < 0 -> "无法读取文件：$safeName"
-                else -> if (isImage) null else AttachmentRules.validate(safeName, copied, emptyList())
+                copied == 0L -> "文件为空：$safeName"
+                isImage -> if (copied > fileCap) "文件超过 ${fileCap / 1024 / 1024}MB：$safeName" else null
+                else -> AttachmentRules.validate(safeName, copied, emptyList())
             }
-            if (finalReason != null) target.delete()
+            if (finalReason != null) {
+                target.delete()
+                dir.delete()
+            }
             _files.update { it + SharedFile(UUID.randomUUID().toString(), safeName, copied.coerceAtLeast(0), target.absolutePath, isImage, finalReason) }
             staged++
         }

@@ -23,9 +23,11 @@ func setupTestRouter(t *testing.T) http.Handler {
 	if err != nil {
 		t.Fatalf("failed to create auth store: %v", err)
 	}
+	t.Cleanup(authStore.Close)
 
 	pm := auth.NewPairingManager()
 	authHandler := auth.NewAuthHandler(authStore, pm, "127.0.0.1", 58900, false)
+	t.Cleanup(authHandler.Close)
 	insp := inspector.NewInspector(10 * time.Second)
 	p := proxy.NewProxy(insp)
 	startTime := time.Now()
@@ -307,6 +309,7 @@ func TestCloudURLHeaderGatedOnAuth(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(authStore.Close)
 	devToken := "paired-device-secret-token"
 	if err := authStore.AddDevice(auth.PairedDevice{
 		DeviceID:   "dev-cf-test",
@@ -320,6 +323,7 @@ func TestCloudURLHeaderGatedOnAuth(t *testing.T) {
 
 	pm := auth.NewPairingManager()
 	authHandler := auth.NewAuthHandler(authStore, pm, "127.0.0.1", 58900, false)
+	t.Cleanup(authHandler.Close)
 	authHandler.SetCloudflareURL("https://secret-tunnel.example.com")
 	insp := inspector.NewInspector(10 * time.Second)
 	p := proxy.NewProxy(insp)
@@ -395,6 +399,53 @@ func TestExtractLangFlag(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestPushTokenCrossDeviceProtection(t *testing.T) {
+	tmpDir := t.TempDir()
+	authStore, err := auth.NewAuthStore(filepath.Join(tmpDir, "auth.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(authStore.Close)
+
+	tokA := "tok_device_a_secret"
+	if err := authStore.AddDevice(auth.PairedDevice{
+		DeviceID:   "dev_a",
+		DeviceName: "Phone A",
+		Platform:   "ios",
+		TokenHash:  auth.HashToken(tokA),
+		CreatedAt:  time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	pm := auth.NewPairingManager()
+	authHandler := auth.NewAuthHandler(authStore, pm, "127.0.0.1", 58900, false)
+	t.Cleanup(authHandler.Close)
+	insp := inspector.NewInspector(10 * time.Second)
+	p := proxy.NewProxy(insp)
+	router := buildRouter(authStore, authHandler, p, insp, time.Now(), web.Handler(), auth.AuthPolicy{TrustLAN: true})
+
+	// 1. Paired device dev_a attempting to modify dev_b's push token -> 403 Forbidden (LOW-01)
+	postCross := httptest.NewRequest(http.MethodPost, "/api/v1/device/push-token", strings.NewReader(`{"platform":"ios","token_type":"alert","device_id":"dev_b","token":"abcd"}`))
+	postCross.RemoteAddr = "203.0.113.10:12345"
+	postCross.Header.Set("Authorization", "Bearer "+tokA)
+	rrCross := httptest.NewRecorder()
+	router.ServeHTTP(rrCross, postCross)
+	if rrCross.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for cross-device push token update, got %d: %s", rrCross.Code, rrCross.Body.String())
+	}
+
+	// 2. Unpaired TrustLAN synthetic caller attempting to delete dev_a's push token -> 403 Forbidden
+	delLAN := httptest.NewRequest(http.MethodDelete, "/api/v1/device/push-token?device_id=dev_a", nil)
+	delLAN.RemoteAddr = "192.168.1.88:5555"
+	delLAN.Host = "192.168.1.1:58900"
+	rrLAN := httptest.NewRecorder()
+	router.ServeHTTP(rrLAN, delLAN)
+	if rrLAN.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for TrustLAN push token deletion, got %d: %s", rrLAN.Code, rrLAN.Body.String())
 	}
 }
 

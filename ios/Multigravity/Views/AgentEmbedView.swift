@@ -1,4 +1,6 @@
 import SwiftUI
+import Foundation
+import UIKit
 import WebKit
 
 // MARK: - In-Memory Cache for Agent Embed HTML Content
@@ -38,6 +40,7 @@ public struct AgentEmbedView: View {
     @State private var reloadKey: Int = 0
     
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.currentCascadeId) private var currentCascadeId
     
     public init(src: String) {
         self.src = src
@@ -159,8 +162,10 @@ public struct AgentEmbedView: View {
                     AgentEmbedWebView(
                         htmlContent: html,
                         isDark: colorScheme == .dark,
-                        baseURL: AppSettings.shared.gatewayURL,
+                        baseURL: URL(string: "about:blank"),
                         reloadKey: reloadKey,
+                        embedSrc: src,
+                        boundCascadeId: currentCascadeId ?? "",
                         onHeightChange: { height in
                             // Clamp inline height between 160 and 520
                             let target = max(160, min(height, 520))
@@ -229,7 +234,9 @@ public struct AgentEmbedView: View {
                 AgentEmbedFullscreenViewer(
                     htmlContent: html,
                     title: detectedTitle ?? defaultTitle,
-                    baseURL: AppSettings.shared.gatewayURL
+                    baseURL: URL(string: "about:blank"),
+                    embedSrc: src,
+                    boundCascadeId: currentCascadeId ?? ""
                 )
             }
         }
@@ -265,6 +272,63 @@ public struct AgentEmbedView: View {
     }
 }
 
+// MARK: - MCP App Namespace Helper
+
+private enum AgentEmbedSecurityPolicy {
+    static func extractMcpServer(from rawURI: String) -> String {
+        let trimmed = rawURI.trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "`\"'()[]<>"))
+        guard !trimmed.isEmpty else { return "" }
+        let lower = trimmed.lowercased()
+        if lower.hasPrefix("ui://") || lower.hasPrefix("mcp://") {
+            guard let comps = URLComponents(string: trimmed) else { return "" }
+            if let sn = comps.queryItems?.first(where: { $0.name == "serverName" })?.value?.trimmingCharacters(in: .whitespacesAndNewlines), !sn.isEmpty {
+                return sn
+            }
+            if let sn = comps.queryItems?.first(where: { $0.name == "server" })?.value?.trimmingCharacters(in: .whitespacesAndNewlines), !sn.isEmpty {
+                return sn
+            }
+            if let host = comps.host?.trimmingCharacters(in: .whitespacesAndNewlines), !host.isEmpty {
+                return host
+            }
+            return ""
+        }
+        if let comps = URLComponents(string: trimmed) {
+            if let nestedUri = comps.queryItems?.first(where: { $0.name == "uri" || $0.name == "appUri" })?.value {
+                let nested = extractMcpServer(from: nestedUri)
+                if !nested.isEmpty { return nested }
+            }
+            if let sn = comps.queryItems?.first(where: { $0.name == "serverName" || $0.name == "server" })?.value?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !sn.isEmpty,
+               comps.path.contains("/gateway/mcp/app/") {
+                return sn
+            }
+        }
+        return ""
+    }
+
+    static func isToolAllowed(toolName: String, boundServer: String) -> Bool {
+        let cleanTool = toolName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanTool.isEmpty, !boundServer.isEmpty else { return false }
+        let expectedLower = boundServer.lowercased()
+        if let slashIdx = cleanTool.firstIndex(of: "/") {
+            let prefix = String(cleanTool[..<slashIdx]).lowercased()
+            return prefix == expectedLower
+        }
+        if let colonIdx = cleanTool.firstIndex(of: ":") {
+            let prefix = String(cleanTool[..<colonIdx]).lowercased()
+            return prefix == expectedLower
+        }
+        if cleanTool.lowercased().hasPrefix("mcp_") {
+            let expectedPrefix = "mcp_\(expectedLower)_"
+            let expectedHyphenNormalized = "mcp_\(expectedLower.replacingOccurrences(of: "-", with: "_"))_"
+            let lowerTool = cleanTool.lowercased()
+            return lowerTool.hasPrefix(expectedPrefix) || lowerTool.hasPrefix(expectedHyphenNormalized)
+        }
+        return true
+    }
+}
+
 // MARK: - AgentEmbed WKWebView Representable
 
 public struct AgentEmbedWebView: UIViewRepresentable {
@@ -272,6 +336,8 @@ public struct AgentEmbedWebView: UIViewRepresentable {
     public let isDark: Bool
     public let baseURL: URL?
     public let reloadKey: Int
+    public let embedSrc: String
+    public let boundCascadeId: String
     public var onHeightChange: ((CGFloat) -> Void)? = nil
     public var onTitleDetected: ((String?) -> Void)? = nil
     
@@ -280,13 +346,17 @@ public struct AgentEmbedWebView: UIViewRepresentable {
         isDark: Bool,
         baseURL: URL?,
         reloadKey: Int = 0,
+        embedSrc: String = "",
+        boundCascadeId: String = "",
         onHeightChange: ((CGFloat) -> Void)? = nil,
         onTitleDetected: ((String?) -> Void)? = nil
     ) {
         self.htmlContent = htmlContent
         self.isDark = isDark
-        self.baseURL = baseURL
+        self.baseURL = URL(string: "about:blank")
         self.reloadKey = reloadKey
+        self.embedSrc = embedSrc
+        self.boundCascadeId = boundCascadeId
         self.onHeightChange = onHeightChange
         self.onTitleDetected = onTitleDetected
     }
@@ -297,6 +367,7 @@ public struct AgentEmbedWebView: UIViewRepresentable {
     
     public func makeUIView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
+        config.preferences.setValue(false, forKey: "allowFileAccessFromFileURLs")
         let controller = WKUserContentController()
         
         controller.add(context.coordinator, name: "agentEmbedSize")
@@ -341,7 +412,7 @@ public struct AgentEmbedWebView: UIViewRepresentable {
     
     private func loadContent(into webView: WKWebView) {
         let enhancedHTML = AgentEmbedHTMLBuilder.build(html: htmlContent, isDark: isDark)
-        webView.loadHTMLString(enhancedHTML, baseURL: baseURL)
+        webView.loadHTMLString(enhancedHTML, baseURL: URL(string: "about:blank"))
     }
     
     public final class Coordinator: NSObject, WKScriptMessageHandler, UIScrollViewDelegate, WKNavigationDelegate {
@@ -364,6 +435,33 @@ public struct AgentEmbedWebView: UIViewRepresentable {
         }
         
         // MARK: - WKNavigationDelegate & Gesture Control
+        public func webView(
+            _ webView: WKWebView,
+            decidePolicyFor navigationAction: WKNavigationAction
+        ) async -> WKNavigationActionPolicy {
+            guard let targetURL = navigationAction.request.url else {
+                return .cancel
+            }
+            let scheme = targetURL.scheme?.lowercased() ?? ""
+            if targetURL.absoluteString == "about:blank" || scheme == "about" {
+                return .allow
+            }
+            if scheme == "file" || targetURL.isFileURL {
+                return .cancel
+            }
+            let isMainFrame = navigationAction.targetFrame?.isMainFrame ?? true
+            if isMainFrame {
+                if navigationAction.navigationType == .linkActivated && (scheme == "http" || scheme == "https") {
+                    await UIApplication.shared.open(targetURL)
+                }
+                return .cancel
+            }
+            if scheme == "http" || scheme == "https" || scheme == "data" || scheme == "blob" {
+                return .allow
+            }
+            return .cancel
+        }
+
         public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             disableZoomGestures()
         }
@@ -400,6 +498,9 @@ public struct AgentEmbedWebView: UIViewRepresentable {
         }
         
         public func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+            let isMainFrame = message.frameInfo.isMainFrame
+            let frameScheme = message.frameInfo.request.url?.scheme?.lowercased() ?? "about"
+            guard isMainFrame, frameScheme.isEmpty || frameScheme == "about" else { return }
             DispatchQueue.main.async {
                 if message.name == "agentEmbedSize", let body = message.body as? [String: Any] {
                     if let height = body["height"] as? CGFloat, height > 0 {
@@ -410,7 +511,12 @@ public struct AgentEmbedWebView: UIViewRepresentable {
                         self.parent.onTitleDetected?(title)
                     }
                 } else if message.name == "agentEmbedBridge", let body = message.body as? [String: Any] {
-                    Self.handleBridgeAction(body, webView: self.webView)
+                    Self.handleBridgeAction(
+                        body,
+                        webView: self.webView,
+                        embedSrc: self.parent.embedSrc,
+                        boundCascadeId: self.parent.boundCascadeId
+                    )
                 }
             }
         }
@@ -454,17 +560,29 @@ public struct AgentEmbedWebView: UIViewRepresentable {
         }
 
         @MainActor
-        private static func handleBridgeAction(_ body: [String: Any], webView: WKWebView?) {
+        private static func handleBridgeAction(
+            _ body: [String: Any],
+            webView: WKWebView?,
+            embedSrc: String,
+            boundCascadeId: String
+        ) {
+            let activeScheme = webView?.url?.scheme?.lowercased() ?? "about"
+            guard activeScheme.isEmpty || activeScheme == "about" else { return }
             guard let gwUrl = AppSettings.shared.gatewayURL else { return }
             let action = (body["method"] as? String) ?? (body["type"] as? String) ?? ""
             let params = (body["params"] as? [String: Any]) ?? body
             let reqId = body["id"]
             let jsonrpc = body["jsonrpc"] as? String
+            let boundServer = AgentEmbedSecurityPolicy.extractMcpServer(from: embedSrc)
             switch action {
             case "sendMessage", "ui/message":
                 let text = ((params["text"] as? String) ?? (params["message"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-                let cid = (params["cascadeId"] as? String) ?? ChatViewModel.activeCascadeId
-                guard !text.isEmpty, !cid.isEmpty else { return }
+                // Always bind strictly to the current host conversation; ignore untrusted JS cascadeId.
+                let cid = !boundCascadeId.isEmpty ? boundCascadeId : ChatViewModel.activeCascadeId
+                guard !text.isEmpty, !cid.isEmpty else {
+                    postBridgeReply(to: webView, id: reqId, jsonrpc: jsonrpc, ok: false, error: "No active conversation bound")
+                    return
+                }
                 Task { @MainActor in
                     do {
                         try await APIClient.shared.sendMessage(cascadeId: cid, text: text, baseURL: gwUrl)
@@ -474,16 +592,36 @@ public struct AgentEmbedWebView: UIViewRepresentable {
                     }
                 }
             case "callServerTool", "tools/call":
-                let toolName = (params["name"] as? String) ?? (params["toolName"] as? String) ?? ""
-                let appUri = (params["appUri"] as? String) ?? (params["uri"] as? String) ?? ""
+                let toolName = ((params["name"] as? String) ?? (params["toolName"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                let reqServer = ((params["serverName"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                let reqAppUri = ((params["appUri"] as? String) ?? (params["uri"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !toolName.isEmpty else { return }
+                guard !boundServer.isEmpty else {
+                    postBridgeReply(to: webView, id: reqId, jsonrpc: jsonrpc, ok: false, error: "MCP tool execution denied outside bound MCP App")
+                    return
+                }
+                if !reqServer.isEmpty && reqServer.caseInsensitiveCompare(boundServer) != .orderedSame {
+                    postBridgeReply(to: webView, id: reqId, jsonrpc: jsonrpc, ok: false, error: "Cross-server MCP tool execution denied")
+                    return
+                }
+                let reqUriServer = AgentEmbedSecurityPolicy.extractMcpServer(from: reqAppUri)
+                if !reqUriServer.isEmpty && reqUriServer.caseInsensitiveCompare(boundServer) != .orderedSame {
+                    postBridgeReply(to: webView, id: reqId, jsonrpc: jsonrpc, ok: false, error: "Cross-server MCP appUri denied")
+                    return
+                }
+                guard AgentEmbedSecurityPolicy.isToolAllowed(toolName: toolName, boundServer: boundServer) else {
+                    postBridgeReply(to: webView, id: reqId, jsonrpc: jsonrpc, ok: false, error: "Tool namespace mismatch for MCP server")
+                    return
+                }
                 let args = toJSONValue(params["arguments"])
+                let lockedAppUri = embedSrc.trimmingCharacters(in: .whitespacesAndNewlines)
                 Task { @MainActor in
                     do {
                         let raw = try await APIClient.shared.callMcpAppTool(
                             toolName: toolName,
                             arguments: args,
-                            appUri: appUri,
+                            appUri: lockedAppUri,
+                            serverName: boundServer,
                             baseURL: gwUrl
                         )
                         postBridgeReply(to: webView, id: reqId, jsonrpc: jsonrpc, ok: true, rawJSON: raw)
@@ -492,14 +630,27 @@ public struct AgentEmbedWebView: UIViewRepresentable {
                     }
                 }
             case "resources/read":
-                let uri = (params["uri"] as? String) ?? ""
-                let serverName = (params["serverName"] as? String) ?? ""
+                let uri = ((params["uri"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                let reqServer = ((params["serverName"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !uri.isEmpty else { return }
+                guard !boundServer.isEmpty else {
+                    postBridgeReply(to: webView, id: reqId, jsonrpc: jsonrpc, ok: false, error: "MCP resource read denied outside bound MCP App")
+                    return
+                }
+                if !reqServer.isEmpty && reqServer.caseInsensitiveCompare(boundServer) != .orderedSame {
+                    postBridgeReply(to: webView, id: reqId, jsonrpc: jsonrpc, ok: false, error: "Cross-server MCP resource read denied")
+                    return
+                }
+                let uriServer = AgentEmbedSecurityPolicy.extractMcpServer(from: uri)
+                if !uriServer.isEmpty && uriServer.caseInsensitiveCompare(boundServer) != .orderedSame {
+                    postBridgeReply(to: webView, id: reqId, jsonrpc: jsonrpc, ok: false, error: "Cross-server MCP resource URI denied")
+                    return
+                }
                 Task { @MainActor in
                     do {
                         let raw = try await APIClient.shared.getMcpAppResource(
                             uri: uri,
-                            serverName: serverName,
+                            serverName: boundServer,
                             baseURL: gwUrl
                         )
                         postBridgeReply(to: webView, id: reqId, jsonrpc: jsonrpc, ok: true, rawJSON: raw)
@@ -520,15 +671,25 @@ public struct AgentEmbedFullscreenViewer: View {
     public let htmlContent: String
     public let title: String
     public let baseURL: URL?
+    public let embedSrc: String
+    public let boundCascadeId: String
     
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
     @State private var reloadKey: Int = 0
     
-    public init(htmlContent: String, title: String, baseURL: URL?) {
+    public init(
+        htmlContent: String,
+        title: String,
+        baseURL: URL?,
+        embedSrc: String = "",
+        boundCascadeId: String = ""
+    ) {
         self.htmlContent = htmlContent
         self.title = title
-        self.baseURL = baseURL
+        self.baseURL = URL(string: "about:blank")
+        self.embedSrc = embedSrc
+        self.boundCascadeId = boundCascadeId
     }
     
     public var body: some View {
@@ -536,8 +697,10 @@ public struct AgentEmbedFullscreenViewer: View {
             AgentEmbedWebView(
                 htmlContent: htmlContent,
                 isDark: colorScheme == .dark,
-                baseURL: baseURL,
+                baseURL: URL(string: "about:blank"),
                 reloadKey: reloadKey,
+                embedSrc: embedSrc,
+                boundCascadeId: boundCascadeId,
                 onHeightChange: nil,
                 onTitleDetected: nil
             )

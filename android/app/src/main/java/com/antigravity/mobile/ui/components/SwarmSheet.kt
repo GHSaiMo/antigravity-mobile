@@ -3,12 +3,16 @@ package com.antigravity.mobile.ui.components
 import com.antigravity.mobile.ui.util.loc
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.*
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -19,7 +23,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -45,7 +53,7 @@ fun SwarmSheet(
     val scope = rememberCoroutineScope()
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
-    var selectedTab by remember { mutableIntStateOf(1) } // 0: 概览, 1: 协作板, 2: 成员, 3: 拓扑
+    var selectedTab by remember { mutableIntStateOf(0) } // 0: 概览, 1: 协作板, 2: 成员, 3: 拓扑
     val tabs = listOf("概览".loc, "协作板".loc, "成员".loc, "拓扑".loc)
 
     var snapshot by remember { mutableStateOf<SwarmSnapshot?>(null) }
@@ -114,11 +122,13 @@ fun SwarmSheet(
                     .fillMaxHeight()
                     .background(SwarmColors.bg(isDark))
             ) {
+                SheetGrabHandle(color = SwarmColors.border(isDark))
+
                 // Top Header Bar (No "完成" Button)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                        .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
@@ -158,8 +168,8 @@ fun SwarmSheet(
                 }
 
                 // Desktop-style Underline Tab Row
-                val boardCount = snapshot?.messages?.size ?: 0
-                val memberCount = snapshot?.members?.size ?: 0
+                val boardCount = snapshot?.messages?.count { !it.text.startsWith("[channel]") } ?: 0
+                val memberCount = snapshot?.members?.count { !it.roleWorker && !isRoleWorker(it.name, it.role) } ?: 0
 
                 TabRow(
                     selectedTabIndex = selectedTab,
@@ -241,7 +251,12 @@ fun SwarmSheet(
                                             loadData(silent = true)
                                             isSendingFeedback = false
                                         }
-                                    }
+                                    },
+                                    onSelectConversation = { convId ->
+                                        onDismiss()
+                                        onSelectConversation(convId)
+                                    },
+                                    onSwitchToTab = { selectedTab = it }
                                 )
                                 1 -> SwarmBoardTabNative(
                                     snap = snap,
@@ -289,7 +304,7 @@ fun SwarmSheet(
     }
 }
 
-// MARK: - Overview Tab (Warm Colors)
+// MARK: - Overview Tab (Goal, Running, Progress Ring, Threads, The Team + Feedback)
 
 @Composable
 private fun SwarmOverviewTab(
@@ -297,96 +312,498 @@ private fun SwarmOverviewTab(
     feedbackText: String,
     isSendingFeedback: Boolean,
     onFeedbackChange: (String) -> Unit,
-    onSendFeedback: () -> Unit
+    onSendFeedback: () -> Unit,
+    onSelectConversation: (String) -> Unit,
+    onSwitchToTab: (Int) -> Unit
 ) {
     val isDark = AntigravityTheme.colors.isDark
-    val phaseLabel = snap.view?.phase?.label ?: snap.brief.phase
+    var filterMember by remember { mutableStateOf<String?>(null) }
+    var showAllRunning by remember { mutableStateOf(false) }
+    var showDoneTasks by remember { mutableStateOf(false) }
+    val expandedThreadIds = remember { mutableStateListOf<String>() }
+
+    val synth = remember(snap, filterMember) {
+        SwarmHiveEngine.synthesize(snap, filterMember)
+    }
+    val runningItems = remember(synth.tasks) {
+        synth.tasks.filter { it.state == SwarmTaskBucketState.RUNNING || it.state == SwarmTaskBucketState.BLOCKED }
+            .sortedBy { if (it.state == SwarmTaskBucketState.BLOCKED) 0 else 1 }
+    }
+    val doneItems = remember(synth.tasks) {
+        synth.tasks.filter { it.state == SwarmTaskBucketState.DONE }.sortedByDescending { it.seq }
+    }
+    val queuedItems = remember(synth.tasks) {
+        synth.tasks.filter { it.state == SwarmTaskBucketState.QUEUED }
+    }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        item {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(SwarmColors.cardBg(isDark))
-                    .border(0.7.dp, SwarmColors.border(isDark), RoundedCornerShape(12.dp))
-                    .padding(14.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = snap.title.ifBlank { "蜂群协同任务".loc },
-                        color = SwarmColors.ink(isDark),
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.weight(1f)
-                    )
-
-                    if (phaseLabel.isNotBlank()) {
+        // 1. Stall Banner
+        if (synth.stallText != null && synth.stallSeq != null) {
+            item(key = "stall") {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(11.dp))
+                        .background(SwarmColors.warnAmber(isDark).copy(alpha = 0.10f))
+                        .border(0.8.dp, SwarmColors.warnAmber(isDark).copy(alpha = 0.45f), RoundedCornerShape(11.dp))
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(5.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                        Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(SwarmColors.warnAmber(isDark)))
+                        Text("Swarm stalled — no agents working", color = SwarmColors.ink(isDark), fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
                         Box(
                             modifier = Modifier
                                 .clip(CircleShape)
-                                .background(SwarmColors.accent(isDark).copy(alpha = 0.12f))
-                                .padding(horizontal = 8.dp, vertical = 3.dp)
+                                .background(SwarmColors.warnAmber(isDark).copy(alpha = 0.16f))
+                                .clickable { onSwitchToTab(1) }
+                                .padding(horizontal = 7.dp, vertical = 2.dp)
                         ) {
-                            Text(
-                                text = phaseLabel,
-                                color = SwarmColors.accent(isDark),
-                                fontSize = 11.5.sp,
-                                fontWeight = FontWeight.SemiBold
-                            )
+                            Text("@${synth.stallAgent ?: "monitor"} #${synth.stallSeq}", color = SwarmColors.warnAmber(isDark), fontSize = 11.sp, fontFamily = FontFamily.Monospace)
                         }
                     }
-                }
-
-                val headline = snap.view?.headline ?: snap.brief.headline
-                if (headline.isNotBlank()) {
-                    Text(
-                        text = headline,
-                        color = SwarmColors.muted(isDark),
-                        fontSize = 13.5.sp,
-                        lineHeight = 18.sp
-                    )
-                }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    StatBox(
-                        title = "活跃成员".loc,
-                        value = "${snap.brief.workingCount} / ${snap.brief.totalMembers}",
-                        color = SwarmColors.liveGreen(isDark),
-                        modifier = Modifier.weight(1f)
-                    )
-                    StatBox(
-                        title = "协作消息".loc,
-                        value = "${maxOf(snap.messages.size, snap.brief.latestSeq)}",
-                        color = SwarmColors.infoBlue(isDark),
-                        modifier = Modifier.weight(1f)
-                    )
-                    StatBox(
-                        title = "待关注".loc,
-                        value = "${snap.brief.attentionCount}",
-                        color = if (snap.brief.attentionCount > 0) SwarmColors.warnAmber(isDark) else SwarmColors.muted(isDark),
-                        modifier = Modifier.weight(1f)
-                    )
+                    Text(synth.stallText, color = SwarmColors.muted(isDark), fontSize = 12.sp, modifier = Modifier.padding(start = 15.dp))
                 }
             }
         }
 
-        item {
+        // 2. GOAL Card
+        if (synth.goalTitle.isNotBlank() || synth.goalLine.isNotBlank()) {
+            item(key = "goal") {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(SwarmColors.surfaceBg(isDark))
+                        .border(0.8.dp, SwarmColors.border(isDark), RoundedCornerShape(12.dp))
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text("GOAL", color = SwarmColors.muted(isDark), fontSize = 11.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.6.sp)
+                    if (synth.goalTitle.isNotBlank()) {
+                        Text(synth.goalTitle, color = SwarmColors.ink(isDark), fontSize = 15.5.sp, fontWeight = FontWeight.SemiBold, lineHeight = 21.sp)
+                    }
+                    if (synth.goalLine.isNotBlank()) {
+                        Text(synth.goalLine, color = SwarmColors.muted(isDark), fontSize = 13.sp, lineHeight = 18.sp)
+                    }
+                }
+            }
+        }
+
+        // 3. Running Tasks Card
+        if (runningItems.isNotEmpty() && !synth.finished) {
+            item(key = "running") {
+                val visibleRun = if (showAllRunning) runningItems else runningItems.take(8)
+                val extraRun = (runningItems.size - visibleRun.size).coerceAtLeast(0)
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(SwarmColors.surfaceBg(isDark))
+                        .border(0.8.dp, SwarmColors.border(isDark), RoundedCornerShape(12.dp))
+                        .padding(horizontal = 14.dp, vertical = 12.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 8.dp)) {
+                        Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(SwarmColors.accent(isDark)))
+                        Text("Running", color = SwarmColors.ink(isDark), fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold)
+                        Text("${runningItems.size}", color = SwarmColors.muted(isDark), fontSize = 12.5.sp, fontFamily = FontFamily.Monospace)
+                        Spacer(modifier = Modifier.weight(1f))
+                        if (!synth.phaseLabel.isNullOrBlank()) {
+                            Box(modifier = Modifier.clip(CircleShape).background(SwarmColors.fieldBg(isDark)).padding(horizontal = 8.dp, vertical = 2.dp)) {
+                                Text(synth.phaseLabel, color = SwarmColors.muted(isDark), fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                            }
+                        }
+                    }
+
+                    if (synth.runningSummary.isNotBlank()) {
+                        Text(synth.runningSummary, color = SwarmColors.muted(isDark), fontSize = 12.5.sp, modifier = Modifier.padding(bottom = 8.dp))
+                    }
+
+                    visibleRun.forEachIndexed { idx, task ->
+                        if (idx > 0) {
+                            HorizontalDivider(thickness = 0.6.dp, color = SwarmColors.border(isDark).copy(alpha = 0.65f))
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 8.5.dp),
+                            verticalAlignment = Alignment.Top,
+                            horizontalArrangement = Arrangement.spacedBy(9.dp)
+                        ) {
+                            OverviewTaskIndicatorAndroid(state = task.state, modifier = Modifier.padding(top = 3.dp))
+                            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Text(task.title, color = SwarmColors.ink(isDark), fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                                    if (task.rawState == "review") {
+                                        Box(modifier = Modifier.clip(CircleShape).background(SwarmColors.accent(isDark).copy(alpha = 0.12f)).padding(horizontal = 6.5.dp, vertical = 2.dp)) {
+                                            Text("In review", color = SwarmColors.accent(isDark), fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                                        }
+                                    }
+                                    WorkerBeeChipsAndroid(owners = task.owners, synth = synth, snap = snap, onSelectConversation = onSelectConversation)
+                                }
+                                val sub = task.waitingOn?.let { "Waiting on @$it" } ?: (task.liveActivity ?: task.note)
+                                if (sub.isNotBlank()) {
+                                    Text(
+                                        text = sub,
+                                        color = if (task.waitingOn != null) SwarmColors.warnAmber(isDark) else if (task.liveActivity != null) SwarmColors.muted(isDark) else SwarmColors.faint(isDark),
+                                        fontSize = 12.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    if (extraRun > 0) {
+                        Text(
+                            text = "+$extraRun more",
+                            color = SwarmColors.muted(isDark),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.padding(top = 4.dp).clickable { showAllRunning = true }
+                        )
+                    }
+                }
+            }
+        }
+
+        // 4. Compact Expandable "X of Y tasks done" Progress Card
+        if (synth.totalTasksCount > 0) {
+            item(key = "progress") {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(11.dp))
+                        .background(SwarmColors.surfaceBg(isDark))
+                        .border(0.8.dp, SwarmColors.border(isDark), RoundedCornerShape(11.dp))
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { showDoneTasks = !showDoneTasks }
+                            .padding(horizontal = 13.dp, vertical = 10.5.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(9.dp)
+                    ) {
+                        OverviewProgressRingAndroid(
+                            done = synth.doneCount,
+                            running = synth.runningCount,
+                            blocked = synth.blockedCount,
+                            total = synth.totalTasksCount
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text("${synth.doneCount} of ${synth.totalTasksCount}", color = SwarmColors.ink(isDark), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                            Text("tasks done", color = SwarmColors.muted(isDark), fontSize = 13.sp)
+                        }
+                        Spacer(modifier = Modifier.weight(1f))
+                        if (synth.stuckCount > 0) {
+                            ProgressStatusDotLabel("${synth.stuckCount} stuck", SwarmColors.errorRed(isDark))
+                        } else if (synth.waitingChips.isNotEmpty()) {
+                            ProgressStatusDotLabel(synth.waitingChips.first(), SwarmColors.warnAmber(isDark))
+                        }
+                        if (synth.reviewCount > 0) {
+                            ProgressStatusDotLabel("${synth.reviewCount} in review", SwarmColors.accent(isDark))
+                        }
+                        if (synth.openThreadsCount > 0) {
+                            Text("${synth.openThreadsCount} ${if (synth.openThreadsCount == 1) "thread" else "threads"} open", color = SwarmColors.muted(isDark), fontSize = 12.sp, maxLines = 1)
+                        }
+                        Icon(
+                            imageVector = if (showDoneTasks) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                            contentDescription = null,
+                            tint = SwarmColors.faint(isDark),
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+
+                    AnimatedVisibility(visible = showDoneTasks) {
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            HorizontalDivider(thickness = 0.7.dp, color = SwarmColors.border(isDark))
+                            Column(modifier = Modifier.padding(horizontal = 13.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                if (doneItems.isEmpty()) {
+                                    Text("No tasks completed yet.", color = SwarmColors.muted(isDark), fontSize = 12.5.sp)
+                                } else {
+                                    doneItems.forEach { item ->
+                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            OverviewTaskIndicatorAndroid(SwarmTaskBucketState.DONE)
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(item.title, color = SwarmColors.ink(isDark), fontSize = 12.5.sp, fontWeight = FontWeight.Medium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                                if (item.note.isNotBlank()) {
+                                                    Text(item.note, color = SwarmColors.muted(isDark), fontSize = 11.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                                }
+                                            }
+                                            WorkerBeeChipsAndroid(item.owners, synth, snap, onSelectConversation)
+                                        }
+                                    }
+                                }
+                                if (queuedItems.isNotEmpty()) {
+                                    HorizontalDivider(thickness = 0.6.dp, color = SwarmColors.border(isDark).copy(alpha = 0.6f), modifier = Modifier.padding(vertical = 2.dp))
+                                    Text("UP NEXT · ${queuedItems.size}", color = SwarmColors.muted(isDark), fontSize = 10.5.sp, fontWeight = FontWeight.SemiBold)
+                                    queuedItems.take(6).forEach { item ->
+                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            OverviewTaskIndicatorAndroid(SwarmTaskBucketState.QUEUED)
+                                            Text(item.title, color = SwarmColors.ink(isDark), fontSize = 12.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                                            WorkerBeeChipsAndroid(item.owners, synth, snap, onSelectConversation)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 5. Threads Section
+        if (synth.threads.isNotEmpty()) {
+            item(key = "threads_header") {
+                Text("Threads", color = SwarmColors.ink(isDark), fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold)
+            }
+            items(synth.threads, key = { "th_${it.id}" }) { thread ->
+                val defaultOpen = thread.state == SwarmThreadState.NEEDS || thread.state == SwarmThreadState.WAITING || thread.state == SwarmThreadState.STUCK
+                val isOpen = expandedThreadIds.contains(thread.id) || (defaultOpen && !expandedThreadIds.contains("closed:${thread.id}"))
+                val dotCol = when (thread.state) {
+                    SwarmThreadState.NEEDS, SwarmThreadState.WAITING -> SwarmColors.warnAmber(isDark)
+                    SwarmThreadState.STUCK -> SwarmColors.errorRed(isDark)
+                    SwarmThreadState.RUNNING -> SwarmColors.accent(isDark)
+                    SwarmThreadState.DONE -> SwarmColors.liveGreen(isDark)
+                    SwarmThreadState.QUEUED -> SwarmColors.faint(isDark)
+                }
+                val borderCol = when (thread.state) {
+                    SwarmThreadState.NEEDS, SwarmThreadState.WAITING -> SwarmColors.warnAmber(isDark).copy(alpha = 0.45f)
+                    SwarmThreadState.STUCK -> SwarmColors.errorRed(isDark).copy(alpha = 0.40f)
+                    else -> SwarmColors.border(isDark)
+                }
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(11.dp))
+                        .background(if (thread.state == SwarmThreadState.DONE) Color.Transparent else SwarmColors.surfaceBg(isDark))
+                        .border(0.8.dp, borderCol, RoundedCornerShape(11.dp))
+                        .padding(horizontal = 13.dp, vertical = 11.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                if (isOpen) {
+                                    expandedThreadIds.remove(thread.id)
+                                    if (defaultOpen) expandedThreadIds.add("closed:${thread.id}")
+                                } else {
+                                    expandedThreadIds.remove("closed:${thread.id}")
+                                    expandedThreadIds.add(thread.id)
+                                }
+                            },
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(dotCol))
+                        Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(thread.title, color = SwarmColors.ink(isDark), fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(
+                                text = thread.statusLabel,
+                                color = if (thread.state == SwarmThreadState.WAITING || thread.state == SwarmThreadState.NEEDS) SwarmColors.warnAmber(isDark)
+                                else if (thread.state == SwarmThreadState.STUCK) SwarmColors.errorRed(isDark)
+                                else SwarmColors.muted(isDark),
+                                fontSize = 12.sp,
+                                maxLines = 1
+                            )
+                        }
+                        OverviewMiniSegmentedBarAndroid(thread.doneCount, thread.runningCount, thread.blockedCount, thread.queuedCount)
+                        Text("${thread.doneCount}/${thread.totalCount}", color = SwarmColors.muted(isDark), fontSize = 12.sp, fontFamily = FontFamily.Monospace)
+                        Icon(
+                            imageVector = if (isOpen) Icons.Default.KeyboardArrowDown else Icons.Default.ChevronRight,
+                            contentDescription = null,
+                            tint = SwarmColors.faint(isDark),
+                            modifier = Modifier.size(15.dp)
+                        )
+                    }
+
+                    if (thread.goal.isNotBlank()) {
+                        Text(thread.goal, color = SwarmColors.muted(isDark), fontSize = 13.sp, modifier = Modifier.padding(start = 16.dp, top = 3.dp))
+                    }
+                    if (thread.now.isNotBlank()) {
+                        Row(modifier = Modifier.padding(start = 16.dp, top = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            if (thread.state != SwarmThreadState.DONE) {
+                                Text("Now", color = SwarmColors.ink(isDark).copy(alpha = 0.85f), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            }
+                            Text(thread.now, color = SwarmColors.muted(isDark), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+
+                    AnimatedVisibility(visible = isOpen && thread.tasks.isNotEmpty()) {
+                        Column(modifier = Modifier.padding(start = 16.dp, top = 8.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                            HorizontalDivider(thickness = 0.6.dp, color = SwarmColors.border(isDark).copy(alpha = 0.75f))
+                            thread.tasks.forEach { task ->
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    OverviewTaskIndicatorAndroid(task.state)
+                                    Text(
+                                        text = task.title,
+                                        color = if (task.state == SwarmTaskBucketState.DONE) SwarmColors.muted(isDark) else SwarmColors.ink(isDark),
+                                        fontSize = 12.5.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    if (task.rawState == "review") {
+                                        Box(modifier = Modifier.clip(CircleShape).background(SwarmColors.accent(isDark).copy(alpha = 0.12f)).padding(horizontal = 6.dp, vertical = 1.5.dp)) {
+                                            Text("In review", color = SwarmColors.accent(isDark), fontSize = 10.5.sp, fontWeight = FontWeight.Medium)
+                                        }
+                                    }
+                                    WorkerBeeChipsAndroid(task.owners, synth, snap, onSelectConversation)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 6. The Team Section
+        item(key = "team") {
+            val coord = synth.members["coordinator"]
+            val coordPose = if (!synth.finished && coord?.status == "working") SwarmBeePose.WORKING else SwarmBeePose.LANDED
+            val crew = synth.orderedCrew
+            val maxTiles = 5
+            val shownCrew = if (crew.size <= maxTiles + 1) crew else {
+                val top = crew.take(maxTiles).toMutableList()
+                val sel = filterMember
+                if (sel != null && top.none { it.name == sel }) {
+                    crew.firstOrNull { it.name == sel }?.let { top[maxTiles - 1] = it }
+                }
+                top
+            }
+            val extraCrew = (crew.size - shownCrew.size).coerceAtLeast(0)
+
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("The team", color = SwarmColors.ink(isDark), fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold)
+
+                // Coordinator Card
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(11.dp))
+                        .background(SwarmColors.surfaceBg(isDark))
+                        .border(0.8.dp, SwarmColors.border(isDark), RoundedCornerShape(11.dp))
+                        .clickable {
+                            val cid = coord?.conversationId.orEmpty()
+                            if (cid.isNotEmpty()) onSelectConversation(cid)
+                        }
+                        .padding(10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    SwarmPixelBee(name = "coordinator", pose = coordPose, size = 54.dp)
+                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text("Coordinator", color = SwarmColors.ink(isDark), fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                        if (!coord?.now.isNullOrBlank()) {
+                            Text(coord!!.now, color = SwarmColors.muted(isDark), fontSize = 12.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+                }
+
+                // Crew Pixel-Bee Filter Tiles
+                if (crew.isNotEmpty()) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        val allSelected = filterMember == null
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                            modifier = Modifier.width(52.dp).clickable { filterMember = null }
+                        ) {
+                            SwarmMiniTrioTile(
+                                names = crew.take(3).map { it.name },
+                                size = 46.dp,
+                                isActive = !synth.finished,
+                                modifier = Modifier.border(
+                                    width = if (allSelected) 1.8.dp else 0.8.dp,
+                                    color = if (allSelected) SwarmColors.ink(isDark) else SwarmColors.border(isDark),
+                                    shape = RoundedCornerShape(10.dp)
+                                )
+                            )
+                            Text("All", color = if (allSelected) SwarmColors.ink(isDark) else SwarmColors.muted(isDark), fontSize = 11.sp, fontWeight = if (allSelected) FontWeight.SemiBold else FontWeight.Normal)
+                        }
+
+                        shownCrew.forEach { member ->
+                            val isSelected = filterMember == member.name
+                            val isWorking = !synth.finished && member.status == "working"
+                            val dotCol: Color? = when {
+                                synth.finished -> null
+                                member.hasIssue || member.status == "needs_you" -> SwarmColors.errorRed(isDark)
+                                isWorking -> SwarmColors.liveGreen(isDark)
+                                member.status == "waiting_on" -> SwarmColors.warnAmber(isDark)
+                                else -> null
+                            }
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(4.dp),
+                                modifier = Modifier.width(54.dp).clickable {
+                                    filterMember = if (filterMember == member.name) null else member.name
+                                }
+                            ) {
+                                Box(contentAlignment = Alignment.TopEnd) {
+                                    SwarmPixelBee(
+                                        name = member.name,
+                                        pose = if (isWorking) SwarmBeePose.WORKING else SwarmBeePose.LANDED,
+                                        size = 46.dp,
+                                        modifier = if (isSelected) Modifier.border(1.8.dp, SwarmColors.ink(isDark), RoundedCornerShape(11.dp)) else Modifier
+                                    )
+                                    if (dotCol != null) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(9.5.dp)
+                                                .offset(x = 2.dp, y = (-2).dp)
+                                                .clip(CircleShape)
+                                                .background(dotCol)
+                                                .border(1.6.dp, SwarmColors.bg(isDark), CircleShape)
+                                        )
+                                    }
+                                }
+                                Text("@${member.name}", color = if (isSelected) SwarmColors.ink(isDark) else SwarmColors.muted(isDark), fontSize = 11.sp, fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
+
+                        if (extraCrew > 0) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(4.dp),
+                                modifier = Modifier.width(50.dp).clickable { onSwitchToTab(2) }
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(46.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(SwarmColors.fieldBg(isDark))
+                                        .border(0.8.dp, SwarmColors.border(isDark), RoundedCornerShape(10.dp)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text("+$extraCrew", color = SwarmColors.muted(isDark), fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold)
+                                }
+                                Text(" ", fontSize = 11.sp)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 7. Mobile Feedback Composer
+        item(key = "feedback") {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(12.dp))
-                    .background(SwarmColors.cardBg(isDark))
-                    .border(0.7.dp, SwarmColors.border(isDark), RoundedCornerShape(12.dp))
-                    .padding(14.dp),
+                    .background(SwarmColors.surfaceBg(isDark))
+                    .border(0.8.dp, SwarmColors.border(isDark), RoundedCornerShape(12.dp))
+                    .padding(13.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -394,22 +811,16 @@ private fun SwarmOverviewTab(
                         imageVector = Icons.Default.Campaign,
                         contentDescription = null,
                         tint = SwarmColors.accent(isDark),
-                        modifier = Modifier.size(17.dp)
+                        modifier = Modifier.size(16.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = "协同指挥 / 用户反馈".loc,
                         color = SwarmColors.ink(isDark),
-                        fontSize = 14.5.sp,
+                        fontSize = 13.5.sp,
                         fontWeight = FontWeight.SemiBold
                     )
                 }
-
-                Text(
-                    text = "直接向蜂群公共协作板留言（发送至协调者）。".loc,
-                    color = SwarmColors.muted(isDark),
-                    fontSize = 12.sp
-                )
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -442,18 +853,138 @@ private fun SwarmOverviewTab(
 }
 
 @Composable
-private fun StatBox(title: String, value: String, color: Color, modifier: Modifier = Modifier) {
+private fun ProgressStatusDotLabel(text: String, color: Color) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.5.dp)) {
+        Box(modifier = Modifier.size(5.5.dp).clip(CircleShape).background(color))
+        Text(text, color = color, fontSize = 12.sp, fontWeight = FontWeight.Medium, maxLines = 1)
+    }
+}
+
+@Composable
+private fun WorkerBeeChipsAndroid(
+    owners: List<String>,
+    synth: SwarmSynthesizedModel,
+    snap: SwarmSnapshot,
+    onSelectConversation: (String) -> Unit
+) {
     val isDark = AntigravityTheme.colors.isDark
-    Column(
-        modifier = modifier
-            .clip(RoundedCornerShape(10.dp))
-            .background(color.copy(alpha = 0.09f))
-            .padding(vertical = 10.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(4.dp)
+    val shown = owners.take(2)
+    val extra = (owners.size - shown.size).coerceAtLeast(0)
+    Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+        shown.forEach { owner ->
+            val m = synth.members[owner]
+            val working = !synth.finished && m?.killed != true && m?.status == "working"
+            Row(
+                modifier = Modifier
+                    .height(22.dp)
+                    .clip(CircleShape)
+                    .background(SwarmColors.fieldBg(isDark))
+                    .clickable {
+                        val cid = snap.members.firstOrNull { it.name == owner }?.conversationId.orEmpty()
+                        if (cid.isNotEmpty()) onSelectConversation(cid)
+                    }
+                    .padding(start = 4.dp, end = 7.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(3.5.dp)
+            ) {
+                SwarmPixelBeeSprite(
+                    name = owner,
+                    pose = if (working) SwarmBeePose.WORKING else SwarmBeePose.LANDED,
+                    width = 19.dp,
+                    height = 15.5.dp
+                )
+                Text(owner, color = SwarmColors.ink(isDark).copy(alpha = 0.85f), fontSize = 11.sp, fontWeight = FontWeight.Medium, maxLines = 1)
+            }
+        }
+        if (extra > 0) {
+            Box(
+                modifier = Modifier.height(22.dp).clip(CircleShape).background(SwarmColors.fieldBg(isDark)).padding(horizontal = 6.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("+$extra", color = SwarmColors.muted(isDark), fontSize = 11.sp, fontWeight = FontWeight.Medium)
+            }
+        }
+    }
+}
+
+@Composable
+private fun OverviewTaskIndicatorAndroid(state: SwarmTaskBucketState, modifier: Modifier = Modifier) {
+    val isDark = AntigravityTheme.colors.isDark
+    when (state) {
+        SwarmTaskBucketState.DONE -> {
+            Box(
+                modifier = modifier.size(15.dp).clip(CircleShape).background(SwarmColors.liveGreen(isDark).copy(alpha = 0.22f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Default.Check, contentDescription = null, tint = SwarmColors.liveGreen(isDark), modifier = Modifier.size(10.dp))
+            }
+        }
+        SwarmTaskBucketState.RUNNING -> {
+            val infinite = rememberInfiniteTransition(label = "spinTask")
+            val angle by infinite.animateFloat(
+                initialValue = 0f,
+                targetValue = 360f,
+                animationSpec = infiniteRepeatable(tween(1150, easing = LinearEasing)),
+                label = "spinDeg"
+            )
+            val col = SwarmColors.accent(isDark)
+            Canvas(modifier = modifier.size(14.dp).rotate(angle)) {
+                drawArc(color = col, startAngle = 0f, sweepAngle = 260f, useCenter = false, style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round))
+            }
+        }
+        SwarmTaskBucketState.BLOCKED -> {
+            Box(modifier = modifier.size(14.dp).border(2.dp, SwarmColors.warnAmber(isDark), CircleShape))
+        }
+        SwarmTaskBucketState.QUEUED -> {
+            Box(modifier = modifier.size(14.dp).border(1.4.dp, SwarmColors.faint(isDark), CircleShape))
+        }
+    }
+}
+
+@Composable
+private fun OverviewProgressRingAndroid(done: Int, running: Int, blocked: Int, total: Int) {
+    val isDark = AntigravityTheme.colors.isDark
+    if (total > 0 && done == total) {
+        Box(
+            modifier = Modifier.size(18.dp).clip(CircleShape).background(SwarmColors.liveGreen(isDark).copy(alpha = 0.22f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(Icons.Default.Check, contentDescription = null, tint = SwarmColors.liveGreen(isDark), modifier = Modifier.size(11.dp))
+        }
+    } else {
+        val safeTotal = maxOf(1, total).toFloat()
+        val sDone = 360f * (done / safeTotal)
+        val sRun = 360f * (running / safeTotal)
+        val sBlk = 360f * (blocked / safeTotal)
+        val trackCol = SwarmColors.fieldBg(isDark)
+        val doneCol = SwarmColors.liveGreen(isDark)
+        val runCol = SwarmColors.accent(isDark)
+        val blkCol = SwarmColors.warnAmber(isDark)
+        Canvas(modifier = Modifier.size(18.dp)) {
+            val sw = 2.3.dp.toPx()
+            val inset = sw / 2f
+            val arcSize = Size(size.width - sw, size.height - sw)
+            val tl = androidx.compose.ui.geometry.Offset(inset, inset)
+            drawArc(trackCol, 0f, 360f, false, tl, arcSize, style = Stroke(sw))
+            if (sDone > 0f) drawArc(doneCol, -90f, sDone, false, tl, arcSize, style = Stroke(sw, cap = StrokeCap.Butt))
+            if (sRun > 0f) drawArc(runCol, -90f + sDone, sRun, false, tl, arcSize, style = Stroke(sw, cap = StrokeCap.Butt))
+            if (sBlk > 0f) drawArc(blkCol, -90f + sDone + sRun, sBlk, false, tl, arcSize, style = Stroke(sw, cap = StrokeCap.Butt))
+        }
+    }
+}
+
+@Composable
+private fun OverviewMiniSegmentedBarAndroid(done: Int, running: Int, blocked: Int, queued: Int) {
+    val isDark = AntigravityTheme.colors.isDark
+    val total = maxOf(1, done + running + blocked + queued).toFloat()
+    Row(
+        modifier = Modifier.width(28.dp).height(4.5.dp).clip(CircleShape).background(SwarmColors.fieldBg(isDark)),
+        horizontalArrangement = Arrangement.spacedBy(1.dp)
     ) {
-        Text(text = value, color = SwarmColors.ink(isDark), fontSize = 14.5.sp, fontWeight = FontWeight.Bold)
-        Text(text = title, color = SwarmColors.muted(isDark), fontSize = 11.sp)
+        if (done > 0) Box(modifier = Modifier.weight(done / total).fillMaxHeight().background(SwarmColors.liveGreen(isDark)))
+        if (running > 0) Box(modifier = Modifier.weight(running / total).fillMaxHeight().background(SwarmColors.accent(isDark)))
+        if (blocked > 0) Box(modifier = Modifier.weight(blocked / total).fillMaxHeight().background(SwarmColors.warnAmber(isDark)))
+        if (queued > 0) Box(modifier = Modifier.weight(queued / total).fillMaxHeight().background(SwarmColors.faint(isDark).copy(alpha = 0.45f)))
     }
 }
 
@@ -705,11 +1236,12 @@ private fun SwarmMembersTabNative(
 ) {
     val isDark = AntigravityTheme.colors.isDark
 
-    val matching = remember(snap.members, search) {
+    val matching = remember(snap.members, search, snap.plan) {
         val q = search.trim().lowercase()
         snap.members.filter { m ->
+            if (m.roleWorker || isRoleWorker(m.name, m.role)) return@filter false
             if (q.isEmpty()) true
-            else "${m.name} ${m.role} ${m.model} ${m.lastActivity ?: ""}".lowercase().contains(q)
+            else "${m.name} ${m.role} ${snap.plan?.tasks?.get(m.name).orEmpty()} ${m.model} ${m.lastActivity ?: ""}".lowercase().contains(q)
         }
     }
 

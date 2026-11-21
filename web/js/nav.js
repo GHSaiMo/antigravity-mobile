@@ -41,10 +41,11 @@ function renderRoute() {
   }
   stopListEvents();
 
-  // Persist current input text to memory draft before leaving the session
+  // Persist current input text to memory draft & flush deferred steps cache before leaving the session
   const chatInput = document.getElementById("chat-input");
-  if (activeCascadeId && chatInput) {
-    DraftManager.set(activeCascadeId, chatInput.value);
+  if (activeCascadeId) {
+    if (chatInput) DraftManager.set(activeCascadeId, chatInput.value);
+    if (typeof PersistentStepsCache !== "undefined") PersistentStepsCache.flush();
   }
 
   if (hash.startsWith("#c=")) {
@@ -309,12 +310,13 @@ function renderLinkHealth() {
   }
 }
 
+let linkPulsePhase = false;
 function pulseLinkDot() {
   const el = document.getElementById("link-health-dot");
   if (!el) return;
-  el.classList.remove("link-pulse");
-  void el.offsetWidth; // restart the animation
-  el.classList.add("link-pulse");
+  linkPulsePhase = !linkPulsePhase;
+  el.classList.remove("link-pulse", "link-pulse-a", "link-pulse-b");
+  el.classList.add(linkPulsePhase ? "link-pulse-a" : "link-pulse-b");
 }
 
 function reconnectListEvents() {
@@ -326,7 +328,13 @@ function reconnectListEvents() {
   connectListEvents();
 }
 
-setInterval(renderLinkHealth, 1000);
+setInterval(() => {
+  if (document.visibilityState !== "visible") return;
+  const settingsOpen = !document.getElementById("sheet-settings")?.classList.contains("hidden");
+  if (isConversationListActive() || settingsOpen) {
+    renderLinkHealth();
+  }
+}, 1000);
 
 function isConversationListActive() {
   return !activeCascadeId && !activeDraftSession;
@@ -717,17 +725,18 @@ function renderConversationList(summaries, { forceReorder = false } = {}) {
         ? (stepCount === 1 ? "step" : "steps")
         : (typeof t === "function" ? t("步骤") : "步骤");
 
+      const idEsc = escapeHtml(item.id || "");
       return `
-        <div class="conv-card-wrapper" data-id="${item.id}">
+        <div class="conv-card-wrapper" data-id="${idEsc}">
           <div class="conv-card-actions">
-            <button class="conv-card-delete-btn" type="button" aria-label="${typeof t === "function" ? t("删除会话") : "删除会话"}" data-id="${item.id}">
+            <button class="conv-card-delete-btn" type="button" aria-label="${typeof t === "function" ? t("删除会话") : "删除会话"}" data-id="${idEsc}">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                 <polyline points="3 6 5 6 21 6"></polyline>
                 <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
               </svg>
             </button>
           </div>
-          <div class="conv-card" data-id="${item.id}" data-title="${escapeHtml(title)}">
+          <div class="conv-card" data-id="${idEsc}" data-title="${escapeHtml(title)}">
             <div class="conv-card-top">
               <div class="conv-title">${pinIconHtml}${escapeHtml(title)}</div>
               ${badgeHtml}
@@ -994,7 +1003,8 @@ async function confirmDeleteConversation() {
   closeDeleteActionSheet();
   if (!id) return;
 
-  const wrapper = document.querySelector(`.conv-card-wrapper[data-id="${id}"]`);
+  const safeIdSel = typeof CSS !== "undefined" && CSS.escape ? CSS.escape(id) : escapeHtml(id);
+  const wrapper = document.querySelector(`.conv-card-wrapper[data-id="${safeIdSel}"]`);
   if (wrapper) {
     wrapper.classList.add("deleting");
     setTimeout(() => wrapper.remove(), 280);
@@ -1052,9 +1062,10 @@ async function submitRenameConversation() {
     if (!currentTrajectories[id].annotations) currentTrajectories[id].annotations = {};
     currentTrajectories[id].annotations.title = newTitle;
   }
-  const titleEl = document.querySelector(`.conv-card[data-id="${id}"] .conv-title`);
+  const safeIdSel = typeof CSS !== "undefined" && CSS.escape ? CSS.escape(id) : escapeHtml(id);
+  const titleEl = document.querySelector(`.conv-card[data-id="${safeIdSel}"] .conv-title`);
   if (titleEl) titleEl.textContent = newTitle;
-  const cardEl = document.querySelector(`.conv-card[data-id="${id}"]`);
+  const cardEl = document.querySelector(`.conv-card[data-id="${safeIdSel}"]`);
   if (cardEl) cardEl.setAttribute("data-title", newTitle);
 
   try {

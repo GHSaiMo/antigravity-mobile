@@ -171,6 +171,9 @@ func (n *Notifier) IsEnabled() bool {
 
 // sendToAll dispatches payload to all active notification senders in parallel.
 func (n *Notifier) sendToAll(ctx context.Context, payload PushPayload) error {
+	payload.Title = SanitizePushText(payload.Title)
+	payload.Body = SanitizePushText(payload.Body)
+
 	n.mu.RLock()
 	senders := make([]NotificationSender, 0, len(n.senders)+1)
 	if n.cfg.Enabled {
@@ -235,38 +238,40 @@ func (n *Notifier) NotifyAction(cascadeID, title string, pi *proxy.PendingIntera
 	case "workflow_approval":
 		notifTitle = "⚠️ 动态工作流需审批"
 		if pi.WorkflowApproval != nil && pi.WorkflowApproval.Description != "" {
-			notifBody = fmt.Sprintf("编排工作流申请执行：%s", truncateString(pi.WorkflowApproval.Description, 90))
+			notifBody = fmt.Sprintf("编排工作流申请执行：%s", truncateString(SanitizePushText(pi.WorkflowApproval.Description), 90))
 		} else {
-			notifBody = fmt.Sprintf("动态工作流申请执行：%s", truncateString(pi.Title, 90))
+			notifBody = fmt.Sprintf("动态工作流申请执行：%s", truncateString(SanitizePushText(pi.Title), 90))
 		}
 	case "permission":
 		actionLower := strings.ToLower(pi.Action)
+		cleanTarget := truncateString(SanitizePushText(pi.Target), 90)
 		if strings.Contains(actionLower, "command") || strings.Contains(actionLower, "run") {
-			notifBody = fmt.Sprintf(MsgBodyCommand, truncateString(pi.Target, 90))
+			notifBody = fmt.Sprintf(MsgBodyCommand, cleanTarget)
 		} else if strings.Contains(actionLower, "write") || strings.Contains(actionLower, "edit") {
-			notifBody = fmt.Sprintf(MsgBodyWriteFile, truncateString(pi.Target, 90))
+			notifBody = fmt.Sprintf(MsgBodyWriteFile, cleanTarget)
 		} else if strings.Contains(actionLower, "read") {
-			notifBody = fmt.Sprintf(MsgBodyReadFile, truncateString(pi.Target, 90))
+			notifBody = fmt.Sprintf(MsgBodyReadFile, cleanTarget)
 		} else if pi.Description != "" {
-			notifBody = fmt.Sprintf(MsgBodyApproval, truncateString(pi.Description, 90))
+			notifBody = fmt.Sprintf(MsgBodyApproval, truncateString(SanitizePushText(pi.Description), 90))
 		} else {
-			notifBody = fmt.Sprintf(MsgBodyGenericAction, pi.Action, truncateString(pi.Target, 90))
+			notifBody = fmt.Sprintf(MsgBodyGenericAction, SanitizePushText(pi.Action), cleanTarget)
 		}
 	case "ask_question":
 		notifTitle = MsgTitleQuestion
-		notifBody = fmt.Sprintf(MsgBodyQuestion, truncateString(pi.Title, 90))
+		notifBody = fmt.Sprintf(MsgBodyQuestion, truncateString(SanitizePushText(pi.Title), 90))
 	case "run_command":
 		notifTitle = MsgTitleRunCommand
-		notifBody = fmt.Sprintf(MsgBodyCommand, truncateString(pi.Target, 90))
+		notifBody = fmt.Sprintf(MsgBodyCommand, truncateString(SanitizePushText(pi.Target), 90))
 	case "file_permission":
 		notifTitle = MsgTitleFileAccess
-		notifBody = fmt.Sprintf(MsgBodyAccessFile, truncateString(pi.Target, 90))
+		notifBody = fmt.Sprintf(MsgBodyAccessFile, truncateString(SanitizePushText(pi.Target), 90))
 	default:
-		notifBody = fmt.Sprintf(MsgBodyWaiting, truncateString(pi.Title, 90))
+		notifBody = fmt.Sprintf(MsgBodyWaiting, truncateString(SanitizePushText(pi.Title), 90))
 	}
 
-	if title != "" && title != MsgUntitledSession {
-		notifBody = fmt.Sprintf("【%s】%s", title, notifBody)
+	cleanSessionTitle := SanitizePushText(title)
+	if cleanSessionTitle != "" && cleanSessionTitle != MsgUntitledSession {
+		notifBody = fmt.Sprintf("【%s】%s", truncateString(cleanSessionTitle, 60), notifBody)
 	}
 
 	payload := PushPayload{
@@ -475,11 +480,10 @@ func (n *Notifier) OnTrajectoryUpdate(details *proxy.TrajectoryDetails) {
 		return
 	}
 
-	// Sync Live Activity state asynchronously whenever the cascade is actively running (excluding subagents).
+	// Sync Live Activity state via per-cascade single-slot latest-wins coalescer (excluding subagents).
 	if n.HasLiveActivityTargets() && details.Status == "CASCADE_RUN_STATUS_RUNNING" && strings.TrimSpace(details.ParentConversation) == "" {
-		snap := *details
 		if la := n.LiveActivity(); la != nil {
-			go la.SyncFromDetails(context.Background(), &snap)
+			la.EnqueueLatest(details)
 		}
 	}
 
@@ -489,6 +493,10 @@ func (n *Notifier) OnTrajectoryUpdate(details *proxy.TrajectoryDetails) {
 
 	// 1. Check for Pending Interaction (only while the cascade is actively RUNNING)
 	if details.Status == "CASCADE_RUN_STATUS_RUNNING" && details.PendingInteraction != nil {
+		dedupKey := fmt.Sprintf("action:%s:%d:%s", details.CascadeID, details.PendingInteraction.StepIndex, details.PendingInteraction.Type)
+		if n.dedup.IsNotified(dedupKey, 2*time.Hour) {
+			return
+		}
 		cascadeID := details.CascadeID
 		title := details.Title
 		pi := *details.PendingInteraction

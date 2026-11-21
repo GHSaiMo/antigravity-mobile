@@ -8,19 +8,25 @@ import (
 )
 
 func TestImplicitTrustRequestOK(t *testing.T) {
+	t.Setenv("DDNS_HOST", "mgy.public.example.com")
 	cases := []struct {
-		method, host, origin string
-		want                 bool
+		method, host, origin, secSite, secMode string
+		want                                   bool
 	}{
-		{"GET", "127.0.0.1:58900", "", true},
-		{"GET", "localhost:58900", "", true},
-		{"GET", "192.168.1.5:58900", "", true},
-		{"GET", "evil.example.com:58900", "", false}, // DNS rebinding
-		{"POST", "127.0.0.1:58900", "", true},        // native client, no Origin
-		{"POST", "127.0.0.1:58900", "http://localhost:58900", true},
-		{"POST", "127.0.0.1:58900", "https://evil.example.com", false}, // CSRF
-		{"POST", "127.0.0.1:58900", "null", false},
-		{"GET", "127.0.0.1:58900", "https://evil.example.com", true}, // safe method
+		{"GET", "127.0.0.1:58900", "", "", "", true},
+		{"GET", "localhost:58900", "", "", "", true},
+		{"GET", "192.168.1.5:58900", "", "", "", true},
+		{"GET", "", "", "", "", false},                                         // empty Host rejected (HIGH-01)
+		{"GET", "mgy.public.example.com:58900", "", "", "", false},             // DDNS_HOST never gets implicit trust (CRIT-01)
+		{"GET", "evil.example.com:58900", "", "", "", false},                   // DNS rebinding
+		{"POST", "127.0.0.1:58900", "", "", "", true},                          // native client, no Origin
+		{"POST", "127.0.0.1:58900", "http://localhost:58900", "", "", true},    // local origin
+		{"POST", "127.0.0.1:58900", "https://evil.example.com", "", "", false}, // CSRF
+		{"POST", "127.0.0.1:58900", "null", "", "", false},
+		{"GET", "127.0.0.1:58900", "https://evil.example.com", "", "", false},                // CSWSH / cross-origin GET blocked (HIGH-01)
+		{"GET", "127.0.0.1:58900", "", "cross-site", "websocket", false},                     // cross-site WS blocked
+		{"GET", "127.0.0.1:58900", "", "cross-site", "cors", false},                          // cross-site fetch blocked
+		{"GET", "127.0.0.1:58900", "", "cross-site", "navigate", true},                       // top-level link navigation allowed
 	}
 	for _, c := range cases {
 		r := httptest.NewRequest(c.method, "/x", nil)
@@ -28,8 +34,14 @@ func TestImplicitTrustRequestOK(t *testing.T) {
 		if c.origin != "" {
 			r.Header.Set("Origin", c.origin)
 		}
+		if c.secSite != "" {
+			r.Header.Set("Sec-Fetch-Site", c.secSite)
+		}
+		if c.secMode != "" {
+			r.Header.Set("Sec-Fetch-Mode", c.secMode)
+		}
 		if got := ImplicitTrustRequestOK(r); got != c.want {
-			t.Errorf("%s host=%s origin=%q: got %v want %v", c.method, c.host, c.origin, got, c.want)
+			t.Errorf("%s host=%s origin=%q secSite=%q secMode=%q: got %v want %v", c.method, c.host, c.origin, c.secSite, c.secMode, got, c.want)
 		}
 	}
 }
@@ -100,6 +112,39 @@ func TestCookieWriteCSRFOK(t *testing.T) {
 			}
 			if got := CookieWriteCSRFOK(r); got != tc.want {
 				t.Errorf("CookieWriteCSRFOK() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestCookieWSOriginOK(t *testing.T) {
+	cases := []struct {
+		name         string
+		host         string
+		origin       string
+		secFetchSite string
+		want         bool
+	}{
+		{"same-origin tunnel WS allowed", "victim89.jiuge.space", "https://victim89.jiuge.space", "same-origin", true},
+		{"sibling subdomain same-site CSWSH rejected", "victim89.jiuge.space", "https://evil1234.jiuge.space", "same-site", false},
+		{"sibling subdomain without Sec-Fetch-Site rejected", "victim89.jiuge.space", "https://evil1234.jiuge.space", "", false},
+		{"cross-site Origin rejected", "127.0.0.1:58900", "https://evil.example.com", "cross-site", false},
+		{"missing Origin on cookie WS rejected", "victim89.jiuge.space", "", "", false},
+		{"null Origin rejected", "victim89.jiuge.space", "null", "", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := httptest.NewRequest(http.MethodGet, "/gateway/terminal/stream", nil)
+			r.Host = tc.host
+			r.Header.Set("Upgrade", "websocket")
+			if tc.origin != "" {
+				r.Header.Set("Origin", tc.origin)
+			}
+			if tc.secFetchSite != "" {
+				r.Header.Set("Sec-Fetch-Site", tc.secFetchSite)
+			}
+			if got := CookieWSOriginOK(r); got != tc.want {
+				t.Errorf("CookieWSOriginOK() = %v, want %v", got, tc.want)
 			}
 		})
 	}

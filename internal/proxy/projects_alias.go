@@ -3,6 +3,7 @@ package proxy
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -128,6 +129,9 @@ func saveWorkspaceAlias(rawKey string, alias string) error {
 	}
 
 	cleanAlias := strings.TrimSpace(alias)
+	if len([]rune(cleanAlias)) > 128 {
+		cleanAlias = string([]rune(cleanAlias)[:128])
+	}
 	if cleanAlias == "" {
 		delete(store.Aliases, normKey)
 		if strings.HasPrefix(rawKey, "file://") {
@@ -136,6 +140,9 @@ func saveWorkspaceAlias(rawKey string, alias string) error {
 			}
 		}
 	} else {
+		if _, exists := store.Aliases[normKey]; !exists && len(store.Aliases) >= 512 {
+			return fmt.Errorf("too many workspace aliases (max 512)")
+		}
 		store.Aliases[normKey] = cleanAlias
 	}
 
@@ -181,7 +188,7 @@ func (p *Proxy) HandleProjectAlias(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req UpdateProjectAliasRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.NewDecoder(io.LimitReader(r.Body, 64*1024)).Decode(&req); err != nil {
 		http.Error(w, "Invalid request body: "+err.Error(), http.StatusBadRequest)
 		return
 	}

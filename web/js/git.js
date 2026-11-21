@@ -78,15 +78,16 @@ function renderGitSheet() {
          const state = String(pr.state || "OPEN").toUpperCase();
          const stateTone = state === "MERGED" ? "merged" : state === "DRAFT" ? "draft" : state === "CLOSED" ? "closed" : "open";
          const refMeta = pr.headRefName && pr.baseRefName ? `${pr.headRefName} → ${pr.baseRefName}` : "";
-         const href = pr.url ? ` href="${escapeHtml(pr.url)}" target="_blank" rel="noopener noreferrer"` : "";
-         const tag = pr.url ? "a" : "div";
+         const safePrUrl = pr.url && typeof isSafeURL === "function" && isSafeURL(pr.url) ? pr.url : "";
+         const href = safePrUrl ? ` href="${escapeHtml(safePrUrl)}" target="_blank" rel="noopener noreferrer"` : "";
+         const tag = safePrUrl ? "a" : "div";
          return `<${tag} class="git-pr-item"${href}>
            <span class="git-pr-badge ${stateTone}">${escapeHtml(state)}</span>
            <span class="git-pr-main">
              <span class="git-pr-title"><span class="git-pr-num">#${Number(pr.number) || ""}</span> ${escapeHtml(pr.title || "")}</span>
              ${refMeta ? `<span class="git-pr-meta">${escapeHtml(refMeta)}</span>` : ""}
            </span>
-           ${pr.url ? '<span class="git-pr-ext" aria-hidden="true">↗</span>' : ""}
+           ${safePrUrl ? '<span class="git-pr-ext" aria-hidden="true">↗</span>' : ""}
          </${tag}>`;
        }).join("")}</div>`
     : "";

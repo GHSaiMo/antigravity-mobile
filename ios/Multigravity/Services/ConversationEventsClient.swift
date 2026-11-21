@@ -34,12 +34,16 @@ public final class ConversationEventsClient {
     public private(set) var startedAt: Date?
     public private(set) var isStarted = false
     public var onChange: (() -> Void)?
+    public var onConnectionStateChange: ((Bool) -> Void)?
 
     private var runTask: Task<Void, Never>?
     private var connectionWatchdogTask: Task<Void, Never>?
     private var pingTask: Task<Void, Never>?
     private var attempt = 0
     private var generation = 0
+    private var currentOpenedAt: Date?
+    private var currentReceivedValidFrame = false
+    private var currentAuthRejected = false
     private var baseURLProvider: (() -> URL?)?
     private var lastRev: Int64 = 0
     private var lastRevHost: String?
@@ -95,11 +99,23 @@ public final class ConversationEventsClient {
         runTask = Task { [weak self] in
             while !Task.isCancelled {
                 guard let self, self.generation == gen else { return }
+                self.currentOpenedAt = nil
+                self.currentReceivedValidFrame = false
+                self.currentAuthRejected = false
                 let opened = await self.connectOnce(generation: gen)
                 guard !Task.isCancelled, self.generation == gen else { return }
-                self.attempt = opened ? 0 : min(self.attempt + 1, 6)
-                // Quick retry after a healthy session ended; back off while the gateway is unreachable or lacks the endpoint.
-                let delay: Double = opened ? 1.0 : min(2.5 * pow(2.0, Double(max(self.attempt - 1, 0))), 60.0)
+                if self.currentAuthRejected {
+                    self.stop()
+                    return
+                }
+                let livedLongEnough: Bool = {
+                    guard let t0 = self.currentOpenedAt else { return false }
+                    return Date().timeIntervalSince(t0) >= 15.0
+                }()
+                let wasHealthy = opened && (self.currentReceivedValidFrame || livedLongEnough)
+                self.attempt = wasHealthy ? 0 : min(self.attempt + 1, 6)
+                let baseDelay: Double = wasHealthy ? 1.0 : min(2.5 * pow(2.0, Double(max(self.attempt - 1, 0))), 60.0)
+                let delay = baseDelay * Double.random(in: 0.75...1.25)
                 try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
             }
         }
@@ -113,6 +129,9 @@ public final class ConversationEventsClient {
         runTask = nil
         isStarted = false
         attempt = 0
+        currentOpenedAt = nil
+        currentReceivedValidFrame = false
+        currentAuthRejected = false
         tearDown()
         setConnected(false)
         pending?() // resumes the suspended connectOnce so its task can exit
@@ -121,7 +140,11 @@ public final class ConversationEventsClient {
     private func setConnected(_ value: Bool) {
         if isConnected != value {
             isConnected = value
+            if value && currentOpenedAt == nil {
+                currentOpenedAt = Date()
+            }
             print("[EventsWS] Connection state changed: isConnected=\(value)")
+            onConnectionStateChange?(value)
         }
     }
 
@@ -268,8 +291,11 @@ public final class ConversationEventsClient {
                         self.startKeepAlivePing(generation: gen)
                     }
                 }
-            } onClose: { error in
+            } onClose: { [weak self] error, authRejected in
                 Task { @MainActor in
+                    if authRejected {
+                        self?.currentAuthRejected = true
+                    }
                     if let error {
                         print("[EventsWS] WebSocket disconnected with error: \(error.localizedDescription)")
                     } else {
@@ -489,9 +515,8 @@ public final class ConversationEventsClient {
     }
 
     private func noteFrame(_ frame: ConversationEventFrame) {
-        if frame.rev > 0 {
-            lastRev = frame.rev
-        }
+        currentReceivedValidFrame = true
+        if frame.rev > 0 { lastRev = frame.rev }
         guard frame.isHeartbeat else { return }
         lastBeatAt = Date()
         beatCount &+= 1
@@ -507,10 +532,10 @@ public final class ConversationEventsClient {
 
 private final class EventsSessionDelegate: NSObject, URLSessionWebSocketDelegate, Sendable {
     private let onOpen: @Sendable () -> Void
-    private let onClose: @Sendable (Error?) -> Void
+    private let onClose: @Sendable (Error?, Bool) -> Void
     private let isLoopback: Bool
 
-    init(isLoopback: Bool, onOpen: @escaping @Sendable () -> Void, onClose: @escaping @Sendable (Error?) -> Void) {
+    init(isLoopback: Bool, onOpen: @escaping @Sendable () -> Void, onClose: @escaping @Sendable (Error?, Bool) -> Void) {
         self.isLoopback = isLoopback
         self.onOpen = onOpen
         self.onClose = onClose
@@ -521,11 +546,14 @@ private final class EventsSessionDelegate: NSObject, URLSessionWebSocketDelegate
     }
 
     func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask, didCloseWith closeCode: URLSessionWebSocketTask.CloseCode, reason: Data?) {
-        onClose(nil)
+        let authRejected = (closeCode.rawValue == 4001 || closeCode.rawValue == 4003)
+        onClose(nil, authRejected)
     }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        onClose(error)
+        let httpCode = (task.response as? HTTPURLResponse)?.statusCode ?? 0
+        let authRejected = (httpCode == 401 || httpCode == 403)
+        onClose(error, authRejected)
     }
 
     func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge, completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {

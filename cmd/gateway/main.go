@@ -16,6 +16,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"text/tabwriter"
 	"time"
@@ -202,6 +203,7 @@ func runGatewayServer(args []string) {
 	if err != nil {
 		log.Fatalf("❌ Failed to initialize auth store: %v", err)
 	}
+	defer authStore.Close()
 
 	netAddrs := auth.DetectNetworkAddresses()
 	qrHost := netAddrs.LANIPv4
@@ -218,54 +220,50 @@ func runGatewayServer(args []string) {
 
 	pairingMgr := auth.NewPairingManager()
 	authHandler := auth.NewAuthHandler(authStore, pairingMgr, qrHost, *port, false)
+	defer authHandler.Close()
 	authHandler.SetEndpoints(netAddrs.LANIPv4, *ddnsHost)
 
 	qrPort := *port
 
-	// 3.5. Initialize Automated Cloudflare Tunnel (Exclusive HTTPS Domain)
+	// 3.5. Prepare Cloudflare Tunnel configuration (fast disk cache read now; network/daemon init runs async after port bind)
 	cfCfg := config.GetCloudflareConfig()
-	var cfTunnel *tunnel.CloudflareTunnel
-	var cfDomain string
+	var (
+		cfMu     sync.Mutex
+		cfTunnel *tunnel.CloudflareTunnel
+		cfDomain string
+	)
+	stopCFTunnel := func() {
+		cfMu.Lock()
+		tun := cfTunnel
+		cfTunnel = nil
+		cfMu.Unlock()
+		if tun != nil {
+			tun.Stop()
+		}
+	}
+	defer stopCFTunnel()
+
+	var cachedCFRes *tunnel.CFTunnelResult
 	if cfCfg.Enabled {
-		cfCtx, cancelCF := context.WithCancel(context.Background())
-		defer cancelCF()
-
-		binPath, err := tunnel.EnsureCloudflaredBinary(cfCtx)
-		if err != nil {
-			slog.Warn(i18n.T("⚠️  Cloudflare 穿透引擎准备失败", "⚠️  Failed to prepare Cloudflare tunnel engine"), "err", err)
-		} else {
-			var cfRes *tunnel.CFTunnelResult
-			if cfCfg.Token != "" {
-				cfRes = &tunnel.CFTunnelResult{
-					Success:   true,
-					Token:     cfCfg.Token,
-					Subdomain: "custom.mgy",
-					URL:       "https://custom.mgy",
-				}
-			} else {
-				cfRes, err = tunnel.RegisterOrFetchTunnel(cfCtx, cfCfg.WorkerURL, cfCfg.InviteCode)
+		if cfCfg.Token != "" {
+			cachedCFRes = &tunnel.CFTunnelResult{
+				Success:   true,
+				Token:     cfCfg.Token,
+				Subdomain: "custom.mgy",
+				URL:       "https://custom.mgy",
 			}
-
-			if err != nil {
-				slog.Warn(i18n.T("⚠️  Cloudflare 隧道注册失败", "⚠️  Cloudflare tunnel registration failed"), "err", err)
-			} else if cfRes != nil {
-				cfTunnel = tunnel.NewCloudflareTunnel(cfRes, &cfCfg)
-				if err := cfTunnel.Start(cfCtx, binPath); err != nil {
-					slog.Warn(i18n.T("⚠️  启动 cloudflared 失败", "⚠️  Failed to start cloudflared"), "err", err)
-				} else {
-					defer cfTunnel.Stop()
-					authHandler.SetCloudflareURL(cfRes.URL)
-					authHandler.SetPrimary(cfRes.Subdomain, 443, true)
-					cfDomain = cfRes.URL
-
-					// 将专属 HTTPS 域名设为二维码主地址，强制走 HTTPS 443！
-					qrHost = cfRes.Subdomain
-					qrPort = 443
-					extraHosts = nil
-					if netAddrs.LANIPv4 != "" {
-						extraHosts = append(extraHosts, netAddrs.LANIPv4)
-					}
-				}
+		} else {
+			cachedCFRes = tunnel.LoadCachedTunnelResult()
+		}
+		if cachedCFRes != nil {
+			authHandler.SetCloudflareURL(cachedCFRes.URL)
+			authHandler.SetPrimary(cachedCFRes.Subdomain, 443, true)
+			cfDomain = cachedCFRes.URL
+			qrHost = cachedCFRes.Subdomain
+			qrPort = 443
+			extraHosts = nil
+			if netAddrs.LANIPv4 != "" {
+				extraHosts = append(extraHosts, netAddrs.LANIPv4)
 			}
 		}
 	}
@@ -373,8 +371,10 @@ func runGatewayServer(args []string) {
 	}
 
 	listenLoopback := auth.IsListenAddrLoopback(*host)
+	// P1-5 Guardrail: Always preset TunnelEnabled from cfCfg.Enabled (never from async cfTunnel != nil)
+	// so loopback admin/AUTH_DISABLED protections remain strictly enforced while the tunnel initializes.
 	authPolicy := auth.AuthPolicy{
-		TunnelEnabled:  cfTunnel != nil,
+		TunnelEnabled:  cfCfg.Enabled,
 		ListenLoopback: listenLoopback,
 		TrustLAN:       *trustLAN,
 	}
@@ -390,11 +390,12 @@ func runGatewayServer(args []string) {
 	server := &http.Server{
 		Addr:    fmt.Sprintf("%s:%d", *host, *port),
 		Handler: router,
-		// SEC-6: ReadHeaderTimeout prevents Slowloris attacks on the public-facing gateway.
+		// SEC-6: ReadHeaderTimeout and MaxHeaderBytes prevent Slowloris & header memory amplification.
 		ReadHeaderTimeout: 10 * time.Second,
+		MaxHeaderBytes:    64 << 10,
 		// ReadTimeout and WriteTimeout are intentionally 0 (disabled) to avoid cutting off
-		// WebSocket and SSE long-lived connections. Each handler manages
-		// its own request/response timeouts via context.WithTimeout and application-level heartbeats.
+		// WebSocket and SSE long-lived connections. Non-streaming JSON handlers apply per-request
+		// read deadlines via http.ResponseController.
 		ReadTimeout:  0,
 		WriteTimeout: 0,
 		IdleTimeout:  120 * time.Second,
@@ -464,6 +465,9 @@ func runGatewayServer(args []string) {
 	if cfDomain != "" {
 		fmt.Print(i18n.T("  ➜  云端穿透:   Cloudflare 专属域名已生成 (强制配对)\n",
 			"  ➜  Cloud Tunnel: Cloudflare exclusive HTTPS domain active (Pairing required)\n"))
+	} else if cfCfg.Enabled {
+		fmt.Print(i18n.T("  ➜  云端穿透:   Cloudflare 专属隧道后台连接中... (强制配对)\n",
+			"  ➜  Cloud Tunnel: Cloudflare exclusive HTTPS tunnel connecting in background... (Pairing required)\n"))
 	} else if *ddnsHost != "" {
 		fmt.Print(i18n.T("  ➜  云端穿透:   DDNS 专属域名已配置 (强制配对)\n",
 			"  ➜  Cloud Tunnel: DDNS domain configured (Pairing required)\n"))
@@ -493,7 +497,7 @@ func runGatewayServer(args []string) {
 
 	if shouldPrintQR {
 		if initialSession, err := pairingMgr.GenerateSession(5 * time.Minute); err == nil {
-			auth.PrintPairingQRCode(qrHost, qrPort, initialSession.Code, cfTunnel != nil, extraHosts...)
+			auth.PrintPairingQRCode(qrHost, qrPort, initialSession.Code, cfDomain != "", extraHosts...)
 		} else {
 			slog.Warn(i18n.T("⚠️  无法生成初始配对二维码", "⚠️  Failed to generate initial pairing QR code"), "err", err)
 		}
@@ -501,6 +505,59 @@ func runGatewayServer(args []string) {
 		fmt.Println(i18n.T("  💡 提示: 执行 `mgy pair` 可随时申请新设备配对二维码。",
 			"  💡 Tip: Run `mgy pair` anytime to request a new device pairing QR code."))
 		fmt.Println()
+	}
+
+	// Start Cloudflare Tunnel asynchronously after local HTTP server is already bound and serving (P1-5).
+	if cfCfg.Enabled {
+		hadCachedDomain := cfDomain != ""
+		lanExtra := netAddrs.LANIPv4
+		go func(cfgCopy config.CloudflareConfig, preloaded *tunnel.CFTunnelResult) {
+			binPath, err := tunnel.EnsureCloudflaredBinary(watcherCtx)
+			if err != nil {
+				if watcherCtx.Err() == nil {
+					slog.Warn(i18n.T("⚠️  Cloudflare 穿透引擎准备失败", "⚠️  Failed to prepare Cloudflare tunnel engine"), "err", err)
+				}
+				return
+			}
+			cfRes := preloaded
+			if cfRes == nil {
+				cfRes, err = tunnel.RegisterOrFetchTunnel(watcherCtx, cfgCopy.WorkerURL, cfgCopy.InviteCode)
+				if err != nil {
+					if watcherCtx.Err() == nil {
+						slog.Warn(i18n.T("⚠️  Cloudflare 隧道注册失败", "⚠️  Cloudflare tunnel registration failed"), "err", err)
+					}
+					return
+				}
+			}
+			if cfRes == nil || watcherCtx.Err() != nil {
+				return
+			}
+			tun := tunnel.NewCloudflareTunnel(cfRes, &cfgCopy)
+			if err := tun.Start(watcherCtx, binPath); err != nil {
+				slog.Warn(i18n.T("⚠️  启动 cloudflared 失败", "⚠️  Failed to start cloudflared"), "err", err)
+				return
+			}
+			cfMu.Lock()
+			if watcherCtx.Err() != nil {
+				cfMu.Unlock()
+				tun.Stop()
+				return
+			}
+			cfTunnel = tun
+			cfMu.Unlock()
+
+			authHandler.SetCloudflareURL(cfRes.URL)
+			authHandler.SetPrimary(cfRes.Subdomain, 443, true)
+			if !hadCachedDomain && shouldPrintQR && len(authStore.ListDevices()) == 0 {
+				if sess, sErr := pairingMgr.GenerateSession(5 * time.Minute); sErr == nil {
+					var extras []string
+					if lanExtra != "" {
+						extras = append(extras, lanExtra)
+					}
+					auth.PrintPairingQRCode(cfRes.Subdomain, 443, sess.Code, true, extras...)
+				}
+			}
+		}(cfCfg, cachedCFRes)
 	}
 
 	// Non-blocking background check for newer gateway releases (rate-limited to once per 12h)
@@ -512,10 +569,7 @@ func runGatewayServer(args []string) {
 	// 1. Stop background watchers and inspector polling first to prevent new requests
 	cancelWatcher()
 	insp.Stop()
-
-	if cfTunnel != nil {
-		cfTunnel.Stop()
-	}
+	stopCFTunnel()
 
 	// 2. Gracefully close all tracked WebSocket connections so server.Shutdown can drain
 	p.Shutdown()
@@ -694,6 +748,7 @@ func runListCmd(args []string) {
 	if !strings.Contains(mode, i18n.T("在线", "Online")) {
 		store, err := auth.NewAuthStore("")
 		if err == nil {
+			defer store.Close()
 			devices = store.ListDevices()
 		}
 	}
@@ -793,6 +848,7 @@ func runClearCmd(args []string) {
 		fmt.Fprint(os.Stderr, i18n.Sprintf("❌ 无法打开设备凭据存储: %v\n", "❌ Failed to open device credentials store: %v\n", err))
 		os.Exit(1)
 	}
+	defer store.Close()
 	if target == "all" {
 		count := len(store.ListDevices())
 		store.ClearAll()
@@ -829,7 +885,16 @@ func buildRouter(
 	rootMux.HandleFunc("/api/v1/devices", authHandler.HandleDevices)
 
 	// Mobile push token registration endpoint (supports iOS APNs Alert/LiveActivity & Android FCM)
+	var (
+		fcmOwnerMu       sync.Mutex
+		fcmOwnerDeviceID string
+	)
+	setJSONDeadline := func(w http.ResponseWriter) {
+		_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(30 * time.Second))
+	}
+
 	rootMux.HandleFunc("POST /api/v1/device/push-token", func(w http.ResponseWriter, r *http.Request) {
+		setJSONDeadline(w)
 		var req struct {
 			Platform              string `json:"platform"`
 			TokenType             string `json:"token_type"` // "alert" | "live_activity_start" | "live_activity_update" | "preferences"
@@ -849,6 +914,12 @@ func buildRouter(
 			return
 		}
 
+		authedDev, _ := auth.DeviceFromContext(r.Context())
+		if authedDev != nil && strings.HasPrefix(authedDev.DeviceID, "lan-") {
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden: pairing required to register push tokens"})
+			return
+		}
+
 		platform := strings.ToLower(strings.TrimSpace(req.Platform))
 		tokenType := strings.ToLower(strings.TrimSpace(req.TokenType))
 		pushToken := strings.TrimSpace(req.Token)
@@ -861,11 +932,18 @@ func buildRouter(
 
 		// iOS APNs native push & Live Activity registration path
 		if platform == "ios" || tokenType == "alert" || tokenType == "live_activity_start" || tokenType == "live_activity_update" || tokenType == "preferences" {
-			deviceID := strings.TrimSpace(req.DeviceID)
-			if dev, ok := auth.DeviceFromContext(r.Context()); ok && dev != nil && dev.DeviceID != "" {
-				isSynthetic := dev.DeviceID == "admin-local" || strings.HasPrefix(dev.DeviceID, "lan-")
-				if !isSynthetic || deviceID == "" {
-					deviceID = dev.DeviceID
+			requestedID := strings.TrimSpace(req.DeviceID)
+			deviceID := requestedID
+			if authedDev != nil && authedDev.DeviceID != "" {
+				if authedDev.DeviceID != "admin-local" {
+					// LOW-01: Non-admin paired devices may only register/modify their own device_id.
+					if requestedID != "" && requestedID != authedDev.DeviceID {
+						writeJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden: cannot modify another device's push token"})
+						return
+					}
+					deviceID = authedDev.DeviceID
+				} else if deviceID == "" {
+					deviceID = authedDev.DeviceID
 				}
 			}
 			if deviceID == "" {
@@ -923,6 +1001,20 @@ func buildRouter(
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "token is required"})
 			return
 		}
+		callerID := ""
+		if authedDev != nil {
+			callerID = authedDev.DeviceID
+		}
+		fcmOwnerMu.Lock()
+		if fcmOwnerDeviceID != "" && callerID != "admin-local" && callerID != "" && callerID != fcmOwnerDeviceID {
+			fcmOwnerMu.Unlock()
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden: fcm push token is bound to another paired device"})
+			return
+		}
+		if callerID != "" && callerID != "admin-local" {
+			fcmOwnerDeviceID = callerID
+		}
+		fcmOwnerMu.Unlock()
 
 		if sink, ok := p.NotificationSink().(*notifier.Notifier); ok && sink != nil {
 			sink.UpdateFCMDeviceToken(pushToken)
@@ -945,11 +1037,23 @@ func buildRouter(
 
 	// Mobile push token removal endpoint (called when unpairing or disabling notifications/Live Activities)
 	rootMux.HandleFunc("DELETE /api/v1/device/push-token", func(w http.ResponseWriter, r *http.Request) {
-		deviceID := strings.TrimSpace(r.URL.Query().Get("device_id"))
-		if dev, ok := auth.DeviceFromContext(r.Context()); ok && dev != nil && dev.DeviceID != "" {
-			isSynthetic := dev.DeviceID == "admin-local" || strings.HasPrefix(dev.DeviceID, "lan-")
-			if !isSynthetic || deviceID == "" {
-				deviceID = dev.DeviceID
+		setJSONDeadline(w)
+		authedDev, _ := auth.DeviceFromContext(r.Context())
+		if authedDev != nil && strings.HasPrefix(authedDev.DeviceID, "lan-") {
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden: pairing required to remove push tokens"})
+			return
+		}
+		requestedID := strings.TrimSpace(r.URL.Query().Get("device_id"))
+		deviceID := requestedID
+		if authedDev != nil && authedDev.DeviceID != "" {
+			if authedDev.DeviceID != "admin-local" {
+				if requestedID != "" && requestedID != authedDev.DeviceID {
+					writeJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden: cannot remove another device's push token"})
+					return
+				}
+				deviceID = authedDev.DeviceID
+			} else if deviceID == "" {
+				deviceID = authedDev.DeviceID
 			}
 		}
 		if deviceID == "" {
@@ -1020,6 +1124,7 @@ func buildRouter(
 		writeJSON(w, http.StatusOK, history)
 	})
 	rootMux.HandleFunc("POST /api/v1/cockpit/refresh", func(w http.ResponseWriter, r *http.Request) {
+		setJSONDeadline(w)
 		slog.Info("[Cockpit] Triggering quota refresh...")
 		if cockpit.IsCockpitInstalled() {
 			liveEmail, _, _ := p.GetActiveUserStatus()
@@ -1039,6 +1144,7 @@ func buildRouter(
 		writeJSON(w, http.StatusOK, quotas)
 	})
 	rootMux.HandleFunc("POST /api/v1/cockpit/switch", func(w http.ResponseWriter, r *http.Request) {
+		setJSONDeadline(w)
 		var req struct {
 			AccountID string `json:"account_id"`
 		}

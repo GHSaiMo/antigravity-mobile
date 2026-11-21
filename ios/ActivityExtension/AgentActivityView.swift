@@ -1,10 +1,27 @@
 import SwiftUI
+import Foundation
 import WidgetKit
 import ActivityKit
 import AppIntents
 #if canImport(UIKit)
 import UIKit
 #endif
+
+private func redactLiveActivityCommand(_ raw: String) -> String {
+    var out = raw
+    let patterns: [(String, String)] = [
+        (#"(?i)(Bearer\s+)[A-Za-z0-9._\-~+/=]+"#, "$1***"),
+        (#"(?i)((?:token|api[_-]?key|password|passwd|secret|auth_token)=)[^\s&"']+"#, "$1***"),
+        (#"(-w\s+)[^\s"']+"#, "$1***")
+    ]
+    for (pat, repl) in patterns {
+        if let regex = try? NSRegularExpression(pattern: pat) {
+            let range = NSRange(out.startIndex..<out.endIndex, in: out)
+            out = regex.stringByReplacingMatches(in: out, options: [], range: range, withTemplate: repl)
+        }
+    }
+    return out
+}
 
 public struct AgentActivityWidget: Widget {
     public init() {}
@@ -182,10 +199,11 @@ public struct AgentActivityWidget: Widget {
                                 .foregroundColor(task.isWaiting ? .orange : .cyan)
                             
                             if let cmd = task.command, !cmd.isEmpty {
-                                Text(cmd)
+                                Text(redactLiveActivityCommand(cmd))
                                     .font(.system(size: 11, design: .monospaced))
                                     .lineLimit(1)
                                     .foregroundColor(.cyan.opacity(0.95))
+                                    .privacySensitive()
                             } else {
                                 Text(task.title)
                                     .font(.system(size: 11))
@@ -738,10 +756,11 @@ struct AgentLockScreenView: View {
                     )
                 
                 if let cmd = displayedTask.command, !cmd.isEmpty {
-                    Text(cmd)
+                    Text(redactLiveActivityCommand(cmd))
                         .font(.system(size: 11, weight: .medium, design: .monospaced))
                         .lineLimit(1)
                         .foregroundColor(titleColor)
+                        .privacySensitive()
                 } else {
                     Text(displayedTask.title)
                         .font(.system(size: 11, weight: .medium))

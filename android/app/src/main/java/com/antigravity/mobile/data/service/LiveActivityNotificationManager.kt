@@ -308,17 +308,26 @@ class LiveActivityNotificationManager(
             else -> "正在执行...".loc
         }
 
+        val redactedActionText = redactNotificationSecrets(actionText)
         val subText = if (hasPendingAction) "需要用户审批".loc else "Antigravity Agent"
+
+        val publicOngoing = NotificationCompat.Builder(context, NotificationChannelManager.CHANNEL_LIVE_ACTIVITY)
+            .setContentTitle("Multigravity")
+            .setContentText(if (hasPendingAction) "需要用户审批".loc else "Agent 任务执行中".loc)
+            .setSmallIcon(R.drawable.ic_stat_antigravity)
+            .build()
 
         val builder = NotificationCompat.Builder(context, NotificationChannelManager.CHANNEL_LIVE_ACTIVITY)
             .setContentTitle(resolvedTitle)
-            .setContentText(actionText)
+            .setContentText(redactedActionText)
             .setSubText(subText)
             .setSmallIcon(R.drawable.ic_stat_antigravity)
             .setColor(0xFF4F46E5.toInt())
             .setContentIntent(pendingIntent)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+            .setPublicVersion(publicOngoing)
             .setProgress(0, 0, true)
             .setCategory(NotificationCompat.CATEGORY_PROGRESS)
             .setPriority(NotificationCompat.PRIORITY_LOW)
@@ -537,13 +546,14 @@ class LiveActivityNotificationManager(
 
         val builder = NotificationCompat.Builder(context, NotificationChannelManager.CHANNEL_LIVE_ACTIVITY)
             .setContentTitle(contentTitle)
-            .setContentText(summary)
+            .setContentText(redactNotificationSecrets(summary))
             .setSubText("Antigravity Agent")
             .setSmallIcon(R.drawable.ic_stat_antigravity)
             .setColor(accentColor)
             .setContentIntent(pendingIntent)
             .setOngoing(false)
             .setAutoCancel(true)
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
             .setProgress(0, 0, false)
             .setOnlyAlertOnce(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
@@ -732,13 +742,21 @@ class LiveActivityNotificationManager(
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
+        val publicAlert = NotificationCompat.Builder(context, NotificationChannelManager.CHANNEL_ALERTS)
+            .setContentTitle("Multigravity")
+            .setContentText(if (isAction) "需要用户审批".loc else "有新的任务进展通知".loc)
+            .setSmallIcon(R.drawable.ic_stat_antigravity)
+            .build()
+
         val alertBuilder = NotificationCompat.Builder(context, NotificationChannelManager.CHANNEL_ALERTS)
             .setContentTitle(title)
-            .setContentText(body)
+            .setContentText(redactNotificationSecrets(body))
             .setSmallIcon(R.drawable.ic_stat_antigravity)
             .setColor(if (isAction) 0xFFF59E0B.toInt() else 0xFF4F46E5.toInt())
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+            .setPublicVersion(publicAlert)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(if (isAction) NotificationCompat.CATEGORY_ALARM else NotificationCompat.CATEGORY_EVENT)
             .setDefaults(NotificationCompat.DEFAULT_ALL)
@@ -852,6 +870,18 @@ class LiveActivityNotificationManager(
 
         @Volatile
         private var sharedInstance: LiveActivityNotificationManager? = null
+
+        private val BEARER_SECRET_REGEX = Regex("(?i)(Bearer\\s+)[A-Za-z0-9._\\-~+/=]+")
+        private val KV_SECRET_REGEX = Regex("(?i)((?:token|api[_-]?key|password|passwd|secret|auth_token)=)[^\\s&\"']+")
+        private val FLAG_SECRET_REGEX = Regex("(-w\\s+)[^\\s\"']+")
+
+        fun redactNotificationSecrets(raw: String): String {
+            if (raw.isEmpty()) return raw
+            var out = BEARER_SECRET_REGEX.replace(raw, "$1***")
+            out = KV_SECRET_REGEX.replace(out, "$1***")
+            out = FLAG_SECRET_REGEX.replace(out, "$1***")
+            return out
+        }
 
         fun sharedInstanceOrNull(): LiveActivityNotificationManager? = sharedInstance
 

@@ -550,6 +550,10 @@ public struct WebMWebViewRepresentable: UIViewRepresentable {
         config.allowsInlineMediaPlayback = true
         config.mediaTypesRequiringUserActionForPlayback = []
         config.allowsPictureInPictureMediaPlayback = true
+        config.preferences.setValue(false, forKey: "allowFileAccessFromFileURLs")
+        let pagePrefs = WKWebpagePreferences()
+        pagePrefs.allowsContentJavaScript = false
+        config.defaultWebpagePreferences = pagePrefs
         
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.isOpaque = false
@@ -566,7 +570,14 @@ public struct WebMWebViewRepresentable: UIViewRepresentable {
     
     private func loadVideo(in webView: WKWebView) {
         let parentDir = url.deletingLastPathComponent()
-        let fileName = url.lastPathComponent
+        let rawName = url.lastPathComponent
+        let encodedPath = rawName.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? rawName
+        let escapedSrc = encodedPath
+            .replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "\"", with: "&quot;")
+            .replacingOccurrences(of: "'", with: "&#39;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
         let html = """
         <!DOCTYPE html>
         <html>
@@ -579,7 +590,7 @@ public struct WebMWebViewRepresentable: UIViewRepresentable {
         </style>
         </head>
         <body>
-          <video src="\(fileName)" controls playsinline autoplay></video>
+          <video src="\(escapedSrc)" controls playsinline autoplay></video>
         </body>
         </html>
         """

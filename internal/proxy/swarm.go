@@ -34,19 +34,26 @@ type SwarmBrief struct {
 
 // SwarmMemberInfo represents a member in members.json enriched with runtime activity.
 type SwarmMemberInfo struct {
-	Name          string `json:"name"`
+	Name           string `json:"name"`
 	ConversationID string `json:"conversationId"`
-	Model         string `json:"model"`
-	Role          string `json:"role"`
-	WakeMode      string `json:"wakeMode"`
-	WaitSince     string `json:"waitSince,omitempty"`
-	LastReadSeq   int    `json:"lastReadSeq"`
-	LastNudgedSeq int    `json:"lastNudgedSeq"`
-	Killed        bool   `json:"killed"`
-	Status        string `json:"status"` // "working", "waiting", "killed", "error", "stuck"
-	LastActivity  string `json:"lastActivity,omitempty"`
-	UnreadCount   int    `json:"unreadCount"`
-	IsCurrent     bool   `json:"isCurrent"`
+	Model          string `json:"model"`
+	Role           string `json:"role"`
+	WakeMode       string `json:"wakeMode"`
+	WaitSince      string `json:"waitSince,omitempty"`
+	LastReadSeq    int    `json:"lastReadSeq"`
+	LastNudgedSeq  int    `json:"lastNudgedSeq"`
+	Killed         bool   `json:"killed"`
+	Status         string `json:"status"` // "working", "waiting", "killed", "error", "stuck"
+	LastActivity   string `json:"lastActivity,omitempty"`
+	ActivityKind   string `json:"activityKind,omitempty"` // "tool", "thinking", ""
+	Steps          int    `json:"steps,omitempty"`
+	Posts          int    `json:"posts,omitempty"`
+	LastPostSeq    int    `json:"lastPostSeq,omitempty"`
+	Workspace      string `json:"workspace,omitempty"`
+	WorkspaceMode  string `json:"workspaceMode,omitempty"`
+	RoleWorker     bool   `json:"roleWorker,omitempty"`
+	UnreadCount    int    `json:"unreadCount"`
+	IsCurrent      bool   `json:"isCurrent"`
 }
 
 // SwarmBoardMessage is one line from board.jsonl.
@@ -77,19 +84,55 @@ type SwarmViewWorkstream struct {
 	Note   string   `json:"note,omitempty"`
 }
 
+// SwarmPlanGoal represents goal in plan.json or view.json.
+type SwarmPlanGoal struct {
+	Title string `json:"title"`
+	Line  string `json:"line,omitempty"`
+}
+
+// SwarmPlanThread represents a thread entry in plan.json.
+type SwarmPlanThread struct {
+	ID    string   `json:"id"`
+	Title string   `json:"title"`
+	Goal  string   `json:"goal,omitempty"`
+	Tasks []string `json:"tasks"`
+}
+
+// SwarmPlan mirrors plan.json written by the coordinator (swarm_pane skill).
+type SwarmPlan struct {
+	Goal    *SwarmPlanGoal    `json:"goal,omitempty"`
+	Tasks   map[string]string `json:"tasks,omitempty"`
+	Threads []SwarmPlanThread `json:"threads,omitempty"`
+}
+
+// SwarmViewThread represents a thread in view.json.
+type SwarmViewThread struct {
+	ID          string   `json:"id"`
+	Title       string   `json:"title"`
+	Goal        string   `json:"goal,omitempty"`
+	Now         string   `json:"now,omitempty"`
+	State       string   `json:"state,omitempty"`
+	Workstreams []string `json:"workstreams,omitempty"`
+	Attention   []string `json:"attention,omitempty"`
+}
+
 // SwarmView mirrors the structured summary in view.json written by the swarm narrator.
 type SwarmView struct {
-	Version   flexString `json:"version,omitempty"`
-	AsOfSeq   int        `json:"as_of_seq,omitempty"`
-	UpdatedAt string `json:"updated_at,omitempty"`
-	Headline  string `json:"headline,omitempty"`
-	Phase     *struct {
+	Version        flexString     `json:"version,omitempty"`
+	AsOfSeq        int            `json:"as_of_seq,omitempty"`
+	UpdatedAt      string         `json:"updated_at,omitempty"`
+	Headline       string         `json:"headline,omitempty"`
+	Goal           *SwarmPlanGoal `json:"goal,omitempty"`
+	RunningSummary string         `json:"running_summary,omitempty"`
+	Phase          *struct {
 		Label string `json:"label"`
 		Index int    `json:"index"`
 		Total int    `json:"total"`
 	} `json:"phase,omitempty"`
-	Attention   []SwarmViewAttention   `json:"attention,omitempty"`
-	Workstreams []SwarmViewWorkstream  `json:"workstreams,omitempty"`
+	Attention   []SwarmViewAttention  `json:"attention,omitempty"`
+	Workstreams []SwarmViewWorkstream `json:"workstreams,omitempty"`
+	Threads     []SwarmViewThread     `json:"threads,omitempty"`
+	Now         map[string]string     `json:"now,omitempty"`
 	Milestones  []struct {
 		ID   string `json:"id"`
 		Text string `json:"text"`
@@ -110,6 +153,7 @@ type SwarmSnapshot struct {
 	Members       []SwarmMemberInfo   `json:"members"`
 	Messages      []SwarmBoardMessage `json:"messages"`
 	View          *SwarmView          `json:"view,omitempty"`
+	Plan          *SwarmPlan          `json:"plan,omitempty"`
 }
 
 type swarmBrainTopology struct {
@@ -125,6 +169,8 @@ const swarmTopologyScanTTL = 3 * time.Second
 var (
 	mentionRegex        = regexp.MustCompile(`@([a-zA-Z0-9_\-]+)`)
 	narratorNameRegex   = regexp.MustCompile(`^narrator(-\d+)?$`)
+	roleWorkerNameRegex = regexp.MustCompile(`^(narrator|monitor)(-\d+)?$`)
+	thinkingHeadingRe   = regexp.MustCompile(`(?:^|\n)\s*\*\*([^*\n]{3,96})\*\*\s*(?:\n|$)`)
 	swarmCoordMu        sync.RWMutex
 	memberToCoordCache  = make(map[string]string)
 	swarmTopologyByBase = make(map[string]*swarmBrainTopology)
@@ -154,6 +200,9 @@ func (f *flexString) UnmarshalJSON(data []byte) error {
 }
 
 func indexCoordinatorMembersLocked(topo *swarmBrainTopology, brainBase, coordID string, mtime int64) {
+	if !cascadeIDRe.MatchString(coordID) {
+		return
+	}
 	membersPath := filepath.Join(brainBase, coordID, ".system_generated", "swarm", "members.json")
 	data, err := os.ReadFile(membersPath)
 	if err != nil {
@@ -170,7 +219,7 @@ func indexCoordinatorMembersLocked(topo *swarmBrainTopology, brainBase, coordID 
 	}
 	topo.knownCoords[coordID] = mtime
 	for _, m := range raw.Members {
-		if m.ConversationID != "" {
+		if m.ConversationID != "" && cascadeIDRe.MatchString(m.ConversationID) {
 			topo.memberToCoord[m.ConversationID] = coordID
 			if len(memberToCoordCache) > 2048 {
 				memberToCoordCache = make(map[string]string)
@@ -185,7 +234,7 @@ func indexCoordinatorMembersLocked(topo *swarmBrainTopology, brainBase, coordID 
 // If it is a worker member, finds the coordinator owning this member using a bounded topology cache
 // so non-swarm conversations incur at most two stat syscalls instead of scanning brain/.
 func resolveSwarmDir(cascadeID string) (string, string) {
-	if cascadeID == "" {
+	if cascadeID == "" || !cascadeIDRe.MatchString(cascadeID) {
 		return "", ""
 	}
 	home, err := os.UserHomeDir()
@@ -314,6 +363,36 @@ type rawSwarmMemberEntry struct {
 	LastReadSeq    int        `json:"last_read_seq"`
 	LastNudgedSeq  int        `json:"last_nudged_seq"`
 	Killed         bool       `json:"killed"`
+	Workspace      string     `json:"workspace"`
+	WorkspaceMode  string     `json:"workspace_mode"`
+}
+
+func isSwarmRoleWorker(name, role string) bool {
+	if role != "" && role != "worker" && role != "coordinator" {
+		return true
+	}
+	return roleWorkerNameRegex.MatchString(name)
+}
+
+func readSwarmPlan(swarmDir string) (*SwarmPlan, int64, int64) {
+	pPath := filepath.Join(swarmDir, "plan.json")
+	fi, err := os.Stat(pPath)
+	if err != nil || fi.IsDir() {
+		return nil, 0, 0
+	}
+	const maxPlanBytes = 64 * 1024
+	if fi.Size() <= 0 || fi.Size() > maxPlanBytes {
+		return nil, fi.ModTime().UnixNano(), fi.Size()
+	}
+	data, err := os.ReadFile(pPath)
+	if err != nil || len(data) == 0 {
+		return nil, fi.ModTime().UnixNano(), fi.Size()
+	}
+	var plan SwarmPlan
+	if err := json.Unmarshal(data, &plan); err != nil {
+		return nil, fi.ModTime().UnixNano(), fi.Size()
+	}
+	return &plan, fi.ModTime().UnixNano(), fi.Size()
 }
 
 // resolveSwarmViewPath resolves <swarmDir>/view.json first, falling back to
@@ -333,7 +412,7 @@ func resolveSwarmViewPath(brainBase, swarmDir string, members map[string]rawSwar
 	sort.Strings(names)
 	for _, name := range names {
 		m := members[name]
-		if m.ConversationID == "" {
+		if m.ConversationID == "" || !cascadeIDRe.MatchString(m.ConversationID) {
 			continue
 		}
 		if m.Role == "narrator" || narratorNameRegex.MatchString(name) {
@@ -354,7 +433,7 @@ func computeMembersTranscriptDigest(brainBase string, members map[string]rawSwar
 	}
 	names := make([]string, 0, len(members))
 	for name, m := range members {
-		if !m.Killed && m.ConversationID != "" {
+		if !m.Killed && m.ConversationID != "" && cascadeIDRe.MatchString(m.ConversationID) {
 			names = append(names, name)
 		}
 	}
@@ -384,7 +463,7 @@ func GetSwarmSignature(cascadeID string) string {
 	if swarmDir == "" {
 		return ""
 	}
-	var mMod, mSize, bMod, bSize, vMod int64
+	var mMod, mSize, bMod, bSize, vMod, pMod, pSize int64
 	membersPath := filepath.Join(swarmDir, "members.json")
 	if fi, err := os.Stat(membersPath); err == nil {
 		mMod = fi.ModTime().UnixNano()
@@ -393,6 +472,10 @@ func GetSwarmSignature(cascadeID string) string {
 	if fi, err := os.Stat(filepath.Join(swarmDir, "board.jsonl")); err == nil {
 		bMod = fi.ModTime().UnixNano()
 		bSize = fi.Size()
+	}
+	if fi, err := os.Stat(filepath.Join(swarmDir, "plan.json")); err == nil && !fi.IsDir() {
+		pMod = fi.ModTime().UnixNano()
+		pSize = fi.Size()
 	}
 
 	home, _ := os.UserHomeDir()
@@ -413,7 +496,71 @@ func GetSwarmSignature(cascadeID string) string {
 	} else if fi, err := os.Stat(filepath.Join(swarmDir, "view.json")); err == nil {
 		vMod = fi.ModTime().UnixNano()
 	}
-	return fmt.Sprintf("%s:%d-%d:%d-%d:%d:%x", coordID, mMod, mSize, bMod, bSize, vMod, tDigest)
+	return fmt.Sprintf("%s:%d-%d:%d-%d:%d:%d-%d:%x", coordID, mMod, mSize, bMod, bSize, vMod, pMod, pSize, tDigest)
+}
+
+type cachedSwarmBriefEntry struct {
+	sig   string
+	brief SwarmBrief
+}
+
+var (
+	swarmBriefCacheMu sync.RWMutex
+	swarmBriefCache   = make(map[string]cachedSwarmBriefEntry)
+	swarmWorkerNameRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]{0,31}$`)
+)
+
+// readBoardLatestSeqTail reads the highest sequence number near the end of board.jsonl
+// using a bounded reverse-tail seek instead of scanning the entire file from byte 0.
+func readBoardLatestSeqTail(boardPath string) int {
+	f, err := os.Open(boardPath)
+	if err != nil {
+		return 0
+	}
+	defer f.Close()
+
+	fi, err := f.Stat()
+	if err != nil || fi.Size() <= 0 {
+		return 0
+	}
+
+	for _, tailWindow := range []int64{64 * 1024, 512 * 1024} {
+		offset := fi.Size() - tailWindow
+		if offset < 0 {
+			offset = 0
+		}
+		if _, err := f.Seek(offset, io.SeekStart); err != nil {
+			return 0
+		}
+		buf, err := io.ReadAll(io.LimitReader(f, tailWindow))
+		if err != nil || len(buf) == 0 {
+			return 0
+		}
+		if offset > 0 {
+			if nl := bytes.IndexByte(buf, '\n'); nl >= 0 {
+				buf = buf[nl+1:]
+			}
+		}
+		latestSeq := 0
+		lines := bytes.Split(buf, []byte{'\n'})
+		for i := len(lines) - 1; i >= 0; i-- {
+			line := bytes.TrimSpace(lines[i])
+			if len(line) == 0 {
+				continue
+			}
+			var m struct {
+				Seq int `json:"seq"`
+			}
+			if err := json.Unmarshal(line, &m); err == nil && m.Seq > latestSeq {
+				latestSeq = m.Seq
+				break
+			}
+		}
+		if latestSeq > 0 || offset == 0 {
+			return latestSeq
+		}
+	}
+	return 0
 }
 
 // GetSwarmBrief extracts a lightweight brief of the swarm for streaming.
@@ -421,6 +568,17 @@ func GetSwarmBrief(cascadeID string) *SwarmBrief {
 	swarmDir, coordID := resolveSwarmDir(cascadeID)
 	if swarmDir == "" {
 		return nil
+	}
+
+	sig := GetSwarmSignature(cascadeID)
+	if sig != "" {
+		swarmBriefCacheMu.RLock()
+		if entry, ok := swarmBriefCache[coordID]; ok && entry.sig == sig {
+			cp := entry.brief
+			swarmBriefCacheMu.RUnlock()
+			return &cp
+		}
+		swarmBriefCacheMu.RUnlock()
 	}
 
 	membersData, err := os.ReadFile(filepath.Join(swarmDir, "members.json"))
@@ -449,7 +607,7 @@ func GetSwarmBrief(cascadeID string) *SwarmBrief {
 			continue
 		}
 		status := "working"
-		if brainBase != "" && m.ConversationID != "" {
+		if brainBase != "" && m.ConversationID != "" && cascadeIDRe.MatchString(m.ConversationID) {
 			tPath := filepath.Join(brainBase, m.ConversationID, ".system_generated", "logs", "transcript.jsonl")
 			if st, _ := readMemberTranscriptActivity(tPath); st != "" {
 				status = st
@@ -477,43 +635,148 @@ func GetSwarmBrief(cascadeID string) *SwarmBrief {
 		var v SwarmView
 		if err := json.Unmarshal(viewData, &v); err == nil {
 			brief.Headline = v.Headline
+			if brief.Headline == "" && v.Goal != nil {
+				brief.Headline = v.Goal.Title
+			}
 			if v.Phase != nil {
 				brief.Phase = v.Phase.Label
 			}
 			brief.AttentionCount = len(v.Attention)
 		}
 	}
-
-	// Read tail seq of board.jsonl
-	if boardFile, err := os.Open(filepath.Join(swarmDir, "board.jsonl")); err == nil {
-		defer boardFile.Close()
-		scanner := bufio.NewScanner(boardFile)
-		scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
-		latestSeq := 0
-		for scanner.Scan() {
-			line := scanner.Bytes()
-			if len(line) == 0 {
-				continue
-			}
-			var m struct {
-				Seq int `json:"seq"`
-			}
-			if err := json.Unmarshal(line, &m); err == nil && m.Seq > latestSeq {
-				latestSeq = m.Seq
+	if brief.Headline == "" {
+		if plan, _, _ := readSwarmPlan(swarmDir); plan != nil && plan.Goal != nil {
+			if plan.Goal.Title != "" {
+				brief.Headline = plan.Goal.Title
+			} else {
+				brief.Headline = plan.Goal.Line
 			}
 		}
-		brief.LatestSeq = latestSeq
+	}
+
+	// Read tail seq of board.jsonl via reverse seek without scanning the entire file.
+	brief.LatestSeq = readBoardLatestSeqTail(filepath.Join(swarmDir, "board.jsonl"))
+
+	if sig != "" {
+		swarmBriefCacheMu.Lock()
+		if len(swarmBriefCache) > 64 {
+			swarmBriefCache = make(map[string]cachedSwarmBriefEntry)
+		}
+		swarmBriefCache[coordID] = cachedSwarmBriefEntry{sig: sig, brief: *brief}
+		swarmBriefCacheMu.Unlock()
 	}
 
 	return brief
 }
 
-// readMemberTranscriptActivity inspects the last line(s) of a member's transcript.jsonl
-// to extract its live runtime status ("working", "waiting", "error") and activity summary.
-func readMemberTranscriptActivity(transcriptPath string) (statusOverride string, lastActivity string) {
+type memberTranscriptSummary struct {
+	status       string
+	activity     string
+	activityKind string
+	steps        int
+}
+
+func unquoteSwarmArg(raw json.RawMessage) string {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
+		return ""
+	}
+	var s string
+	if err := json.Unmarshal(trimmed, &s); err == nil {
+		s = strings.TrimSpace(s)
+		if len(s) >= 2 && s[0] == '"' && s[len(s)-1] == '"' {
+			var inner string
+			if json.Unmarshal([]byte(s), &inner) == nil {
+				return inner
+			}
+			return s[1 : len(s)-1]
+		}
+		return s
+	}
+	return string(trimmed)
+}
+
+func oneLineSwarmLabel(s string, maxLen int) string {
+	s = strings.ReplaceAll(s, "`", "")
+	s = strings.ReplaceAll(s, "**", "")
+	s = strings.Join(strings.Fields(s), " ")
+	if maxLen > 0 && len(s) > maxLen {
+		return strings.TrimSpace(s[:maxLen-1]) + "…"
+	}
+	return s
+}
+
+func describeSwarmToolCall(name string, args map[string]json.RawMessage) string {
+	if name == "" {
+		return ""
+	}
+	switch name {
+	case "swarm_wait":
+		return "Waiting for posts"
+	case "read_board":
+		return "Reading the board"
+	case "post_message":
+		return "Posting to the board"
+	}
+	if summary := unquoteSwarmArg(args["toolSummary"]); summary != "" {
+		return oneLineSwarmLabel(summary, 96)
+	}
+	if action := unquoteSwarmArg(args["toolAction"]); action != "" {
+		return oneLineSwarmLabel(action, 96)
+	}
+	p := unquoteSwarmArg(args["Path"])
+	if p == "" {
+		p = unquoteSwarmArg(args["AbsolutePath"])
+	}
+	if p == "" {
+		p = unquoteSwarmArg(args["TargetFile"])
+	}
+	if p != "" {
+		base := filepath.Base(strings.ReplaceAll(p, "\\", "/"))
+		switch name {
+		case "read_file":
+			return "Read " + base
+		case "write_file":
+			return "Write " + base
+		case "edit_file":
+			return "Edit " + base
+		}
+	}
+	if (name == "code_search" || name == "grep_search") && len(args["Query"]) > 0 {
+		if q := unquoteSwarmArg(args["Query"]); q != "" {
+			return oneLineSwarmLabel("Search "+q, 96)
+		}
+	}
+	if name == "swarm" && len(args["action"]) > 0 {
+		act := unquoteSwarmArg(args["action"])
+		target := unquoteSwarmArg(args["name"])
+		return oneLineSwarmLabel(strings.TrimSpace("swarm "+act+" "+target), 96)
+	}
+	return name
+}
+
+func extractThinkingHeading(thinking string) string {
+	if thinking == "" {
+		return ""
+	}
+	matches := thinkingHeadingRe.FindAllStringSubmatch(thinking, -1)
+	if len(matches) == 0 {
+		return ""
+	}
+	last := matches[len(matches)-1]
+	if len(last) > 1 {
+		return oneLineSwarmLabel(last[1], 96)
+	}
+	return ""
+}
+
+// readMemberTranscriptSummary inspects the tail of a member's transcript.jsonl
+// to extract live runtime status ("working", "waiting", "error"), crisp tool/thinking
+// activity (matching upstream swarm_board/main.mjs), and step count.
+func readMemberTranscriptSummary(transcriptPath string) memberTranscriptSummary {
 	tFile, err := os.Open(transcriptPath)
 	if err != nil {
-		return "", ""
+		return memberTranscriptSummary{}
 	}
 	defer tFile.Close()
 
@@ -530,25 +793,31 @@ func readMemberTranscriptActivity(transcriptPath string) (statusOverride string,
 	if discardFirstPartialLine {
 		_ = scanner.Scan()
 	}
-	var prevLine, lastLine []byte
+	var lines [][]byte
 	for scanner.Scan() {
-		b := scanner.Bytes()
+		b := bytes.TrimSpace(scanner.Bytes())
 		if len(b) > 0 {
-			prevLine = append(prevLine[:0], lastLine...)
-			lastLine = append(lastLine[:0], b...)
+			cp := make([]byte, len(b))
+			copy(cp, b)
+			lines = append(lines, cp)
 		}
 	}
-	if len(lastLine) == 0 {
-		return "", ""
+	if len(lines) == 0 {
+		return memberTranscriptSummary{}
 	}
 
+	type transcriptToolCall struct {
+		Name string                     `json:"name"`
+		Args map[string]json.RawMessage `json:"args"`
+	}
 	type transcriptStep struct {
-		Type      string `json:"type"`
-		Status    string `json:"status"`
-		Content   string `json:"content"`
-		ToolCalls []struct {
-			Name string `json:"name"`
-		} `json:"tool_calls"`
+		StepIndex int                  `json:"step_index"`
+		Type      string               `json:"type"`
+		Status    string               `json:"status"`
+		Content   string               `json:"content"`
+		Thinking  string               `json:"thinking"`
+		Error     string               `json:"error"`
+		ToolCalls []transcriptToolCall `json:"tool_calls"`
 		// Legacy camelCase fallbacks
 		ToolCall *struct {
 			Name        string `json:"name"`
@@ -564,80 +833,136 @@ func readMemberTranscriptActivity(transcriptPath string) (statusOverride string,
 		} `json:"errorMessage"`
 	}
 
-	var step transcriptStep
-	if err := json.Unmarshal(lastLine, &step); err != nil {
-		return "", ""
+	var newest transcriptStep
+	if err := json.Unmarshal(lines[len(lines)-1], &newest); err != nil {
+		return memberTranscriptSummary{}
+	}
+	steps := len(lines)
+	if newest.StepIndex+1 > steps {
+		steps = newest.StepIndex + 1
 	}
 
-	if step.Status == "ERROR" || step.Type == "ERROR_MESSAGE" {
-		msg := strings.TrimSpace(step.Content)
-		if msg == "" && step.ErrorMessage != nil {
-			msg = step.ErrorMessage.Error.ShortError
+	if newest.Status == "ERROR" || newest.Type == "ERROR_MESSAGE" || (newest.ErrorMessage != nil && newest.ErrorMessage.Error.ShortError != "") {
+		msg := strings.TrimSpace(newest.Content)
+		if msg == "" && newest.Error != "" {
+			msg = strings.TrimSpace(newest.Error)
+		}
+		if msg == "" && newest.ErrorMessage != nil {
+			msg = newest.ErrorMessage.Error.ShortError
 		}
 		if len(msg) > 120 {
 			msg = msg[:120] + "..."
 		}
-		return "error", msg
-	}
-	if step.ErrorMessage != nil && step.ErrorMessage.Error.ShortError != "" {
-		return "error", step.ErrorMessage.Error.ShortError
+		return memberTranscriptSummary{status: "error", activity: msg, steps: steps}
 	}
 
-	if step.ToolCall != nil {
-		if step.ToolCall.ToolSummary != "" {
-			return "working", step.ToolCall.ToolSummary
+	// 1. Determine whether the member's turn has ended (turnEnded in main.mjs).
+	idle := false
+	var trailingGeneric []transcriptStep
+	for i := len(lines) - 1; i >= 0; i-- {
+		var st transcriptStep
+		if err := json.Unmarshal(lines[i], &st); err != nil {
+			break
 		}
-		return "working", "调用工具 " + step.ToolCall.Name
-	}
-
-	if len(step.ToolCalls) > 0 {
-		names := make([]string, 0, len(step.ToolCalls))
-		hasSwarmWait := false
-		for _, tc := range step.ToolCalls {
-			if tc.Name != "" {
-				names = append(names, tc.Name)
-			}
-			if tc.Name == "swarm_wait" {
-				hasSwarmWait = true
-			}
+		if st.Type == "GENERIC" {
+			trailingGeneric = append([]transcriptStep{st}, trailingGeneric...)
+			continue
 		}
-		if hasSwarmWait && step.Status == "DONE" && len(names) == 1 {
-			return "waiting", "等待唤醒 (swarm_wait)"
-		}
-		if len(names) > 0 {
-			return "working", "调用工具 " + strings.Join(names, ", ")
-		}
-	}
-
-	if step.Type == "PLANNER_RESPONSE" {
-		if step.Status == "DONE" && len(step.ToolCalls) == 0 {
-			return "waiting", "等待新消息"
-		}
-		return "working", "思考与回复中..."
-	}
-
-	if step.Type == "GENERIC" && step.Status == "DONE" {
-		if strings.Contains(step.Content, "Waiting for a message") {
-			return "waiting", "等待唤醒 (swarm_wait)"
-		}
-		// Check if previous planner step called swarm_wait
-		if len(prevLine) > 0 {
-			var prevStep transcriptStep
-			if json.Unmarshal(prevLine, &prevStep) == nil {
-				for _, tc := range prevStep.ToolCalls {
+		if st.Type == "PLANNER_RESPONSE" {
+			if len(st.ToolCalls) == 0 && st.ToolCall == nil {
+				idle = len(trailingGeneric) == 0 && (st.Status == "DONE" || st.Status == "")
+			} else {
+				waitIdx := -1
+				for idx, tc := range st.ToolCalls {
 					if tc.Name == "swarm_wait" {
-						return "waiting", "等待唤醒 (swarm_wait)"
+						waitIdx = idx
+						break
+					}
+				}
+				if waitIdx >= 0 {
+					if len(trailingGeneric) >= len(st.ToolCalls) && trailingGeneric[waitIdx].Status == "DONE" {
+						idle = true
+					} else if len(trailingGeneric) == 0 && len(st.ToolCalls) == 1 && st.Status == "DONE" {
+						idle = true
 					}
 				}
 			}
 		}
-		return "working", "处理工具返回..."
+		break
+	}
+	if !idle && newest.Type == "GENERIC" && newest.Status == "DONE" && strings.Contains(newest.Content, "Waiting for a message") {
+		idle = true
 	}
 
-	if step.PlannerResponse != nil && step.PlannerResponse.Response != "" {
-		return "working", "回复中..."
+	// 2. Walk back to the newest planner step of the current turn for live activity.
+	var activity, activityKind string
+	for i := len(lines) - 1; i >= 0; i-- {
+		var st transcriptStep
+		if err := json.Unmarshal(lines[i], &st); err != nil {
+			continue
+		}
+		if st.Type == "USER_INPUT" {
+			break
+		}
+		if st.ToolCall != nil {
+			if st.ToolCall.ToolSummary != "" {
+				activity = oneLineSwarmLabel(st.ToolCall.ToolSummary, 96)
+			} else {
+				activity = describeSwarmToolCall(st.ToolCall.Name, nil)
+			}
+			activityKind = "tool"
+			break
+		}
+		if st.Type != "PLANNER_RESPONSE" {
+			if st.PlannerResponse != nil && st.PlannerResponse.Response != "" && activity == "" {
+				activity = "Replying…"
+				activityKind = "thinking"
+				break
+			}
+			continue
+		}
+		hasWait := false
+		for _, tc := range st.ToolCalls {
+			if tc.Name == "swarm_wait" {
+				hasWait = true
+				break
+			}
+		}
+		if hasWait {
+			break
+		}
+		for j := len(st.ToolCalls) - 1; j >= 0; j-- {
+			if lbl := describeSwarmToolCall(st.ToolCalls[j].Name, st.ToolCalls[j].Args); lbl != "" {
+				activity = lbl
+				activityKind = "tool"
+				break
+			}
+		}
+		if activity != "" {
+			break
+		}
+		if h := extractThinkingHeading(st.Thinking); h != "" {
+			activity = h
+			activityKind = "thinking"
+			break
+		}
 	}
-	return "", ""
+
+	status := "working"
+	if idle {
+		status = "waiting"
+	}
+	return memberTranscriptSummary{
+		status:       status,
+		activity:     activity,
+		activityKind: activityKind,
+		steps:        steps,
+	}
+}
+
+func readMemberTranscriptActivity(transcriptPath string) (statusOverride string, lastActivity string) {
+	sum := readMemberTranscriptSummary(transcriptPath)
+	return sum.status, sum.activity
 }
 
 // GetSwarmSnapshot returns full details of the swarm, checking ETag.
@@ -680,9 +1005,10 @@ func GetSwarmSnapshot(cascadeID string, afterSeq int, clientETag string) (*Swarm
 	}
 
 	viewPath, viewMod := resolveSwarmViewPath(brainBase, swarmDir, rawMembers.Members)
+	plan, planMod, planSize := readSwarmPlan(swarmDir)
 	tDigest := computeMembersTranscriptDigest(brainBase, rawMembers.Members)
 
-	currentETag := fmt.Sprintf(`"%d-%d-%d-%d-%d-%x"`, fiMembers.ModTime().UnixNano(), fiMembers.Size(), boardMod, boardSize, viewMod, tDigest)
+	currentETag := fmt.Sprintf(`"%d-%d-%d-%d-%d-%d-%d-%x"`, fiMembers.ModTime().UnixNano(), fiMembers.Size(), boardMod, boardSize, viewMod, planMod, planSize, tDigest)
 	if clientETag != "" && clientETag == currentETag {
 		return nil, true, nil
 	}
@@ -690,6 +1016,8 @@ func GetSwarmSnapshot(cascadeID string, afterSeq int, clientETag string) (*Swarm
 	// Read board.jsonl
 	messages := make([]SwarmBoardMessage, 0)
 	latestSeq := 0
+	postCounts := make(map[string]int)
+	lastPostSeqs := make(map[string]int)
 	if boardFile, err := os.Open(boardPath); err == nil {
 		defer boardFile.Close()
 		scanner := bufio.NewScanner(boardFile)
@@ -703,6 +1031,12 @@ func GetSwarmSnapshot(cascadeID string, afterSeq int, clientETag string) (*Swarm
 			if err := json.Unmarshal(line, &msg); err == nil {
 				if msg.Seq > latestSeq {
 					latestSeq = msg.Seq
+				}
+				if msg.Agent != "" && !strings.HasPrefix(msg.Text, "[channel]") {
+					postCounts[msg.Agent]++
+					if msg.Seq > lastPostSeqs[msg.Agent] {
+						lastPostSeqs[msg.Agent] = msg.Seq
+					}
 				}
 				if msg.Seq > afterSeq {
 					// extract mentions
@@ -730,14 +1064,12 @@ func GetSwarmSnapshot(cascadeID string, afterSeq int, clientETag string) (*Swarm
 			status = "working"
 		}
 
-		lastActivity := ""
-		if !rm.Killed && rm.ConversationID != "" {
+		var trSum memberTranscriptSummary
+		if !rm.Killed && rm.ConversationID != "" && cascadeIDRe.MatchString(rm.ConversationID) {
 			tPath := filepath.Join(brainBase, rm.ConversationID, ".system_generated", "logs", "transcript.jsonl")
-			if st, act := readMemberTranscriptActivity(tPath); st != "" || act != "" {
-				if st != "" {
-					status = st
-				}
-				lastActivity = act
+			trSum = readMemberTranscriptSummary(tPath)
+			if trSum.status != "" {
+				status = trSum.status
 			}
 		}
 		if status == "working" {
@@ -760,7 +1092,14 @@ func GetSwarmSnapshot(cascadeID string, afterSeq int, clientETag string) (*Swarm
 			LastNudgedSeq:  rm.LastNudgedSeq,
 			Killed:         rm.Killed,
 			Status:         status,
-			LastActivity:   lastActivity,
+			LastActivity:   trSum.activity,
+			ActivityKind:   trSum.activityKind,
+			Steps:          trSum.steps,
+			Posts:          postCounts[name],
+			LastPostSeq:    lastPostSeqs[name],
+			Workspace:      strings.TrimSpace(rm.Workspace),
+			WorkspaceMode:  strings.TrimSpace(rm.WorkspaceMode),
+			RoleWorker:     isSwarmRoleWorker(name, rm.Role),
 			UnreadCount:    unread,
 			IsCurrent:      rm.ConversationID == cascadeID,
 		})
@@ -800,10 +1139,20 @@ func GetSwarmSnapshot(cascadeID string, afterSeq int, clientETag string) (*Swarm
 	}
 	if view != nil {
 		brief.Headline = view.Headline
+		if brief.Headline == "" && view.Goal != nil {
+			brief.Headline = view.Goal.Title
+		}
 		if view.Phase != nil {
 			brief.Phase = view.Phase.Label
 		}
 		brief.AttentionCount = len(view.Attention)
+	}
+	if brief.Headline == "" && plan != nil && plan.Goal != nil {
+		if plan.Goal.Title != "" {
+			brief.Headline = plan.Goal.Title
+		} else {
+			brief.Headline = plan.Goal.Line
+		}
 	}
 
 	snap := &SwarmSnapshot{
@@ -815,6 +1164,7 @@ func GetSwarmSnapshot(cascadeID string, afterSeq int, clientETag string) (*Swarm
 		Members:       members,
 		Messages:      messages,
 		View:          view,
+		Plan:          plan,
 	}
 
 	return snap, false, nil
@@ -832,6 +1182,10 @@ func (p *Proxy) HandleGetSwarm(w http.ResponseWriter, r *http.Request) {
 	}
 	if cascadeID == "" {
 		writeJSONError(w, "missing cascadeId", http.StatusBadRequest)
+		return
+	}
+	if !cascadeIDRe.MatchString(cascadeID) {
+		writeJSONError(w, "invalid cascadeId", http.StatusBadRequest)
 		return
 	}
 
@@ -880,12 +1234,20 @@ func (p *Proxy) HandleSwarmFeedback(w http.ResponseWriter, r *http.Request) {
 		Feedback      string `json:"feedback"`
 		Content       string `json:"content"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.NewDecoder(io.LimitReader(r.Body, 64*1024)).Decode(&req); err != nil {
 		writeJSONError(w, "invalid request: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 	if req.CascadeID == "" {
 		req.CascadeID = req.CascadeIDAlt
+	}
+	if req.CascadeID != "" && !cascadeIDRe.MatchString(req.CascadeID) {
+		writeJSONError(w, "invalid cascadeId", http.StatusBadRequest)
+		return
+	}
+	if req.CoordinatorID != "" && !cascadeIDRe.MatchString(req.CoordinatorID) {
+		writeJSONError(w, "invalid coordinatorId", http.StatusBadRequest)
+		return
 	}
 	feedback := strings.TrimSpace(req.Feedback)
 	if feedback == "" {
@@ -903,6 +1265,10 @@ func (p *Proxy) HandleSwarmFeedback(w http.ResponseWriter, r *http.Request) {
 	}
 	if targetConv == "" {
 		targetConv = req.CascadeID
+	}
+	if !cascadeIDRe.MatchString(targetConv) {
+		writeJSONError(w, "invalid target conversation", http.StatusBadRequest)
+		return
 	}
 
 	msg := fmt.Sprintf("@narrator user feedback: %s", feedback)
@@ -929,12 +1295,20 @@ func (p *Proxy) HandleSwarmNudge(w http.ResponseWriter, r *http.Request) {
 		WorkerName    string `json:"workerName"`
 		Member        string `json:"member"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.NewDecoder(io.LimitReader(r.Body, 64*1024)).Decode(&req); err != nil {
 		writeJSONError(w, "invalid request: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 	if req.CascadeID == "" {
 		req.CascadeID = req.CascadeIDAlt
+	}
+	if req.CascadeID != "" && !cascadeIDRe.MatchString(req.CascadeID) {
+		writeJSONError(w, "invalid cascadeId", http.StatusBadRequest)
+		return
+	}
+	if req.CoordinatorID != "" && !cascadeIDRe.MatchString(req.CoordinatorID) {
+		writeJSONError(w, "invalid coordinatorId", http.StatusBadRequest)
+		return
 	}
 	worker := strings.TrimSpace(req.WorkerName)
 	if worker == "" {
@@ -942,6 +1316,10 @@ func (p *Proxy) HandleSwarmNudge(w http.ResponseWriter, r *http.Request) {
 	}
 	if worker == "" {
 		writeJSONError(w, "workerName cannot be empty", http.StatusBadRequest)
+		return
+	}
+	if !swarmWorkerNameRe.MatchString(worker) {
+		writeJSONError(w, "invalid workerName", http.StatusBadRequest)
 		return
 	}
 
@@ -952,6 +1330,10 @@ func (p *Proxy) HandleSwarmNudge(w http.ResponseWriter, r *http.Request) {
 	}
 	if targetConv == "" {
 		targetConv = req.CascadeID
+	}
+	if !cascadeIDRe.MatchString(targetConv) {
+		writeJSONError(w, "invalid target conversation", http.StatusBadRequest)
+		return
 	}
 
 	msg := fmt.Sprintf("@%s 请汇报当前进展与卡点", worker)

@@ -99,7 +99,7 @@ func saveUpdateCheckCache(cachePath string, c updateCheckCache) {
 	if cachePath == "" {
 		return
 	}
-	if err := os.MkdirAll(filepath.Dir(cachePath), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(cachePath), 0700); err != nil {
 		return
 	}
 	data, err := json.MarshalIndent(c, "", "  ")

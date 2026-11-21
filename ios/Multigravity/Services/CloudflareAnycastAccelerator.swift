@@ -39,8 +39,10 @@ public final class CloudflareAnycastAccelerator: @unchecked Sendable {
         "198.41.214.1"
     ]
     
+    private static let maxConcurrentProbeIPs = 6
     private let lock = OSAllocatedUnfairLock(initialState: candidateEdgeIPs[0])
     private let isProbingLock = OSAllocatedUnfairLock(initialState: false)
+    private let probeStateLock = OSAllocatedUnfairLock(initialState: (cursor: 0, hasWinner: false))
     private var lastProbeTime: TimeInterval = 0
     
     public var currentPrimaryIP: String {
@@ -64,7 +66,9 @@ public final class CloudflareAnycastAccelerator: @unchecked Sendable {
     
     public func triggerProbeIfNeeded(force: Bool = false) {
         let now = Date().timeIntervalSince1970
-        if !force && (now - lastProbeTime < 180) { // 3分钟内不重复探测
+        let hasWinner = probeStateLock.withLock { $0.hasWinner }
+        let minInterval: TimeInterval = hasWinner ? 300 : 180
+        if !force && (now - lastProbeTime < minInterval) {
             return
         }
         let shouldProbe = isProbingLock.withLock { isProbing -> Bool in
@@ -81,9 +85,30 @@ public final class CloudflareAnycastAccelerator: @unchecked Sendable {
             await self.probeFastestIPsConcurrently()
         }
     }
+
+    private func selectProbeBatch() -> [String] {
+        let all = Self.candidateEdgeIPs
+        guard !all.isEmpty else { return [] }
+        let currentPrimary = lock.withLock { $0 }
+        var batch: [String] = [currentPrimary]
+        probeStateLock.withLock { state in
+            var scanned = 0
+            var idx = state.cursor % all.count
+            while batch.count < Self.maxConcurrentProbeIPs && scanned < all.count {
+                let candidate = all[idx]
+                if !batch.contains(candidate) {
+                    batch.append(candidate)
+                }
+                idx = (idx + 1) % all.count
+                scanned += 1
+            }
+            state.cursor = idx
+        }
+        return batch
+    }
     
     private func probeFastestIPsConcurrently() async {
-        let candidates = Self.candidateEdgeIPs
+        let candidates = selectProbeBatch()
         
         let winner = await withTaskGroup(of: (String, Double)?.self) { group -> String? in
             for ip in candidates {
@@ -109,6 +134,7 @@ public final class CloudflareAnycastAccelerator: @unchecked Sendable {
         
         if let fastest = winner {
             lock.withLock { $0 = fastest }
+            probeStateLock.withLock { $0.hasWinner = true }
         }
     }
     

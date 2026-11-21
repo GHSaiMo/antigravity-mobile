@@ -32,9 +32,18 @@ public struct SlashCommandIconView: View {
 
     public var body: some View {
         let key = SlashCommandIconCatalog.resolveIcon(name: name, icon: icon, kind: kind)
-        SlashCommandShape(iconKey: key)
-            .fill(style: FillStyle(eoFill: false))
-            .frame(width: size, height: size)
+        if key == "swarm_bee" {
+            SwarmPixelBeeSpriteView(
+                name: "coordinator",
+                pose: .landed,
+                width: size * 1.22,
+                height: size
+            )
+        } else {
+            SlashCommandShape(iconKey: key)
+                .fill(style: FillStyle(eoFill: false))
+                .frame(width: size, height: size)
+        }
     }
 }
 
@@ -61,8 +70,15 @@ public enum SlashCommandTextRenderer {
                 result = result + Text(str)
             case .slash(let mention):
                 let iconKey = SlashCommandIconCatalog.resolveIcon(name: mention.name, icon: mention.icon, kind: mention.kind)
-                let img = SlashCommandIconCatalog.cachedImage(iconKey: iconKey, size: iconSize, color: iconColor)
-                let iconText = Text(Image(uiImage: img)).baselineOffset(-1.5)
+                let iconText: Text = {
+                    if iconKey == "swarm_bee" {
+                        let beeImg = SwarmPixelBeeInlineIcon.cachedImage(height: iconSize + 1)
+                        return Text(Image(uiImage: beeImg)).baselineOffset(-2.0)
+                    } else {
+                        let img = SlashCommandIconCatalog.cachedImage(iconKey: iconKey, size: iconSize, color: iconColor)
+                        return Text(Image(uiImage: img)).baselineOffset(-1.5)
+                    }
+                }()
                 if enableSkillLinks,
                    let defPath = mention.definitionPath?.trimmingCharacters(in: .whitespacesAndNewlines),
                    !defPath.isEmpty {

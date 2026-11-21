@@ -213,8 +213,46 @@ func TestAuthStore_ClearAll(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to reload auth store: %v", err)
 	}
+	t.Cleanup(store2.Close)
 	if len(store2.ListDevices()) != 0 {
 		t.Errorf("expected 0 devices in reloaded store, got %d", len(store2.ListDevices()))
+	}
+}
+
+func TestAuthStore_PersistSnapshotSkipsStaleSeq(t *testing.T) {
+	storePath := filepath.Join(t.TempDir(), "auth_store_seq.json")
+	store, err := NewAuthStore(storePath)
+	if err != nil {
+		t.Fatalf("NewAuthStore: %v", err)
+	}
+	t.Cleanup(store.Close)
+
+	tok1 := "tok_seq_device_1"
+	tok2 := "tok_seq_device_2"
+	if err := store.AddDevice(PairedDevice{DeviceID: "dev_1", DeviceName: "One", TokenHash: HashToken(tok1), CreatedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	// Take a stale snapshot (seq=2) before adding dev_2 (seq=3)
+	store.mu.Lock()
+	staleSnap, staleSeq := store.snapshotLocked()
+	store.mu.Unlock()
+
+	if err := store.AddDevice(PairedDevice{DeviceID: "dev_2", DeviceName: "Two", TokenHash: HashToken(tok2), CreatedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Attempting to persist staleSnap out-of-order MUST be ignored so dev_2 is not lost (P1-5).
+	if err := store.persistSnapshot(staleSnap, staleSeq); err != nil {
+		t.Fatal(err)
+	}
+
+	reloaded, err := NewAuthStore(storePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(reloaded.Close)
+	if _, ok := reloaded.ValidateToken(tok2); !ok {
+		t.Fatalf("stale snapshot overwrote newly paired device dev_2!")
 	}
 }
 

@@ -3,6 +3,8 @@ package inspector
 import (
 	"regexp"
 	"strings"
+	"sync"
+	"time"
 )
 
 // ProcessDetails describes the running language_server process as far as the OS lets us see it.
@@ -58,11 +60,41 @@ func ClassifyLanguageServerCmdline(cmdline string) (bool, int) {
 	return true, priority
 }
 
+type cachedProcessDetails struct {
+	details   ProcessDetails
+	expiresAt time.Time
+}
+
+var (
+	procDetailsCacheMu sync.RWMutex
+	procDetailsCache   = make(map[int]cachedProcessDetails)
+)
+
 // LookupProcessDetails returns the executable path and version of the process with the given PID.
 // It never fails: whatever cannot be determined is left empty, and callers treat that as "unknown".
 func LookupProcessDetails(pid int) ProcessDetails {
 	if pid <= 0 {
 		return ProcessDetails{}
 	}
-	return lookupProcessDetails(pid)
+	now := time.Now()
+	procDetailsCacheMu.RLock()
+	if entry, ok := procDetailsCache[pid]; ok && now.Before(entry.expiresAt) {
+		procDetailsCacheMu.RUnlock()
+		return entry.details
+	}
+	procDetailsCacheMu.RUnlock()
+
+	d := lookupProcessDetails(pid)
+	if d.ExecutablePath != "" || d.Version != "" {
+		procDetailsCacheMu.Lock()
+		if len(procDetailsCache) >= 64 {
+			procDetailsCache = make(map[int]cachedProcessDetails)
+		}
+		procDetailsCache[pid] = cachedProcessDetails{
+			details:   d,
+			expiresAt: now.Add(30 * time.Second),
+		}
+		procDetailsCacheMu.Unlock()
+	}
+	return d
 }

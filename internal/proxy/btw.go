@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"sync"
@@ -32,12 +33,39 @@ var defaultBtwTracker = &btwTracker{
 	bySide:   make(map[string]BtwSideQuestionEntry),
 }
 
+const maxBtwTrackedSideQuestions = 512
+
 func (t *btwTracker) record(entry BtwSideQuestionEntry) {
 	if entry.CascadeID == "" {
 		return
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	if _, exists := t.bySide[entry.CascadeID]; !exists && len(t.bySide) >= maxBtwTrackedSideQuestions {
+		// Evict ~25% of entries when bounded cap is reached.
+		evicted := 0
+		for sid, old := range t.bySide {
+			delete(t.bySide, sid)
+			if old.ParentCascadeID != "" {
+				list := t.byParent[old.ParentCascadeID]
+				filtered := list[:0]
+				for _, it := range list {
+					if it.CascadeID != sid {
+						filtered = append(filtered, it)
+					}
+				}
+				if len(filtered) == 0 {
+					delete(t.byParent, old.ParentCascadeID)
+				} else {
+					t.byParent[old.ParentCascadeID] = filtered
+				}
+			}
+			evicted++
+			if evicted >= maxBtwTrackedSideQuestions/4 {
+				break
+			}
+		}
+	}
 	t.bySide[entry.CascadeID] = entry
 	if entry.ParentCascadeID != "" {
 		list := t.byParent[entry.ParentCascadeID]
@@ -169,7 +197,7 @@ func (p *Proxy) handleBtwStart(w http.ResponseWriter, r *http.Request) {
 		Attachments     []interface{} `json:"attachments"`
 		Media           []interface{} `json:"media"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.NewDecoder(io.LimitReader(r.Body, 256*1024)).Decode(&req); err != nil {
 		writeRPCError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}

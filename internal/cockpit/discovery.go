@@ -1,11 +1,11 @@
 package cockpit
 
 import (
-	"log/slog"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
@@ -45,7 +45,9 @@ func InvalidatePortCache() {
 }
 
 // VerifyReportPort tests whether a given TCP port responds to Cockpit's /report HTTP query.
-func VerifyReportPort(port int, token string, timeout time.Duration) bool {
+// SEC (MED-08): Probes without sending the secret report token so blind port scans never leak credentials
+// to arbitrary local listeners, and requires a Cockpit signature when HTTP 200 is returned.
+func VerifyReportPort(port int, _ string, timeout time.Duration) bool {
 	if port <= 0 {
 		return false
 	}
@@ -53,7 +55,7 @@ func VerifyReportPort(port int, token string, timeout time.Duration) bool {
 		return false
 	}
 
-	reqURL := fmt.Sprintf("http://127.0.0.1:%d/report?token=%s&format=yaml", port, token)
+	reqURL := fmt.Sprintf("http://127.0.0.1:%d/report?format=yaml", port)
 	client := &http.Client{Timeout: timeout}
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, reqURL, nil)
 	if err != nil {
@@ -66,16 +68,18 @@ func VerifyReportPort(port int, token string, timeout time.Duration) bool {
 	}
 	defer resp.Body.Close()
 
-	// Cockpit Tools responds with 200 OK (valid token) or 401 Unauthorized (service exists, bad token)
-	if resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusUnauthorized {
+	// Cockpit Tools responds with 401 Unauthorized when token is omitted/invalid
+	if resp.StatusCode == http.StatusUnauthorized {
 		return true
 	}
 
-	// Also check if response content has Cockpit signature
-	buf := make([]byte, 512)
-	n, _ := io.ReadFull(resp.Body, buf)
-	content := string(buf[:n])
-	return strings.Contains(content, "service:") || strings.Contains(content, "metric:") || strings.Contains(content, "Cockpit")
+	buf, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+	content := string(buf)
+	hasSignature := strings.Contains(content, "service:") || strings.Contains(content, "metric:") || strings.Contains(content, "Cockpit")
+	if resp.StatusCode == http.StatusOK {
+		return hasSignature
+	}
+	return hasSignature
 }
 
 // VerifyWsPort tests whether a given TCP port accepts WebSocket connections.
@@ -147,34 +151,131 @@ func GetListeningPortsForPID(pid int) []int {
 	return ports
 }
 
-// FindCockpitPIDs attempts to locate running Cockpit Tools PIDs across the system.
+func isCockpitCommandLine(cmdline string) bool {
+	lower := strings.ToLower(strings.TrimSpace(cmdline))
+	if lower == "" || strings.Contains(lower, "<defunct>") {
+		return false
+	}
+	fields := strings.Fields(cmdline)
+	if len(fields) > 0 {
+		base := strings.ToLower(filepath.Base(fields[0]))
+		if base == "cockpit-tools" || base == "cockpit-tools.exe" {
+			return true
+		}
+	}
+	return strings.Contains(cmdline, "Cockpit Tools.app/Contents/MacOS/") ||
+		strings.Contains(lower, "/cockpit-tools") ||
+		strings.Contains(lower, `\cockpit-tools.exe`)
+}
+
+func isTrustedCockpitPID(pid int) bool {
+	if pid <= 0 {
+		return false
+	}
+	if pid == os.Getpid() {
+		return true
+	}
+	if runtime.GOOS == "windows" {
+		out, err := runCmdTimeout(3*time.Second, "tasklist", "/fi", fmt.Sprintf("PID eq %d", pid), "/nh")
+		if err != nil {
+			return false
+		}
+		return strings.Contains(strings.ToLower(string(out)), "cockpit-tools")
+	}
+	args := []string{"-p", strconv.Itoa(pid), "-o", "uid=,command="}
+	out, err := runCmdTimeout(3*time.Second, "ps", args...)
+	if err != nil {
+		return false
+	}
+	line := strings.TrimSpace(string(out))
+	fields := strings.Fields(line)
+	if len(fields) < 2 {
+		return false
+	}
+	if uid, convErr := strconv.Atoi(fields[0]); convErr == nil && os.Getuid() >= 0 && uid != os.Getuid() {
+		return false
+	}
+	cmdPart := strings.TrimSpace(line[len(fields[0]):])
+	return isCockpitCommandLine(cmdPart)
+}
+
+// FindCockpitPIDs locates running Cockpit Tools PIDs owned by the current user.
 func FindCockpitPIDs() []int {
 	var pids []int
 	seen := make(map[int]bool)
 
-	// Source 1: server.json
+	// Source 1: server.json (verified alive and owned by current user / Cockpit binary)
 	if serverInfo, err := ReadRawCockpitServerInfo(); err == nil && serverInfo.PID > 0 {
-		seen[serverInfo.PID] = true
-		pids = append(pids, serverInfo.PID)
+		if isTrustedCockpitPID(serverInfo.PID) {
+			seen[serverInfo.PID] = true
+			pids = append(pids, serverInfo.PID)
+		}
 	}
 
-	// Source 2: pgrep on unix
+	// Source 2: UID-scoped process table scan on POSIX (never cross-user broad pgrep -f)
 	if runtime.GOOS != "windows" {
-		for _, pattern := range []string{"cockpit-tools", "Cockpit Tools"} {
-			out, err := runCmdTimeout(3*time.Second, "pgrep", "-f", pattern)
-			if err == nil {
-				for _, line := range strings.Split(string(out), "\n") {
-					line = strings.TrimSpace(line)
-					if p, err := strconv.Atoi(line); err == nil && p > 0 && !seen[p] {
-						seen[p] = true
-						pids = append(pids, p)
-					}
+		var out []byte
+		var err error
+		if uid := os.Getuid(); uid >= 0 {
+			out, err = runCmdTimeout(3*time.Second, "ps", "-u", strconv.Itoa(uid), "-o", "pid=,command=")
+		} else {
+			out, err = runCmdTimeout(3*time.Second, "ps", "-eo", "pid=,command=")
+		}
+		if err == nil {
+			for _, rawLine := range strings.Split(string(out), "\n") {
+				line := strings.TrimSpace(rawLine)
+				fields := strings.Fields(line)
+				if len(fields) < 2 {
+					continue
+				}
+				p, convErr := strconv.Atoi(fields[0])
+				if convErr != nil || p <= 0 || seen[p] {
+					continue
+				}
+				cmdPart := strings.TrimSpace(line[len(fields[0]):])
+				if isCockpitCommandLine(cmdPart) {
+					seen[p] = true
+					pids = append(pids, p)
 				}
 			}
 		}
 	}
 
 	return pids
+}
+
+// isCandidatePortOwnedByTrustedProcess verifies that an unconfigured fallback port belongs to a verified
+// Cockpit Tools process (or the current process in unit tests) before sending any credentials to it.
+func isCandidatePortOwnedByTrustedProcess(port int, trustedPIDs []int) bool {
+	if port <= 0 {
+		return false
+	}
+	trustedSet := make(map[int]bool, len(trustedPIDs)+1)
+	trustedSet[os.Getpid()] = true
+	for _, p := range trustedPIDs {
+		trustedSet[p] = true
+		for _, lp := range GetListeningPortsForPID(p) {
+			if lp == port {
+				return true
+			}
+		}
+	}
+	if runtime.GOOS == "windows" {
+		return false
+	}
+	out, err := runCmdTimeout(3*time.Second, "lsof", "-nP", fmt.Sprintf("-iTCP:%d", port), "-sTCP:LISTEN", "-Fp")
+	if err != nil || len(out) == 0 {
+		return false
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "p") {
+			if pid, convErr := strconv.Atoi(line[1:]); convErr == nil && (trustedSet[pid] || isTrustedCockpitPID(pid)) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // candidateReportPorts constructs an ordered list of candidate ports to probe for Cockpit Report.
@@ -230,8 +331,8 @@ func candidateWsPorts(configuredWsPort, serverJsonWsPort int) []int {
 }
 
 // ResolveActiveReportPort detects the actual listening ReportPort for Cockpit Tools.
-// It checks cache -> configuredPort -> OS-level process listening ports -> candidate port pool,
-// with protocol-level verification to ensure zero false positives.
+// It checks cache -> configuredPort -> OS-level process listening ports -> verified candidate port pool,
+// using tokenless pre-probing and PID ownership verification to prevent token leakage.
 func ResolveActiveReportPort(token string, configuredPort int) (int, error) {
 	now := time.Now()
 
@@ -247,13 +348,13 @@ func ResolveActiveReportPort(token string, configuredPort int) (int, error) {
 		}
 	}
 
-	// 2. Check configured port directly
+	// 2. Check configured port directly (tokenless VerifyReportPort)
 	if configuredPort > 0 && VerifyReportPort(configuredPort, token, 400*time.Millisecond) {
 		updateReportCache(configuredPort)
 		return configuredPort, nil
 	}
 
-	// 3. Process-level discovery: inspect ports listening by cockpit-tools PID
+	// 3. Process-level discovery: inspect ports listening by verified cockpit-tools PIDs
 	pids := FindCockpitPIDs()
 	for _, pid := range pids {
 		ports := GetListeningPortsForPID(pid)
@@ -266,17 +367,25 @@ func ResolveActiveReportPort(token string, configuredPort int) (int, error) {
 		}
 	}
 
-	// 4. Scan candidate ports
-	candidates := candidateReportPorts(configuredPort)
-	for _, port := range candidates {
-		if VerifyReportPort(port, token, 250*time.Millisecond) {
-			slog.Info(fmt.Sprintf("[Cockpit] 🎯 Auto-detected active Report port via candidate scan: %d (configured was %d)", port, configuredPort))
-			updateReportCache(port)
-			return port, nil
+	// 4. Scan candidate ports only when verified to belong to a trusted Cockpit process
+	if len(pids) > 0 {
+		candidates := candidateReportPorts(configuredPort)
+		for _, port := range candidates {
+			if port == configuredPort {
+				continue
+			}
+			if !isCandidatePortOwnedByTrustedProcess(port, pids) {
+				continue
+			}
+			if VerifyReportPort(port, token, 250*time.Millisecond) {
+				slog.Info(fmt.Sprintf("[Cockpit] 🎯 Auto-detected active Report port via verified candidate scan: %d (configured was %d)", port, configuredPort))
+				updateReportCache(port)
+				return port, nil
+			}
 		}
 	}
 
-	return 0, fmt.Errorf("cockpit report service not found on configured port %d or any candidate ports", configuredPort)
+	return 0, fmt.Errorf("cockpit report service not found on configured port %d or any verified candidate ports", configuredPort)
 }
 
 // ResolveActiveWsPort detects the actual listening WebSocket port for Cockpit Tools.
@@ -309,7 +418,7 @@ func ResolveActiveWsPort() (int, string, error) {
 		return serverJsonPort, authToken, nil
 	}
 
-	// 3. Process-level discovery
+	// 3. Process-level discovery (verified Cockpit PIDs only)
 	pids := FindCockpitPIDs()
 	for _, pid := range pids {
 		ports := GetListeningPortsForPID(pid)
@@ -322,10 +431,9 @@ func ResolveActiveWsPort() (int, string, error) {
 		}
 	}
 
-	// 4. Candidate port pool
+	// 4. Candidate port pool (configured port directly; unconfigured ports require trusted PID ownership)
 	var configuredWsPort int
 	if cfg, err := getCockpitConfig(); err == nil && cfg != nil {
-		// config.json may have ws_port
 		type cfgWithWs struct {
 			WsPort int `json:"ws_port"`
 		}
@@ -339,16 +447,30 @@ func ResolveActiveWsPort() (int, string, error) {
 		}
 	}
 
-	candidates := candidateWsPorts(configuredWsPort, serverJsonPort)
-	for _, port := range candidates {
-		if VerifyWsPort(port, 250*time.Millisecond) {
-			slog.Info(fmt.Sprintf("[Cockpit] 🎯 Auto-detected active WebSocket port via candidate scan: %d", port))
-			updateWsCache(port)
-			return port, authToken, nil
+	if configuredWsPort > 0 && VerifyWsPort(configuredWsPort, 250*time.Millisecond) {
+		slog.Info(fmt.Sprintf("[Cockpit] 🎯 Auto-detected active WebSocket port via configured ws_port: %d", configuredWsPort))
+		updateWsCache(configuredWsPort)
+		return configuredWsPort, authToken, nil
+	}
+
+	if len(pids) > 0 {
+		candidates := candidateWsPorts(configuredWsPort, serverJsonPort)
+		for _, port := range candidates {
+			if port == serverJsonPort || port == configuredWsPort {
+				continue
+			}
+			if !isCandidatePortOwnedByTrustedProcess(port, pids) {
+				continue
+			}
+			if VerifyWsPort(port, 250*time.Millisecond) {
+				slog.Info(fmt.Sprintf("[Cockpit] 🎯 Auto-detected active WebSocket port via verified candidate scan: %d", port))
+				updateWsCache(port)
+				return port, authToken, nil
+			}
 		}
 	}
 
-	return 0, authToken, fmt.Errorf("cockpit websocket service not responding on any probed ports")
+	return 0, "", fmt.Errorf("cockpit websocket service not responding on any probed ports")
 }
 
 func updateReportCache(port int) {

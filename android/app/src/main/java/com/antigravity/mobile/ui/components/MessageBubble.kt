@@ -399,33 +399,23 @@ fun MessageBubble(
         val displayText = message.effectiveText
         if (isUser) {
             // Consolidated attached user images (aligning with iOS / Web: use imageUrls as primary with bytes as thumbnail, fallback to bytes)
-            val allUserImages = remember(message, urlResolver) {
+            val allUserImages = remember(message.imageUrls, message.media, message.imageDataList, urlResolver) {
+                val imageBytesList = message.effectiveImageDataList
                 val validImageUrls = message.imageUrls?.filter { FileIconResolver.isImage(it) }
                 if (!validImageUrls.isNullOrEmpty()) {
                     val list = validImageUrls.mapIndexed { idx, rawUrl ->
                         val resolvedUrl = urlResolver?.invoke(rawUrl) ?: rawUrl
-                        val bytes = message.effectiveImageDataList.getOrNull(idx)
+                        val bytes = imageBytesList.getOrNull(idx)
                         ImageViewerItem(url = resolvedUrl, bytes = bytes)
                     }.toMutableList()
-                    if (message.effectiveImageDataList.size > validImageUrls.size) {
-                        for (i in validImageUrls.size until message.effectiveImageDataList.size) {
-                            val bytes = message.effectiveImageDataList[i]
-                            val bmp = try {
-                                BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                            } catch (_: Exception) { null }
-                            if (bmp != null) {
-                                list.add(ImageViewerItem(bytes = bytes, bitmap = bmp))
-                            }
+                    if (imageBytesList.size > validImageUrls.size) {
+                        for (i in validImageUrls.size until imageBytesList.size) {
+                            list.add(ImageViewerItem(bytes = imageBytesList[i]))
                         }
                     }
                     list
                 } else {
-                    message.effectiveImageDataList.mapNotNull { bytes ->
-                        try {
-                            val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                            if (bmp != null) ImageViewerItem(bytes = bytes, bitmap = bmp) else null
-                        } catch (_: Exception) { null }
-                    }
+                    imageBytesList.map { bytes -> ImageViewerItem(bytes = bytes) }
                 }
             }
 
@@ -443,7 +433,12 @@ fun MessageBubble(
                                 onImageGroupClick(allUserImages, index)
                             } else {
                                 val fallbackBmp = item.bitmap ?: item.bytes?.let { b ->
-                                    try { BitmapFactory.decodeByteArray(b, 0, b.size) } catch (_: Exception) { null }
+                                    try {
+                                        val opts = BitmapFactory.Options().apply {
+                                            if (b.size > 2 * 1024 * 1024) inSampleSize = 2
+                                        }
+                                        BitmapFactory.decodeByteArray(b, 0, b.size, opts)
+                                    } catch (_: Exception) { null }
                                 }
                                 onImageClick?.invoke(item.url, fallbackBmp)
                             }
@@ -483,6 +478,7 @@ fun MessageBubble(
                                 SubcomposeAsyncImage(
                                     model = ImageRequest.Builder(context)
                                         .data(item.bytes ?: item.url)
+                                        .size(256)
                                         .apply {
                                             if (stableKey != null) {
                                                 diskCacheKey(stableKey)

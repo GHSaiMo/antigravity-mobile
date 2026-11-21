@@ -27,6 +27,12 @@ function computeTokenDiff(oldText, newText) {
   const tokensB = tokenizeDiffText(newText || " ");
   const m = tokensA.length;
   const n = tokensB.length;
+  if (m > 400 || n > 400 || m * n > 90000) {
+    return [
+      [{ text: oldText || " ", isChanged: true }],
+      [{ text: newText || " ", isChanged: true }],
+    ];
+  }
   const dp = Array.from({ length: m + 1 }, () => new Uint16Array(n + 1));
   for (let i = 1; i <= m; i++) {
     for (let j = 1; j <= n; j++) {
@@ -71,16 +77,17 @@ function processDiffLines(lines) {
       const insCount = insEnd - delEnd;
       if (insCount > 0) {
         const pairCount = Math.min(delCount, insCount);
+        const pairDiffs = new Array(pairCount);
         for (let k = 0; k < pairCount; k++) {
-          const [delSpans] = computeTokenDiff(lines[i + k].text, lines[delEnd + k].text);
+          const [delSpans, insSpans] = computeTokenDiff(lines[i + k].text, lines[delEnd + k].text);
+          pairDiffs[k] = insSpans;
           result.push({ line: lines[i + k], spans: delSpans });
         }
         for (let k = pairCount; k < delCount; k++) {
           result.push({ line: lines[i + k], spans: [{ text: lines[i + k].text || " ", isChanged: false }] });
         }
         for (let k = 0; k < pairCount; k++) {
-          const [, insSpans] = computeTokenDiff(lines[i + k].text, lines[delEnd + k].text);
-          result.push({ line: lines[delEnd + k], spans: insSpans });
+          result.push({ line: lines[delEnd + k], spans: pairDiffs[k] });
         }
         for (let k = pairCount; k < insCount; k++) {
           result.push({ line: lines[delEnd + k], spans: [{ text: lines[delEnd + k].text || " ", isChanged: false }] });

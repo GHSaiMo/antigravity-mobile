@@ -2,21 +2,11 @@
  * Multigravity APNs Stateless Push Relay (Cloudflare Worker)
  *
  * 架构：零存储、无状态 APNs HTTP/2 签名中继
- * 作用：接收自托管 mgy 网关发来的 iOS 原生通知与灵动岛 (Live Activity) 更新请求，
- *      使用存储在 Cloudflare Worker Secrets 中的 Apple APNs .p8 私钥签发 ES256 JWT，
- *      通过原生 HTTP/2 转发至 Apple APNs (api.push.apple.com / api.sandbox.push.apple.com)，
- *      并将送达结果与失效状态 (410 Unregistered) 透传回网关。
- *
- * 安全与隐私边界：
+ * 安全与隐私边界 (MED-06 加固):
  *   - 不建数据库、不落盘、不记录任何通知正文与设备映射；
  *   - apns-topic 严格锁定为 Worker Secret 中配置的 APNS_BUNDLE_ID，绝不接受客户端覆盖；
- *   - ES256 JWT 在 Worker Isolate 内存中缓存 45 分钟（Apple 允许最长 50 分钟），单次转发 CPU < 1ms。
- *
- * 必需环境变量 / Secrets (Worker -> Settings -> Variables and Secrets):
- *   - APNS_PRIVATE_KEY : [Secret] Apple AuthKey_XXXXXXXXXX.p8 完整 PEM 内容
- *   - APNS_KEY_ID      : [Text]   10 位 Key ID
- *   - APNS_TEAM_ID     : [Text]   Apple Developer Team ID (如 7ZW5X4CFNP)
- *   - APNS_BUNDLE_ID   : [Text]   主 App Bundle ID (如 com.ghsaimo.antigravity)
+ *   - Alert 与 Live Activity 双路径均强制执行单 Token 突发限流 + 单 IP 滑动窗口限流（FIFO 淘汰防清表绕过）；
+ *   - 移除浏览器跨域通配符 CORS (*)，且限制跳转 `url` 仅允许应用内安全协议 (`antigravity://`, `agy://`) 或站内相对路径 (`/`)。
  */
 
 const APNS_PROD_HOST = "https://api.push.apple.com";
@@ -25,6 +15,7 @@ const JWT_CACHE_TTL_MS = 45 * 60 * 1000; // 45 minutes (< Apple 50-minute refres
 const MAX_REQUEST_BYTES = 8 * 1024;      // 8 KB request guard
 const MAX_APNS_PAYLOAD_BYTES = 4096;     // Apple APNs hard limit (4 KB)
 const HEX_TOKEN_RE = /^[0-9a-fA-F]{64,256}$/;
+const SAFE_APP_SCHEME_RE = /^(?:agy|antigravity):\/\/[A-Za-z0-9._~:/?#\[\]@!$&'()*+,;=%-]+$/;
 
 // Isolate-level in-memory cache (zero persistence, zero PII)
 let cachedSigningKey = null;
@@ -36,22 +27,51 @@ const TOKEN_THROTTLE_MAX_ENTRIES = 2000;
 const TOKEN_ROUTINE_UPDATE_MIN_MS = 1500;
 const TOKEN_WINDOW_MS = 10_000;
 const TOKEN_MAX_BURST_PER_WINDOW = 12;
+const ALERT_MAX_BURST_PER_WINDOW = 8;
 const tokenThrottleMap = new Map(); // tokenKey -> { lastRoutineAt, windowStartAt, count }
+
+const IP_THROTTLE_MAX_ENTRIES = 4096;
+const IP_WINDOW_MS = 10_000;
+const IP_MAX_REQUESTS_PER_WINDOW = 40;
+const ipThrottleMap = new Map(); // ipKey -> { windowStartAt, count }
+
+function evictMapFIFO(map, maxEntries, windowMs, now) {
+  if (map.size < maxEntries) return;
+  for (const [k, v] of map) {
+    if (now - v.windowStartAt > windowMs) {
+      map.delete(k);
+    }
+    if (map.size < maxEntries) return;
+  }
+  while (map.size >= maxEntries) {
+    const oldestKey = map.keys().next().value;
+    if (oldestKey === undefined) break;
+    map.delete(oldestKey);
+  }
+}
+
+function checkIPThrottle(clientIP) {
+  const now = Date.now();
+  const key = String(clientIP || "unknown").slice(0, 64);
+  if (!ipThrottleMap.has(key)) {
+    evictMapFIFO(ipThrottleMap, IP_THROTTLE_MAX_ENTRIES, 60_000, now);
+  }
+  let entry = ipThrottleMap.get(key);
+  if (!entry || now - entry.windowStartAt >= IP_WINDOW_MS) {
+    entry = { windowStartAt: now, count: 0 };
+  }
+  entry.count += 1;
+  ipThrottleMap.delete(key);
+  ipThrottleMap.set(key, entry);
+  return entry.count <= IP_MAX_REQUESTS_PER_WINDOW;
+}
 
 function checkTokenThrottle(rawToken, event, priority) {
   const now = Date.now();
-  // Key only on non-reversible prefix + tail length; evict stale entries when full
-  const key = `${rawToken.slice(0, 16)}:${rawToken.slice(-8)}`;
-  if (tokenThrottleMap.size >= TOKEN_THROTTLE_MAX_ENTRIES && !tokenThrottleMap.has(key)) {
-    for (const [k, v] of tokenThrottleMap) {
-      if (now - v.windowStartAt > 60_000) {
-        tokenThrottleMap.delete(k);
-      }
-      if (tokenThrottleMap.size < TOKEN_THROTTLE_MAX_ENTRIES / 2) break;
-    }
-    if (tokenThrottleMap.size >= TOKEN_THROTTLE_MAX_ENTRIES) {
-      tokenThrottleMap.clear();
-    }
+  const kind = event === "alert" ? "a" : "la";
+  const key = `${kind}:${rawToken.slice(0, 16)}:${rawToken.slice(-8)}`;
+  if (!tokenThrottleMap.has(key)) {
+    evictMapFIFO(tokenThrottleMap, TOKEN_THROTTLE_MAX_ENTRIES, 60_000, now);
   }
 
   let entry = tokenThrottleMap.get(key);
@@ -61,7 +81,6 @@ function checkTokenThrottle(rawToken, event, priority) {
       windowStartAt: now,
       count: 0,
     };
-    tokenThrottleMap.set(key, entry);
   }
 
   // Coalesce duplicate low-priority routine updates within 1.5s without hitting Apple APNs
@@ -70,7 +89,11 @@ function checkTokenThrottle(rawToken, event, priority) {
   }
 
   entry.count += 1;
-  if (entry.count > TOKEN_MAX_BURST_PER_WINDOW) {
+  tokenThrottleMap.delete(key);
+  tokenThrottleMap.set(key, entry);
+
+  const maxBurst = event === "alert" ? ALERT_MAX_BURST_PER_WINDOW : TOKEN_MAX_BURST_PER_WINDOW;
+  if (entry.count > maxBurst) {
     return { action: "ratelimit" };
   }
 
@@ -80,16 +103,46 @@ function checkTokenThrottle(rawToken, event, priority) {
   return { action: "allow" };
 }
 
+function isSafePushTargetURL(raw) {
+  const u = String(raw || "").trim();
+  if (!u || u.length > 512) return false;
+  if (/[\r\n\t\\]/.test(u) || u.includes("..")) return false;
+  if (u.startsWith("/")) {
+    return !u.startsWith("//");
+  }
+  return SAFE_APP_SCHEME_RE.test(u);
+}
+
+async function verifyOptionalRelayAuth(request, env) {
+  const requiredSecret = (env.APNS_RELAY_AUTH_TOKEN || "").trim();
+  if (!requiredSecret) {
+    return true;
+  }
+  const authHeader = String(request.headers.get("authorization") || "").trim();
+  const match = /^Bearer\s+(.+)$/i.exec(authHeader);
+  if (!match || !match[1]) {
+    return false;
+  }
+  const enc = new TextEncoder();
+  const [da, db] = await Promise.all([
+    crypto.subtle.digest("SHA-256", enc.encode(match[1].trim())),
+    crypto.subtle.digest("SHA-256", enc.encode(requiredSecret)),
+  ]);
+  if (typeof crypto.subtle.timingSafeEqual === "function") {
+    return crypto.subtle.timingSafeEqual(da, db);
+  }
+  const ua = new Uint8Array(da);
+  const ub = new Uint8Array(db);
+  let diff = 0;
+  for (let i = 0; i < ua.length; i++) {
+    diff |= ua[i] ^ ub[i];
+  }
+  return diff === 0;
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-
-    if (request.method === "OPTIONS") {
-      return new Response(null, {
-        status: 204,
-        headers: corsHeaders(),
-      });
-    }
 
     if (request.method === "GET" && (url.pathname === "/" || url.pathname === "/healthz")) {
       const configured = Boolean(
@@ -101,13 +154,30 @@ export default {
       return jsonResponse({
         status: configured ? "ok" : "unconfigured",
         service: "Multigravity APNs Stateless Push Relay",
-        version: "1.0.0",
+        version: "1.1.0",
         configured,
       });
     }
 
     if (request.method !== "POST") {
       return jsonResponse({ ok: false, error: "method not allowed" }, 405);
+    }
+
+    if (!(await verifyOptionalRelayAuth(request, env))) {
+      return jsonResponse({ ok: false, error: "unauthorized" }, 401);
+    }
+
+    const clientIP = request.headers.get("CF-Connecting-IP") || "unknown";
+    if (!checkIPThrottle(clientIP)) {
+      return jsonResponse(
+        {
+          ok: false,
+          status: 429,
+          reason: "TooManyRequests",
+          unregistered: false,
+        },
+        429
+      );
     }
 
     // Enforce strict request size cap before parsing
@@ -160,6 +230,26 @@ async function handleAlertPush(body, env) {
   const bodyText = String(body.body || "").trim();
   if (!title && !bodyText) {
     return jsonResponse({ ok: false, error: "title or body is required" }, 400);
+  }
+
+  if (body.url && String(body.url).trim()) {
+    const candidateUrl = String(body.url).trim();
+    if (!isSafePushTargetURL(candidateUrl)) {
+      return jsonResponse({ ok: false, error: "disallowed url scheme (only relative '/' or app deep-links permitted)" }, 400);
+    }
+  }
+
+  const throttle = checkTokenThrottle(deviceToken, "alert", "10");
+  if (throttle.action === "ratelimit") {
+    return jsonResponse(
+      {
+        ok: false,
+        status: 429,
+        reason: "TooManyRequests",
+        unregistered: false,
+      },
+      429
+    );
   }
 
   const alert = {};
@@ -266,8 +356,6 @@ async function handleLiveActivityPush(body, env) {
     aps["dismissal-date"] = Math.floor(body.dismissal_date);
   }
 
-  // Optional alert for Live Activity (only included if caller explicitly supplies title or body).
-  // Omit aps.alert.sound unless explicitly provided so Push-to-Start launches silently.
   if (body.alert && typeof body.alert === "object") {
     const laAlert = {};
     if (body.alert.title) laAlert.title = String(body.alert.title);
@@ -278,8 +366,6 @@ async function handleLiveActivityPush(body, env) {
     }
     if (laAlert.title || laAlert.body) {
       aps.alert = laAlert;
-      // No explicit sound: send an empty sound so iOS does not fall back to the default chime
-      // (e.g. Push-to-Start fired when a message is sent).
       if (!laSound) {
         laAlert.sound = "";
       }
@@ -457,7 +543,6 @@ async function getOrMintAPNsJWT(cfg) {
   );
   const signingInput = `${header}.${payload}`;
 
-  // Web Crypto ECDSA P-256 outputs raw IEEE P1363 (R || S, 64 bytes), matching APNs ES256 JWT spec directly.
   const signature = await crypto.subtle.sign(
     { name: "ECDSA", hash: { name: "SHA-256" } },
     cachedSigningKey,
@@ -471,7 +556,6 @@ async function getOrMintAPNsJWT(cfg) {
 }
 
 async function importP8PrivateKey(pem) {
-  // Support both literal newlines and escaped "\n" in secrets
   const normalized = pem.replace(/\\n/g, "\n");
   const base64 = normalized
     .replace(/-----BEGIN PRIVATE KEY-----/g, "")
@@ -503,21 +587,12 @@ function base64UrlEncodeBytes(bytes) {
   return btoa(binary).replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
 }
 
-function corsHeaders() {
-  return {
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
-  };
-}
-
 function jsonResponse(data, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
     headers: {
       "Content-Type": "application/json; charset=utf-8",
       "Cache-Control": "no-store",
-      ...corsHeaders(),
     },
   });
 }

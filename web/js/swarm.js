@@ -9,6 +9,12 @@ const SwarmManager = (() => {
 
   function init() {
     createSwarmUI();
+    window.addEventListener("hashchange", () => {
+      const modal = document.getElementById("swarm-modal");
+      if (modal && !modal.classList.contains("hidden")) {
+        toggleSwarmModal(false);
+      }
+    });
   }
 
   function createSwarmUI() {
@@ -133,7 +139,7 @@ const SwarmManager = (() => {
   }
 
   async function fetchSnapshot() {
-    if (!activeCascadeId) return;
+    if (!activeCascadeId || document.visibilityState !== "visible") return;
     try {
       const res = await fetch(`/gateway/swarm?cascadeId=${encodeURIComponent(activeCascadeId)}`);
       if (res.ok) {

@@ -75,9 +75,10 @@ if [ "${OS_TYPE}" = "linux" ]; then
     echo "🐧 已识别 Linux 平台环境，原生支持 Antigravity Daemon Discovery 协议与实例自愈"
 fi
 
-# 3. 准备安装与配置目录
+# 3. 准备安装与配置目录 (配置目录严格限制 0700 仅当前用户可访问)
 mkdir -p "${INSTALL_DIR}"
-mkdir -p "${CONF_DIR}" "${CONF_DIR}/logs"
+mkdir -p -m 700 "${CONF_DIR}" "${CONF_DIR}/logs"
+chmod 700 "${CONF_DIR}" "${CONF_DIR}/logs" 2>/dev/null || true
 
 # 4. 初始化全局默认配置文件 ~/.multigravity/.env (若不存在)
 if [ ! -f "${CONF_DIR}/.env" ]; then
@@ -124,82 +125,149 @@ if [ -z "${https_proxy:-}" ] && [ -z "${http_proxy:-}" ] && [ -z "${all_proxy:-}
     done
 fi
 
+# SHA-256 计算辅助函数 (兼容 macOS / Linux / Git Bash)
+compute_sha256() {
+    local target_file="$1"
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "${target_file}" | awk '{print tolower($1)}'
+    elif command -v shasum >/dev/null 2>&1; then
+        shasum -a 256 "${target_file}" | awk '{print tolower($1)}'
+    elif command -v openssl >/dev/null 2>&1; then
+        openssl dgst -sha256 "${target_file}" | awk '{print tolower($NF)}'
+    else
+        echo ""
+        return 1
+    fi
+}
+
+lookup_checksum_for_asset() {
+    local checksums_file="$1"
+    local asset_name="$2"
+    awk -v asset="${asset_name}" '
+        NF >= 2 && $1 ~ /^[0-9a-fA-F]{64}$/ {
+            name = $2
+            sub(/^\*/, "", name)
+            sub(/^\.\//, "", name)
+            sub(/^.*\//, "", name)
+            if (name == asset) {
+                print tolower($1)
+                exit 0
+            }
+        }
+    ' "${checksums_file}"
+}
+
 ARCH_PKG="multigravity-${OS_TYPE}-${PKG_ARCH}.${PKG_EXT}"
 UNIV_PKG="multigravity-darwin-universal.tar.gz"
+CHECKSUMS_FILE="${TMP_DIR}/checksums.txt"
+OFFICIAL_CHECKSUMS_URL="https://github.com/${REPO}/releases/latest/download/checksums.txt"
 
-# 优先镜像站直连加速下载，官方源排在最后作为兜底
-DOWNLOAD_URLS=(
-    "https://ghfast.top/https://github.com/${REPO}/releases/latest/download/${ARCH_PKG}"
-    "https://ghproxy.net/https://github.com/${REPO}/releases/latest/download/${ARCH_PKG}"
-    "https://github.com/${REPO}/releases/latest/download/${ARCH_PKG}"
-)
+# HIGH-02: 仅从 GitHub 官方 HTTPS 源获取 checksums.txt (严禁回退第三方镜像获取校验和，Fail-Closed)
+echo "🔒 正在从 GitHub 官方源获取 SHA-256 校验清单..."
+CHECKSUM_CURL=(curl -fsSL --connect-timeout 10 --max-time 25)
+if [ -n "${PROXY_PORT}" ]; then
+    CHECKSUM_CURL+=(--proxy "http://127.0.0.1:${PROXY_PORT}")
+fi
+if ! "${CHECKSUM_CURL[@]}" -o "${CHECKSUMS_FILE}" "${OFFICIAL_CHECKSUMS_URL}"; then
+    echo "❌ 安全校验失败: 无法从 GitHub 官方 HTTPS 源获取 checksums.txt (${OFFICIAL_CHECKSUMS_URL})。"
+    echo "   为防止第三方镜像供应链投毒，安装已安全中止（请检查网络/代理后重试）。"
+    exit 1
+fi
+
+# 优先镜像站直连加速下载，官方源排在最后作为兜底（所有下载包均须通过官方 SHA-256 强校验）
+CANDIDATE_PKGS=("${ARCH_PKG}")
 if [ "${OS_TYPE}" = "darwin" ]; then
-    DOWNLOAD_URLS+=(
-        "https://ghfast.top/https://github.com/${REPO}/releases/latest/download/${UNIV_PKG}"
-        "https://ghproxy.net/https://github.com/${REPO}/releases/latest/download/${UNIV_PKG}"
-        "https://github.com/${REPO}/releases/latest/download/${UNIV_PKG}"
-    )
+    CANDIDATE_PKGS+=("${UNIV_PKG}")
 fi
 
 DOWNLOAD_SUCCESS=false
+SELECTED_PKG=""
 echo "📥 正在获取 Multigravity (${OS_DESC} ${PKG_ARCH}) 最新发行版..."
 
-for d_url in "${DOWNLOAD_URLS[@]}"; do
-    CURL_EXTRA_ARGS=()
-    if [[ "${d_url}" == https://github.com/* ]]; then
-        if [ -n "${PROXY_PORT}" ]; then
-            echo "🔗 尝试从 GitHub 官方源（走本机代理加速）下载: ${d_url}"
-            CURL_EXTRA_ARGS=(--proxy "http://127.0.0.1:${PROXY_PORT}")
-        else
-            echo "🔗 尝试从 GitHub 官方源下载: ${d_url}"
-        fi
-    else
-        echo "🔗 尝试从加速镜像站直连下载: ${d_url}"
-        CURL_EXTRA_ARGS=(--noproxy "*")
+for pkg_name in "${CANDIDATE_PKGS[@]}"; do
+    EXPECTED_SHA="$(lookup_checksum_for_asset "${CHECKSUMS_FILE}" "${pkg_name}")"
+    if [ -z "${EXPECTED_SHA}" ]; then
+        continue
     fi
 
-    CURL_CMD=(curl -fL)
-    if [ ${#CURL_EXTRA_ARGS[@]} -gt 0 ]; then
-        CURL_CMD+=("${CURL_EXTRA_ARGS[@]}")
-    fi
-    CURL_CMD+=(--connect-timeout 8 --speed-limit 10240 --speed-time 8 -# -o "${PKG_FILE}" "${d_url}")
+    PKG_URLS=(
+        "https://ghfast.top/https://github.com/${REPO}/releases/latest/download/${pkg_name}"
+        "https://ghproxy.net/https://github.com/${REPO}/releases/latest/download/${pkg_name}"
+        "https://github.com/${REPO}/releases/latest/download/${pkg_name}"
+    )
 
-    if "${CURL_CMD[@]}"; then
-        if [ "${PKG_EXT}" = "zip" ]; then
-            if command -v unzip >/dev/null 2>&1 && unzip -tq "${PKG_FILE}" >/dev/null 2>&1; then
-                DOWNLOAD_SUCCESS=true
-                break
-            elif command -v tar >/dev/null 2>&1 && tar -tf "${PKG_FILE}" >/dev/null 2>&1; then
-                DOWNLOAD_SUCCESS=true
-                break
+    for d_url in "${PKG_URLS[@]}"; do
+        CURL_EXTRA_ARGS=()
+        if [[ "${d_url}" == https://github.com/* ]]; then
+            if [ -n "${PROXY_PORT}" ]; then
+                echo "🔗 尝试从 GitHub 官方源（走本机代理加速）下载: ${d_url}"
+                CURL_EXTRA_ARGS=(--proxy "http://127.0.0.1:${PROXY_PORT}")
+            else
+                echo "🔗 尝试从 GitHub 官方源下载: ${d_url}"
             fi
         else
-            if tar -tzf "${PKG_FILE}" >/dev/null 2>&1; then
-                DOWNLOAD_SUCCESS=true
-                break
-            fi
+            echo "🔗 尝试从加速镜像站直连下载: ${d_url}"
+            CURL_EXTRA_ARGS=(--noproxy "*")
         fi
-        echo "⚠️  下载的文件损坏或非标准包，正在尝试下一个源..."
-        rm -f "${PKG_FILE}"
-    else
-        echo "⚠️  连接超时或速度较慢，正在自动切换备用下载源..."
+
+        CURL_CMD=(curl -fL)
+        if [ ${#CURL_EXTRA_ARGS[@]} -gt 0 ]; then
+            CURL_CMD+=("${CURL_EXTRA_ARGS[@]}")
+        fi
+        CURL_CMD+=(--connect-timeout 8 --speed-limit 10240 --speed-time 8 -# -o "${PKG_FILE}" "${d_url}")
+
+        if "${CURL_CMD[@]}"; then
+            GOT_SHA="$(compute_sha256 "${PKG_FILE}" || true)"
+            if [ -z "${GOT_SHA}" ] || [ "${GOT_SHA}" != "${EXPECTED_SHA}" ]; then
+                echo "⚠️  SHA-256 校验未通过 (expected ${EXPECTED_SHA}, got ${GOT_SHA:-empty})，已丢弃并切换下一个源..."
+                rm -f "${PKG_FILE}"
+                continue
+            fi
+            echo "🔒 SHA-256 校验通过 (${GOT_SHA:0:12}...)"
+            DOWNLOAD_SUCCESS=true
+            SELECTED_PKG="${pkg_name}"
+            break
+        else
+            echo "⚠️  连接超时或速度较慢，正在自动切换备用下载源..."
+            rm -f "${PKG_FILE}"
+        fi
+    done
+
+    if [ "${DOWNLOAD_SUCCESS}" = "true" ]; then
+        break
     fi
 done
 
 if [ "${DOWNLOAD_SUCCESS}" = "true" ]; then
-    echo "📦 下载完成，正在解压安装..."
+    echo "📦 校验通过，正在定向提取可执行文件..."
+    STAGED_BIN="${INSTALL_DIR}/.${BIN_NAME}.staged.$$"
+    rm -f "${STAGED_BIN}"
+
+    # HIGH-02: 仅定向流式提取单一目标二进制文件，绝不全量解压归档（防止路径穿越与软链接逃逸）
     if [ "${PKG_EXT}" = "zip" ]; then
         if command -v unzip >/dev/null 2>&1; then
-            unzip -q -o "${PKG_FILE}" -d "${TMP_DIR}"
+            unzip -p "${PKG_FILE}" "${BIN_NAME}" > "${STAGED_BIN}"
         elif command -v tar.exe >/dev/null 2>&1; then
-            tar.exe -xf "${PKG_FILE}" -C "${TMP_DIR}"
+            tar.exe -xOf "${PKG_FILE}" "${BIN_NAME}" > "${STAGED_BIN}"
         elif command -v tar >/dev/null 2>&1; then
-            tar -xf "${PKG_FILE}" -C "${TMP_DIR}"
-        elif command -v powershell.exe >/dev/null 2>&1; then
-            powershell.exe -NoProfile -Command "Expand-Archive -Path '${PKG_FILE}' -DestinationPath '${TMP_DIR}' -Force"
+            tar -xOf "${PKG_FILE}" "${BIN_NAME}" > "${STAGED_BIN}"
+        else
+            echo "❌ 未找到安全的 zip 单文件提取工具 (unzip / tar)。"
+            exit 1
         fi
     else
-        tar -xzf "${PKG_FILE}" -C "${TMP_DIR}"
+        TAR_MEMBER="$(tar -tzf "${PKG_FILE}" | grep -E '(^|/)(mgy|gateway)$' | head -n 1 || true)"
+        if [ -z "${TAR_MEMBER}" ]; then
+            echo "❌ 归档中未找到合法的 mgy 可执行文件条目。"
+            exit 1
+        fi
+        tar -xOzf "${PKG_FILE}" "${TAR_MEMBER}" > "${STAGED_BIN}"
+    fi
+
+    if [ ! -s "${STAGED_BIN}" ]; then
+        rm -f "${STAGED_BIN}"
+        echo "❌ 提取的可执行文件为空，安装中止。"
+        exit 1
     fi
 
     # 停止正在运行的旧版本进程以防文件写入锁
@@ -207,33 +275,13 @@ if [ "${DOWNLOAD_SUCCESS}" = "true" ]; then
         taskkill //F //IM mgy.exe >/dev/null 2>&1 || true
     fi
 
-    if [ -f "${TMP_DIR}/${BIN_NAME}" ]; then
-        mv -f "${TMP_DIR}/${BIN_NAME}" "${INSTALL_DIR}/${BIN_NAME}"
-    elif [ -f "${TMP_DIR}/mgy" ]; then
-        mv -f "${TMP_DIR}/mgy" "${INSTALL_DIR}/${BIN_NAME}"
-    elif [ -f "${TMP_DIR}/gateway" ]; then
-        mv -f "${TMP_DIR}/gateway" "${INSTALL_DIR}/${BIN_NAME}"
-    elif [ -f "${TMP_DIR}/mgy.exe" ]; then
-        mv -f "${TMP_DIR}/mgy.exe" "${INSTALL_DIR}/${BIN_NAME}"
-    else
-        echo "❌ 解压归档中未找到可执行文件。"
-        exit 1
-    fi
+    chmod 755 "${STAGED_BIN}" 2>/dev/null || true
+    mv -f "${STAGED_BIN}" "${INSTALL_DIR}/${BIN_NAME}"
 else
-    # 所有下载源均失败时的回退检查
-    echo "⚠️  未能从网络镜像获取预编译包。"
-    if [ -f "./bin/${BIN_NAME}" ]; then
-        echo "💡 检测到当前目录存在编译好的 ./bin/${BIN_NAME}，正在直接复制安装..."
-        cp -f "./bin/${BIN_NAME}" "${INSTALL_DIR}/${BIN_NAME}"
-    elif command -v go >/dev/null 2>&1 && [ -f "go.mod" ]; then
-        echo "🔨 检测到本地 Go 编译环境，正在就地编译..."
-        go build -ldflags="-s -w -X 'main.Version=1.2.4'" -o "${INSTALL_DIR}/${BIN_NAME}" ./cmd/gateway
-    else
-        echo "❌ 无法下载 Release 预编译包且无可用本地环境。"
-        echo "   您可以尝试开启代理或手动访问以下地址下载解压:"
-        echo "   https://github.com/${REPO}/releases/latest"
-        exit 1
-    fi
+    echo "❌ 未能下载并通过官方 SHA-256 校验获取预编译包 (${ARCH_PKG})。"
+    echo "   请检查网络连接或手动访问官方 Release 下载校验安装:"
+    echo "   https://github.com/${REPO}/releases/latest"
+    exit 1
 fi
 
 chmod +x "${INSTALL_DIR}/${BIN_NAME}" 2>/dev/null || true
@@ -388,32 +436,39 @@ if [ -n "${CF_EXISTING}" ]; then
         chmod +x "${INSTALL_DIR}/cloudflared" 2>/dev/null || true
     fi
 else
+    CF_VERSION="2026.11.1"
     CF_PKG=""
+    CF_EXPECTED_SHA=""
     case "${OS_TYPE}" in
         darwin)
             if [ "${PKG_ARCH}" = "arm64" ]; then
                 CF_PKG="cloudflared-darwin-arm64.tgz"
+                CF_EXPECTED_SHA="02fe4bcf08f2c09699cff30658228a739a0c47fb75f3653d1b8772a27ade4462"
             else
                 CF_PKG="cloudflared-darwin-amd64.tgz"
+                CF_EXPECTED_SHA="5e0403b188dfee71fbd9b995e7dc9910d61b661c52371935ab6475d41185632f"
             fi
             ;;
         windows)
             CF_PKG="cloudflared-windows-amd64.exe"
+            CF_EXPECTED_SHA="341deda3db5ec498a0482254d6c38c0b7cf01a30c37bb5dd95d2216d08955e35"
             ;;
         linux)
             if [ "${PKG_ARCH}" = "arm64" ]; then
                 CF_PKG="cloudflared-linux-arm64"
+                CF_EXPECTED_SHA="b155cec3e48e489cfb8e5c602769fb8c771083018d8881d68b4d18a791567c5a"
             else
                 CF_PKG="cloudflared-linux-amd64"
+                CF_EXPECTED_SHA="97bb3b02d23a5980fc9c15a1a270e692da1923f103f920d5b16d4931d5ab55e7"
             fi
             ;;
     esac
 
-    if [ -n "${CF_PKG}" ]; then
+    if [ -n "${CF_PKG}" ] && [ -n "${CF_EXPECTED_SHA}" ]; then
         CF_URLS=(
-            "https://ghfast.top/https://github.com/cloudflare/cloudflared/releases/latest/download/${CF_PKG}"
-            "https://ghproxy.net/https://github.com/cloudflare/cloudflared/releases/latest/download/${CF_PKG}"
-            "https://github.com/cloudflare/cloudflared/releases/latest/download/${CF_PKG}"
+            "https://ghfast.top/https://github.com/cloudflare/cloudflared/releases/download/${CF_VERSION}/${CF_PKG}"
+            "https://ghproxy.net/https://github.com/cloudflare/cloudflared/releases/download/${CF_VERSION}/${CF_PKG}"
+            "https://github.com/cloudflare/cloudflared/releases/download/${CF_VERSION}/${CF_PKG}"
         )
 
         CF_DONE=false
@@ -459,9 +514,21 @@ else
                 CURL_CMD+=(--connect-timeout 15 --max-time 300 -# -o "${TMP_CF}" "${cf_url}")
 
                 if "${CURL_CMD[@]}"; then
-                    if [[ "${CF_PKG}" == *.tgz ]] || [[ "${CF_PKG}" == *.tar.gz ]]; then
-                        tar -xzf "${TMP_CF}" -C "${CF_BIN_DIR}" cloudflared 2>/dev/null || tar -xzf "${TMP_CF}" -C "${CF_BIN_DIR}" 2>/dev/null || true
+                    GOT_CF_SHA="$(compute_sha256 "${TMP_CF}" || true)"
+                    if [ -z "${GOT_CF_SHA}" ] || [ "${GOT_CF_SHA}" != "${CF_EXPECTED_SHA}" ]; then
+                        echo "⚠️  cloudflared SHA-256 校验不匹配 (got ${GOT_CF_SHA:-empty})，已丢弃并切换备用源..."
                         rm -f "${TMP_CF}" 2>/dev/null || true
+                        continue
+                    fi
+                    if [[ "${CF_PKG}" == *.tgz ]] || [[ "${CF_PKG}" == *.tar.gz ]]; then
+                        CF_MEMBER="$(tar -tzf "${TMP_CF}" | grep -E '(^|/)cloudflared$' | head -n 1 || true)"
+                        if [ -z "${CF_MEMBER}" ]; then
+                            rm -f "${TMP_CF}" 2>/dev/null || true
+                            continue
+                        fi
+                        tar -xOzf "${TMP_CF}" "${CF_MEMBER}" > "${CF_TARGET}.bin"
+                        rm -f "${TMP_CF}" 2>/dev/null || true
+                        mv -f "${CF_TARGET}.bin" "${CF_TARGET}"
                     else
                         mv -f "${TMP_CF}" "${CF_TARGET}"
                     fi

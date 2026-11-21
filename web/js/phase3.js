@@ -686,17 +686,35 @@
       }
     },
 
-    openTerminalStream(terminalId) {
+    async acquireWsTicketQueryParam(sep = "&") {
+      try {
+        const doFetch = typeof originalFetch === "function" ? originalFetch : fetch;
+        const resp = await doFetch("/api/v1/auth/ws-ticket", { method: "POST" });
+        if (resp && resp.ok) {
+          const data = await resp.json();
+          if (data && data.ticket) {
+            return `${sep}ticket=${encodeURIComponent(data.ticket)}`;
+          }
+        }
+      } catch (_) {}
+      return "";
+    },
+
+    async openTerminalStream(terminalId) {
       if (!terminalId) return;
       this.activeTerminalId = terminalId;
+      const mySeq = (this._termStreamSeq = (this._termStreamSeq || 0) + 1);
       document.getElementById("p3-terminal-drawer")?.classList.remove("hidden");
       const label = document.getElementById("p3-term-active-label");
       if (label) label.textContent = `终端: ${terminalId}`;
       if (this.activeTerminalWs) {
         try { this.activeTerminalWs.close(); } catch (_) {}
+        this.activeTerminalWs = null;
       }
+      const ticketParam = await this.acquireWsTicketQueryParam("&");
+      if (mySeq !== this._termStreamSeq || this.activeTerminalId !== terminalId) return;
       const proto = location.protocol === "https:" ? "wss:" : "ws:";
-      const ws = new WebSocket(`${proto}//${location.host}/gateway/terminal/stream?terminalId=${encodeURIComponent(terminalId)}`);
+      const ws = new WebSocket(`${proto}//${location.host}/gateway/terminal/stream?terminalId=${encodeURIComponent(terminalId)}${ticketParam}`);
       this.activeTerminalWs = ws;
       ws.onmessage = (ev) => {
         try {
@@ -853,10 +871,14 @@
       const inputEl = document.getElementById("chat-input");
       if (inputEl) {
         inputEl.addEventListener("input", () => {
+          clearTimeout(this._mentionDebounceTimer);
           const val = inputEl.value;
           const m = val.match(/(?:^|\s)@([^\s@]*)$/);
           if (m) {
-            this.openMentionPicker(m[1]);
+            const q = m[1];
+            this._mentionDebounceTimer = setTimeout(() => {
+              this.openMentionPicker(q);
+            }, 150);
           } else if (this.mentionOpen) {
             this.closeMentionPicker();
           }
@@ -890,6 +912,7 @@
     },
 
     async openMentionPicker(query) {
+      const reqSeq = (this._mentionReqSeq = (this._mentionReqSeq || 0) + 1);
       let picker = document.getElementById("context-mention-picker");
       if (!picker) {
         picker = document.createElement("div");
@@ -912,6 +935,7 @@
           body: JSON.stringify({ query: query || "", cascadeId: activeCascadeId || "", workspaceUri: wsUri, limit: 25 }),
         });
         const data = await res.json();
+        if (reqSeq !== this._mentionReqSeq || !this.mentionOpen) return;
         const items = Array.isArray(data.items) ? data.items : [];
         this.mentionItems = items;
         const list = picker.querySelector(".p3-mention-list");
@@ -947,6 +971,7 @@
     },
 
     closeMentionPicker() {
+      clearTimeout(this._mentionDebounceTimer);
       this.mentionOpen = false;
       document.getElementById("context-mention-picker")?.classList.add("hidden");
     },
@@ -1067,9 +1092,19 @@
 
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, sampleRate: 16000 } });
+        if (!this.isDictating) {
+          stream.getTracks().forEach((t) => t.stop());
+          return;
+        }
         this.dictateStream = stream;
+        const ticketParam = await this.acquireWsTicketQueryParam("&");
+        if (!this.isDictating) {
+          stream.getTracks().forEach((t) => t.stop());
+          this.dictateStream = null;
+          return;
+        }
         const proto = location.protocol === "https:" ? "wss:" : "ws:";
-        const ws = new WebSocket(`${proto}//${location.host}/gateway/audio/dictate?cascadeId=${encodeURIComponent(activeCascadeId || "")}&mimeType=${encodeURIComponent("audio/pcm;rate=16000")}`);
+        const ws = new WebSocket(`${proto}//${location.host}/gateway/audio/dictate?cascadeId=${encodeURIComponent(activeCascadeId || "")}&mimeType=${encodeURIComponent("audio/pcm;rate=16000")}${ticketParam}`);
         this.dictateWs = ws;
 
         const inputEl = document.getElementById("chat-input");
@@ -1207,23 +1242,64 @@
 
     // --- 8. <agent-embed> postMessage Bridge & sidecar:// links ---
     bindAgentEmbedBridge() {
+      const parseEmbedNs = (rawUri) => {
+        if (typeof window.parseMcpEmbedNamespace === "function") {
+          return window.parseMcpEmbedNamespace(rawUri);
+        }
+        const s = String(rawUri || "").trim();
+        const m = s.match(/^(ui|mcp):\/\/([^/?#]*)([^?#]*)(\?[^#]*)?/i);
+        if (!m) return null;
+        const host = (m[2] || "").trim();
+        const q = m[4] ? new URLSearchParams(m[4].slice(1)) : null;
+        const serverName = (q && (q.get("serverName") || q.get("server") || "").trim()) || host;
+        return { scheme: m[1].toLowerCase(), serverName, appUri: s };
+      };
+
       window.addEventListener("message", async (e) => {
+        if (!e.source) return;
+        if (e.origin && e.origin !== "null" && e.origin !== location.origin) return;
+
+        // CRIT-03: Strictly verify e.source belongs to a mounted controlled iframe.agent-embed-frame
+        let sourceCard = null;
+        let sourceFrame = null;
+        const frames = document.querySelectorAll("iframe.agent-embed-frame");
+        for (const f of frames) {
+          if (f.isConnected && f.contentWindow === e.source) {
+            sourceFrame = f;
+            sourceCard = f.closest(".agent-embed-card");
+            break;
+          }
+        }
+        if (!sourceCard || !sourceFrame) return;
+
         const d = e.data;
         if (!d || typeof d !== "object") return;
         const action = d.method || d.type;
         if (!action) return;
         const params = (d.params && typeof d.params === "object") ? d.params : d;
         const reply = (ok, result, error) => {
+          if (!sourceFrame.isConnected) return;
           const msg = { id: d.id, ok };
           if (d.jsonrpc) msg.jsonrpc = d.jsonrpc;
           if (ok) msg.result = result;
           else msg.error = error;
-          e.source?.postMessage?.(msg, "*");
+          sourceFrame.contentWindow?.postMessage?.(msg, "*");
         };
-        if ((action === "sendMessage" || action === "ui/message") && (params.text || params.message) && activeCascadeId) {
+
+        const cardSrc = sourceCard.getAttribute("data-src") || "";
+        const cardCascadeId = sourceCard.getAttribute("data-cascade-id") || activeCascadeId || "";
+        const embedNs = parseEmbedNs(cardSrc);
+        const boundServer = sourceCard.getAttribute("data-mcp-server") || (embedNs ? embedNs.serverName : "");
+
+        if ((action === "sendMessage" || action === "ui/message") && (params.text || params.message)) {
+          // Ignore any iframe-supplied cascadeId; lock strictly to the embed's bound active conversation.
+          if (!cardCascadeId || cardCascadeId !== activeCascadeId) {
+            reply(false, null, "Cross-session message denied");
+            return;
+          }
           try {
             await rpc?.("SendUserCascadeMessage", {
-              cascadeId: params.cascadeId || activeCascadeId,
+              cascadeId: cardCascadeId,
               items: [{ text: String(params.text || params.message) }],
               model: activeModel || undefined,
             });
@@ -1231,26 +1307,48 @@
           } catch (err) {
             reply(false, null, err.message);
           }
-        } else if (action === "updateModelContext" && params.context && activeCascadeId) {
+        } else if (action === "updateModelContext" && params.context) {
+          if (!cardCascadeId || cardCascadeId !== activeCascadeId) {
+            reply(false, null, "Cross-session context update denied");
+            return;
+          }
           this.contextItems.push({
             id: "embed-" + Date.now(),
             type: "file",
-            label: params.label || "交互上下文",
+            label: String(params.label || "交互上下文").slice(0, 120),
             scopeItem: { codeContext: params.context },
           });
           this.renderContextChips();
           reply(true, { ok: true });
         } else if ((action === "callServerTool" || action === "tools/call") && (params.toolName || params.name)) {
+          // Lock MCP tool invocation strictly to this embed's bound MCP App server namespace.
+          if (!embedNs || !boundServer) {
+            reply(false, null, "MCP tool bridge denied: embed is not bound to an MCP server");
+            return;
+          }
+          const reqServer = params.serverName ? String(params.serverName).trim() : "";
+          if (reqServer && reqServer !== boundServer) {
+            reply(false, null, "Cross-server MCP tool call denied");
+            return;
+          }
+          const reqUri = params.appUri || params.uri ? String(params.appUri || params.uri).trim() : "";
+          if (reqUri) {
+            const reqNs = parseEmbedNs(reqUri);
+            if (!reqNs || (reqNs.serverName && reqNs.serverName !== boundServer)) {
+              reply(false, null, "Cross-app MCP URI denied");
+              return;
+            }
+          }
           try {
-            const toolName = params.toolName || params.name;
+            const toolName = String(params.toolName || params.name);
             const res = await fetch("/gateway/mcp/app/call", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                 toolName,
-                arguments: params.arguments || {},
-                appUri: params.appUri || params.uri || "",
-                serverName: params.serverName || "",
+                arguments: (params.arguments && typeof params.arguments === "object") ? params.arguments : {},
+                appUri: cardSrc,
+                serverName: boundServer,
               }),
             });
             const payload = await res.json().catch(() => ({}));
@@ -1259,11 +1357,26 @@
             reply(false, null, err.message);
           }
         } else if (action === "resources/read" && params.uri) {
+          if (!embedNs || !boundServer) {
+            reply(false, null, "MCP resource bridge denied: embed is not bound to an MCP server");
+            return;
+          }
+          const reqServer = params.serverName ? String(params.serverName).trim() : "";
+          if (reqServer && reqServer !== boundServer) {
+            reply(false, null, "Cross-server MCP resource read denied");
+            return;
+          }
+          const reqUri = String(params.uri).trim();
+          const reqNs = parseEmbedNs(reqUri);
+          if (!reqNs || (reqNs.serverName && reqNs.serverName !== boundServer)) {
+            reply(false, null, "Invalid or cross-server MCP resource URI");
+            return;
+          }
           try {
             const res = await fetch("/gateway/mcp/app/resource", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ uri: params.uri, serverName: params.serverName || "" }),
+              body: JSON.stringify({ uri: reqUri, serverName: boundServer }),
             });
             const payload = await res.json().catch(() => ({}));
             reply(res.ok, payload, res.ok ? undefined : (payload.error || `HTTP ${res.status}`));
@@ -1284,7 +1397,7 @@
         const slashIdx = rest.indexOf("/");
         const sid = slashIdx >= 0 ? rest.slice(0, slashIdx) : rest;
         const sub = slashIdx >= 0 ? rest.slice(slashIdx) : "/";
-        if (!sid) return;
+        if (!sid || sid === "." || sid === ".." || !/^[A-Za-z0-9_.-]+$/.test(sid)) return;
         if (sid.toLowerCase() === "swarm" || sub.toLowerCase().includes("swarm_board")) {
           if (typeof SwarmManager !== "undefined" && SwarmManager.toggleSwarmModal) {
             SwarmManager.toggleSwarmModal(true);
@@ -1296,7 +1409,27 @@
           this.openToolsBoard("automations");
           return;
         }
-        this.openSidecarSheet(sid, `/gateway/sidecar-ui/${encodeURIComponent(sid)}${sub}`);
+        // Normalize subpath and block any '..' path traversal escaping /gateway/sidecar-ui/<sid>/
+        let decodedSub = sub;
+        try { decodedSub = decodeURIComponent(sub); } catch (_) {}
+        if (/(?:^|[\\/])\.\.(?:[\\/]|$|[?#])/.test(sub) || /(?:^|[\\/])\.\.(?:[\\/]|$|[?#])/.test(decodedSub)) {
+          return;
+        }
+        let normSub;
+        try {
+          normSub = new URL(sub.startsWith("/") ? sub : "/" + sub, "https://sidecar.invalid");
+        } catch (_) {
+          return;
+        }
+        const basePrefix = `/gateway/sidecar-ui/${encodeURIComponent(sid)}/`;
+        const targetUrl = `/gateway/sidecar-ui/${encodeURIComponent(sid)}${normSub.pathname}${normSub.search}${normSub.hash}`;
+        try {
+          const checkUrl = new URL(targetUrl, location.origin);
+          if (!checkUrl.pathname.startsWith(basePrefix)) return;
+        } catch (_) {
+          return;
+        }
+        this.openSidecarSheet(sid, targetUrl);
       });
     },
 

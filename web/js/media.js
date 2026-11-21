@@ -82,6 +82,8 @@ const fileIconFallback = {
   "cpp": "cplus", "java": "java", "kt": "kotlin", "png": "image", "jpg": "image"
 };
 
+const hasOwnProp = Object.hasOwn || ((obj, key) => Object.prototype.hasOwnProperty.call(obj, key));
+
 function resolveFileIcon(nameOrUrl) {
   if (!nameOrUrl) return null;
   if (typeof isWeChatChatArchiveName === "function" && isWeChatChatArchiveName(nameOrUrl)) {
@@ -91,16 +93,16 @@ function resolveFileIcon(nameOrUrl) {
   let filename = clean.split("/").pop().toLowerCase();
 
   // Fast path: common extensions from synchronous fallback table
-  if (fileIconFallback[filename]) return fileIconFallback[filename];
+  if (hasOwnProp(fileIconFallback, filename)) return fileIconFallback[filename];
   let ext = filename.split(".").pop();
-  if (ext && fileIconFallback[ext]) return fileIconFallback[ext];
+  if (ext && hasOwnProp(fileIconFallback, ext)) return fileIconFallback[ext];
 
   // Secondary path: full icon theme
   if (fileIconTheme) {
-    if (fileIconTheme.fileNames && fileIconTheme.fileNames[filename]) {
+    if (fileIconTheme.fileNames && hasOwnProp(fileIconTheme.fileNames, filename)) {
       return fileIconTheme.fileNames[filename];
     }
-    if (ext && fileIconTheme.fileExtensions && fileIconTheme.fileExtensions[ext]) {
+    if (ext && fileIconTheme.fileExtensions && hasOwnProp(fileIconTheme.fileExtensions, ext)) {
       return fileIconTheme.fileExtensions[ext];
     }
   } else {
@@ -725,21 +727,25 @@ function buildImageThumbnailCard(originalPath, thumbPath, altText) {
   const thumbRawUrl = thumbPath ? resolveMediaRawUrl(thumbPath) : resolveThumbnailRawUrl(originalPath);
   const fileName = extractImageFileName(originalPath);
   const alt = altText ? altText.trim() : fileName;
+  const origAttr = protectMdAttr(escapeHtml(origRawUrl));
+  const thumbAttr = protectMdAttr(escapeHtml(thumbRawUrl));
+  const titleAttr = protectMdAttr(escapeHtml(fileName));
+  const altAttr = protectMdAttr(escapeHtml(alt));
 
   return `
     <div class="image-thumb-card" 
          data-action="open-lightbox" 
-         data-original-url="${escapeHtml(origRawUrl)}" 
-         data-thumb-url="${escapeHtml(thumbRawUrl)}" 
-         data-title="${escapeHtml(fileName)}" 
-         data-alt="${escapeHtml(alt)}"
+         data-original-url="${origAttr}" 
+         data-thumb-url="${thumbAttr}" 
+         data-title="${titleAttr}" 
+         data-alt="${altAttr}"
          tabindex="0"
          role="button"
-         aria-label="查看图片 ${escapeHtml(fileName)}">
+         aria-label="查看图片 ${titleAttr}">
       <div class="image-thumb-media">
-        <img src="${escapeHtml(thumbRawUrl)}" 
-             data-original-src="${escapeHtml(origRawUrl)}" 
-             alt="${escapeHtml(alt)}" 
+        <img src="${thumbAttr}" 
+             data-original-src="${origAttr}" 
+             alt="${altAttr}" 
              class="image-thumb-img" 
              loading="lazy" 
              onload="handleThumbnailLoad(this)" 
@@ -758,7 +764,7 @@ function buildImageThumbnailCard(originalPath, thumbPath, altText) {
       </div>
       <div class="image-thumb-bar">
         <div class="image-thumb-meta">
-          <span class="image-thumb-name" title="${escapeHtml(fileName)}">${escapeHtml(fileName)}</span>
+          <span class="image-thumb-name" title="${titleAttr}">${escapeHtml(fileName)}</span>
           <span class="image-thumb-dimensions"></span>
           <span class="image-thumb-badge hidden">长图</span>
         </div>
@@ -780,6 +786,17 @@ let agentEmbedSeq = 0;
 const agentEmbedContentCache = new Map();
 const AGENT_EMBED_CACHE_TTL_MS = 30000;
 
+function parseMcpEmbedNamespace(rawSrc) {
+  const s = String(rawSrc || "").trim();
+  const m = s.match(/^(ui|mcp):\/\/([^/?#]*)([^?#]*)(\?[^#]*)?/i);
+  if (!m) return null;
+  const host = (m[2] || "").trim();
+  const query = m[4] ? new URLSearchParams(m[4].slice(1)) : null;
+  const serverName = (query && (query.get("serverName") || query.get("server") || "").trim()) || host;
+  return { scheme: m[1].toLowerCase(), serverName, appUri: s };
+}
+window.parseMcpEmbedNamespace = parseMcpEmbedNamespace;
+
 function resolveAgentEmbedCard(cardOrTrigger) {
   if (!cardOrTrigger) return null;
   if (typeof cardOrTrigger === "string") {
@@ -799,9 +816,12 @@ function buildAgentEmbedCard(src) {
   let clean = String(src).trim().replace(/^[`"'<(\[]+|[`>"')\]]+$/g, "");
   const fileName = extractImageFileName(clean);
   const title = (fileName && fileName !== "interactive_preview.html" && fileName !== "widget.html") ? fileName : "交互预览";
+  const ns = parseMcpEmbedNamespace(clean);
+  const boundServer = ns && ns.serverName ? ns.serverName : "";
+  const boundCascade = (typeof activeCascadeId !== "undefined" && activeCascadeId) ? activeCascadeId : "";
 
   return `
-    <div class="agent-embed-card" data-src="${escapeHtml(clean)}" data-hydrated="false">
+    <div class="agent-embed-card" data-src="${protectMdAttr(escapeHtml(clean))}" data-cascade-id="${protectMdAttr(escapeHtml(boundCascade))}" data-mcp-server="${protectMdAttr(escapeHtml(boundServer))}" data-hydrated="false">
       <div class="agent-embed-header">
         <div class="agent-embed-title-wrap">
           <svg class="agent-embed-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
@@ -848,7 +868,14 @@ function hydrateAllAgentEmbeds(root = document) {
     if (!card.id) {
       card.id = `agent_embed_${++agentEmbedSeq}`;
     }
+    if (!card.getAttribute("data-cascade-id") && typeof activeCascadeId !== "undefined" && activeCascadeId) {
+      card.setAttribute("data-cascade-id", activeCascadeId);
+    }
     const src = card.getAttribute("data-src");
+    if (src && !card.getAttribute("data-mcp-server")) {
+      const ns = parseMcpEmbedNamespace(src);
+      if (ns && ns.serverName) card.setAttribute("data-mcp-server", ns.serverName);
+    }
     if (src && typeof window.loadAgentEmbedContent === "function") {
       window.loadAgentEmbedContent(card, src, false);
     }
@@ -893,15 +920,16 @@ window.loadAgentEmbedContent = function(cardOrId, src, forceRefresh = false) {
         img, svg, video { max-width: 100% !important; }
       </style>
     `;
-    const meta = `<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover">`;
+    const cspMeta = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data: blob:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none';">`;
+    const meta = cspMeta + `<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover">`;
     const gestureScript = `<script>
       document.addEventListener('gesturestart', function(e) { e.preventDefault(); }, { passive: false });
       document.addEventListener('gesturechange', function(e) { e.preventDefault(); }, { passive: false });
       document.addEventListener('gestureend', function(e) { e.preventDefault(); });
     </script>`;
     let finalHtml = rawHtml;
-    if (finalHtml.includes("<head>")) {
-      finalHtml = finalHtml.replace("<head>", "<head>" + meta + themeCss + gestureScript);
+    if (/<head(\s[^>]*)?>/i.test(finalHtml)) {
+      finalHtml = finalHtml.replace(/<head(\s[^>]*)?>/i, (m) => m + meta + themeCss + gestureScript);
     } else {
       finalHtml = "<!DOCTYPE html><html><head>" + meta + themeCss + gestureScript + "</head><body>" + finalHtml + "</body></html>";
     }
@@ -989,10 +1017,10 @@ window.handleThumbnailError = function(img) {
   }
 };
 
-// 属性值里的 ` * _ ~ 会被后面的行内代码 / 粗斜体 / 删除线正则当成标记，把标签切坏
-// （例如链接文字是 `abc` 时 data-md-title 里的反引号会吞掉 ">"）。转成实体后浏览器解码结果不变。
+// 属性值里的 ` * _ ~ = 会被后面的行内代码 / 粗斜体 / 删除线 / 高亮正则当成标记，把标签切坏
+// （例如链接文字是 `abc` 时 data-md-title 里的反引号会吞掉 ">"，查询串里的 = 会被 ==...== 误伤）。转成实体后浏览器解码结果不变。
 function protectMdAttr(v) {
-  return String(v).replace(/[`*_~]/g, (c) => `&#${c.charCodeAt(0)};`);
+  return String(v).replace(/[`*_~=]/g, (c) => `&#${c.charCodeAt(0)};`);
 }
 
 function renderInlineMarkdown(text) {
@@ -1101,10 +1129,12 @@ function renderInlineMarkdown(text) {
     const href = protectMdAttr(escapeHtml(rawUrl));
     const titleAttr = protectMdAttr(escapeHtml(displayLinkText));
     const mdAttrs = isMd ? ` data-md-url="${href}" data-md-title="${titleAttr}"` : "";
+    const isExtHttp = !isMd && !isDoc && /^https?:\/\//i.test(rawUrl) && (!location?.host || !lower.includes(location.host.toLowerCase()));
+    const extAttrs = isExtHttp ? ` target="_blank" rel="noopener noreferrer"` : ` rel="noopener noreferrer"`;
     if (icon) {
-      return `<a href="${href}" class="file-link${extraClass}"${mdAttrs}><img src="/icons/files/${icon}.svg" class="file-icon" alt="" /><span>${displayLinkText}</span>${arrowSvg}</a>`;
+      return `<a href="${href}" class="file-link${extraClass}"${mdAttrs}${extAttrs}><img src="/icons/files/${icon}.svg" class="file-icon" alt="" /><span>${displayLinkText}</span>${arrowSvg}</a>`;
     }
-    return `<a href="${href}" class="text-link${extraClass}"${mdAttrs}><span>${displayLinkText}</span>${arrowSvg}</a>`;
+    return `<a href="${href}" class="text-link${extraClass}"${mdAttrs}${extAttrs}><span>${displayLinkText}</span>${arrowSvg}</a>`;
   });
 
   // Inline code (e.g. `foo`)
@@ -1586,17 +1616,19 @@ function wrapTok(cls, text) {
   return `<span class="${cls}">${escapeHtml(text)}</span>`;
 }
 
-function highlightCodeHtml(rawCode, langClean) {
+function highlightCodeHtml(rawCode, langClean, skipCache = false) {
   if (!rawCode) return "";
   if (rawCode.length > 60000) return escapeHtml(rawCode);
 
   const lang = String(langClean || "").trim().toLowerCase();
   const cacheKey = `${lang}\u0000${rawCode}`;
-  const cached = CODE_HIGHLIGHT_CACHE.get(cacheKey);
-  if (cached !== undefined) {
-    CODE_HIGHLIGHT_CACHE.delete(cacheKey);
-    CODE_HIGHLIGHT_CACHE.set(cacheKey, cached);
-    return cached;
+  if (!skipCache) {
+    const cached = CODE_HIGHLIGHT_CACHE.get(cacheKey);
+    if (cached !== undefined) {
+      CODE_HIGHLIGHT_CACHE.delete(cacheKey);
+      CODE_HIGHLIGHT_CACHE.set(cacheKey, cached);
+      return cached;
+    }
   }
 
   let html = "";
@@ -1703,11 +1735,13 @@ function highlightCodeHtml(rawCode, langClean) {
     if (last < rawCode.length) html += escapeHtml(rawCode.slice(last));
   }
 
-  if (CODE_HIGHLIGHT_CACHE.size >= MAX_CODE_HIGHLIGHT_CACHE) {
-    const oldest = CODE_HIGHLIGHT_CACHE.keys().next().value;
-    if (oldest !== undefined) CODE_HIGHLIGHT_CACHE.delete(oldest);
+  if (!skipCache) {
+    if (CODE_HIGHLIGHT_CACHE.size >= MAX_CODE_HIGHLIGHT_CACHE) {
+      const oldest = CODE_HIGHLIGHT_CACHE.keys().next().value;
+      if (oldest !== undefined) CODE_HIGHLIGHT_CACHE.delete(oldest);
+    }
+    CODE_HIGHLIGHT_CACHE.set(cacheKey, html);
   }
-  CODE_HIGHLIGHT_CACHE.set(cacheKey, html);
   return html;
 }
 
@@ -1732,8 +1766,10 @@ function extractDisplayMathBlocks(md) {
   return masked;
 }
 
-function renderMarkdown(md) {
+function renderMarkdown(md, options = {}) {
   if (!md) return "";
+  const isContinuation = !!options.isContinuation;
+  const skipUnclosedCodeCache = !!options.skipUnclosedCodeCache;
   md = extractDisplayMathBlocks(md);
   md = processMathSymbols(md);
 
@@ -1756,7 +1792,7 @@ function renderMarkdown(md) {
     }
 
     // 0. YAML Frontmatter / Style Block detection at beginning of document
-    if (blocks.length === 0) {
+    if (!isContinuation && blocks.length === 0) {
       if (trimmed === "---") {
         let endIdx = i + 1;
         let foundEnd = false;
@@ -1830,7 +1866,7 @@ function renderMarkdown(md) {
         <div class="plugin-card-view" data-plugin-id="${escapeHtml(pluginId)}">
           <div class="plugin-card-header">
             <span class="plugin-card-title">🧩 推荐插件：${escapeHtml(pluginId)}</span>
-            <button class="plugin-card-install-btn" onclick="installPluginFromCard('${escapeHtml(pluginId)}')">一键安装</button>
+            <button class="plugin-card-install-btn" type="button" data-action="install-plugin" data-plugin-id="${escapeHtml(pluginId)}">一键安装</button>
           </div>
           <div class="plugin-card-desc">来自 Antigravity 官方 / 社区插件市场。安装后自动为您续接对话。</div>
         </div>
@@ -1873,9 +1909,11 @@ function renderMarkdown(md) {
       const fence = fenceChar.repeat(fenceCount);
       const lang = trimmed.slice(fenceCount).trim();
       const codeLines = [];
+      let closedFence = false;
       i++;
       while (i < lines.length) {
         if (lines[i].trim().startsWith(fence)) {
+          closedFence = true;
           i++;
           break;
         }
@@ -1937,7 +1975,7 @@ function renderMarkdown(md) {
 
       const langInfo = resolveLanguageInfo(langClean);
       const safeLangClass = String(langClean || "").replace(/[^a-zA-Z0-9_-]/g, "");
-      const codeHighlighted = highlightCodeHtml(rawCode, langClean);
+      const codeHighlighted = highlightCodeHtml(rawCode, langClean, skipUnclosedCodeCache && !closedFence);
       blocks.push(`
         <div class="code-block-card">
           <div class="code-block-header">
@@ -2416,13 +2454,77 @@ function initMermaidIfNeeded() {
   return mermaidInitialized;
 }
 
+const SVG_ALLOWED_TAGS = new Set([
+  "svg", "g", "path", "rect", "circle", "ellipse", "line", "polyline", "polygon",
+  "text", "tspan", "textpath", "defs", "marker", "clippath", "mask", "pattern",
+  "lineargradient", "radialgradient", "stop", "use", "symbol", "title", "desc",
+  "metadata", "style", "foreignobject", "switch", "image",
+  // Safe HTML label tags rendered inside Mermaid <foreignObject>
+  "div", "span", "p", "br", "b", "strong", "i", "em", "u", "s", "code", "pre",
+  "sub", "sup", "ul", "ol", "li", "table", "thead", "tbody", "tr", "th", "td",
+  "hr", "blockquote", "h1", "h2", "h3", "h4", "h5", "h6", "a"
+]);
+
 function sanitizeSVG(svgStr) {
   if (!svgStr) return "";
-  return svgStr
-    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "")
-    .replace(/\son\w+\s*=\s*(['"]).*?\1/gi, "")
-    .replace(/\son\w+\s*=\s*[^>\s]+/gi, "")
-    .replace(/href\s*=\s*(['"])javascript:.*?\1/gi, 'href="#"');
+  if (typeof DOMParser === "undefined") {
+    return "";
+  }
+  try {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(String(svgStr), "text/html");
+    const svgEl = doc.querySelector("svg");
+    if (!svgEl) return "";
+
+    const sanitizeStyleText = (cssText) =>
+      String(cssText || "")
+        .replace(/@import\b[^;]*;?/gi, "")
+        .replace(/expression\s*\([^)]*\)/gi, "")
+        .replace(/url\s*\(\s*(['"]?)\s*(?:javascript:|vbscript:|data:text\/)/gi, "url($1about:invalid#");
+
+    const elements = [svgEl, ...Array.from(svgEl.querySelectorAll("*"))];
+    for (const el of elements) {
+      if (!el.parentNode && el !== svgEl) continue;
+      const tag = (el.tagName || "").toLowerCase();
+      if (!SVG_ALLOWED_TAGS.has(tag)) {
+        el.remove();
+        continue;
+      }
+      if (tag === "style") {
+        el.textContent = sanitizeStyleText(el.textContent);
+      }
+      const attrs = Array.from(el.attributes || []);
+      for (const attr of attrs) {
+        const name = attr.name.toLowerCase();
+        const val = (attr.value || "").trim();
+        if (name.startsWith("on") || name === "srcdoc" || name === "formaction") {
+          el.removeAttribute(attr.name);
+          continue;
+        }
+        if (name === "style") {
+          el.setAttribute("style", sanitizeStyleText(val));
+          continue;
+        }
+        if (name === "href" || name === "xlink:href" || name === "src") {
+          if (val.startsWith("#")) continue;
+          if (tag === "image" && /^data:image\/(?:png|jpeg|jpg|gif|webp);base64,[A-Za-z0-9+/=\s]+$/i.test(val)) {
+            continue;
+          }
+          if (typeof isSafeURL === "function" && isSafeURL(val)) {
+            if (tag === "a") {
+              el.setAttribute("rel", "noopener noreferrer");
+              el.setAttribute("target", "_blank");
+            }
+            continue;
+          }
+          el.removeAttribute(attr.name);
+        }
+      }
+    }
+    return svgEl.outerHTML;
+  } catch (_) {
+    return "";
+  }
 }
 
 let mermaidLoadPromise = null;
@@ -2608,20 +2710,144 @@ window.renderAllMermaidDiagrams = renderAllMermaidDiagrams;
 
 // Markdown & LaTeX Parsing Memory Cache (LRU)
 const markdownCache = new Map();
-/** FNV-1a hash for fast full-text cache key generation */
+/** FNV-1a hash combined with length and tail slice to prevent 32-bit collisions */
 function fnv1aHash(str) {
   let hash = 0x811c9dc5;
   for (let i = 0; i < str.length; i++) {
     hash ^= str.charCodeAt(i);
     hash = (hash * 0x01000193) >>> 0;
   }
-  return hash.toString(36);
+  return `${str.length}:${hash.toString(36)}:${str.slice(-16)}`;
 }
-function getCachedMarkdown(md) {
+
+// Streaming O(delta) block-level memo: caches already-closed leading blocks of the active
+// streaming message without polluting global markdownCache with partial prefixes.
+let streamingMdMemo = { fullPrefix: "", prefixHtml: "" };
+
+function findLastSafeMarkdownSplit(chunk, isDocStart) {
+  let pos = 0;
+  const len = chunk.length;
+  let inFence = false;
+  let fenceStr = "";
+  let inStyle = false;
+  let detailsDepth = 0;
+  let inFrontmatter = false;
+  let fmLinesSeen = 0;
+  let dollarParity = 0;
+  let mathBracketDepth = 0;
+  let mathParenDepth = 0;
+  let sawNonEmpty = false;
+  let candidateBlankEnd = -1;
+  let confirmedSplit = -1;
+
+  while (pos < len) {
+    const nl = chunk.indexOf("\n", pos);
+    const line = nl === -1 ? chunk.slice(pos) : chunk.slice(pos, nl);
+    const lineEnd = nl === -1 ? len : nl + 1;
+    const trimmed = line.trim();
+
+    if (inFence) {
+      if (trimmed.startsWith(fenceStr)) {
+        inFence = false;
+        fenceStr = "";
+      }
+      sawNonEmpty = true;
+      candidateBlankEnd = -1;
+    } else if (isDocStart && !sawNonEmpty && (trimmed === "---" || trimmed.startsWith("marp:") || (trimmed.includes(":") && (trimmed.startsWith("theme:") || trimmed.startsWith("style:"))))) {
+      inFrontmatter = true;
+      fmLinesSeen = 1;
+      sawNonEmpty = true;
+    } else if (inFrontmatter) {
+      fmLinesSeen++;
+      if (trimmed === "---" || trimmed === "..." || fmLinesSeen > 100 || trimmed.startsWith("# ") || trimmed.startsWith("## ")) {
+        inFrontmatter = false;
+      }
+      candidateBlankEnd = -1;
+    } else if (!trimmed) {
+      if (
+        nl !== -1 &&
+        sawNonEmpty &&
+        !inFence &&
+        !inStyle &&
+        detailsDepth === 0 &&
+        dollarParity === 0 &&
+        mathBracketDepth === 0 &&
+        mathParenDepth === 0
+      ) {
+        candidateBlankEnd = lineEnd;
+      }
+    } else {
+      if (candidateBlankEnd > 0) {
+        confirmedSplit = candidateBlankEnd;
+        candidateBlankEnd = -1;
+      }
+      sawNonEmpty = true;
+      if (trimmed.startsWith("```") || trimmed.startsWith("~~~")) {
+        const fc = trimmed[0];
+        let cnt = 0;
+        while (cnt < trimmed.length && trimmed[cnt] === fc) cnt++;
+        inFence = true;
+        fenceStr = fc.repeat(cnt);
+      } else {
+        const lower = trimmed.toLowerCase();
+        if (!inStyle && lower.startsWith("<style")) inStyle = true;
+        if (inStyle && lower.includes("</style>")) inStyle = false;
+        if (line.includes("<")) {
+          const opens = (line.match(/<details\b/gi) || []).length;
+          const closes = (line.match(/<\/details>/gi) || []).length;
+          detailsDepth = Math.max(0, detailsDepth + opens - closes);
+        }
+        if (line.includes("$") || line.includes("\\")) {
+          const noInline = line.replace(/`[^`]*`/g, "");
+          const dbl = noInline.match(/(?<!\\)\$\$/g);
+          if (dbl) dollarParity = (dollarParity + dbl.length) & 1;
+          const bOpen = (noInline.match(/\\\[/g) || []).length;
+          const bClose = (noInline.match(/\\\]/g) || []).length;
+          mathBracketDepth = Math.max(0, mathBracketDepth + bOpen - bClose);
+          const pOpen = (noInline.match(/\\\(/g) || []).length;
+          const pClose = (noInline.match(/\\\)/g) || []).length;
+          mathParenDepth = Math.max(0, mathParenDepth + pOpen - pClose);
+        }
+      }
+    }
+    pos = lineEnd;
+  }
+  return confirmedSplit;
+}
+
+function getCachedMarkdown(md, options) {
   if (!md) return "";
+  if (options && options.streaming) {
+    if (!streamingMdMemo.fullPrefix || !md.startsWith(streamingMdMemo.fullPrefix)) {
+      streamingMdMemo = { fullPrefix: "", prefixHtml: "" };
+    }
+    let rest = md.slice(streamingMdMemo.fullPrefix.length);
+    const splitAt = findLastSafeMarkdownSplit(rest, streamingMdMemo.fullPrefix.length === 0);
+    if (splitAt > 0) {
+      const newlySealed = rest.slice(0, splitAt);
+      const sealedHtml = renderMarkdown(newlySealed, {
+        isContinuation: streamingMdMemo.fullPrefix.length > 0,
+        skipUnclosedCodeCache: false,
+      });
+      streamingMdMemo.fullPrefix += newlySealed;
+      streamingMdMemo.prefixHtml += sealedHtml;
+      rest = rest.slice(splitAt);
+    }
+    const tailHtml = rest
+      ? renderMarkdown(rest, {
+          isContinuation: streamingMdMemo.fullPrefix.length > 0,
+          skipUnclosedCodeCache: true,
+        })
+      : "";
+    return streamingMdMemo.prefixHtml + tailHtml;
+  }
+
   const key = fnv1aHash(md);
   if (markdownCache.has(key)) {
-    return markdownCache.get(key);
+    const val = markdownCache.get(key);
+    markdownCache.delete(key);
+    markdownCache.set(key, val);
+    return val;
   }
   const html = renderMarkdown(md);
   if (markdownCache.size > 1000) {
@@ -2941,16 +3167,20 @@ window.renderJupyterNotebook = function(jsonStr) {
       if (cellType === "markdown") {
         html += `<div class="ipynb-cell ipynb-markdown-cell"><div class="ipynb-cell-prompt">Markdown</div><div class="markdown-content" style="padding:10px;">${renderMarkdown(src)}</div></div>`;
       } else if (cellType === "code") {
-        const count = cell.execution_count != null ? cell.execution_count : " ";
+        const count = cell.execution_count != null ? escapeHtml(String(cell.execution_count)) : " ";
         html += `<div class="ipynb-cell ipynb-code-cell"><div class="ipynb-cell-prompt">In [${count}]:</div><pre class="ipynb-code-area"><code>${escapeHtml(src)}</code></pre>`;
         if (Array.isArray(cell.outputs) && cell.outputs.length > 0) {
           html += '<div class="ipynb-output-area">';
           cell.outputs.forEach(out => {
             if (out.text) {
-              const outText = Array.isArray(out.text) ? out.text.join("") : out.text;
+              const outText = Array.isArray(out.text) ? out.text.join("") : String(out.text);
               html += `<pre style="margin:0; font-family:ui-monospace, monospace; color:#a1a1aa;">${escapeHtml(outText)}</pre>`;
             } else if (out.data && out.data["image/png"]) {
-              html += `<img src="data:image/png;base64,${out.data["image/png"]}" alt="Cell Output Image" />`;
+              const rawPng = Array.isArray(out.data["image/png"]) ? out.data["image/png"].join("") : String(out.data["image/png"]);
+              const cleanPng = rawPng.replace(/\s+/g, "");
+              if (cleanPng && /^[A-Za-z0-9+/=]+$/.test(cleanPng)) {
+                html += `<img src="data:image/png;base64,${cleanPng}" alt="Cell Output Image" />`;
+              }
             }
           });
           html += '</div>';

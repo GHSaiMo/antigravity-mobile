@@ -274,11 +274,17 @@ suspend fun ApiClient.refreshMcpServers(): Result<Unit> {
     return p3PostJson("/gateway/mcp/refresh", buildJsonObject {}).map { }
 }
 
-suspend fun ApiClient.callMcpAppTool(toolName: String, arguments: JsonElement?, appUri: String = ""): Result<String> {
+suspend fun ApiClient.callMcpAppTool(
+    toolName: String,
+    arguments: JsonElement?,
+    appUri: String = "",
+    serverName: String = ""
+): Result<String> {
     val payload = buildJsonObject {
         put("toolName", toolName)
         if (arguments != null) put("arguments", arguments) else putJsonObject("arguments") {}
         if (appUri.isNotBlank()) put("appUri", appUri)
+        if (serverName.isNotBlank()) put("serverName", serverName)
     }
     return p3PostJson("/gateway/mcp/app/call", payload)
 }

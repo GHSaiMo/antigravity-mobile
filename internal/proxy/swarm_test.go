@@ -292,3 +292,82 @@ func TestSwarmNarratorNumericVersionFallbackAndTranscriptETag(t *testing.T) {
 		t.Errorf("expected nil brief for non-swarm conversation, got %+v", nonSwarm)
 	}
 }
+
+func TestSwarmPlanJsonAndToolActivityLabels(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	brainBase := filepath.Join(home, ".gemini", "antigravity", "brain")
+	coordID := "coord-hive-plan"
+	wProxyID := "conv-proxy-hive"
+	wWebID := "conv-web-hive"
+	swarmDir := filepath.Join(brainBase, coordID, ".system_generated", "swarm")
+	if err := os.MkdirAll(swarmDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	membersJSON := `{
+		"title": "Hive Plan Swarm",
+		"members": {
+			"coordinator": {"conversation_id": "coord-hive-plan", "role": "coordinator", "model": "gemini-4-carbon-high", "killed": false},
+			"proxy": {"conversation_id": "conv-proxy-hive", "role": "worker", "model": "gemini-4-carbon-high", "killed": false},
+			"web": {"conversation_id": "conv-web-hive", "role": "worker", "model": "gemini-4-carbon-high", "killed": false},
+			"monitor": {"conversation_id": "conv-mon-hive", "role": "worker", "model": "gemini-4-carbon-high", "killed": false}
+		}
+	}`
+	_ = os.WriteFile(filepath.Join(swarmDir, "members.json"), []byte(membersJSON), 0644)
+	_ = os.WriteFile(filepath.Join(swarmDir, "board.jsonl"), []byte(
+		`{"seq":1,"agent":"coordinator","text":"@proxy @web go","time":"2026-11-22 06:00:00"}`+"\n"+
+			`{"seq":2,"agent":"web","text":"@coordinator [impl-ready] web done","time":"2026-11-22 06:10:00"}`+"\n",
+	), 0644)
+
+	planJSON := `{
+		"goal": {"title": "Fix security and performance", "line": "Audit and verify all modules."},
+		"tasks": {"proxy": "Fix proxy stream hotspots", "web": "Fix embed/XSS"},
+		"threads": [{"id": "t-core", "title": "Gateway hardening", "goal": "Harden proxy.", "tasks": ["proxy", "web"]}]
+	}`
+	_ = os.WriteFile(filepath.Join(swarmDir, "plan.json"), []byte(planJSON), 0644)
+
+	proxyLogDir := filepath.Join(brainBase, wProxyID, ".system_generated", "logs")
+	webLogDir := filepath.Join(brainBase, wWebID, ".system_generated", "logs")
+	_ = os.MkdirAll(proxyLogDir, 0755)
+	_ = os.MkdirAll(webLogDir, 0755)
+
+	// proxy is actively reading stream.go
+	_ = os.WriteFile(filepath.Join(proxyLogDir, "transcript.jsonl"), []byte(
+		`{"step_index":3,"type":"PLANNER_RESPONSE","status":"DONE","tool_calls":[{"name":"read_file","args":{"Path":"\"/repo/internal/proxy/stream.go\""}}]}`+"\n",
+	), 0644)
+	// web posted + called swarm_wait in the same multi-tool batch -> should be waiting!
+	_ = os.WriteFile(filepath.Join(webLogDir, "transcript.jsonl"), []byte(
+		`{"step_index":4,"type":"PLANNER_RESPONSE","status":"DONE","tool_calls":[{"name":"post_message","args":{}},{"name":"swarm_wait","args":{}}]}`+"\n"+
+			`{"step_index":5,"type":"GENERIC","status":"DONE","content":"Posted #2"}`+"\n"+
+			`{"step_index":6,"type":"GENERIC","status":"DONE","content":"Waiting for a message"}`+"\n",
+	), 0644)
+
+	brief := GetSwarmBrief(coordID)
+	if brief == nil || brief.Headline != "Fix security and performance" {
+		t.Fatalf("expected plan.goal.title fallback in SwarmBrief.Headline, got %+v", brief)
+	}
+
+	snap, notMod, err := GetSwarmSnapshot(coordID, 0, "")
+	if err != nil || notMod || snap == nil || snap.Plan == nil || snap.Plan.Goal == nil {
+		t.Fatalf("expected valid snapshot with Plan, err=%v snap=%+v", err, snap)
+	}
+	if len(snap.Plan.Threads) != 1 || snap.Plan.Threads[0].Title != "Gateway hardening" {
+		t.Errorf("unexpected plan threads: %+v", snap.Plan.Threads)
+	}
+
+	byName := map[string]SwarmMemberInfo{}
+	for _, m := range snap.Members {
+		byName[m.Name] = m
+	}
+	if byName["proxy"].Status != "working" || byName["proxy"].LastActivity != "Read stream.go" {
+		t.Errorf("expected proxy working on 'Read stream.go', got %+v", byName["proxy"])
+	}
+	if byName["web"].Status != "waiting" || byName["web"].Posts != 1 || byName["web"].LastPostSeq != 2 {
+		t.Errorf("expected web waiting with 1 post (#2), got %+v", byName["web"])
+	}
+	if !byName["monitor"].RoleWorker {
+		t.Errorf("expected monitor to be marked RoleWorker=true")
+	}
+}

@@ -129,27 +129,65 @@ func LocalizeRPCResponse(path string, body []byte) []byte {
 	})
 }
 
+const maxL10nRPCBodyBytes = 1 << 20
+
 // localizeRPCResponse rewrites resp.Body in place with translated display strings.
 func localizeRPCResponse(resp *http.Response) error {
+	if resp == nil || resp.Body == nil {
+		return nil
+	}
+	reqPath := ""
+	if resp.Request != nil && resp.Request.URL != nil {
+		reqPath = resp.Request.URL.Path
+		if !isL10nRPCPath(reqPath) {
+			return nil
+		}
+	}
+	if resp.ContentLength > maxL10nRPCBodyBytes {
+		return nil
+	}
+
 	body := resp.Body
-	if resp.Header.Get("Content-Encoding") == "gzip" {
+	isGzip := strings.EqualFold(resp.Header.Get("Content-Encoding"), "gzip")
+	if isGzip {
 		gz, err := GetGzipReader(resp.Body)
 		if err != nil {
 			return err
 		}
 		body = &pooledGzipReadCloser{gz: gz, body: resp.Body}
-		resp.Header.Del("Content-Encoding")
 	}
-	raw, err := io.ReadAll(body)
-	_ = body.Close()
+
+	raw, err := io.ReadAll(io.LimitReader(body, maxL10nRPCBodyBytes+1))
 	if err != nil {
+		_ = body.Close()
 		return err
 	}
+	if len(raw) > maxL10nRPCBodyBytes {
+		// Exceeds 1 MiB l10n budget: stream remaining unread bytes without unbounded buffering.
+		if isGzip {
+			resp.Header.Del("Content-Encoding")
+			resp.Header.Del("Content-Length")
+			resp.ContentLength = -1
+		}
+		resp.Body = struct {
+			io.Reader
+			io.Closer
+		}{
+			Reader: io.MultiReader(bytes.NewReader(raw), body),
+			Closer: body,
+		}
+		return nil
+	}
+	_ = body.Close()
+	if isGzip {
+		resp.Header.Del("Content-Encoding")
+	}
+
 	var out []byte
 	if ct := resp.Header.Get("Content-Type"); strings.Contains(ct, "connect+") || strings.Contains(ct, "grpc") {
-		out = localizeConnectEnvelopes(resp.Request.URL.Path, raw)
+		out = localizeConnectEnvelopes(reqPath, raw)
 	} else {
-		out = LocalizeRPCResponse(resp.Request.URL.Path, raw)
+		out = LocalizeRPCResponse(reqPath, raw)
 	}
 	resp.Body = io.NopCloser(bytes.NewReader(out))
 	resp.ContentLength = int64(len(out))

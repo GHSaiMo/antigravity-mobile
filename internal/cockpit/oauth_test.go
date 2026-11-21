@@ -42,10 +42,11 @@ func TestEnsureFreshToken_MockRefresh(t *testing.T) {
 		}
 
 		resp := GoogleTokenResponse{
-			AccessToken: "new-fresh-access-token",
-			ExpiresIn:   3600,
-			TokenType:   "Bearer",
-			IDToken:     "new-id-token",
+			AccessToken:  "new-fresh-access-token",
+			RefreshToken: "rotated-refresh-token",
+			ExpiresIn:    3600,
+			TokenType:    "Bearer",
+			IDToken:      "new-id-token",
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(resp)
@@ -71,6 +72,9 @@ func TestEnsureFreshToken_MockRefresh(t *testing.T) {
 	}
 	if result.AccessToken != "new-fresh-access-token" {
 		t.Fatalf("unexpected access token: %s", result.AccessToken)
+	}
+	if result.RefreshToken != "rotated-refresh-token" {
+		t.Fatalf("expected rotated refresh token to be saved, got: %s", result.RefreshToken)
 	}
 	if result.IDToken != "new-id-token" {
 		t.Fatalf("unexpected ID token: %s", result.IDToken)

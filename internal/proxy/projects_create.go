@@ -8,10 +8,54 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
-	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 )
+
+var gitHubSlugSegmentRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$`)
+
+// normalizeGitHubSlug validates and extracts a strict "owner/repo" slug from a GitHub URL or slug.
+// Non-GitHub URLs, option-like flags ("-..."), traversal segments, and malformed inputs return "".
+func normalizeGitHubSlug(raw string) string {
+	s := strings.TrimSpace(raw)
+	if s == "" || strings.HasPrefix(s, "-") {
+		return ""
+	}
+	fromURL := false
+	switch {
+	case strings.HasPrefix(s, "git@github.com:"):
+		s = strings.TrimPrefix(s, "git@github.com:")
+		fromURL = true
+	case strings.HasPrefix(s, "https://github.com/"):
+		s = strings.TrimPrefix(s, "https://github.com/")
+		fromURL = true
+	case strings.HasPrefix(s, "http://github.com/"):
+		s = strings.TrimPrefix(s, "http://github.com/")
+		fromURL = true
+	default:
+		if strings.Contains(s, "://") || strings.Contains(s, "@") {
+			return ""
+		}
+	}
+	if idx := strings.IndexAny(s, "?#"); idx >= 0 {
+		s = s[:idx]
+	}
+	s = strings.Trim(s, "/")
+	parts := strings.Split(s, "/")
+	if len(parts) < 2 || (!fromURL && len(parts) != 2) {
+		return ""
+	}
+	owner := parts[0]
+	repo := strings.TrimSuffix(parts[1], ".git")
+	if owner == "." || owner == ".." || repo == "." || repo == ".." {
+		return ""
+	}
+	if !gitHubSlugSegmentRe.MatchString(owner) || !gitHubSlugSegmentRe.MatchString(repo) {
+		return ""
+	}
+	return owner + "/" + repo
+}
 
 // CreateCascadeRequest represents payload to start a new cascade.
 type CreateCascadeRequest struct {
@@ -88,15 +132,43 @@ func (p *Proxy) HandleCreateCascade(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	wsURI := req.WorkspaceURI
-	if wsURI != "" && !strings.HasPrefix(wsURI, "file://") {
-		wsURI = "file://" + filepath.Clean(wsURI)
+	wsURI := strings.TrimSpace(req.WorkspaceURI)
+	projectID := strings.TrimSpace(req.ProjectID)
+	var validWSPath string
+	if wsURI != "" && wsURI != "file://" {
+		if isRemoteURI(wsURI) {
+			if projectID == "" {
+				projectID = p.FindProjectIDForWorkspaces([]string{wsURI})
+			}
+			if projectID == "" {
+				http.Error(w, "Forbidden: unregistered remote workspace URI", http.StatusForbidden)
+				return
+			}
+		} else {
+			resolvedWS, wsErr := validateWorkspaceDir(wsURI, false)
+			if wsErr != nil {
+				http.Error(w, wsErr.Error(), http.StatusForbidden)
+				return
+			}
+			validWSPath = resolvedWS
+			if !strings.HasPrefix(wsURI, "file://") {
+				wsURI = filePathToURI(resolvedWS)
+			}
+		}
 	}
 
 	// Determine projectId: prefer explicitly provided projectId, otherwise match against known projects
-	projectID := strings.TrimSpace(req.ProjectID)
 	if projectID == "" && wsURI != "" {
-		projectID = p.FindProjectIDForWorkspaces([]string{wsURI})
+		candidates := []string{wsURI}
+		if validWSPath != "" {
+			if canonURI := filePathToURI(validWSPath); canonURI != wsURI {
+				candidates = append(candidates, canonURI)
+			}
+		}
+		projectID = p.FindProjectIDForWorkspaces(candidates)
+	}
+	if projectID == "" && validWSPath != "" {
+		wsURI = filePathToURI(validWSPath)
 	}
 
 	// 1. Call StartCascade RPC upstream

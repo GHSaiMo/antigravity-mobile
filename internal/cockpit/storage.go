@@ -125,6 +125,39 @@ func isSafeAccountFileID(id string) bool {
 	return IsSafeAccountIdentifier(id)
 }
 
+// writeFileAtomic0600 writes data to path atomically via a 0600 temp file and enforces
+// 0700 on the parent directory and 0600 on the final target file (preventing permission downgrade).
+func writeFileAtomic0600(path string, data []byte) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	tmp := fmt.Sprintf("%s.tmp.%d", path, time.Now().UnixNano())
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+		return err
+	}
+	_ = os.Chmod(tmp, 0o600)
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	_ = os.Chmod(path, 0o600)
+	return nil
+}
+
+// safeSQLitePathArg normalizes a SQLite database path and prevents leading-dash option injection
+// across all sqlite3 CLI versions (including SQLite < 3.43 where "--" is unsupported).
+func safeSQLitePathArg(dbPath string) (string, error) {
+	clean := filepath.Clean(strings.TrimSpace(dbPath))
+	if clean == "" || clean == "." || strings.ContainsAny(clean, "\x00\r\n") {
+		return "", fmt.Errorf("invalid sqlite database path")
+	}
+	if strings.HasPrefix(clean, "-") {
+		clean = "." + string(filepath.Separator) + clean
+	}
+	return clean, nil
+}
+
 // ResolveAccountID takes an account ID or email and returns the canonical account UUID.
 func ResolveAccountID(accountIDOrEmail string) (string, error) {
 	target := strings.TrimSpace(accountIDOrEmail)
@@ -285,12 +318,8 @@ func SaveAccountDetail(acc *CockpitAccountDetail) error {
 	}
 
 	targetPath := filepath.Join(accountsDir, acc.ID+".json")
-	tmpPath := targetPath + ".tmp"
-	if err := os.WriteFile(tmpPath, append(envelopeBytes, '\n'), 0600); err != nil {
-		return fmt.Errorf("write tmp account file: %w", err)
-	}
-	if err := os.Rename(tmpPath, targetPath); err != nil {
-		return fmt.Errorf("rename tmp account file: %w", err)
+	if err := writeFileAtomic0600(targetPath, append(envelopeBytes, '\n')); err != nil {
+		return fmt.Errorf("write account file: %w", err)
 	}
 
 	return nil

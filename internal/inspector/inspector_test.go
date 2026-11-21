@@ -1,6 +1,7 @@
 package inspector
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -8,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -191,6 +193,22 @@ func TestDaemonPreemptsFallbackInstance(t *testing.T) {
 	if info.PID != 47822 || info.Port != desktopPort {
 		t.Fatalf("expected daemon hub instance (PID 47822, port %d) to preempt fallback (PID 76967, port %d), got PID=%d port=%d",
 			desktopPort, fallbackPort, info.PID, info.Port)
+	}
+}
+
+func TestInstanceInfoOmitsCSRFTokenFromJSON(t *testing.T) {
+	inst := InstanceInfo{
+		PID:       1234,
+		Port:      50000,
+		CSRFToken: "super-secret-csrf-token",
+		IsHealthy: true,
+	}
+	raw, err := json.Marshal(inst)
+	if err != nil {
+		t.Fatalf("marshal InstanceInfo: %v", err)
+	}
+	if strings.Contains(string(raw), "super-secret-csrf-token") || strings.Contains(string(raw), "csrf_token") {
+		t.Fatalf("CSRFToken must not be serialized in JSON: %s", string(raw))
 	}
 }
 

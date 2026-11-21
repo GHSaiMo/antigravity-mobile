@@ -12,6 +12,9 @@ import (
 )
 
 func TestGetStableMachineID(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("MULTIGRAVITY_DATA_DIR", tmpDir)
+
 	id1 := GetStableMachineID()
 	if id1 == "" {
 		t.Fatalf("expected non-empty machine id")
@@ -20,8 +23,36 @@ func TestGetStableMachineID(t *testing.T) {
 	if id1 != id2 {
 		t.Fatalf("expected stable machine id across calls, got %s vs %s", id1, id2)
 	}
-	if len(id1) < 16 {
-		t.Fatalf("machine id too short: %s", id1)
+	if len(id1) != 64 {
+		t.Fatalf("expected 64-hex CSPRNG machine id, got %s (len %d)", id1, len(id1))
+	}
+
+	// Verify existing machine_id on disk is preserved smoothly (CRIT-02 TOFU compatibility)
+	legacyID := "legacy-deterministic-machine-id-0123456789"
+	if err := os.WriteFile(filepath.Join(tmpDir, "machine_id"), []byte(legacyID+"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if got := GetStableMachineID(); got != legacyID {
+		t.Fatalf("expected existing machine_id %q to be preserved, got %q", legacyID, got)
+	}
+}
+
+func TestNextReconnectBackoffAndPinnedChecksums(t *testing.T) {
+	b0 := nextReconnectBackoff(0)
+	b5 := nextReconnectBackoff(5)
+	if b0 < 2*time.Second || b0 > 5*time.Second {
+		t.Errorf("unexpected initial backoff: %v", b0)
+	}
+	if b5 < 45*time.Second || b5 > 75*time.Second {
+		t.Errorf("unexpected capped backoff: %v", b5)
+	}
+	for _, u := range getCloudflaredDownloadURLs() {
+		if _, err := expectedCloudflaredSHA256(u); err != nil {
+			t.Errorf("expected pinned SHA-256 for %s, got err: %v", u, err)
+		}
+	}
+	if _, err := expectedCloudflaredSHA256("http://github.com/cloudflare/cloudflared/releases/download/2026.11.1/cloudflared-linux-amd64"); err == nil {
+		t.Errorf("expected non-HTTPS download URL to be rejected")
 	}
 }
 

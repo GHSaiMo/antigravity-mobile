@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"log/slog"
 	"strings"
 	"sync"
@@ -15,11 +16,12 @@ import (
 )
 
 const (
-	liveActivityMinRoutineInterval = 18 * time.Second
-	liveActivityFailBaseBackoff    = 15 * time.Second
-	liveActivityFailMaxBackoff     = 5 * time.Minute
-	liveActivityStaleTTL           = 30 * time.Minute
-	liveActivityEndDismissDelaySec = 15
+	liveActivityMinRoutineInterval  = 18 * time.Second
+	liveActivityFailBaseBackoff     = 15 * time.Second
+	liveActivityFailMaxBackoff      = 5 * time.Minute
+	liveActivityStaleTTL            = 30 * time.Minute
+	liveActivityEndDismissDelaySec  = 15
+	maxLiveActivityCoalesceWorkers  = 4
 	// MaxLiveActivityCards caps concurrent Live Activity cards (WAITING_APPROVAL > most recently active).
 	MaxLiveActivityCards  = 3
 	liveActivityMemberTTL = 90 * time.Second
@@ -75,14 +77,18 @@ type liveActivityTrack struct {
 
 // LiveActivityDispatcher translates Antigravity trajectory states into throttled, budget-aware APNs Live Activity pushes.
 type LiveActivityDispatcher struct {
-	mu           sync.Mutex
-	client       *APNsRelayClient
-	enabled      bool
-	nowFunc      func() time.Time
-	tracks       map[string]*liveActivityTrack  // cascadeID -> tracking state
-	endedAt      map[string]time.Time           // cascadeID -> recent EndSession timestamp
-	cascadeLocks map[string]*sync.Mutex         // per-cascade send serialization
-	members      map[string]*liveActivityMember // cascades admitted to hold a card (cap MaxLiveActivityCards)
+	mu               sync.Mutex
+	client           *APNsRelayClient
+	enabled          bool
+	nowFunc          func() time.Time
+	tracks           map[string]*liveActivityTrack  // cascadeID -> tracking state
+	endedAt          map[string]time.Time           // cascadeID -> recent EndSession timestamp
+	cascadeStripes   [64]sync.Mutex                 // fixed striped locks for per-cascade send serialization
+	members          map[string]*liveActivityMember // cascades admitted to hold a card (cap MaxLiveActivityCards)
+	coalesceMu       sync.Mutex
+	pendingLatest    map[string]*proxy.TrajectoryDetails
+	coalesceInFlight map[string]bool
+	coalesceWorkers  int
 }
 
 // admitLocked decides whether cascadeID may hold a card. Caller holds d.mu.
@@ -126,26 +132,87 @@ func (d *LiveActivityDispatcher) admitLocked(cascadeID string, pending bool, tit
 // NewLiveActivityDispatcher constructs a LiveActivityDispatcher backed by client.
 func NewLiveActivityDispatcher(client *APNsRelayClient, enabled bool) *LiveActivityDispatcher {
 	return &LiveActivityDispatcher{
-		client:       client,
-		enabled:      enabled,
-		nowFunc:      time.Now,
-		tracks:       make(map[string]*liveActivityTrack),
-		endedAt:      make(map[string]time.Time),
-		cascadeLocks: make(map[string]*sync.Mutex),
-		members:      make(map[string]*liveActivityMember),
+		client:           client,
+		enabled:          enabled,
+		nowFunc:          time.Now,
+		tracks:           make(map[string]*liveActivityTrack),
+		endedAt:          make(map[string]time.Time),
+		members:          make(map[string]*liveActivityMember),
+		pendingLatest:    make(map[string]*proxy.TrajectoryDetails),
+		coalesceInFlight: make(map[string]bool),
 	}
 }
 
 func (d *LiveActivityDispatcher) lockCascade(cascadeID string) func() {
-	d.mu.Lock()
-	cmu, ok := d.cascadeLocks[cascadeID]
-	if !ok {
-		cmu = &sync.Mutex{}
-		d.cascadeLocks[cascadeID] = cmu
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(cascadeID))
+	idx := h.Sum32() & 63
+	d.cascadeStripes[idx].Lock()
+	return d.cascadeStripes[idx].Unlock
+}
+
+// EnqueueLatest coalesces high-frequency trajectory updates per cascade (single-slot latest-wins)
+// and dispatches them asynchronously using a bounded, self-draining worker pool.
+func (d *LiveActivityDispatcher) EnqueueLatest(details *proxy.TrajectoryDetails) {
+	if !d.IsActive() || details == nil || strings.TrimSpace(details.CascadeID) == "" {
+		return
 	}
-	d.mu.Unlock()
-	cmu.Lock()
-	return cmu.Unlock
+	if strings.TrimSpace(details.ParentConversation) != "" {
+		return
+	}
+	snap := *details
+	if len(details.RunningTasks) > 0 {
+		snap.RunningTasks = append([]proxy.RunningTaskItem(nil), details.RunningTasks...)
+	}
+	if details.PendingInteraction != nil {
+		pi := *details.PendingInteraction
+		snap.PendingInteraction = &pi
+	}
+
+	d.coalesceMu.Lock()
+	if d.pendingLatest == nil {
+		d.pendingLatest = make(map[string]*proxy.TrajectoryDetails)
+	}
+	if d.coalesceInFlight == nil {
+		d.coalesceInFlight = make(map[string]bool)
+	}
+	d.pendingLatest[snap.CascadeID] = &snap
+	if !d.coalesceInFlight[snap.CascadeID] && d.coalesceWorkers < maxLiveActivityCoalesceWorkers {
+		d.coalesceWorkers++
+		go d.runCoalesceWorker()
+	}
+	d.coalesceMu.Unlock()
+}
+
+func (d *LiveActivityDispatcher) runCoalesceWorker() {
+	for {
+		d.coalesceMu.Lock()
+		var pickedID string
+		var pickedSnap *proxy.TrajectoryDetails
+		for cid, s := range d.pendingLatest {
+			if !d.coalesceInFlight[cid] {
+				pickedID = cid
+				pickedSnap = s
+				delete(d.pendingLatest, cid)
+				d.coalesceInFlight[cid] = true
+				break
+			}
+		}
+		if pickedSnap == nil {
+			d.coalesceWorkers--
+			d.coalesceMu.Unlock()
+			return
+		}
+		d.coalesceMu.Unlock()
+
+		ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+		d.SyncFromDetails(ctx, pickedSnap)
+		cancel()
+
+		d.coalesceMu.Lock()
+		delete(d.coalesceInFlight, pickedID)
+		d.coalesceMu.Unlock()
+	}
 }
 
 // HasStateForCascade reports whether any device holds a Live Activity update token or Push-to-Start marker for cascadeID.
@@ -163,7 +230,7 @@ func (d *LiveActivityDispatcher) IsActive() bool {
 
 // BuildContentState builds a compact (< 1.5 KB) LiveActivityContentState from TrajectoryDetails.
 func BuildContentState(details *proxy.TrajectoryDetails, now time.Time) LiveActivityContentState {
-	title := strings.TrimSpace(details.Title)
+	title := strings.TrimSpace(SanitizePushText(details.Title))
 	if title == "" {
 		title = "Multigravity Agent"
 	}
@@ -215,8 +282,8 @@ func BuildContentState(details *proxy.TrajectoryDetails, now time.Time) LiveActi
 		if tTitle == "" {
 			tTitle = "后台任务"
 		}
-		tTitle = truncateString(tTitle, 40)
-		tCmd := truncateString(strings.TrimSpace(t.CommandLine), 60)
+		tTitle = truncateString(SanitizePushText(tTitle), 40)
+		tCmd := truncateString(SanitizePushText(strings.TrimSpace(t.CommandLine)), 60)
 		if i == 0 {
 			activeTaskTitle = tTitle
 			activeTaskCmd = tCmd
@@ -231,7 +298,7 @@ func BuildContentState(details *proxy.TrajectoryDetails, now time.Time) LiveActi
 		}
 	}
 
-	latestAction := buildLatestActionSummary(details, activeTaskTitle)
+	latestAction := SanitizePushText(buildLatestActionSummary(details, activeTaskTitle))
 
 	stepCount := details.TotalSteps
 	if stepCount < 1 {
@@ -256,10 +323,10 @@ func BuildContentState(details *proxy.TrajectoryDetails, now time.Time) LiveActi
 
 func buildLatestActionSummary(details *proxy.TrajectoryDetails, activeTaskTitle string) string {
 	if pi := details.PendingInteraction; pi != nil {
-		target := strings.TrimSpace(pi.Target)
+		target := strings.TrimSpace(SanitizePushText(pi.Target))
 		summary := target
 		if summary == "" {
-			summary = strings.TrimSpace(pi.Title)
+			summary = strings.TrimSpace(SanitizePushText(pi.Title))
 		}
 		if summary == "" {
 			return "等待用户审批操作"
@@ -469,6 +536,10 @@ func (d *LiveActivityDispatcher) EndSession(ctx context.Context, cascadeID, titl
 		return
 	}
 
+	d.coalesceMu.Lock()
+	delete(d.pendingLatest, cascadeID)
+	d.coalesceMu.Unlock()
+
 	defer d.lockCascade(cascadeID)()
 
 	now := d.nowFunc()
@@ -506,6 +577,7 @@ func (d *LiveActivityDispatcher) sendEnd(ctx context.Context, cascadeID, title, 
 		summary = "已让位给需要处理的会话"
 		dismissDelay = 0
 	}
+	title = SanitizePushText(title)
 	if strings.TrimSpace(title) == "" {
 		title = "Multigravity Agent"
 	}

@@ -3,6 +3,7 @@ package proxy
 import (
 	"archive/zip"
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -17,6 +18,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -485,10 +487,18 @@ func ParseWeChatZipFile(zipPath string) (*WeChatChatArchive, error) {
 		return nil, err
 	}
 
-	// Best-effort probe of video durations when ffprobe is present (skip for fast unit tests if absent).
+	// Best-effort probe of video durations when ffprobe is present (bounded count & size so large archives open fast).
+	const maxSyncProbedVideos = 8
+	const maxSyncProbeEntryBytes = 64 * 1024 * 1024
+	probedVideos := 0
+	probeDeadline := time.Now().Add(4 * time.Second)
 	for i := range archive.Messages {
+		if probedVideos >= maxSyncProbedVideos || time.Now().After(probeDeadline) {
+			break
+		}
 		if archive.Messages[i].Kind == "video" && archive.Messages[i].MediaEntry != "" {
-			if f, _ := lookup.findMedia(archive.Messages[i].MediaEntry); f != nil {
+			if f, _ := lookup.findMedia(archive.Messages[i].MediaEntry); f != nil && f.UncompressedSize64 <= maxSyncProbeEntryBytes {
+				probedVideos++
 				if dur := probeZipVideoDuration(zipPath, f); dur != "" {
 					archive.Messages[i].DurationLabel = dur
 				}
@@ -499,12 +509,98 @@ func ParseWeChatZipFile(zipPath string) (*WeChatChatArchive, error) {
 	return archive, nil
 }
 
+const (
+	defaultZipCacheTTL      = 6 * time.Hour
+	defaultZipCacheMaxBytes = 256 * 1024 * 1024
+	mediaSubprocessTimeout  = 5 * time.Second
+)
+
 var (
-	zipCacheMu sync.Mutex
+	zipMaterializeFlights flightGroup[string]
+	zipMediaSem           = make(chan struct{}, 2)
+	zipPruneMu            sync.Mutex
+	lastZipPruneAt        time.Time
 )
 
 func zipEntryCacheDir() string {
 	return filepath.Join(os.TempDir(), "mgy-zip-cache")
+}
+
+// CleanupZipEntryCache evicts expired entries (older than ttl), stale temp files, and oldest LRU files
+// when total cache usage exceeds maxTotalBytes, protecting host disk space.
+func CleanupZipEntryCache(dir string, ttl time.Duration, maxTotalBytes int64) int {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return 0
+	}
+	now := time.Now()
+	cutoff := now.Add(-ttl)
+	tmpCutoff := now.Add(-10 * time.Minute)
+
+	type cacheItem struct {
+		path    string
+		size    int64
+		modTime time.Time
+	}
+	var kept []cacheItem
+	var totalBytes int64
+	removed := 0
+
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		fullPath := filepath.Join(dir, e.Name())
+		info, iErr := e.Info()
+		if iErr != nil {
+			continue
+		}
+		isTmp := strings.Contains(e.Name(), ".tmp")
+		if (isTmp && info.ModTime().Before(tmpCutoff)) || (ttl > 0 && info.ModTime().Before(cutoff)) {
+			if os.Remove(fullPath) == nil {
+				removed++
+			}
+			continue
+		}
+		if !isTmp {
+			kept = append(kept, cacheItem{
+				path:    fullPath,
+				size:    info.Size(),
+				modTime: info.ModTime(),
+			})
+			totalBytes += info.Size()
+		}
+	}
+
+	if maxTotalBytes > 0 && totalBytes > maxTotalBytes {
+		sort.Slice(kept, func(i, j int) bool {
+			return kept[i].modTime.Before(kept[j].modTime)
+		})
+		for _, it := range kept {
+			if totalBytes <= maxTotalBytes {
+				break
+			}
+			if os.Remove(it.path) == nil {
+				totalBytes -= it.size
+				removed++
+			}
+		}
+	}
+	return removed
+}
+
+func maybePruneZipEntryCacheAsync() {
+	zipPruneMu.Lock()
+	if time.Since(lastZipPruneAt) < 5*time.Minute {
+		zipPruneMu.Unlock()
+		return
+	}
+	lastZipPruneAt = time.Now()
+	zipPruneMu.Unlock()
+
+	go func() {
+		_ = CleanupZipEntryCache(zipEntryCacheDir(), defaultZipCacheTTL, defaultZipCacheMaxBytes)
+	}()
 }
 
 func materializeZipEntryFile(zipPath string, f *zip.File) (string, error) {
@@ -526,40 +622,50 @@ func materializeZipEntryFile(zipPath string, f *zip.File) (string, error) {
 	dir := zipEntryCacheDir()
 	cachePath := filepath.Join(dir, key+ext)
 
-	zipCacheMu.Lock()
-	defer zipCacheMu.Unlock()
-
 	if info, err := os.Stat(cachePath); err == nil && info.Mode().IsRegular() && uint64(info.Size()) == f.UncompressedSize64 {
+		now := time.Now()
+		_ = os.Chtimes(cachePath, now, now)
 		return cachePath, nil
 	}
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return "", err
-	}
-	tmpPath := cachePath + ".tmp"
-	src, err := f.Open()
-	if err != nil {
-		return "", err
-	}
-	defer src.Close()
 
-	dst, err := os.OpenFile(tmpPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
-	if err != nil {
-		return "", err
-	}
-	_, copyErr := io.Copy(dst, io.LimitReader(src, maxWeChatZipEntryReadBytes+1))
-	closeErr := dst.Close()
-	if copyErr != nil || closeErr != nil {
-		_ = os.Remove(tmpPath)
-		if copyErr != nil {
-			return "", copyErr
+	return zipMaterializeFlights.do(cachePath, func() (string, error) {
+		if info, err := os.Stat(cachePath); err == nil && info.Mode().IsRegular() && uint64(info.Size()) == f.UncompressedSize64 {
+			return cachePath, nil
 		}
-		return "", closeErr
-	}
-	if err := os.Rename(tmpPath, cachePath); err != nil {
-		_ = os.Remove(tmpPath)
-		return "", err
-	}
-	return cachePath, nil
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return "", err
+		}
+		tmpPath := fmt.Sprintf("%s.tmp.%d", cachePath, time.Now().UnixNano())
+		src, err := f.Open()
+		if err != nil {
+			return "", err
+		}
+		defer src.Close()
+
+		dst, err := os.OpenFile(tmpPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+		if err != nil {
+			return "", err
+		}
+		n, copyErr := io.Copy(dst, io.LimitReader(src, maxWeChatZipEntryReadBytes+1))
+		closeErr := dst.Close()
+		if copyErr != nil || closeErr != nil {
+			_ = os.Remove(tmpPath)
+			if copyErr != nil {
+				return "", copyErr
+			}
+			return "", closeErr
+		}
+		if n > maxWeChatZipEntryReadBytes {
+			_ = os.Remove(tmpPath)
+			return "", fmt.Errorf("zip entry exceeds size limit")
+		}
+		if err := os.Rename(tmpPath, cachePath); err != nil {
+			_ = os.Remove(tmpPath)
+			return "", err
+		}
+		maybePruneZipEntryCacheAsync()
+		return cachePath, nil
+	})
 }
 
 func findMediaBinary(name string) string {
@@ -581,9 +687,15 @@ func probeZipVideoDuration(zipPath string, f *zip.File) string {
 	if err != nil {
 		return ""
 	}
+	zipMediaSem <- struct{}{}
+	defer func() { <-zipMediaSem }()
+
 	if ffprobeBin := findMediaBinary("ffprobe"); ffprobeBin != "" {
-		cmd := exec.Command(ffprobeBin, "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", localPath)
-		if out, err := cmd.Output(); err == nil {
+		ctx, cancel := context.WithTimeout(context.Background(), mediaSubprocessTimeout)
+		cmd := exec.CommandContext(ctx, ffprobeBin, "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", localPath)
+		out, err := cmd.Output()
+		cancel()
+		if err == nil {
 			if secs, err := strconv.ParseFloat(strings.TrimSpace(string(out)), 64); err == nil && secs > 0 {
 				total := int(secs + 0.5)
 				if total < 1 {
@@ -594,8 +706,10 @@ func probeZipVideoDuration(zipPath string, f *zip.File) string {
 		}
 	}
 	if ffmpegBin := findMediaBinary("ffmpeg"); ffmpegBin != "" {
-		cmd := exec.Command(ffmpegBin, "-i", localPath)
+		ctx, cancel := context.WithTimeout(context.Background(), mediaSubprocessTimeout)
+		cmd := exec.CommandContext(ctx, ffmpegBin, "-i", localPath)
 		out, _ := cmd.CombinedOutput()
+		cancel()
 		if m := ffmpegDurationRe.FindStringSubmatch(string(out)); m != nil {
 			h, _ := strconv.Atoi(m[1])
 			min, _ := strconv.Atoi(m[2])
@@ -623,11 +737,20 @@ func generateZipVideoThumb(zipPath string, f *zip.File) (string, error) {
 	if info, err := os.Stat(thumbPath); err == nil && info.Size() > 0 {
 		return thumbPath, nil
 	}
-	tmpThumb := thumbPath + ".tmp.jpg"
-	cmd := exec.Command(ffmpegBin, "-y", "-ss", "0.1", "-i", localPath, "-vframes", "1", "-vf", "scale='min(480,iw)':-2", "-q:v", "4", tmpThumb)
-	if err := cmd.Run(); err != nil {
+	zipMediaSem <- struct{}{}
+	defer func() { <-zipMediaSem }()
+
+	if info, err := os.Stat(thumbPath); err == nil && info.Size() > 0 {
+		return thumbPath, nil
+	}
+	tmpThumb := fmt.Sprintf("%s.tmp.%d.jpg", thumbPath, time.Now().UnixNano())
+	ctx, cancel := context.WithTimeout(context.Background(), mediaSubprocessTimeout)
+	cmd := exec.CommandContext(ctx, ffmpegBin, "-y", "-ss", "0.1", "-i", localPath, "-vframes", "1", "-vf", "scale='min(480,iw)':-2", "-q:v", "4", tmpThumb)
+	runErr := cmd.Run()
+	cancel()
+	if runErr != nil {
 		_ = os.Remove(tmpThumb)
-		return "", err
+		return "", runErr
 	}
 	if err := os.Rename(tmpThumb, thumbPath); err != nil {
 		_ = os.Remove(tmpThumb)

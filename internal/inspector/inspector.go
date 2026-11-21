@@ -23,7 +23,7 @@ import (
 type InstanceInfo struct {
 	PID          int       `json:"pid"`
 	Port         int       `json:"port"`
-	CSRFToken    string    `json:"csrf_token"`
+	CSRFToken    string    `json:"-"`
 	DiscoveredAt time.Time `json:"discovered_at"`
 	IsHealthy    bool      `json:"is_healthy"`
 	// Version is the Antigravity version when the discovery source reports it (daemon files); otherwise
@@ -42,6 +42,7 @@ type UpstreamDiscoverer interface {
 
 // Inspector monitors and discovers Antigravity language_server instances.
 type Inspector struct {
+	scanMu       sync.Mutex
 	mu           sync.RWMutex
 	current      *InstanceInfo
 	pollInterval time.Duration
@@ -136,6 +137,9 @@ var (
 // that an authoritative desktop/daemon instance under $HOME always takes precedence and can
 // immediately preempt any fallback process discovered during a desktop restart window.
 func (i *Inspector) Scan() *InstanceInfo {
+	i.scanMu.Lock()
+	defer i.scanMu.Unlock()
+
 	// 1. Authoritative fast path: check daemon discovery files (~/.gemini/antigravity/daemon/{hub,ls}_*.json)
 	if dInfo := i.findFromDaemon(); dInfo != nil {
 		i.failedScanMu.Lock()

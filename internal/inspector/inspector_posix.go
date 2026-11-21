@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -72,7 +73,8 @@ func (i *Inspector) findProcess(ctx context.Context) (int, string, error) {
 	return 0, "", fmt.Errorf("language_server process not found")
 }
 
-// findListeningPorts uses lsof and ss to query TCP LISTEN ports for a given PID on POSIX systems.
+// findListeningPorts uses ss (Linux primary) and lsof (macOS primary / Linux fallback)
+// to query TCP LISTEN ports for a given PID on POSIX systems.
 func (i *Inspector) findListeningPorts(ctx context.Context, pid int) ([]int, error) {
 	cmdCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -80,24 +82,7 @@ func (i *Inspector) findListeningPorts(ctx context.Context, pid int) ([]int, err
 	var ports []int
 	seen := make(map[int]bool)
 
-	// 1. Primary method: lsof
-	cmd := exec.CommandContext(cmdCtx, "lsof", "-nP", "-iTCP", "-sTCP:LISTEN", "-a", "-p", strconv.Itoa(pid))
-	out, lsofErr := cmd.Output()
-	if lsofErr == nil {
-		matches := lsofRegex.FindAllStringSubmatch(string(out), -1)
-		for _, m := range matches {
-			if len(m) > 1 {
-				port, err := strconv.Atoi(m[1])
-				if err == nil && !seen[port] {
-					seen[port] = true
-					ports = append(ports, port)
-				}
-			}
-		}
-	}
-
-	// 2. Linux fallback: ss -H -tlnp
-	if len(ports) == 0 {
+	trySS := func() {
 		ssCmd := exec.CommandContext(cmdCtx, "ss", "-H", "-tlnp")
 		if ssOut, ssErr := ssCmd.Output(); ssErr == nil {
 			pidMarkerComma := fmt.Sprintf("pid=%d,", pid)
@@ -117,6 +102,37 @@ func (i *Inspector) findListeningPorts(ctx context.Context, pid int) ([]int, err
 					}
 				}
 			}
+		}
+	}
+
+	var lsofErr error
+	tryLsof := func() {
+		cmd := exec.CommandContext(cmdCtx, "lsof", "-nP", "-iTCP", "-sTCP:LISTEN", "-a", "-p", strconv.Itoa(pid))
+		out, err := cmd.Output()
+		lsofErr = err
+		if err == nil {
+			matches := lsofRegex.FindAllStringSubmatch(string(out), -1)
+			for _, m := range matches {
+				if len(m) > 1 {
+					port, err := strconv.Atoi(m[1])
+					if err == nil && !seen[port] {
+						seen[port] = true
+						ports = append(ports, port)
+					}
+				}
+			}
+		}
+	}
+
+	if runtime.GOOS == "linux" {
+		trySS()
+		if len(ports) == 0 {
+			tryLsof()
+		}
+	} else {
+		tryLsof()
+		if len(ports) == 0 {
+			trySS()
 		}
 	}
 

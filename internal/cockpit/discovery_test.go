@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -66,8 +67,10 @@ func TestVerifyReportPort(t *testing.T) {
 		t.Fatal("expected dead port to fail")
 	}
 
-	// 3. Mock Report Server (200 OK)
+	// 3. Mock Report Server (200 OK) - must NOT receive secret token during pre-probe
+	var leakedQueryToken string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		leakedQueryToken = r.URL.Query().Get("token")
 		if r.URL.Path == "/report" {
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte("service: Antigravity\nmetric: Claude\n"))
@@ -80,8 +83,11 @@ func TestVerifyReportPort(t *testing.T) {
 	u, _ := url.Parse(server.URL)
 	port, _ := strconv.Atoi(u.Port())
 
-	if !VerifyReportPort(port, "token123", 500*time.Millisecond) {
+	if !VerifyReportPort(port, "super-secret-report-token", 500*time.Millisecond) {
 		t.Fatalf("expected VerifyReportPort to succeed on port %d", port)
+	}
+	if leakedQueryToken != "" {
+		t.Fatalf("VerifyReportPort must not transmit secret token during port probe, leaked %q", leakedQueryToken)
 	}
 
 	// 4. Mock Report Server (401 Unauthorized - still recognized as report endpoint)
@@ -259,5 +265,16 @@ func TestGetCockpitServerInfo_WithFallback(t *testing.T) {
 	}
 	if res2.WsPort != actualWsPort {
 		t.Fatalf("expected auto-detected port %d, got %d", actualWsPort, res2.WsPort)
+	}
+}
+
+func TestQueryReport_EncodesTokenAndScrubsURLError(t *testing.T) {
+	secret := "tok#with&special=chars"
+	err := QueryReport(59996, secret)
+	if err == nil {
+		t.Fatal("expected error connecting to closed port")
+	}
+	if strings.Contains(err.Error(), secret) || strings.Contains(err.Error(), "tok") {
+		t.Fatalf("QueryReport error leaked report token: %v", err)
 	}
 }

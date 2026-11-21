@@ -26,17 +26,30 @@ type wsTicket struct {
 
 // WSTicketStore manages short-lived one-time tickets for WebSocket auth.
 type WSTicketStore struct {
-	mu      sync.Mutex
-	tickets map[string]*wsTicket
+	mu        sync.Mutex
+	tickets   map[string]*wsTicket
+	stopCh    chan struct{}
+	closeOnce sync.Once
 }
 
 // NewWSTicketStore creates a new ticket store and starts a background cleanup goroutine.
 func NewWSTicketStore() *WSTicketStore {
 	s := &WSTicketStore{
 		tickets: make(map[string]*wsTicket),
+		stopCh:  make(chan struct{}),
 	}
 	go s.gc()
 	return s
+}
+
+// Close stops the background cleanup goroutine.
+func (s *WSTicketStore) Close() {
+	if s == nil || s.stopCh == nil {
+		return
+	}
+	s.closeOnce.Do(func() {
+		close(s.stopCh)
+	})
 }
 
 // Issue creates a new one-time ticket bound to a device ID.
@@ -129,15 +142,20 @@ func (s *WSTicketStore) Validate(ticket string) (deviceID string, ok bool) {
 func (s *WSTicketStore) gc() {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
-	for range ticker.C {
-		cutoff := time.Now().Add(-wsTicketTTL)
-		s.mu.Lock()
-		for k, t := range s.tickets {
-			if t.createdAt.Before(cutoff) {
-				delete(s.tickets, k)
+	for {
+		select {
+		case <-s.stopCh:
+			return
+		case <-ticker.C:
+			cutoff := time.Now().Add(-wsTicketTTL)
+			s.mu.Lock()
+			for k, t := range s.tickets {
+				if t.createdAt.Before(cutoff) {
+					delete(s.tickets, k)
+				}
 			}
+			s.mu.Unlock()
 		}
-		s.mu.Unlock()
 	}
 }
 
@@ -158,17 +176,30 @@ type sidecarSession struct {
 
 // SidecarSessionStore manages short-lived, path-scoped session tokens for /gateway/sidecar-ui/.
 type SidecarSessionStore struct {
-	mu       sync.Mutex
-	sessions map[string]*sidecarSession
+	mu        sync.Mutex
+	sessions  map[string]*sidecarSession
+	stopCh    chan struct{}
+	closeOnce sync.Once
 }
 
 // NewSidecarSessionStore creates a new sidecar session store with periodic GC.
 func NewSidecarSessionStore() *SidecarSessionStore {
 	s := &SidecarSessionStore{
 		sessions: make(map[string]*sidecarSession),
+		stopCh:   make(chan struct{}),
 	}
 	go s.gc()
 	return s
+}
+
+// Close stops the background cleanup goroutine.
+func (s *SidecarSessionStore) Close() {
+	if s == nil || s.stopCh == nil {
+		return
+	}
+	s.closeOnce.Do(func() {
+		close(s.stopCh)
+	})
 }
 
 // Issue creates a short-lived multi-read session token bound to deviceID.
@@ -249,14 +280,19 @@ func (s *SidecarSessionStore) Validate(token string) (deviceID string, ok bool) 
 func (s *SidecarSessionStore) gc() {
 	ticker := time.NewTicker(2 * time.Minute)
 	defer ticker.Stop()
-	for range ticker.C {
-		cutoff := time.Now().Add(-SidecarSessionTTL)
-		s.mu.Lock()
-		for k, sess := range s.sessions {
-			if sess.createdAt.Before(cutoff) {
-				delete(s.sessions, k)
+	for {
+		select {
+		case <-s.stopCh:
+			return
+		case <-ticker.C:
+			cutoff := time.Now().Add(-SidecarSessionTTL)
+			s.mu.Lock()
+			for k, sess := range s.sessions {
+				if sess.createdAt.Before(cutoff) {
+					delete(s.sessions, k)
+				}
 			}
+			s.mu.Unlock()
 		}
-		s.mu.Unlock()
 	}
 }

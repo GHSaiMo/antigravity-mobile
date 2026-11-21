@@ -13,10 +13,30 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 )
 
 var validBranchNameRe = regexp.MustCompile(`^[A-Za-z0-9._/\-]+$`)
+
+type cachedSidecarTarget struct {
+	id  string
+	url *url.URL
+}
+
+var (
+	sidecarUICacheMu   sync.RWMutex
+	sidecarUICachePort int
+	sidecarUICacheAt   time.Time
+	sidecarUICacheList []cachedSidecarTarget
+)
+
+func invalidateSidecarUICache() {
+	sidecarUICacheMu.Lock()
+	sidecarUICacheAt = time.Time{}
+	sidecarUICacheList = nil
+	sidecarUICacheMu.Unlock()
+}
 
 // HandleMcpManage handles toggling and refreshing MCP servers via ToggleMcpServer & RefreshMcpServers.
 func (p *Proxy) HandleMcpManage(w http.ResponseWriter, r *http.Request) {
@@ -168,19 +188,33 @@ func (p *Proxy) fetchMcpAppResourceHTML(ctx context.Context, rawURI, serverName 
 
 // HandleMcpApp bridges interactive <agent-embed> / MCP App lifecycle calls.
 func (p *Proxy) HandleMcpApp(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost && r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	switch r.URL.Path {
+	case "/gateway/mcp/app/launch", "/gateway/mcp/app/call":
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+	case "/gateway/mcp/app/resource":
+		if r.Method != http.MethodPost && r.Method != http.MethodGet {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+	default:
+		http.NotFound(w, r)
 		return
 	}
+
 	var payload map[string]interface{}
 	if r.Method == http.MethodPost {
 		_ = json.NewDecoder(io.LimitReader(r.Body, 512*1024)).Decode(&payload)
 	}
 	if payload == nil {
 		payload = map[string]interface{}{}
-		for k, vv := range r.URL.Query() {
-			if len(vv) > 0 {
-				payload[k] = vv[0]
+		if r.Method == http.MethodGet {
+			for k, vv := range r.URL.Query() {
+				if len(vv) > 0 {
+					payload[k] = vv[0]
+				}
 			}
 		}
 	}
@@ -188,8 +222,15 @@ func (p *Proxy) HandleMcpApp(w http.ResponseWriter, r *http.Request) {
 	if uriStr, _ := payload["uri"].(string); uriStr != "" {
 		inferredServer, cleanURI := parseMcpAppURI(uriStr)
 		payload["uri"] = cleanURI
-		if sn, _ := payload["serverName"].(string); strings.TrimSpace(sn) == "" && inferredServer != "" {
+		sn := strings.TrimSpace(fmt.Sprint(payload["serverName"]))
+		if payload["serverName"] == nil {
+			sn = ""
+		}
+		if sn == "" && inferredServer != "" {
 			payload["serverName"] = inferredServer
+		} else if sn != "" && inferredServer != "" && sn != inferredServer {
+			writeRPCError(w, http.StatusForbidden, "MCP serverName namespace mismatch")
+			return
 		}
 	}
 
@@ -291,17 +332,23 @@ func (p *Proxy) HandleSidecarUI(w http.ResponseWriter, r *http.Request) {
 				req.URL.RawQuery = q.Encode()
 			}
 		}
-		// Strip gateway auth cookies before forwarding to local sidecar process.
+		// Strip gateway auth & upstream CSRF cookies before forwarding to local sidecar process.
 		if cookies := req.Cookies(); len(cookies) > 0 {
 			req.Header.Del("Cookie")
 			for _, c := range cookies {
-				if c.Name == "agy_dt" || c.Name == "agy_sidecar_st" {
+				lowerName := strings.ToLower(strings.TrimSpace(c.Name))
+				if lowerName == "csrftoken" || lowerName == "csrf_token" ||
+					strings.HasPrefix(lowerName, "agy_") || strings.HasPrefix(lowerName, "mgy_") {
 					continue
 				}
 				req.AddCookie(c)
 			}
 		}
 		req.Host = targetBase.Host
+	}
+	rp.ErrorHandler = func(rw http.ResponseWriter, _ *http.Request, _ error) {
+		invalidateSidecarUICache()
+		http.Error(rw, "Sidecar web UI unreachable", http.StatusBadGateway)
 	}
 	rp.ServeHTTP(w, r)
 }
@@ -312,33 +359,77 @@ func (p *Proxy) resolveSidecarUITarget(ctx context.Context, trimmedPath string) 
 		return nil, "", "", false
 	}
 
-	c, cancel := context.WithTimeout(ctx, 2*time.Second)
-	body, status, err := p.callUpstreamRPC(c, "GetSidecars", map[string]interface{}{})
-	cancel()
-	if err != nil || status != http.StatusOK {
-		return nil, "", "", false
-	}
+	const sidecarCacheTTL = 3 * time.Second
+	var targets []cachedSidecarTarget
+	now := time.Now()
 
-	var up struct {
-		Sidecars []struct {
-			SidecarID string `json:"sidecarId"`
-			ID        string `json:"id"`
-			WebPort   int    `json:"webPort"`
-			WebUIPort int    `json:"webUiPort"`
-			BaseURL   string `json:"baseUrl"`
-			WebUIURL  string `json:"webUiUrl"`
-		} `json:"sidecars"`
+	sidecarUICacheMu.RLock()
+	if sidecarUICachePort == port && len(sidecarUICacheList) > 0 && now.Sub(sidecarUICacheAt) < sidecarCacheTTL {
+		targets = sidecarUICacheList
 	}
-	if json.Unmarshal(body, &up) != nil {
-		return nil, "", "", false
+	sidecarUICacheMu.RUnlock()
+
+	if targets == nil {
+		c, cancel := context.WithTimeout(ctx, 2*time.Second)
+		body, status, err := p.callUpstreamRPC(c, "GetSidecars", map[string]interface{}{})
+		cancel()
+		if err != nil || status != http.StatusOK {
+			return nil, "", "", false
+		}
+
+		var up struct {
+			Sidecars []struct {
+				SidecarID string `json:"sidecarId"`
+				ID        string `json:"id"`
+				WebPort   int    `json:"webPort"`
+				WebUIPort int    `json:"webUiPort"`
+				BaseURL   string `json:"baseUrl"`
+				WebUIURL  string `json:"webUiUrl"`
+			} `json:"sidecars"`
+		}
+		if json.Unmarshal(body, &up) != nil {
+			return nil, "", "", false
+		}
+
+		fetched := make([]cachedSidecarTarget, 0, len(up.Sidecars))
+		for _, sc := range up.Sidecars {
+			id := strings.TrimSpace(firstNonEmpty(sc.SidecarID, sc.ID))
+			if id == "" {
+				continue
+			}
+			var candidateURL *url.URL
+			if rawURL := strings.TrimSpace(firstNonEmpty(sc.BaseURL, sc.WebUIURL)); rawURL != "" {
+				if u, pErr := url.Parse(rawURL); pErr == nil && isLoopbackHost(u.Hostname()) {
+					candidateURL = u
+				}
+			}
+			if candidateURL == nil {
+				webPort := sc.WebPort
+				if webPort <= 0 {
+					webPort = sc.WebUIPort
+				}
+				if webPort > 0 {
+					if u, pErr := url.Parse(fmt.Sprintf("http://127.0.0.1:%d", webPort)); pErr == nil {
+						candidateURL = u
+					}
+				}
+			}
+			if candidateURL != nil {
+				fetched = append(fetched, cachedSidecarTarget{id: id, url: candidateURL})
+			}
+		}
+
+		sidecarUICacheMu.Lock()
+		sidecarUICachePort = port
+		sidecarUICacheAt = time.Now()
+		sidecarUICacheList = fetched
+		sidecarUICacheMu.Unlock()
+		targets = fetched
 	}
 
 	cleanTrimmed := strings.TrimLeft(trimmedPath, "/")
-	for _, sc := range up.Sidecars {
-		id := strings.TrimSpace(firstNonEmpty(sc.SidecarID, sc.ID))
-		if id == "" {
-			continue
-		}
+	for _, sc := range targets {
+		id := sc.id
 		var candidateRest string
 		var candidateTrailing bool
 		if cleanTrimmed == id {
@@ -355,30 +446,11 @@ func (p *Proxy) resolveSidecarUITarget(ctx context.Context, trimmedPath string) 
 		if len(id) <= len(matchedID) {
 			continue
 		}
-
-		var candidateURL *url.URL
-		if rawURL := strings.TrimSpace(firstNonEmpty(sc.BaseURL, sc.WebUIURL)); rawURL != "" {
-			if u, pErr := url.Parse(rawURL); pErr == nil && isLoopbackHost(u.Hostname()) {
-				candidateURL = u
-			}
-		}
-		if candidateURL == nil {
-			webPort := sc.WebPort
-			if webPort <= 0 {
-				webPort = sc.WebUIPort
-			}
-			if webPort > 0 {
-				if u, pErr := url.Parse(fmt.Sprintf("http://127.0.0.1:%d", webPort)); pErr == nil {
-					candidateURL = u
-				}
-			}
-		}
-		if candidateURL != nil {
-			target = candidateURL
-			matchedID = id
-			rest = candidateRest
-			hasTrailingSlash = candidateTrailing
-		}
+		cloned := *sc.url
+		target = &cloned
+		matchedID = id
+		rest = candidateRest
+		hasTrailingSlash = candidateTrailing
 	}
 	return target, matchedID, rest, hasTrailingSlash
 }
@@ -588,6 +660,12 @@ func (p *Proxy) HandleGitExtra(w http.ResponseWriter, r *http.Request) {
 		writeRPCError(w, http.StatusBadRequest, "无法解析当前会话的 Git 仓库路径")
 		return
 	}
+	validRepoRoot, wsErr := validateWorkspaceDir(repoRoot, true)
+	if wsErr != nil {
+		writeRPCError(w, http.StatusForbidden, wsErr.Error())
+		return
+	}
+	repoRoot = validRepoRoot
 
 	switch r.URL.Path {
 	case "/gateway/git/branches":
@@ -689,23 +767,63 @@ func gitListBranches(ctx context.Context, repoRoot string) ([]string, string, er
 }
 
 func resolveRepoSubpath(repoRoot, rel string) string {
+	if strings.TrimSpace(rel) == "" || strings.ContainsRune(rel, 0) {
+		return ""
+	}
 	cleanRoot, err := filepath.Abs(repoRoot)
 	if err != nil {
 		return ""
 	}
+	realRoot := evalSymlinksExistingPrefix(cleanRoot)
 	cand := rel
 	if !filepath.IsAbs(cand) {
-		cand = filepath.Join(cleanRoot, filepath.FromSlash(cand))
+		cand = filepath.Join(realRoot, filepath.FromSlash(cand))
 	}
 	abs, err := filepath.Abs(filepath.Clean(cand))
 	if err != nil {
 		return ""
 	}
-	r, err := filepath.Rel(cleanRoot, abs)
+	r, err := filepath.Rel(realRoot, abs)
 	if err != nil || r == "." || r == ".." || strings.HasPrefix(r, ".."+string(filepath.Separator)) {
 		return ""
 	}
+	// Ensure no parent component escapes realRoot via symbolic links.
+	parentReal := evalSymlinksExistingPrefix(filepath.Dir(abs))
+	if parentReal != realRoot && !strings.HasPrefix(parentReal, realRoot+string(filepath.Separator)) {
+		return ""
+	}
+	if fi, lerr := os.Lstat(abs); lerr == nil && fi.Mode()&os.ModeSymlink == 0 {
+		targetReal := evalSymlinksExistingPrefix(abs)
+		if targetReal != realRoot && !strings.HasPrefix(targetReal, realRoot+string(filepath.Separator)) {
+			return ""
+		}
+	}
 	return abs
+}
+
+func removeUntrackedWithinRepo(realRoot, abs string) error {
+	fi, err := os.Lstat(abs)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	// If the untracked entry itself is a symlink, unlink only the symlink without traversing it.
+	if fi.Mode()&os.ModeSymlink != 0 {
+		return os.Remove(abs)
+	}
+	if !fi.IsDir() {
+		return os.Remove(abs)
+	}
+	realDir, err := filepath.EvalSymlinks(abs)
+	if err != nil {
+		return err
+	}
+	if realDir == realRoot || !strings.HasPrefix(realDir, realRoot+string(filepath.Separator)) {
+		return fmt.Errorf("拒绝删除越界目录: %s", abs)
+	}
+	return os.RemoveAll(realDir)
 }
 
 func gitDiscardPaths(ctx context.Context, repoRoot string, paths []string) error {
@@ -713,9 +831,10 @@ func gitDiscardPaths(ctx context.Context, repoRoot string, paths []string) error
 	if err != nil {
 		return err
 	}
+	realRoot := evalSymlinksExistingPrefix(cleanRoot)
 	// Check untracked status first so we only delete verified untracked files.
 	untracked := make(map[string]bool)
-	stCmd := exec.CommandContext(ctx, "git", "-C", cleanRoot, "status", "--porcelain", "-uall", "-z")
+	stCmd := exec.CommandContext(ctx, "git", "-C", realRoot, "status", "--porcelain", "-uall", "-z")
 	if stOut, stErr := stCmd.Output(); stErr == nil {
 		for _, rec := range strings.Split(string(stOut), "\x00") {
 			if len(rec) > 3 && strings.HasPrefix(rec, "?? ") {
@@ -726,17 +845,17 @@ func gitDiscardPaths(ctx context.Context, repoRoot string, paths []string) error
 
 	var tracked []string
 	for _, raw := range paths {
-		abs := resolveRepoSubpath(cleanRoot, raw)
+		abs := resolveRepoSubpath(realRoot, raw)
 		if abs == "" {
 			return fmt.Errorf("非法路径: %s", raw)
 		}
-		rel, err := filepath.Rel(cleanRoot, abs)
+		rel, err := filepath.Rel(realRoot, abs)
 		if err != nil {
 			return err
 		}
 		relSlash := filepath.ToSlash(rel)
 		if untracked[relSlash] {
-			if rmErr := os.RemoveAll(abs); rmErr != nil {
+			if rmErr := removeUntrackedWithinRepo(realRoot, abs); rmErr != nil {
 				return rmErr
 			}
 			continue
@@ -744,7 +863,7 @@ func gitDiscardPaths(ctx context.Context, repoRoot string, paths []string) error
 		tracked = append(tracked, relSlash)
 	}
 	if len(tracked) > 0 {
-		args := append([]string{"-C", cleanRoot, "checkout", "--"}, tracked...)
+		args := append([]string{"-C", realRoot, "checkout", "--"}, tracked...)
 		cmd := exec.CommandContext(ctx, "git", args...)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			return fmt.Errorf("%s: %w", strings.TrimSpace(string(out)), err)

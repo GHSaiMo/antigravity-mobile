@@ -339,7 +339,7 @@ func (p *Proxy) HandleBackgroundTaskLog(w http.ResponseWriter, r *http.Request) 
 	}
 
 	localPath := uriToPath(logURI)
-	if !verifiedByUpstream && !isAllowedBackgroundTaskLogPath(localPath) {
+	if localPath == "" || !IsSafeFilePath(localPath) || (!verifiedByUpstream && !isAllowedBackgroundTaskLogPath(localPath)) {
 		writeJSONError(w, "forbidden log path", http.StatusForbidden)
 		return
 	}
@@ -379,18 +379,25 @@ func (p *Proxy) HandleBackgroundTaskLog(w http.ResponseWriter, r *http.Request) 
 }
 
 func isAllowedBackgroundTaskLogPath(localPath string) bool {
-	if localPath == "" {
+	if localPath == "" || strings.ContainsRune(localPath, 0) {
 		return false
 	}
-	clean := filepath.ToSlash(filepath.Clean(localPath))
+	if fi, err := os.Lstat(localPath); err == nil && fi.Mode()&os.ModeSymlink != 0 {
+		return false
+	}
+	resolved := evalSymlinksExistingPrefix(localPath)
+	clean := filepath.ToSlash(filepath.Clean(resolved))
 	if !strings.HasSuffix(clean, ".log") && !strings.HasSuffix(clean, ".txt") {
 		return false
 	}
-	return strings.Contains(clean, "/.system_generated/tasks/")
+	if !strings.Contains(clean, "/.system_generated/tasks/") {
+		return false
+	}
+	return IsSafeFilePath(resolved)
 }
 
 func readLogFileTail(localPath string, maxBytes int) (content string, totalSize int64, truncated bool, err error) {
-	f, err := os.Open(localPath)
+	f, err := openRegularNoFollow(localPath)
 	if err != nil {
 		return "", 0, false, err
 	}
@@ -399,6 +406,9 @@ func readLogFileTail(localPath string, maxBytes int) (content string, totalSize 
 	st, err := f.Stat()
 	if err != nil {
 		return "", 0, false, err
+	}
+	if !st.Mode().IsRegular() {
+		return "", 0, false, fmt.Errorf("not a regular file")
 	}
 	totalSize = st.Size()
 	if totalSize == 0 {

@@ -77,7 +77,7 @@ test:
 
 # Clean artifacts
 clean:
-	rm -rf bin dist build logs/*.log
+	rm -rf bin dist build ios/build ios/DerivedData android/build android/app/build logs/*.log
 
 # Launch gateway in a detached tmux session with log tee
 tmux-start: build

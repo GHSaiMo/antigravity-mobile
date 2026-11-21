@@ -18,11 +18,16 @@ $pkgArch = "amd64"
 $archDesc = "Windows x86_64"
 Write-Host "🖥️  检测到系统架构: $archDesc ($pkgArch)" -ForegroundColor Cyan
 
-# 3. 准备安装与配置目录
+# 3. 准备安装与配置目录 (收紧当前用户专属 ACL 权限)
 $installDir = "$HOME\.local\bin"
 $confDir = "$HOME\.multigravity"
 if (!(Test-Path $installDir)) { New-Item -ItemType Directory -Path $installDir -Force | Out-Null }
 if (!(Test-Path "$confDir\logs")) { New-Item -ItemType Directory -Path "$confDir\logs" -Force | Out-Null }
+try {
+    if ($env:USERNAME) {
+        & icacls.exe $confDir /inheritance:r /grant:r "$($env:USERNAME):(OI)(CI)F" "SYSTEM:(OI)(CI)F" "Administrators:(OI)(CI)F" | Out-Null
+    }
+} catch {}
 
 # 4. 初始化默认配置 .env (若不存在)
 if (!(Test-Path "$confDir\.env")) {
@@ -33,11 +38,11 @@ if (!(Test-Path "$confDir\.env")) {
 # 网关监听端口 (默认 58900)
 MULTIGRAVITY_PORT=58900
 
-# 网关监听主机/IP (默认留空双栈绑定所有网卡，设为 127.0.0.1 仅限本机)
+# 网关监听主机/IP (默认留空绑定所有 IPv4 网卡，设为 127.0.0.1 仅限本机)
 # MULTIGRAVITY_HOST=127.0.0.1
 
 # ☁️ Cloudflare Tunnel 专属公网穿透配置 (开箱即用)
-# CF_WORKER_URL=https://mgy-tunnel.multigravity.workers.dev
+# CF_WORKER_URL=https://dispatcher.jiuge.space
 # CF_INVITE_CODE=
 # CF_TUNNEL_TOKEN=
 # CF_TUNNEL_ENABLED=1
@@ -51,6 +56,11 @@ MULTIGRAVITY_PORT=58900
 MULTIGRAVITY_TRUST_LAN=0
 "@
     [System.IO.File]::WriteAllText("$confDir\.env", $defaultEnv, [System.Text.Encoding]::UTF8)
+    try {
+        if ($env:USERNAME) {
+            & icacls.exe "$confDir\.env" /inheritance:r /grant:r "$($env:USERNAME):F" "SYSTEM:F" "Administrators:F" | Out-Null
+        }
+    } catch {}
     Write-Host "📝 已生成全局默认配置: $confDir\.env" -ForegroundColor Green
 }
 
@@ -86,6 +96,49 @@ $urls = @(
 $tempDir = Join-Path ([System.IO.Path]::GetTempPath()) ("mgy-" + [System.Guid]::NewGuid().ToString().Substring(0, 8))
 New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
 $zipFile = Join-Path $tempDir $zipName
+$checksumsFile = Join-Path $tempDir "checksums.txt"
+$officialChecksumsUrl = "https://github.com/$repo/releases/latest/download/checksums.txt"
+
+# HIGH-02: 仅从 GitHub 官方 HTTPS 源获取 checksums.txt 并执行 Fail-Closed 校验
+Write-Host "🔒 正在从 GitHub 官方源获取 SHA-256 校验清单..." -ForegroundColor Cyan
+try {
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    if (Get-Command curl.exe -ErrorAction SilentlyContinue) {
+        $csArgs = @("-fsSL", "--connect-timeout", "10", "--max-time", "25", "-o", $checksumsFile, $officialChecksumsUrl)
+        if ($proxyPort) {
+            $csArgs = @("--proxy", "http://127.0.0.1:$proxyPort") + $csArgs
+        }
+        & curl.exe @csArgs
+        if ($LASTEXITCODE -ne 0) { throw "curl checksums failed" }
+    } else {
+        $wcCs = New-Object System.Net.WebClient
+        if ($proxyPort) {
+            $wcCs.Proxy = New-Object System.Net.WebProxy("http://127.0.0.1:$proxyPort")
+        }
+        $wcCs.DownloadFile($officialChecksumsUrl, $checksumsFile)
+    }
+} catch {
+    Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
+    Write-Host "❌ 安全校验失败: 无法从 GitHub 官方 HTTPS 源获取 checksums.txt ($officialChecksumsUrl)。" -ForegroundColor Red
+    exit 1
+}
+
+$expectedZipSha = $null
+foreach ($csLine in (Get-Content $checksumsFile -ErrorAction SilentlyContinue)) {
+    $trimmed = $csLine.Trim()
+    if ($trimmed -match "^([0-9a-fA-F]{64})\s+\*?(\./)?(.+)$") {
+        $fname = [System.IO.Path]::GetFileName($Matches[3].Trim())
+        if ($fname -ieq $zipName) {
+            $expectedZipSha = $Matches[1].ToLowerInvariant()
+            break
+        }
+    }
+}
+if (-not $expectedZipSha) {
+    Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
+    Write-Host "❌ 安全校验失败: 官方 checksums.txt 中未找到 $zipName 的 SHA-256 记录。" -ForegroundColor Red
+    exit 1
+}
 
 $downloadSuccess = $false
 Write-Host "📥 正在获取 Multigravity ($pkgArch) 最新发行版..." -ForegroundColor Cyan
@@ -111,6 +164,7 @@ foreach ($url in $urls) {
                 $curlArgs = @("--noproxy", "*") + $curlArgs
             }
             & curl.exe @curlArgs
+            if ($LASTEXITCODE -ne 0) { throw "curl download failed" }
         } else {
             [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
             $wc = New-Object System.Net.WebClient
@@ -119,69 +173,48 @@ foreach ($url in $urls) {
             }
             $wc.DownloadFile($url, $zipFile)
         }
-        if ((Test-Path $zipFile) -and ((Get-Item $zipFile).Length -gt 100000)) {
-            $downloadSuccess = $true
-            break
+        if (Test-Path $zipFile) {
+            $gotSha = (Get-FileHash -Path $zipFile -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($gotSha -eq $expectedZipSha) {
+                Write-Host "🔒 SHA-256 校验通过 ($($gotSha.Substring(0, 12))...)" -ForegroundColor Green
+                $downloadSuccess = $true
+                break
+            }
+            Write-Host "⚠️  SHA-256 校验不匹配 (got $gotSha)，已丢弃并切换备用源..." -ForegroundColor Yellow
+            Remove-Item $zipFile -Force -ErrorAction SilentlyContinue
         }
     } catch {
         Write-Host "⚠️  下载异常或连接超时，正在切换下一个镜像源..." -ForegroundColor Yellow
-        if (Test-Path $zipFile) { Remove-Item $zipFile -Force }
+        if (Test-Path $zipFile) { Remove-Item $zipFile -Force -ErrorAction SilentlyContinue }
     }
 }
 
 if ($downloadSuccess) {
-    Write-Host "📦 下载完成，正在解压安装..." -ForegroundColor Green
-    
+    Write-Host "📦 校验通过，正在定向提取 mgy.exe..." -ForegroundColor Green
+
     # 停止旧版本 mgy 进程以防文件占用锁
     Get-Process -Name mgy -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
     Start-Sleep -Milliseconds 200
 
-    if (Get-Command tar.exe -ErrorAction SilentlyContinue) {
-        tar.exe -xf $zipFile -C $tempDir
-    } else {
-        Expand-Archive -Path $zipFile -DestinationPath $tempDir -Force
-    }
-
-    $exeSource = Join-Path $tempDir "mgy.exe"
-    if (Test-Path $exeSource) {
-        Copy-Item -Path $exeSource -Destination "$installDir\mgy.exe" -Force
-    } else {
-        Write-Host "❌ 解压归档中未找到 mgy.exe" -ForegroundColor Red
-        exit 1
+    # HIGH-02: 仅定向提取单一 mgy.exe 条目，防止 Zip-Slip 路径穿越
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $archive = [System.IO.Compression.ZipFile]::OpenRead($zipFile)
+    try {
+        $targetEntry = $archive.Entries | Where-Object { $_.Name -ieq "mgy.exe" -and $_.FullName -notmatch "\.\." } | Select-Object -First 1
+        if (-not $targetEntry) {
+            throw "归档中未找到合法的 mgy.exe"
+        }
+        $stagedExe = "$installDir\mgy.exe.tmp"
+        [System.IO.Compression.ZipFileExtensions]::ExtractToFile($targetEntry, $stagedExe, $true)
+        Move-Item -Path $stagedExe -Destination "$installDir\mgy.exe" -Force
+    } finally {
+        $archive.Dispose()
     }
 } else {
-    Write-Host "⚠️  未能从网络镜像获取预编译包，尝试回退本地编译..." -ForegroundColor Yellow
-    
-    # 查找本地 Go
-    $goCmd = "go"
-    if (!(Get-Command go -ErrorAction SilentlyContinue)) {
-        if (Test-Path "$HOME\go-sdk\go\bin\go.exe") {
-            $goCmd = "$HOME\go-sdk\go\bin\go.exe"
-            $env:PATH = "$HOME\go-sdk\go\bin;$env:PATH"
-        } else {
-            Write-Host "⚠️ 未检测到系统 Go 环境，正在下载便携式 Go SDK..." -ForegroundColor Yellow
-            $sdkDir = "$HOME\go-sdk"
-            if (!(Test-Path $sdkDir)) { New-Item -ItemType Directory -Path $sdkDir -Force | Out-Null }
-            $goZip = "$sdkDir\go.zip"
-            curl.exe -L -o $goZip "https://dl.google.com/go/go1.22.10.windows-amd64.zip"
-            if (Get-Command tar.exe -ErrorAction SilentlyContinue) {
-                tar.exe -xf $goZip -C $sdkDir
-            } else {
-                Expand-Archive -Path $goZip -DestinationPath $sdkDir -Force
-            }
-            Remove-Item $goZip -Force
-            $goCmd = "$sdkDir\go\bin\go.exe"
-            $env:PATH = "$sdkDir\go\bin;$env:PATH"
-        }
-    }
-
-    $repoRoot = $PSScriptRoot
-    if ($repoRoot -and (Test-Path "$repoRoot\..\cmd\gateway")) {
-        Set-Location (Join-Path $repoRoot "..")
-    }
-    $tagVer = (git describe --tags --abbrev=0 2>$null) -replace '^v',''
-    if (-not $tagVer) { $tagVer = "1.2.4" }
-    & $goCmd build -ldflags="-s -w -X 'main.Version=$tagVer'" -o "$installDir\mgy.exe" ./cmd/gateway
+    Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
+    Write-Host "❌ 未能下载并通过官方 SHA-256 校验获取发行包 ($zipName)。" -ForegroundColor Red
+    Write-Host "   请检查网络连接或前往官方 Release 下载: https://github.com/$repo/releases/latest" -ForegroundColor Yellow
+    exit 1
 }
 
 # 6. 安装到 WindowsApps (Windows 默认已在 PATH 中的用户级目录，免重启即生效)
@@ -229,10 +262,12 @@ if ($cfExisting) {
         try { Copy-Item -Path $cfTarget -Destination "$installDir\cloudflared.exe" -Force } catch {}
     }
 } else {
+    $cfVersion = "2026.11.1"
+    $cfExpectedSha = "341deda3db5ec498a0482254d6c38c0b7cf01a30c37bb5dd95d2216d08955e35"
     $cfUrls = @(
-        "https://ghfast.top/https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe",
-        "https://ghproxy.net/https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe",
-        "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe"
+        "https://ghfast.top/https://github.com/cloudflare/cloudflared/releases/download/$cfVersion/cloudflared-windows-amd64.exe",
+        "https://ghproxy.net/https://github.com/cloudflare/cloudflared/releases/download/$cfVersion/cloudflared-windows-amd64.exe",
+        "https://github.com/cloudflare/cloudflared/releases/download/$cfVersion/cloudflared-windows-amd64.exe"
     )
 
     $cfDone = $false
@@ -293,14 +328,17 @@ if ($cfExisting) {
                     $wc.DownloadFile($url, $tmpFile)
                 }
 
-                if ((Test-Path $tmpFile) -and ((Get-Item $tmpFile).Length -gt 10000000)) {
-                    Move-Item -Path $tmpFile -Destination $cfTarget -Force
-                    try { Copy-Item -Path $cfTarget -Destination "$installDir\cloudflared.exe" -Force } catch {}
-                    $cfDone = $true
-                    Write-Host "✅ Cloudflare 穿透引擎安装成功: $cfTarget" -ForegroundColor Green
-                    break
-                } else {
-                    if (Test-Path $tmpFile) { Remove-Item $tmpFile -Force }
+                if (Test-Path $tmpFile) {
+                    $gotCfSha = (Get-FileHash -Path $tmpFile -Algorithm SHA256).Hash.ToLowerInvariant()
+                    if ($gotCfSha -eq $cfExpectedSha) {
+                        Move-Item -Path $tmpFile -Destination $cfTarget -Force
+                        try { Copy-Item -Path $cfTarget -Destination "$installDir\cloudflared.exe" -Force } catch {}
+                        $cfDone = $true
+                        Write-Host "✅ Cloudflare 穿透引擎 SHA-256 校验通过并安装成功: $cfTarget" -ForegroundColor Green
+                        break
+                    }
+                    Write-Host "⚠️  cloudflared SHA-256 校验不匹配 (got $gotCfSha)，已丢弃并切换备用源..." -ForegroundColor Yellow
+                    Remove-Item $tmpFile -Force -ErrorAction SilentlyContinue
                 }
             } catch {
                 Write-Host "⚠️  当前源下载异常或超时，尝试下一个备用源..." -ForegroundColor Yellow

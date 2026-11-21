@@ -83,19 +83,62 @@ type geminiProjectConfigFile struct {
 	} `json:"projectResources"`
 }
 
+var (
+	geminiCfgCacheMu         sync.RWMutex
+	cachedSidecarProjStamp   string
+	cachedSidecarProjAt      time.Time
+	cachedSidecarProjIDs     map[string]bool
+	cachedGeminiCfgProjStamp string
+	cachedGeminiCfgProjAt    time.Time
+	cachedGeminiCfgProjects  []ProjectItem
+)
+
+func invalidateGeminiConfigCaches() {
+	geminiCfgCacheMu.Lock()
+	cachedSidecarProjStamp = ""
+	cachedSidecarProjIDs = nil
+	cachedGeminiCfgProjStamp = ""
+	cachedGeminiCfgProjects = nil
+	geminiCfgCacheMu.Unlock()
+}
+
 // fetchSidecarProjectIDs reads Antigravity 2.0 config.json files to identify shadow project IDs
 // automatically created for scheduled tasks / sidecars so they can be excluded from workspace lists.
 func fetchSidecarProjectIDs() map[string]bool {
-	ids := make(map[string]bool)
-	seenFiles := make(map[string]bool)
-
-	for _, projDir := range getGeminiConfigProjectsDirs() {
+	dirs := getGeminiConfigProjectsDirs()
+	var cfgFiles []string
+	seenFiles := make(map[string]bool, len(dirs))
+	var stampBuf strings.Builder
+	for _, projDir := range dirs {
 		cfgFile := filepath.Clean(filepath.Join(filepath.Dir(projDir), "config.json"))
 		if seenFiles[cfgFile] {
 			continue
 		}
 		seenFiles[cfgFile] = true
+		cfgFiles = append(cfgFiles, cfgFile)
+		stampBuf.WriteString(cfgFile)
+		if fi, err := os.Stat(cfgFile); err == nil {
+			fmt.Fprintf(&stampBuf, ":%d:%d|", fi.ModTime().UnixNano(), fi.Size())
+		} else {
+			stampBuf.WriteString(":missing|")
+		}
+	}
+	stamp := stampBuf.String()
+	now := time.Now()
 
+	geminiCfgCacheMu.RLock()
+	if cachedSidecarProjIDs != nil && cachedSidecarProjStamp == stamp && now.Sub(cachedSidecarProjAt) < 5*time.Second {
+		cp := make(map[string]bool, len(cachedSidecarProjIDs))
+		for k, v := range cachedSidecarProjIDs {
+			cp[k] = v
+		}
+		geminiCfgCacheMu.RUnlock()
+		return cp
+	}
+	geminiCfgCacheMu.RUnlock()
+
+	ids := make(map[string]bool)
+	for _, cfgFile := range cfgFiles {
 		data, err := os.ReadFile(cfgFile)
 		if err != nil || len(data) == 0 {
 			continue
@@ -117,17 +160,50 @@ func fetchSidecarProjectIDs() map[string]bool {
 		}
 	}
 
+	geminiCfgCacheMu.Lock()
+	cachedSidecarProjStamp = stamp
+	cachedSidecarProjAt = now
+	cachedSidecarProjIDs = make(map[string]bool, len(ids))
+	for k, v := range ids {
+		cachedSidecarProjIDs[k] = v
+	}
+	geminiCfgCacheMu.Unlock()
+
 	return ids
 }
 
 // fetchProjectsFromGeminiConfig reads Antigravity 2.0 project JSON configs from ~/.gemini/config/projects/.
 func fetchProjectsFromGeminiConfig() []ProjectItem {
+	dirs := getGeminiConfigProjectsDirs()
+	sidecarIDs := fetchSidecarProjectIDs()
+
+	var stampBuf strings.Builder
+	for _, dir := range dirs {
+		cleanDir := filepath.Clean(dir)
+		stampBuf.WriteString(cleanDir)
+		if fi, err := os.Stat(cleanDir); err == nil {
+			fmt.Fprintf(&stampBuf, ":%d|", fi.ModTime().UnixNano())
+		} else {
+			stampBuf.WriteString(":missing|")
+		}
+	}
+	fmt.Fprintf(&stampBuf, "#sc=%d", len(sidecarIDs))
+	stamp := stampBuf.String()
+	now := time.Now()
+
+	geminiCfgCacheMu.RLock()
+	if cachedGeminiCfgProjects != nil && cachedGeminiCfgProjStamp == stamp && now.Sub(cachedGeminiCfgProjAt) < 2*time.Second {
+		cp := cloneProjectItems(cachedGeminiCfgProjects)
+		geminiCfgCacheMu.RUnlock()
+		return cp
+	}
+	geminiCfgCacheMu.RUnlock()
+
 	items := make([]ProjectItem, 0, 16)
 	seenIDs := make(map[string]bool)
 	seenURIs := make(map[string]bool)
-	sidecarIDs := fetchSidecarProjectIDs()
 
-	for _, dir := range getGeminiConfigProjectsDirs() {
+	for _, dir := range dirs {
 		cleanDir := filepath.Clean(dir)
 		entries, err := os.ReadDir(cleanDir)
 		if err != nil {
@@ -223,6 +299,12 @@ func fetchProjectsFromGeminiConfig() []ProjectItem {
 			})
 		}
 	}
+
+	geminiCfgCacheMu.Lock()
+	cachedGeminiCfgProjStamp = stamp
+	cachedGeminiCfgProjAt = now
+	cachedGeminiCfgProjects = cloneProjectItems(items)
+	geminiCfgCacheMu.Unlock()
 
 	return items
 }
@@ -644,9 +726,19 @@ func fetchProjectsFromStateDB() []ProjectItem {
 	var err error
 
 	// 1. Try sqlite3 CLI if available
-	if p, lookErr := exec.LookPath("sqlite3"); lookErr == nil && isExecutableValid(p) {
-		cmd := exec.CommandContext(ctx, "sqlite3", dbPath, "SELECT value FROM ItemTable WHERE key = 'history.recentlyOpenedPathsList';")
-		out, err = cmd.Output()
+	if safeDB, pathErr := safeSQLiteDBArg(dbPath); pathErr == nil {
+		if bin, roFlag, lookErr := findSQLiteExecutable(); lookErr == nil {
+			args := make([]string, 0, 4)
+			if roFlag {
+				args = append(args, "-readonly")
+			}
+			args = append(args, safeDB, "SELECT value FROM ItemTable WHERE key = 'history.recentlyOpenedPathsList';")
+			cmd := exec.CommandContext(ctx, bin, args...)
+			out, err = cmd.Output()
+		} else if p, lookErr2 := exec.LookPath("sqlite3"); lookErr2 == nil && isExecutableValid(p) {
+			cmd := exec.CommandContext(ctx, p, safeDB, "SELECT value FROM ItemTable WHERE key = 'history.recentlyOpenedPathsList';")
+			out, err = cmd.Output()
+		}
 	}
 
 	// 2. Fallback to Python's built-in sqlite3 module if sqlite3 CLI is absent (e.g. Windows)

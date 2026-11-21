@@ -247,3 +247,68 @@ func TestSwitchAccount_DirectNativeSwitch(t *testing.T) {
 		t.Fatalf("legacy bind account mismatch: got %q", got)
 	}
 }
+
+func TestFetchAccountOAuth_VerifiesRequestID(t *testing.T) {
+	InvalidatePortCache()
+	upgrader := websocket.Upgrader{}
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+
+		_, msg, err := conn.ReadMessage()
+		if err != nil {
+			return
+		}
+		var req wsMessage
+		_ = json.Unmarshal(msg, &req)
+		var rp struct {
+			RequestID string `json:"request_id"`
+		}
+		_ = json.Unmarshal(req.Payload, &rp)
+
+		// First send a spoofed response with wrong request_id -> must be ignored!
+		_ = conn.WriteJSON(map[string]any{
+			"type": "response.accounts_with_tokens",
+			"payload": map[string]any{
+				"request_id": "wrong-request-id",
+				"accounts": []map[string]any{
+					{"id": "target-acc", "email": "spoofed@example.com", "access_token": "ya29.spoof", "refresh_token": "1//spoof"},
+				},
+			},
+		})
+		// Then send the matching request_id response
+		_ = conn.WriteJSON(map[string]any{
+			"type": "response.accounts_with_tokens",
+			"payload": map[string]any{
+				"request_id": rp.RequestID,
+				"accounts": []map[string]any{
+					{"id": "target-acc", "email": "real@example.com", "access_token": "ya29.real", "refresh_token": "1//real"},
+				},
+			},
+		})
+	}))
+	defer s.Close()
+
+	u, _ := url.Parse(s.URL)
+	port, _ := strconv.Atoi(u.Port())
+
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("USERPROFILE", tmpDir)
+	t.Setenv("COCKPIT_DATA_DIR", tmpDir)
+
+	info := CockpitServerInfo{WsPort: port, PID: os.Getpid(), AuthToken: "tok"}
+	raw, _ := json.Marshal(info)
+	_ = os.WriteFile(filepath.Join(tmpDir, "server.json"), raw, 0600)
+
+	tok, err := fetchAccountOAuth("target-acc")
+	if err != nil {
+		t.Fatalf("fetchAccountOAuth failed: %v", err)
+	}
+	if tok.Email != "real@example.com" || tok.AccessToken != "ya29.real" {
+		t.Fatalf("expected matching request_id token (real@example.com), got %+v", tok)
+	}
+}

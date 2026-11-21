@@ -578,3 +578,37 @@ func TestParseLegacyAccountsIndex_NameAndEmailTrimmed(t *testing.T) {
 		t.Errorf("values not trimmed: %+v", idx.Accounts[0])
 	}
 }
+
+func TestLoadAccountIndex_StatCacheAvoidsRedundantSQLiteSpawns(t *testing.T) {
+	dir := setupAccountIndexTestDir(t)
+	writeModernIndexFixture(t, dir, []accountFixtureRow{
+		{ID: "antigravity_aaa", Email: "first@example.com", Name: "First"},
+	})
+	writeCurrentAccountFixture(t, dir, "first@example.com")
+
+	lookups := 0
+	origLookPath := accountIndexLookPath
+	accountIndexLookPath = func(file string) (string, error) {
+		lookups++
+		return origLookPath(file)
+	}
+	t.Cleanup(func() { accountIndexLookPath = origLookPath })
+
+	if _, err := LoadAccountIndex(dir); err != nil {
+		t.Fatalf("first LoadAccountIndex: %v", err)
+	}
+	firstCount := lookups
+	if firstCount == 0 {
+		t.Fatal("expected initial LoadAccountIndex to invoke runner lookup")
+	}
+
+	// Repeated idle reads when .sqlite and -wal stat are unchanged must hit memory cache with 0 spawns
+	for i := 0; i < 5; i++ {
+		if _, err := LoadAccountIndex(dir); err != nil {
+			t.Fatalf("cached LoadAccountIndex #%d: %v", i, err)
+		}
+	}
+	if lookups != firstCount {
+		t.Fatalf("expected 0 extra sqlite3 lookups when stat unchanged, got %d -> %d", firstCount, lookups)
+	}
+}

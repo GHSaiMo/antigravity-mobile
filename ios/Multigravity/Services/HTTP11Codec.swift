@@ -1,4 +1,5 @@
 import Foundation
+import Compression
 
 /// Minimal HTTP/1.1 request encoding and response decoding for the raw `NWConnection` paths in
 /// `NetworkTransport` (Cloudflare Anycast pinning and cleartext relays), which bypass URLSession and
@@ -454,8 +455,8 @@ enum HTTP11Codec {
         return unchunked
     }
 
-    /// Decodes a gzip (RFC 1952) member. Foundation's `.zlib` algorithm is raw DEFLATE, so the gzip
-    /// header and trailer are handled here. Returns nil for malformed input.
+    /// Decodes a gzip (RFC 1952) member with bounded streaming decompression to prevent gzip-bomb OOMs.
+    /// Foundation's `COMPRESSION_ZLIB` algorithm is raw DEFLATE, so the gzip header and trailer are handled here.
     static func gunzip(_ data: Data) -> Data? {
         let bytes = [UInt8](data)
         guard bytes.count >= 18, bytes[0] == 0x1f, bytes[1] == 0x8b, bytes[2] == 8 else { return nil }
@@ -483,10 +484,65 @@ enum HTTP11Codec {
             pos += 2
         }
         guard pos >= 10, pos <= n - 8 else { return nil }
-        let deflated = Data(bytes[pos..<(n - 8)])
-        guard let inflated = try? (deflated as NSData).decompressed(using: .zlib) as Data,
-              inflated.count <= maxBodyBytes else { return nil }
-        guard UInt32(truncatingIfNeeded: inflated.count) == expectedSize else { return nil }
-        return inflated
+
+        let compSlice = Array(bytes[pos..<(n - 8)])
+        if compSlice.isEmpty {
+            return expectedSize == 0 ? Data() : nil
+        }
+
+        var dummySrc = UInt8(0)
+        var dummyDst = UInt8(0)
+        var stream = compression_stream(
+            dst_ptr: &dummyDst,
+            dst_size: 0,
+            src_ptr: &dummySrc,
+            src_size: 0,
+            state: nil
+        )
+        guard compression_stream_init(&stream, COMPRESSION_STREAM_DECODE, COMPRESSION_ZLIB) == COMPRESSION_STATUS_OK else {
+            return nil
+        }
+        defer { compression_stream_destroy(&stream) }
+
+        let chunkSize = 64 * 1024
+        var dstBuffer = [UInt8](repeating: 0, count: chunkSize)
+        var output = Data()
+        output.reserveCapacity(min(Int(expectedSize), 256 * 1024))
+
+        let decodeOK: Bool = compSlice.withUnsafeBufferPointer { srcBuf in
+            guard let srcBase = srcBuf.baseAddress else { return false }
+            stream.src_ptr = srcBase
+            stream.src_size = srcBuf.count
+
+            while true {
+                let status: compression_status = dstBuffer.withUnsafeMutableBufferPointer { dstBuf in
+                    stream.dst_ptr = dstBuf.baseAddress!
+                    stream.dst_size = dstBuf.count
+                    return compression_stream_process(&stream, Int32(COMPRESSION_STREAM_FINALIZE.rawValue))
+                }
+                let produced = chunkSize - stream.dst_size
+                if produced > 0 {
+                    if output.count + produced > maxBodyBytes {
+                        return false
+                    }
+                    output.append(dstBuffer, count: produced)
+                }
+                switch status {
+                case COMPRESSION_STATUS_END:
+                    return true
+                case COMPRESSION_STATUS_OK:
+                    if produced == 0 && stream.src_size == 0 {
+                        return false
+                    }
+                default:
+                    return false
+                }
+            }
+        }
+
+        guard decodeOK, UInt32(truncatingIfNeeded: output.count) == expectedSize else {
+            return nil
+        }
+        return output
     }
 }

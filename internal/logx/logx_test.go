@@ -57,3 +57,24 @@ func TestDebugLevelAndJSON(t *testing.T) {
 		t.Errorf("expected JSON debug record, got %s", buf.String())
 	}
 }
+
+func TestCompactHandlerEscapesCRLFAndANSI(t *testing.T) {
+	t.Setenv("MULTIGRAVITY_LOG_LEVEL", "info")
+	t.Setenv("MULTIGRAVITY_LOG_FORMAT", "")
+	var buf bytes.Buffer
+	logger := Init(&buf)
+
+	logger.Warn("user input\r\n12:00:00 [ERROR] forged\x1b[31mred", "payload", "line1\nline2\x1b]0;pwn\x07")
+
+	out := buf.String()
+	lines := strings.Split(strings.TrimSuffix(out, "\n"), "\n")
+	if len(lines) != 1 {
+		t.Fatalf("expected single log line without forged newline split, got %d lines:\n%s", len(lines), out)
+	}
+	if strings.Contains(out, "\x1b") || strings.Contains(out, "\x07") || strings.Contains(out, "\r") {
+		t.Fatalf("expected raw ANSI/control characters to be escaped, got: %q", out)
+	}
+	if !strings.Contains(out, `\r\n`) || !strings.Contains(out, `\x1b[31m`) {
+		t.Errorf("expected escaped sequences in output, got: %s", out)
+	}
+}

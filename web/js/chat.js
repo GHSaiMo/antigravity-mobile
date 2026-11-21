@@ -61,10 +61,10 @@ function updateContinueButton(canContinue) {
   }
 }
 
-function checkLatestMessageIsError(steps, isRunning) {
+function checkLatestMessageIsError(stepsOrItems, isRunning, preGrouped = false) {
   if (isRunning) return false;
-  if (!steps || steps.length === 0) return false;
-  const items = groupSteps(steps);
+  if (!stepsOrItems || stepsOrItems.length === 0) return false;
+  const items = preGrouped ? stepsOrItems : groupSteps(stepsOrItems);
   if (items.length === 0) return false;
   const lastItem = items[items.length - 1];
   if (lastItem && lastItem.type === "error") return true;
@@ -725,12 +725,13 @@ function initPromptJumpStepper() {
   }
 }
 
-function getVisibleTurnIndex(userRows, streamEl) {
+function getVisibleTurnIndex(userRows, streamEl, preReadScrollTop, preReadStreamOffsetTop) {
   if (!userRows || userRows.length === 0) return 0;
-  const scrollTop = streamEl.scrollTop;
+  const scrollTop = preReadScrollTop !== undefined ? preReadScrollTop : streamEl.scrollTop;
+  const streamOffsetTop = preReadStreamOffsetTop !== undefined ? preReadStreamOffsetTop : streamEl.offsetTop;
   let bestIdx = 0;
   for (let i = 0; i < userRows.length; i++) {
-    const rowTop = userRows[i].offsetTop - streamEl.offsetTop;
+    const rowTop = userRows[i].offsetTop - streamOffsetTop;
     if (rowTop <= scrollTop + 60) {
       bestIdx = i;
     } else {
@@ -740,16 +741,7 @@ function getVisibleTurnIndex(userRows, streamEl) {
   return bestIdx;
 }
 
-function updatePromptJumpStepperStateOnly() {
-  const stepperEl = document.getElementById("prompt-jump-stepper");
-  const streamEl = document.getElementById("messages-stream");
-  if (!stepperEl || !streamEl) return;
-
-  const userRows = Array.from(streamEl.querySelectorAll(".message-row.user"));
-  const totalTurns = userRows.length;
-  if (totalTurns < 2) return;
-
-  const currentIdx = getVisibleTurnIndex(userRows, streamEl);
+function applyPromptJumpStepperButtons(currentIdx, totalTurns) {
   const isAtTop = currentIdx <= 0;
   const isAtLastTurn = currentIdx >= totalTurns - 1;
 
@@ -773,6 +765,19 @@ function updatePromptJumpStepperStateOnly() {
   }
 }
 
+function updatePromptJumpStepperStateOnly() {
+  const stepperEl = document.getElementById("prompt-jump-stepper");
+  const streamEl = document.getElementById("messages-stream");
+  if (!stepperEl || !streamEl) return;
+
+  const userRows = streamEl.querySelectorAll(".message-row.user");
+  const totalTurns = userRows.length;
+  if (totalTurns < 2) return;
+
+  const currentIdx = getVisibleTurnIndex(userRows, streamEl);
+  applyPromptJumpStepperButtons(currentIdx, totalTurns);
+}
+
 function updatePromptJumpStepper() {
   const stepperEl = document.getElementById("prompt-jump-stepper");
   const streamEl = document.getElementById("messages-stream");
@@ -781,11 +786,12 @@ function updatePromptJumpStepper() {
 
   initPromptJumpStepper();
 
-  const userRows = Array.from(streamEl.querySelectorAll(".message-row.user"));
+  // Read all layout metrics before mutating DOM classes
+  const userRows = streamEl.querySelectorAll(".message-row.user");
   const totalTurns = userRows.length;
-
   const isInputFocused = chatInput && document.activeElement === chatInput;
-  const dist = streamEl.scrollHeight - streamEl.scrollTop - streamEl.clientHeight;
+  const scrollTop = streamEl.scrollTop;
+  const dist = streamEl.scrollHeight - scrollTop - streamEl.clientHeight;
   const isNearBottom = dist <= 120;
 
   if (totalTurns < 2 || isNearBottom || isInputFocused) {
@@ -793,7 +799,8 @@ function updatePromptJumpStepper() {
     return;
   }
 
-  updatePromptJumpStepperStateOnly();
+  const currentIdx = getVisibleTurnIndex(userRows, streamEl, scrollTop, streamEl.offsetTop);
+  applyPromptJumpStepperButtons(currentIdx, totalTurns);
 }
 
 function initScrollListener() {
@@ -811,26 +818,41 @@ function initScrollListener() {
     }
   };
 
+  let scrollRafPending = false;
   streamEl.addEventListener("scroll", () => {
-    updateNearBottom();
-    const currentScrollTop = streamEl.scrollTop;
-    const deltaY = currentScrollTop - pjsLastScrollTop;
-    pjsLastScrollTop = currentScrollTop;
+    if (scrollRafPending) return;
+    scrollRafPending = true;
+    requestAnimationFrame(() => {
+      scrollRafPending = false;
+      // Phase 1: Batch all layout/geometry reads together (zero interleaved DOM writes)
+      const currentScrollTop = streamEl.scrollTop;
+      const dist = streamEl.scrollHeight - currentScrollTop - streamEl.clientHeight;
+      const streamOffsetTop = streamEl.offsetTop;
+      const userRows = streamEl.querySelectorAll(".message-row.user");
+      const totalTurns = userRows.length;
+      const nearBottom = dist <= 120;
+      const currentIdx = (!nearBottom && totalTurns >= 2)
+        ? getVisibleTurnIndex(userRows, streamEl, currentScrollTop, streamOffsetTop)
+        : 0;
 
-    const userRows = streamEl.querySelectorAll(".message-row.user");
-    if (userRows.length < 2 || userIsNearBottom) {
-      hidePromptJumpStepperImmediately();
-      return;
-    }
+      const deltaY = currentScrollTop - pjsLastScrollTop;
+      pjsLastScrollTop = currentScrollTop;
+      userIsNearBottom = nearBottom;
 
-    if (deltaY < -4) {
-      // 往上滑（查看旧历史）-> 唤醒 100%，重置 3s 渐隐与 10s 全隐
-      wakePromptJumpStepper();
-    } else if (deltaY > 4) {
-      // 往下滑（看新消息）-> 立即渐隐至 30%，重置 10s 全隐
-      dimPromptJumpStepperOnScrollDown();
-    }
-    updatePromptJumpStepperStateOnly();
+      // Phase 2: Perform all DOM class/attribute writes after reads complete
+      if (totalTurns < 2 || nearBottom) {
+        hidePromptJumpStepperImmediately();
+        return;
+      }
+      if (deltaY < -4) {
+        // 往上滑（查看旧历史）-> 唤醒 100%，重置 3s 渐隐与 10s 全隐
+        wakePromptJumpStepper();
+      } else if (deltaY > 4) {
+        // 往下滑（看新消息）-> 立即渐隐至 30%，重置 10s 全隐
+        dimPromptJumpStepperOnScrollDown();
+      }
+      applyPromptJumpStepperButtons(currentIdx, totalTurns);
+    });
   }, { passive: true });
 
   streamEl.addEventListener("touchstart", () => { isUserTouching = true; }, { passive: true });
@@ -1799,7 +1821,7 @@ function generateItemHtml(item, isRunning, isLastItem) {
         </details>
       `;
     }
-    const bodyHtml = item.text ? getCachedMarkdown(item.text) : '<span style="color:var(--text-muted);">执行中...</span>';
+    const bodyHtml = item.text ? getCachedMarkdown(item.text, { streaming: !!(isRunning && isLastItem) }) : '<span style="color:var(--text-muted);">执行中...</span>';
     let artifactsHtml = "";
     if (Array.isArray(item.artifacts) && item.artifacts.length > 0) {
       artifactsHtml = `<div class="message-artifact-cards">` +
@@ -2002,10 +2024,10 @@ function renderMessages(steps, isRunning = false) {
     setSessionStepsCache(activeCascadeId, { steps, isRunning });
   }
 
-  const isLastError = checkLatestMessageIsError(steps, isRunning);
+  const items = groupSteps(steps);
+  const isLastError = checkLatestMessageIsError(items, isRunning, true);
   updateContinueButton(isLastError);
 
-  const items = groupSteps(steps);
   const isSessionSwitch = streamEl.__currentCascadeId !== activeCascadeId;
   streamEl.__currentCascadeId = activeCascadeId;
 
@@ -2016,6 +2038,7 @@ function renderMessages(steps, isRunning = false) {
   const wasNearBottom = (userIsNearBottom || preDist <= 120) && !isUserTouching;
 
   let hasDOMChanges = false;
+  const changedEls = [];
 
   if (isSessionSwitch) {
     // P2 / B-5 Fast Path: Session switch! Replace the entire child tree in one single
@@ -2142,7 +2165,7 @@ function renderMessages(steps, isRunning = false) {
               thoughtDetails.remove();
             }
 
-            const bodyHtml = item.text ? getCachedMarkdown(item.text) : '<span style="color:var(--text-muted);">执行中...</span>';
+            const bodyHtml = item.text ? getCachedMarkdown(item.text, { streaming: !!(isRunning && isLastItem) }) : '<span style="color:var(--text-muted);">执行中...</span>';
             patchAgentBodyHtml(bodyEl, bodyHtml);
           } else {
             const wasOpen = existingEl.querySelector("details")?.open;
@@ -2153,6 +2176,7 @@ function renderMessages(steps, isRunning = false) {
             }
           }
           hasDOMChanges = true;
+          changedEls.push(existingEl);
         }
       } else {
         const newEl = document.createElement("div");
@@ -2160,6 +2184,7 @@ function renderMessages(steps, isRunning = false) {
         // Antigravity 2.33.0: avoid flashing/re-animating user messages or active turns on immediate send
         newEl.className = (item.type === "user" || (isRunning && item.type === "agent")) ? rowClass : (rowClass + " message-entering");
         newEl.setAttribute("data-fp", fp);
+        if (item.index !== undefined) newEl.setAttribute("data-step-index", String(item.index));
         newEl.innerHTML = generateItemHtml(item, isRunning, isLastItem);
 
         const indicator = document.getElementById("agent-thinking-indicator");
@@ -2169,6 +2194,7 @@ function renderMessages(steps, isRunning = false) {
           streamEl.appendChild(newEl);
         }
         hasDOMChanges = true;
+        changedEls.push(newEl);
       }
     }
 
@@ -2204,13 +2230,16 @@ function renderMessages(steps, isRunning = false) {
     }
   }
 
-  // Render any new mermaid diagram blocks & interactive embeds in messages stream before bottom alignment
+  // Hydrate Mermaid, <agent-embed> & PR pills only within changed nodes (not the whole streamEl)
   if (hasDOMChanges) {
-    renderAllMermaidDiagrams(streamEl);
-    if (typeof hydrateAllAgentEmbeds === "function") {
-      hydrateAllAgentEmbeds(streamEl);
+    const hydrateRoots = isSessionSwitch ? [streamEl] : changedEls;
+    for (const root of hydrateRoots) {
+      renderAllMermaidDiagrams(root);
+      if (typeof hydrateAllAgentEmbeds === "function") {
+        hydrateAllAgentEmbeds(root);
+      }
+      window.V233?.hydrateChatPRPills?.(root);
     }
-    window.V233?.hydrateChatPRPills?.(streamEl);
   }
 
   // 1. First-time render on entering a conversation: align cleanly to bottom without whole-page jump
@@ -2241,7 +2270,8 @@ function renderMessages(steps, isRunning = false) {
     streamEl.scrollTop = streamEl.scrollHeight;
   }
 
-  setTimeout(() => updatePromptJumpStepper(), 50);
+  clearTimeout(renderMessages._stepperTimer);
+  renderMessages._stepperTimer = setTimeout(() => updatePromptJumpStepper(), 50);
 }
 
 // --- Running Background Tasks Manager (Desktop Antigravity Parity) ---
@@ -2353,7 +2383,7 @@ const RunningTasksManager = {
         const t = this.tasks[0];
         const tIdEsc = escapeHtml(t.id || "");
         quickStopEl.innerHTML = `
-          <button class="task-stop-btn" data-action="stop-task" data-step="${t.stepIndex}" data-id="${tIdEsc}" title="终止任务" aria-label="终止任务" onclick="event.stopPropagation(); RunningTasksManager.stopTask(${t.stepIndex}, '${tIdEsc}')">
+          <button type="button" class="task-stop-btn" data-action="stop-task" data-step="${Number(t.stepIndex) || 0}" data-id="${tIdEsc}" title="终止任务" aria-label="终止任务">
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 -960 960 960" fill="currentColor">
               <path d="M330-330H630V-630H330v300ZM480.07-100q-78.84,0-148.2-29.92T211.18-211.13T129.93-331.76T100-479.93t29.92-148.2t81.21-120.68t120.63-81.25T479.93-860t148.2,29.92t120.68,81.21t81.25,120.63T860-480.07t-29.92,148.2T748.87-211.18T628.24-129.93T480.07-100ZM480-160q134,0 227-93t93-227T707-707T480-800T253-707T160-480t93,227t227,93Zm0-320Z"></path>
             </svg>

@@ -100,6 +100,9 @@ func (f *FCMClient) Send(ctx context.Context, payload PushPayload) error {
 	if deviceToken == "" {
 		return fmt.Errorf("fcm device token not configured")
 	}
+	if err := validatePushEndpointURL(endpoint); err != nil {
+		return err
+	}
 
 	priority := "normal"
 	channelID := "antigravity_alerts"
@@ -112,20 +115,23 @@ func (f *FCMClient) Send(ctx context.Context, payload PushPayload) error {
 		icon = iconURL
 	}
 
+	cleanTitle := truncateString(SanitizePushText(payload.Title), 120)
+	cleanBody := truncateString(SanitizePushText(payload.Body), 240)
+
 	fcmMsg := FCMPayload{
 		To:       deviceToken,
 		Priority: priority,
 		Notification: &FCMNotification{
-			Title:       payload.Title,
-			Body:        payload.Body,
+			Title:       cleanTitle,
+			Body:        cleanBody,
 			Sound:       "default",
 			Icon:        "ic_stat_antigravity",
 			ChannelID:   channelID,
 			ClickAction: "FLUTTER_NOTIFICATION_CLICK", // standard Android notification intent flag
 		},
 		Data: map[string]string{
-			"title":    payload.Title,
-			"body":     payload.Body,
+			"title":    cleanTitle,
+			"body":     cleanBody,
 			"url":      payload.URL,
 			"deeplink": payload.URL,
 			"level":    payload.Level,
@@ -168,16 +174,17 @@ func (f *FCMClient) Send(ctx context.Context, payload PushPayload) error {
 			continue
 		}
 
-		respBody, _ := io.ReadAll(resp.Body)
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
 		resp.Body.Close()
 
 		if resp.StatusCode != http.StatusOK {
-			lastErr = fmt.Errorf("fcm server error %d: %s", resp.StatusCode, string(respBody))
-			slog.Warn(fmt.Sprintf("[FCM] ⚠️ Server returned status %d: %s", resp.StatusCode, string(respBody)))
+			snippet := truncateString(SanitizePushText(string(respBody)), 240)
+			lastErr = fmt.Errorf("fcm server error %d: %s", resp.StatusCode, snippet)
+			slog.Warn(fmt.Sprintf("[FCM] ⚠️ Server returned status %d: %s", resp.StatusCode, snippet))
 			continue
 		}
 
-		slog.Info(fmt.Sprintf("[FCM] 🚀 推送成功: %s", payload.Title))
+		slog.Info(fmt.Sprintf("[FCM] 🚀 推送成功: %s", cleanTitle))
 		return nil
 	}
 

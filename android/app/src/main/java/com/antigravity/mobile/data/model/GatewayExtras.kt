@@ -840,6 +840,7 @@ object SlashCommandIconCatalog {
         "automation" to "schedule",
         "browser" to "language",
         "teamwork" to "graph_2",
+        "swarm" to "swarm_bee",
         "learn" to "lightbulb_2",
         "boost" to "bolt",
         "btw" to "chat_add_on"
@@ -861,11 +862,17 @@ object SlashCommandIconCatalog {
     )
 
     fun resolveIcon(name: String, icon: String?, kind: String?): String {
+        val cleanName = name.trim()
         val trimmed = icon?.trim()
+        if (cleanName.equals("swarm", ignoreCase = true) ||
+            trimmed.equals("swarm_bee", ignoreCase = true) ||
+            trimmed.equals("hub", ignoreCase = true)
+        ) {
+            return "swarm_bee"
+        }
         if (!trimmed.isNullOrEmpty() && svgPaths.containsKey(trimmed)) {
             return trimmed
         }
-        val cleanName = name.trim()
         val sys = defaultSystemIcons[cleanName]
         if (sys != null) return sys
         return if (kind == "skill") "code_blocks" else "code"
@@ -1049,6 +1056,13 @@ data class SwarmMemberInfo(
     val killed: Boolean = false,
     val status: String = "waiting", // working, waiting, killed, error, stuck
     val lastActivity: String? = null,
+    val activityKind: String? = null,
+    val steps: Int = 0,
+    val posts: Int = 0,
+    val lastPostSeq: Int = 0,
+    val workspace: String? = null,
+    val workspaceMode: String? = null,
+    val roleWorker: Boolean = false,
     val unreadCount: Int = 0,
     val isCurrent: Boolean = false
 )
@@ -1095,14 +1109,50 @@ data class SwarmViewTextItem(
 )
 
 @Serializable
+data class SwarmPlanGoal(
+    val title: String = "",
+    val line: String = ""
+)
+
+@Serializable
+data class SwarmPlanThread(
+    val id: String = "",
+    val title: String = "",
+    val goal: String = "",
+    val tasks: List<String> = emptyList()
+)
+
+@Serializable
+data class SwarmPlan(
+    val goal: SwarmPlanGoal? = null,
+    val tasks: Map<String, String> = emptyMap(),
+    val threads: List<SwarmPlanThread> = emptyList()
+)
+
+@Serializable
+data class SwarmViewThread(
+    val id: String = "",
+    val title: String = "",
+    val goal: String = "",
+    val now: String = "",
+    val state: String = "",
+    val workstreams: List<String> = emptyList(),
+    val attention: List<String> = emptyList()
+)
+
+@Serializable
 data class SwarmView(
     val version: String = "",
     val as_of_seq: Int = 0,
     val updated_at: String = "",
     val headline: String = "",
+    val goal: SwarmPlanGoal? = null,
+    val running_summary: String = "",
     val phase: SwarmViewPhase? = null,
     val attention: List<SwarmViewAttention> = emptyList(),
     val workstreams: List<SwarmViewWorkstream> = emptyList(),
+    val threads: List<SwarmViewThread> = emptyList(),
+    val now: Map<String, String> = emptyMap(),
     val milestones: List<SwarmViewTextItem> = emptyList(),
     val risks: List<SwarmViewTextItem> = emptyList()
 )
@@ -1116,7 +1166,8 @@ data class SwarmSnapshot(
     val brief: SwarmBrief = SwarmBrief(),
     val members: List<SwarmMemberInfo> = emptyList(),
     val messages: List<SwarmBoardMessage> = emptyList(),
-    val view: SwarmView? = null
+    val view: SwarmView? = null,
+    val plan: SwarmPlan? = null
 )
 
 @Serializable

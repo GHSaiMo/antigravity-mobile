@@ -82,6 +82,9 @@ func EnsureFreshToken(token *CockpitTokenData) (*CockpitTokenData, bool, error) 
 	if resp.IDToken != "" {
 		updated.IDToken = resp.IDToken
 	}
+	if rt := strings.TrimSpace(resp.RefreshToken); rt != "" {
+		updated.RefreshToken = rt
+	}
 	if resp.TokenType != "" {
 		updated.TokenType = resp.TokenType
 	}

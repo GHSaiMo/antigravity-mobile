@@ -1102,8 +1102,15 @@ async function unpairDevice() {
       localStorage.removeItem("agy_device_token");
       localStorage.removeItem("agy_device_id");
       document.cookie = "agy_dt=; Path=/; Expires=Thu, 01 Jan 1970 00:00:01 GMT;";
-      updateAuthUI();
-      loadConversations();
+      if (typeof purgeAuthSessionData === "function") {
+        await purgeAuthSessionData(true).catch(() => {});
+      }
+      if (activeCascadeId) {
+        navigateTo("#");
+      } else {
+        updateAuthUI();
+        loadConversations();
+      }
     }
   }
 }

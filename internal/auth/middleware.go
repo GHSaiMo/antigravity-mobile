@@ -1,10 +1,12 @@
 package auth
 
 import (
+	"context"
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/json"
 	"fmt"
 	"log/slog"
-	"context"
-	"encoding/json"
 	"net/http"
 	"os"
 	"strings"
@@ -134,16 +136,14 @@ func BearerToken(r *http.Request) string {
 	return ""
 }
 
-// ConstantTimeTokenEquals compares two tokens in constant time without heap allocations.
+// ConstantTimeTokenEquals compares two tokens in constant time without leaking token length (LOW-01).
 func ConstantTimeTokenEquals(got, want string) bool {
-	if want == "" || len(got) != len(want) {
+	if want == "" || got == "" {
 		return false
 	}
-	var diff byte
-	for i := 0; i < len(got); i++ {
-		diff |= got[i] ^ want[i]
-	}
-	return diff == 0
+	gotSum := sha256.Sum256([]byte(got))
+	wantSum := sha256.Sum256([]byte(want))
+	return subtle.ConstantTimeCompare(gotSum[:], wantSum[:]) == 1
 }
 
 // AuthDisabledRequested reports whether MULTIGRAVITY_AUTH_DISABLED (or AUTH_DISABLED) is set in the environment.
@@ -174,7 +174,8 @@ func AuthMiddlewareWithPolicy(store *AuthStore, next http.Handler, policy AuthPo
 	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if effectiveDisabled && IsLoopbackAddr(r.RemoteAddr) {
+		proxied := IsProxiedRequest(r)
+		if effectiveDisabled && IsLoopbackAddr(r.RemoteAddr) && !proxied {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -188,13 +189,13 @@ func AuthMiddlewareWithPolicy(store *AuthStore, next http.Handler, policy AuthPo
 		}
 
 		// 1. Genuine Localhost access (no pairing required)
-		// Implicit (address-based) trust is only granted when Host/Origin look legitimate, which
-		// defeats DNS rebinding and cross-site request forgery from a browser on this machine/LAN.
+		// Implicit (address-based) trust is only granted when Host/Origin look legitimate AND no
+		// reverse-proxy forwarding headers are present (CRIT-01, HIGH-01).
 		implicitOK := ImplicitTrustRequestOK(r)
-		isLocalhost := implicitOK && IsLoopbackAddr(r.RemoteAddr) && !IsCloudflareRequest(r)
+		isLocalhost := implicitOK && IsLoopbackAddr(r.RemoteAddr) && !proxied
 
 		// 2. Genuine Private LAN access when policy.TrustLAN is enabled
-		isTrustedLAN := implicitOK && policy.TrustLAN && IsPrivateLANAddr(r.RemoteAddr) && !IsCloudflareRequest(r)
+		isTrustedLAN := implicitOK && policy.TrustLAN && IsPrivateLANAddr(r.RemoteAddr) && !proxied
 
 		if isLocalhost || isTrustedLAN {
 			var autoDev *PairedDevice
@@ -219,21 +220,7 @@ func AuthMiddlewareWithPolicy(store *AuthStore, next http.Handler, policy AuthPo
 				}
 			}
 
-			// Ensure session cookie is set so subsequent browser requests remain authenticated
-			// Only for genuine loopback: over plain-HTTP LAN the admin token would be sniffable,
-			// and LAN clients are already trusted per request without any cookie.
-			if _, err := r.Cookie(DeviceCookieName); err != nil && isLocalhost {
-				if adminTok := GetAdminToken(); adminTok != "" {
-					http.SetCookie(w, &http.Cookie{
-						Name:     DeviceCookieName,
-						Value:    adminTok,
-						Path:     "/",
-						HttpOnly: true,
-						SameSite: http.SameSiteLaxMode,
-					})
-				}
-			}
-
+			// CRIT-01: Never expose MULTIGRAVITY_ADMIN_TOKEN in browser cookies.
 			ctx := context.WithValue(r.Context(), DeviceContextKey, autoDev)
 			next.ServeHTTP(w, r.WithContext(ctx))
 			return
@@ -274,7 +261,7 @@ func AuthMiddlewareWithPolicy(store *AuthStore, next http.Handler, policy AuthPo
 		if (!ok || device == nil) && isSidecarUI {
 			if c, err := r.Cookie(SidecarSessionCookieName); err == nil {
 				if sessTok := strings.TrimSpace(c.Value); sessTok != "" {
-					if !CookieWriteCSRFOK(r) {
+					if !CookieWriteCSRFOK(r) || (isWS && !CookieWSOriginOK(r)) {
 						auditWarn("CSRF_REJECTED", "ip", ExtractClientIP(r), "path", r.URL.Path, "origin", r.Header.Get("Origin"))
 						w.Header().Set("Content-Type", "application/json")
 						w.WriteHeader(http.StatusForbidden)
@@ -300,17 +287,30 @@ func AuthMiddlewareWithPolicy(store *AuthStore, next http.Handler, policy AuthPo
 				return
 			}
 
-			// SEC-08: When authenticating via session cookie (no Authorization: Bearer header),
-			// enforce same-origin checks on state-changing HTTP methods to block cross-site /
-			// cross-subdomain CSRF.
-			if BearerToken(r) == "" && !isWS && !isRawFile && !CookieWriteCSRFOK(r) {
-				auditWarn("CSRF_REJECTED", "ip", ExtractClientIP(r), "path", r.URL.Path, "origin", r.Header.Get("Origin"))
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusForbidden)
-				json.NewEncoder(w).Encode(map[string]string{
-					"error": "forbidden: cross-origin cookie request rejected",
-				})
-				return
+			// SEC-08 & HIGH-01: When authenticating via session cookie (no Authorization: Bearer header),
+			// enforce same-origin checks on state-changing HTTP methods AND on WebSocket upgrades
+			// (without query token) to block cross-site and sibling-subdomain (*.jiuge.space) CSWSH/CSRF.
+			if BearerToken(r) == "" {
+				hasQueryTok := !IsQueryTokenDisabled() &&
+					(strings.TrimSpace(r.URL.Query().Get("auth_token")) != "" || strings.TrimSpace(r.URL.Query().Get("token")) != "")
+				if isWS && !hasQueryTok && !CookieWSOriginOK(r) {
+					auditWarn("CSRF_REJECTED", "ip", ExtractClientIP(r), "path", r.URL.Path, "origin", r.Header.Get("Origin"))
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusForbidden)
+					json.NewEncoder(w).Encode(map[string]string{
+						"error": "forbidden: cross-origin websocket cookie request rejected",
+					})
+					return
+				}
+				if !isWS && !isRawFile && !CookieWriteCSRFOK(r) {
+					auditWarn("CSRF_REJECTED", "ip", ExtractClientIP(r), "path", r.URL.Path, "origin", r.Header.Get("Origin"))
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusForbidden)
+					json.NewEncoder(w).Encode(map[string]string{
+						"error": "forbidden: cross-origin cookie request rejected",
+					})
+					return
+				}
 			}
 
 			if adminTok := GetAdminToken(); adminTok != "" && ConstantTimeTokenEquals(token, adminTok) {
@@ -414,5 +414,7 @@ func isWebSocketPath(path string) bool {
 		path == "/voice/ws" ||
 		path == "/gateway/events" ||
 		path == "/gateway/rpc-mux" ||
+		path == "/gateway/terminal/stream" ||
+		path == "/gateway/audio/dictate" ||
 		strings.HasPrefix(path, "/gateway/cascade/stream")
 }

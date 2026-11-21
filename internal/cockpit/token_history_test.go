@@ -600,6 +600,139 @@ func TestGetTokenHistory_NeverEmitsDefaultAndCleansLegacyDefaultLedger(t *testin
 	}
 }
 
+func TestTokenHistory_RejectsUnsafeConversationIdentifiers(t *testing.T) {
+	for _, bad := range []string{
+		"",
+		"../outside-1234567890",
+		"..\\outside-1234567890",
+		"a\\..\\outside-1234567890",
+		"-init-flag-1234567890",
+		"conv' OR 1=1--123456",
+	} {
+		if isSafeConvID(bad) {
+			t.Fatalf("expected isSafeConvID(%q) = false", bad)
+		}
+		got := parseParentConvIDFromSystemMessage(map[string]interface{}{
+			"type":    "SYSTEM_MESSAGE",
+			"content": "[Message] sender=" + bad + " content=hello",
+		})
+		if got != "" {
+			t.Fatalf("expected parseParentConvIDFromSystemMessage(%q) = empty, got %q", bad, got)
+		}
+	}
+
+	tempHome := t.TempDir()
+	t.Setenv("HOME", tempHome)
+	cockpitDir := filepath.Join(tempHome, ".cockpit_tools")
+	t.Setenv("COCKPIT_TOOLS_DATA_DIR", cockpitDir)
+	t.Setenv("COCKPIT_DATA_DIR", "")
+
+	// Seed a transcript outside brain/ (at ~/.gemini/antigravity/outside/transcript.jsonl)
+	outsideDir := filepath.Join(tempHome, ".gemini", "antigravity", "outside")
+	if err := os.MkdirAll(outsideDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	logLine := `{"step_index":1,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"2026-11-15T12:00:00Z","input_tokens":500,"output_tokens":100,"callId":"bad-1","chatModel":{"model":"MODEL_PLACEHOLDER_M525"}}` + "\n"
+	if err := os.WriteFile(filepath.Join(outsideDir, "transcript.jsonl"), []byte(logLine), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	historyMu.Lock()
+	cachedLedger = nil
+	cachedLedgerPath = ""
+	cachedHistoryResp = nil
+	historyMu.Unlock()
+
+	ArchiveConversationTokens("../outside")
+	if _, err := os.Stat(filepath.Join(cockpitDir, "token_history_ledger.json")); err == nil {
+		t.Fatalf("expected traversal cascadeID not to create token_history_ledger.json")
+	}
+}
+
+func TestGetTokenHistory_StreamingMemoizesSiblingSubagentsAndBatchSummariesDB(t *testing.T) {
+	sqliteBin, lookErr := exec.LookPath("sqlite3")
+	if lookErr != nil {
+		t.Skip("sqlite3 not available")
+	}
+
+	tempHome := t.TempDir()
+	t.Setenv("HOME", tempHome)
+	t.Setenv("COCKPIT_TOOLS_DATA_DIR", filepath.Join(tempHome, ".cockpit_tools"))
+	t.Setenv("COCKPIT_DATA_DIR", "")
+
+	parentID := "parent-swarm-abcdef0123456789"
+	childFlash := "child-flash-abcdef0123456789"
+	childInherit := "child-inherit-abcdef01234567"
+	childDBLinked := "child-dblink-abcdef012345678"
+
+	for _, cid := range []string{parentID, childFlash, childInherit, childDBLinked} {
+		logDir := filepath.Join(tempHome, ".gemini", "antigravity", "brain", cid, ".system_generated", "logs")
+		if err := os.MkdirAll(logDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	parentFull := `{"step_index":0,"source":"USER_EXPLICIT","type":"USER_INPUT","content":"<USER_SETTINGS_CHANGE>\nThe user changed setting ` + "`Model Selection`" + ` from None to Gemini 4 Carbon (High).\n</USER_SETTINGS_CHANGE>"}` + "\n" +
+		`{"step_index":1,"source":"MODEL","type":"PLANNER_RESPONSE","tool_calls":[{"name":"invoke_subagent","args":{"Model":"flash"}}]}` + "\n" +
+		`{"step_index":2,"source":"SYSTEM","type":"GENERIC","content":"Created the following subagent:\n{\"conversationId\":\"` + childFlash + `\"}"}` + "\n" +
+		`{"step_index":3,"source":"MODEL","type":"PLANNER_RESPONSE","tool_calls":[{"name":"invoke_subagent","args":{"Model":"inherit"}}]}` + "\n" +
+		`{"step_index":4,"source":"SYSTEM","type":"GENERIC","content":"Created the following subagent:\n{\"conversationId\":\"` + childInherit + `\"}"}` + "\n" +
+		`{"step_index":5,"source":"MODEL","type":"PLANNER_RESPONSE","tool_calls":[{"name":"invoke_subagent","args":{"Model":"claude-sonnet-4-6"}}]}` + "\n" +
+		`{"step_index":6,"source":"SYSTEM","type":"GENERIC","content":"Created the following subagent:\n{\"conversationId\":\"` + childDBLinked + `\"}"}` + "\n"
+
+	parentLogDir := filepath.Join(tempHome, ".gemini", "antigravity", "brain", parentID, ".system_generated", "logs")
+	if err := os.WriteFile(filepath.Join(parentLogDir, "transcript_full.jsonl"), []byte(parentFull), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// childFlash & childInherit declare sender=parentID via SYSTEM_MESSAGE; childDBLinked relies on conversation_summaries.db.
+	writeChild := func(cid, callID string, includeSender bool, inputTok, outTok string) {
+		var content string
+		if includeSender {
+			content += `{"step_index":0,"source":"SYSTEM","type":"SYSTEM_MESSAGE","status":"DONE","created_at":"2026-11-15T10:00:00Z","content":"[Message] sender=` + parentID + `"}` + "\n"
+		}
+		content += `{"step_index":1,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"2026-11-15T10:00:02Z","input_tokens":` + inputTok + `,"cache_read_tokens":0,"output_tokens":` + outTok + `,"callId":"` + callID + `"}` + "\n"
+		p := filepath.Join(tempHome, ".gemini", "antigravity", "brain", cid, ".system_generated", "logs", "transcript.jsonl")
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeChild(childFlash, "cf-1", true, "800", "200")
+	writeChild(childInherit, "ci-1", true, "1500", "500")
+	writeChild(childDBLinked, "cd-1", false, "2400", "600")
+
+	summariesDB := filepath.Join(tempHome, ".gemini", "antigravity", "conversation_summaries.db")
+	initSQL := "CREATE TABLE conversation_parents (conversation_id TEXT PRIMARY KEY, parent_id TEXT);" +
+		"INSERT INTO conversation_parents (conversation_id, parent_id) VALUES ('" + childDBLinked + "', '" + parentID + "');"
+	if out, err := exec.Command(sqliteBin, summariesDB, initSQL).CombinedOutput(); err != nil {
+		t.Fatalf("sqlite3 init summaries db failed: %v (%s)", err, string(out))
+	}
+
+	historyMu.Lock()
+	cachedLedger = nil
+	cachedLedgerPath = ""
+	cachedHistoryResp = nil
+	historyMu.Unlock()
+
+	resp, err := GetTokenHistory(true)
+	if err != nil {
+		t.Fatalf("GetTokenHistory() error = %v", err)
+	}
+	if len(resp.DailyMatrix) != 1 {
+		t.Fatalf("DailyMatrix len = %d, want 1", len(resp.DailyMatrix))
+	}
+	models := resp.DailyMatrix[0].Models
+	if models["Gemini 3.8 Flash"] != 1000 {
+		t.Errorf("Gemini 3.8 Flash = %d, want 1000 (models=%v)", models["Gemini 3.8 Flash"], models)
+	}
+	if models["Gemini 4 Carbon (High)"] != 2000 {
+		t.Errorf("Gemini 4 Carbon (High) = %d, want 2000 (models=%v)", models["Gemini 4 Carbon (High)"], models)
+	}
+	if models["Claude Sonnet 4.6 (Thinking)"] != 3000 {
+		t.Errorf("Claude Sonnet 4.6 (Thinking) = %d, want 3000 (models=%v)", models["Claude Sonnet 4.6 (Thinking)"], models)
+	}
+}
+
 func strconvFormatInt(v int64) string {
 	if v == 0 {
 		return "0"

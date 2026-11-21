@@ -103,10 +103,11 @@ class MainActivity : ComponentActivity() {
                 val request = chain.request()
                 val token = prefs.deviceToken
                 val path = request.url.encodedPath
-                val isGatewayRequest = path.startsWith("/api/v1/files/raw") ||
+                val isGatewayPath = path.startsWith("/api/v1/files/raw") ||
                     path.startsWith("/api/v1/files/zip-entry") ||
                     path.startsWith("/static/")
-                if (!token.isNullOrBlank() && isGatewayRequest && request.header("Authorization") == null) {
+                val isTrustedGatewayOrigin = ApiClient.isConfiguredGatewayOrigin(request.url, prefs)
+                if (!token.isNullOrBlank() && isGatewayPath && isTrustedGatewayOrigin && request.header("Authorization") == null) {
                     val newRequest = request.newBuilder()
                         .header("Authorization", "Bearer $token")
                         .header("x-device-token", token)
@@ -114,6 +115,21 @@ class MainActivity : ComponentActivity() {
                     chain.proceed(newRequest)
                 } else {
                     chain.proceed(request)
+                }
+            }
+            .addNetworkInterceptor { chain ->
+                val netReq = chain.request()
+                if (!ApiClient.isConfiguredGatewayOrigin(netReq.url, prefs) &&
+                    (netReq.header("Authorization") != null || netReq.header("x-device-token") != null)
+                ) {
+                    chain.proceed(
+                        netReq.newBuilder()
+                            .removeHeader("Authorization")
+                            .removeHeader("x-device-token")
+                            .build()
+                    )
+                } else {
+                    chain.proceed(netReq)
                 }
             }
             .build()
@@ -567,6 +583,10 @@ class MainActivity : ComponentActivity() {
         val host = uri.host?.lowercase() ?: return
 
         if ((scheme == "agy" || scheme == "multigravity" || scheme == "antigravity") && host == "pair") {
+            // Prevent zero-confirmation silent re-pairing from external BROWSABLE links when already paired.
+            if (prefs.isPaired()) {
+                return
+            }
             pairingViewModel.pairWithUri(uri.toString())
             return
         }
@@ -585,7 +605,7 @@ class MainActivity : ComponentActivity() {
                 }
             }?.trim('/')
 
-            if (!cascadeId.isNullOrBlank()) {
+            if (!cascadeId.isNullOrBlank() && CacheManager.isValidCascadeId(cascadeId)) {
                 navigateToCascade(cascadeId)
             }
         }

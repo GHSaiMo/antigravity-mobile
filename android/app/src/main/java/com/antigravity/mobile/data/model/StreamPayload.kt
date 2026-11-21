@@ -47,6 +47,7 @@ data class WorkflowItem(
     val error: String? = null
 )
 
+@androidx.compose.runtime.Immutable
 @Serializable
 data class GatewayMessageItem(
     val id: String = "",

@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"strings"
 )
@@ -152,7 +153,7 @@ func (p *Proxy) HandleProjectTrust(w http.ResponseWriter, r *http.Request) {
 			Paths     []string `json:"paths"`
 			Trusted   *bool    `json:"trusted"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if err := json.NewDecoder(io.LimitReader(r.Body, 128*1024)).Decode(&req); err != nil {
 			writeRPCError(w, http.StatusBadRequest, "invalid request body")
 			return
 		}

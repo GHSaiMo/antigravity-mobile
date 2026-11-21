@@ -316,19 +316,23 @@ public final class ConversationListViewModel {
             guard let self else { return }
             Task { await self.fetchConversations(isBackgroundPoll: true) }
         }
+        eventsClient.onConnectionStateChange = { [weak self] _ in
+            guard let self, self.pollTask != nil else { return }
+            self.restartPollLoop()
+        }
         eventsClient.start(baseURL: { [weak self] in self?.settings.serverURL })
+        restartPollLoop()
+    }
+
+    private func restartPollLoop() {
+        pollTask?.cancel()
         pollTask = Task { [weak self] in
             while !Task.isCancelled {
                 guard let self else { break }
                 let connectedAtStart = self.eventsClient.isConnected
                 let hasRunning = self.conversations.contains(where: { $0.status.isRunning || $0.status.needsAction })
                 let waitSeconds = connectedAtStart ? Self.eventsSafetyPollSeconds : (hasRunning ? 4 : 10)
-                // Sleep in 1s steps so a lost (or newly established) event socket changes cadence immediately.
-                var waited = 0
-                while waited < waitSeconds, !Task.isCancelled, self.eventsClient.isConnected == connectedAtStart {
-                    try? await Task.sleep(nanoseconds: 1_000_000_000)
-                    waited += 1
-                }
+                try? await Task.sleep(nanoseconds: UInt64(waitSeconds) * 1_000_000_000)
                 guard !Task.isCancelled else { break }
                 guard self.settings.isPaired else { break }
                 await self.fetchConversations(isBackgroundPoll: true)
@@ -341,6 +345,7 @@ public final class ConversationListViewModel {
         pollTask = nil
         pendingReorderTask?.cancel()
         pendingReorderTask = nil
+        eventsClient.onConnectionStateChange = nil
         eventsClient.stop()
         eventsClient.onChange = nil
     }
@@ -399,17 +404,8 @@ public final class ConversationListViewModel {
                     if let knownTitle = existingMap[item.id], !knownTitle.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines).isEmpty, knownTitle != "未命名会话" {
                         return item.withTitle(knownTitle)
                     }
-                    if let cached = self.cacheManager.loadSession(for: item.id) {
-                        if let st = cached.title?.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines), !st.isEmpty, st != "未命名会话" {
-                            return item.withTitle(st)
-                        } else if let firstUserMsg = cached.messages.first(where: { $0.isUser }),
-                                  let prompt = firstUserMsg.content.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines).components(separatedBy: CharacterSet.newlines).first(where: { !$0.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines).isEmpty }) {
-                            let trimmed = prompt.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
-                            let derived = String(trimmed.prefix(36))
-                            if !derived.isEmpty {
-                                return item.withTitle(derived)
-                            }
-                        }
+                    if let cachedTitle = self.cacheManager.cachedSessionTitle(for: item.id), !cachedTitle.isEmpty {
+                        return item.withTitle(cachedTitle)
                     }
                 }
                 return item
@@ -446,10 +442,8 @@ public final class ConversationListViewModel {
                             if let knownTitle = existingMap[item.id], !knownTitle.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines).isEmpty, knownTitle != "未命名会话" {
                                 return item.withTitle(knownTitle)
                             }
-                            if let cached = self.cacheManager.loadSession(for: item.id) {
-                                if let st = cached.title?.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines), !st.isEmpty, st != "未命名会话" {
-                                    return item.withTitle(st)
-                                }
+                            if let cachedTitle = self.cacheManager.cachedSessionTitle(for: item.id), !cachedTitle.isEmpty {
+                                return item.withTitle(cachedTitle)
                             }
                         }
                         return item

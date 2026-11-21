@@ -3,6 +3,7 @@ package proxy
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -13,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 )
 
 // AntigravityLocalStore provides direct, zero-RPC read access to Antigravity's local SQLite database
@@ -52,12 +54,16 @@ type LocalConversationSummary struct {
 	NestingDepth         int    `json:"nestingDepth,omitempty"`
 }
 
+type searchCacheEntry struct {
+	results []ConversationSearchResult
+	at      time.Time
+}
+
 var (
-	localStoreMu       sync.RWMutex
-	cachedSearchQuery  string
-	cachedSearchResp   []byte
-	cachedSearchAt     time.Time
-	searchCacheTTL     = 2 * time.Second
+	localStoreMu   sync.RWMutex
+	searchCache    = make(map[string]searchCacheEntry)
+	searchCacheTTL = 3 * time.Second
+	ftsSearchSem   = make(chan struct{}, 2)
 
 	cachedSummariesMap   map[string]map[string]interface{}
 	cachedSummariesAt    time.Time
@@ -100,6 +106,137 @@ func getAntigravityDBPath() string {
 	return ""
 }
 
+const (
+	ftsMarkerStart = "\x01MGYB\x02"
+	ftsMarkerEnd   = "\x01MGYE\x02"
+)
+
+func parseFTSSnippetRanges(marked string) (string, []SearchMatchRange) {
+	ranges := make([]SearchMatchRange, 0)
+	var clean strings.Builder
+	clean.Grow(len(marked))
+	runeOffset := 0
+	rem := marked
+	for {
+		bStart := strings.Index(rem, ftsMarkerStart)
+		if bStart < 0 {
+			clean.WriteString(rem)
+			break
+		}
+		prefix := rem[:bStart]
+		clean.WriteString(prefix)
+		runeOffset += utf8.RuneCountInString(prefix)
+
+		afterStart := rem[bStart+len(ftsMarkerStart):]
+		bEnd := strings.Index(afterStart, ftsMarkerEnd)
+		if bEnd < 0 {
+			clean.WriteString(afterStart)
+			break
+		}
+		matched := afterStart[:bEnd]
+		matchLen := utf8.RuneCountInString(matched)
+		clean.WriteString(matched)
+		ranges = append(ranges, SearchMatchRange{
+			Start: runeOffset,
+			End:   runeOffset + matchLen,
+		})
+		runeOffset += matchLen
+		rem = afterStart[bEnd+len(ftsMarkerEnd):]
+	}
+	return clean.String(), ranges
+}
+
+func safeSQLiteDBArg(dbPath string) (string, error) {
+	clean := filepath.Clean(strings.TrimSpace(dbPath))
+	if clean == "" || clean == "." || strings.ContainsAny(clean, "\x00\r\n") {
+		return "", fmt.Errorf("invalid sqlite database path")
+	}
+	if strings.HasPrefix(clean, "-") {
+		clean = "." + string(filepath.Separator) + clean
+	}
+	return clean, nil
+}
+
+func searchConversationsViaSQLiteCLI(ctx context.Context, dbPath, query string, limit int) ([]ConversationSearchResult, error) {
+	safeDB, err := safeSQLiteDBArg(dbPath)
+	if err != nil {
+		return nil, err
+	}
+	bin, roFlag, err := findSQLiteExecutable()
+	if err != nil {
+		return nil, err
+	}
+
+	runMatch := func(matchExpr string) ([]byte, error) {
+		hexMatch := hex.EncodeToString([]byte(matchExpr))
+		hexStart := hex.EncodeToString([]byte(ftsMarkerStart))
+		hexEnd := hex.EncodeToString([]byte(ftsMarkerEnd))
+		sqlQuery := fmt.Sprintf(`SELECT f.conversation_id AS cid, COALESCE(NULLIF(c.title, ''), COALESCE(f.title, '')) AS title, COALESCE(f.workspace, '') AS ws, COALESCE(snippet(conversations_fts, 13, CAST(X'%s' AS TEXT), CAST(X'%s' AS TEXT), '...', 12), '') AS snip, COALESCE(f.chunk_first_step, 0) AS step_idx, COALESCE(CAST(c.last_modified_time AS TEXT), '') AS mod_time FROM conversations_fts f LEFT JOIN conversation_summaries c ON f.conversation_id = c.conversation_id WHERE conversations_fts MATCH CAST(X'%s' AS TEXT) ORDER BY rank LIMIT %d`,
+			hexStart, hexEnd, hexMatch, limit)
+
+		execCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		defer cancel()
+
+		args := make([]string, 0, 6)
+		if roFlag {
+			args = append(args, "-readonly")
+		}
+		args = append(args, "-cmd", ".timeout 2500", "-json", safeDB, sqlQuery)
+		cmd := exec.CommandContext(execCtx, bin, args...)
+		var outBuf, errBuf bytes.Buffer
+		cmd.Stdout = &outBuf
+		cmd.Stderr = &errBuf
+		if runErr := cmd.Run(); runErr != nil {
+			return nil, fmt.Errorf("%w: %s", runErr, strings.TrimSpace(errBuf.String()))
+		}
+		return bytes.TrimSpace(outBuf.Bytes()), nil
+	}
+
+	rawJSON, err := runMatch(query)
+	if err != nil {
+		// Retry safely as a quoted FTS5 phrase when user input contains bare FTS operators/quotes.
+		safePhrase := `"` + strings.ReplaceAll(query, `"`, `""`) + `"`
+		rawJSON, err = runMatch(safePhrase)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if len(rawJSON) == 0 {
+		return []ConversationSearchResult{}, nil
+	}
+
+	var rows []struct {
+		CID     string `json:"cid"`
+		Title   string `json:"title"`
+		WS      string `json:"ws"`
+		Snip    string `json:"snip"`
+		StepIdx int    `json:"step_idx"`
+		ModTime string `json:"mod_time"`
+	}
+	if err := json.Unmarshal(rawJSON, &rows); err != nil {
+		return nil, err
+	}
+	out := make([]ConversationSearchResult, 0, len(rows))
+	for _, r := range rows {
+		title := r.Title
+		if title == "" {
+			title = "未命名会话"
+		}
+		cleanSnip, ranges := parseFTSSnippetRanges(r.Snip)
+		out = append(out, ConversationSearchResult{
+			CascadeID:          r.CID,
+			Title:              title,
+			WorkspaceName:      r.WS,
+			LastModifiedTime:   r.ModTime,
+			Snippet:            cleanSnip,
+			SnippetMatchRanges: ranges,
+			MatchSource:        "conversation_fts",
+			MatchedStepIndex:   r.StepIdx,
+		})
+	}
+	return out, nil
+}
+
 // SearchConversationsFTS5 performs a full-text search directly against Antigravity's conversations_fts virtual table.
 func SearchConversationsFTS5(ctx context.Context, query string, limit int) ([]ConversationSearchResult, error) {
 	query = strings.TrimSpace(query)
@@ -110,20 +247,54 @@ func SearchConversationsFTS5(ctx context.Context, query string, limit int) ([]Co
 		limit = 20
 	}
 
-	// Fast cache check
-	localStoreMu.RLock()
-	if cachedSearchQuery == query && time.Since(cachedSearchAt) < searchCacheTTL && len(cachedSearchResp) > 0 {
-		var resp ConversationSearchResponse
-		if err := json.Unmarshal(cachedSearchResp, &resp); err == nil {
-			localStoreMu.RUnlock()
-			return resp.Results, nil
-		}
-	}
-	localStoreMu.RUnlock()
-
 	dbPath := getAntigravityDBPath()
 	if dbPath == "" {
 		return nil, fmt.Errorf("antigravity conversation database not found")
+	}
+
+	cacheKey := fmt.Sprintf("%s|%d|%s", dbPath, limit, query)
+	now := time.Now()
+	localStoreMu.RLock()
+	if entry, ok := searchCache[cacheKey]; ok && now.Sub(entry.at) < searchCacheTTL {
+		cp := append([]ConversationSearchResult(nil), entry.results...)
+		localStoreMu.RUnlock()
+		return cp, nil
+	}
+	localStoreMu.RUnlock()
+
+	select {
+	case ftsSearchSem <- struct{}{}:
+		defer func() { <-ftsSearchSem }()
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+
+	storeCached := func(results []ConversationSearchResult) {
+		localStoreMu.Lock()
+		if len(searchCache) >= 16 {
+			for k, v := range searchCache {
+				if time.Since(v.at) >= searchCacheTTL {
+					delete(searchCache, k)
+				}
+			}
+			if len(searchCache) >= 16 {
+				for k := range searchCache {
+					delete(searchCache, k)
+					break
+				}
+			}
+		}
+		searchCache[cacheKey] = searchCacheEntry{
+			results: append([]ConversationSearchResult(nil), results...),
+			at:      time.Now(),
+		}
+		localStoreMu.Unlock()
+	}
+
+	// Fast path: lightweight `sqlite3 -readonly -json` subprocess before falling back to python3.
+	if cliResults, cliErr := searchConversationsViaSQLiteCLI(ctx, dbPath, query, limit); cliErr == nil {
+		storeCached(cliResults)
+		return cliResults, nil
 	}
 
 	pyBin, err := findPythonExecutable()
@@ -232,13 +403,7 @@ sys.stdout.buffer.write(json.dumps({'results': results}, ensure_ascii=False).enc
 		return nil, fmt.Errorf("failed to decode search json: %w", err)
 	}
 
-	// Update cache
-	localStoreMu.Lock()
-	cachedSearchQuery = query
-	cachedSearchResp = outBuf.Bytes()
-	cachedSearchAt = time.Now()
-	localStoreMu.Unlock()
-
+	storeCached(searchResp.Results)
 	return searchResp.Results, nil
 }
 
@@ -559,6 +724,10 @@ type sqliteHierarchyRow struct {
 }
 
 func fetchHierarchyViaSQLiteCLI(ctx context.Context, dbPath string) ([]sqliteHierarchyRow, error) {
+	safeDB, err := safeSQLiteDBArg(dbPath)
+	if err != nil {
+		return nil, err
+	}
 	bin, roFlag, err := findSQLiteExecutable()
 	if err != nil {
 		return nil, err
@@ -571,7 +740,7 @@ func fetchHierarchyViaSQLiteCLI(ctx context.Context, dbPath string) ([]sqliteHie
 	if roFlag {
 		args = append(args, "-readonly")
 	}
-	args = append(args, "-cmd", ".timeout 2500", "-json", dbPath, sqlQuery)
+	args = append(args, "-cmd", ".timeout 2500", "-json", safeDB, sqlQuery)
 
 	cmd := exec.CommandContext(execCtx, bin, args...)
 	var outBuf, errBuf bytes.Buffer
@@ -592,6 +761,10 @@ func fetchHierarchyViaSQLiteCLI(ctx context.Context, dbPath string) ([]sqliteHie
 }
 
 func fetchSummariesViaSQLiteCLI(ctx context.Context, dbPath string) (map[string]map[string]interface{}, error) {
+	safeDB, err := safeSQLiteDBArg(dbPath)
+	if err != nil {
+		return nil, err
+	}
 	bin, roFlag, err := findSQLiteExecutable()
 	if err != nil {
 		return nil, err
@@ -604,7 +777,7 @@ func fetchSummariesViaSQLiteCLI(ctx context.Context, dbPath string) (map[string]
 	if roFlag {
 		args = append(args, "-readonly")
 	}
-	args = append(args, "-cmd", ".timeout 2500", "-json", dbPath, sqlQuery)
+	args = append(args, "-cmd", ".timeout 2500", "-json", safeDB, sqlQuery)
 
 	cmd := exec.CommandContext(execCtx, bin, args...)
 	var outBuf, errBuf bytes.Buffer

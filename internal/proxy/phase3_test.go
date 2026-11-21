@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"encoding/json"
 	"net"
@@ -13,6 +14,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -198,8 +200,20 @@ func TestHandlePermissions_LocalAndPresets(t *testing.T) {
 func TestHandleMemories_CRUDAndPathGuard(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	ws := t.TempDir()
+	ws := filepath.Join(home, "Projects", "ws")
+	if err := os.MkdirAll(ws, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	outsideWS := t.TempDir()
 	p := &Proxy{}
+
+	// Reject workspacePath outside AllowedWorkspaceRoots()
+	outReq := httptest.NewRequest(http.MethodGet, "/gateway/memories?workspacePath="+url.QueryEscape(outsideWS), nil)
+	outRec := httptest.NewRecorder()
+	p.HandleMemories(outRec, outReq)
+	if outRec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for outside workspacePath, got %d", outRec.Code)
+	}
 
 	// Upsert workspace rule
 	reqBody, _ := json.Marshal(map[string]string{
@@ -305,6 +319,7 @@ func TestHandleGitExtra_BranchAndDiscard(t *testing.T) {
 		t.Skip("git not installed")
 	}
 	repo := t.TempDir()
+	t.Setenv("ALLOWED_WORKSPACE_ROOTS", repo)
 	runGit := func(args ...string) {
 		t.Helper()
 		cmd := exec.Command("git", append([]string{"-C", repo}, args...)...)
@@ -357,6 +372,7 @@ func TestHandleGitExtra_BranchAndDiscard(t *testing.T) {
 
 func TestHandleContextMentionsAndNormalization(t *testing.T) {
 	ws := t.TempDir()
+	t.Setenv("ALLOWED_WORKSPACE_ROOTS", ws)
 	_ = os.MkdirAll(filepath.Join(ws, "pkg"), 0o755)
 	_ = os.WriteFile(filepath.Join(ws, "pkg", "server.go"), []byte("package pkg\n"), 0o644)
 
@@ -740,6 +756,8 @@ func TestHandleSidecarUI_NamespacedSidecarID(t *testing.T) {
 	// 2. Sub-resource request under namespaced sidecarId proxies cleanly and strips gateway cookies & ticket
 	reqAsset := httptest.NewRequest(http.MethodGet, "/gateway/sidecar-ui/demo-plugin/panel_board/app.js?ticket=secret&v=1", nil)
 	reqAsset.AddCookie(&http.Cookie{Name: "agy_sidecar_st", Value: "scoped-sess"})
+	reqAsset.AddCookie(&http.Cookie{Name: "csrfToken", Value: "upstream-csrf"})
+	reqAsset.AddCookie(&http.Cookie{Name: "mgy_device", Value: "gw-tok"})
 	reqAsset.AddCookie(&http.Cookie{Name: "plugin_pref", Value: "dark"})
 	recAsset := httptest.NewRecorder()
 	p.HandleSidecarUI(recAsset, reqAsset)
@@ -749,9 +767,160 @@ func TestHandleSidecarUI_NamespacedSidecarID(t *testing.T) {
 	if seenPath != "/app.js" || seenRawQuery != "v=1" {
 		t.Fatalf("unexpected upstream path/query: path=%q query=%q", seenPath, seenRawQuery)
 	}
-	if strings.Contains(seenCookie, "agy_sidecar_st") || !strings.Contains(seenCookie, "plugin_pref=dark") {
-		t.Fatalf("expected gateway cookie stripped and plugin cookie preserved, got %q", seenCookie)
+	if strings.Contains(seenCookie, "agy_sidecar_st") || strings.Contains(seenCookie, "csrfToken") || strings.Contains(seenCookie, "mgy_device") || !strings.Contains(seenCookie, "plugin_pref=dark") {
+		t.Fatalf("expected gateway/csrf cookies stripped and plugin cookie preserved, got %q", seenCookie)
 	}
 }
+
+func TestSecurityHardening_MethodAndCascadeIDAndSlugGuards(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	p := &Proxy{}
+
+	// 1. POST-only enforcement on state-mutating endpoints (HIGH-07)
+	for _, ep := range []string{
+		"/gateway/rescan",
+		"/gateway/cascade/touch?cascadeId=test-1",
+		"/gateway/cascade/invalidate?cascadeId=test-1",
+		"/gateway/mcp/app/launch",
+		"/gateway/mcp/app/call",
+	} {
+		rec := httptest.NewRecorder()
+		p.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, ep, nil))
+		if rec.Code != http.StatusMethodNotAllowed {
+			t.Fatalf("expected 405 for GET %s, got %d", ep, rec.Code)
+		}
+	}
+
+	// 2. cascadeIDRe path traversal rejection (HIGH-05)
+	writeAnnotationTitle("../escape-title", "pwn")
+	if _, err := os.Stat(filepath.Join(home, ".gemini", "antigravity", "escape-title.pbtxt")); !os.IsNotExist(err) {
+		t.Fatalf("expected no escaped pbtxt file outside annotations")
+	}
+	recSwarm := httptest.NewRecorder()
+	p.HandleGetSwarm(recSwarm, httptest.NewRequest(http.MethodGet, "/gateway/swarm?cascadeId=../../etc/passwd", nil))
+	if recSwarm.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for invalid swarm cascadeId, got %d", recSwarm.Code)
+	}
+
+	// 3. GitHub slug strict validation (HIGH-04)
+	if got := normalizeGitHubSlug("https://github.com/octocat/hello-world.git"); got != "octocat/hello-world" {
+		t.Fatalf("expected octocat/hello-world, got %q", got)
+	}
+	for _, badSlug := range []string{
+		"https://evil.example.com/octocat/hello-world.git",
+		"-oProxyCommand=evil/repo",
+		"octocat/-upload-pack",
+		"../repo",
+	} {
+		if got := normalizeGitHubSlug(badSlug); got != "" {
+			t.Fatalf("expected bad slug %q to be rejected, got %q", badSlug, got)
+		}
+	}
+
+	// 4. Narration voice injection guard (HIGH-06)
+	recNar := httptest.NewRecorder()
+	p.HandleNarration(recNar, httptest.NewRequest(http.MethodPost, "/gateway/narration", strings.NewReader(`{"text":"hello","voice":"-o /tmp/pwn"}`)))
+	if recNar.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for unsafe narration voice, got %d", recNar.Code)
+	}
+}
+
+func TestPerformanceHardening_FlightCoalesceAndReactiveDeltaAndZipQuota(t *testing.T) {
+	// 1. P0-1: Short-deadline caller timing out must not cancel shared upstream singleflight.
+	fg := &trajFlightGroup{calls: make(map[string]*trajFlightCall)}
+	shortCtx, shortCancel := context.WithTimeout(context.Background(), 25*time.Millisecond)
+	defer shortCancel()
+	longCtx, longCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer longCancel()
+
+	var wg sync.WaitGroup
+	var longResp *upstreamTrajectoryResp
+	var longErr error
+	started := make(chan struct{})
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		_, err := fg.doCtx(shortCtx, "cid-shared", func(upCtx context.Context) (*upstreamTrajectoryResp, error) {
+			close(started)
+			select {
+			case <-time.After(80 * time.Millisecond):
+				var out upstreamTrajectoryResp
+				out.Status = "CASCADE_RUN_STATUS_IDLE"
+				return &out, nil
+			case <-upCtx.Done():
+				return nil, upCtx.Err()
+			}
+		})
+		if err == nil {
+			t.Errorf("expected short caller to time out")
+		}
+	}()
+
+	<-started
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		longResp, longErr = fg.doCtx(longCtx, "cid-shared", func(context.Context) (*upstreamTrajectoryResp, error) {
+			t.Errorf("expected second caller to coalesce into in-flight call")
+			return nil, nil
+		})
+	}()
+	wg.Wait()
+	if longErr != nil || longResp == nil || longResp.Status != "CASCADE_RUN_STATUS_IDLE" {
+		t.Fatalf("expected coalesced long waiter to succeed despite short caller timeout, got resp=%+v err=%v", longResp, longErr)
+	}
+
+	// 2. P0-2: O(|delta|) reactive summary updates keep s.body lazy until raw JSON is requested.
+	p := &Proxy{}
+	p.SetTestUpstream(59999, "tok-delta")
+	p.applyReactiveSummaryUpdates(59999, "tok-delta", map[string]json.RawMessage{
+		"cid-a": json.RawMessage(`{"status":"CASCADE_RUN_STATUS_RUNNING","stepCount":2}`),
+		"cid-b": json.RawMessage(`{"status":"CASCADE_RUN_STATUS_IDLE","stepCount":5}`),
+	}, true)
+	p.applyReactiveSummaryUpdates(59999, "tok-delta", map[string]json.RawMessage{
+		"cid-a": json.RawMessage(`{"status":"CASCADE_RUN_STATUS_IDLE","stepCount":3}`),
+	}, false)
+
+	p.allTrajectories.mu.Lock()
+	bodyBeforeRaw := p.allTrajectories.body
+	liveA := p.allTrajectories.parsed.liveByID["cid-a"]
+	p.allTrajectories.mu.Unlock()
+	if bodyBeforeRaw != nil {
+		t.Fatalf("expected s.body to stay nil (lazy) until raw snapshot read")
+	}
+	if liveA.StepCount != 3 || liveA.Status != "CASCADE_RUN_STATUS_IDLE" {
+		t.Fatalf("unexpected delta-updated live entry: %+v", liveA)
+	}
+	rawSnap, err := p.fetchAllTrajectoriesRaw(context.Background(), 59999, "tok-delta")
+	if err != nil || !bytes.Contains(rawSnap, []byte(`"stepCount":3`)) {
+		t.Fatalf("expected lazy materialization to include updated stepCount=3, err=%v body=%s", err, string(rawSnap))
+	}
+
+	// 3. P1-1: CleanupZipEntryCache enforces TTL and maxTotalBytes LRU eviction.
+	cacheDir := t.TempDir()
+	oldFile := filepath.Join(cacheDir, "old.bin")
+	midFile := filepath.Join(cacheDir, "mid.bin")
+	newFile := filepath.Join(cacheDir, "new.bin")
+	for _, f := range []string{oldFile, midFile, newFile} {
+		if err := os.WriteFile(f, bytes.Repeat([]byte("x"), 1024), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	now := time.Now()
+	_ = os.Chtimes(oldFile, now.Add(-10*time.Hour), now.Add(-10*time.Hour))
+	_ = os.Chtimes(midFile, now.Add(-30*time.Minute), now.Add(-30*time.Minute))
+	_ = os.Chtimes(newFile, now.Add(-1*time.Minute), now.Add(-1*time.Minute))
+
+	removed := CleanupZipEntryCache(cacheDir, 6*time.Hour, 1500)
+	if removed != 2 {
+		t.Fatalf("expected 2 cache files evicted (1 TTL + 1 LRU), got %d", removed)
+	}
+	if _, err := os.Stat(newFile); err != nil {
+		t.Fatalf("expected newest file retained: %v", err)
+	}
+}
+
 
 

@@ -3548,9 +3548,27 @@
     return res;
   }
 
-  function translateDOM(root) {
+  let hasTranslatedNonZh = false;
+  let initialDomPassDone = false;
+
+  function translateDOM(root, force = false) {
     if (!root || typeof document === "undefined") return;
     const isChinese = isZh();
+    if (root === document) {
+      // index.html is authored in zh-CN: skip full-document TreeWalker on initial zh-CN startup,
+      // and avoid running duplicate startup passes across i18n.init() and initApp().
+      if (isChinese && !hasTranslatedNonZh) {
+        initialDomPassDone = true;
+        return;
+      }
+      if (!force && initialDomPassDone) {
+        return;
+      }
+      initialDomPassDone = true;
+    }
+    if (!isChinese) {
+      hasTranslatedNonZh = true;
+    }
     const dict = DICTS[activeLang] || DICT_EN;
 
     // 1. Explicit data-i18n attributes
@@ -3638,7 +3656,7 @@
         manifestLink.setAttribute("href", manifestHrefForLang(activeLang));
       }
 
-      translateDOM(document);
+      translateDOM(document, true);
 
       if (typeof window.renderConversations === "function") {
         try {

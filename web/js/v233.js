@@ -726,9 +726,15 @@
       // MANDATORY: Clear previous highlights before registering new ones.
       CSS.highlights.clear();
       if (currentFindMatches.length > 0) {
-        CSS.highlights.set("find-results", new Highlight(...currentFindMatches));
+        const resultsHighlight = new Highlight();
+        for (let i = 0; i < currentFindMatches.length; i++) {
+          resultsHighlight.add(currentFindMatches[i]);
+        }
+        CSS.highlights.set("find-results", resultsHighlight);
         if (currentFindIndex >= 0 && currentFindMatches[currentFindIndex]) {
-          CSS.highlights.set("find-current", new Highlight(currentFindMatches[currentFindIndex]));
+          const currentHighlight = new Highlight();
+          currentHighlight.add(currentFindMatches[currentFindIndex]);
+          CSS.highlights.set("find-current", currentHighlight);
         }
       }
     } else if (fallbackMarks.length > 0) {
@@ -811,7 +817,10 @@
     setTimeout(() => input?.focus(), 40);
   }
 
+  let findInputDebounceTimer = 0;
+
   function closeFindPopover() {
+    clearTimeout(findInputDebounceTimer);
     const pop = document.getElementById("md-find-dialog");
     if (pop) {
       if (typeof pop.hidePopover === "function") {
@@ -835,10 +844,20 @@
     document.getElementById("btn-md-find-close")?.addEventListener("click", closeFindPopover);
     document.getElementById("btn-md-find-prev")?.addEventListener("click", () => stepFindMatch(-1));
     document.getElementById("btn-md-find-next")?.addEventListener("click", () => stepFindMatch(1));
-    document.getElementById("md-find-input")?.addEventListener("input", (e) => runFindQuery(e.target.value));
+    document.getElementById("md-find-input")?.addEventListener("input", (e) => {
+      const val = e.target.value;
+      clearTimeout(findInputDebounceTimer);
+      findInputDebounceTimer = setTimeout(() => runFindQuery(val), 150);
+    });
     document.getElementById("md-find-input")?.addEventListener("keydown", (e) => {
       if (e.key === "Enter") {
         e.preventDefault();
+        if (findInputDebounceTimer) {
+          clearTimeout(findInputDebounceTimer);
+          findInputDebounceTimer = 0;
+          runFindQuery(e.target.value);
+          return;
+        }
         stepFindMatch(e.shiftKey ? -1 : 1);
       } else if (e.key === "Escape") {
         closeFindPopover();

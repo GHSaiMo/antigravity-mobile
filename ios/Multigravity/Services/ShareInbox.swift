@@ -65,6 +65,16 @@ public final class ShareInbox {
             defer { if scoped { url.stopAccessingSecurityScopedResource() } }
             
             let name = url.lastPathComponent
+            let ext = (name as NSString).pathExtension.lowercased()
+            let isImage = Self.imageExtensions.contains(ext)
+            let preSize = ((try? fm.attributesOfItem(atPath: url.path))?[.size] as? NSNumber)?.int64Value ?? -1
+            let preCap = AttachmentRules.isLargeMediaName(name) ? AttachmentRules.maxMediaFileBytes : AttachmentRules.maxFileBytes
+            if preSize > preCap {
+                if url.path.contains("/Inbox/") { try? fm.removeItem(at: url) }
+                let mb = preCap / 1024 / 1024
+                added.append(SharedFile(id: UUID().uuidString, name: name, size: preSize, url: url, isImage: isImage, rejectReason: String(localized: "文件超过 \(mb)MB：\(name)")))
+                continue
+            }
             let dir = root.appendingPathComponent(UUID().uuidString, isDirectory: true)
             try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
             let target = dir.appendingPathComponent(name)
@@ -79,9 +89,15 @@ public final class ShareInbox {
             if url.path.contains("/Inbox/") { try? fm.removeItem(at: url) }
             
             let size = ((try? fm.attributesOfItem(atPath: target.path))?[.size] as? NSNumber)?.int64Value ?? 0
-            let ext = (name as NSString).pathExtension.lowercased()
-            let isImage = Self.imageExtensions.contains(ext)
-            let reason = isImage ? (size <= 0 ? String(localized: "文件为空：\(name)") : nil) : AttachmentRules.validate(name: name, size: size, existing: [])
+            let reason: String? = {
+                if size <= 0 { return String(localized: "文件为空：\(name)") }
+                if isImage {
+                    return size > AttachmentRules.maxFileBytes
+                        ? String(localized: "文件超过 \(AttachmentRules.maxFileBytes / 1024 / 1024)MB：\(name)")
+                        : nil
+                }
+                return AttachmentRules.validate(name: name, size: size, existing: [])
+            }()
             if reason != nil { try? fm.removeItem(at: dir) }
             added.append(SharedFile(id: UUID().uuidString, name: name, size: size, url: target, isImage: isImage, rejectReason: reason))
         }

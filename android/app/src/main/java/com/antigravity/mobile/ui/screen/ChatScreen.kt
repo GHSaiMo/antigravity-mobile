@@ -98,6 +98,8 @@ import androidx.compose.ui.unit.sp
 import com.antigravity.mobile.ui.components.*
 import com.antigravity.mobile.ui.theme.AntigravityTheme
 import com.antigravity.mobile.ui.viewmodel.ChatViewModel
+import com.antigravity.mobile.ui.viewmodel.handleAppBackgrounded
+import com.antigravity.mobile.ui.viewmodel.handleAppForegrounded
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -378,11 +380,26 @@ fun ChatScreen(
         }
     }
 
-    val currentTurnIndex by remember(turns) {
+    val turnIndexByMessageId = remember(turns) {
+        buildMap<String, Int> {
+            for (t in turns) {
+                for (m in t.messages) {
+                    if (m.id.isNotBlank()) {
+                        put(m.id, t.turnIndex)
+                    }
+                }
+            }
+        }
+    }
+    val validTurnIndices = remember(turns) {
+        turns.mapTo(HashSet(turns.size)) { it.turnIndex }
+    }
+
+    val currentTurnIndex by remember(turns, turnIndexByMessageId, validTurnIndices) {
         derivedStateOf {
             if (turns.isEmpty()) {
                 1
-            } else if (lockedTurnIndex != null && turns.any { it.turnIndex == lockedTurnIndex }) {
+            } else if (lockedTurnIndex != null && validTurnIndices.contains(lockedTurnIndex)) {
                 lockedTurnIndex!!
             } else if (!hasInitiallyAligned || isNearBottom || !listState.canScrollForward) {
                 turns.lastOrNull()?.turnIndex ?: 1
@@ -392,8 +409,8 @@ fun ChatScreen(
                 val layoutInfo = listState.layoutInfo
                 val anchorY = (layoutInfo.viewportEndOffset * 0.45f).toInt()
                 val messageItems = layoutInfo.visibleItemsInfo.filter { item ->
-                    val k = item.key as? String ?: return@filter false
-                    turns.any { t -> t.messages.any { m -> m.id == k } }
+                    val k = item.key as? String
+                    k != null && turnIndexByMessageId.containsKey(k)
                 }
                 val bestItem = messageItems.minByOrNull { item ->
                     val top = item.offset
@@ -402,8 +419,7 @@ fun ChatScreen(
                 }
                 val targetId = bestItem?.key as? String
                 if (targetId != null) {
-                    turns.firstOrNull { turn -> turn.messages.any { it.id == targetId } }?.turnIndex
-                        ?: turns.lastOrNull()?.turnIndex ?: 1
+                    turnIndexByMessageId[targetId] ?: turns.lastOrNull()?.turnIndex ?: 1
                 } else {
                     turns.lastOrNull()?.turnIndex ?: 1
                 }
@@ -411,11 +427,15 @@ fun ChatScreen(
         }
     }
 
-    val openSubagent: (com.antigravity.mobile.data.model.SubagentItem) -> Unit = { sub ->
-        savedScrollIndex = listState.firstVisibleItemIndex
-        savedScrollOffset = listState.firstVisibleItemScrollOffset
-        preserveScrollOnReturn = hasInitiallyAligned
-        onOpenSubagent(sub)
+    val latestOnOpenSubagent by rememberUpdatedState(onOpenSubagent)
+    val latestHasInitiallyAligned by rememberUpdatedState(hasInitiallyAligned)
+    val openSubagent: (com.antigravity.mobile.data.model.SubagentItem) -> Unit = remember(listState) {
+        { sub ->
+            savedScrollIndex = listState.firstVisibleItemIndex
+            savedScrollOffset = listState.firstVisibleItemScrollOffset
+            preserveScrollOnReturn = latestHasInitiallyAligned
+            latestOnOpenSubagent(sub)
+        }
     }
 
     // 对齐 iOS performAdaptiveCardScroll：多阶段弹性阻尼自适应滚动与贴边回弹
@@ -787,19 +807,20 @@ fun ChatScreen(
         var hasLeftForeground = false
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_PAUSE, Lifecycle.Event.ON_STOP -> {
-                    hasLeftForeground = true
+                Lifecycle.Event.ON_PAUSE -> {
                     textToolbar.hide()
                     viewModel.saveDraftFor(cascadeId, inputText, uiState.selectedImages.map { it.byteArray })
                 }
-                Lifecycle.Event.ON_RESUME -> {
+                Lifecycle.Event.ON_STOP -> {
+                    hasLeftForeground = true
+                    textToolbar.hide()
+                    viewModel.saveDraftFor(cascadeId, inputText, uiState.selectedImages.map { it.byteArray })
+                    viewModel.handleAppBackgrounded()
+                }
+                Lifecycle.Event.ON_START, Lifecycle.Event.ON_RESUME -> {
                     if (hasLeftForeground) {
                         hasLeftForeground = false
-                        val activeCid = viewModel.uiState.value.cascadeId
-                        if (activeCid.isNotBlank() && !activeCid.startsWith("local_draft_") && !activeCid.startsWith("draft_")) {
-                            viewModel.reconnectWebSocketIfDisconnected()
-                            viewModel.refresh()
-                        }
+                        viewModel.handleAppForegrounded()
                     }
                 }
                 else -> {}
@@ -1395,6 +1416,103 @@ fun ChatScreen(
                             }
                         ) {
                             val lastFollowScrollAtMs = remember { longArrayOf(0L) }
+                            val latestUiState by rememberUpdatedState(uiState)
+                            val latestViewModel by rememberUpdatedState(viewModel)
+                            val latestHandleFileOrLinkClick by rememberUpdatedState(handleFileOrLinkClick)
+                            val latestNarrationPlayer by rememberUpdatedState(narrationPlayer)
+                            val latestContext by rememberUpdatedState(context)
+
+                            val stableOnPlanClick = remember<((String, String) -> Unit)> {
+                                { uri, title -> latestHandleFileOrLinkClick(uri, title) }
+                            }
+                            val stableUrlResolver = remember<((String) -> String)> {
+                                { raw -> latestViewModel.resolveMediaUrl(raw) }
+                            }
+                            val stableOnImageClick = remember<((String?, android.graphics.Bitmap?) -> Unit)> {
+                                { url, bitmap ->
+                                    if (!url.isNullOrEmpty() && com.antigravity.mobile.data.service.FileIconResolver.isVideo(url)) {
+                                        latestHandleFileOrLinkClick(url, "")
+                                    } else {
+                                        latestViewModel.openImageViewer(bitmap = bitmap, url = url)
+                                    }
+                                }
+                            }
+                            val stableOnImageGroupClick = remember<((List<ImageViewerItem>, Int) -> Unit)> {
+                                { items, index -> latestViewModel.openImageViewer(items = items, initialIndex = index) }
+                            }
+                            val stableOnStopWorkflow = remember<(() -> Unit)> {
+                                { latestViewModel.cancelExecution() }
+                            }
+                            val stableOnSelectWorkflowSubagent = remember<((com.antigravity.mobile.data.model.SubagentItem) -> Unit)> {
+                                { sa -> selectedWorkflowSubagent = sa }
+                            }
+                            val stableOnForkClick = remember<((com.antigravity.mobile.data.model.GatewayMessageItem) -> Unit)> {
+                                { target ->
+                                    val snapshot = latestUiState
+                                    latestViewModel.forkConversationAt(target.stepIndex ?: 0, false) { newId ->
+                                        latestViewModel.prepareSession(
+                                            cascadeId = newId,
+                                            initialTitle = "${snapshot.title} (分支)".loc,
+                                            isNewConversation = false,
+                                            workspaceName = snapshot.workspaceName
+                                        )
+                                    }
+                                }
+                            }
+                            val stableOnNarrateClick = remember<((String) -> Unit)> {
+                                { text -> latestNarrationPlayer.play(text) }
+                            }
+                            val stableOnAskBtwClick = remember<((String) -> Unit)> {
+                                { quote ->
+                                    btwInitialQuote = quote
+                                    showBtwSheet = true
+                                }
+                            }
+                            val stableOnCompactClick = remember<(() -> Unit)> {
+                                { latestViewModel.sendCompactCommand() }
+                            }
+                            val canRevert = compat.isAvailable(com.antigravity.mobile.data.model.GatewayFeature.REVERT)
+                            val stableOnUndoClick = remember<((com.antigravity.mobile.data.model.GatewayMessageItem) -> Unit)?>(canRevert) {
+                                if (canRevert) {
+                                    { target -> latestViewModel.requestUndo(target) }
+                                } else null
+                            }
+                            val canExport = compat.isAvailable(com.antigravity.mobile.data.model.GatewayFeature.EXPORT)
+                            val stableOnExportMarkdownClick = remember<(() -> Unit)?>(canExport, coroutineScope) {
+                                if (canExport) {
+                                    {
+                                        latestViewModel.exportMarkdown { title, markdown ->
+                                            coroutineScope.launch {
+                                                com.antigravity.mobile.ui.util.MarkdownExportUtils.shareMarkdown(latestContext, title, markdown)
+                                            }
+                                        }
+                                    }
+                                } else null
+                            }
+                            val stableShareContextProvider = remember<((com.antigravity.mobile.data.model.GatewayMessageItem) -> ShareCardContext)> {
+                                { pacedTarget ->
+                                    val snapshot = latestUiState
+                                    val list = snapshot.messages
+                                    // 播放中的消息是副本，按 id 还原回原始消息再取上下文
+                                    val target = list.firstOrNull { it.id.isNotBlank() && it.id == pacedTarget.id } ?: pacedTarget
+                                    val idx = list.indexOfFirst { it === target }.takeIf { it >= 0 } ?: list.size
+                                    val question = list.take(idx).lastOrNull { it.isUser }
+                                    val badge = ShareCardContext.resolveModel(
+                                        target = target,
+                                        messages = list,
+                                        activeModel = snapshot.activeModel,
+                                        activeModelName = snapshot.activeModelName
+                                    )
+                                    ShareCardContext(
+                                        sessionTitle = snapshot.title,
+                                        modelName = badge.first,
+                                        modelIsClaude = badge.second,
+                                        startedAtIso = snapshot.startedAt,
+                                        previousMessage = question
+                                    )
+                                }
+                            }
+
                             LazyColumn(
                                 state = listState,
                                 modifier = Modifier.fillMaxSize(),
@@ -1476,72 +1594,21 @@ fun ChatScreen(
                                     )
                                     MessageBubble(
                                         message = msg,
-                                        onPlanClick = { uri, title ->
-                                            handleFileOrLinkClick(uri, title)
-                                        },
-                                        urlResolver = { raw -> viewModel.resolveMediaUrl(raw) },
-                                        onImageClick = { url, bitmap ->
-                                            if (!url.isNullOrEmpty() && com.antigravity.mobile.data.service.FileIconResolver.isVideo(url)) {
-                                                handleFileOrLinkClick(url, "")
-                                            } else {
-                                                viewModel.openImageViewer(bitmap = bitmap, url = url)
-                                            }
-                                        },
-                                        onImageGroupClick = { items, index ->
-                                            viewModel.openImageViewer(items = items, initialIndex = index)
-                                        },
+                                        onPlanClick = stableOnPlanClick,
+                                        urlResolver = stableUrlResolver,
+                                        onImageClick = stableOnImageClick,
+                                        onImageGroupClick = stableOnImageGroupClick,
                                         onSubagentClick = openSubagent,
-                                        onStopWorkflow = { viewModel.cancelExecution() },
-                                        onSelectWorkflowSubagent = { sa -> selectedWorkflowSubagent = sa },
-                                        onForkClick = { target ->
-                                            viewModel.forkConversationAt(target.stepIndex ?: 0, false) { newId ->
-                                                viewModel.prepareSession(
-                                                    cascadeId = newId,
-                                                    initialTitle = "${uiState.title} (分支)".loc,
-                                                    isNewConversation = false,
-                                                    workspaceName = uiState.workspaceName
-                                                )
-                                            }
-                                        },
-                                        onNarrateClick = { text -> narrationPlayer.play(text) },
-                                        onAskBtwClick = { quote ->
-                                            btwInitialQuote = quote
-                                            showBtwSheet = true
-                                        },
-                                        onCompactClick = { viewModel.sendCompactCommand() },
+                                        onStopWorkflow = stableOnStopWorkflow,
+                                        onSelectWorkflowSubagent = stableOnSelectWorkflowSubagent,
+                                        onForkClick = stableOnForkClick,
+                                        onNarrateClick = stableOnNarrateClick,
+                                        onAskBtwClick = stableOnAskBtwClick,
+                                        onCompactClick = stableOnCompactClick,
                                         onStartNewSessionClick = onStartNewSession,
-                                        onUndoClick = if (compat.isAvailable(com.antigravity.mobile.data.model.GatewayFeature.REVERT)) {
-                                            { target -> viewModel.requestUndo(target) }
-                                        } else null,
-                                        onExportMarkdownClick = if (compat.isAvailable(com.antigravity.mobile.data.model.GatewayFeature.EXPORT)) {
-                                            {
-                                                viewModel.exportMarkdown { title, markdown ->
-                                                    coroutineScope.launch {
-                                                        com.antigravity.mobile.ui.util.MarkdownExportUtils.shareMarkdown(context, title, markdown)
-                                                    }
-                                                }
-                                            }
-                                        } else null,
-                                        shareContextProvider = { pacedTarget ->
-                                            val list = uiState.messages
-                                            // 播放中的消息是副本，按 id 还原回原始消息再取上下文
-                                            val target = list.firstOrNull { it.id.isNotBlank() && it.id == pacedTarget.id } ?: pacedTarget
-                                            val idx = list.indexOfFirst { it === target }.takeIf { it >= 0 } ?: list.size
-                                            val question = list.take(idx).lastOrNull { it.isUser }
-                                            val badge = ShareCardContext.resolveModel(
-                                                target = target,
-                                                messages = list,
-                                                activeModel = uiState.activeModel,
-                                                activeModelName = uiState.activeModelName
-                                            )
-                                            ShareCardContext(
-                                                sessionTitle = uiState.title,
-                                                modelName = badge.first,
-                                                modelIsClaude = badge.second,
-                                                startedAtIso = uiState.startedAt,
-                                                previousMessage = question
-                                            )
-                                        }
+                                        onUndoClick = stableOnUndoClick,
+                                        onExportMarkdownClick = stableOnExportMarkdownClick,
+                                        shareContextProvider = stableShareContextProvider
                                     )
                                 }
 

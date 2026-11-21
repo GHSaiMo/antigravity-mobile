@@ -203,6 +203,31 @@ func IsCloudflareRequest(r *http.Request) bool {
 		strings.TrimSpace(r.Header.Get("CF-Ray")) != ""
 }
 
+// IsProxiedRequest reports whether the request carries any reverse-proxy or tunnel forwarding header.
+// Address-based implicit trust (loopback / TrustLAN) must always reject proxied requests so local
+// reverse proxies (Nginx, Caddy, Traefik, FRP, NAS reverse proxy, Tailscale Serve) cannot grant
+// unauthenticated access to external callers (CRIT-01).
+func IsProxiedRequest(r *http.Request) bool {
+	if r == nil {
+		return false
+	}
+	if IsCloudflareRequest(r) {
+		return true
+	}
+	for _, hdr := range []string{
+		"X-Forwarded-For",
+		"X-Real-IP",
+		"Forwarded",
+		"X-Forwarded-Proto",
+		"X-Forwarded-Host",
+	} {
+		if strings.TrimSpace(r.Header.Get(hdr)) != "" {
+			return true
+		}
+	}
+	return false
+}
+
 // IsListenAddrLoopback reports whether the gateway listen host is loopback-only.
 // Empty host, 0.0.0.0, :: and [::] bind all interfaces and are not loopback.
 func IsListenAddrLoopback(host string) bool {
@@ -229,26 +254,38 @@ func ExtractClientIP(r *http.Request) string {
 	// Forwarded-for headers are client-controlled unless a trusted hop wrote them, so they are only
 	// honoured when the socket peer is loopback (our own tunnel connector / local proxy).
 	if IsLoopbackAddr(ip) || ip == "localhost" || ip == "" {
-		// Cloudflare overwrites CF-Connecting-IP, so it is authoritative. For a Cloudflare request
-		// never fall back to X-Real-IP / X-Forwarded-For: those pass through from the client.
-		if IsCloudflareRequest(r) {
-			if c := CleanIP(strings.TrimSpace(r.Header.Get("CF-Connecting-IP"))); net.ParseIP(c) != nil {
-				return c
+		cfIP := CleanIP(strings.TrimSpace(r.Header.Get("CF-Connecting-IP")))
+		hasCFRay := strings.TrimSpace(r.Header.Get("CF-Ray")) != ""
+		fwd := strings.TrimSpace(r.Header.Get("X-Forwarded-For"))
+		realIP := strings.TrimSpace(r.Header.Get("X-Real-IP"))
+
+		// Authoritative Cloudflare Tunnel requests carry CF-Ray (or have no competing local proxy XFF/X-Real-IP).
+		// Behind a non-CF local reverse proxy (which appends X-Forwarded-For without CF-Ray), ignore client-forged CF-Connecting-IP.
+		if hasCFRay {
+			if cfIP != "" && net.ParseIP(cfIP) != nil {
+				return cfIP
 			}
 			return ip
 		}
-		if realIP := strings.TrimSpace(r.Header.Get("X-Real-IP")); realIP != "" {
+		if cfIP != "" && net.ParseIP(cfIP) != nil && fwd == "" && realIP == "" {
+			return cfIP
+		}
+
+		// Prefer the rightmost X-Forwarded-For entry (appended by our nearest local reverse proxy)
+		// before X-Real-IP (which proxies such as Caddy/Traefik pass through untouched from clients).
+		if fwd != "" {
+			parts := strings.Split(fwd, ",")
+			for i := len(parts) - 1; i >= 0; i-- {
+				candidate := CleanIP(strings.TrimSpace(parts[i]))
+				if candidate != "" && net.ParseIP(candidate) != nil {
+					return candidate
+				}
+			}
+		}
+		if realIP != "" {
 			c := CleanIP(realIP)
 			if net.ParseIP(c) != nil {
 				return c
-			}
-		}
-		if fwd := strings.TrimSpace(r.Header.Get("X-Forwarded-For")); fwd != "" {
-			// Last entry is the one appended by our nearest proxy; earlier ones are client-supplied.
-			parts := strings.Split(fwd, ",")
-			candidate := CleanIP(strings.TrimSpace(parts[len(parts)-1]))
-			if candidate != "" && net.ParseIP(candidate) != nil {
-				return candidate
 			}
 		}
 	}

@@ -23,6 +23,7 @@ import (
 	"strings"
 	"time"
 
+	"antigravity-mobile/internal/config"
 	"antigravity-mobile/internal/localtls"
 )
 
@@ -154,28 +155,9 @@ func AssetCandidates(goos, goarch string) ([]string, error) {
 	}
 }
 
-// detectLocalProxy checks environment variables and common local proxy ports (Clash/V2Ray/Surge).
+// detectLocalProxy checks environment variables and common local proxy ports (with 60s caching).
 func detectLocalProxy() *url.URL {
-	for _, envKey := range []string{"HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy"} {
-		if val := strings.TrimSpace(os.Getenv(envKey)); val != "" {
-			if !strings.Contains(val, "://") {
-				val = "http://" + val
-			}
-			if u, err := url.Parse(val); err == nil {
-				return u
-			}
-		}
-	}
-
-	for _, p := range []int{7890, 10808, 1080, 6152} {
-		addr := fmt.Sprintf("127.0.0.1:%d", p)
-		conn, err := net.DialTimeout("tcp", addr, 150*time.Millisecond)
-		if err == nil {
-			_ = conn.Close()
-			return &url.URL{Scheme: "http", Host: addr}
-		}
-	}
-	return nil
+	return config.DetectLocalProxy()
 }
 
 func isOfficialGitHubURL(rawURL string) bool {
@@ -241,22 +223,12 @@ func FetchLatestTag(ctx context.Context, opts Options) (string, error) {
 		errs = append(errs, fmt.Sprintf("github redirect: %v", err))
 	}
 
-	// 2. Official GitHub Releases API fallback
+	// 2. Official GitHub Releases API fallback (strictly official GitHub; never trust third-party mirrors for tag resolution)
 	apiURL := fmt.Sprintf("%s/repos/%s/releases/latest", o.APIBaseURL, o.Repo)
 	if tag, err := fetchTagViaAPI(ctx, o, apiURL, 10*time.Second); err == nil {
 		return tag, nil
 	} else {
 		errs = append(errs, fmt.Sprintf("github api: %v", err))
-	}
-
-	// 3. Mirror fallback for environments where direct GitHub is blocked without a proxy
-	for _, prefix := range o.MirrorPrefixes {
-		mirrorURL := prefix + latestURL
-		if tag, err := fetchTagViaRedirect(ctx, o, mirrorURL, 10*time.Second); err == nil {
-			return tag, nil
-		} else {
-			errs = append(errs, fmt.Sprintf("mirror %s: %v", prefix, err))
-		}
 	}
 
 	return "", fmt.Errorf("无法获取最新版本信息 (%s)", strings.Join(errs, "; "))
@@ -362,36 +334,25 @@ func ParseChecksums(r io.Reader) map[string]string {
 	return result
 }
 
-// FetchChecksums attempts to fetch checksums.txt for the given release tag.
-// It prefers official GitHub first for integrity, falling back to mirrors.
-// If the release predates checksums.txt (404), it returns (nil, false, nil).
+// FetchChecksums fetches checksums.txt exclusively from the official GitHub HTTPS endpoint (HIGH-02).
+// Third-party mirrors are intentionally never queried for checksums so a compromised mirror cannot
+// serve both a tampered archive and a matching checksums.txt.
 func FetchChecksums(ctx context.Context, tag string, opts Options) (map[string]string, bool, error) {
 	o := opts.withDefaults()
 	ghURL := fmt.Sprintf("%s/%s/releases/download/%s/checksums.txt", o.GitHubBaseURL, o.Repo, tag)
-
-	// Prefer official GitHub first so mirror tampering can be detected by official hashes.
-	urls := make([]string, 0, 1+len(o.MirrorPrefixes))
-	urls = append(urls, ghURL)
-	for _, prefix := range o.MirrorPrefixes {
-		urls = append(urls, prefix+ghURL)
+	if o.HTTPClientFactory == nil && !strings.HasPrefix(strings.ToLower(ghURL), "https://") {
+		return nil, false, fmt.Errorf("refusing non-HTTPS checksum URL: %s", ghURL)
 	}
 
-	sawNotFound := false
-	for _, u := range urls {
-		sums, err := fetchChecksumsFromURL(ctx, o, u)
-		if err == nil && len(sums) > 0 {
-			return sums, true, nil
-		}
-		if errors.Is(err, errNotFound) {
-			sawNotFound = true
-			// Official GitHub 404 definitively means this release does not have checksums.txt.
-			if u == ghURL {
-				return nil, false, nil
-			}
-		}
+	sums, err := fetchChecksumsFromURL(ctx, o, ghURL)
+	if err == nil && len(sums) > 0 {
+		return sums, true, nil
 	}
-	if sawNotFound {
-		return nil, false, nil
+	if errors.Is(err, errNotFound) {
+		return nil, false, fmt.Errorf("official release %s is missing checksums.txt", tag)
+	}
+	if err != nil {
+		return nil, false, fmt.Errorf("official checksums.txt fetch failed: %w", err)
 	}
 	return nil, false, fmt.Errorf("checksums.txt unavailable")
 }
@@ -526,9 +487,9 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 		fmt.Fprintf(o.Out, "🆕 发现新版本: %s (当前: v%s)\n", tag, curVer)
 	}
 
-	checksums, hasChecksums, _ := FetchChecksums(ctx, tag, o)
-	if !hasChecksums {
-		fmt.Fprintf(o.Out, "ℹ️  该版本未附带 checksums.txt，将通过归档完整性与可执行自检验证。\n")
+	checksums, hasChecksums, checksumErr := FetchChecksums(ctx, tag, o)
+	if checksumErr != nil || !hasChecksums || len(checksums) == 0 {
+		return nil, fmt.Errorf("安全校验失败: 无法从 GitHub 官方 HTTPS 源获取版本 %s 的 checksums.txt (%v)，已中止未校验更新", tag, checksumErr)
 	}
 
 	tmpDir, err := os.MkdirTemp("", "mgy-update-*")
@@ -539,10 +500,20 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 
 	var lastErr error
 	for _, asset := range assets {
+		expected, ok := checksums[asset]
+		if !ok || expected == "" {
+			lastErr = fmt.Errorf("官方 checksums.txt 中缺少资产 %s 的 SHA-256 记录", asset)
+			continue
+		}
+
 		ghURL := fmt.Sprintf("%s/%s/releases/download/%s/%s", o.GitHubBaseURL, o.Repo, tag, asset)
 		urls := buildDownloadURLs(ghURL, o.MirrorPrefixes)
 
 		for _, rawURL := range urls {
+			if o.HTTPClientFactory == nil && !strings.HasPrefix(strings.ToLower(rawURL), "https://") {
+				lastErr = fmt.Errorf("拒绝非 HTTPS 下载源: %s", rawURL)
+				continue
+			}
 			sourceDesc := "加速镜像站"
 			if rawURL == ghURL {
 				sourceDesc = "GitHub 官方源"
@@ -559,20 +530,15 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 				continue
 			}
 
-			checksumVerified := false
-			checksumSkipped := true
-			if hasChecksums {
-				if expected, ok := checksums[asset]; ok {
-					checksumSkipped = false
-					if !strings.EqualFold(gotHash, expected) {
-						lastErr = fmt.Errorf("SHA-256 校验不匹配 (expected %s, got %s)", expected, gotHash)
-						fmt.Fprintf(o.Out, "⚠️  %v，丢弃该文件并切换备用源...\n", lastErr)
-						continue
-					}
-					checksumVerified = true
-					fmt.Fprintf(o.Out, "🔒 SHA-256 完整性校验通过 (%s...)\n", gotHash[:12])
-				}
+			if !strings.EqualFold(gotHash, expected) {
+				_ = os.Remove(archivePath)
+				lastErr = fmt.Errorf("SHA-256 校验不匹配 (expected %s, got %s)", expected, gotHash)
+				fmt.Fprintf(o.Out, "⚠️  %v，丢弃该文件并切换备用源...\n", lastErr)
+				continue
 			}
+			checksumVerified := true
+			checksumSkipped := false
+			fmt.Fprintf(o.Out, "🔒 SHA-256 完整性校验通过 (%s...)\n", gotHash[:12])
 
 			stagedFile, err := os.CreateTemp(targetDir, ".mgy-update-*.tmp")
 			if err != nil {

@@ -193,7 +193,7 @@ jobs:
           path: dist/out/multigravity-windows-*.zip
 
   # ============================================================================
-  # 3.5. 构建 Linux 二进制 (amd64)
+  # 3.5. 构建 Linux 二进制 (amd64 & arm64)
   # ============================================================================
   build-linux:
     name: Build Linux Binaries
@@ -207,12 +207,12 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Build Linux Binaries (amd64)
+      - name: Build Linux Binaries (amd64 & arm64)
         env:
           REF_NAME: ${{ github.ref_name }}
           INPUT_TAG: ${{ inputs.tag }}
         run: |
-          mkdir -p dist/amd64 dist/out
+          mkdir -p dist/amd64 dist/arm64 dist/out
           TAG_NAME="$REF_NAME"
           if [ -z "$TAG_NAME" ] || [ "$TAG_NAME" = "main" ]; then
             TAG_NAME="${INPUT_TAG:-1.2.4}"
@@ -220,9 +220,11 @@ jobs:
           VERSION_NUM="${TAG_NAME#v}"
 
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w -X 'main.Version=${VERSION_NUM}'" -o dist/amd64/mgy ./cmd/gateway
-          chmod +x dist/amd64/mgy
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags="-s -w -X 'main.Version=${VERSION_NUM}'" -o dist/arm64/mgy ./cmd/gateway
+          chmod +x dist/amd64/mgy dist/arm64/mgy
 
           tar -czf dist/out/multigravity-linux-amd64.tar.gz -C dist/amd64 mgy
+          tar -czf dist/out/multigravity-linux-arm64.tar.gz -C dist/arm64 mgy
 
       - name: Upload Linux Artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

@@ -70,6 +70,7 @@ data class QueuedMessageTombstone(
     val deletedAt: Long = System.currentTimeMillis()
 )
 
+@androidx.compose.runtime.Immutable
 data class ChatUiState(
     val cascadeId: String = "",
     val title: String = "会话详情".loc,
@@ -227,6 +228,8 @@ class ChatViewModel(
     internal var wsJob: Job? = null
     internal var fetchJob: Job? = null
     internal var runningFallbackPollJob: Job? = null
+    internal var backgroundDisconnectJob: Job? = null
+    internal var isAppInBackground: Boolean = false
     internal var mentionSearchJob: Job? = null
     internal var undoPreviewJob: Job? = null
     internal var pendingOptimisticMessageId: String? = null

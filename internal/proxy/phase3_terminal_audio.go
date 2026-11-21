@@ -14,12 +14,16 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
 )
+
+var safeNarrationVoiceRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9 _().-]{0,63}$`)
 
 func buildConnectFrame(payload interface{}) ([]byte, error) {
 	raw, err := json.Marshal(payload)
@@ -141,20 +145,76 @@ func (p *Proxy) HandleTerminalStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	wsUpgrader := websocket.Upgrader{
-		CheckOrigin: func(r *http.Request) bool { return true },
-	}
-	conn, err := wsUpgrader.Upgrade(w, r, nil)
+	sanitizeWebSocketHeaders(r)
+	conn, err := streamUpgrader.Upgrade(w, r, nil)
 	if err != nil {
 		return
 	}
+	untrack := p.trackWSConn(conn)
+	defer untrack()
 	defer conn.Close()
+
+	conn.SetReadLimit(1 << 20)
+	_ = conn.SetReadDeadline(time.Now().Add(70 * time.Second))
+	conn.SetPongHandler(func(string) error {
+		_ = conn.SetReadDeadline(time.Now().Add(70 * time.Second))
+		return nil
+	})
+
+	ctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
+
+	doneCh := make(chan struct{})
+	defer close(doneCh)
+
+	// Drain client control/close frames so disconnecting clients cancel the upstream HTTP/2 stream immediately.
+	go func() {
+		for {
+			if _, _, readErr := conn.ReadMessage(); readErr != nil {
+				cancel()
+				return
+			}
+			_ = conn.SetReadDeadline(time.Now().Add(70 * time.Second))
+		}
+	}()
+
+	var writeMu sync.Mutex
+	writeJSONMsg := func(v interface{}) error {
+		writeMu.Lock()
+		defer writeMu.Unlock()
+		_ = conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+		return conn.WriteJSON(v)
+	}
+	writeRawMsg := func(msgType int, payload []byte) error {
+		writeMu.Lock()
+		defer writeMu.Unlock()
+		_ = conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+		return conn.WriteMessage(msgType, payload)
+	}
+
+	go func() {
+		pingTicker := time.NewTicker(20 * time.Second)
+		defer pingTicker.Stop()
+		for {
+			select {
+			case <-doneCh:
+				return
+			case <-ctx.Done():
+				return
+			case <-pingTicker.C:
+				if err := writeRawMsg(websocket.PingMessage, nil); err != nil {
+					cancel()
+					return
+				}
+			}
+		}
+	}()
 
 	frame, _ := buildConnectFrame(map[string]interface{}{
 		"terminalId": terminalID,
 	})
 	url := fmt.Sprintf("https://127.0.0.1:%d/exa.language_server_pb.LanguageServerService/StreamTerminalOutput", port)
-	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, url, bytes.NewReader(frame))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(frame))
 	if err != nil {
 		return
 	}
@@ -166,7 +226,7 @@ func (p *Proxy) HandleTerminalStream(w http.ResponseWriter, r *http.Request) {
 
 	resp, err := p.streamingHTTPClient().Do(req)
 	if err != nil {
-		_ = conn.WriteJSON(map[string]interface{}{"type": "error", "error": err.Error()})
+		_ = writeJSONMsg(map[string]interface{}{"type": "error", "error": err.Error()})
 		return
 	}
 	defer resp.Body.Close()
@@ -177,10 +237,13 @@ func (p *Proxy) HandleTerminalStream(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 		if flag == 2 {
-			_ = conn.WriteJSON(map[string]interface{}{"type": "end", "raw": json.RawMessage(body)})
+			_ = writeJSONMsg(map[string]interface{}{"type": "end", "raw": json.RawMessage(body)})
 			break
 		}
-		_ = conn.WriteMessage(websocket.TextMessage, body)
+		if err := writeRawMsg(websocket.TextMessage, body); err != nil {
+			cancel()
+			break
+		}
 	}
 }
 
@@ -402,12 +465,29 @@ func (p *Proxy) HandleAudioDictate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	wsUpgrader := websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }}
-	conn, err := wsUpgrader.Upgrade(w, r, nil)
+	sanitizeWebSocketHeaders(r)
+	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		return
 	}
+	untrack := p.trackWSConn(conn)
+	defer untrack()
 	defer conn.Close()
+	conn.SetReadLimit(1 << 20)
+
+	var writeMu sync.Mutex
+	writeJSONMsg := func(v interface{}) error {
+		writeMu.Lock()
+		defer writeMu.Unlock()
+		_ = conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+		return conn.WriteJSON(v)
+	}
+	writeTextMsg := func(payload []byte) error {
+		writeMu.Lock()
+		defer writeMu.Unlock()
+		_ = conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+		return conn.WriteMessage(websocket.TextMessage, payload)
+	}
 
 	cascadeID := strings.TrimSpace(r.URL.Query().Get("cascadeId"))
 	mimeType := firstNonEmpty(r.URL.Query().Get("mimeType"), "audio/pcm;rate=16000")
@@ -436,7 +516,7 @@ func (p *Proxy) HandleAudioDictate(w http.ResponseWriter, r *http.Request) {
 	resp, err := p.streamingHTTPClient().Do(httpReq)
 	if err != nil {
 		log.Printf("[Dictate] ❌ 请求上游 StreamAudioTranscription 失败: %v", err)
-		_ = conn.WriteJSON(map[string]interface{}{"type": "error", "error": err.Error()})
+		_ = writeJSONMsg(map[string]interface{}{"type": "error", "error": err.Error()})
 		return
 	}
 	defer resp.Body.Close()
@@ -453,7 +533,7 @@ func (p *Proxy) HandleAudioDictate(w http.ResponseWriter, r *http.Request) {
 				break
 			}
 			if flag == 2 {
-				_ = conn.WriteJSON(map[string]interface{}{"type": "complete"})
+				_ = writeJSONMsg(map[string]interface{}{"type": "complete"})
 				break
 			}
 			var msg map[string]interface{}
@@ -485,7 +565,9 @@ func (p *Proxy) HandleAudioDictate(w http.ResponseWriter, r *http.Request) {
 					}
 				}
 			}
-			_ = conn.WriteMessage(websocket.TextMessage, body)
+			if err := writeTextMsg(body); err != nil {
+				break
+			}
 		}
 	}()
 
@@ -502,7 +584,7 @@ func (p *Proxy) HandleAudioDictate(w http.ResponseWriter, r *http.Request) {
 				sessionID = sid
 			case <-time.After(3 * time.Second):
 				log.Printf("[Dictate] ⚠️ 上游听写会话建立超时")
-				_ = conn.WriteJSON(map[string]interface{}{"type": "error", "error": "上游听写会话建立超时"})
+				_ = writeJSONMsg(map[string]interface{}{"type": "error", "error": "上游听写会话建立超时"})
 				return
 			}
 		}
@@ -654,10 +736,14 @@ func (p *Proxy) HandleNarration(w http.ResponseWriter, r *http.Request) {
 	}
 
 	voice := strings.TrimSpace(req.Voice)
+	if voice != "" && !safeNarrationVoiceRe.MatchString(voice) {
+		writeRPCError(w, http.StatusBadRequest, "无效的语音名称")
+		return
+	}
 	if voice == "" {
-		if v := strings.TrimSpace(os.Getenv("MGY_NARRATION_VOICE")); v != "" {
+		if v := strings.TrimSpace(os.Getenv("MGY_NARRATION_VOICE")); v != "" && safeNarrationVoiceRe.MatchString(v) {
 			voice = v
-		} else if v := strings.TrimSpace(os.Getenv("MULTIGRAVITY_NARRATION_VOICE")); v != "" {
+		} else if v := strings.TrimSpace(os.Getenv("MULTIGRAVITY_NARRATION_VOICE")); v != "" && safeNarrationVoiceRe.MatchString(v) {
 			voice = v
 		}
 	}
@@ -684,14 +770,14 @@ func (p *Proxy) HandleNarration(w http.ResponseWriter, r *http.Request) {
 		if wpm > 0 {
 			sayArgs = append(sayArgs, "-r", strconv.Itoa(wpm))
 		}
-		sayArgs = append(sayArgs, text)
+		sayArgs = append(sayArgs, "--", text)
 		cmd := exec.CommandContext(sayCtx, "say", sayArgs...)
 		runErr := cmd.Run()
 		cancel()
 		if runErr != nil && (voice != "" || wpm > 0) {
 			// Retry without voice or rate flag in case the specified voice/rate is unavailable
 			retryCtx, retryCancel := context.WithTimeout(r.Context(), 20*time.Second)
-			retryCmd := exec.CommandContext(retryCtx, "say", "-o", tmpFile, "--data-format=aac", text)
+			retryCmd := exec.CommandContext(retryCtx, "say", "-o", tmpFile, "--data-format=aac", "--", text)
 			runErr = retryCmd.Run()
 			retryCancel()
 			if runErr == nil {

@@ -711,7 +711,17 @@ class PreferencesManager(context: Context) {
         } catch (_: Exception) {}
     }
 
+    private val memDraftImages = android.util.LruCache<String, List<ByteArray>>(16)
+
+    fun getMemoryDraftImages(cascadeId: String): List<ByteArray>? {
+        if (cascadeId.isBlank()) return emptyList()
+        return memDraftImages.get(cascadeId)
+    }
+
     fun saveDraftImages(cascadeId: String, images: List<ByteArray>) {
+        if (cascadeId.isNotBlank()) {
+            memDraftImages.put(cascadeId, images)
+        }
         try {
             val safeKey = cascadeId.replace('/', '_').replace(':', '_')
             val dir = java.io.File(appContext.cacheDir, "draft_images/$safeKey").apply { mkdirs() }
@@ -724,20 +734,33 @@ class PreferencesManager(context: Context) {
     }
 
     fun loadDraftImages(cascadeId: String): List<ByteArray> {
+        if (cascadeId.isBlank()) return emptyList()
+        memDraftImages.get(cascadeId)?.let { return it }
         return try {
             val safeKey = cascadeId.replace('/', '_').replace(':', '_')
             val dir = java.io.File(appContext.cacheDir, "draft_images/$safeKey")
-            if (!dir.exists()) return emptyList()
-            val files = dir.listFiles()?.sortedBy { it.name } ?: return emptyList()
-            files.mapNotNull {
+            if (!dir.exists()) {
+                memDraftImages.put(cascadeId, emptyList())
+                return emptyList()
+            }
+            val files = dir.listFiles()?.sortedBy { it.name } ?: run {
+                memDraftImages.put(cascadeId, emptyList())
+                return emptyList()
+            }
+            val loaded = files.mapNotNull {
                 try { it.readBytes() } catch (_: Exception) { null }
             }
+            memDraftImages.put(cascadeId, loaded)
+            loaded
         } catch (_: Exception) {
             emptyList()
         }
     }
 
     fun clearDraftImages(cascadeId: String) {
+        if (cascadeId.isNotBlank()) {
+            memDraftImages.remove(cascadeId)
+        }
         try {
             val safeKey = cascadeId.replace('/', '_').replace(':', '_')
             val dir = java.io.File(appContext.cacheDir, "draft_images/$safeKey")
@@ -746,6 +769,8 @@ class PreferencesManager(context: Context) {
     }
 
     fun hasDraftImages(cascadeId: String): Boolean {
+        if (cascadeId.isBlank()) return false
+        memDraftImages.get(cascadeId)?.let { return it.isNotEmpty() }
         return try {
             val safeKey = cascadeId.replace('/', '_').replace(':', '_')
             val dir = java.io.File(appContext.cacheDir, "draft_images/$safeKey")

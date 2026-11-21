@@ -1,12 +1,15 @@
 import SwiftUI
+import UIKit
+import Foundation
+import ImageIO
 
 // MARK: - Jupyter Notebook Data Structures
 
-public struct NotebookDocument {
+nonisolated public struct NotebookDocument: Sendable {
     public let cells: [NotebookCell]
 }
 
-public struct NotebookCell: Identifiable {
+nonisolated public struct NotebookCell: Identifiable, Sendable {
     public let id = UUID()
     public let cellType: String // "markdown", "code", "raw"
     public let source: String
@@ -14,11 +17,12 @@ public struct NotebookCell: Identifiable {
     public let outputs: [NotebookOutput]
 }
 
-public struct NotebookOutput: Identifiable {
+nonisolated public struct NotebookOutput: Identifiable, Sendable {
     public let id = UUID()
     public let outputType: String // "stream", "execute_result", "display_data", "error"
     public let text: String?
     public let imageBase64: String?
+    public let decodedImage: UIImage?
 }
 
 // MARK: - Notebook Preview View
@@ -64,8 +68,8 @@ public struct NotebookPreviewView: View {
                 }
             }
         }
-        .task {
-            loadNotebook()
+        .task(id: url) {
+            await loadNotebook()
         }
     }
 
@@ -151,7 +155,7 @@ public struct NotebookPreviewView: View {
     @ViewBuilder
     private func outputView(_ out: NotebookOutput) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            if let uiImage = decodeBase64Image(out.imageBase64) {
+            if let uiImage = out.decodedImage {
                 Image(uiImage: uiImage)
                     .resizable()
                     .scaledToFit()
@@ -174,32 +178,44 @@ public struct NotebookPreviewView: View {
         }
     }
 
-    private func decodeBase64Image(_ raw: String?) -> UIImage? {
-        guard var s = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !s.isEmpty else {
-            return nil
-        }
-        if let commaRange = s.range(of: "base64,") {
-            s = String(s[commaRange.upperBound...])
-        }
-        guard let data = Data(base64Encoded: s, options: .ignoreUnknownCharacters) else {
-            return nil
-        }
-        return UIImage(data: data)
-    }
-
-    private func loadNotebook() {
+    private func loadNotebook() async {
         isLoading = true
         errorMessage = nil
+        let targetURL = url
+        let invalidMsg = String(localized: "无法识别的 Notebook JSON 结构")
+        let result: Result<NotebookDocument, Error> = await Task.detached(priority: .userInitiated) {
+            Self.parseNotebookFile(at: targetURL, invalidStructureMessage: invalidMsg)
+        }.value
+
+        switch result {
+        case .success(let parsedDoc):
+            self.document = parsedDoc
+            self.errorMessage = nil
+        case .failure(let err):
+            self.document = nil
+            self.errorMessage = err.localizedDescription
+        }
+        isLoading = false
+    }
+
+    nonisolated private static func parseNotebookFile(
+        at url: URL,
+        invalidStructureMessage: String
+    ) -> Result<NotebookDocument, Error> {
         do {
-            let data = try Data(contentsOf: url)
+            let data = try Data(contentsOf: url, options: [.mappedIfSafe])
             guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let cellsRaw = json["cells"] as? [[String: Any]] else {
-                errorMessage = String(localized: "无法识别的 Notebook JSON 结构")
-                isLoading = false
-                return
+                let err = NSError(
+                    domain: "NotebookPreviewView",
+                    code: 1,
+                    userInfo: [NSLocalizedDescriptionKey: invalidStructureMessage]
+                )
+                return .failure(err)
             }
 
             var cells: [NotebookCell] = []
+            cells.reserveCapacity(cellsRaw.count)
             for c in cellsRaw {
                 let cellType = c["cell_type"] as? String ?? "raw"
                 let source = extractText(c["source"])
@@ -207,6 +223,7 @@ public struct NotebookPreviewView: View {
 
                 var outputs: [NotebookOutput] = []
                 if let outs = c["outputs"] as? [[String: Any]] {
+                    outputs.reserveCapacity(outs.count)
                     for o in outs {
                         let otype = o["output_type"] as? String ?? ""
                         var outText: String? = nil
@@ -228,21 +245,52 @@ public struct NotebookPreviewView: View {
                             outText = traceback.joined(separator: "\n")
                         }
 
-                        outputs.append(NotebookOutput(outputType: otype, text: outText, imageBase64: imgB64))
+                        let predecoded = decodeDownsampledImage(imgB64)
+                        outputs.append(
+                            NotebookOutput(
+                                outputType: otype,
+                                text: outText,
+                                imageBase64: nil,
+                                decodedImage: predecoded
+                            )
+                        )
                     }
                 }
 
                 cells.append(NotebookCell(cellType: cellType, source: source, executionCount: execCount, outputs: outputs))
             }
 
-            self.document = NotebookDocument(cells: cells)
+            return .success(NotebookDocument(cells: cells))
         } catch {
-            self.errorMessage = error.localizedDescription
+            return .failure(error)
         }
-        isLoading = false
     }
 
-    private func extractText(_ raw: Any?) -> String {
+    nonisolated private static func decodeDownsampledImage(_ raw: String?) -> UIImage? {
+        guard var s = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !s.isEmpty else {
+            return nil
+        }
+        if let commaRange = s.range(of: "base64,") {
+            s = String(s[commaRange.upperBound...])
+        }
+        guard let data = Data(base64Encoded: s, options: .ignoreUnknownCharacters) else {
+            return nil
+        }
+        if let source = CGImageSourceCreateWithData(data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary) {
+            let thumbOptions: [CFString: Any] = [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceShouldCacheImmediately: true,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceThumbnailMaxPixelSize: 1600
+            ]
+            if let cgImg = CGImageSourceCreateThumbnailAtIndex(source, 0, thumbOptions as CFDictionary) {
+                return UIImage(cgImage: cgImg)
+            }
+        }
+        return UIImage(data: data)
+    }
+
+    nonisolated private static func extractText(_ raw: Any?) -> String {
         if let str = raw as? String {
             return str
         }

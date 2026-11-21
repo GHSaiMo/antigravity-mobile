@@ -14,9 +14,13 @@ import android.os.ParcelFileDescriptor
 import android.provider.MediaStore
 import android.util.Base64
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
+import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Toast
+import java.io.ByteArrayInputStream
 import java.io.File
 import java.net.URLDecoder
 import java.util.zip.ZipFile
@@ -750,11 +754,129 @@ private fun formatVideoTime(ms: Long): String {
 
 @Composable
 private fun HtmlDocumentViewer(file: File, colors: AppColors = AntigravityTheme.colors) {
+    val context = LocalContext.current
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
     var showFindBar by remember { mutableStateOf(false) }
     var findQuery by remember { mutableStateOf("") }
     var matchCount by remember { mutableStateOf(0) }
     var activeMatchIdx by remember { mutableStateOf(0) }
+    val preparedHtml by produceState<Pair<String, Boolean>?>(initialValue = null, key1 = file) {
+        value = withContext(Dispatchers.IO) {
+            try {
+                var htmlContent = file.readText(Charsets.UTF_8).trim()
+                if (!htmlContent.startsWith("<") && (htmlContent.startsWith("PCFE") || htmlContent.startsWith("PD!"))) {
+                    try {
+                        val decoded = String(Base64.decode(htmlContent, Base64.DEFAULT), Charsets.UTF_8)
+                        if (decoded.contains("<html", ignoreCase = true) || decoded.contains("<!DOCTYPE", ignoreCase = true)) {
+                            htmlContent = decoded
+                        }
+                    } catch (_: Exception) {}
+                }
+
+                val isMarp = htmlContent.contains("data-marpit-svg", ignoreCase = true) ||
+                    htmlContent.contains("bespoke-marp", ignoreCase = true) ||
+                    htmlContent.contains("marpit", ignoreCase = true)
+
+                if (isMarp) {
+                    val mobileSlideStyle = """
+                        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=3.0, user-scalable=yes">
+                        <style id="agy-mobile-slide-adapt">
+                        @media screen {
+                            html, body {
+                                overflow-y: auto !important;
+                                overflow-x: hidden !important;
+                                height: auto !important;
+                                min-height: 100% !important;
+                                background-color: #f4f5f7 !important;
+                                margin: 0 !important;
+                                padding: 0 !important;
+                                -webkit-overflow-scrolling: touch !important;
+                            }
+                            div#\:\${'$'}p, .bespoke-marp-parent {
+                                display: flex !important;
+                                flex-direction: column !important;
+                                align-items: center !important;
+                                padding: 16px 12px !important;
+                                gap: 16px !important;
+                                position: static !important;
+                                inset: auto !important;
+                                height: auto !important;
+                                overflow: visible !important;
+                            }
+                            svg[data-marpit-svg], svg.bespoke-marp-slide {
+                                display: block !important;
+                                width: 100% !important;
+                                max-width: 680px !important;
+                                height: auto !important;
+                                opacity: 1 !important;
+                                visibility: visible !important;
+                                content-visibility: visible !important;
+                                position: static !important;
+                                box-shadow: 0 4px 14px rgba(0,0,0,0.08) !important;
+                                border-radius: 10px !important;
+                                background: #ffffff !important;
+                                margin: 0 auto !important;
+                                transform: none !important;
+                                filter: none !important;
+                            }
+                            svg.bespoke-marp-slide * {
+                                visibility: visible !important;
+                            }
+                            [data-bespoke-marp-fragment] {
+                                visibility: visible !important;
+                                opacity: 1 !important;
+                            }
+                            .bespoke-marp-osc, .bespoke-progress-parent, .bespoke-marp-overview-header {
+                                display: none !important;
+                            }
+                        }
+                        </style>
+                        <script id="agy-mobile-guard">
+                        try {
+                            const noop = () => {};
+                            window.history.replaceState = noop;
+                            window.history.pushState = noop;
+                        } catch (_) {}
+                        const activateAll = () => {
+                            try {
+                                document.querySelectorAll("svg[data-marpit-svg], svg.bespoke-marp-slide").forEach(s => {
+                                    s.classList.add("bespoke-marp-active");
+                                    s.removeAttribute("aria-hidden");
+                                });
+                                document.querySelectorAll("[data-bespoke-marp-fragment]").forEach(f => {
+                                    f.setAttribute("data-bespoke-marp-fragment", "active");
+                                });
+                            } catch (_) {}
+                        };
+                        activateAll();
+                        window.addEventListener("DOMContentLoaded", activateAll);
+                        window.addEventListener("load", () => {
+                            activateAll();
+                            setTimeout(activateAll, 100);
+                            setTimeout(activateAll, 500);
+                        });
+                        </script>
+                    """.trimIndent()
+
+                    htmlContent = if (htmlContent.contains("</head>", ignoreCase = true)) {
+                        htmlContent.replaceFirst("</head>", "$mobileSlideStyle</head>", ignoreCase = true)
+                    } else {
+                        "$mobileSlideStyle$htmlContent"
+                    }
+                } else if (!htmlContent.contains("viewport", ignoreCase = true)) {
+                    val viewportMeta = """<meta name="viewport" content="width=device-width, initial-scale=1.0">"""
+                    htmlContent = if (htmlContent.contains("<head>", ignoreCase = true)) {
+                        htmlContent.replaceFirst("<head>", "<head>$viewportMeta", ignoreCase = true)
+                    } else {
+                        "$viewportMeta$htmlContent"
+                    }
+                }
+                htmlContent to isMarp
+            } catch (e: Exception) {
+                "<html><body><pre>无法加载 HTML 预览</pre></body></html>" to false
+            }
+        }
+    }
 
     Column(modifier = Modifier.fillMaxSize()) {
         Row(
@@ -816,161 +938,92 @@ private fun HtmlDocumentViewer(file: File, colors: AppColors = AntigravityTheme.
             }
         }
 
-        AndroidView(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f),
-            factory = { ctx ->
-                WebView(ctx).apply {
-                    webViewRef = this
-                    setBackgroundColor(android.graphics.Color.WHITE)
-                    webViewClient = WebViewClient()
-                    webChromeClient = WebChromeClient()
-                    setFindListener { activeOrdinal, numberOfMatches, _ ->
-                        activeMatchIdx = activeOrdinal
-                        matchCount = numberOfMatches
-                    }
-                settings.apply {
-                    @Suppress("SetJavaScriptEnabled")
-                    javaScriptEnabled = true
-                    domStorageEnabled = true
-                    databaseEnabled = true
-                    allowFileAccess = true
-                    allowContentAccess = true
-                    allowFileAccessFromFileURLs = true
-                    allowUniversalAccessFromFileURLs = true
-                    builtInZoomControls = true
-                    displayZoomControls = false
-                    useWideViewPort = true
-                    loadWithOverviewMode = true
-                }
-                try {
-                    var htmlContent = file.readText(Charsets.UTF_8).trim()
-                    if (!htmlContent.startsWith("<") && (htmlContent.startsWith("PCFE") || htmlContent.startsWith("PD!"))) {
-                        try {
-                            val decoded = String(Base64.decode(htmlContent, Base64.DEFAULT), Charsets.UTF_8)
-                            if (decoded.contains("<html", ignoreCase = true) || decoded.contains("<!DOCTYPE", ignoreCase = true)) {
-                                htmlContent = decoded
-                            }
-                        } catch (_: Exception) {}
-                    }
-
-                    val isMarp = htmlContent.contains("data-marpit-svg", ignoreCase = true) ||
-                            htmlContent.contains("bespoke-marp", ignoreCase = true) ||
-                            htmlContent.contains("marpit", ignoreCase = true)
-
-                    if (isMarp) {
-                        setBackgroundColor(android.graphics.Color.parseColor("#F4F5F7"))
-                        val mobileSlideStyle = """
-                            <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=3.0, user-scalable=yes">
-                            <style id="agy-mobile-slide-adapt">
-                            @media screen {
-                                html, body {
-                                    overflow-y: auto !important;
-                                    overflow-x: hidden !important;
-                                    height: auto !important;
-                                    min-height: 100% !important;
-                                    background-color: #f4f5f7 !important;
-                                    margin: 0 !important;
-                                    padding: 0 !important;
-                                    -webkit-overflow-scrolling: touch !important;
-                                }
-                                div#\:\${'$'}p, .bespoke-marp-parent {
-                                    display: flex !important;
-                                    flex-direction: column !important;
-                                    align-items: center !important;
-                                    padding: 16px 12px !important;
-                                    gap: 16px !important;
-                                    position: static !important;
-                                    inset: auto !important;
-                                    height: auto !important;
-                                    overflow: visible !important;
-                                }
-                                svg[data-marpit-svg], svg.bespoke-marp-slide {
-                                    display: block !important;
-                                    width: 100% !important;
-                                    max-width: 680px !important;
-                                    height: auto !important;
-                                    opacity: 1 !important;
-                                    visibility: visible !important;
-                                    content-visibility: visible !important;
-                                    position: static !important;
-                                    box-shadow: 0 4px 14px rgba(0,0,0,0.08) !important;
-                                    border-radius: 10px !important;
-                                    background: #ffffff !important;
-                                    margin: 0 auto !important;
-                                    transform: none !important;
-                                    filter: none !important;
-                                }
-                                svg.bespoke-marp-slide * {
-                                    visibility: visible !important;
-                                }
-                                [data-bespoke-marp-fragment] {
-                                    visibility: visible !important;
-                                    opacity: 1 !important;
-                                }
-                                .bespoke-marp-osc, .bespoke-progress-parent, .bespoke-marp-overview-header {
-                                    display: none !important;
-                                }
-                            }
-                            </style>
-                            <script id="agy-mobile-guard">
-                            try {
-                                const noop = () => {};
-                                window.history.replaceState = noop;
-                                window.history.pushState = noop;
-                            } catch (_) {}
-                            const activateAll = () => {
-                                try {
-                                    document.querySelectorAll("svg[data-marpit-svg], svg.bespoke-marp-slide").forEach(s => {
-                                        s.classList.add("bespoke-marp-active");
-                                        s.removeAttribute("aria-hidden");
-                                    });
-                                    document.querySelectorAll("[data-bespoke-marp-fragment]").forEach(f => {
-                                        f.setAttribute("data-bespoke-marp-fragment", "active");
-                                    });
-                                } catch (_) {}
-                            };
-                            activateAll();
-                            window.addEventListener("DOMContentLoaded", activateAll);
-                            window.addEventListener("load", () => {
-                                activateAll();
-                                setTimeout(activateAll, 100);
-                                setTimeout(activateAll, 500);
-                            });
-                            </script>
-                        """.trimIndent()
-
-                        htmlContent = if (htmlContent.contains("</head>", ignoreCase = true)) {
-                            htmlContent.replaceFirst("</head>", "$mobileSlideStyle</head>", ignoreCase = true)
-                        } else {
-                            "$mobileSlideStyle$htmlContent"
-                        }
-                    } else {
-                        setBackgroundColor(android.graphics.Color.WHITE)
-                        if (!htmlContent.contains("viewport", ignoreCase = true)) {
-                            val viewportMeta = """<meta name="viewport" content="width=device-width, initial-scale=1.0">"""
-                            htmlContent = if (htmlContent.contains("<head>", ignoreCase = true)) {
-                                htmlContent.replaceFirst("<head>", "<head>$viewportMeta", ignoreCase = true)
-                            } else {
-                                "$viewportMeta$htmlContent"
-                            }
-                        }
-                    }
-
-                    val baseUrl = file.parentFile?.let { Uri.fromFile(it).toString() + "/" }
-                        ?: Uri.fromFile(file).toString()
-                    loadDataWithBaseURL(baseUrl, htmlContent, "text/html", "utf-8", null)
-                } catch (_: Exception) {
-                    try {
-                        loadUrl(Uri.fromFile(file).toString())
-                    } catch (_: Exception) {
-                        loadUrl("file://${file.absolutePath}")
-                    }
-                }
+        val currentPrepared = preparedHtml
+        if (currentPrepared == null) {
+            Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(color = colors.accentIndigo)
             }
+        } else {
+            AndroidView(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                factory = { ctx ->
+                    WebView(ctx).apply {
+                        webViewRef = this
+                        setBackgroundColor(
+                            if (currentPrepared.second) android.graphics.Color.parseColor("#F4F5F7")
+                            else android.graphics.Color.WHITE
+                        )
+                        webViewClient = object : WebViewClient() {
+                            override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                                val reqUrl = request?.url ?: return true
+                                val scheme = reqUrl.scheme?.lowercase().orEmpty()
+                                if (reqUrl.toString() == "about:blank" || scheme == "about") {
+                                    return false
+                                }
+                                if (scheme == "file" || scheme == "content" || scheme == "intent" || scheme == "javascript") {
+                                    return true
+                                }
+                                if (request.isForMainFrame && request.hasGesture() && (scheme == "http" || scheme == "https")) {
+                                    com.antigravity.mobile.ui.util.InAppBrowserUtils.openUrl(context, reqUrl.toString())
+                                }
+                                return true
+                            }
+
+                            override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
+                                val scheme = request?.url?.scheme?.lowercase().orEmpty()
+                                if (scheme == "file" || scheme == "content" || scheme == "intent") {
+                                    return WebResourceResponse(
+                                        "text/plain",
+                                        "UTF-8",
+                                        403,
+                                        "Forbidden",
+                                        emptyMap(),
+                                        ByteArrayInputStream(ByteArray(0))
+                                    )
+                                }
+                                return super.shouldInterceptRequest(view, request)
+                            }
+                        }
+                        webChromeClient = WebChromeClient()
+                        setFindListener { activeOrdinal, numberOfMatches, _ ->
+                            activeMatchIdx = activeOrdinal
+                            matchCount = numberOfMatches
+                        }
+                        settings.apply {
+                            @Suppress("SetJavaScriptEnabled")
+                            javaScriptEnabled = true
+                            domStorageEnabled = false
+                            databaseEnabled = false
+                            allowFileAccess = false
+                            allowContentAccess = false
+                            @Suppress("DEPRECATION")
+                            allowFileAccessFromFileURLs = false
+                            @Suppress("DEPRECATION")
+                            allowUniversalAccessFromFileURLs = false
+                            mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+                            builtInZoomControls = true
+                            displayZoomControls = false
+                            useWideViewPort = true
+                            loadWithOverviewMode = true
+                        }
+                        tag = currentPrepared.first
+                        loadDataWithBaseURL("about:blank", currentPrepared.first, "text/html", "utf-8", null)
+                    }
+                },
+                update = { wv ->
+                    if (wv.tag != currentPrepared.first) {
+                        wv.setBackgroundColor(
+                            if (currentPrepared.second) android.graphics.Color.parseColor("#F4F5F7")
+                            else android.graphics.Color.WHITE
+                        )
+                        wv.tag = currentPrepared.first
+                        wv.loadDataWithBaseURL("about:blank", currentPrepared.first, "text/html", "utf-8", null)
+                    }
+                }
+            )
         }
-        )
     }
 }
 
@@ -1530,34 +1583,51 @@ private fun PdfDocumentViewer(file: File, colors: AppColors) {
 
 @Composable
 private fun TextDocumentViewer(file: File, colors: AppColors) {
-    val content = remember(file) {
-        try {
-            file.readText()
-        } catch (e: Exception) {
-            "无法读取文件内容: ${e.message}".loc
+    val linesState by produceState<List<String>?>(initialValue = null, key1 = file) {
+        value = withContext(Dispatchers.IO) {
+            try {
+                val maxPreviewBytes = 8L * 1024L * 1024L
+                val result = ArrayList<String>(512)
+                var totalBytes = 0L
+                file.bufferedReader(Charsets.UTF_8).useLines { seq ->
+                    for (line in seq) {
+                        totalBytes += line.length * 2L
+                        if (totalBytes > maxPreviewBytes) {
+                            result.add("... [文件过大，已截断后续内容预览] ...")
+                            break
+                        }
+                        result.add(line)
+                    }
+                }
+                if (result.isEmpty()) listOf("") else result
+            } catch (e: Exception) {
+                listOf("无法读取文件内容: ${e.message}".loc)
+            }
         }
     }
     var showFindBar by remember { mutableStateOf(false) }
     var findQuery by remember { mutableStateOf("") }
+    val trimmedQuery = remember(findQuery) { findQuery.trim() }
 
-    val (annotatedContent, matchCount) = remember(content, findQuery) {
-        val q = findQuery.trim()
-        if (q.isEmpty()) {
-            AnnotatedString(content) to 0
+    val matchCount by produceState(initialValue = 0, key1 = linesState, key2 = trimmedQuery) {
+        val loadedLines = linesState
+        if (loadedLines == null || trimmedQuery.isEmpty()) {
+            value = 0
         } else {
-            var count = 0
-            val annotated = buildAnnotatedString {
-                append(content)
-                var start = 0
-                while (start < content.length) {
-                    val found = content.indexOf(q, startIndex = start, ignoreCase = true)
-                    if (found < 0) break
-                    count++
-                    addStyle(SpanStyle(background = Color(0x66FFEB3B), color = colors.textPrimary), found, found + q.length)
-                    start = found + q.length.coerceAtLeast(1)
+            delay(120)
+            value = withContext(Dispatchers.Default) {
+                var total = 0
+                for (line in loadedLines) {
+                    var start = 0
+                    while (start < line.length) {
+                        val found = line.indexOf(trimmedQuery, startIndex = start, ignoreCase = true)
+                        if (found < 0) break
+                        total++
+                        start = found + trimmedQuery.length.coerceAtLeast(1)
+                    }
                 }
+                total
             }
-            annotated to count
         }
     }
 
@@ -1602,23 +1672,55 @@ private fun TextDocumentViewer(file: File, colors: AppColors) {
             }
         }
 
-        SelectionContainer {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-                    .verticalScroll(rememberScrollState())
-                    .horizontalScroll(rememberScrollState())
-                    .padding(16.dp)
-                    .navigationBarsPadding()
-            ) {
-                Text(
-                    text = annotatedContent,
-                    color = colors.textPrimary,
-                    fontSize = 12.5.sp,
-                    fontFamily = FontFamily.Monospace,
-                    lineHeight = 18.sp
-                )
+        val currentLines = linesState
+        if (currentLines == null) {
+            Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(color = colors.accentIndigo)
+            }
+        } else {
+            val horizScroll = rememberScrollState()
+            SelectionContainer {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .horizontalScroll(horizScroll),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp)
+                ) {
+                    itemsIndexed(currentLines, key = { index, _ -> index }) { _, rawLine ->
+                        val renderedLine = remember(rawLine, trimmedQuery, colors.textPrimary) {
+                            if (trimmedQuery.isEmpty() || !rawLine.contains(trimmedQuery, ignoreCase = true)) {
+                                AnnotatedString(rawLine)
+                            } else {
+                                buildAnnotatedString {
+                                    append(rawLine)
+                                    var start = 0
+                                    while (start < rawLine.length) {
+                                        val found = rawLine.indexOf(trimmedQuery, startIndex = start, ignoreCase = true)
+                                        if (found < 0) break
+                                        addStyle(
+                                            SpanStyle(background = Color(0x66FFEB3B), color = colors.textPrimary),
+                                            found,
+                                            found + trimmedQuery.length
+                                        )
+                                        start = found + trimmedQuery.length.coerceAtLeast(1)
+                                    }
+                                }
+                            }
+                        }
+                        Text(
+                            text = renderedLine,
+                            color = colors.textPrimary,
+                            fontSize = 12.5.sp,
+                            fontFamily = FontFamily.Monospace,
+                            lineHeight = 18.sp,
+                            softWrap = false
+                        )
+                    }
+                    item(key = "bottom_nav_spacer") {
+                        Spacer(modifier = Modifier.navigationBarsPadding().height(8.dp))
+                    }
+                }
             }
         }
     }

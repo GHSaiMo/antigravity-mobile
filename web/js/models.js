@@ -501,9 +501,10 @@ function renderWebModelPicker() {
   const leftRowsHtml = rows.map((row, idx) => {
     const isActive = row.variants.some((v) => v.id === activeModel);
     const isHovered = hoveredIdx === idx;
+    const provSafe = String(row.provider || "").replace(/[^a-zA-Z0-9_-]/g, "");
     const classes = [
       "mp-row",
-      `mp-prov-${row.provider}`,
+      `mp-prov-${provSafe}`,
       isActive ? "is-active" : "",
       isHovered ? "is-hovered" : "",
       row.isGroupStart ? "mp-group-start" : ""
@@ -520,13 +521,14 @@ function renderWebModelPicker() {
   let rightCardHtml = "";
   if (hoveredIdx !== null && rows[hoveredIdx]?.hasSubmenu) {
     const row = rows[hoveredIdx];
+    const provSafe = String(row.provider || "").replace(/[^a-zA-Z0-9_-]/g, "");
     const rightVariantsHtml = row.variants.map((v, vIdx) => {
       const isActive = v.id === activeModel;
       const isDefault = vIdx === row.defaultVariantIndex;
       const label = row.usesEffortLabels ? effortDisplayLabel(v.label, v.id) : v.label;
       const classes = [
         "mp-row",
-        `mp-prov-${row.provider}`,
+        `mp-prov-${provSafe}`,
         isActive ? "is-active" : "",
         isDefault ? "is-default" : ""
       ].filter(Boolean).join(" ");
@@ -539,7 +541,7 @@ function renderWebModelPicker() {
     }).join("");
     const rightLeft = Math.min(leftX + 218, window.innerWidth - 118);
     rightCardHtml = `
-      <div class="mp-card mp-right mp-card-prov-${row.provider}" style="left:${rightLeft}px; bottom:${bottomY}px;">
+      <div class="mp-card mp-right mp-card-prov-${provSafe}" style="left:${rightLeft}px; bottom:${bottomY}px;">
         ${rightVariantsHtml}
       </div>
     `;

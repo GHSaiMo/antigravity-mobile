@@ -47,9 +47,9 @@ const (
 type TrajectoryCache struct {
 	trajCache   map[string]*trajectoryCacheEntry
 	trajCacheMu sync.RWMutex
-	// trajCacheGen is bumped (under trajCacheMu) by ClearTrajectoryCache so that an upstream fetch
-	// started before the invalidation does not write its now-stale result back into trajCache.
-	trajCacheGen uint64
+	// genByID tracks per-cascade invalidation generations (under trajCacheMu) so ClearTrajectoryCache(A)
+	// prevents pre-invalidation fetches of A from repopulating trajCache without dropping concurrent fetches of B.
+	genByID map[string]uint64
 
 	cascadeTitles        map[string]string
 	cascadeTitleFallback map[string]bool
@@ -87,6 +87,7 @@ type TrajectoryCache struct {
 func NewTrajectoryCache() *TrajectoryCache {
 	return &TrajectoryCache{
 		trajCache:            make(map[string]*trajectoryCacheEntry),
+		genByID:              make(map[string]uint64),
 		cascadeTitles:        make(map[string]string),
 		cascadeTitleFallback: make(map[string]bool),
 		cascadeConfigs:       make(map[string]json.RawMessage),
@@ -349,6 +350,30 @@ func readMetadataRequestFeedback(filePath string) bool {
 	return ok && meta.RequestFeedback
 }
 
+func (tc *TrajectoryCache) cascadeGenLocked(cascadeID string) uint64 {
+	if tc.genByID == nil {
+		return 0
+	}
+	return tc.genByID[cascadeID]
+}
+
+func (tc *TrajectoryCache) bumpCascadeGenLocked(cascadeID string) {
+	if cascadeID == "" {
+		return
+	}
+	if tc.genByID == nil {
+		tc.genByID = make(map[string]uint64)
+	}
+	if len(tc.genByID) > 1024 {
+		for k := range tc.genByID {
+			if _, active := tc.trajCache[k]; !active && k != cascadeID {
+				delete(tc.genByID, k)
+			}
+		}
+	}
+	tc.genByID[cascadeID] = tc.genByID[cascadeID] + 1
+}
+
 // ClearTrajectoryCache invalidates cached trajectory for an updated cascade.
 func ClearTrajectoryCache(cascadeID string) {
 	if cascadeID == "" {
@@ -356,7 +381,7 @@ func ClearTrajectoryCache(cascadeID string) {
 	}
 	defaultTrajCache.trajCacheMu.Lock()
 	delete(defaultTrajCache.trajCache, cascadeID)
-	defaultTrajCache.trajCacheGen++
+	defaultTrajCache.bumpCascadeGenLocked(cascadeID)
 	defaultTrajCache.trajCacheMu.Unlock()
 	// Callers arriving after the invalidation must not join a fetch that may predate it.
 	trajFlights.forget(cascadeID)
@@ -381,7 +406,7 @@ func ClearTrajectoryCache(cascadeID string) {
 }
 
 func readAnnotationTitle(cascadeID string) string {
-	if cascadeID == "" {
+	if cascadeID == "" || !cascadeIDRe.MatchString(cascadeID) {
 		return ""
 	}
 
@@ -432,7 +457,7 @@ func readAnnotationTitle(cascadeID string) string {
 }
 
 func writeAnnotationTitle(cascadeID, title string) {
-	if cascadeID == "" || strings.TrimSpace(title) == "" || title == "未命名会话" {
+	if cascadeID == "" || !cascadeIDRe.MatchString(cascadeID) || strings.TrimSpace(title) == "" || title == "未命名会话" {
 		return
 	}
 	home, err := os.UserHomeDir()
@@ -472,7 +497,7 @@ func writeAnnotationTitle(cascadeID, title string) {
 var pinnedRegex = regexp.MustCompile(`pinned:\s*(true|false)`)
 
 func writeAnnotationPinned(cascadeID string, pinned bool) {
-	if cascadeID == "" {
+	if cascadeID == "" || !cascadeIDRe.MatchString(cascadeID) {
 		return
 	}
 	home, err := os.UserHomeDir()

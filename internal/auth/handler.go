@@ -8,8 +8,15 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
+
+const jsonBodyReadTimeout = 30 * time.Second
+
+func setJSONReadDeadline(w http.ResponseWriter) {
+	_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(jsonBodyReadTimeout))
+}
 
 // DefaultDeviceCookieMaxAge is the session cookie validity duration (30 days, reduced from 400 days - H-3).
 const DefaultDeviceCookieMaxAge = 86400 * 30
@@ -39,44 +46,66 @@ type PairResponse struct {
 
 // AuthHandler handles authentication and device management routes.
 type AuthHandler struct {
-	store      *AuthStore
-	pairingMgr *PairingManager
-	host       string
-	port       int
-	ssl        bool
-	lanHost    string
-	ddnsHost   string
-	relayURL   string
-	cfURL      string
-	policy     AuthPolicy
-	limiter    *RateLimiter
+	mu              sync.RWMutex
+	store           *AuthStore
+	pairingMgr      *PairingManager
+	host            string
+	port            int
+	ssl             bool
+	lanHost         string
+	ddnsHost        string
+	relayURL        string
+	cfURL           string
+	policy          AuthPolicy
+	limiter         *RateLimiter // unauthenticated & admin IP rate limiter (endpoints, pair, session)
+	wsTicketLimiter *RateLimiter // isolated limiter for authenticated /api/v1/auth/ws-ticket
 }
 
 // NewAuthHandler creates a new AuthHandler.
 func NewAuthHandler(store *AuthStore, pairingMgr *PairingManager, host string, port int, ssl bool) *AuthHandler {
 	return &AuthHandler{
-		store:      store,
-		pairingMgr: pairingMgr,
-		limiter:    NewRateLimiter(),
-		host:       host,
-		port:       port,
-		ssl:        ssl,
+		store:           store,
+		pairingMgr:      pairingMgr,
+		limiter:         NewRateLimiter(),
+		wsTicketLimiter: NewRateLimiter(),
+		host:            host,
+		port:            port,
+		ssl:             ssl,
+	}
+}
+
+// Close releases background rate-limiter cleanup goroutines.
+func (h *AuthHandler) Close() {
+	if h == nil {
+		return
+	}
+	if h.limiter != nil {
+		h.limiter.Close()
+	}
+	if h.wsTicketLimiter != nil {
+		h.wsTicketLimiter.Close()
 	}
 }
 
 // SetEndpoints sets discovered network hosts (LAN IPv4, DDNS) for pairing responses.
 func (h *AuthHandler) SetEndpoints(lanHost, ddnsHost string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	h.lanHost = strings.TrimSpace(lanHost)
 	h.ddnsHost = strings.TrimSpace(ddnsHost)
 }
 
 // SetRelayURL sets the cloud relay URL (e.g. from embedded FRP tunnel) for pairing responses.
 func (h *AuthHandler) SetRelayURL(relayURL string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	h.relayURL = strings.TrimSpace(relayURL)
 }
 
 // SetPrimary sets the primary network host, port, and SSL status.
 func (h *AuthHandler) SetPrimary(host string, port int, ssl bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	h.host = strings.TrimSpace(host)
 	h.port = port
 	h.ssl = ssl
@@ -84,19 +113,31 @@ func (h *AuthHandler) SetPrimary(host string, port int, ssl bool) {
 
 // SetCloudflareURL sets the Cloudflare Tunnel HTTPS endpoint URL for pairing responses.
 func (h *AuthHandler) SetCloudflareURL(cfURL string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	h.cfURL = strings.TrimSpace(cfURL)
 }
 
 // CloudflareURL returns the configured Cloudflare Tunnel HTTPS endpoint URL.
 func (h *AuthHandler) CloudflareURL() string {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
 	return h.cfURL
 }
 
 // relayHost extracts the hostname from the configured cloud relay URL.
 func (h *AuthHandler) relayHost() string {
-	raw := strings.TrimSpace(h.relayURL)
+	h.mu.RLock()
+	relay := h.relayURL
+	cf := h.cfURL
+	h.mu.RUnlock()
+	return parseRelayHostname(relay, cf)
+}
+
+func parseRelayHostname(relayURL, cfURL string) string {
+	raw := strings.TrimSpace(relayURL)
 	if raw == "" {
-		raw = strings.TrimSpace(h.cfURL)
+		raw = strings.TrimSpace(cfURL)
 	}
 	if raw == "" {
 		return ""
@@ -113,30 +154,48 @@ func (h *AuthHandler) relayHost() string {
 
 // SetAuthPolicy sets loopback-trust / tunnel policy used by admin authorization.
 func (h *AuthHandler) SetAuthPolicy(policy AuthPolicy) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	h.policy = policy
+}
+
+func (h *AuthHandler) getPolicy() AuthPolicy {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.policy
 }
 
 // GetEndpoints returns candidate endpoint URLs for clients.
 func (h *AuthHandler) GetEndpoints() []EndpointInfo {
+	h.mu.RLock()
+	host := h.host
+	port := h.port
+	ssl := h.ssl
+	lanHost := h.lanHost
+	ddnsHost := h.ddnsHost
+	relayURL := h.relayURL
+	cfURL := h.cfURL
+	h.mu.RUnlock()
+
 	var endpoints []EndpointInfo
 	scheme := "http://"
-	if h.ssl {
+	if ssl {
 		scheme = "https://"
 	}
 
 	// 1. Cloudflare Tunnel (Assigned HTTPS domain) - Top Priority
-	if h.cfURL != "" {
+	if cfURL != "" {
 		endpoints = append(endpoints, EndpointInfo{
 			Type: "cloudflare",
-			URL:  h.cfURL,
+			URL:  cfURL,
 		})
-		lan := h.lanHost
-		if lan == "" && !strings.Contains(h.host, ":") && h.host != "" && h.host != "127.0.0.1" && h.host != "localhost" && !strings.Contains(h.host, ".") {
-			lan = h.host
+		lan := lanHost
+		if lan == "" && !strings.Contains(host, ":") && host != "" && host != "127.0.0.1" && host != "localhost" && !strings.Contains(host, ".") {
+			lan = host
 		}
 		if lan != "" {
-			lanPort := h.port
-			if h.ssl && h.port == 443 {
+			lanPort := port
+			if ssl && port == 443 {
 				lanPort = 58900
 			}
 			endpoints = append(endpoints, EndpointInfo{
@@ -149,14 +208,14 @@ func (h *AuthHandler) GetEndpoints() []EndpointInfo {
 	}
 
 	// 2. LAN IPv4 - Advertised when local gateway is running cleartext HTTP (i.e. not self-TLS, or Cloudflare termination)
-	if !h.ssl {
-		lan := h.lanHost
-		if lan == "" && !strings.Contains(h.host, ":") && h.host != "" && h.host != "127.0.0.1" && h.host != "localhost" && !strings.Contains(h.host, ".") {
-			lan = h.host
+	if !ssl {
+		lan := lanHost
+		if lan == "" && !strings.Contains(host, ":") && host != "" && host != "127.0.0.1" && host != "localhost" && !strings.Contains(host, ".") {
+			lan = host
 		}
 		if lan != "" {
-			lanPort := h.port
-			if h.ssl && h.port == 443 {
+			lanPort := port
+			if ssl && port == 443 {
 				lanPort = 58900
 			}
 			endpoints = append(endpoints, EndpointInfo{
@@ -167,18 +226,18 @@ func (h *AuthHandler) GetEndpoints() []EndpointInfo {
 	}
 
 	// 3. DDNS / Custom Domain
-	if h.ddnsHost != "" {
+	if ddnsHost != "" {
 		endpoints = append(endpoints, EndpointInfo{
 			Type: "ddns",
-			URL:  fmt.Sprintf("%s%s:%d", scheme, h.ddnsHost, h.port),
+			URL:  fmt.Sprintf("%s%s:%d", scheme, ddnsHost, port),
 		})
 	}
 
 	// 4. Cloud Relay (embedded FRP tunnel)
-	if h.relayURL != "" {
+	if relayURL != "" {
 		dup := false
 		for _, ep := range endpoints {
-			if ep.URL == h.relayURL {
+			if ep.URL == relayURL {
 				dup = true
 				break
 			}
@@ -186,14 +245,14 @@ func (h *AuthHandler) GetEndpoints() []EndpointInfo {
 		if !dup {
 			endpoints = append(endpoints, EndpointInfo{
 				Type: "relay",
-				URL:  h.relayURL,
+				URL:  relayURL,
 			})
 		}
 	}
 
 	// 5. Fallback primary if no other endpoints detected
 	if len(endpoints) == 0 {
-		hStr := h.host
+		hStr := host
 		if hStr == "" {
 			hStr = "127.0.0.1"
 		}
@@ -202,7 +261,7 @@ func (h *AuthHandler) GetEndpoints() []EndpointInfo {
 		}
 		endpoints = append(endpoints, EndpointInfo{
 			Type: "primary",
-			URL:  fmt.Sprintf("%s%s:%d", scheme, hStr, h.port),
+			URL:  fmt.Sprintf("%s%s:%d", scheme, hStr, port),
 		})
 	}
 
@@ -228,15 +287,17 @@ func (h *AuthHandler) HandleEndpoints(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	if cf := h.CloudflareURL(); cf != "" {
-		w.Header().Set("X-Antigravity-Cloud-URL", cf)
+	authed := h.isAuthenticated(r)
+	cfURL := h.CloudflareURL()
+	if cfURL != "" && authed {
+		w.Header().Set("X-Antigravity-Cloud-URL", cfURL)
 	}
 
 	allEndpoints := h.GetEndpoints()
 	// SEC-AUDIT M-5: If the request comes from an external public IP (via proxy/tunnel)
 	// and caller is not authenticated, redact private LAN endpoints to avoid leaking internal topology.
-	isExternal := r.Header.Get("CF-Connecting-IP") != "" || r.Header.Get("X-Forwarded-For") != ""
-	if isExternal && h.cfURL != "" && !h.isAuthenticated(r) {
+	isExternal := IsProxiedRequest(r)
+	if isExternal && cfURL != "" && !authed {
 		var safeEndpoints []EndpointInfo
 		for _, ep := range allEndpoints {
 			if ep.Type != "lan" {
@@ -281,13 +342,15 @@ func requestIsHTTPS(r *http.Request) bool {
 // genuine localhost, trusted LAN (when enabled), the admin token, or a valid paired-device token.
 // It lets whitelisted HTML entry points decide between serving the app and a pairing page.
 func (h *AuthHandler) RequestAuthorized(r *http.Request) bool {
-	if AuthDisabledRequested() && !h.policy.TunnelEnabled && h.policy.ListenLoopback && IsLoopbackAddr(r.RemoteAddr) {
+	policy := h.getPolicy()
+	proxied := IsProxiedRequest(r)
+	if AuthDisabledRequested() && !policy.TunnelEnabled && policy.ListenLoopback && IsLoopbackAddr(r.RemoteAddr) && !proxied {
 		return true
 	}
-	if IsCloudflareRequest(r) {
+	if proxied {
 		return h.hasValidToken(r)
 	}
-	if ImplicitTrustRequestOK(r) && (IsLoopbackAddr(r.RemoteAddr) || (h.policy.TrustLAN && IsPrivateLANAddr(r.RemoteAddr))) {
+	if ImplicitTrustRequestOK(r) && (IsLoopbackAddr(r.RemoteAddr) || (policy.TrustLAN && IsPrivateLANAddr(r.RemoteAddr))) {
 		return true
 	}
 	return h.hasValidToken(r)
@@ -311,6 +374,7 @@ func (h *AuthHandler) HandlePair(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
 		return
 	}
+	setJSONReadDeadline(w)
 
 	var req PairRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -439,6 +503,7 @@ func (h *AuthHandler) HandleLogout(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
 		return
 	}
+	setJSONReadDeadline(w)
 	if BearerToken(r) == "" && !CookieWriteCSRFOK(r) {
 		auditWarn("CSRF_REJECTED", "action", "logout", "ip", CleanIP(r.RemoteAddr), "origin", r.Header.Get("Origin"))
 		w.Header().Set("Content-Type", "application/json")
@@ -472,6 +537,7 @@ func (h *AuthHandler) HandleUnpair(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
 		return
 	}
+	setJSONReadDeadline(w)
 	if BearerToken(r) == "" && !CookieWriteCSRFOK(r) {
 		auditWarn("CSRF_REJECTED", "action", "unpair", "ip", CleanIP(r.RemoteAddr), "origin", r.Header.Get("Origin"))
 		w.Header().Set("Content-Type", "application/json")
@@ -648,6 +714,7 @@ func (h *AuthHandler) HandleNewPairingSession(w http.ResponseWriter, r *http.Req
 		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
 		return
 	}
+	setJSONReadDeadline(w)
 
 	clientIP := ExtractClientIP(r)
 	rateKey := RateLimitKeyIP(clientIP)
@@ -677,15 +744,20 @@ func (h *AuthHandler) HandleNewPairingSession(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	relayHost := h.relayHost()
+	h.mu.RLock()
 	lanHost := h.lanHost
 	primaryHost := h.host
 	port := h.port
 	ssl := h.ssl
+	cfURL := h.cfURL
+	origDDNSHost := h.ddnsHost
+	origRelayURL := h.relayURL
+	h.mu.RUnlock()
+	relayHost := parseRelayHostname(origRelayURL, cfURL)
 
 	var ddnsHost string
-	if h.cfURL != "" {
-		if u, err := url.Parse(h.cfURL); err == nil && u.Hostname() != "" {
+	if cfURL != "" {
+		if u, err := url.Parse(cfURL); err == nil && u.Hostname() != "" {
 			primaryHost = u.Hostname()
 			port = 443
 			ssl = true
@@ -695,18 +767,15 @@ func (h *AuthHandler) HandleNewPairingSession(w http.ResponseWriter, r *http.Req
 				}
 			}
 			// Retain LAN host for dual-routing URI so mobile can pair over Wi-Fi or Cloudflare
-			if h.lanHost != "" {
-				lanHost = h.lanHost
-			}
 			relayHost = ""
 			ddnsHost = ""
 		}
-	} else if h.ssl {
+	} else if ssl {
 		// Cert is issued for DDNS_HOST only; IP literals fail iOS ATS/trust.
 		lanHost = ""
-		ddnsHost = h.ddnsHost
+		ddnsHost = origDDNSHost
 	} else {
-		ddnsHost = h.ddnsHost
+		ddnsHost = origDDNSHost
 	}
 
 	uri := GenerateMultiHostPairingURI(MultiHostPairingParams{
@@ -731,7 +800,7 @@ func (h *AuthHandler) HandleNewPairingSession(w http.ResponseWriter, r *http.Req
 	if lanHost != "" && lanHost != primaryHost {
 		extraHosts = append(extraHosts, lanHost)
 	}
-	if h.cfURL == "" {
+	if cfURL == "" {
 		if ddnsHost != "" && ddnsHost != primaryHost {
 			extraHosts = append(extraHosts, ddnsHost)
 		}
@@ -751,17 +820,16 @@ func (h *AuthHandler) isAuthorizedAdmin(r *http.Request) bool {
 		return ConstantTimeTokenEquals(BearerToken(r), adminToken)
 	}
 
+	policy := h.getPolicy()
 	// When a tunnel is enabled, the connector reaches us from loopback, so a loopback
 	// source address proves nothing: require the admin token instead.
-	if h.policy.TunnelEnabled {
+	if policy.TunnelEnabled {
 		return false
 	}
 
-	// Check if genuinely from localhost (not behind a reverse proxy or Cloudflare tunnel).
-	if !IsCloudflareRequest(r) && r.Header.Get("X-Forwarded-For") == "" && r.Header.Get("X-Real-IP") == "" {
-		if IsLoopbackAddr(r.RemoteAddr) && ImplicitTrustRequestOK(r) {
-			return true
-		}
+	// Check if genuinely from localhost (not behind any reverse proxy or tunnel).
+	if !IsProxiedRequest(r) && IsLoopbackAddr(r.RemoteAddr) && ImplicitTrustRequestOK(r) {
+		return true
 	}
 
 	return false
@@ -775,29 +843,31 @@ func (h *AuthHandler) HandleWSTicket(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	setJSONReadDeadline(w)
 
-	// SEC-5 / M-4: Rate-limit ticket issuance to 60 per minute per IP / /64 subnet.
 	clientIP := ExtractClientIP(r)
 	rateKey := RateLimitKeyIP(clientIP)
-	if h.limiter != nil && !h.limiter.Allow("wsticket:"+rateKey, 60, time.Minute) {
-		auditWarn("RATE_LIMIT", "action", "wsticket", "ip", clientIP, "subnet", rateKey)
-		w.Header().Set("Retry-After", "60")
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusTooManyRequests)
-		json.NewEncoder(w).Encode(map[string]string{"error": "too many ticket requests"})
-		return
-	}
+	policy := h.getPolicy()
+	proxied := IsProxiedRequest(r)
 
 	// Check if genuinely from localhost (no pairing required) or trusted LAN, gated by
-	// ImplicitTrustRequestOK to defeat DNS rebinding and cross-site request forgery (SEC-07).
+	// ImplicitTrustRequestOK and !IsProxiedRequest to defeat DNS rebinding, CSRF, and reverse-proxy spoofing.
 	implicitOK := ImplicitTrustRequestOK(r)
-	isLocalhost := implicitOK && IsLoopbackAddr(r.RemoteAddr) && !IsCloudflareRequest(r)
-	isTrustedLAN := implicitOK && h.policy.TrustLAN && IsPrivateLANAddr(r.RemoteAddr) && !IsCloudflareRequest(r)
+	isLocalhost := implicitOK && IsLoopbackAddr(r.RemoteAddr) && !proxied
+	isTrustedLAN := implicitOK && policy.TrustLAN && IsPrivateLANAddr(r.RemoteAddr) && !proxied
 
 	if isLocalhost || isTrustedLAN {
 		deviceID := "admin-local"
 		if !isLocalhost {
 			deviceID = "lan-" + clientIP
+		}
+		if h.wsTicketLimiter != nil && !h.wsTicketLimiter.Allow("wsticket:"+deviceID, 60, time.Minute) {
+			auditWarn("RATE_LIMIT", "action", "wsticket", "ip", clientIP, "device_id", deviceID)
+			w.Header().Set("Retry-After", "60")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusTooManyRequests)
+			json.NewEncoder(w).Encode(map[string]string{"error": "too many ticket requests"})
+			return
 		}
 		ticket, err := h.store.IssueWSTicket(deviceID)
 		if err != nil {
@@ -826,6 +896,14 @@ func (h *AuthHandler) HandleWSTicket(w http.ResponseWriter, r *http.Request) {
 
 	token := ExtractToken(r)
 	if token == "" {
+		// Unauthenticated callers use the public limiter so they can never fill wsTicketLimiter.
+		if h.limiter != nil && !h.limiter.Allow("wsticket-unauth:"+rateKey, 30, time.Minute) {
+			w.Header().Set("Retry-After", "60")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusTooManyRequests)
+			json.NewEncoder(w).Encode(map[string]string{"error": "too many ticket requests"})
+			return
+		}
 		auditWarn("AUTH_FAILURE", "action", "issue_wsticket", "reason", "missing_token", "ip", CleanIP(r.RemoteAddr))
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
@@ -839,6 +917,13 @@ func (h *AuthHandler) HandleWSTicket(w http.ResponseWriter, r *http.Request) {
 	} else {
 		dev, ok := h.store.ValidateToken(token)
 		if !ok || dev == nil {
+			if h.limiter != nil && !h.limiter.Allow("wsticket-unauth:"+rateKey, 30, time.Minute) {
+				w.Header().Set("Retry-After", "60")
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusTooManyRequests)
+				json.NewEncoder(w).Encode(map[string]string{"error": "too many ticket requests"})
+				return
+			}
 			auditWarn("AUTH_FAILURE", "action", "issue_wsticket", "reason", "invalid_token", "ip", CleanIP(r.RemoteAddr))
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnauthorized)
@@ -846,6 +931,17 @@ func (h *AuthHandler) HandleWSTicket(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		issueDeviceID = dev.DeviceID
+	}
+
+	// MED-04: Rate-limit authenticated WS ticket issuance by deviceID in an isolated limiter
+	// so unauthenticated endpoint/pairing floods never starve legitimate paired devices.
+	if h.wsTicketLimiter != nil && !h.wsTicketLimiter.Allow("wsticket:dev:"+issueDeviceID, 60, time.Minute) {
+		auditWarn("RATE_LIMIT", "action", "wsticket", "ip", clientIP, "device_id", issueDeviceID)
+		w.Header().Set("Retry-After", "60")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusTooManyRequests)
+		json.NewEncoder(w).Encode(map[string]string{"error": "too many ticket requests"})
+		return
 	}
 
 	ticket, err := h.store.IssueWSTicket(issueDeviceID)

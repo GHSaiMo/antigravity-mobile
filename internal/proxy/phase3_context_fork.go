@@ -13,10 +13,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
 )
+
+var validWorktreeNameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$`)
 
 // upstreamClient returns an HTTP client suitable for unary RPC calls even in minimal test fixtures.
 func (p *Proxy) upstreamClient() *http.Client {
@@ -310,6 +313,14 @@ func (p *Proxy) HandleContextMentions(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Reject explicit workspaceUri values outside AllowedWorkspaceRoots() up front.
+	if strings.TrimSpace(req.WorkspaceURI) != "" {
+		if _, wsErr := validateWorkspaceDir(req.WorkspaceURI, true); wsErr != nil {
+			writeRPCError(w, http.StatusForbidden, wsErr.Error())
+			return
+		}
+	}
+
 	// 2. Local workspace files & directories scan.
 	wsPath := p.resolveMentionWorkspacePath(r.Context(), req.CascadeID, req.WorkspaceURI)
 	if wsPath != "" {
@@ -353,23 +364,22 @@ func (p *Proxy) HandleContextMentions(w http.ResponseWriter, r *http.Request) {
 
 func (p *Proxy) resolveMentionWorkspacePath(ctx context.Context, cascadeID, workspaceURI string) string {
 	if workspaceURI != "" {
-		if path := uriToFilePath(workspaceURI); path != "" {
-			if st, err := os.Stat(path); err == nil && st.IsDir() {
-				return path
-			}
+		if valid, err := validateWorkspaceDir(workspaceURI, true); err == nil {
+			return valid
 		}
+		return ""
 	}
 	port, token := p.ActiveUpstream()
 	if cascadeID != "" && port > 0 {
 		if root, err := p.resolveCascadeRepo(ctx, cascadeID, port, token); err == nil && root != "" {
-			return root
+			if valid, vErr := validateWorkspaceDir(root, true); vErr == nil {
+				return valid
+			}
 		}
 		if raw, err := p.fetchUpstreamTrajectoryWithMaxAgeContext(ctx, cascadeID, port, token, 5*time.Second); err == nil && raw != nil {
 			if len(raw.Trajectory.WorkspaceUris) > 0 {
-				if path := uriToFilePath(raw.Trajectory.WorkspaceUris[0]); path != "" {
-					if st, err := os.Stat(path); err == nil && st.IsDir() {
-						return path
-					}
+				if valid, vErr := validateWorkspaceDir(raw.Trajectory.WorkspaceUris[0], true); vErr == nil {
+					return valid
 				}
 			}
 		}
@@ -488,13 +498,21 @@ func scanWorkspaceMentions(ctx context.Context, root, queryLower string, limit i
 		if err != nil || rel == "." {
 			return nil
 		}
+		if d.Type()&os.ModeSymlink != 0 {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
 		if d.IsDir() {
-			if skipDirs[d.Name()] {
+			if skipDirs[d.Name()] || !IsSafeFilePath(path) {
 				return filepath.SkipDir
 			}
 			if strings.Count(filepath.ToSlash(rel), "/") > 4 {
 				return filepath.SkipDir
 			}
+		} else if !IsSafeFilePath(path) {
+			return nil
 		}
 		visited++
 		addPath(rel, d.IsDir())
@@ -598,8 +616,21 @@ func (p *Proxy) HandleWorktree(w http.ResponseWriter, r *http.Request) {
 			writeRPCError(w, http.StatusBadRequest, "缺少 repoUri")
 			return
 		}
+		validRepo, wsErr := validateWorkspaceDir(req.RepoURI, true)
+		if wsErr != nil {
+			writeRPCError(w, http.StatusForbidden, wsErr.Error())
+			return
+		}
+		req.RepoURI = filePathToURI(validRepo)
 		if req.WorktreeName == "" {
 			req.WorktreeName = fmt.Sprintf("mgy-%d", time.Now().Unix()%100000)
+		} else if !validWorktreeNameRe.MatchString(req.WorktreeName) || req.WorktreeName == "." || req.WorktreeName == ".." {
+			writeRPCError(w, http.StatusBadRequest, "无效的 worktree 名称")
+			return
+		}
+		if req.BaseBranchName != "" && (!validBranchNameRe.MatchString(req.BaseBranchName) || strings.HasPrefix(req.BaseBranchName, "-")) {
+			writeRPCError(w, http.StatusBadRequest, "无效的基准分支名称")
+			return
 		}
 		payload := map[string]interface{}{
 			"repoUri":        req.RepoURI,
@@ -641,6 +672,20 @@ func (p *Proxy) HandleWorktree(w http.ResponseWriter, r *http.Request) {
 			"cascadeId":      cascadeID,
 		})
 	case "checkout":
+		validWT, wsErr := validateWorkspaceDir(req.WorktreeDirURI, true)
+		if wsErr != nil {
+			writeRPCError(w, http.StatusForbidden, wsErr.Error())
+			return
+		}
+		req.WorktreeDirURI = filePathToURI(validWT)
+		if req.TargetWorkspaceURI != "" {
+			validTarget, tErr := validateWorkspaceDir(req.TargetWorkspaceURI, true)
+			if tErr != nil {
+				writeRPCError(w, http.StatusForbidden, tErr.Error())
+				return
+			}
+			req.TargetWorkspaceURI = filePathToURI(validTarget)
+		}
 		body, status, err := p.callUpstreamRPC(ctx, "CheckoutWorktree", map[string]interface{}{
 			"worktreeDirUri":              req.WorktreeDirURI,
 			"targetWorkspaceUri":          req.TargetWorkspaceURI,
@@ -656,6 +701,12 @@ func (p *Proxy) HandleWorktree(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSONStatus(w, http.StatusOK, map[string]interface{}{"ok": true, "raw": json.RawMessage(body)})
 	case "diff":
+		validWT, wsErr := validateWorkspaceDir(req.WorktreeDirURI, true)
+		if wsErr != nil {
+			writeRPCError(w, http.StatusForbidden, wsErr.Error())
+			return
+		}
+		req.WorktreeDirURI = filePathToURI(validWT)
 		body, status, err := p.callUpstreamRPC(ctx, "GetWorktreeDiff", map[string]interface{}{
 			"worktreeDirUri": req.WorktreeDirURI,
 		})
@@ -671,6 +722,12 @@ func (p *Proxy) HandleWorktree(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write(body)
 	case "delete":
+		validWT, wsErr := validateWorkspaceDir(req.WorktreeDirURI, true)
+		if wsErr != nil {
+			writeRPCError(w, http.StatusForbidden, wsErr.Error())
+			return
+		}
+		req.WorktreeDirURI = filePathToURI(validWT)
 		body, status, err := p.callUpstreamRPC(ctx, "DeleteWorktree", map[string]interface{}{
 			"worktreeDirUri": req.WorktreeDirURI,
 		})
@@ -718,9 +775,14 @@ func (p *Proxy) HandleCloneGitHubRepo(w http.ResponseWriter, r *http.Request) {
 	if parentDir == "" {
 		home, _ := os.UserHomeDir()
 		parentDir = filepath.Join(home, "Projects")
-		_ = os.MkdirAll(parentDir, 0o755)
 	}
-	parentURI := firstNonEmpty(req.ParentDirURI, filePathToURI(parentDir))
+	validParent, wsErr := validateWorkspaceDir(parentDir, false)
+	if wsErr != nil {
+		writeRPCError(w, http.StatusForbidden, wsErr.Error())
+		return
+	}
+	_ = os.MkdirAll(validParent, 0o755)
+	parentURI := filePathToURI(validParent)
 
 	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
 	defer cancel()
@@ -786,6 +848,10 @@ func (p *Proxy) HandleCreateProject(w http.ResponseWriter, r *http.Request) {
 	cleanPath, err := normalizeLocalWorkspacePath(req.Path)
 	if err != nil {
 		writeRPCError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if _, wsErr := validateWorkspaceDir(cleanPath, true); wsErr != nil {
+		writeRPCError(w, http.StatusForbidden, wsErr.Error())
 		return
 	}
 
@@ -1051,24 +1117,6 @@ func newUUIDv4() string {
 	b[6] = (b[6] & 0x0f) | 0x40
 	b[8] = (b[8] & 0x3f) | 0x80
 	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
-}
-
-func normalizeGitHubSlug(raw string) string {
-	s := strings.TrimSpace(raw)
-	if s == "" {
-		return ""
-	}
-	s = strings.TrimSuffix(s, ".git")
-	s = strings.TrimPrefix(s, "git@github.com:")
-	if strings.HasPrefix(s, "https://github.com/") || strings.HasPrefix(s, "http://github.com/") {
-		s = strings.TrimPrefix(strings.TrimPrefix(s, "https://github.com/"), "http://github.com/")
-	}
-	s = strings.Trim(s, "/")
-	parts := strings.Split(s, "/")
-	if len(parts) >= 2 && parts[0] != "" && parts[1] != "" {
-		return parts[0] + "/" + parts[1]
-	}
-	return s
 }
 
 func firstNonEmpty(vals ...string) string {

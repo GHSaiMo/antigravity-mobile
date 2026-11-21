@@ -6,7 +6,6 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
-	"hash/fnv"
 	"net/http"
 	"sort"
 	"strings"
@@ -362,7 +361,8 @@ func (h *reactiveAgentStateHub) streamOnce(
 }
 
 // expireTrajectoryCacheFreshness marks a cached trajectory entry stale so the next
-// fetchUpstreamTrajectoryWithMaxAge call refetches immediately without wiping title/annotation caches.
+// fetchUpstreamTrajectoryWithMaxAge call refetches without breaking in-flight singleflight coalescing
+// or invalidating unrelated cascades' in-flight fetches.
 func expireTrajectoryCacheFreshness(cascadeID string) {
 	if cascadeID == "" {
 		return
@@ -371,9 +371,33 @@ func expireTrajectoryCacheFreshness(cascadeID string) {
 	if cached, ok := defaultTrajCache.trajCache[cascadeID]; ok {
 		cached.fetchedAt = time.Time{}
 	}
-	defaultTrajCache.trajCacheGen++
 	defaultTrajCache.trajCacheMu.Unlock()
-	trajFlights.forget(cascadeID)
+}
+
+// liveStreamAuxSignature summarizes live context-window usage and queued messages pushed via
+// StreamAgentStateUpdates so HandleCascadeStream can preserve lastRawSig across touchCh wakeups
+// while still pushing immediately when only queued messages or token usage change.
+func (p *Proxy) liveStreamAuxSignature(cascadeID string) string {
+	if cascadeID == "" {
+		return ""
+	}
+	used, maxTok, _ := p.agentStateHub.LiveContextUsage(cascadeID, 0)
+	pendingCacheMu.RLock()
+	pe, hasPending := pendingCache[cascadeID]
+	var qCount int
+	var firstID, lastID string
+	if hasPending && pe != nil {
+		qCount = len(pe.messages)
+		if qCount > 0 {
+			firstID = pe.messages[0].ID
+			lastID = pe.messages[qCount-1].ID
+		}
+	}
+	pendingCacheMu.RUnlock()
+	if used == 0 && maxTok == 0 && qCount == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%d/%d:%d:%s:%s", used, maxTok, qCount, firstID, lastID)
 }
 
 func setLivePendingMessagesCache(cascadeID string, items []QueuedMessageItem) {
@@ -616,65 +640,93 @@ func (h *reactiveSummariesHub) streamSummariesOnce(ctx context.Context, p *Proxy
 }
 
 // applyReactiveSummaryUpdates merges live JetboxSubscribeToSummaries deltas into p.allTrajectories
-// (if already seeded for this port/token, or directly when initial snapshot arrives) and notifies p.events.
+// in O(|delta|) JSON work (without unmarshaling/re-marshaling the entire conversation map on every frame)
+// and marks s.body dirty for lazy serialization only when raw JSON bytes are requested.
 func (p *Proxy) applyReactiveSummaryUpdates(port int, token string, updates map[string]json.RawMessage, isInitial bool) {
-	h := &p.summariesHub
-	h.mu.Lock()
-	if h.entries == nil || isInitial {
-		h.entries = make(map[string]json.RawMessage, len(updates))
-	}
+	// Pre-parse ONLY the |delta| entries outside any snapshot lock.
+	deltaRaw := make(map[string]json.RawMessage, len(updates))
+	deltaSigs := make(map[string]uint64, len(updates))
+	deltaLive := make(map[string]subagentLive, len(updates))
+	hasLive := make(map[string]bool, len(updates))
+	var removed []string
+
 	for id, raw := range updates {
 		trimmed := bytes.TrimSpace(raw)
 		if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
-			delete(h.entries, id)
-		} else {
-			cp := make(json.RawMessage, len(trimmed))
-			copy(cp, trimmed)
-			h.entries[id] = cp
+			removed = append(removed, id)
+			continue
+		}
+		cp := make(json.RawMessage, len(trimmed))
+		copy(cp, trimmed)
+		deltaRaw[id] = cp
+		sig, live, ok := parseSingleSummaryEntry(cp)
+		deltaSigs[id] = sig
+		if ok {
+			deltaLive[id] = live
+			hasLive[id] = true
+		}
+	}
+
+	h := &p.summariesHub
+	var initialSnapshot map[string]json.RawMessage
+	h.mu.Lock()
+	if h.entries == nil || isInitial {
+		h.entries = make(map[string]json.RawMessage, len(deltaRaw))
+	}
+	for _, id := range removed {
+		delete(h.entries, id)
+	}
+	for id, cp := range deltaRaw {
+		h.entries[id] = cp
+	}
+	if isInitial && len(h.entries) > 0 {
+		initialSnapshot = make(map[string]json.RawMessage, len(h.entries))
+		for k, v := range h.entries {
+			initialSnapshot[k] = v
 		}
 	}
 	h.mu.Unlock()
 
 	s := &p.allTrajectories
 	s.mu.Lock()
-	var merged map[string]json.RawMessage
-	if s.body != nil && s.port == port && s.token == token {
-		var existing struct {
-			TrajectorySummaries map[string]json.RawMessage `json:"trajectorySummaries"`
-		}
-		if json.Unmarshal(s.body, &existing) == nil && existing.TrajectorySummaries != nil {
-			merged = existing.TrajectorySummaries
-		}
-	}
-	if merged == nil && isInitial && len(updates) > 0 {
-		merged = make(map[string]json.RawMessage, len(updates))
-	}
-
 	var observedSig uint64
 	hasSig := false
-	if merged != nil {
-		for id, raw := range updates {
-			trimmed := bytes.TrimSpace(raw)
-			if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
-				delete(merged, id)
-			} else {
-				cp := make(json.RawMessage, len(trimmed))
-				copy(cp, trimmed)
-				merged[id] = cp
-			}
+
+	if (s.entries != nil || s.body != nil) && s.port == port && s.token == token && !isInitial {
+		if s.entries == nil && s.body != nil {
+			s.entries, s.parsed = parseAllTrajectoriesWithEntries(s.body)
 		}
-		if newBody, err := json.Marshal(map[string]interface{}{"trajectorySummaries": merged}); err == nil {
-			parsed := buildTrajectoriesIndexFromMap(merged)
-			s.port = port
-			s.token = token
-			s.body = newBody
-			s.parsed = parsed
+		if s.entries != nil {
+			for _, id := range removed {
+				delete(s.entries, id)
+			}
+			for id, cp := range deltaRaw {
+				s.entries[id] = cp
+			}
+			s.parsed = s.parsed.cloneWithDelta(deltaSigs, deltaLive, hasLive, removed)
+			s.body = nil // lazily serialized on next fetchAllTrajectoriesRaw
 			s.fetchedAt = time.Now()
 			s.gen++
-			if sig, ok := parsed.computeListSignature(); ok {
+			if sig, ok := s.parsed.computeListSignature(); ok {
 				observedSig = sig
 				hasSig = true
 			}
+		} else {
+			s.fetchedAt = time.Time{}
+			s.gen++
+		}
+	} else if isInitial && len(initialSnapshot) > 0 {
+		parsed := buildTrajectoriesIndexFromMap(initialSnapshot)
+		s.port = port
+		s.token = token
+		s.entries = initialSnapshot
+		s.body = nil // lazily serialized on next fetchAllTrajectoriesRaw
+		s.parsed = parsed
+		s.fetchedAt = time.Now()
+		s.gen++
+		if sig, ok := parsed.computeListSignature(); ok {
+			observedSig = sig
+			hasSig = true
 		}
 	} else {
 		// Force next snapshot read to incorporate fresh upstream state immediately.
@@ -699,25 +751,10 @@ func buildTrajectoriesIndexFromMap(summaries map[string]json.RawMessage) *allTra
 	}
 	for id, entry := range summaries {
 		idx.sortedIDs = append(idx.sortedIDs, id)
-		h := fnv.New64a()
-		_, _ = h.Write(entry)
-		idx.sigByID[id] = h.Sum64()
-
-		var s struct {
-			Status             string `json:"status"`
-			StepCount          int    `json:"stepCount"`
-			Summary            string `json:"summary"`
-			TrajectoryMetadata struct {
-				ParentConversationID string `json:"parentConversationId"`
-			} `json:"trajectoryMetadata"`
-		}
-		if json.Unmarshal(entry, &s) == nil {
-			idx.liveByID[id] = subagentLive{
-				Status:    s.Status,
-				StepCount: s.StepCount,
-				Title:     s.Summary,
-				Parent:    strings.TrimSpace(s.TrajectoryMetadata.ParentConversationID),
-			}
+		sig, live, ok := parseSingleSummaryEntry(entry)
+		idx.sigByID[id] = sig
+		if ok {
+			idx.liveByID[id] = live
 		}
 	}
 	sort.Strings(idx.sortedIDs)

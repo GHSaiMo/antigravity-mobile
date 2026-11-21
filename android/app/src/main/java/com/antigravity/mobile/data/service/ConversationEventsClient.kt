@@ -28,6 +28,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
 import java.util.concurrent.TimeUnit
+import kotlin.random.Random
 
 /** One frame of the gateway's `/gateway/events` channel. Frames carry a revision, never list data. */
 internal data class ConversationEventFrame(
@@ -105,6 +106,12 @@ class ConversationEventsClient(
         if (!s.connected || (s.supportsBeat && last != null && System.currentTimeMillis() - last > maxAgeMs)) reconnect()
     }
 
+    private enum class SessionOutcome {
+        HEALTHY_CLOSED,
+        FAILED_OR_PREMATURE,
+        AUTH_REJECTED
+    }
+
     @Synchronized
     fun start() {
         if (runJob?.isActive == true) return
@@ -112,11 +119,23 @@ class ConversationEventsClient(
         runJob = scope.launch {
             var attempt = 0
             while (isActive) {
-                val opened = connectOnce()
-                attempt = if (opened) 0 else (attempt + 1).coerceAtMost(6)
-                // Quick retry after a healthy session ended; back off while the gateway is unreachable or lacks the endpoint.
-                val delayMs = if (opened) 1_000L else (2_500L * (1 shl (attempt - 1).coerceAtLeast(0))).coerceAtMost(60_000L)
-                delay(delayMs)
+                when (connectOnce()) {
+                    SessionOutcome.AUTH_REJECTED -> {
+                        stop()
+                        break
+                    }
+                    SessionOutcome.HEALTHY_CLOSED -> {
+                        attempt = 0
+                        val jitter = (1_000L * (0.75 + Random.nextDouble() * 0.50)).toLong()
+                        delay(jitter)
+                    }
+                    SessionOutcome.FAILED_OR_PREMATURE -> {
+                        attempt = (attempt + 1).coerceAtMost(6)
+                        val baseMs = (2_500L * (1 shl (attempt - 1).coerceAtLeast(0))).coerceAtMost(60_000L)
+                        val delayMs = (baseMs * (0.75 + Random.nextDouble() * 0.50)).toLong()
+                        delay(delayMs)
+                    }
+                }
             }
         }
     }
@@ -136,9 +155,9 @@ class ConversationEventsClient(
         scope.cancel()
     }
 
-    /** Runs one socket until it closes. Returns true when the handshake succeeded. */
-    private suspend fun connectOnce(): Boolean {
-        val base = baseUrlProvider()?.trimEnd('/') ?: return false
+    /** Runs one socket until it closes. */
+    private suspend fun connectOnce(): SessionOutcome {
+        val base = baseUrlProvider()?.trimEnd('/') ?: return SessionOutcome.FAILED_OR_PREMATURE
         val scheme = if (base.startsWith("https://", ignoreCase = true)) "wss" else "ws"
         val hostPart = base.substringAfter("://")
         if (lastHost != null && lastHost != hostPart) {
@@ -154,17 +173,21 @@ class ConversationEventsClient(
             builder.header("x-device-token", token)
         }
 
-        val done = CompletableDeferred<Boolean>()
-        var opened = false
+        val done = CompletableDeferred<SessionOutcome>()
+        val opened = java.util.concurrent.atomic.AtomicBoolean(false)
+        val openedAtMs = java.util.concurrent.atomic.AtomicLong(0L)
+        val receivedValidFrame = java.util.concurrent.atomic.AtomicBoolean(false)
         val ws = client.newWebSocket(builder.build(), object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
-                opened = true
+                opened.set(true)
+                openedAtMs.set(System.currentTimeMillis())
                 _connected.value = true
                 _snapshot.update { it.copy(connected = true, hasEverConnected = true) }
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
                 val frame = parseConversationEventFrame(text) ?: return
+                receivedValidFrame.set(true)
                 if (frame.rev > 0L) {
                     lastRev = frame.rev
                 }
@@ -188,12 +211,37 @@ class ConversationEventsClient(
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                done.complete(opened)
+                if (code == 4001 || code == 4003) {
+                    done.complete(SessionOutcome.AUTH_REJECTED)
+                    return
+                }
+                val isOpen = opened.get()
+                val tOpen = openedAtMs.get()
+                val livedLongEnough = isOpen && tOpen > 0L && (System.currentTimeMillis() - tOpen) >= 15_000L
+                val outcome = if (isOpen && (receivedValidFrame.get() || livedLongEnough)) {
+                    SessionOutcome.HEALTHY_CLOSED
+                } else {
+                    SessionOutcome.FAILED_OR_PREMATURE
+                }
+                done.complete(outcome)
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                Log.d("ConvEvents", "events socket ended: ${t.message}")
-                done.complete(opened)
+                val httpCode = response?.code ?: 0
+                Log.d("ConvEvents", "events socket ended (http=$httpCode): ${t.message}")
+                if (httpCode == 401 || httpCode == 403) {
+                    done.complete(SessionOutcome.AUTH_REJECTED)
+                    return
+                }
+                val isOpen = opened.get()
+                val tOpen = openedAtMs.get()
+                val livedLongEnough = isOpen && tOpen > 0L && (System.currentTimeMillis() - tOpen) >= 15_000L
+                val outcome = if (isOpen && (receivedValidFrame.get() || livedLongEnough)) {
+                    SessionOutcome.HEALTHY_CLOSED
+                } else {
+                    SessionOutcome.FAILED_OR_PREMATURE
+                }
+                done.complete(outcome)
             }
         })
         synchronized(this) { webSocket = ws }

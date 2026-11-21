@@ -460,7 +460,7 @@ func (p *Proxy) HandleManageAutomation(w http.ResponseWriter, r *http.Request) {
 		Name         string `json:"name"`
 		Action       string `json:"action"` // "start", "stop", "restart", "run_now"
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.NewDecoder(io.LimitReader(r.Body, 64*1024)).Decode(&req); err != nil {
 		writeJSONError(w, "invalid request: "+err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -474,6 +474,10 @@ func (p *Proxy) HandleManageAutomation(w http.ResponseWriter, r *http.Request) {
 	req.SidecarID = strings.TrimSpace(req.SidecarID)
 	if req.SidecarID == "" {
 		writeJSONError(w, "sidecarId cannot be empty", http.StatusBadRequest)
+		return
+	}
+	if !isSafeSidecarID(req.SidecarID) {
+		writeJSONError(w, "invalid sidecarId", http.StatusBadRequest)
 		return
 	}
 
@@ -851,14 +855,10 @@ func (p *Proxy) HandleGetAutomationLogs(w http.ResponseWriter, r *http.Request) 
 	logPath := filepath.Join(logsDir, reqFile)
 	content := ""
 	truncated := false
-	if data, err := os.ReadFile(logPath); err == nil {
-		// Cap raw tail inspection at 512KB from the end to stay fast on large logs.
-		const maxBytes = 512 * 1024
-		if len(data) > maxBytes {
-			data = data[len(data)-maxBytes:]
-			truncated = true
-		}
-		lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
+	const maxLogTailBytes = 512 * 1024
+	if tailStr, _, tailTrunc, err := readLogFileTail(logPath, maxLogTailBytes); err == nil {
+		truncated = tailTrunc
+		lines := strings.Split(strings.TrimRight(tailStr, "\n"), "\n")
 		if len(lines) > tailLines {
 			lines = lines[len(lines)-tailLines:]
 			truncated = true
@@ -1142,12 +1142,12 @@ func extractNextRunFromLogTime(sidecarID string) (time.Time, bool) {
 	}
 
 	logPath := filepath.Join(home, ".gemini", "antigravity", "sidecar_data", sidecarID, "logs", "sidecar.log")
-	data, err := os.ReadFile(logPath)
-	if err != nil {
+	tailStr, _, _, err := readLogFileTail(logPath, 128*1024)
+	if err != nil || tailStr == "" {
 		return time.Time{}, false
 	}
 
-	lines := strings.Split(string(data), "\n")
+	lines := strings.Split(tailStr, "\n")
 	for i := len(lines) - 1; i >= 0; i-- {
 		line := lines[i]
 		if strings.Contains(line, "Next execution scheduled") {

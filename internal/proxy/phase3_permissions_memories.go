@@ -254,15 +254,23 @@ func allowedMemoryRoots(workspacePath string) []string {
 }
 
 func isWithinMemoryRoots(target string, roots []string) bool {
-	cleanTarget, err := filepath.Abs(filepath.Clean(target))
+	if strings.TrimSpace(target) == "" || strings.ContainsRune(target, 0) {
+		return false
+	}
+	cleanLex, err := filepath.Abs(filepath.Clean(target))
 	if err != nil {
 		return false
 	}
+	if fi, lerr := os.Lstat(cleanLex); lerr == nil && fi.Mode()&os.ModeSymlink != 0 {
+		return false
+	}
+	cleanTarget := evalSymlinksExistingPrefix(cleanLex)
 	for _, root := range roots {
-		cleanRoot, err := filepath.Abs(filepath.Clean(root))
+		cleanRootLex, err := filepath.Abs(filepath.Clean(root))
 		if err != nil {
 			continue
 		}
+		cleanRoot := evalSymlinksExistingPrefix(cleanRootLex)
 		if cleanTarget == cleanRoot {
 			return true
 		}
@@ -270,8 +278,11 @@ func isWithinMemoryRoots(target string, roots []string) bool {
 			continue
 		}
 		rel, err := filepath.Rel(cleanRoot, cleanTarget)
-		if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-			return true
+		if err == nil && rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			ext := strings.ToLower(filepath.Ext(cleanTarget))
+			if ext == ".md" || ext == ".txt" {
+				return true
+			}
 		}
 	}
 	return false
@@ -286,8 +297,17 @@ func (p *Proxy) HandleMemories(w http.ResponseWriter, r *http.Request) {
 	} else if wsURI := r.URL.Query().Get("workspaceUri"); wsURI != "" {
 		workspacePath = uriToFilePath(wsURI)
 	}
+	if workspacePath != "" {
+		validWS, wsErr := validateWorkspaceDir(workspacePath, false)
+		if wsErr != nil {
+			writeRPCError(w, http.StatusForbidden, wsErr.Error())
+			return
+		}
+		workspacePath = validWS
+	}
 
 	if r.Method == http.MethodGet {
+		memRoots := allowedMemoryRoots(workspacePath)
 		items := collectLocalMemories(home, workspacePath)
 		// Merge any upstream GetAllRules entries not yet in local list.
 		if port, _ := p.ActiveUpstream(); port > 0 {
@@ -312,9 +332,10 @@ func (p *Proxy) HandleMemories(w http.ResponseWriter, r *http.Request) {
 						if rl.Path != "" && seen[rl.Path] {
 							continue
 						}
+						editable := isWithinMemoryRoots(rl.Path, memRoots)
 						content := rl.Content
-						if content == "" && rl.Path != "" {
-							if raw, err := os.ReadFile(rl.Path); err == nil {
+						if content == "" && rl.Path != "" && editable {
+							if raw, err := readRegularFileLimitedNoFollow(rl.Path, 1<<20); err == nil {
 								content = string(raw)
 							}
 						}
@@ -324,7 +345,7 @@ func (p *Proxy) HandleMemories(w http.ResponseWriter, r *http.Request) {
 							Scope:    "global",
 							Path:     rl.Path,
 							Content:  content,
-							Editable: isWithinMemoryRoots(rl.Path, allowedMemoryRoots(workspacePath)),
+							Editable: editable,
 						})
 					}
 				}
@@ -355,7 +376,12 @@ func (p *Proxy) HandleMemories(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.WorkspacePath != "" {
-		workspacePath = uriToFilePath(req.WorkspacePath)
+		validWS, wsErr := validateWorkspaceDir(req.WorkspacePath, false)
+		if wsErr != nil {
+			writeRPCError(w, http.StatusForbidden, wsErr.Error())
+			return
+		}
+		workspacePath = validWS
 	}
 	roots := allowedMemoryRoots(workspacePath)
 
@@ -383,17 +409,26 @@ func (p *Proxy) HandleMemories(w http.ResponseWriter, r *http.Request) {
 		writeRPCError(w, http.StatusForbidden, "路径不在允许的记忆与规则目录内")
 		return
 	}
+	if err := ensureNotSymlinkTarget(targetPath); err != nil {
+		writeRPCError(w, http.StatusForbidden, err.Error())
+		return
+	}
+	resolvedTarget := evalSymlinksExistingPrefix(targetPath)
+	if !isWithinMemoryRoots(resolvedTarget, roots) {
+		writeRPCError(w, http.StatusForbidden, "路径不在允许的记忆与规则目录内")
+		return
+	}
 
 	if strings.EqualFold(req.Action, "delete") {
-		if raw, readErr := os.ReadFile(targetPath); readErr == nil && len(raw) > 0 && home != "" {
+		if raw, readErr := readRegularFileLimitedNoFollow(resolvedTarget, 1<<20); readErr == nil && len(raw) > 0 && home != "" {
 			backupDir := filepath.Join(home, ".gemini", "backups", "deleted_memories")
-			if mkErr := os.MkdirAll(backupDir, 0o755); mkErr == nil {
+			if mkErr := os.MkdirAll(backupDir, 0o700); mkErr == nil {
 				stamp := time.Now().Format("20060102-150405.000")
-				backupPath := filepath.Join(backupDir, stamp+"_"+filepath.Base(targetPath))
-				_ = os.WriteFile(backupPath, raw, 0o644)
+				backupPath := filepath.Join(backupDir, stamp+"_"+filepath.Base(resolvedTarget))
+				_ = os.WriteFile(backupPath, raw, 0o600)
 			}
 		}
-		if err := os.Remove(targetPath); err != nil && !os.IsNotExist(err) {
+		if err := os.Remove(resolvedTarget); err != nil && !os.IsNotExist(err) {
 			writeRPCError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
@@ -404,31 +439,41 @@ func (p *Proxy) HandleMemories(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(resolvedTarget), 0o755); err != nil {
 		writeRPCError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	tmp := targetPath + ".tmp"
-	if err := os.WriteFile(tmp, []byte(req.Content), 0o644); err != nil {
+	// Re-verify after MkdirAll so newly created parent chain contains no escaping symlinks.
+	if err := ensureNotSymlinkTarget(resolvedTarget); err != nil || !isWithinMemoryRoots(resolvedTarget, roots) {
+		writeRPCError(w, http.StatusForbidden, "拒绝写入非法或符号链接路径")
+		return
+	}
+	tmp := resolvedTarget + ".tmp"
+	if err := os.WriteFile(tmp, []byte(req.Content), 0o600); err != nil {
 		writeRPCError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if err := os.Rename(tmp, targetPath); err != nil {
+	if err := os.Rename(tmp, resolvedTarget); err != nil {
+		_ = os.Remove(tmp)
 		writeRPCError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
 	writeJSONStatus(w, http.StatusOK, map[string]interface{}{
 		"ok":    true,
-		"path":  targetPath,
+		"path":  resolvedTarget,
 		"items": collectLocalMemories(home, workspacePath),
 	})
 }
 
 func collectLocalMemories(home, workspacePath string) []MemoryEntry {
+	roots := allowedMemoryRoots(workspacePath)
 	var out []MemoryEntry
 	addFile := func(title, scope, path string) {
-		raw, err := os.ReadFile(path)
+		if !isWithinMemoryRoots(path, roots) {
+			return
+		}
+		raw, err := readRegularFileLimitedNoFollow(path, 1<<20)
 		if err != nil {
 			return
 		}

@@ -1,17 +1,18 @@
 package tunnel
 
 import (
-	"log/slog"
 	"archive/tar"
 	"bufio"
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
@@ -26,6 +27,21 @@ import (
 
 	"antigravity-mobile/internal/config"
 )
+
+// PinnedCloudflaredVersion is the verified official cloudflared release version.
+const PinnedCloudflaredVersion = "2026.11.1"
+
+const maxCloudflaredDownloadBytes = 128 << 20 // 128 MiB safety ceiling (HIGH-02)
+
+// pinnedCloudflaredSHA256 maps official cloudflared release asset filenames for PinnedCloudflaredVersion
+// to their authoritative SHA-256 digests published on github.com/cloudflare/cloudflared.
+var pinnedCloudflaredSHA256 = map[string]string{
+	"cloudflared-darwin-arm64.tgz":  "02fe4bcf08f2c09699cff30658228a739a0c47fb75f3653d1b8772a27ade4462",
+	"cloudflared-darwin-amd64.tgz":  "5e0403b188dfee71fbd9b995e7dc9910d61b661c52371935ab6475d41185632f",
+	"cloudflared-windows-amd64.exe": "341deda3db5ec498a0482254d6c38c0b7cf01a30c37bb5dd95d2216d08955e35",
+	"cloudflared-linux-amd64":       "97bb3b02d23a5980fc9c15a1a270e692da1923f103f920d5b16d4931d5ab55e7",
+	"cloudflared-linux-arm64":       "b155cec3e48e489cfb8e5c602769fb8c771083018d8881d68b4d18a791567c5a",
+}
 
 // CFTunnelResult contains the acquired Cloudflare Tunnel credentials and endpoint.
 type CFTunnelResult struct {
@@ -43,28 +59,30 @@ type CloudflareTunnel struct {
 	result   *CFTunnelResult
 	cfg      *config.CloudflareConfig
 	cmd      *exec.Cmd
+	cmdDone  chan struct{}
 	mu       sync.Mutex
 	running  bool
 	stopping bool
 	cancel   context.CancelFunc
 
-	locMu          sync.Mutex
-	locations      map[string]string // connIndex -> edge colo, e.g. "0" -> "lax13"
-	lastKickAt     time.Time
-	lastRefreshAt  time.Time
-	needsRefresh   bool
-	probeResult    EdgeProbe
+	locMu         sync.Mutex
+	locations     map[string]string // connIndex -> edge colo, e.g. "0" -> "lax13"
+	lastKickAt    time.Time
+	lastRefreshAt time.Time
+	needsRefresh  bool
+	probeResult   EdgeProbe
 }
 
 // NewCloudflareTunnel creates a supervisor for a Cloudflare Tunnel.
 func NewCloudflareTunnel(res *CFTunnelResult, cfCfg ...*config.CloudflareConfig) *CloudflareTunnel {
-	var cfg *config.CloudflareConfig
-	if len(cfCfg) > 0 {
-		cfg = cfCfg[0]
+	var cfgCopy *config.CloudflareConfig
+	if len(cfCfg) > 0 && cfCfg[0] != nil {
+		cp := *cfCfg[0]
+		cfgCopy = &cp
 	}
 	return &CloudflareTunnel{
 		result: res,
-		cfg:    cfg,
+		cfg:    cfgCopy,
 	}
 }
 
@@ -179,6 +197,7 @@ func (t *CloudflareTunnel) launchProcessLocked(ctx context.Context, binPath stri
 	}
 
 	t.cmd = cmd
+	t.cmdDone = make(chan struct{})
 	t.running = true
 	return nil
 }
@@ -274,14 +293,54 @@ func InvalidateTunnelCache() error {
 	return nil
 }
 
+const (
+	minReconnectBackoff  = 3 * time.Second
+	maxReconnectBackoff  = 60 * time.Second
+	healthyRunResetAfter = 30 * time.Second
+)
+
+// nextReconnectBackoff computes exponential backoff (3s -> 6s -> 12s -> 24s -> 48s -> max 60s)
+// with ±20% jitter so offline networks neither busy-spin every 3s nor thunder-herd on recovery (P1-5).
+func nextReconnectBackoff(failures int) time.Duration {
+	if failures < 0 {
+		failures = 0
+	}
+	if failures > 5 {
+		failures = 5
+	}
+	base := minReconnectBackoff << failures
+	if base > maxReconnectBackoff {
+		base = maxReconnectBackoff
+	}
+	var jb [1]byte
+	if _, err := rand.Read(jb[:]); err == nil {
+		// Map 0..255 to -20%..+20%
+		delta := (int64(jb[0]) - 128) * int64(base) / 640
+		base = time.Duration(int64(base) + delta)
+	}
+	if base < time.Second {
+		base = time.Second
+	}
+	return base
+}
+
 func (t *CloudflareTunnel) supervise(ctx context.Context, binPath string) {
+	failures := 0
 	for {
 		t.mu.Lock()
 		cmd := t.cmd
+		doneCh := t.cmdDone
 		t.mu.Unlock()
 
+		startedAt := time.Now()
 		if cmd != nil {
 			_ = cmd.Wait()
+			if doneCh != nil {
+				close(doneCh)
+			}
+		}
+		if time.Since(startedAt) >= healthyRunResetAfter {
+			failures = 0
 		}
 
 		t.mu.Lock()
@@ -298,6 +357,9 @@ func (t *CloudflareTunnel) supervise(ctx context.Context, binPath string) {
 		}
 		t.mu.Unlock()
 
+		delay := nextReconnectBackoff(failures)
+		failures++
+
 		if shouldRefresh {
 			_ = InvalidateTunnelCache()
 			if refreshed, err := RegisterOrFetchTunnel(ctx, workerURL, inviteCode); err == nil && refreshed != nil && refreshed.Token != "" {
@@ -305,17 +367,21 @@ func (t *CloudflareTunnel) supervise(ctx context.Context, binPath string) {
 				t.result = refreshed
 				t.needsRefresh = false
 				t.mu.Unlock()
+				failures = 0
+				delay = minReconnectBackoff
 				slog.Info(fmt.Sprintf("✅ [Cloudflare] 专属隧道凭据已自动刷新: %s", refreshed.URL))
 			} else {
-				slog.Warn("⚠️  [Cloudflare] 重新申请专属隧道凭据失败，稍后重试", "err", err)
+				slog.Warn("⚠️  [Cloudflare] 重新申请专属隧道凭据失败，稍后退避重试", "err", err, "retry_in", delay.Round(100*time.Millisecond))
 			}
 		} else {
-			slog.Warn("⚠️  [Cloudflare] 穿透守护进程退出，将在 3 秒后尝试自动恢复连接...")
+			slog.Warn(fmt.Sprintf("⚠️  [Cloudflare] 穿透守护进程退出，将在 %s 后尝试自动恢复连接...", delay.Round(100*time.Millisecond)))
 		}
+		timer := time.NewTimer(delay)
 		select {
 		case <-ctx.Done():
+			timer.Stop()
 			return
-		case <-time.After(3 * time.Second):
+		case <-timer.C:
 		}
 
 		t.mu.Lock()
@@ -342,12 +408,23 @@ func (t *CloudflareTunnel) Stop() {
 		return
 	}
 	proc := t.cmd.Process
+	doneCh := t.cmdDone
 	t.running = false
 	t.mu.Unlock()
 
 	_ = proc.Signal(os.Interrupt)
 	go func() {
-		time.Sleep(2500 * time.Millisecond)
+		if doneCh != nil {
+			timer := time.NewTimer(2500 * time.Millisecond)
+			defer timer.Stop()
+			select {
+			case <-doneCh:
+				return
+			case <-timer.C:
+			}
+		} else {
+			time.Sleep(2500 * time.Millisecond)
+		}
 		_ = proc.Kill()
 	}()
 }
@@ -449,8 +526,8 @@ func getCloudflaredDownloadURLs() []string {
 
 	var urls []string
 	for _, fn := range baseNames {
-		ghURL := fmt.Sprintf("https://github.com/cloudflare/cloudflared/releases/latest/download/%s", fn)
-		// 1. 优先使用国内知名加速镜像源
+		ghURL := fmt.Sprintf("https://github.com/cloudflare/cloudflared/releases/download/%s/%s", PinnedCloudflaredVersion, fn)
+		// 1. 优先使用国内知名加速镜像源（下载后强制校验官方 SHA-256 白名单，防篡改）
 		urls = append(urls, "https://ghfast.top/"+ghURL)
 		urls = append(urls, "https://ghproxy.net/"+ghURL)
 		// 2. 官方直链兜底
@@ -459,33 +536,9 @@ func getCloudflaredDownloadURLs() []string {
 	return urls
 }
 
-// detectLocalProxy checks environment variables and local proxy ports (Clash/V2Ray/Surge/Sing-box).
+// detectLocalProxy checks environment variables and local proxy ports (with 60s caching).
 func detectLocalProxy() *url.URL {
-	for _, envKey := range []string{"HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy"} {
-		if val := strings.TrimSpace(os.Getenv(envKey)); val != "" {
-			if !strings.Contains(val, "://") {
-				val = "http://" + val
-			}
-			if u, err := url.Parse(val); err == nil {
-				return u
-			}
-		}
-	}
-
-	// 自动探测本地常用代理端口
-	commonPorts := []int{7890, 10808, 1080, 6152}
-	for _, p := range commonPorts {
-		addr := fmt.Sprintf("127.0.0.1:%d", p)
-		conn, err := net.DialTimeout("tcp", addr, 150*time.Millisecond)
-		if err == nil {
-			_ = conn.Close()
-			return &url.URL{
-				Scheme: "http",
-				Host:   addr,
-			}
-		}
-	}
-	return nil
+	return config.DetectLocalProxy()
 }
 
 func createDownloadHTTPClient(downloadURL string) *http.Client {
@@ -522,7 +575,28 @@ func createDownloadHTTPClient(downloadURL string) *http.Client {
 	}
 }
 
+func expectedCloudflaredSHA256(downloadURL string) (string, error) {
+	parsed, err := url.Parse(downloadURL)
+	if err != nil {
+		return "", fmt.Errorf("invalid download URL: %w", err)
+	}
+	if !strings.EqualFold(parsed.Scheme, "https") {
+		return "", fmt.Errorf("refusing non-HTTPS cloudflared URL: %s", downloadURL)
+	}
+	assetName := filepath.Base(parsed.Path)
+	sum, ok := pinnedCloudflaredSHA256[assetName]
+	if !ok || sum == "" {
+		return "", fmt.Errorf("untrusted cloudflared asset %q (no pinned SHA-256)", assetName)
+	}
+	return sum, nil
+}
+
 func downloadAndInstallBinary(ctx context.Context, downloadURL, destPath string) error {
+	expectedSHA, err := expectedCloudflaredSHA256(downloadURL)
+	if err != nil {
+		return err
+	}
+
 	req, err := http.NewRequestWithContext(ctx, "GET", downloadURL, nil)
 	if err != nil {
 		return err
@@ -540,12 +614,45 @@ func downloadAndInstallBinary(ctx context.Context, downloadURL, destPath string)
 		return fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 
+	dlTmp := destPath + ".download.tmp"
 	tmpFile := destPath + ".tmp"
+	defer os.Remove(dlTmp)
 	defer os.Remove(tmpFile)
 
+	// HIGH-02: Stream into non-executable staging file with 128 MiB cap and verify official SHA-256
+	// BEFORE extracting or marking executable.
+	dlOut, err := os.OpenFile(dlTmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
+	if err != nil {
+		return err
+	}
+	hasher := sha256.New()
+	n, copyErr := io.Copy(io.MultiWriter(dlOut, hasher), io.LimitReader(resp.Body, maxCloudflaredDownloadBytes+1))
+	closeErr := dlOut.Close()
+	if copyErr != nil {
+		return copyErr
+	}
+	if closeErr != nil {
+		return closeErr
+	}
+	if n > maxCloudflaredDownloadBytes {
+		return fmt.Errorf("cloudflared download exceeds 128 MiB limit")
+	}
+	if n == 0 {
+		return fmt.Errorf("cloudflared download is empty")
+	}
+	gotSHA := hex.EncodeToString(hasher.Sum(nil))
+	if !strings.EqualFold(gotSHA, expectedSHA) {
+		return fmt.Errorf("cloudflared SHA-256 mismatch (expected %s, got %s)", expectedSHA, gotSHA)
+	}
+
 	if strings.HasSuffix(downloadURL, ".tgz") || strings.HasSuffix(downloadURL, ".tar.gz") {
-		// 解压 tar.gz 提取 cloudflared 单文件
-		gzr, err := gzip.NewReader(resp.Body)
+		archiveFile, err := os.Open(dlTmp)
+		if err != nil {
+			return err
+		}
+		defer archiveFile.Close()
+
+		gzr, err := gzip.NewReader(archiveFile)
 		if err != nil {
 			return fmt.Errorf("gzip reader: %w", err)
 		}
@@ -561,16 +668,24 @@ func downloadAndInstallBinary(ctx context.Context, downloadURL, destPath string)
 			if err != nil {
 				return fmt.Errorf("tar read: %w", err)
 			}
-			if !hdr.FileInfo().IsDir() && (hdr.Name == "cloudflared" || strings.HasSuffix(hdr.Name, "/cloudflared")) {
+			if (hdr.Typeflag == tar.TypeReg || hdr.Typeflag == tar.TypeRegA) &&
+				(hdr.Name == "cloudflared" || strings.HasSuffix(hdr.Name, "/cloudflared")) {
 				out, err := os.OpenFile(tmpFile, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755)
 				if err != nil {
 					return err
 				}
-				if _, err := io.Copy(out, tr); err != nil {
+				written, err := io.Copy(out, io.LimitReader(tr, maxCloudflaredDownloadBytes+1))
+				if err != nil {
 					out.Close()
 					return err
 				}
-				out.Close()
+				if written > maxCloudflaredDownloadBytes || written == 0 {
+					out.Close()
+					return fmt.Errorf("invalid extracted cloudflared size (%d bytes)", written)
+				}
+				if err := out.Close(); err != nil {
+					return err
+				}
 				found = true
 				break
 			}
@@ -579,16 +694,9 @@ func downloadAndInstallBinary(ctx context.Context, downloadURL, destPath string)
 			return fmt.Errorf("binary 'cloudflared' not found inside archive")
 		}
 	} else {
-		// 直接是二进制文件 (如 Windows .exe)
-		out, err := os.OpenFile(tmpFile, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755)
-		if err != nil {
+		if err := os.Rename(dlTmp, tmpFile); err != nil {
 			return err
 		}
-		if _, err := io.Copy(out, resp.Body); err != nil {
-			out.Close()
-			return err
-		}
-		out.Close()
 	}
 
 	if err := os.Rename(tmpFile, destPath); err != nil {
@@ -604,34 +712,60 @@ func downloadAndInstallBinary(ctx context.Context, downloadURL, destPath string)
 	return nil
 }
 
-// GetStableMachineID retrieves or creates a persistent unique machine fingerprint.
+// GetStableMachineID retrieves an existing persistent machine credential or generates a new
+// 256-bit cryptographically random secret on first launch (CRIT-02).
+// Existing non-empty machine_id files are reused seamlessly to preserve allocated subdomains.
 func GetStableMachineID() string {
-	idFile := filepath.Join(config.GetDataDir(), "machine_id")
+	dataDir := config.GetDataDir()
+	idFile := filepath.Join(dataDir, "machine_id")
 	if data, err := os.ReadFile(idFile); err == nil {
 		str := strings.TrimSpace(string(data))
 		if len(str) >= 16 {
+			_ = os.Chmod(idFile, 0600)
 			return str
 		}
 	}
 
-	// Generate deterministic hash from hostname + MAC addresses
-	h := sha256.New()
-	if name, err := os.Hostname(); err == nil {
-		h.Write([]byte(name))
-	}
-	if ifaces, err := net.Interfaces(); err == nil {
-		for _, iface := range ifaces {
-			if len(iface.HardwareAddr) > 0 {
-				h.Write(iface.HardwareAddr)
-			}
+	raw := make([]byte, 32)
+	var rawID string
+	if _, err := rand.Read(raw); err == nil {
+		rawID = hex.EncodeToString(raw)
+	} else {
+		// Emergency fallback only if OS CSPRNG fails
+		h := sha256.New()
+		if name, hErr := os.Hostname(); hErr == nil {
+			h.Write([]byte(name))
 		}
+		fmt.Fprintf(h, ":%d", time.Now().UnixNano())
+		rawID = hex.EncodeToString(h.Sum(nil))
 	}
-	h.Write([]byte(runtime.GOOS + runtime.GOARCH))
-	rawID := hex.EncodeToString(h.Sum(nil))
 
-	_ = os.MkdirAll(config.GetDataDir(), 0700)
-	_ = os.WriteFile(idFile, []byte(rawID), 0600)
+	_ = os.MkdirAll(dataDir, 0700)
+	tmpFile := idFile + ".tmp"
+	if err := os.WriteFile(tmpFile, []byte(rawID+"\n"), 0600); err == nil {
+		if rErr := os.Rename(tmpFile, idFile); rErr != nil {
+			_ = os.Remove(tmpFile)
+			_ = os.WriteFile(idFile, []byte(rawID+"\n"), 0600)
+		}
+	} else {
+		_ = os.WriteFile(idFile, []byte(rawID+"\n"), 0600)
+	}
 	return rawID
+}
+
+// LoadCachedTunnelResult reads locally cached Cloudflare Tunnel credentials without network I/O.
+func LoadCachedTunnelResult() *CFTunnelResult {
+	cachePath := filepath.Join(config.GetDataDir(), "cf_tunnel.json")
+	data, err := os.ReadFile(cachePath)
+	if err != nil {
+		return nil
+	}
+	var cached CFTunnelResult
+	if err := json.Unmarshal(data, &cached); err != nil || cached.Token == "" || cached.URL == "" {
+		return nil
+	}
+	cached.Reused = true
+	return &cached
 }
 
 // RegisterOrFetchTunnel requests a permanent tunnel from the Worker or loads from cache.

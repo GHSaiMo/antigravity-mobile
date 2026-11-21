@@ -8,12 +8,15 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
 )
+
+var validRPCMuxPathRe = regexp.MustCompile(`^/(?:api/)?exa\.language_server_pb\.[A-Za-z0-9_.]+/[A-Za-z0-9_]+$`)
 
 // RPC multiplexing over a single WebSocket.
 //
@@ -219,9 +222,8 @@ func (p *Proxy) HandleRPCMux(w http.ResponseWriter, r *http.Request) {
 				_ = mc.send(muxErr, id, []byte("bad open metadata"))
 				continue
 			}
-			// Only the language-server RPC surface may be tunnelled.
-			if !strings.HasPrefix(meta.Path, "/exa.language_server_pb.") &&
-				!strings.HasPrefix(meta.Path, "/api/exa.language_server_pb.") {
+			// Only normalized language-server RPC methods may be tunnelled (no .., ?, or #).
+			if !validRPCMuxPathRe.MatchString(meta.Path) || strings.Contains(meta.Path, "..") {
 				_ = mc.send(muxErr, id, []byte("path not allowed"))
 				continue
 			}

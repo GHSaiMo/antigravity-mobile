@@ -83,6 +83,14 @@
 -dontwarn coil.**
 
 # ==============================================================================
+# Strip verbose/debug android.util.Log calls in Release builds
+# ==============================================================================
+-assumenosideeffects class android.util.Log {
+    public static int v(...);
+    public static int d(...);
+}
+
+# ==============================================================================
 # Google Play Services & ML Kit Document Scanner
 # ==============================================================================
 -keep class com.google.android.gms.internal.mlkit_document_scanner.** { *; }

@@ -6,9 +6,11 @@ import androidx.lifecycle.viewModelScope
 import com.antigravity.mobile.data.model.*
 import com.antigravity.mobile.data.service.ConnectionStatus
 import com.antigravity.mobile.data.service.LiveActivityStatusHelper
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 internal fun ChatViewModel.saveSessionToCache() {
     val state = _uiState.value
@@ -119,6 +121,67 @@ internal fun ChatViewModel.resetSession() {
     _uiState.value = ChatUiState(activeModel = favoriteModel1)
 }
 
+private fun ChatViewModel.buildStateFromCachedSession(
+    cascadeId: String,
+    cached: CachedChatSession,
+    initialTitle: String?,
+    defaultTitle: String,
+    resolvedWs: String,
+    isDraft: Boolean,
+    attachments: List<AttachmentImage>
+): ChatUiState {
+    val healed = sanitizeMessageOrder(cached.messages)
+    if (healed.size != cached.messages.size) {
+        cacheManager?.saveSession(cached.copy(messages = healed))
+    }
+    val hasEarliest = healed.any { (it.stepIndex ?: extractStepIndex(it.id)) == 0 }
+    val hasMore = if (hasEarliest) false else cached.hasMore
+    val nextOffset = if (hasEarliest) 0 else cached.nextOffset
+    val isRunning = cached.status.equals("CASCADE_RUN_STATUS_RUNNING", ignoreCase = true) || cached.status.equals("RUNNING", ignoreCase = true)
+    val resolvedTitle = cached.title?.takeIf { it.isNotBlank() && it != "未命名会话".loc && it != "会话详情".loc }
+        ?: initialTitle?.takeIf { it.isNotBlank() }
+        ?: defaultTitle
+
+    return ChatUiState(
+        cascadeId = cascadeId,
+        title = resolvedTitle,
+        workspaceName = cached.workspaceName?.takeIf { it.isNotBlank() } ?: resolvedWs,
+        messages = healed,
+        runningTasks = cached.runningTasks ?: emptyList(),
+        queuedMessages = (cached.queuedMessages ?: emptyList()).filter { isUserQueuedItem(it) },
+        isLoading = false,
+        isNewConversation = false,
+        isRunning = isRunning,
+        isAwaitingResponse = false,
+        selectedImages = attachments,
+        canProceed = cached.canProceed ?: false,
+        proceedArtifactUri = cached.proceedArtifactUri,
+        pendingInteraction = cached.pendingInteraction,
+        activeModel = cached.activeModel?.takeIf { it.isNotBlank() } ?: if (!isDraft) {
+            val desktop = prefs?.cachedModelCatalog?.desktopActiveModel?.takeIf { it.isNotBlank() }
+            ModelDefaults.resolveActive(desktop, favoriteModel1, favoriteModel1, favoriteModel2)
+        } else {
+            favoriteModel1
+        },
+        activeModelName = if (!cached.activeModel.isNullOrBlank()) {
+            cached.activeModelName ?: _uiState.value.activeModelName
+        } else if (!isDraft && !prefs?.cachedModelCatalog?.desktopActiveModel.isNullOrBlank()) {
+            prefs?.cachedModelCatalog?.desktopActiveModelName ?: _uiState.value.activeModelName
+        } else {
+            cached.activeModelName ?: _uiState.value.activeModelName
+        },
+        startedAt = cached.startedAt ?: _uiState.value.startedAt,
+        errorMessage = null,
+        isLatestMessageError = cached.status.equals("CASCADE_RUN_STATUS_ERROR", ignoreCase = true) || cached.status.equals("ERROR", ignoreCase = true),
+        hasMore = hasMore,
+        nextOffset = nextOffset,
+        stepCount = cached.stepCount,
+        totalTools = cached.totalTools,
+        duration = cached.duration,
+        cascadeConfigRaw = cached.cascadeConfigRaw
+    )
+}
+
 internal fun ChatViewModel.prepareSession(
     cascadeId: String,
     initialTitle: String? = null,
@@ -158,13 +221,13 @@ internal fun ChatViewModel.prepareSession(
         ?: (if (resolvedDraftProject?.isPureChat == true) "Chat" else resolvedDraftProject?.name.orEmpty())
     val defaultTitle = if (isDraft) (if (resolvedWs.isNotBlank() && resolvedWs != "Chat") resolvedWs else "新对话".loc) else "会话 $cascadeId".loc
 
-    // Restore draft text and images immediately
+    // Restore draft text and warm memory images immediately (zero disk I/O on Main)
     val savedDraftText = prefs?.getDraftText(cascadeId).orEmpty()
     _inputText.value = savedDraftText
 
-    val draftImages = prefs?.loadDraftImages(cascadeId).orEmpty()
-    val attachments = if (draftImages.isNotEmpty()) {
-        draftImages.map { bytes ->
+    val memDraftImages = prefs?.getMemoryDraftImages(cascadeId)
+    val attachments = if (!memDraftImages.isNullOrEmpty()) {
+        memDraftImages.map { bytes ->
             AttachmentImage(
                 uri = Uri.EMPTY,
                 bitmap = null,
@@ -173,58 +236,17 @@ internal fun ChatViewModel.prepareSession(
         }
     } else emptyList()
 
-    // Restore instant cache if available
-    val cached = if (!isDraft) cacheManager?.loadSession(cascadeId) else null
-    if (cached != null) {
-        val healed = sanitizeMessageOrder(cached.messages)
-        if (healed.size != cached.messages.size) {
-            cacheManager?.saveSession(cached.copy(messages = healed))
-        }
-        val hasEarliest = healed.any { (it.stepIndex ?: extractStepIndex(it.id)) == 0 }
-        val hasMore = if (hasEarliest) false else cached.hasMore
-        val nextOffset = if (hasEarliest) 0 else cached.nextOffset
-        val isRunning = cached.status.equals("CASCADE_RUN_STATUS_RUNNING", ignoreCase = true) || cached.status.equals("RUNNING", ignoreCase = true)
-        val resolvedTitle = cached.title?.takeIf { it.isNotBlank() && it != "未命名会话".loc && it != "会话详情".loc }
-            ?: initialTitle?.takeIf { it.isNotBlank() }
-            ?: defaultTitle
-
-        _uiState.value = ChatUiState(
+    // Restore instant memory cache if warm; hydrate cold disk session/images on Dispatchers.IO
+    val memCached = if (!isDraft) cacheManager?.getMemoryCachedSession(cascadeId) else null
+    if (memCached != null) {
+        _uiState.value = buildStateFromCachedSession(
             cascadeId = cascadeId,
-            title = resolvedTitle,
-            workspaceName = cached.workspaceName?.takeIf { it.isNotBlank() } ?: resolvedWs,
-            messages = healed,
-            runningTasks = cached.runningTasks ?: emptyList(),
-            queuedMessages = (cached.queuedMessages ?: emptyList()).filter { isUserQueuedItem(it) },
-            isLoading = false,
-            isNewConversation = false,
-            isRunning = isRunning,
-            isAwaitingResponse = false,
-            selectedImages = attachments,
-            canProceed = cached.canProceed ?: false,
-            proceedArtifactUri = cached.proceedArtifactUri,
-            pendingInteraction = cached.pendingInteraction,
-            activeModel = cached.activeModel?.takeIf { it.isNotBlank() } ?: if (!isDraft) {
-                val desktop = prefs?.cachedModelCatalog?.desktopActiveModel?.takeIf { it.isNotBlank() }
-                ModelDefaults.resolveActive(desktop, favoriteModel1, favoriteModel1, favoriteModel2)
-            } else {
-                favoriteModel1
-            },
-            activeModelName = if (!cached.activeModel.isNullOrBlank()) {
-                cached.activeModelName ?: _uiState.value.activeModelName
-            } else if (!isDraft && !prefs?.cachedModelCatalog?.desktopActiveModel.isNullOrBlank()) {
-                prefs?.cachedModelCatalog?.desktopActiveModelName ?: _uiState.value.activeModelName
-            } else {
-                cached.activeModelName ?: _uiState.value.activeModelName
-            },
-            startedAt = cached.startedAt ?: _uiState.value.startedAt,
-            errorMessage = null,
-            isLatestMessageError = cached.status.equals("CASCADE_RUN_STATUS_ERROR", ignoreCase = true) || cached.status.equals("ERROR", ignoreCase = true),
-            hasMore = hasMore,
-            nextOffset = nextOffset,
-            stepCount = cached.stepCount,
-            totalTools = cached.totalTools,
-            duration = cached.duration,
-            cascadeConfigRaw = cached.cascadeConfigRaw
+            cached = memCached,
+            initialTitle = initialTitle,
+            defaultTitle = defaultTitle,
+            resolvedWs = resolvedWs,
+            isDraft = isDraft,
+            attachments = attachments
         )
     } else {
         _uiState.value = ChatUiState(
@@ -255,6 +277,39 @@ internal fun ChatViewModel.prepareSession(
             isLatestMessageError = false,
             markdownViewerData = null
         )
+    }
+
+    val needsColdSessionLoad = !isDraft && !isNewConversation && memCached == null
+    val needsColdDraftImages = memDraftImages == null && cascadeId.isNotBlank()
+    if (needsColdSessionLoad || needsColdDraftImages) {
+        viewModelScope.launch {
+            val (coldSession, coldDraftImgs) = withContext(Dispatchers.IO) {
+                val s = if (needsColdSessionLoad) cacheManager?.loadSession(cascadeId) else null
+                val imgs = if (needsColdDraftImages) prefs?.loadDraftImages(cascadeId).orEmpty() else emptyList()
+                s to imgs
+            }
+            if (_uiState.value.cascadeId != cascadeId) return@launch
+            val resolvedAttachments = if (coldDraftImgs.isNotEmpty() && _uiState.value.selectedImages.isEmpty()) {
+                coldDraftImgs.map { bytes ->
+                    AttachmentImage(uri = Uri.EMPTY, bitmap = null, byteArray = bytes)
+                }
+            } else {
+                _uiState.value.selectedImages
+            }
+            if (coldSession != null && _uiState.value.messages.isEmpty()) {
+                _uiState.value = buildStateFromCachedSession(
+                    cascadeId = cascadeId,
+                    cached = coldSession,
+                    initialTitle = initialTitle,
+                    defaultTitle = defaultTitle,
+                    resolvedWs = resolvedWs,
+                    isDraft = isDraft,
+                    attachments = resolvedAttachments
+                )
+            } else if (resolvedAttachments !== _uiState.value.selectedImages) {
+                _uiState.value = _uiState.value.copy(selectedImages = resolvedAttachments)
+            }
+        }
     }
 }
 
@@ -296,9 +351,9 @@ internal fun ChatViewModel.initSession(
         val savedDraftText = prefs?.getDraftText(cascadeId).orEmpty()
         _inputText.value = savedDraftText
 
-        val draftImages = prefs?.loadDraftImages(cascadeId).orEmpty()
-        val attachments = if (draftImages.isNotEmpty()) {
-            draftImages.map { bytes ->
+        val memDraftImages = prefs?.getMemoryDraftImages(cascadeId)
+        val attachments = if (!memDraftImages.isNullOrEmpty()) {
+            memDraftImages.map { bytes ->
                 AttachmentImage(
                     uri = Uri.EMPTY,
                     bitmap = null,
@@ -307,57 +362,16 @@ internal fun ChatViewModel.initSession(
             }
         } else emptyList()
 
-        val cached = if (!isDraft) cacheManager?.loadSession(cascadeId) else null
-        if (cached != null) {
-            val healed = sanitizeMessageOrder(cached.messages)
-            if (healed.size != cached.messages.size) {
-                cacheManager?.saveSession(cached.copy(messages = healed))
-            }
-            val hasEarliest = healed.any { (it.stepIndex ?: extractStepIndex(it.id)) == 0 }
-            val hasMore = if (hasEarliest) false else cached.hasMore
-            val nextOffset = if (hasEarliest) 0 else cached.nextOffset
-            val isRunning = cached.status.equals("CASCADE_RUN_STATUS_RUNNING", ignoreCase = true) || cached.status.equals("RUNNING", ignoreCase = true)
-            val resolvedTitle = cached.title?.takeIf { it.isNotBlank() && it != "未命名会话".loc && it != "会话详情".loc }
-                ?: initialTitle?.takeIf { it.isNotBlank() }
-                ?: defaultTitle
-
-            _uiState.value = ChatUiState(
+        val memCached = if (!isDraft) cacheManager?.getMemoryCachedSession(cascadeId) else null
+        if (memCached != null) {
+            _uiState.value = buildStateFromCachedSession(
                 cascadeId = cascadeId,
-                title = resolvedTitle,
-                workspaceName = cached.workspaceName?.takeIf { it.isNotBlank() } ?: resolvedWs,
-                messages = healed,
-                runningTasks = cached.runningTasks ?: emptyList(),
-                queuedMessages = (cached.queuedMessages ?: emptyList()).filter { isUserQueuedItem(it) },
-                isLoading = false,
-                isNewConversation = false,
-                isRunning = isRunning,
-                isAwaitingResponse = false,
-                selectedImages = attachments,
-                canProceed = cached.canProceed ?: false,
-                proceedArtifactUri = cached.proceedArtifactUri,
-                pendingInteraction = cached.pendingInteraction,
-                activeModel = cached.activeModel?.takeIf { it.isNotBlank() } ?: if (!isDraft) {
-                    val desktop = prefs?.cachedModelCatalog?.desktopActiveModel?.takeIf { it.isNotBlank() }
-                    ModelDefaults.resolveActive(desktop, favoriteModel1, favoriteModel1, favoriteModel2)
-                } else {
-                    favoriteModel1
-                },
-                activeModelName = if (!cached.activeModel.isNullOrBlank()) {
-                    cached.activeModelName ?: _uiState.value.activeModelName
-                } else if (!isDraft && !prefs?.cachedModelCatalog?.desktopActiveModel.isNullOrBlank()) {
-                    prefs?.cachedModelCatalog?.desktopActiveModelName ?: _uiState.value.activeModelName
-                } else {
-                    cached.activeModelName ?: _uiState.value.activeModelName
-                },
-                startedAt = cached.startedAt ?: _uiState.value.startedAt,
-                errorMessage = null,
-                isLatestMessageError = cached.status.equals("CASCADE_RUN_STATUS_ERROR", ignoreCase = true) || cached.status.equals("ERROR", ignoreCase = true),
-                hasMore = hasMore,
-                nextOffset = nextOffset,
-                stepCount = cached.stepCount,
-                totalTools = cached.totalTools,
-                duration = cached.duration,
-                cascadeConfigRaw = cached.cascadeConfigRaw
+                cached = memCached,
+                initialTitle = initialTitle,
+                defaultTitle = defaultTitle,
+                resolvedWs = resolvedWs,
+                isDraft = isDraft,
+                attachments = attachments
             )
         } else {
             _uiState.value = ChatUiState(
@@ -376,14 +390,14 @@ internal fun ChatViewModel.initSession(
                 proceedArtifactUri = null,
                 pendingInteraction = null,
                 activeModel = if (!isDraft) {
-                val desktop = prefs?.cachedModelCatalog?.desktopActiveModel?.takeIf { it.isNotBlank() }
-                ModelDefaults.resolveActive(desktop, favoriteModel1, favoriteModel1, favoriteModel2)
-            } else {
-                favoriteModel1
-            },
-            activeModelName = if (!isDraft && !prefs?.cachedModelCatalog?.desktopActiveModel.isNullOrBlank()) {
-                prefs?.cachedModelCatalog?.desktopActiveModelName
-            } else null,
+                    val desktop = prefs?.cachedModelCatalog?.desktopActiveModel?.takeIf { it.isNotBlank() }
+                    ModelDefaults.resolveActive(desktop, favoriteModel1, favoriteModel1, favoriteModel2)
+                } else {
+                    favoriteModel1
+                },
+                activeModelName = if (!isDraft && !prefs?.cachedModelCatalog?.desktopActiveModel.isNullOrBlank()) {
+                    prefs?.cachedModelCatalog?.desktopActiveModelName
+                } else null,
                 errorMessage = null,
                 isLatestMessageError = false,
                 markdownViewerData = null
@@ -413,23 +427,31 @@ internal fun ChatViewModel.initSession(
 
     restoreDraftFiles(cascadeId)
 
-    // Restore draft if available
+    // Restore draft text synchronously (SharedPreferences memory map) and draft images off Main thread
     prefs?.let { p ->
         val draftText = p.getDraftText(cascadeId)
         if (draftText.isNotBlank() && _inputText.value.isBlank()) {
             _inputText.value = draftText
         }
-        val draftImages = p.loadDraftImages(cascadeId)
-        if (draftImages.isNotEmpty() && _uiState.value.selectedImages.isEmpty()) {
-            val attachments = draftImages.map { bytes ->
-                AttachmentImage(
-                    uri = Uri.EMPTY,
-                    bitmap = null,
-                    byteArray = bytes
+        val memDraftImgs = p.getMemoryDraftImages(cascadeId)
+        if (memDraftImgs != null) {
+            if (memDraftImgs.isNotEmpty() && _uiState.value.selectedImages.isEmpty()) {
+                _uiState.value = _uiState.value.copy(
+                    selectedImages = memDraftImgs.map { bytes ->
+                        AttachmentImage(uri = Uri.EMPTY, bitmap = null, byteArray = bytes)
+                    }
                 )
             }
-            if (attachments.isNotEmpty()) {
-                _uiState.value = _uiState.value.copy(selectedImages = attachments)
+        } else if (cascadeId.isNotBlank()) {
+            viewModelScope.launch {
+                val diskImgs = withContext(Dispatchers.IO) { p.loadDraftImages(cascadeId) }
+                if (_uiState.value.cascadeId == cascadeId && diskImgs.isNotEmpty() && _uiState.value.selectedImages.isEmpty()) {
+                    _uiState.value = _uiState.value.copy(
+                        selectedImages = diskImgs.map { bytes ->
+                            AttachmentImage(uri = Uri.EMPTY, bitmap = null, byteArray = bytes)
+                        }
+                    )
+                }
             }
         }
     }
@@ -444,8 +466,22 @@ internal fun ChatViewModel.initSession(
         apiClient.markConversationAsRead(cascadeId)
     }
 
-    // Fetch cached messages via HTTP so entering session loads instantly without wiping local cache
+    // Hydrate cold disk cache on Dispatchers.IO first, then fetch latest messages via HTTP
     fetchJob = viewModelScope.launch {
+        if (!isNewConversation && _uiState.value.messages.isEmpty()) {
+            val coldCached = withContext(Dispatchers.IO) { cacheManager?.loadSession(cascadeId) }
+            if (coldCached != null && _uiState.value.cascadeId == cascadeId && _uiState.value.messages.isEmpty()) {
+                _uiState.value = buildStateFromCachedSession(
+                    cascadeId = cascadeId,
+                    cached = coldCached,
+                    initialTitle = initialTitle,
+                    defaultTitle = defaultTitle,
+                    resolvedWs = resolvedWs,
+                    isDraft = isDraft,
+                    attachments = _uiState.value.selectedImages
+                )
+            }
+        }
         if (!isNewConversation && _uiState.value.messages.isEmpty()) {
             _uiState.value = _uiState.value.copy(isLoading = true, errorMessage = null)
         }
@@ -621,13 +657,40 @@ internal fun ChatViewModel.resolveAwaitingForPayload(
     return stillAwaiting
 }
 
+internal fun ChatViewModel.handleAppBackgrounded() {
+    isAppInBackground = true
+    backgroundDisconnectJob?.cancel()
+    val state = _uiState.value
+    val graceMs = if (state.isRunning || state.isAwaitingResponse) 25_000L else 8_000L
+    backgroundDisconnectJob = viewModelScope.launch {
+        delay(graceMs)
+        if (isAppInBackground) {
+            wsClient.disconnect(intentional = true)
+            stopRunningFallbackPolling()
+        }
+    }
+}
+
+internal fun ChatViewModel.handleAppForegrounded() {
+    isAppInBackground = false
+    backgroundDisconnectJob?.cancel()
+    backgroundDisconnectJob = null
+    val activeCid = _uiState.value.cascadeId
+    if (activeCid.isNotBlank() && !activeCid.startsWith("local_draft_") && !activeCid.startsWith("draft_")) {
+        reconnectWebSocketIfDisconnected()
+        ensureRunningFallbackPolling()
+        refresh()
+    }
+}
+
 internal fun ChatViewModel.ensureRunningFallbackPolling() {
+    if (isAppInBackground) return
     val cid = _uiState.value.cascadeId
     if (cid.isBlank() || cid.startsWith("local_draft_") || cid.startsWith("draft_")) return
     if (runningFallbackPollJob?.isActive == true) return
 
     runningFallbackPollJob = viewModelScope.launch {
-        while (isActive) {
+        while (isActive && !isAppInBackground) {
             val state = _uiState.value
             val currentCid = state.cascadeId
             if (currentCid.isBlank() || currentCid.startsWith("local_draft_") || currentCid.startsWith("draft_")) {
@@ -640,13 +703,18 @@ internal fun ChatViewModel.ensureRunningFallbackPolling() {
                 break
             }
             val wsConnected = wsClient.connectionStatus.value == ConnectionStatus.CONNECTED
-            delay(if (wsConnected) 8_000L else 3_500L)
+            delay(if (wsConnected) 10_000L else 3_500L)
+            if (isAppInBackground) break
             val afterDelayState = _uiState.value
             if (afterDelayState.cascadeId != currentCid) break
             val stillShouldPoll = afterDelayState.isRunning ||
                 afterDelayState.isAwaitingResponse ||
                 (liveActivityManager?.hasNotification(currentCid) == true)
             if (!stillShouldPoll) break
+            // Suspend redundant HTTP fetchMessages polling while the WebSocket stream is actively delivering frames.
+            if (wsClient.hasRecentFrame(withinMs = 20_000L)) {
+                continue
+            }
             if (!_isRefreshing.value) {
                 refresh()
             }

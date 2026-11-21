@@ -108,7 +108,22 @@ extension ChatViewModel {
                     default: return .toolBatch(count: item.toolCount ?? 1, tools: item.toolNames ?? [])
                     }
                 }()
-                let imgDataList = (item.media ?? []).compactMap { Data(base64Encoded: $0) }
+                let imgDataList: [Data] = {
+                    guard let media = item.media, !media.isEmpty else { return [] }
+                    if !item.id.isEmpty,
+                       let cachedMedia = self.decodedStreamMediaCache[item.id],
+                       cachedMedia.rawMedia == media {
+                        return cachedMedia.decoded
+                    }
+                    let decoded = media.compactMap { Data(base64Encoded: $0, options: .ignoreUnknownCharacters) }
+                    if !item.id.isEmpty {
+                        if self.decodedStreamMediaCache.count >= 32 {
+                            self.decodedStreamMediaCache.removeAll(keepingCapacity: true)
+                        }
+                        self.decodedStreamMediaCache[item.id] = (media, decoded)
+                    }
+                    return decoded
+                }()
                 let resolvedImageUrls: [String] = {
                     let rawList = item.imageUrls ?? []
                     guard let baseURL = self.settings.gatewayURL else { return rawList }

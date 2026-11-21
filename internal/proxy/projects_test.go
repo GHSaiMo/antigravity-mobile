@@ -157,10 +157,14 @@ func TestHandleCreateCascadeRequestedModel(t *testing.T) {
 		{"unknown-model", "", false},
 	}
 
+	wsDir := t.TempDir()
+	t.Setenv("ALLOWED_WORKSPACE_ROOTS", wsDir)
+	wsURI := filePathToURI(wsDir)
+
 	for _, tc := range testCases {
 		lastReceivedPayload = nil
 		body, _ := json.Marshal(CreateCascadeRequest{
-			WorkspaceURI: "file:///test/ws",
+			WorkspaceURI: wsURI,
 			Model:        tc.modelInput,
 		})
 		req := httptest.NewRequest(http.MethodPost, "/gateway/cascade/new", strings.NewReader(string(body)))
@@ -210,8 +214,11 @@ func TestHandleCreateCascadeIdempotency(t *testing.T) {
 		IsHealthy: true,
 	})
 
+	wsDir := t.TempDir()
+	t.Setenv("ALLOWED_WORKSPACE_ROOTS", wsDir)
+
 	body, _ := json.Marshal(CreateCascadeRequest{
-		WorkspaceURI: "file:///test/ws",
+		WorkspaceURI: filePathToURI(wsDir),
 		Prompt:       "Initial prompt",
 	})
 
@@ -363,8 +370,11 @@ func TestHandleCreateCascadeWithPromptModelSync(t *testing.T) {
 	staleConfig := []byte(`{"plannerConfig":{"planModel":"MODEL_PLACEHOLDER_M318","modelName":"gemini-3.8-flash-high"}}`)
 	SetLastKnownCascadeConfig(staleConfig)
 
+	wsDir := t.TempDir()
+	t.Setenv("ALLOWED_WORKSPACE_ROOTS", wsDir)
+
 	body, _ := json.Marshal(CreateCascadeRequest{
-		WorkspaceURI: "file:///test/ws",
+		WorkspaceURI: filePathToURI(wsDir),
 		Prompt:       "Analyze the codebase",
 		Model:        "claude-opus-4-6-thinking",
 	})
@@ -573,6 +583,7 @@ func TestFetchProjectsFromWorkspaceStorage(t *testing.T) {
 
 func TestFetchProjectsFromGeminiConfig(t *testing.T) {
 	tmpDir := t.TempDir()
+	t.Setenv("ALLOWED_WORKSPACE_ROOTS", tmpDir)
 	cfgDir := filepath.Join(tmpDir, "config", "projects")
 	if err := os.MkdirAll(cfgDir, 0755); err != nil {
 		t.Fatalf("failed to create temp config/projects: %v", err)
@@ -644,6 +655,7 @@ func TestHandleCreateCascade_AutoResolveProjectID(t *testing.T) {
 	defer mockUpstream.Close()
 
 	tmpDir := t.TempDir()
+	t.Setenv("ALLOWED_WORKSPACE_ROOTS", tmpDir)
 	cfgDir := filepath.Join(tmpDir, "config", "projects")
 	_ = os.MkdirAll(cfgDir, 0755)
 	testProjectDir := filepath.Join(tmpDir, "TargetProject")

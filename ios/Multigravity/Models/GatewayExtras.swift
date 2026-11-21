@@ -434,6 +434,7 @@ public enum SlashCommandIconCatalog {
         "automation": "schedule",
         "browser": "language",
         "teamwork": "graph_2",
+        "swarm": "swarm_bee",
         "learn": "lightbulb_2",
         "boost": "bolt",
         "btw": "chat_add_on"
@@ -455,12 +456,18 @@ public enum SlashCommandIconCatalog {
     ]
 
     public static func resolveIcon(name: String, icon: String?, kind: String?) -> String {
-        if let trimmed = icon?.trimmingCharacters(in: .whitespacesAndNewlines),
+        let cleanName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedIcon = icon?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if cleanName.caseInsensitiveCompare("swarm") == .orderedSame ||
+           trimmedIcon?.caseInsensitiveCompare("swarm_bee") == .orderedSame ||
+           trimmedIcon?.caseInsensitiveCompare("hub") == .orderedSame {
+            return "swarm_bee"
+        }
+        if let trimmed = trimmedIcon,
            !trimmed.isEmpty,
            svgPaths[trimmed] != nil {
             return trimmed
         }
-        let cleanName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         if let sys = defaultSystemIcons[cleanName] {
             return sys
         }

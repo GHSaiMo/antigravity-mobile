@@ -20,7 +20,6 @@ class AntigravityMessagingService : FirebaseMessagingService() {
 
     override fun onNewToken(token: String) {
         super.onNewToken(token)
-        Log.d("FCM", "New FCM registration token received: $token")
         val prefs = PreferencesManager(applicationContext)
         prefs.fcmPushToken = token
 
@@ -35,7 +34,6 @@ class AntigravityMessagingService : FirebaseMessagingService() {
 
     override fun onMessageReceived(remoteMessage: RemoteMessage) {
         super.onMessageReceived(remoteMessage)
-        Log.d("FCM", "Remote message received: ${remoteMessage.data}")
 
         val prefs = PreferencesManager(applicationContext)
         if (!prefs.enableLiveNotifications) return
@@ -66,13 +64,21 @@ class AntigravityMessagingService : FirebaseMessagingService() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
+        val publicNotif = NotificationCompat.Builder(applicationContext, channelId)
+            .setContentTitle("Multigravity")
+            .setContentText(if (isAction) "有任务等待确认" else "有新的任务进展通知")
+            .setSmallIcon(R.drawable.ic_stat_antigravity)
+            .build()
+
         val builder = NotificationCompat.Builder(applicationContext, channelId)
             .setContentTitle(title)
-            .setContentText(body)
+            .setContentText(LiveActivityNotificationManager.redactNotificationSecrets(body))
             .setSmallIcon(R.drawable.ic_stat_antigravity)
             .setColor(if (isAction) 0xFFF59E0B.toInt() else 0xFF4F46E5.toInt())
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+            .setPublicVersion(publicNotif)
             .setPriority(if (isAction) NotificationCompat.PRIORITY_HIGH else NotificationCompat.PRIORITY_DEFAULT)
             .setCategory(if (isAction) NotificationCompat.CATEGORY_ALARM else NotificationCompat.CATEGORY_EVENT)
             .setDefaults(NotificationCompat.DEFAULT_ALL)

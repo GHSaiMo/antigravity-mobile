@@ -79,7 +79,7 @@ func ensureAntigravityStateDBs() {
 
 	for _, dbPath := range antigravityStateDBPaths() {
 		parentDir := filepath.Dir(dbPath)
-		if err := os.MkdirAll(parentDir, 0755); err != nil {
+		if err := os.MkdirAll(parentDir, 0o700); err != nil {
 			continue
 		}
 		if _, err := os.Stat(dbPath); os.IsNotExist(err) {
@@ -87,8 +87,20 @@ func ensureAntigravityStateDBs() {
 			if err := execSQLite(dbPath, initSQL); err != nil {
 				slog.Warn(fmt.Sprintf("[Cockpit] failed to initialize state.vscdb at %s", dbPath), "err", err)
 			} else {
+				enforceSQLiteDBPermissions(dbPath)
 				slog.Info(fmt.Sprintf("[Cockpit] initialized state.vscdb at %s", dbPath))
 			}
+		} else {
+			enforceSQLiteDBPermissions(dbPath)
+		}
+	}
+}
+
+func enforceSQLiteDBPermissions(dbPath string) {
+	for _, suffix := range []string{"", "-wal", "-shm"} {
+		p := dbPath + suffix
+		if _, err := os.Stat(p); err == nil {
+			_ = os.Chmod(p, 0o600)
 		}
 	}
 }
@@ -157,23 +169,23 @@ func isExecutableValid(path string) bool {
 }
 
 func execSQLite(dbPath, sql string) error {
-	cleanDB := filepath.Clean(dbPath)
-	if !strings.HasSuffix(cleanDB, ".vscdb") && !strings.HasSuffix(cleanDB, ".db") {
+	cleanDB, pathErr := safeSQLitePathArg(dbPath)
+	if pathErr != nil || (!strings.HasSuffix(cleanDB, ".vscdb") && !strings.HasSuffix(cleanDB, ".db")) {
 		return fmt.Errorf("invalid sqlite database path: %q", dbPath)
 	}
 	if p, lookErr := exec.LookPath("sqlite3"); lookErr == nil && isExecutableValid(p) {
-		if _, err := runCmdCombinedTimeout(5*time.Second, "sqlite3", "-cmd", ".timeout 3000", cleanDB, sql); err == nil {
+		if _, err := runCmdCombinedTimeout(5*time.Second, p, "-batch", "-cmd", ".timeout 3000", cleanDB, sql); err == nil {
 			return nil
 		}
 	}
-	pyScript := "import sqlite3, sys; conn = sqlite3.connect(sys.argv[1], timeout=3.0); conn.executescript(sys.argv[2]); conn.commit()"
+	pyScript := "import sqlite3, sys; conn = sqlite3.connect(sys.argv[1], timeout=3.0); conn.executescript(sys.argv[2]); conn.commit(); conn.close()"
 	var lastErr error
 	for _, py := range pythonCandidates() {
 		p, lookErr := exec.LookPath(py)
 		if lookErr != nil || !isExecutableValid(p) {
 			continue
 		}
-		out, err := runCmdCombinedTimeout(5*time.Second, py, "-c", pyScript, cleanDB, sql)
+		out, err := runCmdCombinedTimeout(5*time.Second, p, "-c", pyScript, cleanDB, sql)
 		if err == nil {
 			return nil
 		}
@@ -248,13 +260,8 @@ func syncLegacyBindAccount(accountID string) {
 	if err != nil {
 		return
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, append(out, '\n'), 0644); err != nil {
-		slog.Warn(fmt.Sprintf("[Cockpit] failed to write %s", tmp), "err", err)
-		return
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		slog.Warn(fmt.Sprintf("[Cockpit] failed to replace %s", path), "err", err)
+	if err := writeFileAtomic0600(path, append(out, '\n')); err != nil {
+		slog.Warn(fmt.Sprintf("[Cockpit] failed to write %s", path), "err", err)
 		return
 	}
 	slog.Info(fmt.Sprintf("[Cockpit] synced antigravity_legacy_instances bindAccountId %s -> %s", prev, accountID))
@@ -264,21 +271,24 @@ func syncLegacyBindAccount(accountID string) {
 var afterProfilePrepare = func() { time.Sleep(50 * time.Millisecond) }
 
 func querySQLite(dbPath, sql string) (string, error) {
-	cleanDB := filepath.Clean(dbPath)
+	cleanDB, pathErr := safeSQLitePathArg(dbPath)
+	if pathErr != nil {
+		return "", pathErr
+	}
 	if p, lookErr := exec.LookPath("sqlite3"); lookErr == nil && isExecutableValid(p) {
-		out, err := runCmdCombinedTimeout(5*time.Second, "sqlite3", "-batch", "-noheader", "-cmd", ".timeout 3000", cleanDB, sql)
+		out, err := runCmdCombinedTimeout(5*time.Second, p, "-readonly", "-batch", "-noheader", "-cmd", ".timeout 3000", cleanDB, sql)
 		if err == nil {
 			return strings.TrimSpace(string(out)), nil
 		}
 	}
-	pyScript := "import sqlite3, sys; conn = sqlite3.connect(sys.argv[1], timeout=3.0); cur = conn.cursor(); cur.execute(sys.argv[2]); row = cur.fetchone(); sys.stdout.write(str(row[0]) if row and row[0] is not None else '')"
+	pyScript := "import pathlib, sqlite3, sys; uri = pathlib.Path(sys.argv[1]).resolve().as_uri() + '?mode=ro'; conn = sqlite3.connect(uri, uri=True, timeout=3.0); cur = conn.cursor(); cur.execute(sys.argv[2]); row = cur.fetchone(); conn.close(); sys.stdout.write(str(row[0]) if row and row[0] is not None else '')"
 	var lastErr error
 	for _, py := range pythonCandidates() {
 		p, lookErr := exec.LookPath(py)
 		if lookErr != nil || !isExecutableValid(p) {
 			continue
 		}
-		out, err := runCmdCombinedTimeout(5*time.Second, py, "-c", pyScript, cleanDB, sql)
+		out, err := runCmdCombinedTimeout(5*time.Second, p, "-c", pyScript, cleanDB, sql)
 		if err == nil {
 			return strings.TrimSpace(string(out)), nil
 		}
@@ -353,6 +363,8 @@ func InjectAccountToAntigravityStateDB(acc *CockpitAccountDetail) error {
 
 		if err := execSQLite(dbPath, batchSQL.String()); err != nil {
 			slog.Warn(fmt.Sprintf("[Cockpit] failed to write unified tokens to %s", dbPath), "err", err)
+		} else {
+			enforceSQLiteDBPermissions(dbPath)
 		}
 		slog.Info(fmt.Sprintf("[Cockpit] Injected account %s tokens into %s", acc.Email, dbPath))
 	}
@@ -382,10 +394,7 @@ func SyncCockpitLocalState(accountID, email string) error {
 		}
 		if raw, err := json.MarshalIndent(curDoc, "", "  "); err == nil {
 			curPath := filepath.Join(dataDir, "current_account.json")
-			tmpPath := curPath + ".tmp"
-			if os.WriteFile(tmpPath, append(raw, '\n'), 0644) == nil {
-				_ = os.Rename(tmpPath, curPath)
-			}
+			_ = writeFileAtomic0600(curPath, append(raw, '\n'))
 		}
 	}
 
@@ -407,10 +416,7 @@ func SyncCockpitLocalState(accountID, email string) error {
 				}
 			}
 			if updated, err := json.MarshalIndent(idx, "", "  "); err == nil {
-				tmpPath := accPath + ".tmp"
-				if os.WriteFile(tmpPath, append(updated, '\n'), 0644) == nil {
-					_ = os.Rename(tmpPath, accPath)
-				}
+				_ = writeFileAtomic0600(accPath, append(updated, '\n'))
 			}
 		}
 	}

@@ -173,13 +173,15 @@ func TestWSTicketStore_DeviceQuotaEviction(t *testing.T) {
 
 func TestIsWebSocketPath(t *testing.T) {
 	for path, want := range map[string]bool{
-		"/connect-websocket":      true,
-		"/gateway/events":         true,
-		"/gateway/cascade/stream": true,
-		"/gateway/rpc-mux":        true,
-		"/gateway/status":         false,
-		"/gateway/events/extra":   false,
-		"/api/v1/cockpit/quotas":  false,
+		"/connect-websocket":        true,
+		"/gateway/events":           true,
+		"/gateway/cascade/stream":   true,
+		"/gateway/rpc-mux":          true,
+		"/gateway/terminal/stream":  true,
+		"/gateway/audio/dictate":    true,
+		"/gateway/status":           false,
+		"/gateway/events/extra":     false,
+		"/api/v1/cockpit/quotas":    false,
 	} {
 		if got := isWebSocketPath(path); got != want {
 			t.Errorf("isWebSocketPath(%q) = %v, want %v", path, got, want)

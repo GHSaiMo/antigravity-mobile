@@ -48,7 +48,21 @@ function initApp() {
         }
       }
     } else if (action === "stop-task") {
-      RunningTasksManager.stopTask(Number(btn.dataset.step), btn.dataset.id);
+      e.stopPropagation();
+      RunningTasksManager.stopTask(Number(btn.dataset.step) || 0, btn.dataset.id);
+    } else if (action === "install-plugin") {
+      const pluginId = btn.dataset.pluginId || btn.closest(".plugin-card-view")?.dataset.pluginId;
+      if (pluginId && typeof window.installPluginFromCard === "function") {
+        window.installPluginFromCard(pluginId);
+      }
+    } else if (action === "remove-pending-image") {
+      if (btn.dataset.id && typeof removePendingImage === "function") {
+        removePendingImage(btn.dataset.id);
+      }
+    } else if (action === "remove-pending-attachment") {
+      if (btn.dataset.id && typeof removePendingAttachment === "function") {
+        removePendingAttachment(btn.dataset.id);
+      }
     } else if (action === "queue-send") {
       LocalQueueManager.sendNow(btn.dataset.id);
     } else if (action === "queue-edit") {
@@ -408,6 +422,7 @@ function initApp() {
   // Search Filter with iOS Clear Button
   const searchInput = document.getElementById("conv-search");
   const searchClearBtn = document.getElementById("btn-search-clear");
+  let convSearchDebounceTimer = 0;
   if (searchInput) {
     searchInput.closest(".search-capsule")?.addEventListener("click", (e) => {
       if (e.target !== searchInput && !e.target.closest("button")) {
@@ -422,12 +437,16 @@ function initApp() {
           searchClearBtn.classList.add("hidden");
         }
       }
-      renderConversationList(currentTrajectories);
+      clearTimeout(convSearchDebounceTimer);
+      convSearchDebounceTimer = setTimeout(() => {
+        renderConversationList(currentTrajectories);
+      }, 120);
       scheduleContentSearch();
     });
   }
   if (searchClearBtn) {
     searchClearBtn.addEventListener("click", () => {
+      clearTimeout(convSearchDebounceTimer);
       if (searchInput) {
         searchInput.value = "";
         searchInput.focus();

@@ -772,3 +772,108 @@ func TestCookieMutationCSRFAndLogout(t *testing.T) {
 		t.Error("expected agy_dt cookie to be cleared (MaxAge < 0) on logout")
 	}
 }
+
+func TestReverseProxyCannotBypassLoopbackOrLeakAdminCookie(t *testing.T) {
+	t.Setenv("MULTIGRAVITY_ADMIN_TOKEN", "top-secret-admin-token-999")
+	store, err := NewAuthStore(filepath.Join(t.TempDir(), "auth_store.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(store.Close)
+
+	router := AuthMiddlewareWithPolicy(store, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}), AuthPolicy{ListenLoopback: true})
+
+	// 1. Reverse-proxied requests from 127.0.0.1 MUST be rejected (CRIT-01)
+	for _, hdr := range []struct{ k, v string }{
+		{"X-Forwarded-For", "203.0.113.88"},
+		{"X-Real-IP", "203.0.113.88"},
+		{"X-Forwarded-Proto", "https"},
+		{"Forwarded", "for=203.0.113.88;proto=https"},
+		{"X-Forwarded-Host", "mgy.example.com"},
+	} {
+		req := httptest.NewRequest(http.MethodGet, "/gateway/status", nil)
+		req.RemoteAddr = "127.0.0.1:50000"
+		req.Host = "127.0.0.1:58900"
+		req.Header.Set(hdr.k, hdr.v)
+		rr := httptest.NewRecorder()
+		router.ServeHTTP(rr, req)
+		if rr.Code != http.StatusUnauthorized {
+			t.Fatalf("header %s=%s bypassed auth on loopback: status=%d", hdr.k, hdr.v, rr.Code)
+		}
+		if strings.Contains(rr.Header().Get("Set-Cookie"), "top-secret-admin-token-999") {
+			t.Fatalf("header %s=%s leaked admin token in Set-Cookie!", hdr.k, hdr.v)
+		}
+	}
+
+	// 2. Genuine loopback succeeds without leaking MULTIGRAVITY_ADMIN_TOKEN into cookies (CRIT-01)
+	localReq := httptest.NewRequest(http.MethodGet, "/gateway/status", nil)
+	localReq.RemoteAddr = "127.0.0.1:50001"
+	localReq.Host = "127.0.0.1:58900"
+	localRR := httptest.NewRecorder()
+	router.ServeHTTP(localRR, localReq)
+	if localRR.Code != http.StatusOK {
+		t.Fatalf("expected 200 for genuine loopback, got %d", localRR.Code)
+	}
+	for _, c := range localRR.Result().Cookies() {
+		if c.Name == DeviceCookieName {
+			t.Fatalf("genuine loopback must not write MULTIGRAVITY_ADMIN_TOKEN into %s cookie", DeviceCookieName)
+		}
+	}
+}
+
+func TestCookieWSOriginCheckBlocksSiblingSubdomainCSWSH(t *testing.T) {
+	store, err := NewAuthStore(filepath.Join(t.TempDir(), "auth_store.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(store.Close)
+
+	devToken := "tok_paired_ws_cookie_client"
+	if err := store.AddDevice(PairedDevice{
+		DeviceID:   "dev-ws",
+		DeviceName: "Web",
+		Platform:   "web",
+		TokenHash:  HashToken(devToken),
+		CreatedAt:  time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	router := AuthMiddlewareWithPolicy(store, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}), AuthPolicy{TunnelEnabled: true})
+
+	// 1. Sibling *.jiuge.space subdomain CSWSH with Cookie must get 403 Forbidden (HIGH-01)
+	evilWS := httptest.NewRequest(http.MethodGet, "/gateway/terminal/stream?terminalId=1", nil)
+	evilWS.RemoteAddr = "127.0.0.1:40000"
+	evilWS.Host = "victim89.jiuge.space"
+	evilWS.Header.Set("CF-Ray", "testray")
+	evilWS.Header.Set("CF-Connecting-IP", "198.51.100.20")
+	evilWS.Header.Set("Upgrade", "websocket")
+	evilWS.Header.Set("Origin", "https://evil1234.jiuge.space")
+	evilWS.Header.Set("Sec-Fetch-Site", "same-site")
+	evilWS.AddCookie(&http.Cookie{Name: DeviceCookieName, Value: devToken})
+	evilRR := httptest.NewRecorder()
+	router.ServeHTTP(evilRR, evilWS)
+	if evilRR.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden for sibling-subdomain cookie CSWSH, got %d", evilRR.Code)
+	}
+
+	// 2. Legitimate same-origin WS with Cookie succeeds
+	okWS := httptest.NewRequest(http.MethodGet, "/gateway/terminal/stream?terminalId=1", nil)
+	okWS.RemoteAddr = "127.0.0.1:40000"
+	okWS.Host = "victim89.jiuge.space"
+	okWS.Header.Set("CF-Ray", "testray")
+	okWS.Header.Set("CF-Connecting-IP", "198.51.100.21")
+	okWS.Header.Set("Upgrade", "websocket")
+	okWS.Header.Set("Origin", "https://victim89.jiuge.space")
+	okWS.Header.Set("Sec-Fetch-Site", "same-origin")
+	okWS.AddCookie(&http.Cookie{Name: DeviceCookieName, Value: devToken})
+	okRR := httptest.NewRecorder()
+	router.ServeHTTP(okRR, okWS)
+	if okRR.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for same-origin cookie WS, got %d", okRR.Code)
+	}
+}

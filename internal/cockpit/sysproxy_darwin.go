@@ -111,21 +111,22 @@ func EnsureSystemProxy(targetPort int) (bool, error) {
 	if err != nil || service == "" {
 		return false, err
 	}
+	if strings.HasPrefix(service, "-") || strings.ContainsAny(service, "\r\n\x00") {
+		return false, fmt.Errorf("invalid network service name")
+	}
 
-	// Safety check 2: Check current status
-	out, err := runCmdTimeout(3*time.Second, "networksetup", "-getwebproxy", service)
+	// Safety check 2: Verify BOTH webproxy and securewebproxy explicitly point to loopback:targetPort
+	webOut, err := runCmdTimeout(3*time.Second, "networksetup", "-getwebproxy", service)
+	if err != nil {
+		return false, err
+	}
+	secOut, err := runCmdTimeout(3*time.Second, "networksetup", "-getsecurewebproxy", service)
 	if err != nil {
 		return false, err
 	}
 
-	strOut := string(out)
-	// Only auto-enable if the server is already set to 127.0.0.1 or localhost,
-	// indicating the user explicitly uses a local proxy client but it dropped/was disabled.
-	isConfigured := strings.Contains(strOut, "127.0.0.1") || strings.Contains(strOut, "localhost")
-	isDisabled := strings.Contains(strOut, "Enabled: No")
-
-	if isConfigured && isDisabled {
-		slog.Info(fmt.Sprintf("[Cockpit] 🔧 Detected local proxy %d is active but system proxy on '%s' is disabled. Re-enabling...", targetPort, service))
+	if shouldRestoreNetworkSetupProxies(string(webOut), string(secOut), targetPort) {
+		slog.Info(fmt.Sprintf("[Cockpit] 🔧 Detected local proxy 127.0.0.1:%d is active and matches '%s' proxy config. Re-enabling...", targetPort, service))
 		if err := runCmdRunTimeout(3*time.Second, "networksetup", "-setwebproxystate", service, "on"); err != nil {
 			slog.Warn("[Cockpit] Failed to enable webproxy", "service", service, "err", err)
 		}

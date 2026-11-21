@@ -41,6 +41,45 @@ func init() {
 	}
 }
 
+func isLoopbackHostname(h string) bool {
+	if strings.EqualFold(h, "localhost") || h == "127.0.0.1" || h == "::1" {
+		return true
+	}
+	if ip := net.ParseIP(h); ip != nil && ip.IsLoopback() {
+		return true
+	}
+	return false
+}
+
+func loopbackOriginMatchesRequestPort(u *url.URL, requestHost string) bool {
+	if requestHost == "" {
+		return false
+	}
+	reqHostname, reqPort, err := net.SplitHostPort(requestHost)
+	if err != nil {
+		reqHostname = requestHost
+		reqPort = ""
+	}
+	reqHostname = strings.Trim(reqHostname, "[]")
+	if !isLoopbackHostname(reqHostname) {
+		return false
+	}
+	originPort := u.Port()
+	if reqPort != "" {
+		if originPort == "" {
+			if strings.EqualFold(u.Scheme, "https") || strings.EqualFold(u.Scheme, "wss") {
+				originPort = "443"
+			} else if strings.EqualFold(u.Scheme, "http") || strings.EqualFold(u.Scheme, "ws") {
+				originPort = "80"
+			}
+		}
+		return originPort == reqPort
+	}
+	return originPort == "" ||
+		(originPort == "80" && (strings.EqualFold(u.Scheme, "http") || strings.EqualFold(u.Scheme, "ws"))) ||
+		(originPort == "443" && (strings.EqualFold(u.Scheme, "https") || strings.EqualFold(u.Scheme, "wss")))
+}
+
 // IsAllowedOrigin validates that an Origin header represents a trusted caller.
 // It blocks Cross-Site WebSocket Hijacking (CSWSH) from malicious third-party websites.
 func IsAllowedOrigin(origin string, requestHost string) bool {
@@ -57,8 +96,8 @@ func IsAllowedOrigin(origin string, requestHost string) bool {
 	originHost := strings.Trim(u.Hostname(), "[]")
 	lowerOrigin := strings.ToLower(origin)
 
-	// 1. Loopback addresses
-	if originHost == "127.0.0.1" || originHost == "localhost" || originHost == "::1" {
+	// 1. Loopback addresses (must match requestHost's loopback port unless explicitly listed in ALLOWED_ORIGINS)
+	if isLoopbackHostname(originHost) && loopbackOriginMatchesRequestPort(u, requestHost) {
 		return true
 	}
 

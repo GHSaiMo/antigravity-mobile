@@ -449,19 +449,38 @@ class ConnectionManager(private val context: Context) {
 
         fun isRelayHost(host: String): Boolean {
             val clean = host.trim().trim('[', ']').lowercase()
-            return clean.contains("relay")
+            return clean.endsWith(".mgy.jiuge.space") ||
+                clean.endsWith(".jiuge.space") ||
+                clean.endsWith(".trycloudflare.com")
         }
 
         fun isTailscaleHost(host: String): Boolean {
             val clean = host.trim().trim('[', ']').lowercase()
-            return clean.startsWith("100.") || clean.contains("ts.net")
+            if (clean == "ts.net" || clean.endsWith(".ts.net")) return true
+            if (clean.startsWith("100.")) {
+                val parts = clean.split(".")
+                if (parts.size == 4 && parts.all { p -> p.toIntOrNull()?.let { it in 0..255 } == true }) {
+                    val second = parts[1].toIntOrNull() ?: -1
+                    if (second in 64..127) return true
+                }
+            }
+            return false
         }
 
         fun isTrustedEndpoint(urlString: String, info: PairingInfo, usedBase: String): Boolean {
-            val host = extractHost(urlString)
+            val trimmed = urlString.trim()
+            val isHttps = trimmed.startsWith("https://", ignoreCase = true)
+            val isHttp = trimmed.startsWith("http://", ignoreCase = true)
+            if (!isHttps && !isHttp) return false
+
+            val host = extractHost(trimmed)
             if (host.isBlank()) return false
             val clean = host.trim('[', ']').lowercase()
-            val allowed = mutableListOf<String>()
+            if (isHttp && !isLanHost(clean) && !isTailscaleHost(clean)) {
+                return false
+            }
+
+            val allowed = mutableSetOf<String>()
             allowed.add(info.host.trim('[', ']').lowercase())
             info.lanHost?.takeIf { it.isNotBlank() }?.let { allowed.add(it.trim('[', ']').lowercase()) }
             info.ddnsHost?.takeIf { it.isNotBlank() }?.let { allowed.add(it.trim('[', ']').lowercase()) }
@@ -471,9 +490,19 @@ class ConnectionManager(private val context: Context) {
             if (usedHost.isNotBlank()) allowed.add(usedHost)
 
             if (allowed.contains(clean)) return true
-            if (clean.endsWith(".mgy.jiuge.space") || clean.endsWith(".jiuge.space") || clean.endsWith(".antigravity.internal")) return true
-            if (urlString.startsWith("https://", ignoreCase = true)) return true
-            return isLanHost(clean) || isTailscaleHost(clean) || isRelayHost(clean)
+            if (isHttps && (clean.endsWith(".mgy.jiuge.space") ||
+                    clean.endsWith(".jiuge.space") ||
+                    clean.endsWith(".trycloudflare.com") ||
+                    clean.endsWith(".antigravity.internal"))
+            ) {
+                return true
+            }
+            val parts = clean.split(".")
+            if (isHttps && parts.size >= 3) {
+                val parentSuffix = "." + parts.drop(1).joinToString(".")
+                if (allowed.any { it.endsWith(parentSuffix) }) return true
+            }
+            return isLanHost(clean) || isTailscaleHost(clean)
         }
 
         fun isSameEndpoint(url1: String?, url2: String?): Boolean {

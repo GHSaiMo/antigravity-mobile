@@ -3,6 +3,7 @@ package proxy
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -105,6 +106,9 @@ func loadWorkflowTemplates() ([]WorkflowTemplate, string, error) {
 }
 
 func normalizeAndValidateWorkflowTemplates(raw []WorkflowTemplate) ([]WorkflowTemplate, error) {
+	if len(raw) > 200 {
+		return nil, fmt.Errorf("too many workflow templates (max 200)")
+	}
 	out := make([]WorkflowTemplate, 0, len(raw))
 	seen := make(map[string]bool, len(raw))
 	nowMs := time.Now().UnixMilli()
@@ -253,7 +257,7 @@ func (p *Proxy) HandleWorkflowTemplates(w http.ResponseWriter, r *http.Request) 
 		var req struct {
 			Templates []WorkflowTemplate `json:"templates"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if err := json.NewDecoder(io.LimitReader(r.Body, 256*1024)).Decode(&req); err != nil {
 			writeJSONError(w, "invalid request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}

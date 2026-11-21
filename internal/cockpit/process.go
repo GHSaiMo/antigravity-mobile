@@ -4,8 +4,11 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -37,6 +40,54 @@ func runCmdStdinTimeout(d time.Duration, stdin string, name string, args ...stri
 	return cmd.Output()
 }
 
+func runCmdCombinedStdinTimeout(d time.Duration, stdin string, name string, args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), d)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Stdin = strings.NewReader(stdin)
+	return cmd.CombinedOutput()
+}
+
+// findLinuxAntigravityPIDs returns verified Antigravity / language_server PIDs owned by the
+// current user on Linux, excluding the gateway's own PID and isolated bot runtimes.
+func findLinuxAntigravityPIDs() []int {
+	var out []byte
+	var err error
+	if uid := os.Getuid(); uid >= 0 {
+		out, err = runCmdTimeout(3*time.Second, "ps", "-u", strconv.Itoa(uid), "-o", "pid=,command=")
+	}
+	if err != nil || len(out) == 0 {
+		out, err = runCmdTimeout(3*time.Second, "ps", "-eo", "pid=,command=")
+		if err != nil {
+			return nil
+		}
+	}
+
+	selfPID := os.Getpid()
+	var pids []int
+	seen := make(map[int]bool)
+	for _, rawLine := range strings.Split(string(out), "\n") {
+		line := strings.TrimSpace(rawLine)
+		if line == "" || strings.Contains(line, "<defunct>") || strings.Contains(line, "multicall") || strings.Contains(line, "groupchat-runtime") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		pid, convErr := strconv.Atoi(fields[0])
+		if convErr != nil || pid <= 0 || pid == selfPID || seen[pid] {
+			continue
+		}
+		base := filepath.Base(fields[1])
+		if strings.HasPrefix(base, "language_server") || base == "antigravity" || base == "antigravity-ide" {
+			seen[pid] = true
+			pids = append(pids, pid)
+		}
+	}
+	return pids
+}
+
 const (
 	antigravityAppName          = "Antigravity"
 	antigravityIDEAppName       = "Antigravity IDE"
@@ -60,12 +111,7 @@ func antigravityStillRunning() bool {
 		if runCmdRunTimeout(3*time.Second, "systemctl", "--user", "is-active", "--quiet", "antigravity-ls") == nil {
 			return true
 		}
-		for _, pat := range []string{"language_server", "antigravity"} {
-			if runCmdRunTimeout(3*time.Second, "pgrep", "-f", pat) == nil {
-				return true
-			}
-		}
-		return false
+		return len(findLinuxAntigravityPIDs()) > 0
 	}
 	if runtime.GOOS != "darwin" {
 		return runCmdRunTimeout(3*time.Second, "pgrep", "-f", "Antigravity.app") == nil
@@ -96,7 +142,9 @@ func signalAntigravity(sig syscall.Signal) {
 		return
 	}
 	if runtime.GOOS == "linux" {
-		_ = runCmdRunTimeout(3*time.Second, "pkill", fmt.Sprintf("-%d", sig), "-f", "language_server")
+		for _, pid := range findLinuxAntigravityPIDs() {
+			_ = runCmdRunTimeout(3*time.Second, "kill", fmt.Sprintf("-%d", sig), strconv.Itoa(pid))
+		}
 		return
 	}
 	patterns := []string{antigravityBundlePattern, antigravityIDEBundlePattern}
@@ -152,13 +200,13 @@ func quitRunningAntigravity() error {
 		if runCmdRunTimeout(3*time.Second, "systemctl", "--user", "is-active", "--quiet", "antigravity-ls") == nil {
 			_ = runCmdRunTimeout(5*time.Second, "systemctl", "--user", "stop", "antigravity-ls")
 		} else {
-			_ = runCmdRunTimeout(3*time.Second, "pkill", "-f", "language_server")
+			signalAntigravity(syscall.SIGTERM)
 		}
 		if waitUntilAntigravityExited(5 * time.Second) {
 			slog.Info("[Cockpit] Antigravity stopped cleanly on Linux")
 			return nil
 		}
-		_ = runCmdRunTimeout(3*time.Second, "pkill", "-9", "-f", "language_server")
+		signalAntigravity(syscall.SIGKILL)
 		return nil
 	}
 

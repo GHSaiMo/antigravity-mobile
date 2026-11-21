@@ -268,6 +268,19 @@ public struct MarkdownVideoPreviewCard: View {
         return (fn.isEmpty || fn == "raw") ? String(localized: "MP4 视频") : fn
     }
     
+    private var sanitizedShareURL: URL {
+        guard var comps = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let items = comps.queryItems, !items.isEmpty else {
+            return url
+        }
+        let stripped = items.filter { item in
+            let k = item.name.lowercased()
+            return k != "auth_token" && k != "token" && k != "ticket" && k != "device_token"
+        }
+        comps.queryItems = stripped.isEmpty ? nil : stripped
+        return comps.url ?? url
+    }
+
     public var body: some View {
         Button {
             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
@@ -376,7 +389,7 @@ public struct MarkdownVideoPreviewCard: View {
             } label: {
                 Label("播放视频", systemImage: "play.circle")
             }
-            ShareLink(item: url, preview: SharePreview(displayTitle)) {
+            ShareLink(item: sanitizedShareURL, preview: SharePreview(displayTitle)) {
                 Label("分享视频", systemImage: "square.and.arrow.up")
             }
         }
@@ -394,7 +407,17 @@ public struct MarkdownVideoPreviewCard: View {
         isLoading = true
         defer { isLoading = false }
         
-        let asset = AVURLAsset(url: url)
+        let asset: AVURLAsset = {
+            if NetworkTransport.isConfiguredGatewayOrigin(url),
+               let token = KeychainHelper.shared.read(key: .deviceToken) ?? AppSettings.shared.deviceToken,
+               !token.isEmpty {
+                return AVURLAsset(
+                    url: url,
+                    options: ["AVURLAssetHTTPHeaderFieldsKey": ["Authorization": "Bearer \(token)"]]
+                )
+            }
+            return AVURLAsset(url: url)
+        }()
         
         // Load duration
         if let duration = try? await asset.load(.duration) {

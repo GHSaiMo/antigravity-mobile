@@ -45,12 +45,18 @@ type AuthStore struct {
 	mu       sync.RWMutex
 	devices  map[string]PairedDevice // device_id -> PairedDevice
 	tokenMap map[string]string       // token_hash -> device_id
+	saveSeq  uint64                  // monotonic snapshot counter assigned under mu
 	filePath string
+
+	// saveMu serializes disk writes outside mu so slow filesystem I/O never blocks ValidateToken RLock.
+	saveMu       sync.Mutex
+	lastSavedSeq uint64
 
 	// P5: channel-based worker for UpdateLastSeen, avoiding per-request goroutine spawns.
 	lastSeenCh chan lastSeenUpdate
 	stopCh     chan struct{}
 	workerDone chan struct{}
+	bgWG       sync.WaitGroup
 	closeOnce  sync.Once
 
 	// S9: ticket store for short-lived one-time WebSocket / media authorization.
@@ -234,15 +240,24 @@ func (s *AuthStore) lastSeenWorker() {
 	}
 }
 
-// Close stops the background lastSeenWorker and waits for any in-flight atomic disk write
+// Close stops background workers/GC tickers and waits for any in-flight atomic disk write
 // to finish (preventing t.TempDir() RemoveAll races in unit tests).
 func (s *AuthStore) Close() {
-	if s.stopCh == nil {
+	if s == nil || s.stopCh == nil {
 		return
 	}
 	s.closeOnce.Do(func() {
 		close(s.stopCh)
 		<-s.workerDone
+		s.bgWG.Wait()
+		if s.wsTickets != nil {
+			s.wsTickets.Close()
+		}
+		if s.sidecarSessions != nil {
+			s.sidecarSessions.Close()
+		}
+		s.saveMu.Lock()
+		s.saveMu.Unlock()
 	})
 }
 
@@ -377,16 +392,32 @@ func (s *AuthStore) load() error {
 	return nil
 }
 
-// save writes the store JSON to disk atomically.
-func (s *AuthStore) save() error {
-	dir := filepath.Dir(s.filePath)
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		return fmt.Errorf("failed to create auth store dir: %w", err)
-	}
-
+// snapshotLocked captures a point-in-time slice of devices and assigns a monotonically
+// increasing sequence number. Caller MUST hold s.mu.Lock().
+func (s *AuthStore) snapshotLocked() ([]PairedDevice, uint64) {
+	s.saveSeq++
+	seq := s.saveSeq
 	list := make([]PairedDevice, 0, len(s.devices))
 	for _, dev := range s.devices {
 		list = append(list, dev)
+	}
+	return list, seq
+}
+
+// persistSnapshot writes a snapshot to disk atomically under saveMu (never holding s.mu).
+// If a newer snapshot (higher seq) has already been persisted, the stale write is skipped
+// so a concurrent UpdateLastSeen never overwrites a newly paired or revoked device (P1-5).
+func (s *AuthStore) persistSnapshot(list []PairedDevice, seq uint64) error {
+	s.saveMu.Lock()
+	defer s.saveMu.Unlock()
+
+	if seq < s.lastSavedSeq {
+		return nil
+	}
+
+	dir := filepath.Dir(s.filePath)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return fmt.Errorf("failed to create auth store dir: %w", err)
 	}
 
 	data, err := json.MarshalIndent(list, "", "  ")
@@ -399,14 +430,17 @@ func (s *AuthStore) save() error {
 		return err
 	}
 
-	return os.Rename(tmpFile, s.filePath)
+	if err := os.Rename(tmpFile, s.filePath); err != nil {
+		_ = os.Remove(tmpFile)
+		return err
+	}
+	s.lastSavedSeq = seq
+	return nil
 }
 
 // AddDevice adds or updates a paired device.
 func (s *AuthStore) AddDevice(dev PairedDevice) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	// If updating an existing device, remove its previous token to prevent orphaned active credentials
 	if oldDev, exists := s.devices[dev.DeviceID]; exists && oldDev.TokenHash != "" {
 		delete(s.tokenMap, oldDev.TokenHash)
@@ -416,8 +450,10 @@ func (s *AuthStore) AddDevice(dev PairedDevice) error {
 	if dev.TokenHash != "" {
 		s.tokenMap[dev.TokenHash] = dev.DeviceID
 	}
+	snap, seq := s.snapshotLocked()
+	s.mu.Unlock()
 
-	return s.save()
+	return s.persistSnapshot(snap, seq)
 }
 
 // FindByDeviceKey returns the paired device registered with the given client device key.
@@ -467,20 +503,35 @@ func (s *AuthStore) ValidateToken(rawToken string) (*PairedDevice, bool) {
 	}
 
 	// S8: Transparent in-place migration — upgrade legacy unsalted hash to modern salted hash.
-	// The next call to ValidateToken will find the salted hash directly, removing the legacy path.
+	// Re-verify d.TokenHash == expectedLegacy under write lock so a concurrent token rotation
+	// for the same DeviceKey is never overwritten by a stale migration (LOW-01).
 	if isLegacy && hash != "" {
+		expectedLegacy := LegacyHashToken(rawToken)
 		auditInfo("TOKEN_MIGRATION", "device_id", deviceID, "detail", "legacy unsalted hash upgraded to salted hash")
-		go func() {
-			s.mu.Lock()
-			defer s.mu.Unlock()
-			if d, ok := s.devices[deviceID]; ok {
-				legacyHash := LegacyHashToken(rawToken)
-				delete(s.tokenMap, legacyHash)
-				d.TokenHash = hash
-				s.devices[deviceID] = d
-				s.tokenMap[hash] = deviceID
-				_ = s.save()
+		if s.stopCh != nil {
+			select {
+			case <-s.stopCh:
+				devCopy := dev
+				return &devCopy, true
+			default:
 			}
+		}
+		s.bgWG.Add(1)
+		go func() {
+			defer s.bgWG.Done()
+			s.mu.Lock()
+			d, ok := s.devices[deviceID]
+			if !ok || d.TokenHash != expectedLegacy {
+				s.mu.Unlock()
+				return
+			}
+			delete(s.tokenMap, expectedLegacy)
+			d.TokenHash = hash
+			s.devices[deviceID] = d
+			s.tokenMap[hash] = deviceID
+			snap, seq := s.snapshotLocked()
+			s.mu.Unlock()
+			_ = s.persistSnapshot(snap, seq)
 		}()
 	}
 
@@ -513,10 +564,9 @@ func (s *AuthStore) UpdateLastSeen(deviceID, remoteAddr string) {
 	s.mu.RUnlock()
 
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	dev, ok = s.devices[deviceID]
 	if !ok {
+		s.mu.Unlock()
 		return
 	}
 
@@ -527,8 +577,15 @@ func (s *AuthStore) UpdateLastSeen(deviceID, remoteAddr string) {
 	dev.LastSeenIP = cleanIP
 	s.devices[deviceID] = dev
 
+	var snap []PairedDevice
+	var seq uint64
 	if shouldSave {
-		_ = s.save()
+		snap, seq = s.snapshotLocked()
+	}
+	s.mu.Unlock()
+
+	if shouldSave {
+		_ = s.persistSnapshot(snap, seq)
 	}
 }
 
@@ -557,10 +614,11 @@ func (s *AuthStore) RemoveDevice(deviceID string) error {
 
 	delete(s.devices, deviceID)
 	delete(s.tokenMap, dev.TokenHash)
-	err := s.save()
+	snap, seq := s.snapshotLocked()
 	cb := s.onDeviceRemoved
 	s.mu.Unlock()
 
+	err := s.persistSnapshot(snap, seq)
 	if err == nil && cb != nil {
 		cb(deviceID)
 	}
@@ -573,12 +631,11 @@ func (s *AuthStore) ClearAll() (int, error) {
 	count := len(s.devices)
 	s.devices = make(map[string]PairedDevice)
 	s.tokenMap = make(map[string]string)
-
-	err := s.save()
+	snap, seq := s.snapshotLocked()
 	cb := s.onClearAll
 	s.mu.Unlock()
 
-	if err != nil {
+	if err := s.persistSnapshot(snap, seq); err != nil {
 		return 0, err
 	}
 	if cb != nil {

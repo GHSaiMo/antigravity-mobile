@@ -129,18 +129,22 @@ func writeGeminiKeychainOAuth(tok *parsedOAuth) error {
 	secret := "go-keyring-base64:" + base64.StdEncoding.EncodeToString(raw)
 
 	if runtime.GOOS == "windows" {
-		out, err := runCmdCombinedTimeout(5*time.Second, "cmdkey", "/generic:LegacyGeneric:target=gemini:antigravity", "/user:antigravity", "/pass:"+secret)
-		if err != nil {
-			return fmt.Errorf("cmdkey write: %w (%s)", err, strings.TrimSpace(string(out)))
+		if err := writeWindowsGenericCredential("gemini:antigravity", "antigravity", secret); err != nil {
+			return fmt.Errorf("windows credential write: %w", err)
 		}
 		slog.Info(fmt.Sprintf("[Cockpit] updated Windows Credential Manager gemini/antigravity for %s", tok.Email))
 		return nil
 	}
 
 	if runtime.GOOS == "darwin" {
-		out, err := runCmdCombinedTimeout(5*time.Second, "security", "add-generic-password", "-U", "-s", "gemini", "-a", "antigravity", "-w", secret)
+		if strings.ContainsAny(secret, " \t\r\n\"'\\") {
+			return fmt.Errorf("invalid characters in encoded keychain secret")
+		}
+		stdinCmd := fmt.Sprintf("add-generic-password -U -s gemini -a antigravity -w \"%s\"\n", secret)
+		out, err := runCmdCombinedStdinTimeout(5*time.Second, stdinCmd, "security", "-i")
 		if err != nil {
-			return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
+			cleanOut := strings.ReplaceAll(strings.TrimSpace(string(out)), secret, "[REDACTED]")
+			return fmt.Errorf("%w: %s", err, cleanOut)
 		}
 		slog.Info(fmt.Sprintf("[Cockpit] updated keychain gemini/antigravity for %s", tok.Email))
 		return nil
@@ -169,13 +173,24 @@ func isSafeProxyURL(raw string) bool {
 	return scheme == "http" || scheme == "https" || scheme == "socks5" || scheme == "socks5h"
 }
 
+func redactProxyURL(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if u, err := url.Parse(raw); err == nil && u.Host != "" {
+		return u.Redacted()
+	}
+	if idx := strings.Index(raw, "@"); idx != -1 {
+		return "***@" + raw[idx+1:]
+	}
+	return raw
+}
+
 func launchAntigravityWithCockpitProxy() error {
 	var proxy, noProxy string
 	hasProxy := false
 	if cfg, err := getCockpitConfig(); err == nil && cfg.GlobalProxyEnabled && strings.TrimSpace(cfg.GlobalProxyURL) != "" {
 		p := strings.TrimSpace(cfg.GlobalProxyURL)
 		if !isSafeProxyURL(p) {
-			slog.Warn(fmt.Sprintf("[Cockpit] ⚠️ rejected unsafe GlobalProxyURL %q; launching without proxy", p))
+			slog.Warn(fmt.Sprintf("[Cockpit] ⚠️ rejected unsafe GlobalProxyURL %q; launching without proxy", redactProxyURL(p)))
 		} else {
 			proxy = p
 			noProxy = strings.TrimSpace(cfg.GlobalProxyNoProxy)
@@ -224,7 +239,7 @@ func launchAntigravityWithCockpitProxy() error {
 				cmd.Env = append(cmd.Env, key+"="+proxy)
 			}
 			cmd.Env = append(cmd.Env, "no_proxy="+noProxy, "NO_PROXY="+noProxy)
-			slog.Info(fmt.Sprintf("[Cockpit] launching Antigravity.exe with proxy %s", proxy))
+			slog.Info(fmt.Sprintf("[Cockpit] launching Antigravity.exe with proxy %s", redactProxyURL(proxy)))
 		} else {
 			slog.Info("[Cockpit] launching Antigravity.exe without global proxy")
 		}
@@ -254,7 +269,7 @@ func launchAntigravityWithCockpitProxy() error {
 			args = append(args, "--env", key+"="+proxy)
 		}
 		args = append(args, "--env", "no_proxy="+noProxy, "--env", "NO_PROXY="+noProxy)
-		slog.Info(fmt.Sprintf("[Cockpit] launching Antigravity.app with proxy %s", proxy))
+		slog.Info(fmt.Sprintf("[Cockpit] launching Antigravity.app with proxy %s", redactProxyURL(proxy)))
 	} else {
 		slog.Info("[Cockpit] launching Antigravity.app without global proxy")
 	}
@@ -313,19 +328,22 @@ func loadOAuthFromVscdb() (*parsedOAuth, error) {
 		cachedOAuthMu.RUnlock()
 
 		const oauthQuerySQL = "SELECT value FROM ItemTable WHERE key = 'antigravityUnifiedStateSync.oauthToken';"
-		cleanDB := filepath.Clean(dbPath)
+		cleanDB, pathErr := safeSQLitePathArg(dbPath)
+		if pathErr != nil {
+			continue
+		}
 		var out []byte
 		if p, lookErr := exec.LookPath("sqlite3"); lookErr == nil && isExecutableValid(p) {
-			out, err = runCmdCombinedTimeout(5*time.Second, "sqlite3", "-batch", "-noheader", "-cmd", ".timeout 3000", cleanDB, oauthQuerySQL)
+			out, err = runCmdCombinedTimeout(5*time.Second, p, "-readonly", "-batch", "-noheader", "-cmd", ".timeout 3000", cleanDB, oauthQuerySQL)
 		}
 		if len(out) == 0 {
-			pyScript := "import sqlite3, sys; conn = sqlite3.connect(sys.argv[1], timeout=3.0); cur = conn.cursor(); cur.execute('SELECT value FROM ItemTable WHERE key = ?', (sys.argv[2],)); row = cur.fetchone(); sys.stdout.write(row[0] if row and row[0] else '')"
+			pyScript := "import pathlib, sqlite3, sys; uri = pathlib.Path(sys.argv[1]).resolve().as_uri() + '?mode=ro'; conn = sqlite3.connect(uri, uri=True, timeout=3.0); cur = conn.cursor(); cur.execute('SELECT value FROM ItemTable WHERE key = ?', (sys.argv[2],)); row = cur.fetchone(); conn.close(); sys.stdout.write(row[0] if row and row[0] else '')"
 			for _, pyExe := range pythonCandidates() {
 				p, lookErr := exec.LookPath(pyExe)
 				if lookErr != nil || !isExecutableValid(p) {
 					continue
 				}
-				if pyOut, pyErr := runCmdTimeout(5*time.Second, pyExe, "-c", pyScript, cleanDB, "antigravityUnifiedStateSync.oauthToken"); pyErr == nil && len(pyOut) > 0 {
+				if pyOut, pyErr := runCmdTimeout(5*time.Second, p, "-c", pyScript, cleanDB, "antigravityUnifiedStateSync.oauthToken"); pyErr == nil && len(pyOut) > 0 {
 					out = pyOut
 					err = nil
 					break
@@ -486,11 +504,7 @@ func writeJetskiOAuthFile(tok *parsedOAuth) error {
 	if err != nil {
 		return err
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, raw, 0600); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, path); err != nil {
+	if err := writeFileAtomic0600(path, raw); err != nil {
 		return err
 	}
 	slog.Info(fmt.Sprintf("[Cockpit] wrote jetski-standalone-oauth-token for %s", tok.Email))
@@ -515,7 +529,7 @@ func syncGeminiGoogleAccounts(email string) {
 	if err != nil {
 		return
 	}
-	_ = os.WriteFile(path, append(raw, '\n'), 0600)
+	_ = writeFileAtomic0600(path, append(raw, '\n'))
 }
 
 func waitLiveUserEmail(d time.Duration) (string, error) {
@@ -582,8 +596,25 @@ func liveUserEmail() (string, error) {
 	return strings.TrimSpace(data.UserStatus.Email), nil
 }
 
+var (
+	lsLookupMu      sync.Mutex
+	cachedLSPort    int
+	cachedLSCSRF    string
+	cachedLSUntil   time.Time
+	lastLSFailScan  time.Time
+)
+
+func cacheFoundLS(port int, csrf string) {
+	lsLookupMu.Lock()
+	cachedLSPort = port
+	cachedLSCSRF = csrf
+	cachedLSUntil = time.Now().Add(5 * time.Second)
+	lastLSFailScan = time.Time{}
+	lsLookupMu.Unlock()
+}
+
 func lookupLanguageServer() (int, string, error) {
-	// Fast path: check daemon discovery files (hub_*.json preferred, newest first, verified listening)
+	// Fast path 1: check daemon discovery files (hub_*.json preferred, newest first, verified listening)
 	if home, err := os.UserHomeDir(); err == nil && home != "" {
 		daemonDir := filepath.Join(home, ".gemini", "antigravity", "daemon")
 		var files []string
@@ -622,11 +653,25 @@ func lookupLanguageServer() (int, string, error) {
 				if data, err := os.ReadFile(entry.path); err == nil {
 					var d daemonInfo
 					if json.Unmarshal(data, &d) == nil && d.HTTPSPort > 0 && IsCockpitListening(d.HTTPSPort, 300*time.Millisecond) {
+						cacheFoundLS(d.HTTPSPort, d.CSRFToken)
 						return d.HTTPSPort, d.CSRFToken, nil
 					}
 				}
 			}
 		}
+	}
+
+	// Fast path 2: short TTL positive cache & 1.5s negative backoff to prevent 400ms ps+lsof storms
+	now := time.Now()
+	lsLookupMu.Lock()
+	cPort, cCSRF, cUntil, failAt := cachedLSPort, cachedLSCSRF, cachedLSUntil, lastLSFailScan
+	lsLookupMu.Unlock()
+
+	if cPort > 0 && now.Before(cUntil) && IsCockpitListening(cPort, 200*time.Millisecond) {
+		return cPort, cCSRF, nil
+	}
+	if !failAt.IsZero() && now.Sub(failAt) < 1500*time.Millisecond {
+		return 0, "", fmt.Errorf("language_server scan backed off")
 	}
 
 	if runtime.GOOS == "windows" {
@@ -683,16 +728,23 @@ func lookupLanguageServer() (int, string, error) {
 				localAddr := fields[1]
 				if idx := strings.LastIndex(localAddr, ":"); idx != -1 {
 					if p, convErr := strconv.Atoi(localAddr[idx+1:]); convErr == nil && p > 0 {
+						cacheFoundLS(p, csrf)
 						return p, csrf, nil
 					}
 				}
 			}
 		}
+		lsLookupMu.Lock()
+		lastLSFailScan = time.Now()
+		lsLookupMu.Unlock()
 		return 0, "", fmt.Errorf("language_server has no listen port")
 	}
 
 	out, err := runCmdTimeout(5*time.Second, "ps", "-axo", "pid=,command=")
 	if err != nil {
+		lsLookupMu.Lock()
+		lastLSFailScan = time.Now()
+		lsLookupMu.Unlock()
 		return 0, "", err
 	}
 	var pid, csrf string
@@ -714,10 +766,16 @@ func lookupLanguageServer() (int, string, error) {
 		break
 	}
 	if pid == "" {
+		lsLookupMu.Lock()
+		lastLSFailScan = time.Now()
+		lsLookupMu.Unlock()
 		return 0, "", fmt.Errorf("language_server not found")
 	}
 	lsof, err := runCmdTimeout(5*time.Second, "lsof", "-nP", "-p", pid, "-a", "-iTCP", "-sTCP:LISTEN")
 	if err != nil {
+		lsLookupMu.Lock()
+		lastLSFailScan = time.Now()
+		lsLookupMu.Unlock()
 		return 0, "", fmt.Errorf("lsof language_server: %w", err)
 	}
 	var ports []int
@@ -732,7 +790,11 @@ func lookupLanguageServer() (int, string, error) {
 		}
 	}
 	if len(ports) == 0 {
+		lsLookupMu.Lock()
+		lastLSFailScan = time.Now()
+		lsLookupMu.Unlock()
 		return 0, "", fmt.Errorf("language_server has no listen port")
 	}
+	cacheFoundLS(ports[0], csrf)
 	return ports[0], csrf, nil
 }

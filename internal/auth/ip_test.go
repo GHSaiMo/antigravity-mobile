@@ -123,4 +123,18 @@ func TestExtractClientIP_ForwardedHeaderTrust(t *testing.T) {
 	if got := ExtractClientIP(mk("127.0.0.1:1", map[string]string{"X-Forwarded-For": "6.6.6.6, 8.8.8.8"})); got != "8.8.8.8" {
 		t.Errorf("got %s", got)
 	}
+	// Local proxy (e.g. Caddy/Traefik) appending XFF must beat client-spoofed X-Real-IP and bare CF-Connecting-IP (MED-04).
+	if got := ExtractClientIP(mk("127.0.0.1:1", map[string]string{
+		"X-Forwarded-For":  "1.1.1.1, 198.51.100.77",
+		"X-Real-IP":        "6.6.6.6",
+		"CF-Connecting-IP": "7.7.7.7",
+	})); got != "198.51.100.77" {
+		t.Errorf("expected rightmost XFF 198.51.100.77, got %s", got)
+	}
+	if !IsProxiedRequest(mk("127.0.0.1:1", map[string]string{"X-Forwarded-Proto": "https"})) {
+		t.Errorf("expected X-Forwarded-Proto to mark request as proxied")
+	}
+	if IsProxiedRequest(mk("127.0.0.1:1", nil)) {
+		t.Errorf("plain loopback must not be marked as proxied")
+	}
 }

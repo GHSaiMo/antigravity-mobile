@@ -159,6 +159,128 @@ struct SwarmPixelBeeView: View {
     }
 }
 
+/// Bare pixel bee sprite (no square tile background) for Hive honeycomb cells, worker pills, and Mention graph nodes.
+struct SwarmPixelBeeSpriteView: View {
+    let name: String
+    let pose: PixelBeePose
+    var width: CGFloat = 40
+    var height: CGFloat = 33
+    var statusDotColor: Color? = nil
+    var dotBorderColor: Color = SwarmTheme.surfaceBg
+    var isTilted: Bool = false
+    var isRetired: Bool = false
+    var bobbing: Bool = false
+
+    @State private var wingFrame: Int = 0
+    @State private var bobOffset: CGFloat = 0
+
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            Image(uiImage: PixelBeeSpriteCache.image(name: name, pose: pose, frame: pose == .working ? wingFrame : 0))
+                .interpolation(.none)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(width: width, height: height)
+                .rotationEffect(.degrees(isTilted ? -14 : 0))
+                .saturation(isRetired ? 0 : 1)
+                .opacity(isRetired ? 0.36 : 1)
+                .offset(y: bobbing ? bobOffset : 0)
+
+            if let dotColor = statusDotColor {
+                let dSize: CGFloat = width < 26 ? 6.5 : 8.5
+                Circle()
+                    .fill(dotColor)
+                    .frame(width: dSize, height: dSize)
+                    .overlay(Circle().stroke(dotBorderColor, lineWidth: 1.6))
+                    .offset(x: 1, y: -1)
+            }
+        }
+        .task(id: pose == .working) {
+            guard pose == .working else {
+                wingFrame = 0
+                return
+            }
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 140_000_000)
+                if Task.isCancelled { break }
+                wingFrame = (wingFrame == 0 ? 1 : 0)
+            }
+        }
+        .task(id: bobbing) {
+            guard bobbing else {
+                bobOffset = 0
+                return
+            }
+            withAnimation(.easeInOut(duration: 0.95).repeatForever(autoreverses: true)) {
+                bobOffset = -2.2
+            }
+        }
+    }
+}
+
+/// "All" 3-bee mini swarm tile in The Team filter strip (matches o2-swarm in hive.js).
+struct SwarmMiniTrioTileView: View {
+    let names: [String]
+    var size: CGFloat = 44
+    var isActive: Bool = true
+
+    var body: some View {
+        let trio = Array((names + ["worker-a", "worker-b", "worker-c"]).prefix(3))
+        ZStack(alignment: .topLeading) {
+            SwarmTheme.fieldBg
+            SwarmPixelBeeSpriteView(
+                name: trio[0],
+                pose: isActive ? .working : .landed,
+                width: 20,
+                height: 16
+            )
+            .offset(x: 3, y: 7)
+            SwarmPixelBeeSpriteView(
+                name: trio[1],
+                pose: isActive ? .working : .landed,
+                width: 20,
+                height: 16
+            )
+            .offset(x: 19, y: 4)
+            SwarmPixelBeeSpriteView(
+                name: trio[2],
+                pose: isActive ? .working : .landed,
+                width: 20,
+                height: 16
+            )
+            .offset(x: 11, y: 22)
+        }
+        .frame(width: size, height: size)
+        .clipShape(RoundedRectangle(cornerRadius: size * 0.22, style: .continuous))
+    }
+}
+
+/// Crisp nearest-neighbor full-color Queen Pixel Bee icon for inline `/swarm` slash command bubbles.
+enum SwarmPixelBeeInlineIcon {
+    private static let cache = NSCache<NSString, UIImage>()
+
+    static func cachedImage(height: CGFloat = 15.5) -> UIImage {
+        let scale = max(2.0, UITraitCollection.current.displayScale)
+        let key = "\(Int((height * 10).rounded()))_\(Int(scale))" as NSString
+        if let hit = cache.object(forKey: key) {
+            return hit
+        }
+        let src = PixelBeeSpriteCache.image(name: "coordinator", pose: .landed, frame: 0)
+        let targetW = round(height * 22.0 / 18.0)
+        let targetSize = CGSize(width: targetW, height: height)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = scale
+        format.opaque = false
+        let renderer = UIGraphicsImageRenderer(size: targetSize, format: format)
+        let img = renderer.image { ctx in
+            ctx.cgContext.interpolationQuality = .none
+            src.draw(in: CGRect(origin: .zero, size: targetSize))
+        }.withRenderingMode(.alwaysOriginal)
+        cache.setObject(img, forKey: key)
+        return img
+    }
+}
+
 private struct HexagonGridOverlay: View {
     var body: some View {
         Canvas { ctx, size in
@@ -649,5 +771,896 @@ enum SwarmHelpers {
             }
         }
         return result
+    }
+
+    static func formatSpanDuration(from startRaw: String?, to endRaw: String?) -> String? {
+        guard let startRaw, let endRaw,
+              let d1 = parseDate(startRaw), let d2 = parseDate(endRaw) else { return nil }
+        let sec = max(0, Int(d2.timeIntervalSince(d1).rounded()))
+        if sec <= 0 { return nil }
+        if sec < 60 { return "\(sec)s" }
+        let mins = sec / 60
+        let rem = sec % 60
+        if mins < 60 { return rem > 0 ? "\(mins)m \(rem)s" : "\(mins)m" }
+        let hrs = mins / 60
+        let remMins = mins % 60
+        return remMins > 0 ? "\(hrs)h \(remMins)m" : "\(hrs)h"
+    }
+}
+
+// MARK: - Swarm Hive & Overview Synthesis Engine (Ported from swarm_board/hive.js)
+
+enum SwarmTaskBucketState: String, Equatable {
+    case done
+    case running
+    case blocked
+    case queued
+}
+
+enum SwarmThreadState: String, Equatable {
+    case needs
+    case waiting
+    case stuck
+    case running
+    case queued
+    case done
+}
+
+enum SwarmHiveBeeState: String, Equatable {
+    case working
+    case wait
+    case needs
+    case issue
+    case done
+    case idle
+    case retired
+    case unborn
+}
+
+struct SwarmSynthesizedMember: Identifiable, Equatable {
+    var id: String { name }
+    let name: String
+    let conversationId: String
+    let role: String
+    let title: String
+    let model: String
+    let status: String // "needs_you", "working", "waiting_on", "parked"
+    let waitingOn: String?
+    let now: String
+    let liveText: String?
+    let liveKind: String?
+    let hasIssue: Bool
+    let issueKind: String?
+    let issueText: String?
+    let killed: Bool
+    let posts: Int
+    let lastPostSeq: Int
+}
+
+struct SwarmSynthesizedTask: Identifiable, Equatable {
+    let id: String
+    let title: String
+    let owners: [String]
+    let state: SwarmTaskBucketState
+    let rawState: String // "active", "review", "blocked", "done", "queued"
+    let progressLabel: String?
+    let progressFraction: Double?
+    let note: String
+    let liveActivity: String?
+    let waitingOn: String?
+    let seq: Int
+}
+
+struct SwarmSynthesizedThread: Identifiable, Equatable {
+    let id: String
+    let title: String
+    let goal: String
+    let now: String
+    let state: SwarmThreadState
+    let statusLabel: String
+    let tasks: [SwarmSynthesizedTask]
+    let doneCount: Int
+    let runningCount: Int
+    let blockedCount: Int
+    let queuedCount: Int
+
+    var totalCount: Int { doneCount + runningCount + blockedCount + queuedCount }
+}
+
+struct SwarmSynthesizedModel: Equatable {
+    let goalTitle: String
+    let goalLine: String
+    let runningSummary: String
+    let phaseLabel: String?
+    let finished: Bool
+    let stallSeq: Int?
+    let stallAgent: String?
+    let stallText: String?
+    let members: [String: SwarmSynthesizedMember]
+    let orderedCrew: [SwarmSynthesizedMember]
+    let tasks: [SwarmSynthesizedTask]
+    let threads: [SwarmSynthesizedThread]
+    let doneCount: Int
+    let runningCount: Int
+    let blockedCount: Int
+    let queuedCount: Int
+    let reviewCount: Int
+    let openThreadsCount: Int
+    let needsYouCount: Int
+    let stuckCount: Int
+    let waitingChips: [String]
+
+    var totalTasksCount: Int { doneCount + runningCount + blockedCount + queuedCount }
+}
+
+struct SwarmHiveCell: Identifiable, Equatable {
+    let id: String
+    let title: String
+    let goal: String
+    let bees: [String]
+    let done: Int
+    let total: Int
+    let countOnly: Int?
+    let q: Int
+    let r: Int
+}
+
+struct SwarmHiveMapModel: Equatable {
+    let cells: [SwarmHiveCell]
+    let beeStates: [String: SwarmHiveBeeState]
+    let beeWaitingOn: [String: String]
+    let allDone: Int
+    let allTotal: Int
+    let coordinatorNeedsYou: Bool
+    let beamSeq: Int?
+    let beamFrom: String?
+    let beamTargets: [String]
+    let waitLinks: [(from: String, to: String)]
+
+    static func == (lhs: SwarmHiveMapModel, rhs: SwarmHiveMapModel) -> Bool {
+        lhs.cells == rhs.cells
+            && lhs.beeStates == rhs.beeStates
+            && lhs.beeWaitingOn == rhs.beeWaitingOn
+            && lhs.allDone == rhs.allDone
+            && lhs.allTotal == rhs.allTotal
+            && lhs.coordinatorNeedsYou == rhs.coordinatorNeedsYou
+            && lhs.beamSeq == rhs.beamSeq
+            && lhs.beamFrom == rhs.beamFrom
+            && lhs.beamTargets == rhs.beamTargets
+            && lhs.waitLinks.count == rhs.waitLinks.count
+    }
+}
+
+enum SwarmHiveEngine {
+    private static let askQuestionRegex = try? NSRegularExpression(
+        pattern: #"\?|could you|can you|please|ping me|waiting on|请|能否"#,
+        options: [.caseInsensitive]
+    )
+    private static let doneTagRegex = try? NSRegularExpression(
+        pattern: #"^(?:@[A-Za-z0-9_\-]+[\s,:–—\-]*)*(?:\*\*|\*|`|_)?\[done\]"#,
+        options: [.caseInsensitive]
+    )
+
+    private static func isDonePost(_ text: String) -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let re = doneTagRegex else { return trimmed.lowercased().contains("[done]") }
+        let range = NSRange(trimmed.startIndex..<trimmed.endIndex, in: trimmed)
+        return re.firstMatch(in: trimmed, range: range) != nil
+    }
+
+    private static func looksLikeQuestion(_ text: String) -> Bool {
+        guard let re = askQuestionRegex else { return text.contains("?") }
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        return re.firstMatch(in: text, range: range) != nil
+    }
+
+    private static func cleanInlineText(_ raw: String, maxChars: Int = 180) -> String {
+        var s = raw
+            .replacingOccurrences(of: "**", with: "")
+            .replacingOccurrences(of: "`", with: "")
+            .replacingOccurrences(of: "\n", with: " ")
+        while s.contains("  ") {
+            s = s.replacingOccurrences(of: "  ", with: " ")
+        }
+        s = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        if s.count > maxChars {
+            return String(s.prefix(maxChars - 1)).trimmingCharacters(in: .whitespaces) + "…"
+        }
+        return s
+    }
+
+    static func synthesize(_ snap: SwarmSnapshot, filterMember: String? = nil) -> SwarmSynthesizedModel {
+        let leadMember = snap.members.first(where: { $0.role == "coordinator" || $0.name == "coordinator" })
+        let leadName = leadMember?.name ?? "coordinator"
+        func normKey(_ n: String) -> String { n == leadName ? "coordinator" : n }
+
+        let teamMembers = snap.members.filter { m in
+            !m.roleWorker && !SwarmHelpers.isRoleWorker(name: m.name, role: m.role)
+        }
+        let teamByName = Dictionary(uniqueKeysWithValues: snap.members.map { ($0.name, $0) })
+
+        let teamMsgs = snap.messages.filter { m in
+            guard !m.text.hasPrefix("[channel]") else { return false }
+            if let info = teamByName[m.agent] {
+                return !info.roleWorker && !SwarmHelpers.isRoleWorker(name: info.name, role: info.role)
+            }
+            return !SwarmHelpers.isRoleWorker(name: m.agent)
+        }
+
+        let headSeq = max(snap.brief.latestSeq, teamMsgs.last?.seq ?? 0)
+        let hasLiveWorking = teamMembers.contains { !$0.killed && $0.status.lowercased() == "working" }
+        let hasSystemError = teamMembers.contains { !$0.killed && ($0.status.lowercased() == "error" || $0.status.lowercased() == "stuck") }
+        let lastPost = teamMsgs.last
+        let finished = !hasLiveWorking && !hasSystemError && (lastPost.map { normKey($0.agent) == "coordinator" && isDonePost($0.text) } ?? false)
+
+        let narratorView = snap.view
+        let plan = (narratorView == nil) ? snap.plan : (snap.view?.workstreams.isEmpty == true && snap.view?.threads.isEmpty == true ? snap.plan : nil)
+        let planTasks = snap.plan?.tasks ?? [:]
+
+        func lastPostBy(_ key: String) -> SwarmBoardMessage? {
+            teamMsgs.last(where: { normKey($0.agent) == key })
+        }
+
+        // Attention asks from view.json
+        var askByMember: [String: SwarmViewAttention] = [:]
+        if !finished, let atts = narratorView?.attention {
+            for a in atts where a.kind != "fyi" && a.kind != "failure" && a.kind != "stuck" && a.kind != "error" {
+                if askByMember["coordinator"] == nil && a.kind == "decision" {
+                    askByMember["coordinator"] = a
+                }
+            }
+        }
+
+        var synthMembers: [String: SwarmSynthesizedMember] = [:]
+        for m in teamMembers {
+            let k = normKey(m.name)
+            let lp = lastPostBy(k)
+            let rawSt = m.status.lowercased()
+            let hasIssue = !m.killed && !finished && (rawSt == "error" || rawSt == "stuck")
+            var st = m.killed ? "parked" : (rawSt == "working" ? "working" : "parked")
+            var waitingOn: String? = nil
+
+            if st == "parked", !finished, !m.killed, let lp {
+                let directTargets = SwarmHelpers.targets(of: lp).filter { $0.lowercased() != "all" && !SwarmHelpers.isRoleWorker(name: $0) }.map(normKey)
+                if let firstTarget = directTargets.first, looksLikeQuestion(lp.text) {
+                    let answered = teamMsgs.contains { $0.seq > lp.seq && normKey($0.agent) == firstTarget }
+                    if !answered {
+                        st = "waiting_on"
+                        waitingOn = firstTarget
+                    }
+                }
+            }
+
+            let actTrimmed = (m.lastActivity ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let isGenericWaitLabel = actTrimmed.contains("swarm_wait") || actTrimmed == "等待新消息" || actTrimmed == "Waiting for posts"
+            let effectiveLive = (rawSt == "working" && !m.killed && !hasIssue && !actTrimmed.isEmpty && !isGenericWaitLabel) ? cleanInlineText(actTrimmed, maxChars: 120) : nil
+
+            let nowLine: String = {
+                if let live = effectiveLive { return live }
+                if let narratorNow = narratorView?.now[m.name], !narratorNow.isEmpty {
+                    return cleanInlineText(narratorNow, maxChars: 120)
+                }
+                if let lp {
+                    return cleanInlineText(SwarmHelpers.stripLeadingMentions(lp.text), maxChars: 140)
+                }
+                return ""
+            }()
+
+            let roleTitle: String = {
+                if k == "coordinator" { return "Coordinator" }
+                if let pt = planTasks[m.name]?.trimmingCharacters(in: .whitespacesAndNewlines), !pt.isEmpty {
+                    return pt
+                }
+                return SwarmHelpers.extractRoleHint(for: m.name, role: m.role, messages: snap.messages)
+            }()
+
+            let postCount = m.posts > 0 ? m.posts : teamMsgs.filter { normKey($0.agent) == k }.count
+            let lastSeq = m.lastPostSeq > 0 ? m.lastPostSeq : (lp?.seq ?? 0)
+
+            synthMembers[k] = SwarmSynthesizedMember(
+                name: k,
+                conversationId: m.conversationId,
+                role: m.role,
+                title: roleTitle,
+                model: m.model,
+                status: st,
+                waitingOn: waitingOn,
+                now: nowLine,
+                liveText: effectiveLive,
+                liveKind: m.activityKind,
+                hasIssue: hasIssue,
+                issueKind: hasIssue ? rawSt : nil,
+                issueText: hasIssue ? actTrimmed : nil,
+                killed: m.killed,
+                posts: postCount,
+                lastPostSeq: lastSeq
+            )
+        }
+
+        if synthMembers["coordinator"] == nil {
+            synthMembers["coordinator"] = SwarmSynthesizedMember(
+                name: "coordinator",
+                conversationId: snap.coordinatorId,
+                role: "coordinator",
+                title: "Coordinator",
+                model: "",
+                status: "parked",
+                waitingOn: nil,
+                now: lastPostBy("coordinator").map { cleanInlineText(SwarmHelpers.stripLeadingMentions($0.text), maxChars: 140) } ?? "",
+                liveText: nil,
+                liveKind: nil,
+                hasIssue: false,
+                issueKind: nil,
+                issueText: nil,
+                killed: false,
+                posts: 0,
+                lastPostSeq: 0
+            )
+        }
+
+        // Synthesize Tasks (Workstreams)
+        var allTasks: [SwarmSynthesizedTask] = []
+        if let vws = narratorView?.workstreams, !vws.isEmpty {
+            for w in vws {
+                let owners = w.owners.isEmpty ? ["coordinator"] : w.owners.map(normKey)
+                let raw0 = w.state.lowercased()
+                let rawState = (finished && raw0 != "failed") ? "done" : raw0
+                var bucket: SwarmTaskBucketState = {
+                    switch rawState {
+                    case "done": return .done
+                    case "active", "review": return .running
+                    case "blocked", "failed": return .blocked
+                    default: return .queued
+                    }
+                }()
+                var waitTarget: String? = nil
+                if bucket != .done && bucket != .blocked, let firstOwner = owners.first, let om = synthMembers[firstOwner], om.status == "waiting_on" {
+                    bucket = .blocked
+                    waitTarget = om.waitingOn
+                }
+                let liveOwner = bucket == .running ? owners.compactMap { synthMembers[$0] }.first(where: { !$0.killed && $0.liveText != nil }) : nil
+                allTasks.append(SwarmSynthesizedTask(
+                    id: w.id,
+                    title: w.title,
+                    owners: owners,
+                    state: bucket,
+                    rawState: rawState,
+                    progressLabel: nil,
+                    progressFraction: nil,
+                    note: cleanInlineText(w.note ?? liveOwner?.now ?? ""),
+                    liveActivity: liveOwner?.liveText,
+                    waitingOn: waitTarget,
+                    seq: headSeq
+                ))
+            }
+        } else {
+            for m in teamMembers where m.role != "coordinator" && m.name != leadName {
+                let k = normKey(m.name)
+                guard let sm = synthMembers[k] else { continue }
+                let lp = lastPostBy(k)
+                let rawState: String = {
+                    if sm.killed { return "done" }
+                    if sm.status == "waiting_on" { return "blocked" }
+                    if sm.status == "working" || sm.status == "needs_you" { return "active" }
+                    if let lp {
+                        return (finished || isDonePost(lp.text)) ? "done" : "review"
+                    }
+                    return "queued"
+                }()
+                let bucket: SwarmTaskBucketState = {
+                    switch rawState {
+                    case "done": return .done
+                    case "active", "review": return .running
+                    case "blocked": return .blocked
+                    default: return .queued
+                    }
+                }()
+                let taskTitle = planTasks[m.name]?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+                    ? planTasks[m.name]!
+                    : (!sm.title.isEmpty ? sm.title : k)
+                allTasks.append(SwarmSynthesizedTask(
+                    id: k,
+                    title: taskTitle,
+                    owners: [k],
+                    state: bucket,
+                    rawState: rawState,
+                    progressLabel: nil,
+                    progressFraction: nil,
+                    note: sm.now,
+                    liveActivity: sm.liveText,
+                    waitingOn: sm.waitingOn,
+                    seq: lp?.seq ?? headSeq
+                ))
+            }
+        }
+
+        let taskById = Dictionary(uniqueKeysWithValues: allTasks.map { ($0.id, $0) })
+        let activeFilter = filterMember?.isEmpty == false ? filterMember : nil
+        func matchesFilter(_ t: SwarmSynthesizedTask) -> Bool {
+            guard let f = activeFilter else { return true }
+            return t.owners.contains(f)
+        }
+
+        // Raw thread specs from view.threads or plan.threads
+        struct RawThreadSpec {
+            let id: String
+            let title: String
+            let goal: String
+            let now: String
+            let taskIds: [String]
+        }
+        let rawSpecs: [RawThreadSpec] = {
+            if let vt = narratorView?.threads, !vt.isEmpty {
+                return vt.map { RawThreadSpec(id: $0.id, title: $0.title, goal: $0.goal ?? "", now: $0.now ?? "", taskIds: $0.workstreams.map(normKey)) }
+            }
+            if let pt = snap.plan?.threads, !pt.isEmpty {
+                return pt.map { RawThreadSpec(id: $0.id, title: $0.title, goal: $0.goal ?? "", now: "", taskIds: $0.tasks.map(normKey)) }
+            }
+            return []
+        }()
+
+        var usedIds = Set<String>()
+        var synthThreads: [SwarmSynthesizedThread] = []
+
+        func buildThread(id: String, title: String, goal: String, explicitNow: String, items: [SwarmSynthesizedTask]) -> SwarmSynthesizedThread? {
+            guard !items.isEmpty else { return nil }
+            var d = 0, r = 0, b = 0, q = 0
+            var waiters = Set<String>()
+            for item in items {
+                switch item.state {
+                case .done: d += 1
+                case .running: r += 1
+                case .blocked:
+                    b += 1
+                    if let w = item.waitingOn { waiters.insert(w) }
+                case .queued: q += 1
+                }
+            }
+            let hasStuck = items.contains { t in t.owners.contains { synthMembers[$0]?.hasIssue == true } }
+            let tState: SwarmThreadState = {
+                if !waiters.isEmpty || b > 0 { return .waiting }
+                if hasStuck { return .stuck }
+                if r > 0 { return .running }
+                if q > 0 && d == 0 { return .queued }
+                if q > 0 { return .running }
+                return .done
+            }()
+            let statusLabel: String = {
+                switch tState {
+                case .needs: return String(localized: "待你确认")
+                case .waiting:
+                    if waiters.count == 1, let only = waiters.first {
+                        return "Waiting on @\(only)"
+                    }
+                    return waiters.count > 1 ? "Waiting on \(waiters.count)" : "Waiting"
+                case .stuck: return "Stuck"
+                case .running: return "Moving"
+                case .queued: return "Not started"
+                case .done: return "Done"
+                }
+            }()
+            let derivedNow: String = {
+                if !explicitNow.isEmpty { return explicitNow }
+                if let workingOwner = items.flatMap(\.owners).compactMap({ synthMembers[$0] }).first(where: { !$0.killed && $0.status == "working" && !$0.now.isEmpty }) {
+                    return workingOwner.liveText ?? workingOwner.now
+                }
+                return ""
+            }()
+            let sortedTasks = items.sorted { a, b in
+                let rank: (SwarmTaskBucketState) -> Int = {
+                    switch $0 {
+                    case .blocked: return 0
+                    case .running: return 1
+                    case .queued: return 2
+                    case .done: return 3
+                    }
+                }
+                return rank(a.state) < rank(b.state)
+            }
+            return SwarmSynthesizedThread(
+                id: id,
+                title: title,
+                goal: goal,
+                now: derivedNow,
+                state: tState,
+                statusLabel: statusLabel,
+                tasks: sortedTasks,
+                doneCount: d,
+                runningCount: r,
+                blockedCount: b,
+                queuedCount: q
+            )
+        }
+
+        for spec in rawSpecs {
+            let ws = spec.taskIds.compactMap { taskById[$0] }.filter(matchesFilter)
+            spec.taskIds.forEach { usedIds.insert($0) }
+            if let th = buildThread(id: spec.id, title: spec.title, goal: spec.goal, explicitNow: spec.now, items: ws) {
+                synthThreads.append(th)
+            }
+        }
+
+        let remaining = allTasks.filter { !usedIds.contains($0.id) }.filter(matchesFilter)
+        if !remaining.isEmpty, !rawSpecs.isEmpty {
+            if let otherTh = buildThread(id: "t-other", title: "Other", goal: "", explicitNow: "", items: remaining) {
+                synthThreads.append(otherTh)
+            }
+        }
+
+        let threadRank: (SwarmThreadState) -> Int = {
+            switch $0 {
+            case .needs: return 0
+            case .waiting: return 1
+            case .stuck: return 2
+            case .running: return 3
+            case .queued: return 4
+            case .done: return 5
+            }
+        }
+        synthThreads.sort { threadRank($0.state) < threadRank($1.state) }
+
+        let visibleTasks = allTasks.filter(matchesFilter)
+        var totDone = 0, totRun = 0, totBlk = 0, totQue = 0, totRev = 0
+        var waitMap: [String: Int] = [:]
+        for t in visibleTasks {
+            switch t.state {
+            case .done: totDone += 1
+            case .running:
+                totRun += 1
+                if t.rawState == "review" { totRev += 1 }
+            case .blocked:
+                totBlk += 1
+                if let w = t.waitingOn { waitMap[w, default: 0] += 1 }
+            case .queued: totQue += 1
+            }
+        }
+
+        let waitingChips = waitMap.sorted { $0.value > $1.value }.prefix(2).map { "\($0.value) waiting on @\($0.key)" }
+        let stuckCount = synthMembers.values.filter { !$0.killed && $0.hasIssue }.count
+        let openThreads = synthThreads.filter { $0.state != .done }.count
+        let needsYouCount = askByMember["coordinator"] != nil ? 1 : 0
+
+        // Ordered crew for The Team strip
+        let crewRank: (SwarmSynthesizedMember) -> Int = { m in
+            if m.status == "needs_you" { return 0 }
+            if m.status == "working" { return 1 }
+            if m.status == "waiting_on" || m.hasIssue { return 2 }
+            return 3
+        }
+        let orderedCrew = synthMembers.values
+            .filter { $0.name != "coordinator" && !$0.killed }
+            .sorted { a, b in
+                let ra = crewRank(a), rb = crewRank(b)
+                if ra != rb { return ra < rb }
+                return a.name < b.name
+            }
+
+        // Stall banner check (@monitor posted [stall] after latest team post while nobody is working)
+        var stallSeq: Int? = nil
+        var stallAgent: String? = nil
+        var stallText: String? = nil
+        if !finished && !hasLiveWorking {
+            if let monMsg = snap.messages.last(where: { m in
+                SwarmHelpers.isRoleWorker(name: m.agent) && m.text.range(of: "[stall]", options: .caseInsensitive) != nil
+            }), monMsg.seq >= (lastPost?.seq ?? 0) {
+                stallSeq = monMsg.seq
+                stallAgent = monMsg.agent
+                stallText = cleanInlineText(monMsg.text.replacingOccurrences(of: "[stall]", with: "", options: .caseInsensitive), maxChars: 200)
+            }
+        }
+
+        let goalObj = narratorView?.goal ?? snap.plan?.goal ?? plan?.goal
+        let goalTitle = goalObj?.title.isEmpty == false ? goalObj!.title : (narratorView?.headline ?? "")
+        let goalLine = goalObj?.line ?? (goalObj?.title.isEmpty == false ? (narratorView?.headline ?? "") : "")
+        let phaseLabel: String? = {
+            if let p = narratorView?.phase, p.total > 1 {
+                return "\(p.label) · \(p.index)/\(p.total)"
+            }
+            return narratorView?.phase?.label
+        }()
+
+        return SwarmSynthesizedModel(
+            goalTitle: goalTitle,
+            goalLine: goalLine,
+            runningSummary: narratorView?.runningSummary ?? "",
+            phaseLabel: phaseLabel,
+            finished: finished,
+            stallSeq: stallSeq,
+            stallAgent: stallAgent,
+            stallText: stallText,
+            members: synthMembers,
+            orderedCrew: orderedCrew,
+            tasks: visibleTasks,
+            threads: synthThreads,
+            doneCount: totDone,
+            runningCount: totRun,
+            blockedCount: totBlk,
+            queuedCount: totQue,
+            reviewCount: totRev,
+            openThreadsCount: openThreads,
+            needsYouCount: needsYouCount,
+            stuckCount: stuckCount,
+            waitingChips: waitingChips
+        )
+    }
+
+    // MARK: - Honeycomb Hive Map Layout & Replay Engine
+
+    private static let hvRing: [(Int, Int)] = [(0, -1), (1, -1), (1, 0), (0, 1), (-1, 1), (-1, 0)]
+    private static let hvFew: [Int: [Int]] = [
+        1: [0],
+        2: [5, 1],
+        3: [0, 2, 4],
+        4: [5, 1, 4, 2],
+        5: [5, 0, 1, 4, 2]
+    ]
+
+    static func hiveSlots(count n: Int) -> [(Int, Int)] {
+        guard n >= 1 else { return [] }
+        if let preset = hvFew[n] {
+            return preset.map { hvRing[$0] }
+        }
+        var out: [(Int, Int)] = []
+        let dirs = [(1, 0), (0, 1), (-1, 1), (-1, 0), (0, -1), (1, -1)]
+        var ring = 1
+        while out.count < n {
+            var q = 0, r = -ring
+            for (dq, dr) in dirs {
+                for _ in 0..<ring {
+                    out.append((q, r))
+                    q += dq
+                    r += dr
+                }
+            }
+            ring += 1
+        }
+        return Array(out.prefix(n))
+    }
+
+    static func buildHiveMap(snap: SwarmSnapshot, synth: SwarmSynthesizedModel, replaySeq: Int?) -> SwarmHiveMapModel {
+        let leadName = snap.members.first(where: { $0.role == "coordinator" || $0.name == "coordinator" })?.name ?? "coordinator"
+        func normKey(_ n: String) -> String { n == leadName ? "coordinator" : n }
+
+        let teamMsgs = snap.messages.filter { m in
+            !m.text.hasPrefix("[channel]") && !SwarmHelpers.isRoleWorker(name: m.agent)
+        }
+        let names = Array(synth.members.keys)
+
+        var beeStates: [String: SwarmHiveBeeState] = [:]
+        var beeWaitingOn: [String: String] = [:]
+        var replayDoneCheck: ((String) -> Bool)? = nil
+        var beamMsg: SwarmBoardMessage? = nil
+
+        if let seq = replaySeq {
+            let prefixMsgs = teamMsgs.filter { $0.seq <= seq }
+            var finIdx: [String: Int] = [:]
+            for (idx, m) in teamMsgs.enumerated() {
+                finIdx[normKey(m.agent)] = idx
+            }
+            var born: Set<String> = ["coordinator"]
+            var lastPostIdx: [String: Int] = [:]
+            var lastInIdx: [String: Int] = [:]
+
+            for (idx, m) in prefixMsgs.enumerated() {
+                let sender = normKey(m.agent)
+                born.insert(sender)
+                lastPostIdx[sender] = idx
+                if !SwarmHelpers.isBroadcast(m) {
+                    for t in SwarmHelpers.targets(of: m) where !SwarmHelpers.isRoleWorker(name: t) {
+                        let tk = normKey(t)
+                        born.insert(tk)
+                        lastInIdx[tk] = idx
+                    }
+                }
+            }
+
+            let curIdx = prefixMsgs.count - 1
+            let nowDate = curIdx >= 0 ? SwarmHelpers.parseDate(prefixMsgs[curIdx].time) : nil
+
+            for n in names {
+                guard let sm = synth.members[n] else { continue }
+                let lp = lastPostIdx[n] ?? -1
+                let li = lastInIdx[n] ?? -1
+                var st: SwarmHiveBeeState = .idle
+                var who: String? = nil
+
+                if !born.contains(n) {
+                    st = .unborn
+                } else if sm.killed, let fn = finIdx[n], curIdx >= fn && curIdx > fn + 8 {
+                    st = .retired
+                } else if li > lp {
+                    st = .working
+                    if li >= 0 { who = normKey(prefixMsgs[li].agent) }
+                } else if lp >= 0 {
+                    let post = prefixMsgs[lp]
+                    let targets = SwarmHelpers.isBroadcast(post) ? [] : SwarmHelpers.targets(of: post).filter { !SwarmHelpers.isRoleWorker(name: $0) }.map(normKey)
+                    if let firstT = targets.first, looksLikeQuestion(post.text), (lastPostIdx[firstT] ?? -1) <= lp {
+                        st = .wait
+                        who = firstT
+                    } else if let fn = finIdx[n], fn <= curIdx, n != "coordinator" {
+                        st = .done
+                    } else if curIdx - lp < 3 {
+                        if let dNow = nowDate, let dLp = SwarmHelpers.parseDate(post.time), dNow.timeIntervalSince(dLp) < 240 {
+                            st = .working
+                        } else if nowDate == nil {
+                            st = .working
+                        }
+                    }
+                }
+                beeStates[n] = st
+                if let w = who, w != n { beeWaitingOn[n] = w }
+            }
+            replayDoneCheck = { worker in
+                let st = beeStates[worker]
+                if st == .retired { return true }
+                if let fn = finIdx[worker], fn <= curIdx { return true }
+                return false
+            }
+            beamMsg = prefixMsgs.last
+        } else {
+            for n in names {
+                guard let sm = synth.members[n] else { continue }
+                let ownedTasks = synth.tasks.filter { $0.owners.contains(n) }
+                var st: SwarmHiveBeeState = .idle
+                if sm.killed {
+                    st = .retired
+                } else if synth.finished {
+                    st = (n == "coordinator") ? .idle : .done
+                } else if sm.hasIssue {
+                    st = .issue
+                } else if sm.status == "working" {
+                    st = .working
+                } else if sm.status == "waiting_on" {
+                    st = .wait
+                    if let w = sm.waitingOn { beeWaitingOn[n] = w }
+                } else if n != "coordinator" && !ownedTasks.isEmpty && ownedTasks.allSatisfy({ $0.state == .done }) {
+                    st = .done
+                }
+                beeStates[n] = st
+            }
+            if !synth.finished && synth.needsYouCount > 0 && beeStates["coordinator"] != .retired {
+                beeStates["coordinator"] = .needs
+            }
+            if let lp = teamMsgs.last {
+                if let d = SwarmHelpers.parseDate(lp.time) {
+                    if Date().timeIntervalSince(d) < 180 {
+                        beamMsg = lp
+                    }
+                } else {
+                    beamMsg = lp
+                }
+            }
+        }
+
+        let workers = names.filter { $0 != "coordinator" }.sorted()
+        let taskById = Dictionary(uniqueKeysWithValues: synth.tasks.map { ($0.id, $0) })
+        func isTaskDone(_ t: SwarmSynthesizedTask) -> Bool {
+            if let replayDone = replayDoneCheck {
+                return t.owners.allSatisfy { $0 == "coordinator" || replayDone($0) }
+            }
+            return t.state == .done
+        }
+
+        // Thread definitions (unfiltered from plan/view)
+        let rawThreads: [(id: String, title: String, goal: String, wsIds: [String])] = {
+            if let vt = snap.view?.threads, !vt.isEmpty {
+                return vt.map { ($0.id, $0.title, $0.goal ?? "", $0.workstreams.map(normKey)) }
+            }
+            if let pt = snap.plan?.threads, !pt.isEmpty {
+                return pt.map { ($0.id, $0.title, $0.goal ?? "", $0.tasks.map(normKey)) }
+            }
+            return []
+        }()
+
+        struct TempCell {
+            let id: String
+            let title: String
+            let goal: String
+            let ws: [SwarmSynthesizedTask]
+            var bees: [String]
+            let done: Int
+            let total: Int
+            let countOnly: Int?
+        }
+
+        var tempCells: [TempCell] = []
+        if !rawThreads.isEmpty {
+            for rt in rawThreads {
+                let ws = rt.wsIds.compactMap { taskById[$0] }
+                let doneCnt = ws.filter(isTaskDone).count
+                tempCells.append(TempCell(id: rt.id, title: rt.title, goal: rt.goal, ws: ws, bees: [], done: doneCnt, total: ws.count, countOnly: nil))
+            }
+            var homed = Set<String>()
+            for w in workers {
+                let matchingIndices = tempCells.indices.filter { idx in
+                    tempCells[idx].ws.contains { $0.owners.contains(w) }
+                }
+                guard !matchingIndices.isEmpty else { continue }
+                let chosen = matchingIndices.first(where: { idx in
+                    tempCells[idx].ws.contains { $0.owners.contains(w) && !isTaskDone($0) }
+                }) ?? matchingIndices[0]
+                tempCells[chosen].bees.append(w)
+                homed.insert(w)
+            }
+            let rest = workers.filter { !homed.contains($0) }
+            if !rest.isEmpty {
+                let doneRest = rest.filter { beeStates[$0] == .done || beeStates[$0] == .retired }.count
+                tempCells.append(TempCell(id: "_other", title: "Other", goal: "", ws: [], bees: rest, done: doneRest, total: rest.count, countOnly: nil))
+            }
+        } else {
+            let buckets: [(String, (SwarmHiveBeeState) -> Bool)] = [
+                ("Working", { $0 == .working }),
+                ("Waiting", { $0 == .wait || $0 == .issue }),
+                ("Resting", { $0 == .idle }),
+                ("Done", { $0 == .done || $0 == .retired })
+            ]
+            for (title, pred) in buckets {
+                let matched = workers.filter { pred(beeStates[$0] ?? .idle) }
+                if !matched.isEmpty {
+                    tempCells.append(TempCell(
+                        id: "_\(title)",
+                        title: title,
+                        goal: "",
+                        ws: [],
+                        bees: matched,
+                        done: title == "Done" ? matched.count : 0,
+                        total: matched.count,
+                        countOnly: matched.count
+                    ))
+                }
+            }
+        }
+
+        let slots = hiveSlots(count: tempCells.count)
+        let finalCells: [SwarmHiveCell] = tempCells.enumerated().map { idx, tc in
+            let (q, r) = idx < slots.count ? slots[idx] : (0, 0)
+            return SwarmHiveCell(
+                id: tc.id,
+                title: tc.title,
+                goal: tc.goal,
+                bees: tc.bees,
+                done: tc.done,
+                total: tc.total,
+                countOnly: tc.countOnly,
+                q: q,
+                r: r
+            )
+        }
+
+        let allDone = replayDoneCheck != nil ? finalCells.reduce(0) { $0 + $1.done } : synth.doneCount
+        let allTotal = replayDoneCheck != nil ? finalCells.reduce(0) { $0 + $1.total } : max(1, synth.totalTasksCount)
+
+        var beamFrom: String? = nil
+        var beamTargets: [String] = []
+        if let bm = beamMsg {
+            let sender = normKey(bm.agent)
+            beamFrom = sender
+            if !SwarmHelpers.isBroadcast(bm) {
+                beamTargets = SwarmHelpers.targets(of: bm)
+                    .filter { !SwarmHelpers.isRoleWorker(name: $0) }
+                    .map(normKey)
+                    .filter { beeStates[$0] != nil && beeStates[$0] != .unborn }
+            }
+        }
+
+        var waitLinks: [(from: String, to: String)] = []
+        for (n, st) in beeStates where st == .wait {
+            if let w = beeWaitingOn[n], beeStates[n] != .unborn, beeStates[w] != nil, beeStates[w] != .unborn {
+                waitLinks.append((from: n, to: w))
+            }
+        }
+
+        return SwarmHiveMapModel(
+            cells: finalCells,
+            beeStates: beeStates,
+            beeWaitingOn: beeWaitingOn,
+            allDone: allDone,
+            allTotal: allTotal,
+            coordinatorNeedsYou: beeStates["coordinator"] == .needs,
+            beamSeq: beamMsg?.seq,
+            beamFrom: beamFrom,
+            beamTargets: beamTargets,
+            waitLinks: waitLinks
+        )
     }
 }

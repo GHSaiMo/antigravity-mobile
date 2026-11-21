@@ -53,14 +53,19 @@ object CloudflareOptimizedDns : Dns {
         "198.41.214.1"
     )
 
-    // 动态排序后的 IP 列表（延迟最低排在最前）
+    private const val MAX_CONCURRENT_PROBE_IPS = 6
     private val activeIps = CopyOnWriteArrayList<String>(CANDIDATE_EDGE_IPS)
     private val isProbing = AtomicBoolean(false)
+    @Volatile private var probeCursor = 0
     private val probeScheduler = Executors.newSingleThreadScheduledExecutor { r ->
         Thread(r, "cf-dns-scheduler").apply { isDaemon = true }
     }
+    private val probeWorkerPool = Executors.newFixedThreadPool(MAX_CONCURRENT_PROBE_IPS) { r ->
+        Thread(r, "cf-dns-probe").apply { isDaemon = true }
+    }
 
-    private var lastProbeTime = 0L
+    @Volatile private var lastProbeTime = 0L
+    @Volatile private var hasVerifiedWinner = false
 
     init {
         // App 启动时异步触发一次全网并发赛马测速
@@ -106,7 +111,8 @@ object CloudflareOptimizedDns : Dns {
 
     fun triggerProbeIfNeeded(force: Boolean = false) {
         val now = System.currentTimeMillis()
-        if (!force && now - lastProbeTime < 180_000L) { // 3分钟内不重复探测
+        val minIntervalMs = if (hasVerifiedWinner) 300_000L else 180_000L
+        if (!force && now - lastProbeTime < minIntervalMs) {
             return
         }
         if (isProbing.compareAndSet(false, true)) {
@@ -121,16 +127,34 @@ object CloudflareOptimizedDns : Dns {
         }
     }
 
+    private fun selectProbeBatch(): List<String> {
+        val selected = LinkedHashSet<String>(MAX_CONCURRENT_PROBE_IPS)
+        // Always include current top 2 winners so we verify active edge health first.
+        for (ip in activeIps.take(2)) {
+            selected.add(ip)
+        }
+        val poolSize = CANDIDATE_EDGE_IPS.size
+        var scanned = 0
+        var idx = probeCursor % poolSize
+        while (selected.size < MAX_CONCURRENT_PROBE_IPS && scanned < poolSize) {
+            selected.add(CANDIDATE_EDGE_IPS[idx])
+            idx = (idx + 1) % poolSize
+            scanned++
+        }
+        probeCursor = idx
+        return selected.toList()
+    }
+
     /**
-     * 高并发多线程 TCP 443 握手赛马测速，秒级锁定当前网络真实延迟最低的边缘节点
+     * 有界 6 路并发 TCP 443 握手测速（复用常驻 daemon 线程池，消除 19 路瞬时套接字与线程创建尖峰）
      */
     private fun probeFastestIpsConcurrently() {
-        val pool = Executors.newFixedThreadPool(8)
+        val batch = selectProbeBatch()
         val scoredList = Collections.synchronizedList(mutableListOf<Pair<String, Long>>())
-        val latch = CountDownLatch(CANDIDATE_EDGE_IPS.size)
+        val latch = CountDownLatch(batch.size)
 
-        for (ip in CANDIDATE_EDGE_IPS) {
-            pool.submit {
+        for (ip in batch) {
+            probeWorkerPool.submit {
                 try {
                     val rtt = tcpPing(ip, 443, 800)
                     if (rtt in 0..1500) {
@@ -145,21 +169,22 @@ object CloudflareOptimizedDns : Dns {
         try {
             latch.await(1000, TimeUnit.MILLISECONDS)
         } catch (_: Exception) {}
-        pool.shutdownNow()
 
         if (scoredList.isNotEmpty()) {
+            hasVerifiedWinner = true
             val sorted = ArrayList(scoredList)
             sorted.sortBy { it.second }
             val sortedIps = sorted.map { it.first }
-            Log.d(TAG, "Parallel race completed. Winner: ${sortedIps.first()} (RTT: ${sorted.first().second}ms)")
-            activeIps.clear()
-            activeIps.addAll(sortedIps)
-            // 补充未在本次响应中的其余候选 IP 位于末尾
-            for (ip in CANDIDATE_EDGE_IPS) {
-                if (!activeIps.contains(ip)) {
-                    activeIps.add(ip)
-                }
+            Log.d(TAG, "Parallel race completed (${batch.size} candidates). Winner: ${sortedIps.first()} (RTT: ${sorted.first().second}ms)")
+            val previousOrder = ArrayList(activeIps)
+            val merged = LinkedHashSet<String>(CANDIDATE_EDGE_IPS.size)
+            merged.addAll(sortedIps)
+            for (ip in previousOrder) {
+                if (!batch.contains(ip)) merged.add(ip)
             }
+            merged.addAll(CANDIDATE_EDGE_IPS)
+            activeIps.clear()
+            activeIps.addAll(merged)
         }
     }
 
