@@ -459,9 +459,23 @@
           const res = await fetch("/gateway/automations");
           const data = await res.json();
           const list = Array.isArray(data.schedules) ? data.schedules : (Array.isArray(data.automations) ? data.automations : []);
+          const events = Array.isArray(data.events) ? data.events : [];
+          this._automationsCache = list;
+          this._automationEventsCache = events;
+
+          if (this._selectedAutomationId) {
+            const target = list.find((s) => s.id === this._selectedAutomationId);
+            if (target) {
+              await this.renderAutomationDetail(body, target, events);
+              return;
+            }
+            this._selectedAutomationId = null;
+          }
+
+          const isAutoRunning = (sc) => !!(sc.enabled || /^(running|ready)$/i.test(sc.status || ""));
           body.innerHTML = `
             <div class="p3-section-header">
-              <span>定时自动化任务</span>
+              <span>定时自动化任务 (${list.length})</span>
               <button type="button" class="p3-mini-btn primary" id="btn-auto-new">+ 新建定时任务</button>
             </div>
             <div id="p3-auto-form" class="p3-form-card hidden">
@@ -473,17 +487,24 @@
                 <button type="button" class="p3-mini-btn primary" id="btn-auto-save">创建并启用</button>
               </div>
             </div>
-            <div class="p3-list">` + (list.map((sc) => `
-              <div class="p3-row">
+            <div class="p3-list">` + (list.map((sc) => {
+              const running = isAutoRunning(sc);
+              return `
+              <div class="p3-row" data-auto-open="${escapeHtml(sc.id)}" style="cursor:pointer;">
                 <div class="p3-row-main">
-                  <div class="p3-row-title">${escapeHtml(sc.name || sc.id)} <span class="p3-badge">${escapeHtml(sc.cronExpression || "")}</span></div>
-                  <div class="p3-row-sub">${escapeHtml((sc.prompt || sc.description || "").slice(0, 80))}</div>
+                  <div class="p3-row-title">
+                    ${escapeHtml(sc.name || sc.id)}
+                    <span class="p3-badge" style="${running ? "color:#16a34a;background:rgba(22,163,74,.12);" : "opacity:.7;"}">${running ? "运行中" : "已暂停"}</span>
+                  </div>
+                  <div class="p3-row-sub monospaced" style="font-size:11px;opacity:.75;">${escapeHtml(sc.cronExpression || "")}${running && sc.nextRunAt ? " · 下次 " + escapeHtml(sc.nextRunAt) : (sc.lastRunAt ? " · 上次 " + escapeHtml(sc.lastRunAt) : "")}</div>
+                  <div class="p3-row-sub">${escapeHtml((sc.description || sc.prompt || "").slice(0, 90))}</div>
                 </div>
-                <div class="p3-row-actions">
-                  <button type="button" class="p3-mini-btn" data-auto-run="${escapeHtml(sc.id)}">立即运行</button>
-                  <button type="button" class="p3-mini-btn danger" data-auto-del="${escapeHtml(sc.id)}">删除</button>
+                <div class="p3-row-actions" style="flex-shrink:0;">
+                  ${running ? `<button type="button" class="p3-mini-btn" data-auto-run="${escapeHtml(sc.id)}" title="立即运行">▶</button>` : ""}
+                  <button type="button" class="p3-mini-btn ${running ? "" : "primary"}" data-auto-toggle="${escapeHtml(sc.id)}" data-auto-running="${running ? "1" : "0"}">${running ? "停止" : "启动"}</button>
                 </div>
-              </div>`).join("") || `<div class="p3-empty">暂无定时任务</div>`) + `</div>`;
+              </div>`;
+            }).join("") || `<div class="p3-empty">暂无定时任务</div>`) + `</div>`;
 
           document.getElementById("btn-auto-new")?.addEventListener("click", () => {
             document.getElementById("p3-auto-form")?.classList.remove("hidden");
@@ -508,30 +529,52 @@
             showToast?.("已创建定时任务");
             this.renderToolsTab(false);
           });
-          body.querySelectorAll("[data-auto-run]").forEach((btn) => {
-            btn.addEventListener("click", async () => {
-              const sidecarId = btn.getAttribute("data-auto-run");
-              await fetch("/gateway/automations/manage", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ sidecarId, action: "run" }),
-              });
-              showToast?.("已触发立即执行");
+          body.querySelectorAll("[data-auto-open]").forEach((row) => {
+            row.addEventListener("click", (e) => {
+              if (e.target.closest("button")) return;
+              this._selectedAutomationId = row.getAttribute("data-auto-open");
+              this.renderToolsTab(false);
             });
           });
-          body.querySelectorAll("[data-auto-del]").forEach((btn) => {
-            btn.addEventListener("click", async () => {
-              const sidecarId = btn.getAttribute("data-auto-del");
-              if (!confirm(`确定删除定时任务「${sidecarId}」？`)) return;
-              const r = await fetch("/gateway/automations/delete", {
+          body.querySelectorAll("[data-auto-toggle]").forEach((btn) => {
+            btn.addEventListener("click", async (e) => {
+              e.stopPropagation();
+              const sidecarId = btn.getAttribute("data-auto-toggle");
+              const running = btn.getAttribute("data-auto-running") === "1";
+              btn.disabled = true;
+              const r = await fetch("/gateway/automations/manage", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ sidecarId }),
+                body: JSON.stringify({ sidecarId, action: running ? "stop" : "start" }),
               });
-              if (r.ok) {
-                showToast?.("已删除");
-                this.renderToolsTab(false);
+              const d = await r.json().catch(() => ({}));
+              if (!r.ok) {
+                btn.disabled = false;
+                showToast?.("操作失败: " + (d.error || r.status));
+                return;
               }
+              showToast?.(running ? "已暂停定时任务" : "已启动定时任务");
+              this.renderToolsTab(false);
+            });
+          });
+          body.querySelectorAll("[data-auto-run]").forEach((btn) => {
+            btn.addEventListener("click", async (e) => {
+              e.stopPropagation();
+              const sidecarId = btn.getAttribute("data-auto-run");
+              btn.disabled = true;
+              const r = await fetch("/gateway/automations/manage", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ sidecarId, action: "run_now" }),
+              });
+              const d = await r.json().catch(() => ({}));
+              btn.disabled = false;
+              if (!r.ok) {
+                showToast?.("立即运行失败: " + (d.error || r.status));
+                return;
+              }
+              showToast?.("已触发立即执行");
+              this.renderToolsTab(false);
             });
           });
           return;
@@ -1208,7 +1251,222 @@
         const sid = slashIdx >= 0 ? rest.slice(0, slashIdx) : rest;
         const sub = slashIdx >= 0 ? rest.slice(slashIdx) : "/";
         if (!sid) return;
+        if (/^(dashboard|automations|sidecars|schedule|schedules)$/i.test(sid)) {
+          this._selectedAutomationId = null;
+          this.openToolsBoard("automations");
+          return;
+        }
         this.openSidecarSheet(sid, `/gateway/sidecar-ui/${encodeURIComponent(sid)}${sub}`);
+      });
+    },
+
+    async renderAutomationDetail(body, sc, allEvents) {
+      const running = !!(sc.enabled || /^(running|ready)$/i.test(sc.status || ""));
+      const taskEvents = (allEvents || []).filter((ev) =>
+        (ev.sidecarId && ev.sidecarId === sc.id) || ev.scheduleId === sc.id || ev.scheduleId === sc.name
+      );
+      let models = [];
+      try {
+        const mr = await fetch("/gateway/models");
+        const md = await mr.json();
+        models = Array.isArray(md.models) ? md.models : [];
+      } catch (_) {}
+
+      const modelOptionsHtml = [
+        `<option value="">默认模型</option>`,
+        ...models.map((m) => `<option value="${escapeHtml(m.id)}" ${sc.model === m.id ? "selected" : ""}>${escapeHtml(m.name || m.id)}</option>`),
+        ...(sc.model && !models.some((m) => m.id === sc.model) ? [`<option value="${escapeHtml(sc.model)}" selected>${escapeHtml(sc.model)}</option>`] : []),
+      ].join("");
+
+      const wsName = sc.workspaceUri ? sc.workspaceUri.replace(/^file:\/\//, "").split("/").filter(Boolean).pop() : "";
+
+      body.innerHTML = `
+        <div class="p3-section-header" style="margin-bottom:10px;">
+          <button type="button" class="p3-mini-btn" id="btn-auto-back">← 返回列表</button>
+          <div style="display:flex;gap:6px;align-items:center;">
+            <button type="button" class="p3-mini-btn" id="btn-auto-detail-logs">日志</button>
+            ${running ? `<button type="button" class="p3-mini-btn" id="btn-auto-detail-restart">重启</button>` : ""}
+            <button type="button" class="p3-mini-btn danger" id="btn-auto-detail-del">删除</button>
+          </div>
+        </div>
+
+        <div class="p3-form-card" style="margin-bottom:10px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;">
+            <div>
+              <div style="font-size:16px;font-weight:700;">${escapeHtml(sc.name || sc.id)}</div>
+              <div style="font-size:11.5px;opacity:.7;margin-top:2px;">
+                <span class="p3-badge" style="${running ? "color:#16a34a;background:rgba(22,163,74,.12);" : ""}">${running ? "运行中" : "已暂停"}</span>
+                ${running && sc.nextRunAt ? ` · 下次 ${escapeHtml(sc.nextRunAt)}` : ""}
+                ${sc.lastRunAt ? ` · 上次 ${escapeHtml(sc.lastRunAt)}` : ""}
+                ${wsName ? ` · 📁 ${escapeHtml(wsName)}` : ""}
+              </div>
+            </div>
+            <div style="display:flex;gap:6px;flex-shrink:0;">
+              <button type="button" class="p3-mini-btn" id="btn-auto-detail-run" ${running ? "" : "disabled"} title="${running ? "立即运行" : "请先启动任务"}">立即运行</button>
+              <button type="button" class="p3-mini-btn ${running ? "" : "primary"}" id="btn-auto-detail-toggle">${running ? "停止" : "启动"}</button>
+            </div>
+          </div>
+          ${sc.lastError ? `<div style="color:#ef4444;font-size:12px;padding:6px 8px;border-radius:8px;background:rgba(239,68,68,.1);margin-bottom:8px;">${escapeHtml(sc.lastError)}</div>` : ""}
+
+          <label style="display:block;font-size:11.5px;opacity:.7;margin:6px 0 3px;">任务名称</label>
+          <input type="text" id="p3-edit-auto-name" class="p3-input" value="${escapeHtml(sc.name || "")}" />
+
+          <label style="display:block;font-size:11.5px;opacity:.7;margin:6px 0 3px;">Cron 表达式（支持 CRON_TZ=... 前缀）</label>
+          <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:4px;">
+            <button type="button" class="p3-mini-btn" data-cron-preset="0 * * * *">每小时</button>
+            <button type="button" class="p3-mini-btn" data-cron-preset="0 9 * * *">每天 09:00</button>
+            <button type="button" class="p3-mini-btn" data-cron-preset="0 23 * * *">每天 23:00</button>
+            <button type="button" class="p3-mini-btn" data-cron-preset="0 8 * * 5">每周五 08:00</button>
+          </div>
+          <input type="text" id="p3-edit-auto-cron" class="p3-input monospaced" value="${escapeHtml(sc.cronExpression || "")}" />
+
+          <label style="display:block;font-size:11.5px;opacity:.7;margin:6px 0 3px;">执行模型</label>
+          <select id="p3-edit-auto-model" class="p3-input">${modelOptionsHtml}</select>
+
+          <label style="display:block;font-size:11.5px;opacity:.7;margin:6px 0 3px;">执行指令（Prompt）</label>
+          <textarea id="p3-edit-auto-prompt" class="p3-textarea" rows="6">${escapeHtml(sc.prompt || "")}</textarea>
+
+          <div class="p3-form-actions" style="margin-top:8px;">
+            <button type="button" class="p3-mini-btn primary" id="btn-auto-detail-save">保存修改</button>
+          </div>
+        </div>
+
+        <div id="p3-auto-logs-box" class="p3-form-card hidden" style="margin-bottom:10px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+            <span style="font-size:12px;font-weight:600;">运行日志 (sidecar.log)</span>
+            <button type="button" class="p3-mini-btn" id="btn-auto-logs-refresh">刷新</button>
+          </div>
+          <pre id="p3-auto-logs-pre" style="margin:0;max-height:240px;overflow:auto;font-size:11px;line-height:1.45;white-space:pre-wrap;word-break:break-all;opacity:.9;"></pre>
+        </div>
+
+        <div class="p3-section-header" style="margin-top:6px;">
+          <span>运行历史 (${taskEvents.length})</span>
+        </div>
+        <div class="p3-list">` + (taskEvents.slice(0, 15).map((ev) => `
+          <div class="p3-row" ${ev.conversationId ? `data-auto-conv="${escapeHtml(ev.conversationId)}" style="cursor:pointer;"` : ""}>
+            <div class="p3-row-main">
+              <div class="p3-row-title" style="font-size:12.5px;">
+                ${ev.status === "error" ? "🔴" : "🟢"} <span class="monospaced">${escapeHtml(ev.timestamp || "")}</span>
+              </div>
+              <div class="p3-row-sub">${escapeHtml((ev.message || "").slice(0, 120))}</div>
+            </div>
+            ${ev.conversationId ? `<span style="opacity:.5;font-size:13px;">›</span>` : ""}
+          </div>`).join("") || `<div class="p3-empty">${running ? "暂无运行记录" : "任务已暂停"}</div>`) + `</div>`;
+
+      document.getElementById("btn-auto-back")?.addEventListener("click", () => {
+        this._selectedAutomationId = null;
+        this.renderToolsTab(false);
+      });
+      body.querySelectorAll("[data-cron-preset]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const preset = btn.getAttribute("data-cron-preset") || "";
+          const tzPrefix = sc.timeZone ? `CRON_TZ=${sc.timeZone} ` : "";
+          const input = document.getElementById("p3-edit-auto-cron");
+          if (input) input.value = tzPrefix + preset;
+        });
+      });
+      document.getElementById("btn-auto-detail-toggle")?.addEventListener("click", async () => {
+        const r = await fetch("/gateway/automations/manage", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sidecarId: sc.id, action: running ? "stop" : "start" }),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          showToast?.("操作失败: " + (d.error || r.status));
+          return;
+        }
+        showToast?.(running ? "已暂停定时任务" : "已启动定时任务");
+        this.renderToolsTab(false);
+      });
+      document.getElementById("btn-auto-detail-run")?.addEventListener("click", async () => {
+        if (!running) return;
+        const r = await fetch("/gateway/automations/manage", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sidecarId: sc.id, action: "run_now" }),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          showToast?.("立即运行失败: " + (d.error || r.status));
+          return;
+        }
+        showToast?.("已触发立即执行");
+        this.renderToolsTab(false);
+      });
+      document.getElementById("btn-auto-detail-restart")?.addEventListener("click", async () => {
+        const r = await fetch("/gateway/automations/manage", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sidecarId: sc.id, action: "restart" }),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          showToast?.("重启失败: " + (d.error || r.status));
+          return;
+        }
+        showToast?.("已重启任务");
+        this.renderToolsTab(false);
+      });
+      document.getElementById("btn-auto-detail-save")?.addEventListener("click", async () => {
+        const name = document.getElementById("p3-edit-auto-name")?.value.trim() || "";
+        const cron = document.getElementById("p3-edit-auto-cron")?.value.trim() || "";
+        const model = document.getElementById("p3-edit-auto-model")?.value || "";
+        const prompt = document.getElementById("p3-edit-auto-prompt")?.value.trim() || "";
+        if (!cron || !prompt) {
+          showToast?.("请填写 Cron 表达式和执行指令");
+          return;
+        }
+        const r = await fetch("/gateway/automations/update", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sidecarId: sc.id, name, cron, model, prompt }),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok || d.ok === false) {
+          showToast?.("保存失败: " + (d.error || r.status));
+          return;
+        }
+        showToast?.("已保存修改");
+        this.renderToolsTab(false);
+      });
+      document.getElementById("btn-auto-detail-del")?.addEventListener("click", async () => {
+        if (!confirm(`确定删除定时任务「${sc.name || sc.id}」？`)) return;
+        const r = await fetch("/gateway/automations/delete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sidecarId: sc.id }),
+        });
+        if (r.ok) {
+          this._selectedAutomationId = null;
+          showToast?.("已删除");
+          this.renderToolsTab(false);
+        }
+      });
+      const loadLogs = async () => {
+        const box = document.getElementById("p3-auto-logs-box");
+        const pre = document.getElementById("p3-auto-logs-pre");
+        if (!box || !pre) return;
+        box.classList.remove("hidden");
+        pre.textContent = "加载中…";
+        try {
+          const r = await fetch(`/gateway/automations/logs?sidecarId=${encodeURIComponent(sc.id)}&tail=200`);
+          const d = await r.json();
+          pre.textContent = (d.logs && d.logs.trim()) ? d.logs : "暂无日志输出";
+        } catch (err) {
+          pre.textContent = "加载日志失败: " + err.message;
+        }
+      };
+      document.getElementById("btn-auto-detail-logs")?.addEventListener("click", loadLogs);
+      document.getElementById("btn-auto-logs-refresh")?.addEventListener("click", loadLogs);
+      body.querySelectorAll("[data-auto-conv]").forEach((row) => {
+        row.addEventListener("click", () => {
+          const cid = row.getAttribute("data-auto-conv");
+          if (cid && typeof selectConversation === "function") {
+            this.closeToolsBoard();
+            selectConversation(cid);
+          }
+        });
       });
     },
 

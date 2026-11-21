@@ -383,20 +383,42 @@ extension APIClient {
 
     // MARK: - Automations CRUD
 
-    public func createAutomation(name: String, schedule: String, prompt: String, workspace: String = "", baseURL: URL) async throws {
+    public func createAutomation(name: String, schedule: String, prompt: String, model: String = "", workspace: String = "", baseURL: URL) async throws {
         var payload: [String: JSONValue] = [
             "name": .string(name),
+            "cron": .string(schedule),
             "schedule": .string(schedule),
             "prompt": .string(prompt)
         ]
+        if !model.isEmpty { payload["model"] = .string(model) }
         if !workspace.isEmpty { payload["workspace"] = .string(workspace) }
         let _: P3OkResponse = try await p3PostJSON(path: "gateway/automations/create", payload: payload, baseURL: baseURL)
     }
 
-    public func deleteAutomation(name: String, baseURL: URL) async throws {
+    public func updateAutomation(
+        sidecarId: String,
+        name: String? = nil,
+        description: String? = nil,
+        cron: String? = nil,
+        model: String? = nil,
+        prompt: String? = nil,
+        baseURL: URL
+    ) async throws {
+        var payload: [String: JSONValue] = [
+            "sidecarId": .string(sidecarId)
+        ]
+        if let name { payload["name"] = .string(name) }
+        if let description { payload["description"] = .string(description) }
+        if let cron { payload["cron"] = .string(cron) }
+        if let model { payload["model"] = .string(model) }
+        if let prompt { payload["prompt"] = .string(prompt) }
+        let _: P3OkResponse = try await p3PostJSON(path: "gateway/automations/update", payload: payload, baseURL: baseURL)
+    }
+
+    public func deleteAutomation(sidecarId: String, baseURL: URL) async throws {
         let _: P3OkResponse = try await p3PostJSON(
             path: "gateway/automations/delete",
-            payload: ["name": .string(name)],
+            payload: ["sidecarId": .string(sidecarId)],
             baseURL: baseURL
         )
     }

@@ -45,6 +45,7 @@ public struct McpSkillsSheet: View {
     @State private var newAutoPrompt: String = ""
     @State private var isCreatingAutomation: Bool = false
     @State private var pendingDeleteAutomation: AutomationSidecarItem? = nil
+    @State private var selectedAutomationId: String? = nil
     @State private var showStopAllTasksConfirm: Bool = false
     @State private var pendingStopDaemonTask: GlobalBackgroundTaskItem? = nil
     @State private var actionErrorMessage: String? = nil
@@ -132,6 +133,28 @@ public struct McpSkillsSheet: View {
             .navigationTitle("工具与任务看板")
             .navigationBarTitleDisplayMode(.inline)
             .presentationDragIndicator(.visible)
+            .navigationDestination(item: $selectedAutomationId) { sid in
+                if let sidecar = automations.first(where: { $0.id == sid }) {
+                    AutomationDetailView(
+                        sidecar: sidecar,
+                        allEvents: automationEvents,
+                        onRefresh: {
+                            await refreshAutomations()
+                        },
+                        onDeleted: {
+                            selectedAutomationId = nil
+                        },
+                        onSelectConversation: { cid in
+                            dismiss()
+                            onSelectConversation?(cid)
+                        }
+                    )
+                } else {
+                    Text("任务不存在或已删除")
+                        .font(.system(size: 14))
+                        .foregroundColor(.secondary)
+                }
+            }
             .sheet(item: $viewingSkill) { skill in
                 skillDetailSheet(skill)
             }
@@ -862,85 +885,119 @@ public struct McpSkillsSheet: View {
                     ForEach(filteredAutomations) { sidecar in
                         VStack(alignment: .leading, spacing: 6) {
                             HStack(alignment: .center, spacing: 8) {
-                                Text(sidecar.name)
-                                    .font(.system(size: 15, weight: .bold))
+                                VStack(alignment: .leading, spacing: 4) {
+                                    HStack(spacing: 6) {
+                                        Text(sidecar.name)
+                                            .font(.system(size: 15, weight: .bold))
+                                            .lineLimit(1)
 
-                                Text(sidecar.isRunning ? String(localized: "运行中") : String(localized: "已停止"))
-                                    .font(.system(size: 11, weight: .medium))
-                                    .foregroundColor(sidecar.isRunning ? .green : .secondary)
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 2)
-                                    .background((sidecar.isRunning ? Color.green : Color.secondary).opacity(0.12))
-                                    .clipShape(Capsule())
+                                        Text(sidecar.isRunning ? String(localized: "运行中") : String(localized: "已暂停"))
+                                            .font(.system(size: 11, weight: .medium))
+                                            .foregroundColor(sidecar.isRunning ? .green : .secondary)
+                                            .padding(.horizontal, 6)
+                                            .padding(.vertical, 2)
+                                            .background((sidecar.isRunning ? Color.green : Color.secondary).opacity(0.12))
+                                            .clipShape(Capsule())
+                                    }
 
-                                Spacer()
-
-                                Button(action: {
-                                    runNowAutomation(sidecar)
-                                }) {
-                                    Text("立即运行")
-                                        .font(.system(size: 12, weight: .semibold))
+                                    if let cron = sidecar.cronExpression, !cron.isEmpty {
+                                        HStack(spacing: 4) {
+                                            Image(systemName: "clock")
+                                                .font(.system(size: 10))
+                                            Text(AutomationCronHelper.humanSummary(cron))
+                                                .font(.system(size: 11.5))
+                                                .lineLimit(1)
+                                        }
+                                        .foregroundColor(.secondary)
+                                    }
                                 }
-                                .buttonStyle(.bordered)
-                                .disabled(managingAutomationNames.contains(sidecar.id))
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    selectedAutomationId = sidecar.id
+                                }
+
+                                if sidecar.isRunning {
+                                    Button(action: {
+                                        runNowAutomation(sidecar)
+                                    }) {
+                                        Image(systemName: "play.fill")
+                                            .font(.system(size: 11, weight: .semibold))
+                                            .frame(width: 28, height: 28)
+                                            .background(Color.indigo.opacity(0.12))
+                                            .foregroundColor(.indigo)
+                                            .clipShape(Circle())
+                                    }
+                                    .buttonStyle(.borderless)
+                                    .accessibilityLabel(String(localized: "立即运行 \(sidecar.name)"))
+                                    .disabled(managingAutomationNames.contains(sidecar.id))
+                                }
 
                                 Button(action: {
                                     toggleAutomation(sidecar)
                                 }) {
-                                    if managingAutomationNames.contains(sidecar.id) {
-                                        ProgressView().scaleEffect(0.7)
-                                    } else {
-                                        Text(sidecar.isRunning ? String(localized: "停止") : String(localized: "启动"))
-                                            .font(.system(size: 12, weight: .semibold))
+                                    Group {
+                                        if managingAutomationNames.contains(sidecar.id) {
+                                            ProgressView().scaleEffect(0.7)
+                                        } else {
+                                            Text(sidecar.isRunning ? String(localized: "停止") : String(localized: "启动"))
+                                                .font(.system(size: 12, weight: .semibold))
+                                        }
                                     }
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 5)
+                                    .background(sidecar.isRunning ? Color.secondary.opacity(0.14) : Color.indigo.opacity(0.14))
+                                    .foregroundColor(sidecar.isRunning ? .primary : .indigo)
+                                    .clipShape(Capsule())
                                 }
-                                .buttonStyle(.bordered)
+                                .buttonStyle(.borderless)
                                 .disabled(managingAutomationNames.contains(sidecar.id))
 
-                                Button(role: .destructive) {
-                                    pendingDeleteAutomation = sidecar
-                                } label: {
-                                    Image(systemName: "trash")
-                                        .font(.system(size: 12))
-                                }
-                                .buttonStyle(.bordered)
-                                .accessibilityLabel(String(localized: "删除定时任务 \(sidecar.name)"))
-                                .disabled(managingAutomationNames.contains(sidecar.id))
-                            }
-
-                            if let cron = sidecar.cronExpression, !cron.isEmpty {
-                                HStack(spacing: 4) {
-                                    Image(systemName: "clock")
-                                        .font(.system(size: 10))
-                                    Text(cron)
-                                        .font(.system(size: 11, design: .monospaced))
-                                }
-                                .foregroundColor(.secondary)
-                            }
-
-                            if sidecar.nextRunAt?.isEmpty == false || sidecar.lastRunAt?.isEmpty == false {
-                                HStack(spacing: 8) {
-                                    if let next = sidecar.nextRunAt, !next.isEmpty {
-                                        Text("下次: \(next)")
-                                            .font(.system(size: 11))
-                                            .foregroundColor(.secondary)
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundColor(.secondary.opacity(0.5))
+                                    .onTapGesture {
+                                        selectedAutomationId = sidecar.id
                                     }
-                                    if let last = sidecar.lastRunAt, !last.isEmpty {
-                                        Text("上次: \(last)")
-                                            .font(.system(size: 11))
-                                            .foregroundColor(.secondary.opacity(0.8))
+                            }
+
+                            VStack(alignment: .leading, spacing: 4) {
+                                if sidecar.nextRunAt?.isEmpty == false || sidecar.lastRunAt?.isEmpty == false {
+                                    HStack(spacing: 8) {
+                                        if sidecar.isRunning, let next = sidecar.nextRunAt, !next.isEmpty {
+                                            Text("下次: \(next)")
+                                                .font(.system(size: 11))
+                                                .foregroundColor(.secondary)
+                                        }
+                                        if let last = sidecar.lastRunAt, !last.isEmpty {
+                                            Text("上次: \(last)")
+                                                .font(.system(size: 11))
+                                                .foregroundColor(.secondary.opacity(0.8))
+                                        }
                                     }
                                 }
-                            }
 
-                            if let desc = sidecar.description ?? sidecar.prompt, !desc.isEmpty {
-                                Text(desc)
-                                    .font(.system(size: 12.5))
-                                    .foregroundColor(.secondary)
-                                    .lineLimit(3)
+                                if let desc = sidecar.description ?? sidecar.prompt, !desc.isEmpty {
+                                    Text(desc)
+                                        .font(.system(size: 12.5))
+                                        .foregroundColor(.secondary)
+                                        .lineLimit(2)
+                                }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                selectedAutomationId = sidecar.id
                             }
                         }
                         .padding(.vertical, 4)
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            Button(role: .destructive) {
+                                pendingDeleteAutomation = sidecar
+                            } label: {
+                                Label("删除", systemImage: "trash")
+                            }
+                        }
                     }
                 }
             }
@@ -1596,13 +1653,21 @@ public struct McpSkillsSheet: View {
         }
     }
 
+    private func refreshAutomations() async {
+        guard let url = settings.serverURL else { return }
+        if let refreshed = try? await APIClient.shared.fetchAutomations(baseURL: url) {
+            self.automations = refreshed.automations
+            self.automationEvents = refreshed.events
+        }
+    }
+
     private func deleteAutomationItem(_ item: AutomationSidecarItem) {
         guard let url = settings.gatewayURL else { return }
         managingAutomationNames.insert(item.id)
         Task {
             defer { managingAutomationNames.remove(item.id) }
             do {
-                try await APIClient.shared.deleteAutomation(name: item.name, baseURL: url)
+                try await APIClient.shared.deleteAutomation(sidecarId: item.id, baseURL: url)
                 if let refreshed = try? await APIClient.shared.fetchAutomations(baseURL: url) {
                     automations = refreshed.automations
                     automationEvents = refreshed.events

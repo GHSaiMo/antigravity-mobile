@@ -42,6 +42,7 @@ public struct ChatView: View {
     @State var showAttachmentSheet = false
     @State var showNavigatorSheet = false
     @State var showMcpSkillsSheet = false
+    @State var mcpSkillsInitialTabOverride: McpSkillsSheet.Tab? = nil
     @State var showSwarmSheet = false
     @State var showContextAuditSheet = false
     @State var showWorkflowTemplateSheet = false
@@ -565,9 +566,11 @@ public struct ChatView: View {
                     }
                 )
             }
-            .sheet(isPresented: $showMcpSkillsSheet) {
+            .sheet(isPresented: $showMcpSkillsSheet, onDismiss: {
+                mcpSkillsInitialTabOverride = nil
+            }) {
                 McpSkillsSheet(
-                    initialTab: viewModel.hasAnyBackgroundTasks ? .tasks : .mcp,
+                    initialTab: mcpSkillsInitialTabOverride ?? (viewModel.hasAnyBackgroundTasks ? .tasks : .mcp),
                     currentConversationId: viewModel.cascadeId,
                     hasActiveSwarm: viewModel.isSwarmActive,
                     onSelectConversation: { targetId in

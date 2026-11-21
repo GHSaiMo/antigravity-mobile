@@ -205,6 +205,8 @@ func (p *Proxy) HandleAutomationCreateDelete(w http.ResponseWriter, r *http.Requ
 			Name        string `json:"name"`
 			Description string `json:"description"`
 			Cron        string `json:"cron"`
+			Schedule    string `json:"schedule"`
+			Model       string `json:"model"`
 			Prompt      string `json:"prompt"`
 			Enabled     *bool  `json:"enabled"`
 		}
@@ -212,7 +214,8 @@ func (p *Proxy) HandleAutomationCreateDelete(w http.ResponseWriter, r *http.Requ
 			writeRPCError(w, http.StatusBadRequest, "无效的请求体")
 			return
 		}
-		if strings.TrimSpace(req.Cron) == "" || strings.TrimSpace(req.Prompt) == "" {
+		cronExpr := firstNonEmpty(req.Cron, req.Schedule)
+		if strings.TrimSpace(cronExpr) == "" || strings.TrimSpace(req.Prompt) == "" {
 			writeRPCError(w, http.StatusBadRequest, "请填写 Cron 表达式和执行提示词")
 			return
 		}
@@ -223,39 +226,64 @@ func (p *Proxy) HandleAutomationCreateDelete(w http.ResponseWriter, r *http.Requ
 		if !strings.Contains(sid, "schedule") {
 			sid = "schedule-" + sid
 		}
-		targetDir := filepath.Join(sidecarsDir, sid)
-		if err := os.MkdirAll(targetDir, 0o755); err != nil {
-			writeRPCError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-
-		sidecarCfg := map[string]interface{}{
-			"builtin":      "schedule",
-			"args":         []string{strings.TrimSpace(req.Cron), "agentapi", "new-conversation", strings.TrimSpace(req.Prompt)},
-			"display_name": firstNonEmpty(req.Name, sid),
-			"description":  req.Description,
-		}
-		raw, _ := json.MarshalIndent(sidecarCfg, "", "  ")
-		if err := os.WriteFile(filepath.Join(targetDir, "sidecar.json"), append(raw, '\n'), 0o644); err != nil {
-			writeRPCError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
 		enabled := true
 		if req.Enabled != nil {
 			enabled = *req.Enabled
 		}
-		_ = updateLocalSidecarEnabled(sid, enabled)
+		var modelPtr *string
+		if strings.TrimSpace(req.Model) != "" {
+			m := strings.TrimSpace(req.Model)
+			modelPtr = &m
+		}
+		args := buildScheduleArgs(nil, cronExpr, modelPtr, req.Prompt)
+		displayName := firstNonEmpty(req.Name, sid)
 
+		createdUpstream := false
 		if port, _ := p.ActiveUpstream(); port > 0 {
-			ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
-			_, _, _ = p.callUpstreamRPC(ctx, "ResolveSidecarConfig", map[string]interface{}{"sidecarId": sid})
-			if enabled {
-				_, _, _ = p.callUpstreamRPC(ctx, "ManageSidecar", map[string]interface{}{
-					"sidecarId": sid,
-					"action":    "SIDECAR_ACTION_START",
-				})
+			ctx, cancel := context.WithTimeout(r.Context(), 6*time.Second)
+			upCfg := map[string]interface{}{
+				"builtin":       "schedule",
+				"restartPolicy": "always",
+				"args":          args,
+				"displayName":   displayName,
+				"description":   strings.TrimSpace(req.Description),
+			}
+			_, status, err := p.callUpstreamRPC(ctx, "ManageSidecar", map[string]interface{}{
+				"sidecarId": sid,
+				"action":    "SIDECAR_ACTION_CREATE",
+				"config":    upCfg,
+			})
+			if err == nil && status == http.StatusOK {
+				createdUpstream = true
+				if enabled {
+					_, _, _ = p.callUpstreamRPC(ctx, "ManageSidecar", map[string]interface{}{
+						"sidecarId": sid,
+						"action":    "SIDECAR_ACTION_ENABLE",
+					})
+				}
 			}
 			cancel()
+		}
+
+		if !createdUpstream {
+			targetDir := filepath.Join(sidecarsDir, sid)
+			if err := os.MkdirAll(targetDir, 0o755); err != nil {
+				writeRPCError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			sidecarCfg := map[string]interface{}{
+				"builtin":        "schedule",
+				"restart_policy": "always",
+				"args":           args,
+				"display_name":   displayName,
+				"description":    strings.TrimSpace(req.Description),
+			}
+			raw, _ := json.MarshalIndent(sidecarCfg, "", "  ")
+			if err := os.WriteFile(filepath.Join(targetDir, "sidecar.json"), append(raw, '\n'), 0o644); err != nil {
+				writeRPCError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			_ = updateLocalSidecarEnabled(sid, enabled)
 		}
 
 		writeJSONStatus(w, http.StatusOK, map[string]interface{}{
@@ -265,28 +293,39 @@ func (p *Proxy) HandleAutomationCreateDelete(w http.ResponseWriter, r *http.Requ
 	case "/gateway/automations/delete":
 		var req struct {
 			SidecarID string `json:"sidecarId"`
+			Name      string `json:"name"`
 		}
-		if err := json.NewDecoder(io.LimitReader(r.Body, 64*1024)).Decode(&req); err != nil || strings.TrimSpace(req.SidecarID) == "" {
+		if err := json.NewDecoder(io.LimitReader(r.Body, 64*1024)).Decode(&req); err != nil {
+			writeRPCError(w, http.StatusBadRequest, "无效的请求体")
+			return
+		}
+		reqID := strings.TrimSpace(firstNonEmpty(req.SidecarID, req.Name))
+		if reqID == "" {
 			writeRPCError(w, http.StatusBadRequest, "缺少 sidecarId")
 			return
 		}
-		sid := sanitizeFileSlug(req.SidecarID)
-		if sid == "" || strings.Contains(req.SidecarID, "..") || strings.ContainsRune(req.SidecarID, filepath.Separator) {
+		if !isSafeSidecarID(reqID) {
 			writeRPCError(w, http.StatusBadRequest, "非法的 sidecarId")
 			return
 		}
 
+		deletedUpstream := false
 		if port, _ := p.ActiveUpstream(); port > 0 {
-			ctx, cancel := context.WithTimeout(r.Context(), 4*time.Second)
-			_, _, _ = p.callUpstreamRPC(ctx, "ManageSidecar", map[string]interface{}{
-				"sidecarId": req.SidecarID,
-				"action":    "SIDECAR_ACTION_STOP",
+			ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+			_, status, err := p.callUpstreamRPC(ctx, "ManageSidecar", map[string]interface{}{
+				"sidecarId": reqID,
+				"action":    "SIDECAR_ACTION_DELETE",
 			})
 			cancel()
+			if err == nil && status == http.StatusOK {
+				deletedUpstream = true
+			}
 		}
-		_ = os.RemoveAll(filepath.Join(sidecarsDir, req.SidecarID))
-		_ = removeLocalSidecarFromConfig(req.SidecarID)
-		writeJSONStatus(w, http.StatusOK, map[string]interface{}{"ok": true, "sidecarId": req.SidecarID})
+		if !deletedUpstream {
+			_ = os.RemoveAll(filepath.Join(sidecarsDir, reqID))
+			_ = removeLocalSidecarFromConfig(reqID)
+		}
+		writeJSONStatus(w, http.StatusOK, map[string]interface{}{"ok": true, "sidecarId": reqID})
 	default:
 		http.NotFound(w, r)
 	}

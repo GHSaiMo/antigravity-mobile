@@ -283,18 +283,55 @@ suspend fun ApiClient.callMcpAppTool(toolName: String, arguments: JsonElement?, 
     return p3PostJson("/gateway/mcp/app/call", payload)
 }
 
-suspend fun ApiClient.createAutomation(name: String, schedule: String, prompt: String, workspace: String = ""): Result<Unit> {
+suspend fun ApiClient.createAutomation(
+    name: String,
+    schedule: String,
+    prompt: String,
+    model: String = "",
+    workspace: String = ""
+): Result<Unit> {
     val payload = buildJsonObject {
         put("name", name)
+        put("cron", schedule)
         put("schedule", schedule)
         put("prompt", prompt)
+        if (model.isNotBlank()) put("model", model)
         if (workspace.isNotBlank()) put("workspace", workspace)
     }
     return p3PostJson("/gateway/automations/create", payload).map { }
 }
 
-suspend fun ApiClient.deleteAutomation(name: String): Result<Unit> {
-    return p3PostJson("/gateway/automations/delete", buildJsonObject { put("name", name) }).map { }
+suspend fun ApiClient.updateAutomation(
+    sidecarId: String,
+    name: String? = null,
+    description: String? = null,
+    cron: String? = null,
+    model: String? = null,
+    prompt: String? = null
+): Result<Unit> {
+    val payload = buildJsonObject {
+        put("sidecarId", sidecarId)
+        if (name != null) put("name", name)
+        if (description != null) put("description", description)
+        if (cron != null) put("cron", cron)
+        if (model != null) put("model", model)
+        if (prompt != null) put("prompt", prompt)
+    }
+    return p3PostJson("/gateway/automations/update", payload).map { }
+}
+
+suspend fun ApiClient.fetchAutomationLogs(
+    sidecarId: String,
+    tail: Int = 200
+): Result<AutomationLogsResponse> {
+    val encodedId = URLEncoder.encode(sidecarId, "UTF-8")
+    return p3Get("/gateway/automations/logs?sidecarId=$encodedId&tail=$tail").mapCatching { body ->
+        json.decodeFromString<AutomationLogsResponse>(body)
+    }
+}
+
+suspend fun ApiClient.deleteAutomation(sidecarId: String): Result<Unit> {
+    return p3PostJson("/gateway/automations/delete", buildJsonObject { put("sidecarId", sidecarId) }).map { }
 }
 
 suspend fun ApiClient.gitListBranches(cascadeId: String): Result<GitBranchesResponse> {

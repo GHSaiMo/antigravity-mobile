@@ -245,6 +245,24 @@ private enum DemoRouter {
             let action = (obj["action"] as? String) ?? ""
             return json(gw.manageAutomation(sidecarId: sidecarId, action: action))
 
+        case ("POST", "/gateway/automations/update"):
+            let obj = bodyJSON(body)
+            let sidecarId = (obj["sidecarId"] as? String) ?? ""
+            return json(["ok": true, "sidecarId": sidecarId])
+
+        case ("GET", "/gateway/automations/logs"):
+            let sid = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                .queryItems?
+                .first(where: { $0.name == "sidecarId" })?
+                .value ?? "demo-schedule"
+            return json([
+                "sidecarId": sid,
+                "filename": "sidecar.log",
+                "files": ["sidecar.log"],
+                "logs": "=== sidecar \"\(sid)\" started ===\n[schedule] Scheduler active\n[schedule] Next execution scheduled",
+                "truncated": false
+            ])
+
         case ("GET", "/gateway/workflow-templates"):
             return rawJSON(gw.workflowTemplatesPayload())
 

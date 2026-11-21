@@ -115,6 +115,8 @@ fun McpSkillsSheet(
     var editingMemory by remember { mutableStateOf<MemoryRuleItem?>(null) }
     var pendingDeleteMemory by remember { mutableStateOf<MemoryRuleItem?>(null) }
     var showNewAutomationDialog by remember { mutableStateOf(false) }
+    var selectedAutomationId by remember { mutableStateOf<String?>(null) }
+    var automationActionError by remember { mutableStateOf<String?>(null) }
     var isRefreshingMcp by remember { mutableStateOf(false) }
 
     var expandedLogTaskIds by remember { mutableStateOf<Set<String>>(emptySet()) }
@@ -811,11 +813,13 @@ fun McpSkillsSheet(
                                 AutomationCard(
                                     sidecar = sidecar,
                                     isManaging = managingAutomationNames.contains(sid),
+                                    onOpenDetail = { selectedAutomationId = sid },
                                     onToggle = {
                                         scope.launch {
                                             val action = if (sidecar.isRunning) "stop" else "start"
                                             managingAutomationNames.add(sid)
                                             apiClient.manageAutomation(action, sid)
+                                                .onFailure { automationActionError = it.message }
                                             apiClient.fetchAutomationsData().onSuccess {
                                                 automations = it.automations
                                                 automationEvents = it.events
@@ -824,20 +828,11 @@ fun McpSkillsSheet(
                                         }
                                     },
                                     onRunNow = {
+                                        if (!sidecar.isRunning) return@AutomationCard
                                         scope.launch {
                                             managingAutomationNames.add(sid)
                                             apiClient.manageAutomation("run_now", sid)
-                                            apiClient.fetchAutomationsData().onSuccess {
-                                                automations = it.automations
-                                                automationEvents = it.events
-                                            }
-                                            managingAutomationNames.remove(sid)
-                                        }
-                                    },
-                                    onDelete = {
-                                        scope.launch {
-                                            managingAutomationNames.add(sid)
-                                            apiClient.deleteAutomation(sid)
+                                                .onFailure { automationActionError = it.message }
                                             apiClient.fetchAutomationsData().onSuccess {
                                                 automations = it.automations
                                                 automationEvents = it.events
@@ -1414,6 +1409,42 @@ fun McpSkillsSheet(
             },
             dismissButton = {
                 TextButton(onClick = { showNewAutomationDialog = false }) { Text("取消".loc) }
+            },
+            containerColor = colors.surface
+        )
+    }
+
+    val selectedAuto = selectedAutomationId?.let { id ->
+        automations.firstOrNull { it.targetSidecarId == id }
+    }
+    if (selectedAuto != null) {
+        AutomationDetailDialog(
+            sidecar = selectedAuto,
+            allEvents = automationEvents,
+            apiClient = apiClient,
+            prefs = prefs,
+            onRefresh = {
+                apiClient.fetchAutomationsData().onSuccess {
+                    automations = it.automations
+                    automationEvents = it.events
+                }
+            },
+            onDismiss = { selectedAutomationId = null },
+            onSelectConversation = { cid, title ->
+                selectedAutomationId = null
+                onDismiss()
+                onSelectConversation?.invoke(cid, title)
+            }
+        )
+    }
+
+    if (automationActionError != null) {
+        AlertDialog(
+            onDismissRequest = { automationActionError = null },
+            title = { Text("操作失败".loc) },
+            text = { Text(automationActionError.orEmpty()) },
+            confirmButton = {
+                TextButton(onClick = { automationActionError = null }) { Text("确定".loc) }
             },
             containerColor = colors.surface
         )
@@ -2135,9 +2166,9 @@ private fun PluginCard(
 private fun AutomationCard(
     sidecar: AutomationSidecarItem,
     isManaging: Boolean,
+    onOpenDetail: () -> Unit,
     onToggle: () -> Unit,
-    onRunNow: (() -> Unit)? = null,
-    onDelete: (() -> Unit)? = null
+    onRunNow: (() -> Unit)? = null
 ) {
     val colors = AntigravityTheme.colors
     val isRunning = sidecar.isRunning
@@ -2148,6 +2179,7 @@ private fun AutomationCard(
             .clip(RoundedCornerShape(14.dp))
             .background(colors.surface)
             .border(0.5.dp, colors.border, RoundedCornerShape(14.dp))
+            .clickable { onOpenDetail() }
             .padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(7.dp)
     ) {
@@ -2178,7 +2210,7 @@ private fun AutomationCard(
                         .padding(horizontal = 6.dp, vertical = 2.dp)
                 ) {
                     Text(
-                        text = if (isRunning) "运行中".loc else "已停止".loc,
+                        text = if (isRunning) "运行中".loc else "已暂停".loc,
                         color = if (isRunning) colors.accentGreen else colors.textSecondary,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Medium
@@ -2188,39 +2220,24 @@ private fun AutomationCard(
 
             Spacer(modifier = Modifier.width(6.dp))
 
-            // Action Buttons
+            // Action Buttons (Run Now only shown when enabled, matching desktop)
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                if (onRunNow != null) {
+                if (isRunning && onRunNow != null) {
                     Box(
                         modifier = Modifier
-                            .height(28.dp)
+                            .size(28.dp)
                             .clip(CircleShape)
-                            .background(colors.surfaceVariant.copy(alpha = 0.8f))
-                            .clickable(enabled = !isManaging, onClick = onRunNow)
-                            .padding(horizontal = 9.dp),
+                            .background(colors.accentIndigo.copy(alpha = 0.12f))
+                            .clickable(enabled = !isManaging, onClick = onRunNow),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(
-                            text = "立即运行".loc,
-                            color = colors.textPrimary,
-                            fontSize = 11.5.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    }
-                }
-                if (onDelete != null) {
-                    IconButton(
-                        enabled = !isManaging,
-                        onClick = onDelete,
-                        modifier = Modifier.size(26.dp)
-                    ) {
                         Icon(
-                            imageVector = Icons.Default.Delete,
-                            contentDescription = "删除定时任务".loc,
-                            tint = Color(0xFFF44336),
+                            imageVector = Icons.Default.PlayArrow,
+                            contentDescription = "立即运行".loc,
+                            tint = colors.accentIndigo,
                             modifier = Modifier.size(16.dp)
                         )
                     }
@@ -2229,7 +2246,7 @@ private fun AutomationCard(
                     modifier = Modifier
                         .height(28.dp)
                         .clip(CircleShape)
-                        .background(if (isRunning) colors.accentIndigo.copy(alpha = 0.12f) else colors.surfaceVariant)
+                        .background(if (isRunning) colors.surfaceVariant else colors.accentIndigo.copy(alpha = 0.14f))
                         .clickable(enabled = !isManaging, onClick = onToggle)
                         .padding(horizontal = 12.dp),
                     contentAlignment = Alignment.Center
@@ -2243,16 +2260,22 @@ private fun AutomationCard(
                     } else {
                         Text(
                             text = if (isRunning) "停止".loc else "启动".loc,
-                            color = if (isRunning) colors.accentIndigo else colors.textPrimary,
+                            color = if (isRunning) colors.textPrimary else colors.accentIndigo,
                             fontSize = 11.5.sp,
                             fontWeight = FontWeight.SemiBold
                         )
                     }
                 }
+                Icon(
+                    imageVector = Icons.Default.ChevronRight,
+                    contentDescription = "任务详情".loc,
+                    tint = colors.textSecondary.copy(alpha = 0.7f),
+                    modifier = Modifier.size(18.dp)
+                )
             }
         }
 
-        // Line 2: Cron expression
+        // Line 2: Human-readable schedule summary
         if (!sidecar.cronExpression.isNullOrBlank()) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -2265,22 +2288,23 @@ private fun AutomationCard(
                     modifier = Modifier.size(11.dp)
                 )
                 Text(
-                    text = sidecar.cronExpression,
+                    text = AutomationCronHelper.humanSummary(sidecar.cronExpression),
                     color = colors.textSecondary,
-                    fontSize = 11.sp,
-                    fontFamily = FontFamily.Monospace
+                    fontSize = 11.5.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
         }
 
         // Line 3: Next & Last Run Times
-        if (!sidecar.nextRunAt.isNullOrBlank() || !sidecar.lastRunAt.isNullOrBlank()) {
+        if ((isRunning && !sidecar.nextRunAt.isNullOrBlank()) || !sidecar.lastRunAt.isNullOrBlank()) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                if (!sidecar.nextRunAt.isNullOrBlank()) {
+                if (isRunning && !sidecar.nextRunAt.isNullOrBlank()) {
                     Text(
                         text = "下次: ${sidecar.nextRunAt}".loc,
                         color = colors.textSecondary,
@@ -2305,7 +2329,7 @@ private fun AutomationCard(
                 color = colors.textSecondary,
                 fontSize = 12.5.sp,
                 lineHeight = 17.sp,
-                maxLines = 3,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
         }

@@ -1166,11 +1166,18 @@ data class AutomationSidecarItem(
     val description: String? = null,
     val status: String = "STOPPED", // READY, RUNNING, STOPPED, ERROR
     val cronExpression: String? = null,
+    val timeZone: String? = null,
+    val model: String? = null,
     val prompt: String? = null,
     val lastRunAt: String? = null,
     val nextRunAt: String? = null,
+    val lastError: String? = null,
+    val startTimeMs: String? = null,
     val enabled: Boolean = false,
-    val workspaceUri: String? = null
+    val workspaceUri: String? = null,
+    val workspaceUris: List<String> = emptyList(),
+    val projectId: String? = null,
+    val accessGrants: List<String> = emptyList()
 ) {
     val targetSidecarId: String get() = id.ifBlank { name }
     val isRunning: Boolean get() = status.equals("RUNNING", ignoreCase = true) || status.equals("READY", ignoreCase = true) || enabled
@@ -1180,16 +1187,33 @@ data class AutomationSidecarItem(
 data class AutomationEventItem(
     val id: String = "",
     val scheduleId: String = "",
+    val sidecarId: String? = null,
     val conversationId: String? = null,
     val timestamp: String = "",
     val status: String = "",
     val message: String? = null
-)
+) {
+    fun matches(sidecar: AutomationSidecarItem): Boolean {
+        if (!sidecarId.isNullOrBlank()) {
+            return sidecarId == sidecar.targetSidecarId
+        }
+        return scheduleId == sidecar.targetSidecarId || scheduleId == sidecar.name
+    }
+}
 
 @Serializable
 data class AutomationsResponse(
     val automations: List<AutomationSidecarItem> = emptyList(),
     val events: List<AutomationEventItem> = emptyList()
+)
+
+@Serializable
+data class AutomationLogsResponse(
+    val sidecarId: String = "",
+    val filename: String = "sidecar.log",
+    val files: List<String> = emptyList(),
+    val logs: String = "",
+    val truncated: Boolean = false
 )
 
 @Serializable

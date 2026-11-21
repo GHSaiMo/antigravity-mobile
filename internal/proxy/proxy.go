@@ -662,6 +662,14 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		p.HandleManageAutomation(w, r)
 		return
 	}
+	if r.URL.Path == "/gateway/automations/update" {
+		p.HandleUpdateAutomation(w, r)
+		return
+	}
+	if r.URL.Path == "/gateway/automations/logs" {
+		p.HandleGetAutomationLogs(w, r)
+		return
+	}
 
 	if r.URL.Path == "/gateway/rpc-mux" {
 		p.HandleRPCMux(w, r)

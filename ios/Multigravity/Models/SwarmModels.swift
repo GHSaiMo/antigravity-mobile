@@ -416,18 +416,27 @@ public struct AutomationSidecarItem: Codable, Sendable, Identifiable, Equatable 
     public let description: String?
     public let status: String // "READY", "RUNNING", "STOPPED", "ERROR"
     public let cronExpression: String?
+    public let timeZone: String?
+    public let model: String?
     public let prompt: String?
     public let lastRunAt: String?
     public let nextRunAt: String?
+    public let lastError: String?
+    public let startTimeMs: String?
     public let enabled: Bool
     public let workspaceUri: String?
+    public let workspaceUris: [String]?
+    public let projectId: String?
+    public let accessGrants: [String]?
 
     public var isRunning: Bool {
         enabled || ["running", "ready"].contains(status.lowercased())
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, name, description, status, cronExpression, prompt, lastRunAt, nextRunAt, enabled, workspaceUri
+        case id, name, description, status, cronExpression, timeZone, model, prompt
+        case lastRunAt, nextRunAt, lastError, startTimeMs, enabled
+        case workspaceUri, workspaceUris, projectId, accessGrants
     }
 
     public init(from decoder: Decoder) throws {
@@ -439,30 +448,63 @@ public struct AutomationSidecarItem: Codable, Sendable, Identifiable, Equatable 
         self.description = try c.decodeIfPresent(String.self, forKey: .description)
         self.status = try c.decodeIfPresent(String.self, forKey: .status) ?? "STOPPED"
         self.cronExpression = try c.decodeIfPresent(String.self, forKey: .cronExpression)
+        self.timeZone = try c.decodeIfPresent(String.self, forKey: .timeZone)
+        self.model = try c.decodeIfPresent(String.self, forKey: .model)
         self.prompt = try c.decodeIfPresent(String.self, forKey: .prompt)
         self.lastRunAt = try c.decodeIfPresent(String.self, forKey: .lastRunAt)
         self.nextRunAt = try c.decodeIfPresent(String.self, forKey: .nextRunAt)
+        self.lastError = try c.decodeIfPresent(String.self, forKey: .lastError)
+        self.startTimeMs = try c.decodeIfPresent(String.self, forKey: .startTimeMs)
         self.enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? false
         self.workspaceUri = try c.decodeIfPresent(String.self, forKey: .workspaceUri)
+        self.workspaceUris = try c.decodeIfPresent([String].self, forKey: .workspaceUris)
+        self.projectId = try c.decodeIfPresent(String.self, forKey: .projectId)
+        self.accessGrants = try c.decodeIfPresent([String].self, forKey: .accessGrants)
     }
 }
 
 public struct AutomationEventItem: Codable, Sendable, Identifiable, Equatable {
     public let id: String
     public let scheduleId: String
+    public let sidecarId: String?
     public let conversationId: String?
     public let timestamp: String
     public let status: String
     public let message: String?
 
+    public func matches(sidecar: AutomationSidecarItem) -> Bool {
+        if let sid = sidecarId, !sid.isEmpty {
+            return sid == sidecar.id
+        }
+        return scheduleId == sidecar.id || scheduleId == sidecar.name
+    }
+
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         self.id = try c.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
         self.scheduleId = try c.decodeIfPresent(String.self, forKey: .scheduleId) ?? ""
+        self.sidecarId = try c.decodeIfPresent(String.self, forKey: .sidecarId)
         self.conversationId = try c.decodeIfPresent(String.self, forKey: .conversationId)
         self.timestamp = try c.decodeIfPresent(String.self, forKey: .timestamp) ?? ""
         self.status = try c.decodeIfPresent(String.self, forKey: .status) ?? ""
         self.message = try c.decodeIfPresent(String.self, forKey: .message)
+    }
+}
+
+public struct AutomationLogsResponse: Codable, Sendable {
+    public let sidecarId: String
+    public let filename: String
+    public let files: [String]
+    public let logs: String
+    public let truncated: Bool
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.sidecarId = try c.decodeIfPresent(String.self, forKey: .sidecarId) ?? ""
+        self.filename = try c.decodeIfPresent(String.self, forKey: .filename) ?? "sidecar.log"
+        self.files = try c.decodeIfPresent([String].self, forKey: .files) ?? []
+        self.logs = try c.decodeIfPresent(String.self, forKey: .logs) ?? ""
+        self.truncated = try c.decodeIfPresent(Bool.self, forKey: .truncated) ?? false
     }
 }
 

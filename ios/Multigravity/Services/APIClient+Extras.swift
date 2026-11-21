@@ -339,6 +339,37 @@ extension APIClient {
         )
     }
 
+    /// 获取定时任务日志（GET /gateway/automations/logs?sidecarId=...&tail=...）。
+    public func fetchAutomationLogs(sidecarId: String, tail: Int = 200, baseURL: URL) async throws -> AutomationLogsResponse {
+        var comps = URLComponents(url: baseURL.appendingPathComponent("gateway/automations/logs"), resolvingAgainstBaseURL: false)
+        comps?.queryItems = [
+            URLQueryItem(name: "sidecarId", value: sidecarId),
+            URLQueryItem(name: "tail", value: String(tail))
+        ]
+        guard let url = comps?.url else {
+            throw APIError.invalidURL
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 15
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await transport.send(request: request)
+        } catch {
+            throw APIError.networkError(error.localizedDescription)
+        }
+        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            let code = (response as? HTTPURLResponse)?.statusCode ?? -1
+            throw APIError.serverError(statusCode: code, message: String(localized: "获取运行日志失败"))
+        }
+        do {
+            return try JSONDecoder().decode(AutomationLogsResponse.self, from: data)
+        } catch {
+            throw APIError.decodingError(error.localizedDescription)
+        }
+    }
+
     // MARK: - Workflow 模板持久化同步接口
 
     private func gatewayJSONRequest<Resp: Decodable>(

@@ -192,9 +192,15 @@ extension ChatView {
         let pathLower = url.path.lowercased()
 
         // 0. Native Sidecar UI links (sidecar://<id>/...)
-        if url.scheme?.lowercased() == "sidecar", let gwURL = AppSettings.shared.gatewayURL {
-            let sidecarId = url.host ?? ""
-            if !sidecarId.isEmpty {
+        if url.scheme?.lowercased() == "sidecar" {
+            let sidecarId = (url.host ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            if ["dashboard", "automations", "sidecars", "schedule", "schedules"].contains(sidecarId.lowercased()) {
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                mcpSkillsInitialTabOverride = .automations
+                showMcpSkillsSheet = true
+                return .handled
+            }
+            if !sidecarId.isEmpty, let gwURL = AppSettings.shared.gatewayURL {
                 let relPath = url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
                 var target = gwURL.appendingPathComponent("gateway/sidecar-ui/\(sidecarId)")
                 if !relPath.isEmpty {

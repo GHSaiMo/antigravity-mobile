@@ -17,22 +17,30 @@ import (
 
 // AutomationSchedule represents a scheduled automation task (from schedule sidecar).
 type AutomationSchedule struct {
-	ID             string `json:"id"`
-	Name           string `json:"name"`
-	Description    string `json:"description,omitempty"`
-	Status         string `json:"status"` // READY, RUNNING, STOPPED, ERROR
-	CronExpression string `json:"cronExpression,omitempty"`
-	Prompt         string `json:"prompt,omitempty"`
-	LastRunAt      string `json:"lastRunAt,omitempty"`
-	NextRunAt      string `json:"nextRunAt,omitempty"`
-	Enabled        bool   `json:"enabled"`
-	WorkspaceURI   string `json:"workspaceUri,omitempty"`
+	ID             string   `json:"id"`
+	Name           string   `json:"name"`
+	Description    string   `json:"description,omitempty"`
+	Status         string   `json:"status"` // READY, RUNNING, STOPPED, ERROR
+	CronExpression string   `json:"cronExpression,omitempty"`
+	TimeZone       string   `json:"timeZone,omitempty"`
+	Model          string   `json:"model,omitempty"`
+	Prompt         string   `json:"prompt,omitempty"`
+	LastRunAt      string   `json:"lastRunAt,omitempty"`
+	NextRunAt      string   `json:"nextRunAt,omitempty"`
+	LastError      string   `json:"lastError,omitempty"`
+	StartTimeMs    string   `json:"startTimeMs,omitempty"`
+	Enabled        bool     `json:"enabled"`
+	WorkspaceURI   string   `json:"workspaceUri,omitempty"`
+	WorkspaceURIs  []string `json:"workspaceUris,omitempty"`
+	ProjectID      string   `json:"projectId,omitempty"`
+	AccessGrants   []string `json:"accessGrants,omitempty"`
 }
 
 // AutomationEvent represents a historical run of an automation.
 type AutomationEvent struct {
 	ID             string `json:"id"`
 	ScheduleID     string `json:"scheduleId"`
+	SidecarID      string `json:"sidecarId,omitempty"`
 	ConversationID string `json:"conversationId,omitempty"`
 	Timestamp      string `json:"timestamp"`
 	Status         string `json:"status"` // success, error, running
@@ -43,6 +51,150 @@ type AutomationEvent struct {
 type AutomationsResponse struct {
 	Automations []AutomationSchedule `json:"automations"`
 	Events      []AutomationEvent    `json:"events"`
+}
+
+var cronTZPrefixRe = regexp.MustCompile(`^(?:CRON_TZ|TZ)=(\S+)\s+(.+)$`)
+
+// flagsWithValue lists agentapi new-conversation flags that take a separate next-token value.
+var scheduleFlagsWithValue = map[string]bool{
+	"--model":     true,
+	"-model":      true,
+	"-m":          true,
+	"--workspace": true,
+	"-w":          true,
+	"--project":   true,
+}
+
+// parseScheduleArgs mirrors Antigravity desktop's frd/grd/d3 parsing for schedule sidecar args.
+func parseScheduleArgs(args []string) (cronPattern, timeZone, model, prompt string, flags []string) {
+	if len(args) == 0 {
+		return "", "", "", "", nil
+	}
+	cronPattern = strings.TrimSpace(args[0])
+	if m := cronTZPrefixRe.FindStringSubmatch(cronPattern); len(m) == 3 {
+		timeZone = m[1]
+	}
+
+	if len(args) <= 3 {
+		return cronPattern, timeZone, "", "", nil
+	}
+
+	// Look for explicit "--" separator at index >= 3.
+	sepIdx := -1
+	for i := 3; i < len(args); i++ {
+		if args[i] == "--" {
+			sepIdx = i
+			break
+		}
+	}
+	if sepIdx != -1 {
+		flags = append(flags, args[3:sepIdx]...)
+		if sepIdx+1 < len(args) {
+			prompt = strings.Join(args[sepIdx+1:], " ")
+		}
+	} else {
+		i := 3
+		for i < len(args) {
+			tok := args[i]
+			if strings.HasPrefix(tok, "-") {
+				if strings.Contains(tok, "=") {
+					flags = append(flags, tok)
+					i++
+				} else if scheduleFlagsWithValue[tok] && i+1 < len(args) {
+					flags = append(flags, tok, args[i+1])
+					i += 2
+				} else {
+					flags = append(flags, tok)
+					i++
+				}
+			} else {
+				break
+			}
+		}
+		if i < len(args) {
+			prompt = strings.Join(args[i:], " ")
+		}
+	}
+
+	// Extract --model / -model value from flags.
+	for i := 0; i < len(flags); i++ {
+		f := flags[i]
+		if f == "--model" || f == "-model" || f == "-m" {
+			if i+1 < len(flags) {
+				model = flags[i+1]
+				break
+			}
+		} else if strings.HasPrefix(f, "--model=") {
+			model = strings.TrimPrefix(f, "--model=")
+			break
+		} else if strings.HasPrefix(f, "-model=") {
+			model = strings.TrimPrefix(f, "-model=")
+			break
+		}
+	}
+	return cronPattern, timeZone, model, prompt, flags
+}
+
+// buildScheduleArgs mirrors Antigravity desktop's krd builder, preserving non-model flags.
+func buildScheduleArgs(origArgs []string, cronPattern string, newModel *string, prompt string) []string {
+	_, _, _, _, origFlags := parseScheduleArgs(origArgs)
+	var updatedFlags []string
+	if newModel != nil {
+		trimmedModel := strings.TrimSpace(*newModel)
+		modelReplaced := false
+		for i := 0; i < len(origFlags); i++ {
+			f := origFlags[i]
+			if f == "--model" || f == "-model" || f == "-m" {
+				if i+1 < len(origFlags) {
+					i++
+				}
+				if trimmedModel != "" && !modelReplaced {
+					updatedFlags = append(updatedFlags, "--model="+trimmedModel)
+					modelReplaced = true
+				}
+				continue
+			}
+			if strings.HasPrefix(f, "--model=") || strings.HasPrefix(f, "-model=") {
+				if trimmedModel != "" && !modelReplaced {
+					updatedFlags = append(updatedFlags, "--model="+trimmedModel)
+					modelReplaced = true
+				}
+				continue
+			}
+			updatedFlags = append(updatedFlags, f)
+		}
+		if trimmedModel != "" && !modelReplaced {
+			updatedFlags = append(updatedFlags, "--model="+trimmedModel)
+		}
+	} else {
+		updatedFlags = append(updatedFlags, origFlags...)
+	}
+
+	cmd1 := "agentapi"
+	cmd2 := "new-conversation"
+	if len(origArgs) > 1 && strings.TrimSpace(origArgs[1]) != "" {
+		cmd1 = origArgs[1]
+	}
+	if len(origArgs) > 2 && strings.TrimSpace(origArgs[2]) != "" {
+		cmd2 = origArgs[2]
+	}
+
+	out := make([]string, 0, 5+len(updatedFlags))
+	out = append(out, strings.TrimSpace(cronPattern), cmd1, cmd2)
+	out = append(out, updatedFlags...)
+	out = append(out, "--", strings.TrimSpace(prompt))
+	return out
+}
+
+func isSafeSidecarID(id string) bool {
+	s := strings.TrimSpace(id)
+	if s == "" || s == "." || s == ".." {
+		return false
+	}
+	if strings.Contains(s, "..") || strings.ContainsRune(s, '/') || strings.ContainsRune(s, '\\') {
+		return false
+	}
+	return true
 }
 
 // HandleGetAutomations serves GET /gateway/automations.
@@ -78,15 +230,21 @@ func (p *Proxy) HandleGetAutomations(w http.ResponseWriter, r *http.Request) {
 			body, _ := io.ReadAll(res.Body)
 			var raw struct {
 				Sidecars []struct {
-					SidecarID string `json:"sidecarId"`
-					ID        string `json:"id"`
-					Status    string `json:"status"`
-					Config    struct {
-						Builtin       string   `json:"builtin"`
-						Args          []string `json:"args"`
-						DisplayName   string   `json:"displayName"`
-						Description   string   `json:"description"`
-						RestartPolicy string   `json:"restartPolicy"`
+					SidecarID   string `json:"sidecarId"`
+					ID          string `json:"id"`
+					Status      string `json:"status"`
+					LastError   string `json:"lastError"`
+					StartTimeMs string `json:"startTimeMs"`
+					Config      struct {
+						Builtin          string   `json:"builtin"`
+						Args             []string `json:"args"`
+						DisplayName      string   `json:"displayName"`
+						Description      string   `json:"description"`
+						RestartPolicy    string   `json:"restartPolicy"`
+						AgentPermissions *struct {
+							WorkspaceURIs []string `json:"workspaceUris"`
+							AccessGrants  []string `json:"accessGrants"`
+						} `json:"agentPermissions"`
 					} `json:"config"`
 					Builtin     string            `json:"builtin"`
 					Name        string            `json:"name"`
@@ -130,14 +288,7 @@ func (p *Proxy) HandleGetAutomations(w http.ResponseWriter, r *http.Request) {
 						continue
 					}
 
-					cron := ""
-					prompt := ""
-					if len(sc.Config.Args) > 0 {
-						cron = sc.Config.Args[0]
-					}
-					if len(sc.Config.Args) > 3 {
-						prompt = sc.Config.Args[3]
-					}
+					cron, tz, model, prompt, _ := parseScheduleArgs(sc.Config.Args)
 					if cron == "" && sc.Metadata != nil {
 						cron = sc.Metadata["cron"]
 					}
@@ -169,10 +320,24 @@ func (p *Proxy) HandleGetAutomations(w http.ResponseWriter, r *http.Request) {
 					}
 
 					enabled := status == "RUNNING" || status == "READY"
-					if sc.UserConfig != nil && sc.UserConfig.Enabled != nil {
-						enabled = *sc.UserConfig.Enabled
-						if !enabled {
-							status = "STOPPED"
+					projectID := ""
+					if sc.UserConfig != nil {
+						projectID = sc.UserConfig.ProjectID
+						if sc.UserConfig.Enabled != nil {
+							enabled = *sc.UserConfig.Enabled
+							if !enabled {
+								status = "STOPPED"
+							}
+						}
+					}
+
+					var wsURIs, grants []string
+					var primaryWS string
+					if sc.Config.AgentPermissions != nil {
+						wsURIs = sc.Config.AgentPermissions.WorkspaceURIs
+						grants = sc.Config.AgentPermissions.AccessGrants
+						if len(wsURIs) > 0 {
+							primaryWS = wsURIs[0]
 						}
 					}
 
@@ -180,17 +345,37 @@ func (p *Proxy) HandleGetAutomations(w http.ResponseWriter, r *http.Request) {
 					if found {
 						existing.Status = status
 						existing.Enabled = enabled
+						existing.LastError = sc.LastError
+						existing.StartTimeMs = sc.StartTimeMs
 						if cron != "" {
 							existing.CronExpression = cron
+						}
+						if tz != "" {
+							existing.TimeZone = tz
+						}
+						if model != "" {
+							existing.Model = model
 						}
 						if prompt != "" {
 							existing.Prompt = prompt
 						}
-						if name != "" && existing.Name == sid {
+						if name != "" {
 							existing.Name = name
 						}
-						if desc != "" && existing.Description == "" {
+						if desc != "" {
 							existing.Description = desc
+						}
+						if projectID != "" {
+							existing.ProjectID = projectID
+						}
+						if primaryWS != "" {
+							existing.WorkspaceURI = primaryWS
+						}
+						if len(wsURIs) > 0 {
+							existing.WorkspaceURIs = wsURIs
+						}
+						if len(grants) > 0 {
+							existing.AccessGrants = grants
 						}
 					} else {
 						schedulesMap[sid] = &AutomationSchedule{
@@ -199,8 +384,16 @@ func (p *Proxy) HandleGetAutomations(w http.ResponseWriter, r *http.Request) {
 							Description:    desc,
 							Status:         status,
 							CronExpression: cron,
+							TimeZone:       tz,
+							Model:          model,
 							Prompt:         prompt,
+							LastError:      sc.LastError,
+							StartTimeMs:    sc.StartTimeMs,
 							Enabled:        enabled,
+							WorkspaceURI:   primaryWS,
+							WorkspaceURIs:  wsURIs,
+							ProjectID:      projectID,
+							AccessGrants:   grants,
 						}
 					}
 				}
@@ -211,9 +404,13 @@ func (p *Proxy) HandleGetAutomations(w http.ResponseWriter, r *http.Request) {
 	// 3. Collect events and enrich LastRunAt / NextRunAt
 	allEvents := make([]AutomationEvent, 0)
 	for sid, sc := range schedulesMap {
-		// Read NextRunAt from log file
-		if nextRun := extractNextRunFromLog(sid); nextRun != "" {
-			sc.NextRunAt = nextRun
+		// Only report NextRunAt when the schedule is enabled (avoid stale log timestamps when paused)
+		if sc.Enabled {
+			if nextRun := extractNextRunFromLog(sid); nextRun != "" {
+				sc.NextRunAt = nextRun
+			}
+		} else {
+			sc.NextRunAt = ""
 		}
 
 		// Read local historical events
@@ -301,14 +498,7 @@ func (p *Proxy) HandleManageAutomation(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Local state synchronization: if enable/disable, persist to ~/.gemini/config/config.json
-	if mappedAction == "SIDECAR_ACTION_ENABLE" {
-		_ = updateLocalSidecarEnabled(req.SidecarID, true)
-	} else if mappedAction == "SIDECAR_ACTION_DISABLE" {
-		_ = updateLocalSidecarEnabled(req.SidecarID, false)
-	}
-
-	// Upstream ManageSidecar RPC call
+	// Upstream ManageSidecar RPC call (let language_server own config.json when online)
 	port, token := p.ActiveUpstream()
 	if p.insp != nil {
 		if cur := p.insp.Current(); cur != nil && cur.IsHealthy && cur.Port > 0 {
@@ -342,9 +532,16 @@ func (p *Proxy) HandleManageAutomation(w http.ResponseWriter, r *http.Request) {
 			writeJSONError(w, fmt.Sprintf("upstream error (HTTP %d): %s", resp.StatusCode, string(respBody)), resp.StatusCode)
 			return
 		}
-	} else if mappedAction == "SIDECAR_ACTION_RUN_NOW" {
-		writeJSONError(w, "upstream language_server unavailable for run_now", http.StatusServiceUnavailable)
-		return
+	} else {
+		switch mappedAction {
+		case "SIDECAR_ACTION_ENABLE":
+			_ = updateLocalSidecarEnabled(req.SidecarID, true)
+		case "SIDECAR_ACTION_DISABLE":
+			_ = updateLocalSidecarEnabled(req.SidecarID, false)
+		case "SIDECAR_ACTION_RUN_NOW", "SIDECAR_ACTION_RESTART":
+			writeJSONError(w, "upstream language_server unavailable for "+actionLower, http.StatusServiceUnavailable)
+			return
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -352,6 +549,331 @@ func (p *Proxy) HandleManageAutomation(w http.ResponseWriter, r *http.Request) {
 		"status":    "ok",
 		"sidecarId": req.SidecarID,
 		"action":    req.Action,
+	})
+}
+
+// HandleUpdateAutomation serves POST /gateway/automations/update.
+// Updates title, description, cron expression, model, and/or prompt while preserving
+// existing sidecar permissions, restart policy, and other flags.
+func (p *Proxy) HandleUpdateAutomation(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, `{"error":"Method not allowed"}`, http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		SidecarID   string  `json:"sidecarId"`
+		Name        *string `json:"name"`
+		Description *string `json:"description"`
+		Cron        *string `json:"cron"`
+		Model       *string `json:"model"`
+		Prompt      *string `json:"prompt"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 512*1024)).Decode(&req); err != nil {
+		writeJSONError(w, "invalid request: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	sid := strings.TrimSpace(req.SidecarID)
+	if !isSafeSidecarID(sid) {
+		writeJSONError(w, "invalid sidecarId", http.StatusBadRequest)
+		return
+	}
+
+	port, token := p.ActiveUpstream()
+	if p.insp != nil {
+		if cur := p.insp.Current(); cur != nil && cur.IsHealthy && cur.Port > 0 {
+			port = cur.Port
+			token = cur.CSRFToken
+		}
+	}
+
+	// 1. Load existing sidecar config (prefer live GetSidecars to preserve all upstream proto fields)
+	var cfgMap map[string]interface{}
+	if port > 0 && p.mediumClient != nil {
+		sidecarsURL := fmt.Sprintf("https://127.0.0.1:%d/exa.language_server_pb.LanguageServerService/GetSidecars", port)
+		upReq, _ := http.NewRequestWithContext(r.Context(), http.MethodPost, sidecarsURL, strings.NewReader("{}"))
+		upReq.Header.Set("Content-Type", "application/json")
+		upReq.Header.Set("Connect-Protocol-Version", "1")
+		if token != "" {
+			upReq.Header.Set("x-codeium-csrf-token", token)
+		}
+		if res, err := p.mediumClient.Do(upReq); err == nil {
+			defer res.Body.Close()
+			if res.StatusCode == http.StatusOK {
+				body, _ := io.ReadAll(res.Body)
+				var raw struct {
+					Sidecars []struct {
+						SidecarID string                 `json:"sidecarId"`
+						ID        string                 `json:"id"`
+						Config    map[string]interface{} `json:"config"`
+					} `json:"sidecars"`
+				}
+				if json.Unmarshal(body, &raw) == nil {
+					for _, sc := range raw.Sidecars {
+						id := sc.SidecarID
+						if id == "" {
+							id = sc.ID
+						}
+						if id == sid && sc.Config != nil {
+							cfgMap = sc.Config
+							break
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Fallback to reading local sidecar.json
+	var localPath string
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		localPath = filepath.Join(home, ".gemini", "config", "sidecars", sid, "sidecar.json")
+	}
+	if cfgMap == nil && localPath != "" {
+		if data, err := os.ReadFile(localPath); err == nil {
+			var localMap map[string]interface{}
+			if json.Unmarshal(data, &localMap) == nil {
+				cfgMap = normalizeSidecarConfigToCamel(localMap)
+			}
+		}
+	}
+	if cfgMap == nil {
+		writeJSONError(w, "automation not found: "+sid, http.StatusNotFound)
+		return
+	}
+
+	// Extract current args slice
+	var origArgs []string
+	if rawArgs, ok := cfgMap["args"].([]interface{}); ok {
+		for _, item := range rawArgs {
+			if s, ok := item.(string); ok {
+				origArgs = append(origArgs, s)
+			}
+		}
+	}
+	curCron, _, _, curPrompt, _ := parseScheduleArgs(origArgs)
+
+	newCron := curCron
+	if req.Cron != nil {
+		newCron = strings.TrimSpace(*req.Cron)
+	}
+	newPrompt := curPrompt
+	if req.Prompt != nil {
+		newPrompt = strings.TrimSpace(*req.Prompt)
+	}
+	if newCron == "" {
+		writeJSONError(w, "cron expression cannot be empty", http.StatusBadRequest)
+		return
+	}
+	if newPrompt == "" {
+		writeJSONError(w, "prompt cannot be empty", http.StatusBadRequest)
+		return
+	}
+
+	if req.Name != nil {
+		trimmedName := strings.TrimSpace(*req.Name)
+		if trimmedName != "" {
+			cfgMap["displayName"] = trimmedName
+		}
+	}
+	if req.Description != nil {
+		cfgMap["description"] = strings.TrimSpace(*req.Description)
+	}
+	if _, hasBuiltin := cfgMap["builtin"]; !hasBuiltin {
+		cfgMap["builtin"] = "schedule"
+	}
+	if req.Cron != nil || req.Model != nil || req.Prompt != nil {
+		cfgMap["args"] = buildScheduleArgs(origArgs, newCron, req.Model, newPrompt)
+	}
+
+	// 2. Persist via upstream ManageSidecar(SIDECAR_ACTION_UPDATE) when online
+	if port > 0 && p.mediumClient != nil {
+		manageURL := fmt.Sprintf("https://127.0.0.1:%d/exa.language_server_pb.LanguageServerService/ManageSidecar", port)
+		payload, _ := json.Marshal(map[string]interface{}{
+			"sidecarId": sid,
+			"action":    "SIDECAR_ACTION_UPDATE",
+			"config":    cfgMap,
+		})
+		upReq, _ := http.NewRequestWithContext(r.Context(), http.MethodPost, manageURL, bytes.NewReader(payload))
+		upReq.Header.Set("Content-Type", "application/json")
+		upReq.Header.Set("Connect-Protocol-Version", "1")
+		if token != "" {
+			upReq.Header.Set("x-codeium-csrf-token", token)
+		}
+		resp, err := p.mediumClient.Do(upReq)
+		if err != nil {
+			writeJSONError(w, "upstream update failed: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			respBody, _ := io.ReadAll(resp.Body)
+			writeJSONError(w, fmt.Sprintf("upstream error (HTTP %d): %s", resp.StatusCode, string(respBody)), resp.StatusCode)
+			return
+		}
+	} else if localPath != "" {
+		// Offline fallback: update sidecar.json in snake_case format
+		snakeMap := normalizeSidecarConfigToSnake(cfgMap)
+		out, err := json.MarshalIndent(snakeMap, "", "  ")
+		if err != nil {
+			writeJSONError(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		tmpFile := localPath + ".tmp"
+		if err := os.WriteFile(tmpFile, append(out, '\n'), 0o644); err != nil {
+			writeJSONError(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if err := os.Rename(tmpFile, localPath); err != nil {
+			writeJSONError(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"ok":        true,
+		"sidecarId": sid,
+	})
+}
+
+func normalizeSidecarConfigToCamel(src map[string]interface{}) map[string]interface{} {
+	out := make(map[string]interface{}, len(src))
+	for k, v := range src {
+		switch k {
+		case "display_name":
+			out["displayName"] = v
+		case "restart_policy":
+			out["restartPolicy"] = v
+		case "agent_permissions":
+			if pm, ok := v.(map[string]interface{}); ok {
+				permOut := make(map[string]interface{}, len(pm))
+				for pk, pv := range pm {
+					switch pk {
+					case "workspace_uris":
+						permOut["workspaceUris"] = pv
+					case "access_grants":
+						permOut["accessGrants"] = pv
+					default:
+						permOut[pk] = pv
+					}
+				}
+				out["agentPermissions"] = permOut
+			} else {
+				out["agentPermissions"] = v
+			}
+		default:
+			out[k] = v
+		}
+	}
+	return out
+}
+
+func normalizeSidecarConfigToSnake(src map[string]interface{}) map[string]interface{} {
+	out := make(map[string]interface{}, len(src))
+	for k, v := range src {
+		switch k {
+		case "displayName":
+			out["display_name"] = v
+		case "restartPolicy":
+			out["restart_policy"] = v
+		case "agentPermissions":
+			if pm, ok := v.(map[string]interface{}); ok {
+				permOut := make(map[string]interface{}, len(pm))
+				for pk, pv := range pm {
+					switch pk {
+					case "workspaceUris":
+						permOut["workspace_uris"] = pv
+					case "accessGrants":
+						permOut["access_grants"] = pv
+					default:
+						permOut[pk] = pv
+					}
+				}
+				out["agent_permissions"] = permOut
+			} else {
+				out["agent_permissions"] = v
+			}
+		default:
+			out[k] = v
+		}
+	}
+	return out
+}
+
+// HandleGetAutomationLogs serves GET /gateway/automations/logs?sidecarId=<id>&tail=200&file=sidecar.log.
+func (p *Proxy) HandleGetAutomationLogs(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, `{"error":"Method not allowed"}`, http.StatusMethodNotAllowed)
+		return
+	}
+	sid := strings.TrimSpace(r.URL.Query().Get("sidecarId"))
+	if !isSafeSidecarID(sid) {
+		writeJSONError(w, "invalid sidecarId", http.StatusBadRequest)
+		return
+	}
+
+	tailLines := 200
+	if rawTail := strings.TrimSpace(r.URL.Query().Get("tail")); rawTail != "" {
+		if n, err := strconv.Atoi(rawTail); err == nil && n > 0 {
+			if n > 1000 {
+				n = 1000
+			}
+			tailLines = n
+		}
+	}
+
+	reqFile := strings.TrimSpace(r.URL.Query().Get("file"))
+	if reqFile == "" {
+		reqFile = "sidecar.log"
+	}
+	if !isSafeSidecarID(reqFile) {
+		writeJSONError(w, "invalid log filename", http.StatusBadRequest)
+		return
+	}
+
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		writeJSONError(w, "cannot determine user home", http.StatusInternalServerError)
+		return
+	}
+	logsDir := filepath.Join(home, ".gemini", "antigravity", "sidecar_data", sid, "logs")
+
+	var files []string
+	if entries, err := os.ReadDir(logsDir); err == nil {
+		for _, e := range entries {
+			if !e.IsDir() {
+				files = append(files, e.Name())
+			}
+		}
+		sort.Strings(files)
+	}
+
+	logPath := filepath.Join(logsDir, reqFile)
+	content := ""
+	truncated := false
+	if data, err := os.ReadFile(logPath); err == nil {
+		// Cap raw tail inspection at 512KB from the end to stay fast on large logs.
+		const maxBytes = 512 * 1024
+		if len(data) > maxBytes {
+			data = data[len(data)-maxBytes:]
+			truncated = true
+		}
+		lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
+		if len(lines) > tailLines {
+			lines = lines[len(lines)-tailLines:]
+			truncated = true
+		}
+		content = strings.Join(lines, "\n")
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"sidecarId": sid,
+		"filename":  reqFile,
+		"files":     files,
+		"logs":      content,
+		"truncated": truncated,
 	})
 }
 
@@ -370,18 +892,23 @@ func readLocalSidecars() map[string]*AutomationSchedule {
 	sidecarsDir := filepath.Join(configDir, "sidecars")
 	configJSONPath := filepath.Join(configDir, "config.json")
 
-	// Read config.json to check enabled status
+	// Read config.json to check enabled status & projectId
 	enabledMap := make(map[string]bool)
+	projectIDMap := make(map[string]string)
 	if data, err := os.ReadFile(configJSONPath); err == nil {
 		var cfg struct {
 			Sidecars map[string]struct {
-				Enabled *bool `json:"enabled"`
+				Enabled   *bool  `json:"enabled"`
+				ProjectID string `json:"projectId"`
 			} `json:"sidecars"`
 		}
 		if json.Unmarshal(data, &cfg) == nil {
 			for k, v := range cfg.Sidecars {
 				if v.Enabled != nil {
 					enabledMap[k] = *v.Enabled
+				}
+				if v.ProjectID != "" {
+					projectIDMap[k] = v.ProjectID
 				}
 			}
 		}
@@ -404,11 +931,21 @@ func readLocalSidecars() map[string]*AutomationSchedule {
 		}
 
 		var sc struct {
-			Builtin        string   `json:"builtin"`
-			Args           []string `json:"args"`
-			DisplayName    string   `json:"display_name"`
-			DisplayNameAlt string   `json:"displayName"`
-			Description    string   `json:"description"`
+			Builtin          string   `json:"builtin"`
+			Args             []string `json:"args"`
+			DisplayName      string   `json:"display_name"`
+			DisplayNameAlt   string   `json:"displayName"`
+			Description      string   `json:"description"`
+			AgentPermissions *struct {
+				WorkspaceURIs    []string `json:"workspace_uris"`
+				WorkspaceURIsAlt []string `json:"workspaceUris"`
+				AccessGrants     []string `json:"access_grants"`
+				AccessGrantsAlt  []string `json:"accessGrants"`
+			} `json:"agent_permissions"`
+			AgentPermissionsAlt *struct {
+				WorkspaceURIs []string `json:"workspaceUris"`
+				AccessGrants  []string `json:"accessGrants"`
+			} `json:"agentPermissions"`
 		}
 		if json.Unmarshal(scBytes, &sc) != nil {
 			continue
@@ -420,14 +957,7 @@ func readLocalSidecars() map[string]*AutomationSchedule {
 			}
 		}
 
-		cron := ""
-		prompt := ""
-		if len(sc.Args) > 0 {
-			cron = sc.Args[0]
-		}
-		if len(sc.Args) > 3 {
-			prompt = sc.Args[3]
-		}
+		cron, tz, model, prompt, _ := parseScheduleArgs(sc.Args)
 
 		name := sc.DisplayName
 		if name == "" {
@@ -447,14 +977,39 @@ func readLocalSidecars() map[string]*AutomationSchedule {
 			status = "READY"
 		}
 
+		var wsURIs, grants []string
+		if sc.AgentPermissions != nil {
+			wsURIs = sc.AgentPermissions.WorkspaceURIs
+			if len(wsURIs) == 0 {
+				wsURIs = sc.AgentPermissions.WorkspaceURIsAlt
+			}
+			grants = sc.AgentPermissions.AccessGrants
+			if len(grants) == 0 {
+				grants = sc.AgentPermissions.AccessGrantsAlt
+			}
+		} else if sc.AgentPermissionsAlt != nil {
+			wsURIs = sc.AgentPermissionsAlt.WorkspaceURIs
+			grants = sc.AgentPermissionsAlt.AccessGrants
+		}
+		primaryWS := ""
+		if len(wsURIs) > 0 {
+			primaryWS = wsURIs[0]
+		}
+
 		result[sid] = &AutomationSchedule{
 			ID:             sid,
 			Name:           name,
 			Description:    sc.Description,
 			Status:         status,
 			CronExpression: cron,
+			TimeZone:       tz,
+			Model:          model,
 			Prompt:         prompt,
 			Enabled:        enabled,
+			WorkspaceURI:   primaryWS,
+			WorkspaceURIs:  wsURIs,
+			ProjectID:      projectIDMap[sid],
+			AccessGrants:   grants,
 		}
 	}
 
@@ -544,6 +1099,7 @@ func readLocalSidecarEvents(sidecarID, displayName string, limit int) []Automati
 		events = append(events, AutomationEvent{
 			ID:             f.Name(),
 			ScheduleID:     friendlyName,
+			SidecarID:      sidecarID,
 			ConversationID: raw.Payload.NewConversation.ConversationID,
 			Timestamp:      tsStr,
 			Status:         status,
