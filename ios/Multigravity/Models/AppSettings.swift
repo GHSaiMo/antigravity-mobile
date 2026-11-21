@@ -82,6 +82,7 @@ public final class AppSettings {
     private let gatewayPlatformKey = "antigravity.gateway_platform"
     private let demoModeKey = "antigravity.demo_mode"
     private let workspaceNotesKey = "antigravity.workspace_notes"
+    private let cachedPermissionPresetKey = "antigravity.cached_permission_preset"
 
     public var workspaceNotes: [String: String] {
         didSet { UserDefaults.standard.set(workspaceNotes, forKey: workspaceNotesKey) }
@@ -334,6 +335,13 @@ public final class AppSettings {
     public var compactHideHealthyContext: Bool {
         didSet {
             UserDefaults.standard.set(compactHideHealthyContext, forKey: compactHideHealthyContextKey)
+        }
+    }
+
+    /// 电脑端同步缓存的 Agent 权限预设模式（"strict" / "sandbox" / "auto"），避免每次打开设置跳变刷新
+    public var cachedPermissionPreset: String {
+        didSet {
+            UserDefaults.standard.set(cachedPermissionPreset, forKey: cachedPermissionPresetKey)
         }
     }
 
@@ -810,5 +818,6 @@ public final class AppSettings {
         self.compactHideHealthyContext = UserDefaults.standard.bool(forKey: compactHideHealthyContextKey)
         self.gatewayPlatform = UserDefaults.standard.string(forKey: gatewayPlatformKey)
         self.workspaceNotes = (UserDefaults.standard.dictionary(forKey: workspaceNotesKey) as? [String: String]) ?? [:]
+        self.cachedPermissionPreset = UserDefaults.standard.string(forKey: cachedPermissionPresetKey) ?? "strict"
     }
 }

@@ -35,6 +35,7 @@ public struct ConversationListView: View {
     @State private var easterEggTapCount: Int = 0
     @State private var lastEasterEggTapTime: Date = .distantPast
     @State private var showEasterEgg = false
+    @State private var firstCardPeekOffset: CGFloat = 0
     
     public init() {
         _ = SwipeActionAdjuster.activateOnce
@@ -212,6 +213,23 @@ public struct ConversationListView: View {
         }
         .onAppear {
             viewModel.reloadFromCache()
+            let openCount = UserDefaults.standard.integer(forKey: "conversation_list_open_count") + 1
+            UserDefaults.standard.set(openCount, forKey: "conversation_list_open_count")
+            let hasSeenSwipe = UserDefaults.standard.bool(forKey: "has_seen_swipe_gesture_hint")
+            if openCount >= 2 && !hasSeenSwipe {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) {
+                    guard !viewModel.filteredConversations.isEmpty else { return }
+                    withAnimation(.spring(response: 0.36, dampingFraction: 0.72)) {
+                        firstCardPeekOffset = -24
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.38) {
+                        withAnimation(.spring(response: 0.42, dampingFraction: 0.76)) {
+                            firstCardPeekOffset = 0
+                        }
+                        UserDefaults.standard.set(true, forKey: "has_seen_swipe_gesture_hint")
+                    }
+                }
+            }
             if settings.isPaired {
                 viewModel.startAutoRefresh()
                 Task {
@@ -837,6 +855,7 @@ public struct ConversationListView: View {
             
             ForEach(viewModel.filteredConversations) { item in
                 conversationCard(for: item)
+                    .offset(x: item.id == viewModel.filteredConversations.first?.id ? firstCardPeekOffset : 0)
                     .contentShape(Rectangle())
                     .onTapGesture {
                         openConversation(item)
@@ -859,6 +878,7 @@ public struct ConversationListView: View {
                     .listRowBackground(Color.clear)
                     .swipeActions(edge: .leading, allowsFullSwipe: false) {
                         Button {
+                            UserDefaults.standard.set(true, forKey: "has_seen_swipe_gesture_hint")
                             conversationToPin = item
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
                                 showPinConfirm = true
@@ -870,6 +890,7 @@ public struct ConversationListView: View {
                     }
                     .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                         Button {
+                            UserDefaults.standard.set(true, forKey: "has_seen_swipe_gesture_hint")
                             conversationToDelete = item
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
                                 showDeleteConfirm = true
@@ -1288,23 +1309,22 @@ public struct ConversationListView: View {
                     Button {
                         toggleWorkspaceFilter(for: item)
                     } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: item.isPureChat ? "bubble.left" : "folder")
-                                .font(.system(size: item.isPureChat ? 10.5 : 11))
-                                .frame(width: 15, height: 14)
-                            Text(item.workspaceName)
-                                .font(.system(size: 12, design: .monospaced))
-                                .lineLimit(1)
-                        }
-                        .foregroundColor(.secondary)
-                        .padding(.vertical, 6)
-                        .padding(.trailing, 8)
-                        .contentShape(Rectangle())
+                        Image(systemName: item.isPureChat ? "bubble.left" : "folder")
+                            .font(.system(size: item.isPureChat ? 10.5 : 11))
+                            .frame(width: 15, height: 14)
+                            .padding(.vertical, 6)
+                            .padding(.horizontal, 5)
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(.borderless)
                     .padding(.vertical, -6)
-                    .padding(.trailing, -8)
+                    .padding(.horizontal, -5)
                     .accessibilityLabel(String(localized: "筛选 \(item.workspaceName) 的会话"))
+
+                    Text(item.workspaceName)
+                        .font(.system(size: 12, design: .monospaced))
+                        .lineLimit(1)
+                        .allowsHitTesting(false)
 
                     if let pr = item.pullRequest {
                         GitHubPRPillBadge(item: pr, compact: true)

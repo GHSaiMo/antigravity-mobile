@@ -957,6 +957,39 @@ private fun ConversationListContent(
     val hasGlobalTasks = globalBackgroundTasks.isNotEmpty()
     val globalTasksAppearAnim = remember { Animatable(if (hasGlobalTasks) 1f else 0f) }
 
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val tipsPrefs = remember { context.getSharedPreferences("antigravity_tips", android.content.Context.MODE_PRIVATE) }
+    var firstCardPeekOffset by remember { mutableStateOf(0f) }
+
+    LaunchedEffect(Unit) {
+        val openCount = tipsPrefs.getInt("conversation_list_open_count", 0) + 1
+        tipsPrefs.edit().putInt("conversation_list_open_count", openCount).apply()
+        val hasSeenSwipe = tipsPrefs.getBoolean("has_seen_swipe_gesture_hint", false)
+        if (openCount >= 2 && !hasSeenSwipe) {
+            kotlinx.coroutines.delay(700)
+            if (conversations.isNotEmpty()) {
+                androidx.compose.animation.core.animate(
+                    initialValue = 0f,
+                    targetValue = -60f,
+                    animationSpec = androidx.compose.animation.core.spring(
+                        dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
+                        stiffness = androidx.compose.animation.core.Spring.StiffnessMedium
+                    )
+                ) { value, _ -> firstCardPeekOffset = value }
+                kotlinx.coroutines.delay(350)
+                androidx.compose.animation.core.animate(
+                    initialValue = -60f,
+                    targetValue = 0f,
+                    animationSpec = androidx.compose.animation.core.spring(
+                        dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
+                        stiffness = androidx.compose.animation.core.Spring.StiffnessMedium
+                    )
+                ) { value, _ -> firstCardPeekOffset = value }
+                tipsPrefs.edit().putBoolean("has_seen_swipe_gesture_hint", true).apply()
+            }
+        }
+    }
+
     LaunchedEffect(hasGlobalTasks) {
         if (hasGlobalTasks) {
             if (globalTasksAppearAnim.value < 1f) {
@@ -1193,17 +1226,21 @@ private fun ConversationListContent(
         } else {
             items(conversations, key = { it.id }) { conversation ->
                 val hasDraft = conversation.isDraft || hasDraftFor(conversation.id)
+                val isFirst = conversation.id == conversations.firstOrNull()?.id
                 SwipeableConversationCard(
-                    modifier = Modifier.animateItem(
-                        placementSpec = spring(
-                            dampingRatio = Spring.DampingRatioMediumBouncy,
-                            stiffness = Spring.StiffnessLow
-                        )
-                    ),
+                    modifier = Modifier
+                        .offset { androidx.compose.ui.unit.IntOffset(if (isFirst) firstCardPeekOffset.toInt() else 0, 0) }
+                        .animateItem(
+                            placementSpec = spring(
+                                dampingRatio = Spring.DampingRatioMediumBouncy,
+                                stiffness = Spring.StiffnessLow
+                            )
+                        ),
                     conversation = conversation,
                     hasDraft = hasDraft,
                     isSwiped = (swipedConversationId == conversation.id),
                     onSwipeOpened = {
+                        tipsPrefs.edit().putBoolean("has_seen_swipe_gesture_hint", true).apply()
                         onSwipedConversationIdChange(conversation.id)
                     },
                     onSwipeClosed = {
@@ -1769,27 +1806,31 @@ fun ConversationCard(
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(5.dp),
-                        modifier = Modifier
-                            .weight(1f, fill = false)
-                            .then(
-                                if (onWorkspaceTap != null) {
-                                    Modifier.clickable(
-                                        interactionSource = remember { MutableInteractionSource() },
-                                        indication = null,
-                                        onClick = onWorkspaceTap
-                                    )
-                                } else {
-                                    Modifier
-                                }
-                            )
-                            .padding(end = 4.dp)
+                        modifier = Modifier.weight(1f, fill = false)
                     ) {
-                        Icon(
-                            imageVector = if (conversation.isPureChat) Icons.Default.ChatBubbleOutline else Icons.Default.Folder,
-                            contentDescription = "Workspace",
-                            tint = colors.textMuted,
-                            modifier = Modifier.size(13.dp)
-                        )
+                        Box(
+                            modifier = Modifier
+                                .size(24.dp)
+                                .then(
+                                    if (onWorkspaceTap != null) {
+                                        Modifier.clickable(
+                                            interactionSource = remember { MutableInteractionSource() },
+                                            indication = null,
+                                            onClick = onWorkspaceTap
+                                        )
+                                    } else {
+                                        Modifier
+                                    }
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = if (conversation.isPureChat) Icons.Default.ChatBubbleOutline else Icons.Default.Folder,
+                                contentDescription = "Workspace",
+                                tint = colors.textMuted,
+                                modifier = Modifier.size(13.dp)
+                            )
+                        }
                         Text(
                             text = conversation.workspaceName,
                             color = colors.textSecondary,

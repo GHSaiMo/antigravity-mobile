@@ -13,6 +13,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -85,6 +86,27 @@ fun QuickActionChips(
     var commitChipBoundsInRoot by remember { mutableStateOf(Rect.Zero) }
     val latestWorkflowTemplates by rememberUpdatedState(workflowTemplates)
 
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val tipsPrefs = remember { context.getSharedPreferences("antigravity_tips", android.content.Context.MODE_PRIVATE) }
+    var showLongPressTip by remember { mutableStateOf(false) }
+
+    val dismissTip: () -> Unit = {
+        if (showLongPressTip) {
+            showLongPressTip = false
+            tipsPrefs.edit().putBoolean("has_seen_model_long_press_tooltip", true).apply()
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        val hasSeen = tipsPrefs.getBoolean("has_seen_model_long_press_tooltip", false)
+        if (!hasSeen) {
+            kotlinx.coroutines.delay(600)
+            showLongPressTip = true
+            kotlinx.coroutines.delay(5000)
+            dismissTip()
+        }
+    }
+
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -122,65 +144,98 @@ fun QuickActionChips(
         }
 
         // 2. Gemini / Claude / Orchestrator Model Switcher (Tap to cycle, Long-press + slide up/right for iOS-style picker)
-        Box(
-            modifier = Modifier
-                .height(32.dp)
-                .onGloballyPositioned { coords ->
-                    val rect = coords.boundsInRoot()
-                    chipBoundsInRoot = rect
-                    modelSlidePickerState?.anchorRect = rect
-                }
-                .clip(RoundedCornerShape(10.dp))
-                .background(chipTextColor.copy(alpha = 0.12f))
-                .border(
-                    1.dp,
-                    chipTextColor.copy(alpha = 0.35f),
-                    RoundedCornerShape(10.dp)
+        Box(contentAlignment = Alignment.TopStart) {
+            Box(
+                modifier = Modifier
+                    .height(32.dp)
+                    .onGloballyPositioned { coords ->
+                        val rect = coords.boundsInRoot()
+                        chipBoundsInRoot = rect
+                        modelSlidePickerState?.anchorRect = rect
+                    }
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(chipTextColor.copy(alpha = 0.12f))
+                    .border(
+                        1.dp,
+                        chipTextColor.copy(alpha = 0.35f),
+                        RoundedCornerShape(10.dp)
+                    )
+                    .clickable {
+                        dismissTip()
+                        haptic.light()
+                        if (modelSlidePickerState?.isPresented == true) {
+                            modelSlidePickerState.dismiss()
+                        } else {
+                            onToggleModel()
+                        }
+                    }
+                    .pointerInput(activeModel, modelCatalog, modelSlidePickerState) {
+                        if (modelSlidePickerState == null) return@pointerInput
+                        detectDragGesturesAfterLongPress(
+                            onDragStart = {
+                                dismissTip()
+                                haptic.medium()
+                                workflowSlidePickerState?.dismiss()
+                                modelSlidePickerState.open(
+                                    activeModel = activeModel,
+                                    options = modelCatalog?.models.orEmpty()
+                                )
+                            },
+                            onDrag = { change, _ ->
+                                change.consume()
+                                val rootPoint = Offset(
+                                    x = chipBoundsInRoot.left + change.position.x,
+                                    y = chipBoundsInRoot.top + change.position.y
+                                )
+                                modelSlidePickerState.updateDrag(rootPoint, density, hapticFeedback)
+                            },
+                            onDragEnd = {
+                                modelSlidePickerState.endDrag(onSelect = onSelectModel)
+                            },
+                            onDragCancel = {
+                                modelSlidePickerState.dismiss()
+                            }
+                        )
+                    }
+                    .padding(horizontal = 11.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = compactName,
+                    color = chipTextColor,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium
                 )
-                .clickable {
-                    haptic.light()
-                    if (modelSlidePickerState?.isPresented == true) {
-                        modelSlidePickerState.dismiss()
-                    } else {
-                        onToggleModel()
+            }
+
+            if (showLongPressTip) {
+                Box(
+                    modifier = Modifier
+                        .offset(y = (-36).dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color(0xE6222222))
+                        .clickable { dismissTip() }
+                        .padding(horizontal = 9.dp, vertical = 6.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ArrowUpward,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(13.dp)
+                        )
+                        Text(
+                            text = "长按上滑可切换更多模型".loc,
+                            color = Color.White,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium
+                        )
                     }
                 }
-                .pointerInput(activeModel, modelCatalog, modelSlidePickerState) {
-                    if (modelSlidePickerState == null) return@pointerInput
-                    detectDragGesturesAfterLongPress(
-                        onDragStart = {
-                            haptic.medium()
-                            workflowSlidePickerState?.dismiss()
-                            modelSlidePickerState.open(
-                                activeModel = activeModel,
-                                options = modelCatalog?.models.orEmpty()
-                            )
-                        },
-                        onDrag = { change, _ ->
-                            change.consume()
-                            val rootPoint = Offset(
-                                x = chipBoundsInRoot.left + change.position.x,
-                                y = chipBoundsInRoot.top + change.position.y
-                            )
-                            modelSlidePickerState.updateDrag(rootPoint, density, hapticFeedback)
-                        },
-                        onDragEnd = {
-                            modelSlidePickerState.endDrag(onSelect = onSelectModel)
-                        },
-                        onDragCancel = {
-                            modelSlidePickerState.dismiss()
-                        }
-                    )
-                }
-                .padding(horizontal = 11.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = compactName,
-                color = chipTextColor,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Medium
-            )
+            }
         }
 
         // 2b. Workflow: 单击打开满屏模板页，长按上滑快捷输入（纯文字无 logo，视觉与 Commit/Changes 对齐）

@@ -579,6 +579,7 @@ public struct ModelSwitchChipButton: View {
     let onSelectModel: (String) -> Void
 
     @GestureState private var gesturePhase: ModelChipGesturePhase = .inactive
+    @State private var showLongPressTip: Bool = false
 
     public init(
         displayName: String,
@@ -635,7 +636,57 @@ public struct ModelSwitchChipButton: View {
             } action: { newRect in
                 pickerState.anchorRect = newRect
             }
+            .overlay(alignment: .topLeading) {
+                if showLongPressTip {
+                    VStack(alignment: .leading, spacing: 0) {
+                        HStack(spacing: 5) {
+                            Image(systemName: "hand.tap.fill")
+                                .font(.system(size: 10, weight: .semibold))
+                            Text(String(localized: "长按上滑可切换更多模型"))
+                                .font(.system(size: 11, weight: .medium))
+                        }
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 6)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .fill(Color(uiColor: .darkGray).opacity(0.92))
+                                .shadow(color: .black.opacity(0.18), radius: 6, x: 0, y: 3)
+                        )
+
+                        Image(systemName: "arrowtriangle.down.fill")
+                            .font(.system(size: 7))
+                            .foregroundColor(Color(uiColor: .darkGray).opacity(0.92))
+                            .offset(x: 14, y: -1)
+                    }
+                    .offset(y: -36)
+                    .fixedSize()
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        dismissLongPressTip()
+                    }
+                    .transition(.asymmetric(
+                        insertion: .scale(scale: 0.85, anchor: .bottomLeading).combined(with: .opacity),
+                        removal: .opacity
+                    ))
+                    .zIndex(200)
+                }
+            }
+            .onAppear {
+                let hasSeen = UserDefaults.standard.bool(forKey: "has_seen_model_long_press_tooltip")
+                if !hasSeen {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                        withAnimation(.spring(response: 0.38, dampingFraction: 0.75)) {
+                            showLongPressTip = true
+                        }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) {
+                            dismissLongPressTip()
+                        }
+                    }
+                }
+            }
             .onTapGesture {
+                dismissLongPressTip()
                 if pickerState.isPresented {
                     pickerState.dismiss()
                 } else {
@@ -646,6 +697,7 @@ public struct ModelSwitchChipButton: View {
             .onChange(of: gesturePhase) { oldPhase, newPhase in
                 switch newPhase {
                 case .active(let point):
+                    dismissLongPressTip()
                     if !pickerState.isPresented {
                         pickerState.open(activeModel: activeModelID)
                     }
@@ -657,9 +709,22 @@ public struct ModelSwitchChipButton: View {
                         pickerState.endDrag(onSelect: onSelectModel)
                     }
                 case .pressing:
-                    break
+                    dismissLongPressTip()
+                }
+            }
+            .onChange(of: pickerState.isPresented) { _, presented in
+                if presented {
+                    dismissLongPressTip()
                 }
             }
             .accessibilityLabel("切换模型，当前 \(displayName)，长按上滑选择模型与思考强度")
+    }
+
+    private func dismissLongPressTip() {
+        guard showLongPressTip else { return }
+        withAnimation(.easeOut(duration: 0.18)) {
+            showLongPressTip = false
+        }
+        UserDefaults.standard.set(true, forKey: "has_seen_model_long_press_tooltip")
     }
 }

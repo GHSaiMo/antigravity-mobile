@@ -178,17 +178,6 @@ fun SettingsSheet(
                     textAlign = TextAlign.Center,
                     modifier = Modifier.fillMaxWidth()
                 )
-                TextButton(
-                    onClick = onDismiss,
-                    modifier = Modifier.align(Alignment.CenterEnd)
-                ) {
-                    Text(
-                        text = "完成".loc,
-                        color = colors.accentBlue,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
             }
 
             HorizontalDivider(thickness = 0.5.dp, color = colors.border)
@@ -690,10 +679,12 @@ private fun MainSettingsContent(
         DefaultModelSection(prefs = prefs, onLoadModels = onLoadModels)
 
         // MARK: - 4. 扩展与能力（Agent 权限模式 + MCP 工具与技能看板）
-        var permPreset by remember { mutableStateOf("strict") }
+        val permPrefs = remember { localContext.getSharedPreferences("antigravity_tips", android.content.Context.MODE_PRIVATE) }
+        var permPreset by remember { mutableStateOf(permPrefs.getString("cached_permission_preset", "strict") ?: "strict") }
         LaunchedEffect(Unit) {
             ApiClient.defaultInstance?.fetchPermissionSettings()?.onSuccess {
                 permPreset = it.preset
+                permPrefs.edit().putString("cached_permission_preset", it.preset).apply()
             }
         }
         val permissionOptions = remember(colors) {
@@ -722,9 +713,11 @@ private fun MainSettingsContent(
                     options = permissionOptions,
                     onSelect = { key ->
                         permPreset = key
+                        permPrefs.edit().putString("cached_permission_preset", key).apply()
                         coroutineScope.launch {
                             ApiClient.defaultInstance?.updatePermissionPreset(key)?.onSuccess {
                                 permPreset = it.preset
+                                permPrefs.edit().putString("cached_permission_preset", it.preset).apply()
                             }
                         }
                     }
@@ -1011,7 +1004,62 @@ private fun MainSettingsContent(
             }
         }
 
-        // MARK: - 6. 存储 (整体下移一行，放在关于的上面)
+        // MARK: - 6. 手势与使用技巧
+        var showTipsGuide by remember { mutableStateOf(false) }
+        SettingsSection(
+            title = "手势与使用技巧".loc,
+            footer = "掌握常用快捷手势与界面隐蔽功能，大幅提升移动端操作效率。".loc
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(colors.surface)
+                    .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
+                    .clickable { showTipsGuide = true }
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.weight(1f, fill = false)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Lightbulb,
+                        contentDescription = null,
+                        tint = Color(0xFFF59E0B),
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(
+                            text = "功能速查与手势指南".loc,
+                            color = colors.textPrimary,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            text = "会话手势、模型轮换、文件夹过滤、工具看板等".loc,
+                            color = colors.textMuted,
+                            fontSize = 12.sp
+                        )
+                    }
+                }
+                Icon(
+                    imageVector = Icons.Default.ChevronRight,
+                    contentDescription = null,
+                    tint = colors.textMuted,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+        }
+
+        if (showTipsGuide) {
+            TipsAndGesturesGuideDialog(onDismiss = { showTipsGuide = false })
+        }
+
+        // MARK: - 7. 存储 (整体下移一行，放在关于的上面)
         SettingsSection(
             title = "存储".loc,
             footer = "清除本地缓存的会话与文档数据，下次访问时将从网关重新拉取。".loc
@@ -1034,7 +1082,7 @@ private fun MainSettingsContent(
             }
         }
 
-        // MARK: - 7. 关于 (1:1 iOS 对齐)
+        // MARK: - 8. 关于 (1:1 iOS 对齐)
         val appVersion = remember(localContext) {
             try {
                 val packageInfo = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {

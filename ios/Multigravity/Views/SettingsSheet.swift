@@ -17,8 +17,8 @@ public struct SettingsSheet: View {
     @State private var webSheetURL: IdentifiableURL? = nil
     @State private var showPrivacyPolicySheet: Bool = false
     @State private var showLicensesSheet: Bool = false
-    @State private var permissionPreset: String = "strict"
-    @State private var confirmedPermissionPreset: String = "strict"
+    @State private var permissionPreset: String = AppSettings.shared.cachedPermissionPreset
+    @State private var confirmedPermissionPreset: String = AppSettings.shared.cachedPermissionPreset
     @State private var showAutoPermissionConfirm: Bool = false
     @State private var permissionErrorMessage: String? = nil
     @State private var probeTask: Task<Void, Never>? = nil
@@ -343,7 +343,30 @@ public struct SettingsSheet: View {
                     }
                 }
 
-                // MARK: - 6. 存储 (整体下移一行，放在关于的上面)
+                // MARK: - 6. 手势与使用技巧
+                Section(
+                    header: Text("手势与使用技巧"),
+                    footer: Text("掌握常用快捷手势与界面隐蔽功能，大幅提升移动端操作效率。")
+                ) {
+                    NavigationLink {
+                        TipsAndGesturesGuideView()
+                    } label: {
+                        Label {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("功能速查与手势指南")
+                                    .font(.body)
+                                Text("会话手势、模型轮换、文件夹过滤、工具看板等")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        } icon: {
+                            Image(systemName: "lightbulb.fill")
+                                .foregroundColor(.orange)
+                        }
+                    }
+                }
+
+                // MARK: - 7. 存储 (整体下移一行，放在关于的上面)
                 Section(
                     header: Text("存储"),
                     footer: Text("清除本地缓存的会话与文档数据，下次访问时将从网关重新拉取。")
@@ -355,7 +378,7 @@ public struct SettingsSheet: View {
                     }
                 }
                 
-                // MARK: - 7. 关于
+                // MARK: - 8. 关于
                 Section(header: Text("关于")) {
                     HStack {
                         Text("应用名称")
@@ -417,19 +440,14 @@ public struct SettingsSheet: View {
             }
             .navigationTitle("设置")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(String(localized: "完成")) {
-                        dismiss()
-                    }
-                }
-            }
             .presentationDragIndicator(.visible)
         }
         .presentationDragIndicator(.visible)
         .onAppear {
             lanAddress = settings.lanServerURL ?? ""
             customAddress = settings.customServerURL ?? ""
+            permissionPreset = settings.cachedPermissionPreset
+            confirmedPermissionPreset = settings.cachedPermissionPreset
         }
         .onDisappear {
             probeTask?.cancel()
@@ -457,12 +475,14 @@ public struct SettingsSheet: View {
             }
             if let gwUrl = settings.gatewayURL,
                let state = try? await APIClient.shared.fetchPermissionSettings(baseURL: gwUrl) {
+                settings.cachedPermissionPreset = state.preset
                 confirmedPermissionPreset = state.preset
                 permissionPreset = state.preset
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .permissionPresetDidChange)) { notif in
             if let state = notif.object as? PermissionStateResponse {
+                settings.cachedPermissionPreset = state.preset
                 confirmedPermissionPreset = state.preset
                 permissionPreset = state.preset
             }
@@ -587,6 +607,7 @@ public struct SettingsSheet: View {
         Task {
             do {
                 let state = try await APIClient.shared.updatePermissionPreset(preset: preset, baseURL: url)
+                settings.cachedPermissionPreset = state.preset
                 confirmedPermissionPreset = state.preset
                 permissionPreset = state.preset
                 NotificationCenter.default.post(name: .permissionPresetDidChange, object: state)
