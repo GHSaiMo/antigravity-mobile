@@ -229,6 +229,19 @@ public final class GatewayWebSocketTask: @unchecked Sendable {
         }
     }
 
+    public func sendPing(completionHandler: @escaping @Sendable ((any Error)?) -> Void) {
+        switch engine {
+        case .urlSession(_, let task, _):
+            task.sendPing(pongReceiveHandler: completionHandler)
+        case .nwConnection(let connection):
+            let meta = NWProtocolWebSocket.Metadata(opcode: .ping)
+            let ctx = NWConnection.ContentContext(identifier: "ws-ping", metadata: [meta])
+            connection.send(content: Data(), contentContext: ctx, isComplete: true, completion: .contentProcessed { err in
+                completionHandler(err)
+            })
+        }
+    }
+
     public func cancel() {
         stateLock.withLock { st in
             st.isCancelled = true

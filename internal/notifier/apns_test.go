@@ -599,3 +599,78 @@ func TestLiveActivityDispatcher_CapThreeCardsApprovalPriority(t *testing.T) {
 		t.Fatalf("c1 must not be re-started while cap is full")
 	}
 }
+
+func TestLiveActivityDispatcher_FailureExponentialBackoffNoStorm(t *testing.T) {
+	var (
+		mu       sync.Mutex
+		hits     int
+		respCode = http.StatusTooManyRequests
+		reason   = "TooManyRequests"
+	)
+	relaySrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		hits++
+		code := respCode
+		rsn := reason
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(code)
+		_ = json.NewEncoder(w).Encode(APNsRelayResponse{
+			OK:     code == http.StatusOK,
+			Status: code,
+			Reason: rsn,
+		})
+	}))
+	defer relaySrv.Close()
+
+	store, _ := NewPushDeviceStore("")
+	_ = store.UpsertLiveActivityStartToken("dev-storm", "ios", sampleHexToken("8888"), "production", nil)
+
+	curTime := time.Date(2026, 11, 22, 3, 0, 0, 0, time.UTC)
+	apns := NewAPNsRelayClient(relaySrv.URL, store)
+	apns.nowFunc = func() time.Time { return curTime }
+	disp := NewLiveActivityDispatcher(apns, true)
+	disp.nowFunc = func() time.Time { return curTime }
+
+	details := &proxy.TrajectoryDetails{
+		CascadeID:  "casc-storm",
+		Title:      "Storm Guard",
+		Status:     "CASCADE_RUN_STATUS_RUNNING",
+		TotalSteps: 2,
+	}
+
+	// First attempt hits 429
+	disp.SyncFromDetails(context.Background(), details)
+	mu.Lock()
+	if hits != 1 {
+		mu.Unlock()
+		t.Fatalf("expected 1 hit on initial 429, got %d", hits)
+	}
+	mu.Unlock()
+
+	// 50 rapid 100ms summary wakeups (5 seconds total) MUST produce 0 network calls!
+	for i := 0; i < 50; i++ {
+		curTime = curTime.Add(100 * time.Millisecond)
+		details.TotalSteps = 2 + i
+		disp.SyncFromDetails(context.Background(), details)
+	}
+	mu.Lock()
+	if hits != 1 {
+		mu.Unlock()
+		t.Fatalf("expected 0 retries during 15s backoff window, got %d total hits", hits)
+	}
+	mu.Unlock()
+
+	// Advance past 15s backoff and simulate BadEnvironmentKeyInToken -> must auto-clear bad token!
+	curTime = curTime.Add(16 * time.Second)
+	mu.Lock()
+	respCode = http.StatusBadRequest
+	reason = "BadEnvironmentKeyInToken"
+	mu.Unlock()
+	disp.SyncFromDetails(context.Background(), details)
+
+	if store.HasLiveActivityTargets() {
+		t.Fatalf("expected mismatched BadEnvironmentKeyInToken push-to-start token to be cleared automatically")
+	}
+}
+

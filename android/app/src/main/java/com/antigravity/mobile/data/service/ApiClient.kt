@@ -97,6 +97,7 @@ class ApiClient(
         .build()
 
     private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
+    private val messagesEtagCache = java.util.concurrent.ConcurrentHashMap<String, Pair<String, StreamUpdatePayload>>()
 
     /**
      * Attempts pairing with candidates from PairingInfo.
@@ -566,16 +567,32 @@ class ApiClient(
         offset?.let { urlBuilder.append("&offset=$it") }
 
         try {
-            val req = buildAuthorizedRequest(urlBuilder.toString())
-                .get()
-                .build()
+            val urlStr = urlBuilder.toString()
+            val cached = messagesEtagCache[urlStr]
+            val reqBuilder = buildAuthorizedRequest(urlStr).get()
+            if (cached != null && cached.first.isNotBlank()) {
+                reqBuilder.header("If-None-Match", cached.first)
+            }
 
-            client.newCall(req).await().use { response ->
+            client.newCall(reqBuilder.build()).await().use { response ->
+                if (response.code == 304 && cached != null) {
+                    return@withContext Result.success(cached.second)
+                }
                 if (!response.isSuccessful) {
                     return@withContext Result.failure(RuntimeException("获取消息失败: HTTP ${response.code}".loc))
                 }
+                if (response.networkResponse?.code == 304 && cached != null) {
+                    return@withContext Result.success(cached.second)
+                }
                 val bodyStr = response.body?.string() ?: "{}"
                 val payload = json.decodeFromString<StreamUpdatePayload>(bodyStr)
+                val etag = response.header("ETag")?.trim()
+                if (!etag.isNullOrEmpty()) {
+                    if (messagesEtagCache.size >= 32 && !messagesEtagCache.containsKey(urlStr)) {
+                        messagesEtagCache.clear()
+                    }
+                    messagesEtagCache[urlStr] = etag to payload
+                }
                 Result.success(payload)
             }
         } catch (e: Exception) {

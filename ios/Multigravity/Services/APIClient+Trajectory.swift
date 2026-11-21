@@ -1,4 +1,12 @@
 import Foundation
+import os
+
+private struct CachedMessagesETagEntry: Sendable {
+    let etag: String
+    let result: FetchMessagesResult
+}
+
+private let cascadeMessagesETagCache = OSAllocatedUnfairLock(initialState: [String: CachedMessagesETagEntry]())
 
 extension APIClient {
     // Fast lightweight paginated messages endpoint served by Go gateway
@@ -19,98 +27,118 @@ extension APIClient {
         comps?.queryItems = queryItems
         
         guard let url = comps?.url else { throw APIError.invalidURL }
+        let cacheKey = url.absoluteString
+        let cachedEntry = cascadeMessagesETagCache.withLock { $0[cacheKey] }
         
         var request = URLRequest(url: url)
         request.timeoutInterval = 15
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        if let etag = cachedEntry?.etag, !etag.isEmpty {
+            request.setValue(etag, forHTTPHeaderField: "If-None-Match")
+        }
         
         do {
             let (data, response) = try await transport.send(request: request)
-            if let httpResp = response as? HTTPURLResponse, httpResp.statusCode == 200 {
-                let decoded = try JSONDecoder().decode(PaginatedMessagesResponse.self, from: data)
-                let chatMessages = (decoded.messages ?? []).map { item -> ChatMessage in
-                    let sender: ChatMessage.MessageSender = {
-                        switch item.type {
-                        case "user": return .user
-                        case "agent": return .agent
-                        case "error": return .error
-                        case "subagent": return .subagent
-                        case "workflow": return .workflow
-                        default: return .toolBatch(count: item.toolCount ?? 1, tools: item.toolNames ?? [])
-                        }
-                    }()
-                    
-                    let imgDataList = (item.media ?? []).compactMap { Data(base64Encoded: $0) }
-                    
-                    let resolvedImageUrls: [String] = {
-                        let rawList = item.imageUrls ?? []
-                        return rawList
-                            .filter { FileIconResolver.isImage(for: $0) }
-                            .map { self.resolveMediaURL($0, baseURL: baseURL) }
-                    }()
-                    
-                    return ChatMessage(
-                        id: item.id,
-                        sender: sender,
-                        content: item.text,
-                        thinking: item.thinking,
-                        toolCount: item.toolCount ?? 0,
-                        toolNames: item.toolNames ?? [],
-                        imageDataList: imgDataList,
-                        imageUrls: resolvedImageUrls,
-                        artifacts: item.artifacts ?? [],
-                        stepIndex: item.stepIndex,
-                        attemptCount: item.attemptCount,
-                        maxAttempts: item.maxAttempts,
-                        model: item.model,
-                        modelName: item.modelName,
-                        subagent: item.subagent,
-                        workflow: item.workflow,
-                        timestamp: item.timestamp,
-                        slashCommands: item.slashCommands,
-                        clientMessageId: item.clientMessageId,
-                        errorKind: item.errorKind,
-                        isOverflow: item.isOverflow,
-                        thinkingDuration: item.thinkingDuration,
-                        toolDetails: item.toolDetails
-                    )
+            if let httpResp = response as? HTTPURLResponse {
+                if httpResp.statusCode == 304, let cached = cachedEntry {
+                    return cached.result
                 }
-                
-                let lastUserIdx = chatMessages.lastIndex(where: { $0.isUser }) ?? -1
-                let latestTurnMessages = lastUserIdx >= 0 ? chatMessages.suffix(from: lastUserIdx + 1) : chatMessages[...]
-                let latestTurnHasErr = latestTurnMessages.contains(where: { $0.isError }) && !(latestTurnMessages.last?.isAgent == true)
-                let isErr = decoded.hasError ?? (decoded.status == "CASCADE_RUN_STATUS_ERROR" || latestTurnHasErr)
-                let errMsg = decoded.errorMessage ?? latestTurnMessages.last(where: { $0.isError })?.content
-                
-                return FetchMessagesResult(
-                    status: isErr ? "CASCADE_RUN_STATUS_ERROR" : decoded.status,
-                    messages: chatMessages,
-                    totalSteps: decoded.totalSteps,
-                    totalTools: decoded.totalTools,
-                    duration: decoded.duration,
-                    hasMore: decoded.hasMore,
-                    nextOffset: decoded.nextOffset,
-                    cascadeConfigRaw: decoded.cascadeConfigRaw,
-                    title: decoded.title,
-                    canProceed: decoded.canProceed ?? false,
-                    proceedArtifactUri: decoded.proceedArtifactUri,
-                    pendingInteraction: decoded.pendingInteraction,
-                    queuedMessages: decoded.queuedMessages ?? [],
-                    runningTasks: decoded.runningTasks ?? [],
-                    activeModel: decoded.activeModel,
-                    activeModelName: decoded.activeModelName,
-                    modelDisplayName: decoded.modelDisplayName,
-                    desktopActiveModel: decoded.desktopActiveModel,
-                    desktopActiveModelName: decoded.desktopActiveModelName,
-                    startedAt: decoded.startedAt,
-                    hasError: isErr,
-                    errorMessage: errMsg,
-                    swarm: decoded.swarm,
-                    contextMeter: decoded.contextMeter,
-                    subagents: decoded.subagents,
-                    parentConversationId: decoded.parentConversationId,
-                    subagentRole: decoded.subagentRole,
-                    suggestedResponses: decoded.suggestedResponses
-                )
+                if httpResp.statusCode == 200 {
+                    let decoded = try JSONDecoder().decode(PaginatedMessagesResponse.self, from: data)
+                    let chatMessages = (decoded.messages ?? []).map { item -> ChatMessage in
+                        let sender: ChatMessage.MessageSender = {
+                            switch item.type {
+                            case "user": return .user
+                            case "agent": return .agent
+                            case "error": return .error
+                            case "subagent": return .subagent
+                            case "workflow": return .workflow
+                            default: return .toolBatch(count: item.toolCount ?? 1, tools: item.toolNames ?? [])
+                            }
+                        }()
+                        
+                        let imgDataList = (item.media ?? []).compactMap { Data(base64Encoded: $0) }
+                        
+                        let resolvedImageUrls: [String] = {
+                            let rawList = item.imageUrls ?? []
+                            return rawList
+                                .filter { FileIconResolver.isImage(for: $0) }
+                                .map { self.resolveMediaURL($0, baseURL: baseURL) }
+                        }()
+                        
+                        return ChatMessage(
+                            id: item.id,
+                            sender: sender,
+                            content: item.text,
+                            thinking: item.thinking,
+                            toolCount: item.toolCount ?? 0,
+                            toolNames: item.toolNames ?? [],
+                            imageDataList: imgDataList,
+                            imageUrls: resolvedImageUrls,
+                            artifacts: item.artifacts ?? [],
+                            stepIndex: item.stepIndex,
+                            attemptCount: item.attemptCount,
+                            maxAttempts: item.maxAttempts,
+                            model: item.model,
+                            modelName: item.modelName,
+                            subagent: item.subagent,
+                            workflow: item.workflow,
+                            timestamp: item.timestamp,
+                            slashCommands: item.slashCommands,
+                            clientMessageId: item.clientMessageId,
+                            errorKind: item.errorKind,
+                            isOverflow: item.isOverflow,
+                            thinkingDuration: item.thinkingDuration,
+                            toolDetails: item.toolDetails
+                        )
+                    }
+                    
+                    let lastUserIdx = chatMessages.lastIndex(where: { $0.isUser }) ?? -1
+                    let latestTurnMessages = lastUserIdx >= 0 ? chatMessages.suffix(from: lastUserIdx + 1) : chatMessages[...]
+                    let latestTurnHasErr = latestTurnMessages.contains(where: { $0.isError }) && !(latestTurnMessages.last?.isAgent == true)
+                    let isErr = decoded.hasError ?? (decoded.status == "CASCADE_RUN_STATUS_ERROR" || latestTurnHasErr)
+                    let errMsg = decoded.errorMessage ?? latestTurnMessages.last(where: { $0.isError })?.content
+                    
+                    let result = FetchMessagesResult(
+                        status: isErr ? "CASCADE_RUN_STATUS_ERROR" : decoded.status,
+                        messages: chatMessages,
+                        totalSteps: decoded.totalSteps,
+                        totalTools: decoded.totalTools,
+                        duration: decoded.duration,
+                        hasMore: decoded.hasMore,
+                        nextOffset: decoded.nextOffset,
+                        cascadeConfigRaw: decoded.cascadeConfigRaw,
+                        title: decoded.title,
+                        canProceed: decoded.canProceed ?? false,
+                        proceedArtifactUri: decoded.proceedArtifactUri,
+                        pendingInteraction: decoded.pendingInteraction,
+                        queuedMessages: decoded.queuedMessages ?? [],
+                        runningTasks: decoded.runningTasks ?? [],
+                        activeModel: decoded.activeModel,
+                        activeModelName: decoded.activeModelName,
+                        modelDisplayName: decoded.modelDisplayName,
+                        desktopActiveModel: decoded.desktopActiveModel,
+                        desktopActiveModelName: decoded.desktopActiveModelName,
+                        startedAt: decoded.startedAt,
+                        hasError: isErr,
+                        errorMessage: errMsg,
+                        swarm: decoded.swarm,
+                        contextMeter: decoded.contextMeter,
+                        subagents: decoded.subagents,
+                        parentConversationId: decoded.parentConversationId,
+                        subagentRole: decoded.subagentRole,
+                        suggestedResponses: decoded.suggestedResponses
+                    )
+                    if let respETag = httpResp.value(forHTTPHeaderField: "ETag")?.trimmingCharacters(in: .whitespacesAndNewlines), !respETag.isEmpty {
+                        cascadeMessagesETagCache.withLock { store in
+                            if store.count >= 32 && store[cacheKey] == nil {
+                                store.removeAll(keepingCapacity: true)
+                            }
+                            store[cacheKey] = CachedMessagesETagEntry(etag: respETag, result: result)
+                        }
+                    }
+                    return result
+                }
             }
         } catch {
             // Fallback to full trajectory fetch if gateway custom endpoint fails

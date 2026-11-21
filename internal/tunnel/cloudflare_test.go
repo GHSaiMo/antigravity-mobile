@@ -220,3 +220,45 @@ func TestFindCloudflaredBinary_IgnoresInvalidFiles(t *testing.T) {
 	}
 }
 
+func TestIsRevokedOrDeletedTunnelLogAndInvalidateCache(t *testing.T) {
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+	t.Setenv("USERPROFILE", tmpHome)
+
+	revokedLines := []string{
+		`2026-11-22T02:00:00Z ERR Server error: Tunnel not found`,
+		`2026-11-22T02:00:00Z ERR Register tunnel error from server side error="Unauthorized: invalid tunnel secret"`,
+		`ERR failed to sufficiently authenticate with Cloudflare edge`,
+	}
+	for _, line := range revokedLines {
+		if !isRevokedOrDeletedTunnelLog(line) {
+			t.Errorf("expected revoked tunnel log match for %q", line)
+		}
+	}
+	if isRevokedOrDeletedTunnelLog("ERR lookup region1.v2.argotunnel.com: i/o timeout") {
+		t.Errorf("unexpected revoked match on transient DNS timeout")
+	}
+
+	dataDir := config.GetDataDir()
+	if err := os.MkdirAll(dataDir, 0700); err != nil {
+		t.Fatalf("mkdir dataDir: %v", err)
+	}
+	cacheFile := filepath.Join(dataDir, "cf_tunnel.json")
+	if err := os.WriteFile(cacheFile, []byte(`{"token":"old","url":"https://deadbeef.jiuge.space"}`), 0600); err != nil {
+		t.Fatalf("write cache file: %v", err)
+	}
+
+	tun := NewCloudflareTunnel(&CFTunnelResult{Token: "old", URL: "https://deadbeef.jiuge.space"}, &config.CloudflareConfig{
+		Enabled:   true,
+		WorkerURL: "https://dispatcher.jiuge.space",
+	})
+	tun.markStaleCredentials(nil, "Tunnel not found")
+	if !tun.needsRefresh {
+		t.Errorf("expected needsRefresh=true after markStaleCredentials")
+	}
+	if _, err := os.Stat(cacheFile); !os.IsNotExist(err) {
+		t.Errorf("expected cf_tunnel.json to be removed after markStaleCredentials, err=%v", err)
+	}
+}
+
+

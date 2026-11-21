@@ -66,9 +66,12 @@ type APNsRelayResponse struct {
 
 // APNsRelayClient dispatches native iOS alerts and Live Activity updates through the stateless APNs relay Worker.
 type APNsRelayClient struct {
-	relayURL string
-	store    *PushDeviceStore
-	client   *http.Client
+	relayURL       string
+	store          *PushDeviceStore
+	client         *http.Client
+	nowFunc        func() time.Time
+	rateMu         sync.Mutex
+	rateLimitUntil time.Time
 }
 
 // NewAPNsRelayClient creates an APNsRelayClient bound to relayURL and store.
@@ -80,6 +83,7 @@ func NewAPNsRelayClient(relayURL string, store *PushDeviceStore) *APNsRelayClien
 	return &APNsRelayClient{
 		relayURL: relayURL,
 		store:    store,
+		nowFunc:  time.Now,
 		client: &http.Client{
 			Timeout: 10 * time.Second,
 			Transport: &http.Transport{
@@ -195,10 +199,35 @@ func (c *APNsRelayClient) Send(ctx context.Context, payload PushPayload) error {
 	return nil
 }
 
+func (c *APNsRelayClient) now() time.Time {
+	if c != nil && c.nowFunc != nil {
+		return c.nowFunc()
+	}
+	return time.Now()
+}
+
+func (c *APNsRelayClient) isRateLimited() bool {
+	c.rateMu.Lock()
+	defer c.rateMu.Unlock()
+	return !c.rateLimitUntil.IsZero() && c.now().Before(c.rateLimitUntil)
+}
+
+func (c *APNsRelayClient) markRateLimited(d time.Duration) {
+	c.rateMu.Lock()
+	defer c.rateMu.Unlock()
+	until := c.now().Add(d)
+	if until.After(c.rateLimitUntil) {
+		c.rateLimitUntil = until
+	}
+}
+
 // SendLiveActivity sends a single Live Activity start/update/end push to a specific target and cleans up stale tokens on 410.
 func (c *APNsRelayClient) SendLiveActivity(ctx context.Context, target APNsLiveActivityTarget, req APNsLiveActivityRequest) error {
 	if c == nil || c.store == nil {
 		return nil
+	}
+	if req.Event != "end" && c.isRateLimited() {
+		return fmt.Errorf("apns relay rate-limited, backing off")
 	}
 	req.PushToken = target.Token
 	req.Env = target.Env
@@ -271,12 +300,27 @@ func (c *APNsRelayClient) postRelay(ctx context.Context, path string, body any) 
 			parsed.OK = true
 			return &parsed, nil
 		}
-		if resp.StatusCode == http.StatusGone {
+		if resp.StatusCode == http.StatusTooManyRequests || (resp.StatusCode == http.StatusForbidden && parsed.Reason == "") {
+			c.markRateLimited(15 * time.Second)
+			if parsed.Reason == "" {
+				parsed.Reason = "TooManyRequests"
+			}
+		}
+		if resp.StatusCode == http.StatusGone || isPermanentTokenRejection(parsed.Reason) {
 			parsed.Unregistered = true
 		}
 		return &parsed, nil
 	}
 	return nil, lastErr
+}
+
+func isPermanentTokenRejection(reason string) bool {
+	switch strings.TrimSpace(reason) {
+	case "Unregistered", "BadDeviceToken", "DeviceTokenNotForTopic", "BadEnvironmentKeyInToken", "TopicDisallowed", "ExpiredToken":
+		return true
+	default:
+		return false
+	}
 }
 
 func extractCascadeIDFromURL(rawURL string) string {

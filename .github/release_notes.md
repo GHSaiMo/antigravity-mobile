@@ -30,9 +30,12 @@
 - 🔧 **iOS 长会话滚动稳定性与 Tailscale 全链路穿透修复**：
   - 修复 iOS 超长对话浏览时 `LazyVStack` 偶发白屏、误触发回到底部吸附以及 Markdown 表格渲染高度跳变的问题；
   - 将 iOS 文件下载、气泡图片/媒体加载、QuickLook 预览、语音听写/实时通话及辅助 WebSocket 全面路由至 `NetworkTransport` / `GatewayWebSocketTask` Tailscale ATS 旁路通道，彻底解决纯 HTTP Tailscale / 局域网链路下的媒体与附件加载受阻问题。
+- 🌐 **全端实时流稳定性、边缘省流与推送自愈优化**：
+  - 修复 iOS 会话流 WebSocket 在代理/穿透网络下的首跳握手问题并增加 `25s` Ping 保活；网关 `/gateway/cascade/messages` 与 iOS / Android 双端全面支持 `ETag / 304 Not Modified` 零字节短路及空闲阶梯退避；
+  - 修复 APNs 灵动岛 Push-to-Start 异常时的重试风暴（引入指数退避与环境错配 Token 自动清理），并新增穿透隧道凭据回收后的无感自愈重连。
 - 💬 **社区与全端版本号对齐**：
   - 三语 README 新增微信用户群扫码入口；
-  - Android `1.2.4`（Version Code `25`）；iOS `1.2.4`（Build `26`）；桌面/服务端网关 `mgy` `1.2.4`。
+  - Android `1.2.4`（Version Code `26`）；iOS `1.2.4`（Build `27`）；桌面/服务端网关 `mgy` `1.2.4`。
 
 ---
 
@@ -54,9 +57,12 @@
 - 🔧 **iOS Long-Chat Scroll Stability & Tailscale Media/WebSocket Bypass Fixes**:
   - Fixed `LazyVStack` blank screen rendering, false snap-to-bottom jumps, and Markdown table height shifts when scrolling long conversations on iOS;
   - Routed iOS file downloads, inline media loaders, QuickLook previews, audio dictation, live voice calls, and secondary WebSockets through the custom `NetworkTransport` / `GatewayWebSocketTask` Tailscale ATS bypass so plain-HTTP Tailscale and LAN links work seamlessly end-to-end.
+- 🌐 **Real-Time Stream Reliability, ETag Bandwidth Savings & Push Self-Healing**:
+  - Unified iOS `StreamWebSocketClient` onto `GatewayWebSocketTask` with `25s` keep-alive pings for rock-solid Cloudflare Tunnel and proxy connectivity, plus end-to-end `ETag / 304 Not Modified` short-circuiting and idle polling backoff across the Go gateway, iOS, and Android;
+  - Added exponential backoff and automatic invalid/sandbox-mismatched token cleanup for APNs Live Activity pushes, along with automatic Cloudflare Tunnel credential self-recovery.
 - 💬 **Community & Version Alignment**:
   - Added WeChat User Group QR code to trilingual READMEs;
-  - Android `1.2.4` (Version Code `25`); iOS `1.2.4` (Build `26`); desktop/server gateway `mgy` `1.2.4`.
+  - Android `1.2.4` (Version Code `26`); iOS `1.2.4` (Build `27`); desktop/server gateway `mgy` `1.2.4`.
 
 ---
 
@@ -67,4 +73,5 @@
 - 🇯🇵 **Android & PWA Web も完全日本語対応（全プラットフォーム 3言語統一）**：Android アプリおよび組み込み PWA Web がシステム / ブラウザ言語の自動判別によるネイティブ日本語表示に対応し、iOS・Android・PWA・GitHub・公式サイトすべてで日本語・英語・中国語の完全対応を達成しました。
 - ⚡ **Cockpit バックアップアカウントの優先度ソート**：予備アカウント一覧で **ULTRA** プランを最上部に優先表示し、**FREE** プランを下部に配置するよう改善しました。
 - 🔧 **iOS 長文チャットのスクロール安定化＆Tailscale 通信バイパス改善**：長文会話での `LazyVStack` 空白表示・意図しない最下部スナップ・Markdown テーブルの高さジャンプを修正。さらにファイルダウンロード・画像/メディア読込・QuickLook・音声入力/通話・補助 WebSocket を Tailscale ATS バイパス経路へ統合しました。
-- 📦 **バージョン統一**：iOS `1.2.4` (Build `26`) / Android `1.2.4` (Version Code `25`) / ゲートウェイ `mgy` `1.2.4`。
+- 🌐 **リアルタイムストリーム安定化・ETag 通信削減・APNs 自動復旧**：iOS WebSocket ストリームの接続エンジン刷新と `25秒` キープアライブ追加、ゲートウェイおよび iOS / Android での `ETag / 304` 差分スキップ、APNs ライブアクティビティの指数バックオフとトークン自動修復、Cloudflare トンネル資格情報の自動再取得に対応しました。
+- 📦 **バージョン統一**：iOS `1.2.4` (Build `27`) / Android `1.2.4` (Version Code `26`) / ゲートウェイ `mgy` `1.2.4`。

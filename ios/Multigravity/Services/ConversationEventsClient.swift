@@ -176,7 +176,6 @@ public final class ConversationEventsClient {
         guard let targetURL = components.url else { return false }
 
         let scheme = targetURL.scheme?.lowercased() ?? "http"
-        let isCloudflare = CloudflareAnycastAccelerator.isCloudflareTunnelHost(hostStr)
 
         // Tailscale cleartext HTTP cannot pass URLSession ATS; use NWConnection fallback for it.
         let isTailscaleCleartext = (scheme == "http" || scheme == "ws") && NetworkTransport.isTailscaleHost(hostStr)
@@ -184,9 +183,6 @@ public final class ConversationEventsClient {
         if isTailscaleCleartext {
             print("[EventsWS] Target is Tailscale cleartext (\(hostStr)), routing via NWConnection fallback")
             return await connectWithNWConnection(targetURL: targetURL, useAnycastEdge: false, generation: gen)
-        } else if isCloudflare && (scheme == "https" || scheme == "wss") && attempt == 0 {
-            CloudflareAnycastAccelerator.shared.triggerProbeIfNeeded()
-            return await connectWithNWConnection(targetURL: targetURL, useAnycastEdge: true, generation: gen)
         } else {
             return await connectWithURLSession(targetURL: targetURL, generation: gen)
         }

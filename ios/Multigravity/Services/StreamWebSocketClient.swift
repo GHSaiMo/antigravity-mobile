@@ -1,5 +1,4 @@
 import Foundation
-import Network
 import Observation
 
 public enum StreamConnectionStatus: String, Sendable {
@@ -54,14 +53,16 @@ public struct StreamUpdatePayload: Decodable, Sendable {
 @MainActor
 public final class StreamWebSocketClient {
     public var status: StreamConnectionStatus = .disconnected
-    
+
     public var onUpdate: ((StreamUpdatePayload) -> Void)?
     public var onStatusChange: ((StreamConnectionStatus) -> Void)?
-    
-    private var connection: NWConnection?
+
+    private var wsTask: GatewayWebSocketTask?
+    private var connectionGeneration: UInt64 = 0
     private var reconnectTask: Task<Void, Never>?
     private var connectionWatchdogTask: Task<Void, Never>?
-    
+    private var pingTask: Task<Void, Never>?
+
     private var activeURL: URL?
     private var activeCascadeId: String?
     private var isIntentionallyClosed: Bool = false
@@ -69,7 +70,7 @@ public final class StreamWebSocketClient {
     private var lastStreamRev: UInt64 = 0
     private var revCascadeId: String?
     private var deltaReassembler = StreamDeltaReassembler<PaginatedMessagesResponse.GatewayMessageItem>(idOf: { $0.id })
-    
+
     public init() {
         NotificationCenter.default.addObserver(
             forName: .networkRoutingPreferenceChanged,
@@ -86,67 +87,60 @@ public final class StreamWebSocketClient {
             }
         }
     }
-    
+
     public func connect(baseURL: URL, cascadeId: String, force: Bool = false) {
         let effectiveURL = AppSettings.shared.serverURL ?? baseURL
-        // If already connected or currently connecting to the same session and URL, do not abort/reconnect unless forced
         if !force && (status == .connected || status == .connecting) && activeCascadeId == cascadeId && activeURL == effectiveURL {
             return
         }
-        
+
         if revCascadeId != cascadeId {
             lastStreamRev = 0
             revCascadeId = cascadeId
             deltaReassembler.reset()
         }
-        
+
         disconnect(intentional: true)
-        
+
         self.activeURL = effectiveURL
         self.activeCascadeId = cascadeId
         self.isIntentionallyClosed = false
-        
+
         startConnection()
     }
-    
+
     public func reconnect(force: Bool = true) {
         guard let cascadeId = activeCascadeId else { return }
         let effectiveURL = AppSettings.shared.serverURL ?? activeURL
         guard let baseURL = effectiveURL else { return }
         connect(baseURL: baseURL, cascadeId: cascadeId, force: force)
     }
-    
+
     private func startConnection() {
         guard let cascadeId = activeCascadeId, !isIntentionallyClosed else { return }
-        
-        // Dynamically re-evaluate effective URL from AppSettings to guarantee failover to Cloudflare on cellular
+
         let effectiveURL = AppSettings.shared.serverURL ?? activeURL
         guard let baseURL = effectiveURL else {
             updateStatus(.failed)
             return
         }
         self.activeURL = effectiveURL
-        
+
         guard var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: true) else {
             updateStatus(.failed)
             return
         }
-        
-        // Transform protocol to ws:// or wss://
+
         let scheme = components.scheme?.lowercased()
-        if scheme == "https" {
-            components.scheme = "wss"
-        } else {
-            components.scheme = "ws"
-        }
-        
+        components.scheme = (scheme == "https" || scheme == "wss") ? "wss" : "ws"
+
         var path = components.path
         if !path.hasSuffix("/") {
             path += "/"
         }
         path += "gateway/cascade/stream"
         components.path = path
-        
+
         var queryItems = [
             URLQueryItem(name: "cascadeId", value: cascadeId),
             URLQueryItem(name: "client", value: "ios"),
@@ -157,143 +151,134 @@ public final class StreamWebSocketClient {
             queryItems.append(URLQueryItem(name: "sinceRev", value: "\(lastStreamRev)"))
         }
         components.queryItems = queryItems
-        
+
         guard let wsURL = components.url else {
             updateStatus(.failed)
             return
         }
-        
-        updateStatus(.connecting)
-        
+
         let hostStr = (wsURL.host ?? "").lowercased()
         if wsURL.scheme?.lowercased() == "ws" && !NetworkTransport.isLocalOrPrivateHost(hostStr) {
             print("[StreamWS] Refusing cleartext ws:// connection to public host: \(hostStr)")
             updateStatus(.failed)
             return
         }
-        let isCloudflare = CloudflareAnycastAccelerator.isCloudflareTunnelHost(hostStr)
-        let connectURL: URL
-        if isCloudflare && wsURL.scheme?.lowercased() == "wss" && reconnectAttempt == 0 {
-            CloudflareAnycastAccelerator.shared.triggerProbeIfNeeded()
-            var edgeComponents = components
-            edgeComponents.host = CloudflareAnycastAccelerator.primaryIP
-            if edgeComponents.port == nil {
-                edgeComponents.port = 443
-            }
-            connectURL = edgeComponents.url ?? wsURL
-        } else {
-            connectURL = wsURL
-        }
-        let endpoint = NWEndpoint.url(connectURL)
-        
-        let wsOptions = NWProtocolWebSocket.Options()
-        wsOptions.autoReplyPing = true
-        wsOptions.maximumMessageSize = 16 * 1024 * 1024
-        var extraHeaders: [(String, String)] = []
-        if isCloudflare {
-            extraHeaders.append(("Host", hostStr))
+
+        cleanupCurrentSocket()
+        connectionGeneration &+= 1
+        let gen = connectionGeneration
+
+        updateStatus(.connecting)
+
+        var request = URLRequest(url: wsURL)
+        request.timeoutInterval = 15
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        request.setValue("Multigravity/1.2.4 (iOS)", forHTTPHeaderField: "User-Agent")
+        if CloudflareAnycastAccelerator.isCloudflareTunnelHost(hostStr) {
+            request.setValue(hostStr, forHTTPHeaderField: "Host")
         }
         if let token = KeychainHelper.shared.read(key: .deviceToken) ?? AppSettings.shared.deviceToken, !token.isEmpty {
-            extraHeaders.append(("Authorization", "Bearer \(token)"))
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
-        if !extraHeaders.isEmpty {
-            wsOptions.setAdditionalHeaders(extraHeaders)
-        }
-        
-        let parameters: NWParameters
-        if wsURL.scheme?.lowercased() == "wss" {
-            let tlsOptions = NWProtocolTLS.Options()
-            let isLoopback = hostStr == "127.0.0.1" || hostStr == "::1" || hostStr == "localhost"
-            if isLoopback {
-                sec_protocol_options_set_verify_block(tlsOptions.securityProtocolOptions, { (metadata, trust, completion) in
-                    // Trust self-signed certificates only for local gateway loopback connections
-                    completion(true)
-                }, .global())
+
+        let task = GatewayWebSocketTask(
+            request: request,
+            requestTimeout: 15,
+            resourceTimeout: 86_400,
+            waitsForConnectivity: false,
+            onOpen: { [weak self] in
+                Task { @MainActor [weak self] in
+                    self?.markSocketOpened(generation: gen)
+                }
+            },
+            onClose: { [weak self] in
+                Task { @MainActor [weak self] in
+                    guard let self, self.connectionGeneration == gen, !self.isIntentionallyClosed else { return }
+                    print("[StreamWS] Stream connection closed by peer")
+                    self.handleConnectionLoss()
+                }
+            },
+            onFail: { [weak self] error in
+                Task { @MainActor [weak self] in
+                    guard let self, self.connectionGeneration == gen, !self.isIntentionallyClosed else { return }
+                    print("[StreamWS] Connection failed: \(error.localizedDescription)")
+                    self.handleConnectionLoss()
+                }
             }
-            if isCloudflare {
-                sec_protocol_options_set_tls_server_name(tlsOptions.securityProtocolOptions, hostStr)
-            }
-            parameters = NWParameters(tls: tlsOptions)
-        } else {
-            parameters = NWParameters.tcp
-        }
-        parameters.defaultProtocolStack.applicationProtocols.insert(wsOptions, at: 0)
-        
-        let conn = NWConnection(to: endpoint, using: parameters)
-        self.connection = conn
-        
-        conn.stateUpdateHandler = { [weak self] state in
-            guard let self = self else { return }
-            Task { @MainActor in
-                self.handleStateUpdate(state: state, wsURL: wsURL)
-            }
-        }
-        
-        conn.start(queue: .main)
-        
-        connectionWatchdogTask?.cancel()
+        )
+        self.wsTask = task
+        task.resume()
+        receiveNextMessage(task: task, generation: gen)
+
         connectionWatchdogTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 10_000_000_000)
-            guard let self, !Task.isCancelled else { return }
+            guard let self, !Task.isCancelled, self.connectionGeneration == gen else { return }
             if self.status != .connected && !self.isIntentionallyClosed {
                 print("[StreamWS] Connection attempt timed out (10s), triggering retry...")
                 self.handleConnectionLoss()
             }
         }
     }
-    
-    private func handleStateUpdate(state: NWConnection.State, wsURL: URL) {
-        switch state {
-        case .ready:
-            connectionWatchdogTask?.cancel()
-            connectionWatchdogTask = nil
-            reconnectAttempt = 0
-            if lastStreamRev == 0 {
-                deltaReassembler.reset()
-            }
+
+    private func markSocketOpened(generation gen: UInt64) {
+        guard self.connectionGeneration == gen, !isIntentionallyClosed else { return }
+        connectionWatchdogTask?.cancel()
+        connectionWatchdogTask = nil
+        reconnectAttempt = 0
+        if lastStreamRev == 0 {
+            deltaReassembler.reset()
+        }
+        if status != .connected {
             updateStatus(.connected)
-            receiveNextMessage()
-        case .waiting(let error):
-            print("[StreamWS] Connection waiting: \(error)")
-        case .failed(let error):
-            print("[StreamWS] Connection failed: \(error)")
-            handleConnectionLoss()
-        case .cancelled:
-            if !isIntentionallyClosed {
-                updateStatus(.disconnected)
-            }
-        default:
-            break
+            startKeepAlivePing(generation: gen)
         }
     }
-    
-    private func receiveNextMessage() {
-        guard let conn = connection, status == .connected, !isIntentionallyClosed else { return }
-        
-        conn.receiveMessage { [weak self] content, _, isComplete, error in
-            guard let self = self else { return }
-            Task { @MainActor in
-                if let error = error {
-                    print("[StreamWS] Receive error: \(error)")
-                    self.handleConnectionLoss()
-                    return
-                }
-                
-                if let data = content, !data.isEmpty, let cascadeId = self.activeCascadeId {
-                    self.handlePayloadData(data, expectedCascadeId: cascadeId)
-                } else if content == nil && isComplete {
-                    print("[StreamWS] Stream connection closed by peer (EOF)")
-                    self.handleConnectionLoss()
-                    return
-                }
-                
-                if !self.isIntentionallyClosed {
-                    self.receiveNextMessage()
+
+    private func startKeepAlivePing(generation gen: UInt64) {
+        pingTask?.cancel()
+        pingTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 25_000_000_000) // 25s (< Cloudflare 100s WS idle limit)
+                guard let self, !Task.isCancelled, self.connectionGeneration == gen, let task = self.wsTask else { break }
+                task.sendPing { error in
+                    if let error {
+                        print("[StreamWS] Keep-alive ping error: \(error.localizedDescription)")
+                    }
                 }
             }
         }
     }
-    
+
+    private func receiveNextMessage(task: GatewayWebSocketTask, generation gen: UInt64) {
+        guard connectionGeneration == gen, wsTask === task, !isIntentionallyClosed else { return }
+
+        task.receive { [weak self, weak task] result in
+            Task { @MainActor [weak self, weak task] in
+                guard let self, let task, self.connectionGeneration == gen, self.wsTask === task, !self.isIntentionallyClosed else { return }
+                switch result {
+                case .success(let msg):
+                    self.markSocketOpened(generation: gen)
+                    let data: Data
+                    switch msg {
+                    case .string(let text):
+                        data = Data(text.utf8)
+                    case .data(let raw):
+                        data = raw
+                    }
+                    if !data.isEmpty, let cascadeId = self.activeCascadeId {
+                        self.handlePayloadData(data, expectedCascadeId: cascadeId)
+                    }
+                    if !self.isIntentionallyClosed && self.wsTask === task {
+                        self.receiveNextMessage(task: task, generation: gen)
+                    }
+                case .failure(let error):
+                    print("[StreamWS] Receive error: \(error.localizedDescription)")
+                    self.handleConnectionLoss()
+                }
+            }
+        }
+    }
+
     private func handlePayloadData(_ data: Data, expectedCascadeId: String) {
         do {
             var payload = try JSONDecoder().decode(StreamUpdatePayload.self, from: data)
@@ -309,7 +294,6 @@ public final class StreamWebSocketClient {
                 case .messages(let rebuilt):
                     payload.messages = rebuilt
                 case .resync:
-                    // Baseline mismatch: drop this socket; the reconnect path opens with a fresh complete "init".
                     print("[StreamWS] Delta baseline mismatch, resyncing")
                     lastStreamRev = 0
                     deltaReassembler.reset()
@@ -326,13 +310,13 @@ public final class StreamWebSocketClient {
             print("[StreamWS] Payload decoding failed: \(error)")
         }
     }
-    
+
     private func handleConnectionLoss() {
         updateStatus(.failed)
         cleanupCurrentSocket()
-        
+
         guard !isIntentionallyClosed else { return }
-        
+
         reconnectTask?.cancel()
         reconnectTask = Task { [weak self] in
             guard let self, !self.isIntentionallyClosed else { return }
@@ -346,28 +330,28 @@ public final class StreamWebSocketClient {
             self.startConnection()
         }
     }
-    
+
     private func cleanupCurrentSocket() {
         connectionWatchdogTask?.cancel()
         connectionWatchdogTask = nil
-        if let conn = connection {
-            conn.stateUpdateHandler = nil
-            conn.cancel()
-            self.connection = nil
+        pingTask?.cancel()
+        pingTask = nil
+        if let task = wsTask {
+            self.wsTask = nil
+            task.cancel()
         }
     }
-    
+
     public func disconnect(intentional: Bool = true) {
         self.isIntentionallyClosed = intentional
         self.reconnectAttempt = 0
-        connectionWatchdogTask?.cancel()
-        connectionWatchdogTask = nil
+        connectionGeneration &+= 1
         reconnectTask?.cancel()
         reconnectTask = nil
         cleanupCurrentSocket()
         updateStatus(.disconnected)
     }
-    
+
     private func updateStatus(_ newStatus: StreamConnectionStatus) {
         guard self.status != newStatus else { return }
         self.status = newStatus

@@ -26,11 +26,59 @@ const MAX_REQUEST_BYTES = 8 * 1024;      // 8 KB request guard
 const MAX_APNS_PAYLOAD_BYTES = 4096;     // Apple APNs hard limit (4 KB)
 const HEX_TOKEN_RE = /^[0-9a-fA-F]{64,256}$/;
 
-// Isolate-level in-memory cache (zero persistence)
+// Isolate-level in-memory cache (zero persistence, zero PII)
 let cachedSigningKey = null;
 let cachedKeyFingerprint = "";
 let cachedJWT = "";
 let cachedJWTIssuedAt = 0;
+
+const TOKEN_THROTTLE_MAX_ENTRIES = 2000;
+const TOKEN_ROUTINE_UPDATE_MIN_MS = 1500;
+const TOKEN_WINDOW_MS = 10_000;
+const TOKEN_MAX_BURST_PER_WINDOW = 12;
+const tokenThrottleMap = new Map(); // tokenKey -> { lastRoutineAt, windowStartAt, count }
+
+function checkTokenThrottle(rawToken, event, priority) {
+  const now = Date.now();
+  // Key only on non-reversible prefix + tail length; evict stale entries when full
+  const key = `${rawToken.slice(0, 16)}:${rawToken.slice(-8)}`;
+  if (tokenThrottleMap.size >= TOKEN_THROTTLE_MAX_ENTRIES && !tokenThrottleMap.has(key)) {
+    for (const [k, v] of tokenThrottleMap) {
+      if (now - v.windowStartAt > 60_000) {
+        tokenThrottleMap.delete(k);
+      }
+      if (tokenThrottleMap.size < TOKEN_THROTTLE_MAX_ENTRIES / 2) break;
+    }
+    if (tokenThrottleMap.size >= TOKEN_THROTTLE_MAX_ENTRIES) {
+      tokenThrottleMap.clear();
+    }
+  }
+
+  let entry = tokenThrottleMap.get(key);
+  if (!entry || now - entry.windowStartAt >= TOKEN_WINDOW_MS) {
+    entry = {
+      lastRoutineAt: entry ? entry.lastRoutineAt : 0,
+      windowStartAt: now,
+      count: 0,
+    };
+    tokenThrottleMap.set(key, entry);
+  }
+
+  // Coalesce duplicate low-priority routine updates within 1.5s without hitting Apple APNs
+  if (event === "update" && priority === "5" && now - entry.lastRoutineAt < TOKEN_ROUTINE_UPDATE_MIN_MS) {
+    return { action: "coalesce" };
+  }
+
+  entry.count += 1;
+  if (entry.count > TOKEN_MAX_BURST_PER_WINDOW) {
+    return { action: "ratelimit" };
+  }
+
+  if (event === "update" && priority === "5") {
+    entry.lastRoutineAt = now;
+  }
+  return { action: "allow" };
+}
 
 export default {
   async fetch(request, env) {
@@ -244,6 +292,27 @@ async function handleLiveActivityPush(body, env) {
   }
 
   const priority = body.priority === 5 || String(body.priority) === "5" ? "5" : "10";
+  const throttle = checkTokenThrottle(pushToken, event, priority);
+  if (throttle.action === "coalesce") {
+    return jsonResponse({
+      ok: true,
+      status: 200,
+      throttled: true,
+      env: String(body.env || "").trim().toLowerCase() === "sandbox" ? "sandbox" : "production",
+    });
+  }
+  if (throttle.action === "ratelimit") {
+    return jsonResponse(
+      {
+        ok: false,
+        status: 429,
+        reason: "TooManyRequests",
+        unregistered: false,
+      },
+      429
+    );
+  }
+
   const extraHeaders = {
     "apns-push-type": "liveactivity",
     "apns-topic": `${cfg.bundleId}.push-type.liveactivity`,
@@ -313,7 +382,10 @@ async function dispatchToAPNs(cfg, apnsEnv, token, extraHeaders, payloadStr) {
         resp.status === 410 ||
         reason === "Unregistered" ||
         reason === "BadDeviceToken" ||
-        reason === "DeviceTokenNotForTopic";
+        reason === "DeviceTokenNotForTopic" ||
+        reason === "BadEnvironmentKeyInToken" ||
+        reason === "TopicDisallowed" ||
+        reason === "ExpiredToken";
 
       return jsonResponse(
         {

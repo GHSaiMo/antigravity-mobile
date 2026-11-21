@@ -48,10 +48,12 @@ type CloudflareTunnel struct {
 	stopping bool
 	cancel   context.CancelFunc
 
-	locMu       sync.Mutex
-	locations   map[string]string // connIndex -> edge colo, e.g. "0" -> "lax13"
-	lastKickAt  time.Time
-	probeResult EdgeProbe
+	locMu          sync.Mutex
+	locations      map[string]string // connIndex -> edge colo, e.g. "0" -> "lax13"
+	lastKickAt     time.Time
+	lastRefreshAt  time.Time
+	needsRefresh   bool
+	probeResult    EdgeProbe
 }
 
 // NewCloudflareTunnel creates a supervisor for a Cloudflare Tunnel.
@@ -156,6 +158,8 @@ func (t *CloudflareTunnel) launchProcessLocked(ctx context.Context, binPath stri
 						t.kickPolluted(cmd, ip)
 					} else if strings.Contains(trimmed, "TLS handshake with edge error") && strings.Contains(trimmed, "EOF") {
 						t.fallbackIPv6ToIPv4(cmd)
+					} else if isRevokedOrDeletedTunnelLog(trimmed) {
+						t.markStaleCredentials(cmd, trimmed)
 					} else if strings.Contains(trimmed, "ERR") || strings.Contains(trimmed, "error") ||
 						strings.Contains(trimmed, "Incorrect Usage") || strings.Contains(trimmed, "flag provided") {
 						if !isBenignCloudflareLog(trimmed) {
@@ -241,6 +245,35 @@ func (t *CloudflareTunnel) fallbackIPv6ToIPv4(cmd *exec.Cmd) {
 	}
 }
 
+// markStaleCredentials invalidates cached tunnel credentials when Cloudflare reports a GC'd or revoked tunnel,
+// allowing supervise() to seamlessly re-provision the deterministic machine tunnel via the dispatcher Worker.
+func (t *CloudflareTunnel) markStaleCredentials(cmd *exec.Cmd, reason string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.stopping || t.cfg == nil || t.cfg.Token != "" || strings.TrimSpace(t.cfg.WorkerURL) == "" {
+		return
+	}
+	if time.Since(t.lastRefreshAt) < time.Minute {
+		return
+	}
+	t.lastRefreshAt = time.Now()
+	t.needsRefresh = true
+	_ = InvalidateTunnelCache()
+	slog.Warn(fmt.Sprintf("⚠️  [Cloudflare] 本地缓存的穿透凭据已失效或被回收 (%s)，正在自动重新申请专属隧道...", reason))
+	if t.cmd == cmd && cmd != nil && cmd.Process != nil {
+		_ = cmd.Process.Kill()
+	}
+}
+
+// InvalidateTunnelCache removes the locally cached cf_tunnel.json file.
+func InvalidateTunnelCache() error {
+	cachePath := filepath.Join(config.GetDataDir(), "cf_tunnel.json")
+	if err := os.Remove(cachePath); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
 func (t *CloudflareTunnel) supervise(ctx context.Context, binPath string) {
 	for {
 		t.mu.Lock()
@@ -257,9 +290,28 @@ func (t *CloudflareTunnel) supervise(ctx context.Context, binPath string) {
 			t.mu.Unlock()
 			return
 		}
+		shouldRefresh := t.needsRefresh && t.cfg != nil && t.cfg.Token == "" && strings.TrimSpace(t.cfg.WorkerURL) != ""
+		var workerURL, inviteCode string
+		if shouldRefresh {
+			workerURL = t.cfg.WorkerURL
+			inviteCode = t.cfg.InviteCode
+		}
 		t.mu.Unlock()
 
-		slog.Warn("⚠️  [Cloudflare] 穿透守护进程退出，将在 3 秒后尝试自动恢复连接...")
+		if shouldRefresh {
+			_ = InvalidateTunnelCache()
+			if refreshed, err := RegisterOrFetchTunnel(ctx, workerURL, inviteCode); err == nil && refreshed != nil && refreshed.Token != "" {
+				t.mu.Lock()
+				t.result = refreshed
+				t.needsRefresh = false
+				t.mu.Unlock()
+				slog.Info(fmt.Sprintf("✅ [Cloudflare] 专属隧道凭据已自动刷新: %s", refreshed.URL))
+			} else {
+				slog.Warn("⚠️  [Cloudflare] 重新申请专属隧道凭据失败，稍后重试", "err", err)
+			}
+		} else {
+			slog.Warn("⚠️  [Cloudflare] 穿透守护进程退出，将在 3 秒后尝试自动恢复连接...")
+		}
 		select {
 		case <-ctx.Done():
 			return
@@ -700,6 +752,26 @@ func isBenignCloudflareLog(line string) bool {
 	}
 	for _, kw := range benignKeywords {
 		if strings.Contains(line, kw) {
+			return true
+		}
+	}
+	return false
+}
+
+// isRevokedOrDeletedTunnelLog reports whether a cloudflared stderr line indicates the tunnel or its token
+// was deleted/revoked on Cloudflare (e.g., reclaimed by stale-tunnel GC after prolonged inactivity).
+func isRevokedOrDeletedTunnelLog(line string) bool {
+	lower := strings.ToLower(line)
+	revokedKeywords := []string{
+		"tunnel not found",
+		"failed to authenticate",
+		"failed to sufficiently authenticate",
+		"unauthorized: invalid tunnel",
+		"invalid tunnel secret",
+		"tunnel has been deleted",
+	}
+	for _, kw := range revokedKeywords {
+		if strings.Contains(lower, kw) {
 			return true
 		}
 	}

@@ -132,11 +132,33 @@ extension ChatViewModel {
     func startPollingFallback() {
         guard pollTask == nil else { return }
         pollTask = Task { [weak self] in
+            var idleTicks = 0
             while !Task.isCancelled {
                 guard let self else { break }
-                let interval: UInt64 = (self.isRunning || self.isAwaitingResponse) ? 2_500_000_000 : 6_000_000_000
-                try? await Task.sleep(nanoseconds: interval)
+                if self.streamClient.status == .connected && !DemoGateway.isEnabled {
+                    self.pollTask = nil
+                    break
+                }
+                let isBusy = self.isRunning || self.isAwaitingResponse || !self.runningTasks.blockingTasks.isEmpty
+                let intervalSec: UInt64
+                if isBusy {
+                    idleTicks = 0
+                    intervalSec = 3
+                } else {
+                    idleTicks += 1
+                    switch idleTicks {
+                    case 1...2: intervalSec = 6
+                    case 3...5: intervalSec = 15
+                    case 6...10: intervalSec = 30
+                    default: intervalSec = 60
+                    }
+                }
+                try? await Task.sleep(nanoseconds: intervalSec * 1_000_000_000)
                 guard !Task.isCancelled else { break }
+                if self.streamClient.status == .connected && !DemoGateway.isEnabled {
+                    self.pollTask = nil
+                    break
+                }
                 await self.loadMessages(isBackgroundPoll: true)
             }
         }

@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -246,10 +247,47 @@ func (p *Proxy) handleCascadeMessages(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	sum := sha256.Sum256(respBytes)
+	etag := fmt.Sprintf(`"mgy-%x"`, sum[:12])
+
+	w.Header().Set("ETag", etag)
+	w.Header().Set("Cache-Control", "private, no-cache")
+	if ifNoneMatchMatches(r.Header.Get("If-None-Match"), etag) {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("Content-Length", strconv.Itoa(len(respBytes)))
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(respBytes)
+}
+
+// ifNoneMatchMatches implements weak ETag comparison (RFC 9110 §13.1.2) so Cloudflare's
+// automatic W/"..." conversion under gzip/zstd edge compression still hits 304 Not Modified.
+func ifNoneMatchMatches(headerVal, currentETag string) bool {
+	headerVal = strings.TrimSpace(headerVal)
+	if headerVal == "" || currentETag == "" {
+		return false
+	}
+	if headerVal == "*" {
+		return true
+	}
+	normTarget := normalizeWeakETag(currentETag)
+	for _, part := range strings.Split(headerVal, ",") {
+		if normalizeWeakETag(part) == normTarget {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizeWeakETag(raw string) string {
+	s := strings.TrimSpace(raw)
+	if strings.HasPrefix(s, "W/") || strings.HasPrefix(s, "w/") {
+		s = strings.TrimSpace(s[2:])
+	}
+	return s
 }
 
 // extractErrorText retrieves the most descriptive error message from a trajectory step.

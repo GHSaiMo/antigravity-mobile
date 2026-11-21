@@ -16,6 +16,8 @@ import (
 
 const (
 	liveActivityMinRoutineInterval = 18 * time.Second
+	liveActivityFailBaseBackoff    = 15 * time.Second
+	liveActivityFailMaxBackoff     = 5 * time.Minute
 	liveActivityStaleTTL           = 30 * time.Minute
 	liveActivityEndDismissDelaySec = 15
 	// MaxLiveActivityCards caps concurrent Live Activity cards (WAITING_APPROVAL > most recently active).
@@ -67,6 +69,8 @@ type liveActivityTrack struct {
 	lastPending bool
 	lastSentAt  time.Time
 	startedAt   map[string]time.Time // deviceID -> last push-to-start time for this cascade
+	retryAfter  map[string]time.Time // deviceID -> earliest retry timestamp after push failure
+	failCount   map[string]int       // deviceID -> consecutive failure count
 }
 
 // LiveActivityDispatcher translates Antigravity trajectory states into throttled, budget-aware APNs Live Activity pushes.
@@ -339,7 +343,11 @@ func (d *LiveActivityDispatcher) SyncFromDetails(ctx context.Context, details *p
 	d.mu.Lock()
 	tr, exists := d.tracks[cascadeID]
 	if !exists {
-		tr = &liveActivityTrack{startedAt: make(map[string]time.Time)}
+		tr = &liveActivityTrack{
+			startedAt:  make(map[string]time.Time),
+			retryAfter: make(map[string]time.Time),
+			failCount:  make(map[string]int),
+		}
 		d.tracks[cascadeID] = tr
 	}
 
@@ -350,6 +358,9 @@ func (d *LiveActivityDispatcher) SyncFromDetails(ctx context.Context, details *p
 	// Filter which targets actually need a push right now
 	var toSend []APNsLiveActivityTarget
 	for _, t := range targets {
+		if until, ok := tr.retryAfter[t.DeviceID]; ok && now.Before(until) {
+			continue
+		}
 		if t.IsStart {
 			// Only remote-start once per working run (backed by both in-memory track and persisted store).
 			if lastStart, ok := tr.startedAt[t.DeviceID]; ok && now.Sub(lastStart) < liveActivityStartRunTTL {
@@ -414,18 +425,40 @@ func (d *LiveActivityDispatcher) SyncFromDetails(ctx context.Context, details *p
 		if err := d.client.SendLiveActivity(ctx, target, req); err != nil {
 			if target.IsStart {
 				d.client.Store().ClearLiveActivityStarted(target.DeviceID, cascadeID)
-				d.mu.Lock()
-				if curTr := d.tracks[cascadeID]; curTr != nil {
-					delete(curTr.startedAt, target.DeviceID)
-				}
-				d.mu.Unlock()
 			}
+			d.mu.Lock()
+			if curTr := d.tracks[cascadeID]; curTr != nil {
+				if target.IsStart {
+					delete(curTr.startedAt, target.DeviceID)
+				} else {
+					curTr.lastHash = ""
+				}
+				fc := curTr.failCount[target.DeviceID] + 1
+				curTr.failCount[target.DeviceID] = fc
+				shift := fc - 1
+				if shift > 4 {
+					shift = 4
+				}
+				backoff := liveActivityFailBaseBackoff * time.Duration(1<<shift)
+				if backoff > liveActivityFailMaxBackoff {
+					backoff = liveActivityFailMaxBackoff
+				}
+				curTr.retryAfter[target.DeviceID] = now.Add(backoff)
+			}
+			d.mu.Unlock()
 			slog.Warn("[APNs] Live Activity push failed",
 				"event", req.Event,
 				"device_id", target.DeviceID,
 				"cascade_id", shortID(cascadeID),
 				"err", err,
 			)
+		} else {
+			d.mu.Lock()
+			if curTr := d.tracks[cascadeID]; curTr != nil {
+				delete(curTr.failCount, target.DeviceID)
+				delete(curTr.retryAfter, target.DeviceID)
+			}
+			d.mu.Unlock()
 		}
 	}
 }

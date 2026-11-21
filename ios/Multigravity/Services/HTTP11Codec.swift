@@ -28,13 +28,18 @@ enum HTTP11Codec {
             keepAlive ? "Connection: keep-alive" : "Connection: close"
         ]
         var hasAcceptEncoding = false
+        var hasUserAgent = false
         if let headers = request.allHTTPHeaderFields {
             for (key, value) in headers {
                 let lower = key.lowercased()
                 if lower == "host" || lower == "connection" { continue }
                 if lower == "accept-encoding" { hasAcceptEncoding = true }
+                if lower == "user-agent" { hasUserAgent = true }
                 lines.append("\(key): \(value)")
             }
+        }
+        if !hasUserAgent {
+            lines.append("User-Agent: Multigravity/1.2.4 (iOS)")
         }
         // URLSession adds this implicitly; without it the gateway (and Cloudflare) reply uncompressed.
         if !hasAcceptEncoding {
