@@ -1,6 +1,72 @@
 {
   "sourceLanguage": "zh-Hans",
   "strings": {
+    "%@ %lld%%": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ %lld%%"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ %lld%%"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ %lld%%"
+          }
+        }
+      }
+    },
+    "%@ %lld%% · ": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ %lld%% · "
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ %lld%% · "
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ %lld%% · "
+          }
+        }
+      }
+    },
+    "%@ %lld%% · %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ %lld%% · %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ %lld%% · %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ %lld%% · %@"
+          }
+        }
+      }
+    },
     "%lld 个任务": {
       "localizations": {
         "en": {
@@ -63,6 +129,50 @@
           "stringUnit": {
             "state": "translated",
             "value": "%lld 任务运行中"
+          }
+        }
+      }
+    },
+    "%lld 待确认": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld Action"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld件要確認"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 待确认"
+          }
+        }
+      }
+    },
+    "%lld 运行中": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld Running"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld件実行中"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 运行中"
           }
         }
       }
@@ -155,6 +265,72 @@
         }
       }
     },
+    "Claude": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude"
+          }
+        }
+      }
+    },
+    "Gemini": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gemini"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gemini"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gemini"
+          }
+        }
+      }
+    },
+    "Multigravity 未配对": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Multigravity not paired"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Multigravity 未接続"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Multigravity 未配对"
+          }
+        }
+      }
+    },
     "·": {
       "localizations": {
         "en": {
@@ -199,6 +375,28 @@
         }
       }
     },
+    "从本地 Multigravity 网关拉取最新活跃对话与 Agent 状态。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fetch the latest active conversations and Agent status from your local Multigravity gateway."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ローカルのMultigravityゲートウェイから最新のアクティブ会話とAgent状態を取得します。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从本地 Multigravity 网关拉取最新活跃对话与 Agent 状态。"
+          }
+        }
+      }
+    },
     "任务已完成 · 共 %lld 步": {
       "localizations": {
         "en": {
@@ -217,6 +415,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "任务已完成 · 共 %lld 步"
+          }
+        }
+      }
+    },
+    "优化数据库索引查询耗时": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Optimize DB index query latency"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DBインデックスクエリ高速化"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "优化数据库索引查询耗时"
+          }
+        }
+      }
+    },
+    "修复支付回调超时": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fix payment webhook timeout"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "決済Webhookタイムアウト修正"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "修复支付回调超时"
+          }
+        }
+      }
+    },
+    "偏快 %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fast %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "消費速 %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "偏快 %@"
           }
         }
       }
@@ -309,6 +573,72 @@
         }
       }
     },
+    "充裕 %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plenty %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "余裕 %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "充裕 %@"
+          }
+        }
+      }
+    },
+    "共 %lld 个会话": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld conversations"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全 %lld 件の会話"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共 %lld 个会话"
+          }
+        }
+      }
+    },
+    "刷新活跃对话": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Refresh Active Chats"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクティブ会話を更新"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "刷新活跃对话"
+          }
+        }
+      }
+    },
     "刷新额度": {
       "localizations": {
         "en": {
@@ -327,6 +657,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "刷新额度"
+          }
+        }
+      }
+    },
+    "匀速 %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On pace %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "適正 %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "匀速 %@"
           }
         }
       }
@@ -393,6 +745,50 @@
           "stringUnit": {
             "state": "translated",
             "value": "后重置"
+          }
+        }
+      }
+    },
+    "在主屏幕与 CarPlay 随时查看待确认、运行中的 Agent 任务，轻点直达对话。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Monitor pending approvals and running Agent tasks on Home Screen and CarPlay, and jump straight into any chat."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホーム画面やCarPlayで承認待ち・実行中のAgentタスクを確認し、タップで直接会話へ移動できます。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在主屏幕与 CarPlay 随时查看待确认、运行中的 Agent 任务，轻点直达对话。"
+          }
+        }
+      }
+    },
+    "在锁屏、主屏幕、iPad 与 CarPlay 查看 5 小时与 7 天额度余量、重置倒计时与活跃对话。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Track 5h & 7d quota balance, reset countdowns, and active chats across Lock Screen, Home Screen, iPad, and CarPlay."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ロック画面・ホーム画面・iPad・CarPlayで5時間/7日間のクォータ残量、リセット時刻、アクティブ会話を確認できます。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在锁屏、主屏幕、iPad 与 CarPlay 查看 5 小时与 7 天额度余量、重置倒计时与活跃对话。"
           }
         }
       }
@@ -595,6 +991,28 @@
         }
       }
     },
+    "异常": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Error"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エラー"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "异常"
+          }
+        }
+      }
+    },
     "当前第 %lld 步": {
       "localizations": {
         "en": {
@@ -771,6 +1189,138 @@
         }
       }
     },
+    "整理周会架构讨论纪要": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Summarize weekly architecture notes"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "週次アーキテクチャ会議の議事録整理"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "整理周会架构讨论纪要"
+          }
+        }
+      }
+    },
+    "暂无活跃对话，轻点打开 Multigravity": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No active chats — tap to open Multigravity"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクティブな会話なし・タップして開く"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暂无活跃对话，轻点打开 Multigravity"
+          }
+        }
+      }
+    },
+    "暂无进行中的任务": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No active tasks"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "進行中のタスクなし"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暂无进行中的任务"
+          }
+        }
+      }
+    },
+    "未命名会话": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Untitled"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無題のセッション"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未命名会话"
+          }
+        }
+      }
+    },
+    "未读": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unread"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未読"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未读"
+          }
+        }
+      }
+    },
+    "核对本周发布日志与翻译": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Review weekly release notes & l10n"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今週のリリースノートと翻訳を確認"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "核对本周发布日志与翻译"
+          }
+        }
+      }
+    },
     "正在执行第 %lld 步": {
       "localizations": {
         "en": {
@@ -789,6 +1339,50 @@
           "stringUnit": {
             "state": "translated",
             "value": "正在执行第 %lld 步"
+          }
+        }
+      }
+    },
+    "活跃对话": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Active Chats"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクティブ会話"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "活跃对话"
+          }
+        }
+      }
+    },
+    "点击打开 App 同步最近活跃对话与任务状态": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap to open app and sync active chats & tasks"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タップして最新の会話とタスク状態を同期"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "点击打开 App 同步最近活跃对话与任务状态"
           }
         }
       }
@@ -837,6 +1431,28 @@
         }
       }
     },
+    "监控模型": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Model"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "監視モデル"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "监控模型"
+          }
+        }
+      }
+    },
     "第 %lld 步": {
       "localizations": {
         "en": {
@@ -877,6 +1493,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "等待中"
+          }
+        }
+      }
+    },
+    "等待同步对话": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting for chats"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "会話の同期待ち"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等待同步对话"
           }
         }
       }
@@ -947,6 +1585,28 @@
         }
       }
     },
+    "补齐 iOS 全尺寸小组件": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add full-size iOS widgets"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iOS全サイズウィジェット対応"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "补齐 iOS 全尺寸小组件"
+          }
+        }
+      }
+    },
     "请先打开 App 配对": {
       "localizations": {
         "en": {
@@ -1009,6 +1669,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "请打开 App 查看完整详情并确认"
+          }
+        }
+      }
+    },
+    "跟随 App": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Follow App"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリに合わせる"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "跟随 App"
+          }
+        }
+      }
+    },
+    "轻点打开 Multigravity 开始新对话": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap to open Multigravity and start a chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タップしてMultigravityで新しい会話を開始"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "轻点打开 Multigravity 开始新对话"
+          }
+        }
+      }
+    },
+    "轻点打开 Multigravity 查看历史或新建对话": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap to open Multigravity to browse or start a chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タップして履歴を表示または新しい会話を開始"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "轻点打开 Multigravity 查看历史或新建对话"
           }
         }
       }
@@ -1079,6 +1805,28 @@
         }
       }
     },
+    "选择小组件优先展示的模型额度。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose which model quota this widget focuses on."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ウィジェットで優先表示するモデル枠を選択します。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择小组件优先展示的模型额度。"
+          }
+        }
+      }
+    },
     "额度监控": {
       "localizations": {
         "en": {
@@ -1097,6 +1845,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "额度监控"
+          }
+        }
+      }
+    },
+    "额度监控设置": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quota Widget Settings"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クォータ監視設定"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "额度监控设置"
           }
         }
       }

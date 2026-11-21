@@ -23,28 +23,6 @@
         }
       }
     },
-    "演示模式暂不支持实时语音通话，请发送文字或体验离线演示对话": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Live voice calls require a desktop gateway. Try sending messages or reviewing workflows in Demo Mode."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "デモモードではリアルタイム音声通話は利用できません。テキスト送信やオフラインのデモ会話をお試しください。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "演示模式暂不支持实时语音通话，请发送文字或体验离线演示对话"
-          }
-        }
-      }
-    },
     "#%lld": {
       "localizations": {
         "en": {
@@ -1563,6 +1541,28 @@
         }
       }
     },
+    "1. 下载安装：从 GitHub Releases 下载 Cockpit Tools 桌面端，在应用中添加/登录备用账号；": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1. Download & Install: Get Cockpit Tools from GitHub Releases and sign into backup accounts;"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1. ダウンロード：GitHub Releases から Cockpit Tools デスクトップ版を導入し、予備アカウントを追加・ログインします。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1. 下载安装：从 GitHub Releases 下载 Cockpit Tools 桌面端，在应用中添加/登录备用账号；"
+          }
+        }
+      }
+    },
     "2": {
       "localizations": {
         "en": {
@@ -1607,6 +1607,28 @@
         }
       }
     },
+    "2. 网关联动：在网关电脑终端运行 mgy cockpit，按回车一键开启 HTTP 报表服务与 Token 并重启；": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2. Gateway Link: Run `mgy cockpit` in your gateway terminal, press Enter to enable HTTP report service & Token and restart;"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2. ゲートウェイ連携：PCのターミナルで mgy cockpit を実行し、Enter を押して HTTP レポートサービスと Token を有効化して再起動します。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2. 网关联动：在网关电脑终端运行 mgy cockpit，按回车一键开启 HTTP 报表服务与 Token 并重启；"
+          }
+        }
+      }
+    },
     "3.": {
       "localizations": {
         "en": {
@@ -1625,6 +1647,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "3."
+          }
+        }
+      }
+    },
+    "3. 手机刷新：在手机端下拉刷新，即可查看到所有备用账号的实时额度并自由切换。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3. Refresh Mobile: Pull to refresh on mobile to view all backup account quotas and switch freely."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3. スマホで更新：アプリで下に引いて更新すると、全予備アカウントの残枠をリアルタイム確認・切替できます。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3. 手机刷新：在手机端下拉刷新，即可查看到所有备用账号的实时额度并自由切换。"
           }
         }
       }
@@ -1801,6 +1845,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "AI 增强"
+          }
+        }
+      }
+    },
+    "AI 完成全部步骤时播放。点击任意选项可立即试听并自动同步至网关。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Played when AI completes all steps. Tap any option to preview and sync with the gateway."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI が全ステップを完了した際に再生されます。選択すると即座に試聴でき、ゲートウェイへ自動同期されます。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI 完成全部步骤时播放。点击任意选项可立即试听并自动同步至网关。"
           }
         }
       }
@@ -2025,6 +2091,28 @@
         }
       }
     },
+    "Claude": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude"
+          }
+        }
+      }
+    },
     "Continue": {
       "localizations": {
         "en": {
@@ -2197,6 +2285,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "FREE"
+          }
+        }
+      }
+    },
+    "Gemini": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gemini"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gemini"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gemini"
           }
         }
       }
@@ -3741,6 +3851,50 @@
         }
       }
     },
+    "• 单账号用户无需配置，当前额度已正常监控。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "• Not needed for single-account users. Current quota is already monitored."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "• 単一アカウントの場合は設定不要です。現在の残枠はすでに自動監視されています。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "• 单账号用户无需配置，当前额度已正常监控。"
+          }
+        }
+      }
+    },
+    "• 若需管理多个 Antigravity 账号并在手机上一键切号，可配合开源工具 Cockpit Tools 与网关联动。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "• To manage multiple Antigravity accounts and switch between them on mobile, link with Cockpit Tools."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "• 複数の Antigravity アカウントを管理しスマホからワンタップ切替したい場合、オープンソースの Cockpit Tools とゲートウェイを連携できます。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "• 若需管理多个 Antigravity 账号并在手机上一键切号，可配合开源工具 Cockpit Tools 与网关联动。"
+          }
+        }
+      }
+    },
     "›": {
       "localizations": {
         "en": {
@@ -4401,6 +4555,28 @@
         }
       }
     },
+    "不刺耳的渐进提示": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gentle progressive chime"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "耳に優しい段階的な通知音"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不刺耳的渐进提示"
+          }
+        }
+      }
+    },
     "不支持 16kHz PCM 音频格式": {
       "localizations": {
         "en": {
@@ -4665,6 +4841,28 @@
         }
       }
     },
+    "仅横幅提醒不发声": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Banner only, no sound"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バナーのみ表示（無音）"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅横幅提醒不发声"
+          }
+        }
+      }
+    },
     "仅看 @all 广播": {
       "localizations": {
         "en": {
@@ -4797,46 +4995,24 @@
         }
       }
     },
-    "分叉会话": {
+    "从本地 Multigravity 网关拉取最新活跃对话与 Agent 状态。": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fork Chat"
+            "value": "Fetch the latest active conversations and Agent status from your local Multigravity gateway."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "会話をフォーク"
+            "value": "ローカルのMultigravityゲートウェイから最新のアクティブ会話とAgent状態を取得します。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "分叉会话"
-          }
-        }
-      }
-    },
-    "旁路快问": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Side Question"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "サイド質問"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "旁路快问"
+            "value": "从本地 Multigravity 网关拉取最新活跃对话与 Agent 状态。"
           }
         }
       }
@@ -5017,6 +5193,28 @@
         }
       }
     },
+    "任务完成": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Task Completed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タスク完了"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "任务完成"
+          }
+        }
+      }
+    },
     "任务已完成": {
       "localizations": {
         "en": {
@@ -5079,6 +5277,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "任务运行中..."
+          }
+        }
+      }
+    },
+    "优化数据库索引查询耗时": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Optimize DB index query latency"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DBインデックスクエリ高速化"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "优化数据库索引查询耗时"
           }
         }
       }
@@ -5541,6 +5761,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "保存视频到相册或文件"
+          }
+        }
+      }
+    },
+    "修复支付回调超时": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fix payment webhook timeout"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "決済Webhookタイムアウト修正"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "修复支付回调超时"
           }
         }
       }
@@ -6733,28 +6975,6 @@
         }
       }
     },
-    "分享长图": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Share Long Image"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "長画像を共有"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "分享长图"
-          }
-        }
-      }
-    },
     "分享为长图": {
       "localizations": {
         "en": {
@@ -6839,6 +7059,50 @@
           "stringUnit": {
             "state": "translated",
             "value": "分享视频"
+          }
+        }
+      }
+    },
+    "分享长图": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Share Long Image"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "長画像を共有"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分享长图"
+          }
+        }
+      }
+    },
+    "分叉会话": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fork Chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "会話をフォーク"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分叉会话"
           }
         }
       }
@@ -7437,6 +7701,28 @@
         }
       }
     },
+    "刷新活跃对话": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Refresh Active Chats"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクティブ会話を更新"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "刷新活跃对话"
+          }
+        }
+      }
+    },
     "刷新配额失败": {
       "localizations": {
         "en": {
@@ -7455,6 +7741,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "刷新配额失败"
+          }
+        }
+      }
+    },
+    "前往系统设置开启": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable in Settings"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "システム設定で有効化"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "前往系统设置开启"
           }
         }
       }
@@ -8295,6 +8603,50 @@
         }
       }
     },
+    "可选功能": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Optional"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "任意機能"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "可选功能"
+          }
+        }
+      }
+    },
+    "号角提醒": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Horn"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホーン"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "号角提醒"
+          }
+        }
+      }
+    },
     "各会话中执行的后台终端命令、常驻开发服务器与定时任务会实时汇总在此处": {
       "localizations": {
         "en": {
@@ -8600,6 +8952,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "告诉 Agent 应该怎么做..."
+          }
+        }
+      }
+    },
+    "命令审批、文件权限或计划待确认时播放，建议使用辨识度较高的提醒音。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Played when command approval, file access, or plan confirmation is needed."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コマンド承認やファイル権限、プラン確認が必要な際に再生されます。聞き分けやすい音色がおすすめです。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "命令审批、文件权限或计划待确认时播放，建议使用辨识度较高的提醒音。"
           }
         }
       }
@@ -8912,6 +9286,28 @@
         }
       }
     },
+    "在锁屏、通知中心与灵动岛实时接收审批请求、任务进展与完成提醒。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Receive real-time approval alerts, task progress, and completion updates on the Lock Screen, Notification Center, and Dynamic Island."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ロック画面、通知センター、Dynamic Island で承認リクエストやタスク進捗、完了通知をリアルタイムに受け取ります。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在锁屏、通知中心与灵动岛实时接收审批请求、任务进展与完成提醒。"
+          }
+        }
+      }
+    },
     "基本信息": {
       "localizations": {
         "en": {
@@ -9062,6 +9458,50 @@
           "stringUnit": {
             "state": "translated",
             "value": "复制"
+          }
+        }
+      }
+    },
+    "复制 GitHub 链接": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy GitHub Link"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub リンクをコピー"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "复制 GitHub 链接"
+          }
+        }
+      }
+    },
+    "复制 mgy cockpit 命令": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy mgy cockpit"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mgy cockpit をコピー"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "复制 mgy cockpit 命令"
           }
         }
       }
@@ -9348,6 +9788,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "多维度综合调研"
+          }
+        }
+      }
+    },
+    "多账号联动": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Multi-Account Sync"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マルチアカウント連携"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "多账号联动"
           }
         }
       }
@@ -10100,28 +10562,6 @@
         }
       }
     },
-    "导出MD": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Export MD"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "MD出力"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "导出MD"
-          }
-        }
-      }
-    },
     "导出 MD": {
       "localizations": {
         "en": {
@@ -10140,6 +10580,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "导出 MD"
+          }
+        }
+      }
+    },
+    "导出MD": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Export MD"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MD出力"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "导出MD"
           }
         }
       }
@@ -11086,6 +11548,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "已复制选中文本"
+          }
+        }
+      }
+    },
+    "已复制链接": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Link Copied"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リンクをコピーしました"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已复制链接"
           }
         }
       }
@@ -12125,6 +12609,28 @@
         }
       }
     },
+    "开启推送通知": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable Push Notifications"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プッシュ通知を有効にする"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "开启推送通知"
+          }
+        }
+      }
+    },
     "开启新会话": {
       "localizations": {
         "en": {
@@ -12917,6 +13423,28 @@
         }
       }
     },
+    "急促滴嘟": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Urgent Alarm"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アラートビープ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "急促滴嘟"
+          }
+        }
+      }
+    },
     "恢复默认": {
       "localizations": {
         "en": {
@@ -12935,6 +13463,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "恢复默认"
+          }
+        }
+      }
+    },
+    "恢复默认提示音（叮叮 / 滴嘟）": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restore Default Sounds (Ding / Alarm)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デフォルト通知音に戻す（チャイム / ビープ）"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "恢复默认提示音（叮叮 / 滴嘟）"
           }
         }
       }
@@ -14083,6 +14633,28 @@
         }
       }
     },
+    "推送通知": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Push Notifications"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プッシュ通知"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "推送通知"
+          }
+        }
+      }
+    },
     "提交": {
       "localizations": {
         "en": {
@@ -15051,6 +15623,28 @@
         }
       }
     },
+    "收起配置步骤": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide Setup Steps"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定手順を隠す"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "收起配置步骤"
+          }
+        }
+      }
+    },
     "改为让 Agent 提交": {
       "localizations": {
         "en": {
@@ -15113,6 +15707,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "数据解析失败: %@"
+          }
+        }
+      }
+    },
+    "整理周会架构讨论纪要": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Summarize weekly architecture notes"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "週次アーキテクチャ会議の議事録整理"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "整理周会架构讨论纪要"
           }
         }
       }
@@ -15689,6 +16305,28 @@
         }
       }
     },
+    "旁路快问": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Side Question"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイド質問"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "旁路快问"
+          }
+        }
+      }
+    },
     "无可用网关端点地址": {
       "localizations": {
         "en": {
@@ -16213,6 +16851,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "无输入参数（直接调用）"
+          }
+        }
+      }
+    },
+    "明亮单音提醒": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bright single bell"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "明るい単音ベル"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "明亮单音提醒"
           }
         }
       }
@@ -16851,6 +17511,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "未就绪（请确认电脑桌面客户端已打开）"
+          }
+        }
+      }
+    },
+    "未开启": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Off"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未开启"
           }
         }
       }
@@ -17669,6 +18351,28 @@
         }
       }
     },
+    "柔和双音风铃": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Soft dual-tone chime"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "柔らかな二音チャイム"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "柔和双音风铃"
+          }
+        }
+      }
+    },
     "查看 Diff": {
       "localizations": {
         "en": {
@@ -17845,6 +18549,28 @@
         }
       }
     },
+    "查看详细配置步骤": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "View Setup Steps"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "詳しい設定手順を見る"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "查看详细配置步骤"
+          }
+        }
+      }
+    },
     "标准 (100%)": {
       "localizations": {
         "en": {
@@ -17907,6 +18633,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "标题（必填，例如：每日代码巡检）"
+          }
+        }
+      }
+    },
+    "核对本周发布日志与翻译": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Review weekly release notes & l10n"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今週のリリースノートと翻訳を確認"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "核对本周发布日志与翻译"
           }
         }
       }
@@ -18061,6 +18809,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "次选模型"
+          }
+        }
+      }
+    },
+    "欢快号角": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fanfare"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファンファーレ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "欢快号角"
           }
         }
       }
@@ -19275,6 +20045,50 @@
         }
       }
     },
+    "清脆双响": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Crisp Double"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ダブルチャイム"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "清脆双响"
+          }
+        }
+      }
+    },
+    "清脆风铃": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wind Chime"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ウィンドチャイム"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "清脆风铃"
+          }
+        }
+      }
+    },
     "清除": {
       "localizations": {
         "en": {
@@ -19319,6 +20133,28 @@
         }
       }
     },
+    "温和期待": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anticipate"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ジェントル"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "温和期待"
+          }
+        }
+      }
+    },
     "湛蓝": {
       "localizations": {
         "en": {
@@ -19359,6 +20195,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "演示模式"
+          }
+        }
+      }
+    },
+    "演示模式暂不支持实时语音通话，请发送文字或体验离线演示对话": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live voice calls require a desktop gateway. Try sending messages or reviewing workflows in Demo Mode."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デモモードではリアルタイム音声通話は利用できません。テキスト送信やオフラインのデモ会話をお試しください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "演示模式暂不支持实时语音通话，请发送文字或体验离线演示对话"
           }
         }
       }
@@ -19671,6 +20529,28 @@
         }
       }
     },
+    "玻璃清脆": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Crisp Glass"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クリスプグラス"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "玻璃清脆"
+          }
+        }
+      }
+    },
     "珊瑚红": {
       "localizations": {
         "en": {
@@ -19803,6 +20683,28 @@
         }
       }
     },
+    "电子警示": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Electronic"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エレクトロニック"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "电子警示"
+          }
+        }
+      }
+    },
     "电脑终端运行网关后会自动生成复合二维码，手机扫码即可直接交换凭证并绑定，零手动配置。": {
       "localizations": {
         "en": {
@@ -19843,6 +20745,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "电脑网关"
+          }
+        }
+      }
+    },
+    "监控模型": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Model"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "監視モデル"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "监控模型"
           }
         }
       }
@@ -20595,6 +21519,28 @@
         }
       }
     },
+    "科技感高频双音": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Crisp electronic tone"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "シャープな電子二音"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "科技感高频双音"
+          }
+        }
+      }
+    },
     "移除命令 %@": {
       "localizations": {
         "en": {
@@ -20613,6 +21559,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "移除命令 %@"
+          }
+        }
+      }
+    },
+    "穿透力强": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear & penetrating"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "よく響く強調音"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "穿透力强"
           }
         }
       }
@@ -21123,6 +22091,28 @@
         }
       }
     },
+    "系统默认": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System Default"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "システム既定"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "系统默认"
+          }
+        }
+      }
+    },
     "紧凑 (90%)": {
       "localizations": {
         "en": {
@@ -21317,6 +22307,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "经 @all"
+          }
+        }
+      }
+    },
+    "经典铃铛": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Classic Bell"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラシックベル"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "经典铃铛"
           }
         }
       }
@@ -22373,6 +23385,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "补充反馈打回"
+          }
+        }
+      }
+    },
+    "补齐 iOS 全尺寸小组件": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add full-size iOS widgets"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iOS全サイズウィジェット対応"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "补齐 iOS 全尺寸小组件"
           }
         }
       }
@@ -23587,6 +24621,50 @@
         }
       }
     },
+    "跟随 App": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Follow App"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリに合わせる"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "跟随 App"
+          }
+        }
+      }
+    },
+    "跟随 iOS 系统提示音": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Follow iOS default alert sound"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iOS 標準の通知音を使用"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "跟随 iOS 系统提示音"
+          }
+        }
+      }
+    },
     "跟随系统": {
       "localizations": {
         "en": {
@@ -23737,6 +24815,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "转后台"
+          }
+        }
+      }
+    },
+    "轻快确认音效": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upbeat confirmation chime"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "軽快な確認音"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "轻快确认音效"
           }
         }
       }
@@ -24445,6 +25545,28 @@
         }
       }
     },
+    "选择小组件优先展示的模型额度。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose which model quota this widget focuses on."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ウィジェットで優先表示するモデル枠を選択します。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择小组件优先展示的模型额度。"
+          }
+        }
+      }
+    },
     "选择文本": {
       "localizations": {
         "en": {
@@ -24551,6 +25673,50 @@
           "stringUnit": {
             "state": "translated",
             "value": "选择终端"
+          }
+        }
+      }
+    },
+    "通知与实时活动": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notifications & Live Activities"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知とライブアクティビティ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知与实时活动"
+          }
+        }
+      }
+    },
+    "通知提示音": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notification Sounds"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知サウンド"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知提示音"
           }
         }
       }
@@ -24683,6 +25849,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "配对码 (Code)"
+          }
+        }
+      }
+    },
+    "配对网关后可用": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Available after pairing"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペアリング後に利用可能"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "配对网关后可用"
           }
         }
       }
@@ -25127,6 +26315,28 @@
         }
       }
     },
+    "阶段性里程碑": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Celebratory milestone"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "達成マイルストーン向け"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "阶段性里程碑"
+          }
+        }
+      }
+    },
     "附件总大小超过 %lldMB": {
       "localizations": {
         "en": {
@@ -25303,6 +26513,28 @@
         }
       }
     },
+    "需要确认": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Action Required"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "確認が必要"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要确认"
+          }
+        }
+      }
+    },
     "需要确认规格 (%lld 个问题)": {
       "localizations": {
         "en": {
@@ -25387,6 +26619,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "青碧"
+          }
+        }
+      }
+    },
+    "静音": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Silent"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイレント"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "静音"
           }
         }
       }
@@ -25523,6 +26777,28 @@
         }
       }
     },
+    "额度监控设置": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quota Widget Settings"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クォータ監視設定"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "额度监控设置"
+          }
+        }
+      }
+    },
     "首字延迟 (TTFT)": {
       "localizations": {
         "en": {
@@ -25629,6 +26905,50 @@
           "stringUnit": {
             "state": "translated",
             "value": "默认 58900"
+          }
+        }
+      }
+    },
+    "默认 · 强提醒警报": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Default · High-attention alert"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デフォルト · 視認性の高い警告音"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "默认 · 强提醒警报"
+          }
+        }
+      }
+    },
+    "默认 · 清脆叮叮声": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Default · Crisp ding sound"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デフォルト · 軽やかなチャイム音"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "默认 · 清脆叮叮声"
           }
         }
       }
@@ -25761,1040 +27081,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "📄"
-          }
-        }
-      }
-    },
-    "通知与实时活动": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Notifications & Live Activities"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "通知とライブアクティビティ"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "通知与实时活动"
-          }
-        }
-      }
-    },
-    "在锁屏、通知中心与灵动岛实时接收审批请求、任务进展与完成提醒。": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Receive real-time approval alerts, task progress, and completion updates on the Lock Screen, Notification Center, and Dynamic Island."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ロック画面、通知センター、Dynamic Island で承認リクエストやタスク進捗、完了通知をリアルタイムに受け取ります。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在锁屏、通知中心与灵动岛实时接收审批请求、任务进展与完成提醒。"
-          }
-        }
-      }
-    },
-    "推送通知": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Push Notifications"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "プッシュ通知"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "推送通知"
-          }
-        }
-      }
-    },
-    "配对网关后可用": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Available after pairing"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ペアリング後に利用可能"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "配对网关后可用"
-          }
-        }
-      }
-    },
-    "前往系统设置开启": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Enable in Settings"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "システム設定で有効化"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "前往系统设置开启"
-          }
-        }
-      }
-    },
-    "开启推送通知": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Enable Push Notifications"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "プッシュ通知を有効にする"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "开启推送通知"
-          }
-        }
-      }
-    },
-    "未开启": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Off"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "オフ"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "未开启"
-          }
-        }
-      }
-    },
-    "多账号联动": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Multi-Account Sync"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "マルチアカウント連携"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "多账号联动"
-          }
-        }
-      }
-    },
-    "可选功能": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Optional"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "任意機能"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "可选功能"
-          }
-        }
-      }
-    },
-    "• 单账号用户无需配置，当前额度已正常监控。": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "• Not needed for single-account users. Current quota is already monitored."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "• 単一アカウントの場合は設定不要です。現在の残枠はすでに自動監視されています。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "• 单账号用户无需配置，当前额度已正常监控。"
-          }
-        }
-      }
-    },
-    "• 若需管理多个 Antigravity 账号并在手机上一键切号，可配合开源工具 Cockpit Tools 与网关联动。": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "• To manage multiple Antigravity accounts and switch between them on mobile, link with Cockpit Tools."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "• 複数の Antigravity アカウントを管理しスマホからワンタップ切替したい場合、オープンソースの Cockpit Tools とゲートウェイを連携できます。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "• 若需管理多个 Antigravity 账号并在手机上一键切号，可配合开源工具 Cockpit Tools 与网关联动。"
-          }
-        }
-      }
-    },
-    "复制 GitHub 链接": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Copy GitHub Link"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "GitHub リンクをコピー"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "复制 GitHub 链接"
-          }
-        }
-      }
-    },
-    "已复制链接": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Link Copied"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "リンクをコピーしました"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已复制链接"
-          }
-        }
-      }
-    },
-    "复制 mgy cockpit 命令": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Copy mgy cockpit"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "mgy cockpit をコピー"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "复制 mgy cockpit 命令"
-          }
-        }
-      }
-    },
-    "查看详细配置步骤": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "View Setup Steps"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "詳しい設定手順を見る"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "查看详细配置步骤"
-          }
-        }
-      }
-    },
-    "收起配置步骤": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hide Setup Steps"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "設定手順を隠す"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "收起配置步骤"
-          }
-        }
-      }
-    },
-    "1. 下载安装：从 GitHub Releases 下载 Cockpit Tools 桌面端，在应用中添加/登录备用账号；": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "1. Download & Install: Get Cockpit Tools from GitHub Releases and sign into backup accounts;"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "1. ダウンロード：GitHub Releases から Cockpit Tools デスクトップ版を導入し、予備アカウントを追加・ログインします。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "1. 下载安装：从 GitHub Releases 下载 Cockpit Tools 桌面端，在应用中添加/登录备用账号；"
-          }
-        }
-      }
-    },
-    "2. 网关联动：在网关电脑终端运行 mgy cockpit，按回车一键开启 HTTP 报表服务与 Token 并重启；": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "2. Gateway Link: Run `mgy cockpit` in your gateway terminal, press Enter to enable HTTP report service & Token and restart;"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "2. ゲートウェイ連携：PCのターミナルで mgy cockpit を実行し、Enter を押して HTTP レポートサービスと Token を有効化して再起動します。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "2. 网关联动：在网关电脑终端运行 mgy cockpit，按回车一键开启 HTTP 报表服务与 Token 并重启；"
-          }
-        }
-      }
-    },
-    "3. 手机刷新：在手机端下拉刷新，即可查看到所有备用账号的实时额度并自由切换。": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "3. Refresh Mobile: Pull to refresh on mobile to view all backup account quotas and switch freely."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "3. スマホで更新：アプリで下に引いて更新すると、全予備アカウントの残枠をリアルタイム確認・切替できます。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "3. 手机刷新：在手机端下拉刷新，即可查看到所有备用账号的实时额度并自由切换。"
-          }
-        }
-      }
-    },
-    "玻璃清脆": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Crisp Glass"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "クリスプグラス"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "玻璃清脆"
-          }
-        }
-      }
-    },
-    "默认 · 清脆叮叮声": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Default · Crisp ding sound"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "デフォルト · 軽やかなチャイム音"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "默认 · 清脆叮叮声"
-          }
-        }
-      }
-    },
-    "清脆风铃": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Wind Chime"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ウィンドチャイム"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "清脆风铃"
-          }
-        }
-      }
-    },
-    "柔和双音风铃": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Soft dual-tone chime"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "柔らかな二音チャイム"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "柔和双音风铃"
-          }
-        }
-      }
-    },
-    "经典铃铛": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Classic Bell"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "クラシックベル"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "经典铃铛"
-          }
-        }
-      }
-    },
-    "明亮单音提醒": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bright single bell"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "明るい単音ベル"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "明亮单音提醒"
-          }
-        }
-      }
-    },
-    "清脆双响": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Crisp Double"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ダブルチャイム"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "清脆双响"
-          }
-        }
-      }
-    },
-    "轻快确认音效": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Upbeat confirmation chime"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "軽快な確認音"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "轻快确认音效"
-          }
-        }
-      }
-    },
-    "欢快号角": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Fanfare"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ファンファーレ"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "欢快号角"
-          }
-        }
-      }
-    },
-    "阶段性里程碑": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Celebratory milestone"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "達成マイルストーン向け"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "阶段性里程碑"
-          }
-        }
-      }
-    },
-    "系统默认": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "System Default"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "システム既定"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "系统默认"
-          }
-        }
-      }
-    },
-    "跟随 iOS 系统提示音": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Follow iOS default alert sound"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "iOS 標準の通知音を使用"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "跟随 iOS 系统提示音"
-          }
-        }
-      }
-    },
-    "静音": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Silent"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "サイレント"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "静音"
-          }
-        }
-      }
-    },
-    "仅横幅提醒不发声": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Banner only, no sound"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "バナーのみ表示（無音）"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "仅横幅提醒不发声"
-          }
-        }
-      }
-    },
-    "急促滴嘟": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Urgent Alarm"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "アラートビープ"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "急促滴嘟"
-          }
-        }
-      }
-    },
-    "默认 · 强提醒警报": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Default · High-attention alert"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "デフォルト · 視認性の高い警告音"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "默认 · 强提醒警报"
-          }
-        }
-      }
-    },
-    "电子警示": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Electronic"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "エレクトロニック"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "电子警示"
-          }
-        }
-      }
-    },
-    "科技感高频双音": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Crisp electronic tone"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "シャープな電子二音"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "科技感高频双音"
-          }
-        }
-      }
-    },
-    "温和期待": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Anticipate"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ジェントル"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "温和期待"
-          }
-        }
-      }
-    },
-    "不刺耳的渐进提示": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gentle progressive chime"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "耳に優しい段階的な通知音"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "不刺耳的渐进提示"
-          }
-        }
-      }
-    },
-    "号角提醒": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Horn"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ホーン"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "号角提醒"
-          }
-        }
-      }
-    },
-    "穿透力强": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Clear & penetrating"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "よく響く強調音"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "穿透力强"
-          }
-        }
-      }
-    },
-    "通知提示音": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Notification Sounds"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "通知サウンド"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "通知提示音"
-          }
-        }
-      }
-    },
-    "任务完成": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Task Completed"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "タスク完了"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "任务完成"
-          }
-        }
-      }
-    },
-    "AI 完成全部步骤时播放。点击任意选项可立即试听并自动同步至网关。": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Played when AI completes all steps. Tap any option to preview and sync with the gateway."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "AI が全ステップを完了した際に再生されます。選択すると即座に試聴でき、ゲートウェイへ自動同期されます。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "AI 完成全部步骤时播放。点击任意选项可立即试听并自动同步至网关。"
-          }
-        }
-      }
-    },
-    "需要确认": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Action Required"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "確認が必要"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "需要确认"
-          }
-        }
-      }
-    },
-    "命令审批、文件权限或计划待确认时播放，建议使用辨识度较高的提醒音。": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Played when command approval, file access, or plan confirmation is needed."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "コマンド承認やファイル権限、プラン確認が必要な際に再生されます。聞き分けやすい音色がおすすめです。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "命令审批、文件权限或计划待确认时播放，建议使用辨识度较高的提醒音。"
-          }
-        }
-      }
-    },
-    "恢复默认提示音（叮叮 / 滴嘟）": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Restore Default Sounds (Ding / Alarm)"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "デフォルト通知音に戻す（チャイム / ビープ）"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "恢复默认提示音（叮叮 / 滴嘟）"
           }
         }
       }

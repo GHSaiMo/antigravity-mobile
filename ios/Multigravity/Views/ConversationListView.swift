@@ -1149,6 +1149,12 @@ public struct ConversationListView: View {
             return
         }
         
+        // Handle antigravity://conversations or antigravity://home deep link (from Agent Status Widget)
+        if url.host == "conversations" || url.host == "home" {
+            showAccountQuota = false
+            return
+        }
+
         // Handle recording action deep link (e.g. from Dynamic Island / Lock Screen Live Activity)
         if url.host == "recording" {
             let components = URLComponents(url: url, resolvingAgainstBaseURL: false)

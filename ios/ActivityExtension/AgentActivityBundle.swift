@@ -7,5 +7,6 @@ struct AgentActivityBundle: WidgetBundle {
         AgentActivityWidget()
         AudioRecordingActivityWidget()
         QuotaStatusWidget()
+        AgentStatusWidget()
     }
 }

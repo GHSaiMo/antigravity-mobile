@@ -755,7 +755,9 @@ public final class AppSettings {
         )
         QuotaWidgetStore.shared.saveConfig(config)
         if isDemoMode {
-            QuotaWidgetStore.shared.saveSnapshot(QuotaWidgetSnapshot.demoPlaceholder())
+            let now = Date()
+            QuotaWidgetStore.shared.saveSnapshot(QuotaWidgetSnapshot.demoPlaceholder(now: now))
+            QuotaWidgetStore.shared.saveConversationsSnapshot(AgentConversationsWidgetSnapshot.demoPlaceholder(now: now))
         }
         if reloadWidget {
             QuotaWidgetStore.shared.reloadWidgetTimelines()

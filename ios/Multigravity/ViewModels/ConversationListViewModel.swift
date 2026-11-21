@@ -423,6 +423,7 @@ public final class ConversationListViewModel {
             cacheManager.saveConversations(nonDraftEnriched)
             cacheManager.prewarmSessions(for: all.prefix(15).map(\.id))
             ActivityManager.shared.syncWithConversations(nonDraftEnriched)
+            QuotaWidgetStore.shared.publishConversationsFromApp(items: nonDraftEnriched, isDemo: settings.isDemoMode)
             self.isLoading = false
         } catch {
             // Auto-failover: if current endpoint failed, probe candidate endpoints and retry once with alternative
@@ -463,6 +464,7 @@ public final class ConversationListViewModel {
                     cacheManager.saveConversations(nonDraftEnriched)
                     cacheManager.prewarmSessions(for: all.prefix(15).map(\.id))
                     ActivityManager.shared.syncWithConversations(nonDraftEnriched)
+                    QuotaWidgetStore.shared.publishConversationsFromApp(items: nonDraftEnriched, isDemo: settings.isDemoMode)
                     self.isLoading = false
                     self.errorMessage = nil
                     await fetchQuotas()
