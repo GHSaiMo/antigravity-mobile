@@ -9,6 +9,12 @@
             "value": "%lld tasks"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld件のタスク"
+          }
+        },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
@@ -23,6 +29,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "%lld tasks"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lldタスク"
           }
         },
         "zh-Hans": {
@@ -41,6 +53,12 @@
             "value": "%lld Running"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld件実行中"
+          }
+        },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
@@ -57,6 +75,12 @@
             "value": "+%lld more queued"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "+%lld件待機中"
+          }
+        },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
@@ -68,6 +92,12 @@
     "00:00": {
       "localizations": {
         "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "00:00"
+          }
+        },
+        "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "00:00"
@@ -89,6 +119,12 @@
             "value": "0:00:00"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "0:00:00"
+          }
+        },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
@@ -105,6 +141,12 @@
             "value": "Running"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実行中"
+          }
+        },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
@@ -116,6 +158,12 @@
     "·": {
       "localizations": {
         "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "·"
+          }
+        },
+        "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "·"
@@ -137,6 +185,12 @@
             "value": "Stop"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停止"
+          }
+        },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
@@ -151,6 +205,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Stop Task"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タスク停止"
           }
         },
         "zh-Hans": {
@@ -169,6 +229,12 @@
             "value": "Allow"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "許可"
+          }
+        },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
@@ -183,6 +249,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Allow Action"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実行を許可"
           }
         },
         "zh-Hans": {
@@ -201,6 +273,12 @@
             "value": "%lld more tasks in queue..."
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "他 %lld 件のタスクが待機中..."
+          }
+        },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
@@ -215,6 +293,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Background Task"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バックグラウンドタスク"
           }
         },
         "zh-Hans": {
@@ -233,6 +317,12 @@
             "value": "Approval changed — please review again"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "承認内容が更新されました。再確認してください"
+          }
+        },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
@@ -247,6 +337,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Allowed, continuing..."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "許可済み、続行中..."
           }
         },
         "zh-Hans": {
@@ -265,6 +361,12 @@
             "value": "Done"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完了"
+          }
+        },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
@@ -279,6 +381,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Ready"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "準備完了"
           }
         },
         "zh-Hans": {
@@ -297,6 +405,12 @@
             "value": "Action rejected"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "操作を拒否しました"
+          }
+        },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
@@ -311,6 +425,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Step %lld"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ステップ %lld"
           }
         },
         "zh-Hans": {
@@ -329,6 +449,12 @@
             "value": "Recording"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "録音中"
+          }
+        },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
@@ -343,6 +469,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Recording · %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "録音中 · %@"
           }
         },
         "zh-Hans": {
@@ -361,6 +493,12 @@
             "value": "Approval"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要承認"
+          }
+        },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
@@ -375,6 +513,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Action"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要確認"
           }
         },
         "zh-Hans": {
@@ -393,6 +537,12 @@
             "value": "Deny"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拒否"
+          }
+        },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
@@ -407,6 +557,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Reject Action"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "操作を拒否"
           }
         },
         "zh-Hans": {
@@ -425,6 +581,12 @@
             "value": "Step %lld"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ステップ %lld"
+          }
+        },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
@@ -439,6 +601,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Waiting"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "待機中"
           }
         },
         "zh-Hans": {
@@ -457,6 +625,12 @@
             "value": "Stop & Send"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停止して送信"
+          }
+        },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
@@ -471,6 +645,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Stop"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "録音停止"
           }
         },
         "zh-Hans": {
@@ -489,6 +669,12 @@
             "value": "Open app to review full details"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリを開いて詳細を確認してください"
+          }
+        },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
@@ -503,6 +689,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Tap to review & confirm in app"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タップしてアプリで詳細を確認"
           }
         },
         "zh-Hans": {
@@ -521,6 +713,12 @@
             "value": "Running"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実行中"
+          }
+        },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
@@ -535,6 +733,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Review in App"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリで確認"
           }
         },
         "zh-Hans": {

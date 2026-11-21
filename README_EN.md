@@ -1,7 +1,7 @@
 # Multigravity 📱✨
 
 <p align="center">
-  <a href="README.md">简体中文</a> &nbsp;|&nbsp; <b>English</b>
+  <a href="README.md">简体中文</a> &nbsp;|&nbsp; <b>English</b> &nbsp;|&nbsp; <a href="README_JA.md">日本語</a>
 </p>
 
 > **The Full-Stack Mobile & Remote Companion for Google Antigravity AI Agent.**  

@@ -10,6 +10,12 @@
             "value" : "Multigravity"
           }
         },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Multigravity"
+          }
+        },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
@@ -22,6 +28,12 @@
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Multigravity"
+          }
+        },
+        "ja" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Multigravity"
@@ -44,6 +56,12 @@
             "value" : "Multigravity uses the camera to scan pairing QR codes and capture photos to send to your agent."
           }
         },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ペアリング用QRコードのスキャンや、Agentに送信する写真の撮影にカメラを使用します。"
+          }
+        },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
@@ -59,6 +77,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Multigravity uses the local network to connect directly to your computer's local gateway and sync conversations."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PC上のローカルゲートウェイへ直接接続し、会話を同期するためにローカルネットワークを使用します。"
           }
         },
         "zh-Hans" : {
@@ -78,6 +102,12 @@
             "value" : "Multigravity uses the microphone for voice messages and real-time voice conversations with your agent."
           }
         },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "音声メッセージの録音やAgentとのリアルタイム音声通話にマイクを使用します。"
+          }
+        },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
@@ -95,6 +125,12 @@
             "value" : "Multigravity saves exported conversation images and charts to your Photo Library."
           }
         },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "書き出した会話の画像やチャートを写真ライブラリに保存します。"
+          }
+        },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
@@ -110,6 +146,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Multigravity accesses your Photo Library so you can attach and send images in conversations."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "会話に画像を添付して送信するために写真ライブラリへアクセスします。"
           }
         },
         "zh-Hans" : {
