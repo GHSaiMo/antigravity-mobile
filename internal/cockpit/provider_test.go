@@ -396,4 +396,80 @@ func TestGetQuotas_ArgonAndSubscriptionTier(t *testing.T) {
 	}
 }
 
+func TestGetQuotas_BackupAccountTierPriority(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("COCKPIT_DATA_DIR", tmpDir)
+	t.Setenv("COCKPIT_TOOLS_DATA_DIR", tmpDir)
+	InvalidateQuotaCache()
+
+	// Intentionally mix tiers in Cockpit index order, with a FREE account active
+	// so we verify current stays at index 0 while backups sort ULTRA -> PRO/unknown -> FREE
+	// stably preserving original relative order within each tier group.
+	accountsJSON := `{
+		"current_account_id": "acc-free-cur",
+		"accounts": [
+			{"id": "acc-pro-1", "email": "pro1@example.com", "name": "Pro 1"},
+			{"id": "acc-free-1", "email": "free1@example.com", "name": "Free 1"},
+			{"id": "acc-ultra-1", "email": "ultra1@example.com", "name": "Ultra 1"},
+			{"id": "acc-unknown-1", "email": "unk1@example.com", "name": "Unknown 1"},
+			{"id": "acc-free-cur", "email": "freecur@example.com", "name": "Current Free"},
+			{"id": "acc-pro-2", "email": "pro2@example.com", "name": "Pro 2"},
+			{"id": "acc-free-2", "email": "free2@example.com", "name": "Free 2"},
+			{"id": "acc-ultra-2", "email": "ultra2@example.com", "name": "Ultra 2"}
+		]
+	}`
+	if err := os.WriteFile(filepath.Join(tmpDir, "accounts.json"), []byte(accountsJSON), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	accountsDir := filepath.Join(tmpDir, "accounts")
+	if err := os.MkdirAll(accountsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	accountTiers := map[string]string{
+		"acc-pro-1":     "g1-pro-tier",
+		"acc-free-1":    "free-tier",
+		"acc-ultra-1":   "g1-ultra-tier",
+		"acc-unknown-1": "",
+		"acc-free-cur":  "free-tier",
+		"acc-pro-2":     "g1-pro-tier",
+		"acc-free-2":    "free-tier",
+		"acc-ultra-2":   "g1-ultra-tier",
+	}
+	for id, tier := range accountTiers {
+		body := `{"id":"` + id + `","email":"` + id + `@example.com","quota":{"subscription_tier":"` + tier + `"}}`
+		if err := os.WriteFile(filepath.Join(accountsDir, id+".json"), []byte(body), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	resp, err := GetQuotas()
+	if err != nil {
+		t.Fatalf("GetQuotas failed: %v", err)
+	}
+
+	wantOrder := []string{
+		"acc-free-cur",  // active account always first
+		"acc-ultra-1",   // ULTRA backups first, preserving original order
+		"acc-ultra-2",
+		"acc-pro-1",     // PRO / unknown backups in the middle, preserving original order
+		"acc-unknown-1",
+		"acc-pro-2",
+		"acc-free-1",    // FREE backups last, preserving original order
+		"acc-free-2",
+	}
+	if len(resp.Accounts) != len(wantOrder) {
+		t.Fatalf("expected %d accounts, got %d", len(wantOrder), len(resp.Accounts))
+	}
+	for i, wantID := range wantOrder {
+		if resp.Accounts[i].ID != wantID {
+			got := make([]string, len(resp.Accounts))
+			for j, a := range resp.Accounts {
+				got[j] = a.ID + "(" + a.SubscriptionTier + ")"
+			}
+			t.Fatalf("accounts order mismatch at index %d: want %q, got full order %v", i, wantID, got)
+		}
+	}
+}
+
 

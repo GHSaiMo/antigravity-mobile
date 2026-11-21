@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -291,6 +292,25 @@ func normalizeSubscriptionTier(raw string) string {
 		return "PRO"
 	}
 	return "FREE"
+}
+
+// accountTierSortRank orders backup accounts by subscription tier:
+// ULTRA first (0), PRO/other paid or unknown tiers in the middle (1), FREE last (2).
+// Stable sorting preserves the original Cockpit index order within each tier group.
+func accountTierSortRank(a AccountQuota) int {
+	tier := strings.ToUpper(strings.TrimSpace(a.SubscriptionTier))
+	switch {
+	case strings.Contains(tier, "ULTRA"):
+		return 0
+	case strings.Contains(tier, "PRO"):
+		return 1
+	case strings.Contains(tier, "FREE"):
+		return 2
+	case a.Gemini5h == nil && a.Claude5h == nil:
+		return 2
+	default:
+		return 1
+	}
 }
 
 func isArgonModelOrBucket(id string) bool {
@@ -731,17 +751,24 @@ func GetQuotas(activeEmails ...string) (*CockpitQuotaResponse, error) {
 		accountsList = append(accountsList, item)
 	}
 
-	// Sort accounts so current active account is ALWAYS at the very top
-	var ordered []AccountQuota
+	// Sort accounts so current active account is ALWAYS at the very top,
+	// and backup accounts prioritize ULTRA first and FREE last while
+	// preserving their original relative order within each tier group.
+	ordered := make([]AccountQuota, 0, len(accountsList))
 	if currentAcc != nil {
 		ordered = append(ordered, *currentAcc)
 	}
+	backups := make([]AccountQuota, 0, len(accountsList))
 	for _, a := range accountsList {
 		if currentAcc != nil && a.ID == currentAcc.ID {
 			continue
 		}
-		ordered = append(ordered, a)
+		backups = append(backups, a)
 	}
+	sort.SliceStable(backups, func(i, j int) bool {
+		return accountTierSortRank(backups[i]) < accountTierSortRank(backups[j])
+	})
+	ordered = append(ordered, backups...)
 
 	if maxUpdatedAt == 0 {
 		maxUpdatedAt = time.Now().UnixMilli()
