@@ -285,3 +285,55 @@ func TestHandleWSTicket_ImplicitTrustLoopbackAndRebinding(t *testing.T) {
 		t.Fatalf("expected /gateway/rpc-mux to accept admin-local ticket, got %d", muxRR.Code)
 	}
 }
+
+func TestAuthMiddleware_SidecarUITicket(t *testing.T) {
+	store, err := NewAuthStore(t.TempDir() + "/auth.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	deviceToken := "valid-device-token-sidecar"
+	if err := store.AddDevice(PairedDevice{DeviceID: "dev-sidecar", DeviceName: "iPhone", Platform: "ios", TokenHash: HashToken(deviceToken), CreatedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	authHandler := NewAuthHandler(store, NewPairingManager(), "127.0.0.1", 58900, false)
+
+	issue := func() string {
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/ws-ticket", nil)
+		req.Header.Set("Authorization", "Bearer "+deviceToken)
+		rec := httptest.NewRecorder()
+		authHandler.HandleWSTicket(rec, req)
+		var resp struct {
+			Ticket string `json:"ticket"`
+		}
+		if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil || resp.Ticket == "" {
+			t.Fatalf("ticket issue failed: %v", err)
+		}
+		return resp.Ticket
+	}
+
+	router := AuthMiddlewareWithPolicy(store, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}), AuthPolicy{})
+
+	// 1. Missing token/ticket returns 401
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/gateway/sidecar-ui/test-plugin/", nil))
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("/gateway/sidecar-ui/test-plugin/ without credentials: got %d, want 401", rec.Code)
+	}
+
+	// 2. Valid one-time ticket returns 200
+	ticket := issue()
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/gateway/sidecar-ui/test-plugin/?ticket="+ticket, nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("/gateway/sidecar-ui/test-plugin/ with valid ticket: got %d, want 200", rec.Code)
+	}
+
+	// 3. Reusing the same one-time ticket returns 401
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/gateway/sidecar-ui/test-plugin/?ticket="+ticket, nil))
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("/gateway/sidecar-ui/test-plugin/ reusing consumed ticket: got %d, want 401", rec.Code)
+	}
+}

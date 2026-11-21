@@ -270,6 +270,13 @@ func (p *Proxy) HandleSidecarUI(w http.ResponseWriter, r *http.Request) {
 	rp.Director = func(req *http.Request) {
 		origDirector(req)
 		req.URL.Path = subPath
+		if req.URL.RawQuery != "" {
+			q := req.URL.Query()
+			if q.Has("ticket") {
+				q.Del("ticket")
+				req.URL.RawQuery = q.Encode()
+			}
+		}
 		req.Host = targetBase.Host
 	}
 	rp.ServeHTTP(w, r)
