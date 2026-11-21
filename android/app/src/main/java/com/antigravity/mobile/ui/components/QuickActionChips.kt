@@ -21,6 +21,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
@@ -30,8 +31,15 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntRect
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupPositionProvider
+import androidx.compose.ui.window.PopupProperties
 import com.antigravity.mobile.data.model.ModelDefaults
 import com.antigravity.mobile.data.model.ModelsResponse
 import com.antigravity.mobile.data.model.SlashCommandOption
@@ -209,30 +217,60 @@ fun QuickActionChips(
             }
 
             if (showLongPressTip) {
-                Box(
-                    modifier = Modifier
-                        .offset(y = (-36).dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(Color(0xE6222222))
-                        .clickable { dismissTip() }
-                        .padding(horizontal = 9.dp, vertical = 6.dp)
+                val gapPx = with(density) { 8.dp.roundToPx() }
+                val edgePaddingPx = with(density) { 12.dp.roundToPx() }
+                val tooltipPositionProvider = remember(gapPx, edgePaddingPx) {
+                    object : PopupPositionProvider {
+                        override fun calculatePosition(
+                            anchorBounds: IntRect,
+                            windowSize: IntSize,
+                            layoutDirection: LayoutDirection,
+                            popupContentSize: IntSize
+                        ): IntOffset {
+                            val maxX = (windowSize.width - popupContentSize.width - edgePaddingPx)
+                                .coerceAtLeast(edgePaddingPx)
+                            val x = anchorBounds.left.coerceIn(edgePaddingPx, maxX)
+                            val y = (anchorBounds.top - popupContentSize.height - gapPx)
+                                .coerceAtLeast(edgePaddingPx)
+                            return IntOffset(x, y)
+                        }
+                    }
+                }
+                Popup(
+                    popupPositionProvider = tooltipPositionProvider,
+                    properties = PopupProperties(
+                        focusable = false,
+                        dismissOnBackPress = false,
+                        dismissOnClickOutside = false
+                    )
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    Box(
+                        modifier = Modifier
+                            .shadow(4.dp, RoundedCornerShape(8.dp))
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color(0xE6222222))
+                            .clickable { dismissTip() }
+                            .padding(horizontal = 9.dp, vertical = 6.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.ArrowUpward,
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(13.dp)
-                        )
-                        Text(
-                            text = "长按上滑可切换更多模型".loc,
-                            color = Color.White,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Medium
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ArrowUpward,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(13.dp)
+                            )
+                            Text(
+                                text = "长按上滑可切换更多模型".loc,
+                                color = Color.White,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium,
+                                maxLines = 1,
+                                softWrap = false
+                            )
+                        }
                     }
                 }
             }
