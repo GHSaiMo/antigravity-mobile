@@ -354,8 +354,7 @@ private final class TerminalStreamSession {
     var isConnected = false
     var errorText: String? = nil
 
-    private var wsTask: URLSessionWebSocketTask?
-    private var urlSession: URLSession?
+    private var wsTask: GatewayWebSocketTask?
 
     func refreshTerminals() async {
         guard let gwUrl = AppSettings.shared.gatewayURL else { return }
@@ -375,9 +374,7 @@ private final class TerminalStreamSession {
         guard !terminalId.isEmpty, let gwUrl = AppSettings.shared.gatewayURL else { return }
         let q = terminalId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? terminalId
         guard let req = APIClient.shared.authorizedWebSocketRequest(pathAndQuery: "gateway/terminal/stream?terminalId=\(q)", baseURL: gwUrl) else { return }
-        let session = URLSession(configuration: .default)
-        let ws = session.webSocketTask(with: req)
-        urlSession = session
+        let ws = GatewayWebSocketTask(request: req)
         wsTask = ws
         isConnected = true
         outputText = ""
@@ -387,10 +384,8 @@ private final class TerminalStreamSession {
 
     func disconnect() {
         isConnected = false
-        wsTask?.cancel(with: .normalClosure, reason: nil)
+        wsTask?.cancel()
         wsTask = nil
-        urlSession?.invalidateAndCancel()
-        urlSession = nil
     }
 
     func sendInput(_ input: String, cascadeId: String) {

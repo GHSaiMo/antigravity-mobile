@@ -209,7 +209,52 @@ enum HTTP11Codec {
         guard let headerEnd = data.range(of: Data("\r\n\r\n".utf8)) else {
             throw URLError(.cannotParseResponse)
         }
-        let headerText = String(data: data.subdata(in: data.startIndex..<headerEnd.lowerBound), encoding: .isoLatin1) ?? ""
+        let parsed = try parseResponseHeader(data.subdata(in: data.startIndex..<headerEnd.lowerBound))
+        var fields = parsed.fields
+        func fieldKey(_ name: String) -> String? {
+            fields.keys.first { $0.lowercased() == name }
+        }
+
+        var body = data.subdata(in: headerEnd.upperBound..<data.endIndex)
+        if case .chunked = parsed.framing {
+            body = try decodeChunkedBody(body)
+            if let te = fieldKey("transfer-encoding") { fields.removeValue(forKey: te) }
+        } else if case .length(let len) = parsed.framing, len >= 0, Int64(body.count) > len {
+            body = body.prefix(Int(len))
+        }
+        if parsed.isGzip {
+            guard let inflated = gunzip(body) else {
+                throw URLError(.cannotDecodeContentData)
+            }
+            body = inflated
+            // Describe the body callers actually receive, as URLSession does after decoding.
+            if let ce = fieldKey("content-encoding") { fields.removeValue(forKey: ce) }
+        }
+        if let cl = fieldKey("content-length") {
+            fields[cl] = String(body.count)
+        }
+        let response = HTTPURLResponse(url: url, statusCode: parsed.statusCode, httpVersion: "HTTP/1.1", headerFields: fields)
+            ?? URLResponse(url: url, mimeType: nil, expectedContentLength: body.count, textEncodingName: nil)
+        return (body, response)
+    }
+
+    enum BodyFraming {
+        case length(Int64)
+        case chunked
+        case untilClose
+    }
+
+    struct ParsedResponseHeader {
+        let statusCode: Int
+        let fields: [String: String]
+        let framing: BodyFraming
+        let isGzip: Bool
+    }
+
+    static func parseResponseHeader(_ headerData: Data) throws -> ParsedResponseHeader {
+        guard let headerText = String(data: headerData, encoding: .isoLatin1) else {
+            throw URLError(.cannotParseResponse)
+        }
         var lines = headerText.split(separator: "\r\n", omittingEmptySubsequences: false).map(String.init)
         guard let statusLine = lines.first else {
             throw URLError(.cannotParseResponse)
@@ -219,37 +264,152 @@ enum HTTP11Codec {
         let code = statusParts.count >= 2 ? (Int(statusParts[1]) ?? 500) : 500
 
         var fields: [String: String] = [:]
+        var isChunked = false
+        var contentLength: Int64?
+        var isGzip = false
+
         for line in lines {
             guard let colon = line.firstIndex(of: ":") else { continue }
             let key = String(line[..<colon])
             let value = line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces)
             fields[key] = value
+
+            let lowerKey = key.trimmingCharacters(in: .whitespaces).lowercased()
+            let lowerVal = value.lowercased()
+            if lowerKey == "transfer-encoding" && lowerVal.contains("chunked") {
+                isChunked = true
+            } else if lowerKey == "content-length", let n = Int64(lowerVal), n >= 0 {
+                contentLength = n
+            } else if lowerKey == "content-encoding" && lowerVal == "gzip" {
+                isGzip = true
+            }
         }
+
+        let framing: BodyFraming
+        if code == 204 || code == 304 || (100..<200).contains(code) {
+            framing = .length(0)
+        } else if isChunked {
+            framing = .chunked
+        } else if let contentLength {
+            framing = .length(contentLength)
+        } else {
+            framing = .untilClose
+        }
+
+        return ParsedResponseHeader(
+            statusCode: code,
+            fields: fields,
+            framing: framing,
+            isGzip: isGzip
+        )
+    }
+
+    static func makeHTTPResponse(url: URL, header: ParsedResponseHeader, decodedContentLength: Int64?) -> HTTPURLResponse? {
+        var fields = header.fields
         func fieldKey(_ name: String) -> String? {
             fields.keys.first { $0.lowercased() == name }
         }
-
-        var body = data.subdata(in: headerEnd.upperBound..<data.endIndex)
-        if let te = fieldKey("transfer-encoding"), fields[te]?.lowercased().contains("chunked") == true {
-            body = try decodeChunkedBody(body)
+        if case .chunked = header.framing, let te = fieldKey("transfer-encoding") {
             fields.removeValue(forKey: te)
-        } else if let cl = fieldKey("content-length"), let len = Int(fields[cl] ?? ""), len >= 0, body.count > len {
-            body = body.prefix(len)
         }
-        if let ce = fieldKey("content-encoding"), fields[ce]?.lowercased() == "gzip" {
-            guard let inflated = gunzip(body) else {
-                throw URLError(.cannotDecodeContentData)
-            }
-            body = inflated
-            // Describe the body callers actually receive, as URLSession does after decoding.
+        if header.isGzip, let ce = fieldKey("content-encoding") {
             fields.removeValue(forKey: ce)
         }
-        if let cl = fieldKey("content-length") {
-            fields[cl] = String(body.count)
+        if let decodedContentLength {
+            if let cl = fieldKey("content-length") {
+                fields[cl] = String(decodedContentLength)
+            } else {
+                fields["Content-Length"] = String(decodedContentLength)
+            }
         }
-        let response = HTTPURLResponse(url: url, statusCode: code, httpVersion: "HTTP/1.1", headerFields: fields)
-            ?? URLResponse(url: url, mimeType: nil, expectedContentLength: body.count, textEncodingName: nil)
-        return (body, response)
+        return HTTPURLResponse(url: url, statusCode: header.statusCode, httpVersion: "HTTP/1.1", headerFields: fields)
+    }
+
+    /// Incremental HTTP/1.1 chunked transfer-encoding decoder for streaming file downloads to disk
+    /// without buffering the entire payload in memory.
+    struct ChunkedStreamDecoder {
+        private enum Phase {
+            case readingSize
+            case readingData(remaining: Int)
+            case readingDataCRLF
+            case readingTrailers
+            case done
+        }
+
+        private var phase: Phase = .readingSize
+        private var pending = Data()
+        private static let crlf = Data("\r\n".utf8)
+        private static let headerTerminator = Data("\r\n\r\n".utf8)
+
+        var isDone: Bool {
+            if case .done = phase { return true }
+            return false
+        }
+
+        mutating func feed(_ bytes: Data, write: (Data) throws -> Void) throws {
+            if !bytes.isEmpty {
+                pending.append(bytes)
+            }
+            while true {
+                switch phase {
+                case .done:
+                    return
+                case .readingSize:
+                    guard let lineEnd = pending.range(of: Self.crlf) else {
+                        if pending.count > 4096 {
+                            throw URLError(.cannotParseResponse)
+                        }
+                        return
+                    }
+                    let lineData = pending.subdata(in: pending.startIndex..<lineEnd.lowerBound)
+                    pending = Data(pending[lineEnd.upperBound...])
+                    guard let lineStr = String(data: lineData, encoding: .ascii) else {
+                        throw URLError(.cannotParseResponse)
+                    }
+                    let hexPart = lineStr.split(separator: ";", maxSplits: 1, omittingEmptySubsequences: false)
+                        .first
+                        .map { $0.trimmingCharacters(in: .whitespaces) } ?? ""
+                    guard !hexPart.isEmpty, let chunkSize = Int(hexPart, radix: 16), chunkSize >= 0 else {
+                        throw URLError(.cannotParseResponse)
+                    }
+                    if chunkSize == 0 {
+                        phase = .readingTrailers
+                    } else {
+                        phase = .readingData(remaining: chunkSize)
+                    }
+                case .readingData(let remaining):
+                    guard !pending.isEmpty else { return }
+                    let take = min(remaining, pending.count)
+                    try write(Data(pending.prefix(take)))
+                    pending = Data(pending.dropFirst(take))
+                    let left = remaining - take
+                    phase = (left == 0) ? .readingDataCRLF : .readingData(remaining: left)
+                case .readingDataCRLF:
+                    guard pending.count >= 2 else { return }
+                    guard pending.prefix(2) == Self.crlf else {
+                        throw URLError(.cannotParseResponse)
+                    }
+                    pending = Data(pending.dropFirst(2))
+                    phase = .readingSize
+                case .readingTrailers:
+                    guard pending.count >= 2 else { return }
+                    if pending.prefix(2) == Self.crlf {
+                        pending = Data(pending.dropFirst(2))
+                        phase = .done
+                        return
+                    }
+                    guard let trailerEnd = pending.range(of: Self.headerTerminator) else {
+                        if pending.count > 65_536 {
+                            throw URLError(.cannotParseResponse)
+                        }
+                        return
+                    }
+                    pending = Data(pending[trailerEnd.upperBound...])
+                    phase = .done
+                    return
+                }
+            }
+        }
     }
 
     static func decodeChunkedBody(_ data: Data) throws -> Data {

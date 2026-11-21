@@ -9,8 +9,7 @@ public final class AudioDictationManager {
     public private(set) var isDictating = false
 
     private var audioEngine: AVAudioEngine?
-    private var webSocketTask: URLSessionWebSocketTask?
-    private var urlSession: URLSession?
+    private var webSocketTask: GatewayWebSocketTask?
     private var isReceiving = false
     private var onTranscriptUpdate: ((String) -> Void)?
     private var onError: ((String) -> Void)?
@@ -72,13 +71,12 @@ public final class AudioDictationManager {
             return
         }
 
-        let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 15
-        config.timeoutIntervalForResource = 600
-        let urlSession = URLSession(configuration: config)
-        let ws = urlSession.webSocketTask(with: request)
+        let ws = GatewayWebSocketTask(
+            request: request,
+            requestTimeout: 15,
+            resourceTimeout: 600
+        )
 
-        self.urlSession = urlSession
         self.webSocketTask = ws
         self.audioEngine = engine
         self.isDictating = true
@@ -143,10 +141,8 @@ public final class AudioDictationManager {
     private func cleanupWebSocket() {
         guard isReceiving || webSocketTask != nil else { return }
         isReceiving = false
-        webSocketTask?.cancel(with: .normalClosure, reason: nil)
+        webSocketTask?.cancel()
         webSocketTask = nil
-        urlSession?.invalidateAndCancel()
-        urlSession = nil
 
         // 若连接关闭时仍有尚未定稿的临时文本，自动提交定稿
         if !currentInterim.isEmpty {

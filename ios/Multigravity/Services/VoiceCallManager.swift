@@ -63,9 +63,7 @@ public final class VoiceCallManager: ObservableObject {
 
     public var onCascadeBound: ((String) -> Void)?
 
-    private var webSocketTask: URLSessionWebSocketTask?
-    private var urlSession: URLSession?
-    private var socketDelegate: VoiceWebSocketDelegate?
+    private var webSocketTask: GatewayWebSocketTask?
     private var isSocketReady: Bool = false
     private var isIntentionallyClosed: Bool = false
 
@@ -171,12 +169,9 @@ public final class VoiceCallManager: ObservableObject {
         durationTimer = nil
 
         if let task = webSocketTask {
-            task.cancel(with: .normalClosure, reason: nil)
+            task.cancel()
             webSocketTask = nil
         }
-        urlSession?.invalidateAndCancel()
-        urlSession = nil
-        socketDelegate = nil
 
         teardownAudioEngine()
 
@@ -273,17 +268,27 @@ public final class VoiceCallManager: ObservableObject {
             request.setValue(token, forHTTPHeaderField: "x-device-token")
         }
 
-        let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 15
-        config.timeoutIntervalForResource = 3600
-        config.waitsForConnectivity = false
-
-        let delegate = VoiceWebSocketDelegate(manager: self)
-        self.socketDelegate = delegate
-        let session = URLSession(configuration: config, delegate: delegate, delegateQueue: OperationQueue.main)
-        self.urlSession = session
-
-        let task = session.webSocketTask(with: request)
+        let task = GatewayWebSocketTask(
+            request: request,
+            requestTimeout: 15,
+            resourceTimeout: 3600,
+            waitsForConnectivity: false,
+            onOpen: { [weak self] in
+                Task { @MainActor in
+                    self?.handleSocketDidOpen()
+                }
+            },
+            onClose: { [weak self] in
+                Task { @MainActor in
+                    self?.handleSocketDidClose()
+                }
+            },
+            onFail: { [weak self] error in
+                Task { @MainActor in
+                    self?.handleSocketDidFail(error: error)
+                }
+            }
+        )
         self.webSocketTask = task
         task.resume()
 
@@ -886,48 +891,6 @@ public final class VoiceCallManager: ObservableObject {
             if shift >= 64 { return nil }
         }
         return nil
-    }
-}
-
-// MARK: - URLSessionWebSocketDelegate
-
-final class VoiceWebSocketDelegate: NSObject, URLSessionWebSocketDelegate, Sendable {
-    weak var manager: VoiceCallManager?
-
-    init(manager: VoiceCallManager) {
-        self.manager = manager
-    }
-
-    func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask, didOpenWithProtocol protocol: String?) {
-        Task { @MainActor in
-            self.manager?.handleSocketDidOpen()
-        }
-    }
-
-    func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask, didCloseWith closeCode: URLSessionWebSocketTask.CloseCode, reason: Data?) {
-        Task { @MainActor in
-            self.manager?.handleSocketDidClose()
-        }
-    }
-
-    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        if let error {
-            Task { @MainActor in
-                self.manager?.handleSocketDidFail(error: error)
-            }
-        }
-    }
-
-    func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge, completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
-        if challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
-           let trust = challenge.protectionSpace.serverTrust {
-            let host = challenge.protectionSpace.host.lowercased()
-            if host == "127.0.0.1" || host == "localhost" || host == "::1" {
-                completionHandler(.useCredential, URLCredential(trust: trust))
-                return
-            }
-        }
-        completionHandler(.performDefaultHandling, nil)
     }
 }
 

@@ -26,7 +26,7 @@ enum ImageActions {
         var request = URLRequest(url: url)
         request.cachePolicy = .returnCacheDataElseLoad
         request.timeoutInterval = 15
-        guard let (data, response) = try? await URLSession.shared.data(for: request) else { return nil }
+        guard let (data, response) = try? await NetworkTransport.shared.fetchCachedData(for: request) else { return nil }
         if let http = response as? HTTPURLResponse, http.statusCode >= 400 { return nil }
         guard let image = UIImage(data: data) else { return nil }
         MarkdownImageCache.shared.insert(image, for: url)

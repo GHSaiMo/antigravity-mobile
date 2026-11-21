@@ -333,7 +333,12 @@ public struct QuickLookPreviewSheet: View {
                     do {
                         var request = URLRequest(url: self.url)
                         request.timeoutInterval = 60
-                        let (tempURL, _) = try await URLSession.shared.download(for: request)
+                        let tempURL: URL
+                        if NetworkTransport.requiresCleartextATSBypass(self.url) {
+                            (tempURL, _) = try await NetworkTransport.shared.downloadCleartextHTTP(request: request)
+                        } else {
+                            (tempURL, _) = try await URLSession.shared.download(for: request)
+                        }
                         let ext = self.url.pathExtension.isEmpty ? "mp4" : self.url.pathExtension
                         let destURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathExtension(ext)
                         try? FileManager.default.removeItem(at: destURL)

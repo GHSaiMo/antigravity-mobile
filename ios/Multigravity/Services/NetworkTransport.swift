@@ -264,6 +264,37 @@ public final class NetworkTransport: Sendable {
         let host = (url.host ?? "").trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
         return isTailscaleHost(host)
     }
+
+    /// ATS also blocks cleartext `ws://` WebSocket connections over `URLSession` to Tailscale private hosts.
+    nonisolated public static func requiresCleartextWebSocketATSBypass(_ url: URL?) -> Bool {
+        guard let url, let scheme = url.scheme?.lowercased(), scheme == "ws" || scheme == "http" else { return false }
+        let host = (url.host ?? "").trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+        return isTailscaleHost(host)
+    }
+
+    /// Fetches data with `URLCache.shared` support while routing Tailscale cleartext HTTP and
+    /// Cloudflare Anycast HTTPS through `NetworkTransport` so image/media loaders never fail ATS.
+    public func fetchCachedData(for request: URLRequest) async throws -> (Data, URLResponse) {
+        if request.cachePolicy == .returnCacheDataElseLoad || request.cachePolicy == .returnCacheDataDontLoad {
+            if let cached = URLCache.shared.cachedResponse(for: request) {
+                return (cached.data, cached.response)
+            }
+            if request.cachePolicy == .returnCacheDataDontLoad {
+                throw URLError(.resourceUnavailable)
+            }
+        }
+        let bypassedURLSession = Self.requiresCleartextATSBypass(request.url) ||
+            (request.url?.scheme?.lowercased() == "https" &&
+             CloudflareAnycastAccelerator.isCloudflareTunnelHost(request.url?.host ?? ""))
+        let (data, response) = try await send(request: request)
+        if bypassedURLSession,
+           request.cachePolicy != .reloadIgnoringLocalCacheData,
+           let http = response as? HTTPURLResponse,
+           (200..<300).contains(http.statusCode) {
+            URLCache.shared.storeCachedResponse(CachedURLResponse(response: response, data: data), for: request)
+        }
+        return (data, response)
+    }
     
     // MARK: - Accelerated Connection Pool
     
@@ -501,6 +532,181 @@ public final class NetworkTransport: Sendable {
 
         let (raw, _) = try await receiveHTTPMessage(connection, timeout: request.timeoutInterval > 0 ? max(request.timeoutInterval, 60) : 60)
         return try HTTP11Codec.parseResponse(raw, url: url)
+    }
+
+    /// Streams a file download over cleartext HTTP via `NWConnection` (for Tailscale ATS bypass),
+    /// writing incoming chunks directly to a temporary file on disk and reporting throttled progress
+    /// without buffering large files in memory.
+    public func downloadCleartextHTTP(
+        request: URLRequest,
+        onProgress: (@Sendable (Double, Int64, Int64) -> Void)? = nil
+    ) async throws -> (URL, HTTPURLResponse) {
+        var req = request
+        guard let url = req.url else {
+            throw URLError(.badURL)
+        }
+        let bareHost = (url.host ?? "").trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+        guard !bareHost.isEmpty, Self.isLocalOrPrivateHost(bareHost), let port = NWEndpoint.Port(rawValue: UInt16(url.port ?? 80)) else {
+            throw URLError(.appTransportSecurityRequiresSecureConnection)
+        }
+        if let token = KeychainHelper.shared.read(key: .deviceToken), !token.isEmpty,
+           Self.isConfiguredOrLocalGatewayHost(bareHost),
+           req.value(forHTTPHeaderField: "Authorization") == nil {
+            req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        // Request uncompressed bytes so `http.ServeContent` preserves exact `Content-Length` and streams directly to disk.
+        if req.value(forHTTPHeaderField: "Accept-Encoding") == nil {
+            req.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
+        }
+
+        let connection = NWConnection(host: NWEndpoint.Host(bareHost), port: port, using: .tcp)
+        try await Self.waitUntilReady(connection, timeout: req.timeoutInterval > 0 ? min(req.timeoutInterval, 15) : 15)
+        defer { connection.cancel() }
+
+        let payload = HTTP11Codec.buildRequest(req, url: url, bareHost: bareHost, keepAlive: false)
+        try await Self.sendAll(connection, payload)
+
+        let headerTerminator = Data("\r\n\r\n".utf8)
+        let chunkIdleTimeout: TimeInterval = req.timeoutInterval > 0 ? min(max(req.timeoutInterval, 15), 60) : 30
+        var headerBuffer = Data()
+        let headerEnd: Range<Data.Index>
+        while true {
+            try Task.checkCancellation()
+            let chunk = try await Self.receiveChunk(connection, timeout: chunkIdleTimeout)
+            if chunk.isEmpty {
+                throw URLError(.networkConnectionLost)
+            }
+            let searchStart = max(0, headerBuffer.count - 3)
+            headerBuffer.append(chunk)
+            if let found = headerBuffer.range(of: headerTerminator, in: searchStart..<headerBuffer.count) {
+                headerEnd = found
+                break
+            }
+            if headerBuffer.count > 65_536 {
+                throw URLError(.cannotParseResponse)
+            }
+        }
+
+        let parsedHeader = try HTTP11Codec.parseResponseHeader(headerBuffer.subdata(in: 0..<headerEnd.lowerBound))
+        let initialBody = Data(headerBuffer[headerEnd.upperBound...])
+
+        let tempFile = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        guard FileManager.default.createFile(atPath: tempFile.path, contents: nil) else {
+            throw URLError(.cannotCreateFile)
+        }
+        var succeeded = false
+        defer {
+            if !succeeded {
+                try? FileManager.default.removeItem(at: tempFile)
+            }
+        }
+
+        let handle = try FileHandle(forWritingTo: tempFile)
+        var handleClosed = false
+        defer {
+            if !handleClosed {
+                try? handle.close()
+            }
+        }
+
+        let expectedTotal: Int64 = {
+            if case .length(let len) = parsedHeader.framing, !parsedHeader.isGzip {
+                return len
+            }
+            return -1
+        }()
+
+        var written: Int64 = 0
+        var lastReportedBytes: Int64 = 0
+        var lastReportedTime: CFAbsoluteTime = 0
+
+        let writeSlice: (Data) throws -> Void = { slice in
+            guard !slice.isEmpty else { return }
+            try handle.write(contentsOf: slice)
+            written += Int64(slice.count)
+            guard let onProgress else { return }
+            let now = CFAbsoluteTimeGetCurrent()
+            let isCompleted = expectedTotal > 0 && written >= expectedTotal
+            let shouldReport = isCompleted
+                || lastReportedBytes == 0
+                || (now - lastReportedTime) >= 0.05
+                || (written - lastReportedBytes) >= 262_144
+            if shouldReport {
+                lastReportedBytes = written
+                lastReportedTime = now
+                let progress = expectedTotal > 0 ? max(0, min(1.0, Double(written) / Double(expectedTotal))) : 0.0
+                onProgress(progress, written, expectedTotal)
+            }
+        }
+
+        switch parsedHeader.framing {
+        case .length(let contentLength):
+            if contentLength > 0 && !initialBody.isEmpty {
+                let take = Int(min(contentLength, Int64(initialBody.count)))
+                try writeSlice(Data(initialBody.prefix(take)))
+            }
+            while written < contentLength {
+                try Task.checkCancellation()
+                let chunk = try await Self.receiveChunk(connection, timeout: chunkIdleTimeout)
+                if chunk.isEmpty {
+                    throw URLError(.networkConnectionLost)
+                }
+                let remaining = contentLength - written
+                let take = Int(min(remaining, Int64(chunk.count)))
+                try writeSlice(Data(chunk.prefix(take)))
+            }
+        case .chunked:
+            var decoder = HTTP11Codec.ChunkedStreamDecoder()
+            if !initialBody.isEmpty {
+                try decoder.feed(initialBody, write: writeSlice)
+            }
+            while !decoder.isDone {
+                try Task.checkCancellation()
+                let chunk = try await Self.receiveChunk(connection, timeout: chunkIdleTimeout)
+                if chunk.isEmpty {
+                    throw URLError(.networkConnectionLost)
+                }
+                try decoder.feed(chunk, write: writeSlice)
+            }
+        case .untilClose:
+            if !initialBody.isEmpty {
+                try writeSlice(initialBody)
+            }
+            while true {
+                try Task.checkCancellation()
+                let chunk = try await Self.receiveChunk(connection, timeout: chunkIdleTimeout)
+                if chunk.isEmpty {
+                    break
+                }
+                try writeSlice(chunk)
+            }
+        }
+
+        try handle.close()
+        handleClosed = true
+
+        if parsedHeader.isGzip && written > 0 {
+            let raw = try Data(contentsOf: tempFile)
+            guard let inflated = HTTP11Codec.gunzip(raw) else {
+                throw URLError(.cannotDecodeContentData)
+            }
+            try inflated.write(to: tempFile, options: .atomic)
+            written = Int64(inflated.count)
+        }
+
+        if expectedTotal > 0 {
+            onProgress?(1.0, expectedTotal, expectedTotal)
+        } else if written > 0 {
+            onProgress?(1.0, written, written)
+        }
+
+        guard let rawResp = HTTP11Codec.makeHTTPResponse(url: url, header: parsedHeader, decodedContentLength: written),
+              let httpResp = decorateResponse(rawResp, url: req.url, forcedCellular: isCellular) as? HTTPURLResponse else {
+            throw URLError(.badServerResponse)
+        }
+
+        succeeded = true
+        return (tempFile, httpResp)
     }
 
     private func sendCleartextHTTP(_ request: URLRequest) async throws -> (Data, URLResponse) {

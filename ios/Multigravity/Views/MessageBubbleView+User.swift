@@ -133,42 +133,12 @@ extension MessageBubbleView {
     func thumbnailView(for item: IdentifiableImage) -> some View {
         Group {
             if let url = item.url {
-                AsyncImage(url: url) { phase in
-                    switch phase {
-                    case .empty:
-                        if let uiImg = item.image {
-                            Image(uiImage: uiImg)
-                                .resizable()
-                                .scaledToFill()
-                                .frame(width: 72, height: 72)
-                                .clipped()
-                        } else {
-                            ProgressView()
-                                .frame(width: 72, height: 72)
-                        }
-                    case .success(let image):
-                        image
-                            .resizable()
-                            .scaledToFill()
-                            .frame(width: 72, height: 72)
-                            .clipped()
-                    case .failure:
-                        if let uiImg = item.image {
-                            Image(uiImage: uiImg)
-                                .resizable()
-                                .scaledToFill()
-                                .frame(width: 72, height: 72)
-                                .clipped()
-                        } else {
-                            Image(systemName: "photo")
-                                .font(.system(size: 24))
-                                .foregroundColor(.secondary)
-                                .frame(width: 72, height: 72)
-                        }
-                    @unknown default:
-                        EmptyView()
-                    }
-                }
+                GatewayAsyncThumbnailView(
+                    url: url,
+                    fallbackImage: item.image,
+                    size: 72,
+                    iconFontSize: 24
+                )
             } else if let uiImg = item.image {
                 Image(uiImage: uiImg)
                     .resizable()
@@ -390,7 +360,7 @@ private struct UserAsyncImageBubbleView: View {
             var req = URLRequest(url: url)
             req.cachePolicy = .returnCacheDataElseLoad
             req.timeoutInterval = 15
-            let (data, response) = try await URLSession.shared.data(for: req)
+            let (data, response) = try await NetworkTransport.shared.fetchCachedData(for: req)
             if let http = response as? HTTPURLResponse, http.statusCode >= 400 {
                 hasFailed = true
                 return

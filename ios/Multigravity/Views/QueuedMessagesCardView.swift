@@ -252,24 +252,13 @@ private struct QueuedAttachmentThumbnailsView: View {
                         Button(action: {
                             onPreviewImage(IdentifiableImage(url: url))
                         }) {
-                            AsyncImage(url: url) { phase in
-                                switch phase {
-                                case .success(let img):
-                                    img
-                                        .resizable()
-                                        .scaledToFill()
-                                case .failure:
-                                    Image(systemName: "photo")
-                                        .font(.system(size: 13))
-                                        .foregroundColor(.secondary)
-                                case .empty:
-                                    ProgressView()
-                                        .scaleEffect(0.6)
-                                @unknown default:
-                                    EmptyView()
-                                }
-                            }
-                            .frame(width: 30, height: 30)
+                            GatewayAsyncThumbnailView(
+                                url: url,
+                                fallbackImage: nil,
+                                size: 30,
+                                iconFontSize: 13,
+                                progressScale: 0.6
+                            )
                             .background(Color(uiColor: .tertiarySystemFill))
                             .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
                             .overlay(

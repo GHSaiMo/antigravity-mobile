@@ -183,21 +183,30 @@ extension APIClient {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
         
-        let delegate = FileDownloadProgressDelegate(onProgress: onProgress)
-        // A plain session: background sessions are scheduled by nsurlsessiond out of process, which adds
-        // start-up latency to the small, user-awaited preview downloads this is used for.
-        let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 60
-        config.httpShouldSetCookies = false
-        config.protocolClasses = [DemoURLProtocol.self] + (config.protocolClasses ?? [])
-        let session = URLSession(configuration: config, delegate: delegate, delegateQueue: nil)
-        
-        let (tempDownloadedURL, httpResp) = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<(URL, HTTPURLResponse), Error>) in
-            delegate.continuation = continuation
-            let task = session.downloadTask(with: request)
-            task.resume()
+        let tempDownloadedURL: URL
+        let httpResp: HTTPURLResponse
+        if NetworkTransport.requiresCleartextATSBypass(endpoint) {
+            (tempDownloadedURL, httpResp) = try await transport.downloadCleartextHTTP(
+                request: request,
+                onProgress: onProgress
+            )
+        } else {
+            let delegate = FileDownloadProgressDelegate(onProgress: onProgress)
+            // A plain session: background sessions are scheduled by nsurlsessiond out of process, which adds
+            // start-up latency to the small, user-awaited preview downloads this is used for.
+            let config = URLSessionConfiguration.default
+            config.timeoutIntervalForRequest = 60
+            config.httpShouldSetCookies = false
+            config.protocolClasses = [DemoURLProtocol.self] + (config.protocolClasses ?? [])
+            let session = URLSession(configuration: config, delegate: delegate, delegateQueue: nil)
+            
+            (tempDownloadedURL, httpResp) = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<(URL, HTTPURLResponse), Error>) in
+                delegate.continuation = continuation
+                let task = session.downloadTask(with: request)
+                task.resume()
+            }
+            session.finishTasksAndInvalidate()
         }
-        session.finishTasksAndInvalidate()
         
         guard (200...299).contains(httpResp.statusCode) else {
             let errData = (try? Data(contentsOf: tempDownloadedURL)) ?? Data()

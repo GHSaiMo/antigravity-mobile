@@ -8,11 +8,16 @@ final class SingleImagePreviewController: UIViewController, UIScrollViewDelegate
     let scrollView = UIScrollView()
     let imageView = UIImageView()
     let spinner = UIActivityIndicatorView(style: .large)
+    private var loadTask: Task<Void, Never>?
     
     init(item: IdentifiableImage, onSingleTap: @escaping () -> Void) {
         self.item = item
         self.onSingleTap = onSingleTap
         super.init(nibName: nil, bundle: nil)
+    }
+
+    deinit {
+        loadTask?.cancel()
     }
     
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -82,19 +87,16 @@ final class SingleImagePreviewController: UIViewController, UIScrollViewDelegate
         if item.image == nil {
             spinner.startAnimating()
         }
-        URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
-            guard let self = self, let data = data, let img = UIImage(data: data) else {
-                DispatchQueue.main.async {
-                    self?.spinner.stopAnimating()
-                }
-                return
-            }
-            DispatchQueue.main.async {
-                self.spinner.stopAnimating()
+        loadTask?.cancel()
+        loadTask = Task { @MainActor [weak self] in
+            let loaded = await ImageActions.loadImage(url: url)
+            guard let self, !Task.isCancelled else { return }
+            self.spinner.stopAnimating()
+            if let img = loaded {
                 self.imageView.image = img
                 self.updateImageFrame()
             }
-        }.resume()
+        }
     }
     
     func updateImageFrame() {

@@ -65,6 +65,70 @@ public final class MarkdownImageCache: @unchecked Sendable {
     }
 }
 
+// MARK: - Gateway-Aware Square Thumbnail View (ATS-Safe Replacement for AsyncImage)
+
+struct GatewayAsyncThumbnailView: View {
+    let url: URL
+    let fallbackImage: UIImage?
+    let size: CGFloat
+    let iconFontSize: CGFloat
+    var progressScale: CGFloat = 1.0
+
+    @State private var loadedImage: UIImage?
+    @State private var didFail = false
+
+    init(
+        url: URL,
+        fallbackImage: UIImage? = nil,
+        size: CGFloat,
+        iconFontSize: CGFloat,
+        progressScale: CGFloat = 1.0
+    ) {
+        self.url = url
+        self.fallbackImage = fallbackImage
+        self.size = size
+        self.iconFontSize = iconFontSize
+        self.progressScale = progressScale
+        _loadedImage = State(initialValue: MarkdownImageCache.shared.image(for: url))
+    }
+
+    var body: some View {
+        Group {
+            if let img = loadedImage {
+                Image(uiImage: img)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: size, height: size)
+                    .clipped()
+            } else if let uiImg = fallbackImage {
+                Image(uiImage: uiImg)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: size, height: size)
+                    .clipped()
+            } else if didFail {
+                Image(systemName: "photo")
+                    .font(.system(size: iconFontSize))
+                    .foregroundColor(.secondary)
+                    .frame(width: size, height: size)
+            } else {
+                ProgressView()
+                    .scaleEffect(progressScale)
+                    .frame(width: size, height: size)
+            }
+        }
+        .task(id: url) {
+            guard loadedImage == nil else { return }
+            if let img = await ImageActions.loadImage(url: url) {
+                loadedImage = img
+                didFail = false
+            } else if !Task.isCancelled {
+                didFail = true
+            }
+        }
+    }
+}
+
 // MARK: - Cached Markdown Async Image View
 
 struct CachedMarkdownAsyncImageView: View {
@@ -158,7 +222,7 @@ struct CachedMarkdownAsyncImageView: View {
             var request = URLRequest(url: url)
             request.cachePolicy = .returnCacheDataElseLoad
             request.timeoutInterval = 15
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await NetworkTransport.shared.fetchCachedData(for: request)
             if let http = response as? HTTPURLResponse, http.statusCode >= 400 {
                 hasFailed = true
                 return
