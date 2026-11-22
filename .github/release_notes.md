@@ -20,8 +20,8 @@
   - 智能冷启动默认策略：活跃天数 `< 28` 天自动默认展示每日柱状图，`≥ 28` 天默认展示周热力图，手动切换后自动持久化记忆偏好；
   - Token 历史保存/分享长图海报与当前选中的图表视图保持所见即所得同步，完整覆盖全部主题皮肤与中 / 英 / 日三语。
 - 🧩 **iOS 全尺寸额度小组件矩阵 & 全新「活跃对话」小组件（`QuotaStatusWidget` & `AgentStatusWidget`）**：
-  - 额度监控小组件扩展支持全套 WidgetKit 尺寸（锁屏单行 `Inline` / 圆环 `Circular` / 矩形 `Rectangular`，以及桌面 `Small` / `Medium` / `Large` / iPad `ExtraLarge`），桌面中/大号复刻面板 **2×2 四宫格配额卡片**（含一位小数进度、匀速游标刻度、选中框高亮与 `ULTRA` 琥珀橙徽章）并支持毫秒级缓存秒开与多路并发竞速刷新；
-  - 新增独立 **`AgentStatusWidget`（活跃对话监控）** 小 / 中 / 大号桌面小组件，在 iPhone、iPad、StandBy 与 Mac 桌面上实时总览多会话运行进度与待审批状态，100% 适配中 / 英 / 日三语。
+  - 额度监控小组件扩展支持全套 WidgetKit 尺寸（锁屏单行 `Inline` / 圆环 `Circular` / 矩形 `Rectangular`，以及桌面 `Small` / `Medium` / `Large` / iPad `ExtraLarge`），桌面中/大号复刻面板 **2×2 四宫格配额卡片**（含一位小数进度、纯矢量 `Shape` 进度条与匀速游标刻度、选中框高亮与 `ULTRA` 琥珀橙徽章），并采用 `StaticConfiguration` 毫秒级缓存秒开与多路并发竞速刷新；
+  - 新增独立 **`AgentStatusWidget`（活跃对话监控）** 小 / 中 / 大号桌面小组件（大号 6 行对称自适应排布与紧凑右对齐相对时间），在 iPhone、iPad、StandBy 与 Mac 桌面上实时总览多会话运行进度与待审批状态，100% 适配中 / 英 / 日三语；修复点击桌面额度小组件跳转额度弹窗时的 80ms 误关闭竞态。
 - 🇯🇵 **Android & PWA 原生日语（`ja`）全量覆盖，实现全端三语大满贯**：
   - Android 原生客户端（`values-ja`、`locales_config.xml`、`L10n.kt`）与嵌入式 PWA Web（`i18n.js`、`manifest-ja.json`）全面支持原生日语并可根据系统/浏览器语言自动识别切换；
   - 至此 iOS、Android、PWA Web、GitHub 文档与官方网站实现 100% 简体中文 / English / 日本語三语体验对齐。
@@ -42,7 +42,7 @@
   - 修复 iOS / Android 在「账户与配额」「设置」等面板打开状态下点击通知或深链时旧面板遮挡跳转的问题，支持自动收起全部顶层弹窗并直达目标会话或额度页面。
 - 💬 **社区与全端版本号对齐**：
   - 三语 README 新增微信用户群扫码入口；
-  - Android `1.2.4`（Version Code `29`）；iOS `1.2.4`（Build `30`）；桌面/服务端网关 `mgy` `1.2.4`。
+  - Android `1.2.4`（Version Code `29`）；iOS `1.2.4`（Build `31`）；桌面/服务端网关 `mgy` `1.2.4`。
 
 ---
 
@@ -55,8 +55,8 @@
   - Smart cold-start defaults (`< 28` active days defaults to daily trend bars, `≥ 28` days defaults to the heatmap) with local preference persistence once manually switched;
   - Synced Token History save/share posters (WYSIWYG) with the currently active chart across all curated themes and localized in Chinese, English, and Japanese.
 - 🧩 **Full-Size iOS Quota Widget Suite & New Active Chats Widget (`QuotaStatusWidget` & `AgentStatusWidget`)**:
-  - Expanded `QuotaStatusWidget` across all WidgetKit families (`accessoryInline`, `accessoryCircular`, `accessoryRectangular`, `systemSmall`, `systemMedium`, `systemLarge`, and iPad `systemExtraLarge`), featuring a replicated **2×2 panel metric grid** with pace cursor needles, selected-bucket highlight, `ULTRA` amber gradient badges, instant cached rendering, and concurrent multi-URL refresh;
-  - Added a dedicated **`AgentStatusWidget` (Active Chats)** supporting `systemSmall`, `systemMedium`, and `systemLarge` across iPhone, iPad, StandBy, and macOS Desktop for at-a-glance multi-session status and approval tracking in Chinese, English, and Japanese.
+  - Expanded `QuotaStatusWidget` across all WidgetKit families (`accessoryInline`, `accessoryCircular`, `accessoryRectangular`, `systemSmall`, `systemMedium`, `systemLarge`, and iPad `systemExtraLarge`), featuring a replicated **2×2 panel metric grid** with pure-`Shape` progress bars & pace cursor needles (eliminating `SwiftUICore` `GeometryReader` archival crashes), selected-bucket highlight, `ULTRA` amber gradient badges, `StaticConfiguration` instant cached rendering, and concurrent multi-URL refresh;
+  - Added a dedicated **`AgentStatusWidget` (Active Chats)** supporting `systemSmall`, `systemMedium`, and `systemLarge` (balanced 6-row layout with crisp right-aligned relative timestamps) across iPhone, iPad, StandBy, and macOS Desktop, and fixed the modal-dismissal race that briefly closed the Account & Quota sheet when deep-linking from the Quota Widget.
 - 🇯🇵 **Full Native Japanese (`ja`) Support on Android & PWA Web**:
   - Added complete native Japanese localization with automatic system/browser locale detection for Android (`values-ja`, `locales_config.xml`, `L10n.kt`) and PWA Web (`i18n.js`, `manifest-ja.json`), achieving 100% trilingual (`zh` / `en` / `ja`) parity across iOS, Android, PWA, GitHub docs, and the official website.
 - ⚡ **Tier-Aware Backup Account Sorting in Cockpit**:
@@ -76,7 +76,7 @@
   - Fixed notification and deep-link routing on iOS & Android so tapping a push notification while Account & Quota, Settings, or any modal sheet is open automatically dismisses covering sheets and jumps straight to the target conversation or quota view.
 - 💬 **Community & Version Alignment**:
   - Added WeChat User Group QR code to trilingual READMEs;
-  - Android `1.2.4` (Version Code `29`); iOS `1.2.4` (Build `30`); desktop/server gateway `mgy` `1.2.4`.
+  - Android `1.2.4` (Version Code `29`); iOS `1.2.4` (Build `31`); desktop/server gateway `mgy` `1.2.4`.
 
 ---
 
@@ -90,4 +90,4 @@
 - 🐝 **Swarm 概要ボード刷新・ハニカム Hive トポロジー＆ピクセル蜂ビジュアル**：最新の Swarm 体験に合わせ、`GOAL` カード・`Running` ライブタスク・展開式進捗リング・`Threads` 進捗バー・ピクセル女王蜂/働き蜂タイルを刷新。六角形ハニカム **Hive マップ（`Hive | Mentions` 切替）** や `/swarm` メッセージバブル内のピクセル女王蜂アイコンにも対応しました。
 - 🛡️ **フルスタックセキュリティ強化＆ストリーミング/キャッシュ最適化**：CSWSH/Host/Origin 検証、パス境界保護、認証情報保護、APNs TOFU バインディング、CSP/DOM サニタイズを強化し、ストリーミング `O(1)` 差分更新とキャッシュ効率を最適化しました。
 - 🌐 **リアルタイムストリーム安定化・ETag 通信削減・APNs 自動復旧＆通知ジャンプ修正**：iOS WebSocket ストリームの接続エンジン刷新と `25秒` キープアライブ追加、ゲートウェイおよび iOS / Android での `ETag / 304` 差分スキップ、APNs ライブアクティビティの指数バックオフとトークン自動修復、Cloudflare トンネル資格情報の自動再取得に対応。さらにクォータ画面や設定シートを開いたまま通知をタップした際にモーダルを自動終了して対象会話・クォータ画面へ直接遷移するよう修正しました。
-- 📦 **バージョン統一**：iOS `1.2.4` (Build `30`) / Android `1.2.4` (Version Code `29`) / ゲートウェイ `mgy` `1.2.4`。
+- 📦 **バージョン統一**：iOS `1.2.4` (Build `31`) / Android `1.2.4` (Version Code `29`) / ゲートウェイ `mgy` `1.2.4`。

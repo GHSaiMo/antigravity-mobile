@@ -403,16 +403,19 @@ public struct ConversationListView: View {
             .first(where: \.isKeyWindow)?.rootViewController
     }
 
-    private static func hasActivePresentedViewController() -> Bool {
-        guard let presented = activeRootViewController()?.presentedViewController else { return false }
-        return !presented.isBeingDismissed
+    private static func activePresentedViewController() -> UIViewController? {
+        guard let presented = activeRootViewController()?.presentedViewController,
+              !presented.isBeingDismissed else { return nil }
+        return presented
     }
 
-    private static func dismissRemainingPresentedViewControllerIfNeeded() {
+    private static func dismissRemainingPresentedViewControllerIfNeeded(matching target: UIViewController) {
+        let targetID = ObjectIdentifier(target)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
             guard let root = activeRootViewController(),
-                  let presented = root.presentedViewController,
-                  !presented.isBeingDismissed else { return }
+                  let current = root.presentedViewController,
+                  ObjectIdentifier(current) == targetID,
+                  !current.isBeingDismissed else { return }
             root.dismiss(animated: true)
         }
     }
@@ -443,16 +446,11 @@ public struct ConversationListView: View {
         pendingPairing = nil
 
         NotificationCenter.default.post(name: .dismissAllPresentedModals, object: nil)
-        if !excludingQuota {
-            if Self.hasActivePresentedViewController() {
+        if !excludingQuota || !showAccountQuota {
+            if let existingPresented = Self.activePresentedViewController() {
                 hadModal = true
+                Self.dismissRemainingPresentedViewControllerIfNeeded(matching: existingPresented)
             }
-            Self.dismissRemainingPresentedViewControllerIfNeeded()
-        } else if !showAccountQuota {
-            if Self.hasActivePresentedViewController() {
-                hadModal = true
-            }
-            Self.dismissRemainingPresentedViewControllerIfNeeded()
         }
         return hadModal
     }

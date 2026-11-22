@@ -21,45 +21,13 @@ nonisolated public enum QuotaWidgetConstants {
     }
 }
 
-// MARK: - Widget Configuration Intent (Extension-Only to prevent cross-process appintentsd stalls)
+// MARK: - Widget Provider Preference (follows App selection in StaticConfiguration)
 
-#if ACTIVITY_EXTENSION
-nonisolated public enum QuotaWidgetProviderPreference: String, AppEnum, Sendable, CaseIterable {
-    case followApp = "follow_app"
-    case gemini = "gemini"
-    case claude = "claude"
-
-    public static let typeDisplayRepresentation: TypeDisplayRepresentation = "监控模型"
-
-    public static let caseDisplayRepresentations: [QuotaWidgetProviderPreference: DisplayRepresentation] = [
-        .followApp: DisplayRepresentation(title: "跟随 App"),
-        .gemini: DisplayRepresentation(title: "Gemini"),
-        .claude: DisplayRepresentation(title: "Claude"),
-    ]
-}
-
-nonisolated public struct QuotaWidgetConfigurationIntent: WidgetConfigurationIntent {
-    public static let title: LocalizedStringResource = "额度监控设置"
-    public static let description = IntentDescription("选择小组件优先展示的模型额度。")
-
-    @Parameter(title: "监控模型", default: .followApp)
-    public var provider: QuotaWidgetProviderPreference
-
-    public init() {
-        self.provider = .followApp
-    }
-
-    public init(provider: QuotaWidgetProviderPreference) {
-        self.provider = provider
-    }
-}
-#else
 nonisolated public enum QuotaWidgetProviderPreference: String, Sendable, CaseIterable {
     case followApp = "follow_app"
     case gemini = "gemini"
     case claude = "claude"
 }
-#endif
 
 // MARK: - Shared Quota Snapshot Models
 

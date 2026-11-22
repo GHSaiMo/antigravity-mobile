@@ -47,12 +47,21 @@ nonisolated struct AgentStatusTimelineProvider: TimelineProvider {
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<AgentStatusWidgetEntry>) -> Void) {
+        let now = Date()
+        let config = QuotaWidgetStore.shared.loadConfig()
+        let cached = QuotaWidgetStore.shared.loadConversationsSnapshot()
+        let nextRefresh = Calendar.current.date(byAdding: .minute, value: 15, to: now)
+            ?? now.addingTimeInterval(15 * 60)
+
+        // Synchronous <1ms fast-path when recent local App Group snapshot exists
+        if let cached, now.timeIntervalSince(cached.syncedAt) < 15 * 60 {
+            let entry = AgentStatusWidgetEntry(date: now, snapshot: cached, isPaired: true, isStale: false)
+            completion(Timeline(entries: [entry], policy: .after(nextRefresh)))
+            return
+        }
+
         Task {
-            let now = Date()
-            let config = QuotaWidgetStore.shared.loadConfig()
-            let cached = QuotaWidgetStore.shared.loadConversationsSnapshot()
-            let isFresh = cached.map { now.timeIntervalSince($0.syncedAt) < 90 } ?? false
-            let fresh = isFresh ? cached : await QuotaWidgetStore.shared.fetchLatestConversationsFromGateway()
+            let fresh = await QuotaWidgetStore.shared.fetchLatestConversationsFromGateway()
 
             let entry: AgentStatusWidgetEntry
             if let fresh {
@@ -65,8 +74,6 @@ nonisolated struct AgentStatusTimelineProvider: TimelineProvider {
                 entry = AgentStatusWidgetEntry(date: now, snapshot: nil, isPaired: paired, isStale: false)
             }
 
-            let nextRefresh = Calendar.current.date(byAdding: .minute, value: 15, to: now)
-                ?? now.addingTimeInterval(15 * 60)
             completion(Timeline(entries: [entry], policy: .after(nextRefresh)))
         }
     }
@@ -260,7 +267,8 @@ private struct AgentStatusMediumView: View {
                 if !snap.items.isEmpty {
                     VStack(spacing: 5) {
                         ForEach(Array(snap.items.prefix(3))) { item in
-                            CompactMediumConversationRow(item: item)
+                            CompactMediumConversationRow(item: item, now: entry.date)
+                                .frame(maxHeight: 34)
                         }
                     }
                     Spacer(minLength: 0)
@@ -303,6 +311,7 @@ private struct AgentStatusMediumView: View {
 
 private struct CompactMediumConversationRow: View {
     let item: AgentWidgetConversationItem
+    let now: Date
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.widgetRenderingMode) private var renderingMode
 
@@ -368,24 +377,27 @@ private struct CompactMediumConversationRow: View {
                         .lineLimit(1)
                         .widgetAccentable()
                 } else if let mod = item.lastModified {
-                    Text(mod, style: .relative)
+                    Text(compactRelativeTimeText(from: mod, now: now))
                         .font(.system(size: 10, weight: .medium, design: .rounded))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
+                        .layoutPriority(1)
                 }
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 6)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: 8.5, style: .continuous)
-                    .fill(isDark ? Color.white.opacity(0.055) : Color.black.opacity(0.035))
+                    .fill(widgetSubCardFill(isDark: isDark))
             )
         }
         .buttonStyle(.plain)
     }
 }
 
-// MARK: - 3. Large (.systemLarge — 5 Detailed Direct-Link Conversations + Summary)
+// MARK: - 3. Large (.systemLarge — 6 Detailed Direct-Link Conversations + Summary)
 
 private struct AgentStatusLargeView: View {
     let entry: AgentStatusWidgetEntry
@@ -395,7 +407,7 @@ private struct AgentStatusLargeView: View {
 
     var body: some View {
         if let snap = entry.snapshot {
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 7.5) {
                 HStack(alignment: .center, spacing: 6) {
                     Image("AppLogoTransparent")
                         .renderingMode(.original)
@@ -416,9 +428,15 @@ private struct AgentStatusLargeView: View {
                 }
 
                 if !snap.items.isEmpty {
-                    VStack(spacing: 6) {
-                        ForEach(Array(snap.items.prefix(5))) { item in
-                            WidgetConversationRow(item: item, now: entry.date, showStepCount: true)
+                    VStack(spacing: 5.5) {
+                        ForEach(Array(snap.items.prefix(6))) { item in
+                            WidgetConversationRow(
+                                item: item,
+                                now: entry.date,
+                                showStepCount: true,
+                                verticalPadding: 5.5,
+                                maxRowHeight: 48
+                            )
                         }
                     }
                 } else {
@@ -449,7 +467,9 @@ private struct AgentStatusLargeView: View {
                     Spacer()
                 }
 
-                Spacer(minLength: 0)
+                if snap.items.count < 6 {
+                    Spacer(minLength: 0)
+                }
 
                 HStack {
                     if snap.totalCount > 0 {
@@ -458,7 +478,7 @@ private struct AgentStatusLargeView: View {
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
-                    WidgetSyncFooter(syncedAt: snap.syncedAt, isDemo: snap.isDemo, isStale: entry.isStale)
+                    WidgetSyncFooter(syncedAt: snap.syncedAt, isDemo: snap.isDemo, isStale: entry.isStale, alignment: .trailing)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)

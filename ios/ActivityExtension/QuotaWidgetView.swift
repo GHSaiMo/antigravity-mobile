@@ -3,7 +3,7 @@ import Foundation
 import SwiftUI
 import WidgetKit
 
-// MARK: - Timeline Entry & Provider (AppIntentConfiguration)
+// MARK: - Timeline Entry & Provider (StaticConfiguration — Zero AppIntents Handshake Overhead)
 
 nonisolated struct QuotaWidgetEntry: TimelineEntry {
     let date: Date
@@ -14,7 +14,7 @@ nonisolated struct QuotaWidgetEntry: TimelineEntry {
     let isStale: Bool
 }
 
-nonisolated struct QuotaTimelineProvider: AppIntentTimelineProvider {
+nonisolated struct QuotaTimelineProvider: TimelineProvider {
     func placeholder(in context: Context) -> QuotaWidgetEntry {
         let now = Date()
         return QuotaWidgetEntry(
@@ -27,100 +27,110 @@ nonisolated struct QuotaTimelineProvider: AppIntentTimelineProvider {
         )
     }
 
-    func snapshot(for configuration: QuotaWidgetConfigurationIntent, in context: Context) async -> QuotaWidgetEntry {
+    func getSnapshot(in context: Context, completion: @escaping (QuotaWidgetEntry) -> Void) {
         let now = Date()
         let config = QuotaWidgetStore.shared.loadConfig()
         if context.isPreview {
-            return QuotaWidgetEntry(
+            completion(QuotaWidgetEntry(
                 date: now,
                 snapshot: QuotaWidgetStore.shared.loadSnapshot()?.applying(config: config)
                     ?? QuotaWidgetSnapshot.demoPlaceholder(now: now),
                 conversations: QuotaWidgetStore.shared.loadConversationsSnapshot()
                     ?? AgentConversationsWidgetSnapshot.demoPlaceholder(now: now),
-                providerPreference: configuration.provider,
+                providerPreference: .followApp,
                 isPaired: true,
                 isStale: false
-            )
+            ))
+            return
         }
         let cachedQuota = QuotaWidgetStore.shared.loadSnapshot()?.applying(config: config)
         let cachedConvs = QuotaWidgetStore.shared.loadConversationsSnapshot()
         let paired = (config?.isPaired ?? false) || (cachedQuota != nil)
-        return QuotaWidgetEntry(
+        completion(QuotaWidgetEntry(
             date: now,
             snapshot: cachedQuota ?? (paired ? QuotaWidgetSnapshot.demoPlaceholder(now: now) : nil),
             conversations: cachedConvs ?? (paired ? AgentConversationsWidgetSnapshot.demoPlaceholder(now: now) : nil),
-            providerPreference: configuration.provider,
+            providerPreference: .followApp,
             isPaired: paired,
             isStale: false
-        )
+        ))
     }
 
-    func timeline(for configuration: QuotaWidgetConfigurationIntent, in context: Context) async -> Timeline<QuotaWidgetEntry> {
+    func getTimeline(in context: Context, completion: @escaping (Timeline<QuotaWidgetEntry>) -> Void) {
         let now = Date()
         let config = QuotaWidgetStore.shared.loadConfig()
         let needsConversations = (context.family == .systemLarge || context.family == .systemExtraLarge)
 
         let cachedQuota = QuotaWidgetStore.shared.loadSnapshot()?.applying(config: config)
         let cachedConvs = QuotaWidgetStore.shared.loadConversationsSnapshot()
-
-        // Fast-path: if the main app or a sibling widget/intent already synced fresh data within 90s,
-        // emit immediately (<1ms) to prevent WidgetKit placeholder stalls and duplicate network bursts.
-        let quotaIsFresh = cachedQuota.map { now.timeIntervalSince($0.syncedAt) < 90 } ?? false
-        let convsIsFresh = !needsConversations || (cachedConvs.map { now.timeIntervalSince($0.syncedAt) < 90 } ?? false)
-
-        let freshQuota: QuotaWidgetSnapshot?
-        let freshConvs: AgentConversationsWidgetSnapshot?
-        if quotaIsFresh && convsIsFresh {
-            freshQuota = cachedQuota
-            freshConvs = cachedConvs
-        } else if needsConversations {
-            async let quotaTask = QuotaWidgetStore.shared.fetchLatestQuotaFromGateway()
-            async let convsTask = QuotaWidgetStore.shared.fetchLatestConversationsFromGateway()
-            let (q, c) = await (quotaTask, convsTask)
-            freshQuota = q?.applying(config: config)
-            freshConvs = c
-        } else {
-            freshQuota = await QuotaWidgetStore.shared.fetchLatestQuotaFromGateway()?.applying(config: config)
-            freshConvs = cachedConvs
-        }
-
-        let resolvedConvs = freshConvs ?? cachedConvs
-
-        let entry: QuotaWidgetEntry
-        if let freshQuota {
-            entry = QuotaWidgetEntry(
-                date: now,
-                snapshot: freshQuota,
-                conversations: resolvedConvs,
-                providerPreference: configuration.provider,
-                isPaired: true,
-                isStale: false
-            )
-        } else if let cached = cachedQuota {
-            let stale = now.timeIntervalSince(cached.syncedAt) > 25 * 60
-            entry = QuotaWidgetEntry(
-                date: now,
-                snapshot: cached,
-                conversations: resolvedConvs,
-                providerPreference: configuration.provider,
-                isPaired: true,
-                isStale: stale
-            )
-        } else {
-            let paired = config?.isPaired ?? false
-            entry = QuotaWidgetEntry(
-                date: now,
-                snapshot: nil,
-                conversations: resolvedConvs,
-                providerPreference: configuration.provider,
-                isPaired: paired,
-                isStale: false
-            )
-        }
-
         let nextRefresh = Calendar.current.date(byAdding: .minute, value: 20, to: now)
             ?? now.addingTimeInterval(20 * 60)
-        return Timeline(entries: [entry], policy: .after(nextRefresh))
+
+        // Synchronous <1ms fast-path: whenever the main app or a recent refresh synced within 15 minutes,
+        // deliver the timeline immediately without spawning async tasks or waiting on network I/O.
+        if let cachedQuota, now.timeIntervalSince(cachedQuota.syncedAt) < 15 * 60 {
+            let entry = QuotaWidgetEntry(
+                date: now,
+                snapshot: cachedQuota,
+                conversations: cachedConvs,
+                providerPreference: .followApp,
+                isPaired: true,
+                isStale: false
+            )
+            completion(Timeline(entries: [entry], policy: .after(nextRefresh)))
+            return
+        }
+
+        Task {
+            let freshQuota: QuotaWidgetSnapshot?
+            let freshConvs: AgentConversationsWidgetSnapshot?
+            if needsConversations {
+                async let quotaTask = QuotaWidgetStore.shared.fetchLatestQuotaFromGateway()
+                async let convsTask = QuotaWidgetStore.shared.fetchLatestConversationsFromGateway()
+                let (q, c) = await (quotaTask, convsTask)
+                freshQuota = q?.applying(config: config)
+                freshConvs = c
+            } else {
+                freshQuota = await QuotaWidgetStore.shared.fetchLatestQuotaFromGateway()?.applying(config: config)
+                freshConvs = cachedConvs
+            }
+
+            let resolvedConvs = freshConvs ?? cachedConvs
+
+            let entry: QuotaWidgetEntry
+            if let freshQuota {
+                entry = QuotaWidgetEntry(
+                    date: now,
+                    snapshot: freshQuota,
+                    conversations: resolvedConvs,
+                    providerPreference: .followApp,
+                    isPaired: true,
+                    isStale: false
+                )
+            } else if let cachedQuota {
+                let stale = now.timeIntervalSince(cachedQuota.syncedAt) > 25 * 60
+                entry = QuotaWidgetEntry(
+                    date: now,
+                    snapshot: cachedQuota,
+                    conversations: resolvedConvs,
+                    providerPreference: .followApp,
+                    isPaired: true,
+                    isStale: stale
+                )
+            } else {
+                let paired = config?.isPaired ?? false
+                entry = QuotaWidgetEntry(
+                    date: now,
+                    snapshot: nil,
+                    conversations: resolvedConvs,
+                    providerPreference: .followApp,
+                    isPaired: paired,
+                    isStale: false
+                )
+            }
+
+            completion(Timeline(entries: [entry], policy: .after(nextRefresh)))
+        }
     }
 }
 
@@ -130,9 +140,8 @@ public struct QuotaStatusWidget: Widget {
     public init() {}
 
     public var body: some WidgetConfiguration {
-        AppIntentConfiguration(
+        StaticConfiguration(
             kind: QuotaWidgetConstants.widgetKind,
-            intent: QuotaWidgetConfigurationIntent.self,
             provider: QuotaTimelineProvider()
         ) { entry in
             QuotaWidgetEntryView(entry: entry)
@@ -453,7 +462,7 @@ private struct QuotaMediumHomeView: View {
 
     var body: some View {
         if let snap = entry.snapshot {
-            VStack(alignment: .leading, spacing: 5.5) {
+            VStack(alignment: .leading, spacing: 6) {
                 HStack(alignment: .center, spacing: 6) {
                     Image(systemName: "bolt.fill")
                         .font(.system(size: 11.5, weight: .bold))
@@ -471,8 +480,25 @@ private struct QuotaMediumHomeView: View {
 
                     Spacer(minLength: 6)
 
-                    WidgetSyncFooter(syncedAt: snap.syncedAt, isDemo: snap.isDemo, isStale: entry.isStale)
-                        .fixedSize()
+                    HStack(spacing: 3) {
+                        if snap.isDemo {
+                            Text("Demo")
+                                .font(.system(size: 9.5, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                        } else {
+                            if entry.isStale {
+                                Image(systemName: "icloud.slash")
+                                    .font(.system(size: 9))
+                                    .foregroundStyle(.secondary)
+                            }
+                            Text(compactRelativeTimeText(from: snap.syncedAt, now: entry.date))
+                                .font(.system(size: 9.5, weight: .medium))
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                    }
+                    .fixedSize(horizontal: true, vertical: false)
+                    .layoutPriority(1)
 
                     WidgetRefreshIconButton(intent: RefreshQuotaWidgetIntent(), size: 20)
                 }
@@ -483,8 +509,6 @@ private struct QuotaMediumHomeView: View {
                     now: entry.date,
                     density: .compact
                 )
-
-                Spacer(minLength: 0)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         } else {
@@ -506,7 +530,10 @@ private struct QuotaLargeHomeView: View {
     var body: some View {
         if let snap = entry.snapshot {
             let singleRowQuota = snap.usesSingleRowQuotaGrid(for: entry.providerPreference)
-            VStack(alignment: .leading, spacing: 8.5) {
+            let maxRows = singleRowQuota ? 4 : 3
+            let visibleItems = Array((entry.conversations?.items ?? []).prefix(maxRows))
+
+            VStack(alignment: .leading, spacing: 9) {
                 // Header: Account + Tier + Agent Status Summary + Refresh
                 HStack(alignment: .center, spacing: 6) {
                     Image(systemName: "bolt.fill")
@@ -544,7 +571,7 @@ private struct QuotaLargeHomeView: View {
                 .buttonStyle(.plain)
 
                 // Bottom Half: Active Conversations (3 rows for 2×2 quota grid, 4 rows for single-row Free/filtered grid)
-                VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: 6.5) {
                     HStack(alignment: .center) {
                         Text(String(localized: "活跃对话"))
                             .font(.system(size: 11.5, weight: .bold))
@@ -552,14 +579,19 @@ private struct QuotaLargeHomeView: View {
 
                         Spacer()
 
-                        WidgetSyncFooter(syncedAt: snap.syncedAt, isDemo: snap.isDemo, isStale: entry.isStale)
+                        WidgetSyncFooter(syncedAt: snap.syncedAt, isDemo: snap.isDemo, isStale: entry.isStale, alignment: .trailing)
                     }
 
-                    let maxRows = singleRowQuota ? 4 : 3
-                    if let convs = entry.conversations, !convs.items.isEmpty {
-                        VStack(spacing: 5.5) {
-                            ForEach(Array(convs.items.prefix(maxRows))) { item in
-                                WidgetConversationRow(item: item, now: entry.date, showStepCount: false)
+                    if !visibleItems.isEmpty {
+                        VStack(spacing: 6.5) {
+                            ForEach(visibleItems) { item in
+                                WidgetConversationRow(
+                                    item: item,
+                                    now: entry.date,
+                                    showStepCount: false,
+                                    verticalPadding: 7.5,
+                                    maxRowHeight: 50
+                                )
                             }
                         }
                     } else {
@@ -585,7 +617,9 @@ private struct QuotaLargeHomeView: View {
                     }
                 }
 
-                Spacer(minLength: 0)
+                if visibleItems.count < maxRows {
+                    Spacer(minLength: 0)
+                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         } else {
@@ -746,8 +780,8 @@ private enum WidgetQuotaCellDensity {
 
     var innerSpacing: CGFloat {
         switch self {
-        case .compact: return 3.0
-        case .regular: return 4.2
+        case .compact: return 3.5
+        case .regular: return 4.5
         case .spacious: return 4.5
         }
     }
@@ -762,17 +796,25 @@ private enum WidgetQuotaCellDensity {
 
     var verticalPadding: CGFloat {
         switch self {
-        case .compact: return 5.5
-        case .regular: return 8.2
+        case .compact: return 6.0
+        case .regular: return 8.5
         case .spacious: return 8.5
         }
     }
 
     var gridSpacing: CGFloat {
         switch self {
-        case .compact: return 5.5
-        case .regular: return 7.0
+        case .compact: return 6.0
+        case .regular: return 7.5
         case .spacious: return 7.0
+        }
+    }
+
+    var maxCellHeight: CGFloat? {
+        switch self {
+        case .compact: return 55.0
+        case .regular: return 62.0
+        case .spacious: return nil
         }
     }
 }
@@ -950,36 +992,31 @@ private struct WidgetQuotaMetricCell: View {
                     .widgetAccentable()
             }
 
-            GeometryReader { geo in
-                let fillWidth = max(0, min(geo.size.width, geo.size.width * CGFloat(percent / 100.0)))
-                ZStack(alignment: .leading) {
-                    Capsule()
-                        .fill(isDark ? Color.white.opacity(0.10) : Color.black.opacity(0.08))
+            ZStack {
+                Capsule()
+                    .fill(isDark ? Color.white.opacity(0.10) : Color.black.opacity(0.08))
 
-                    if fillWidth > 0 {
-                        Capsule()
-                            .fill(tint)
-                            .frame(width: fillWidth)
-                            .widgetAccentable()
-                    }
+                QuotaBarFillShape(fraction: CGFloat(percent / 100.0))
+                    .fill(tint)
+                    .widgetAccentable()
 
-                    if showPaceCursor, let pace {
-                        let expectedFrac = CGFloat(pace.expectedRemainingPercent / 100.0)
-                        let needleOffset = max(0, min(geo.size.width - 1.5, geo.size.width * expectedFrac - 0.75))
-                        let needleColor: Color = isFullColor
-                            ? (pace.isOver
-                                ? Color(red: 1.0, green: 159.0 / 255.0, blue: 10.0 / 255.0)
-                                : Color.white.opacity(0.94))
-                            : Color.primary
+                if showPaceCursor, let pace {
+                    let needleColor: Color = isFullColor
+                        ? (pace.isOver
+                            ? Color(red: 1.0, green: 159.0 / 255.0, blue: 10.0 / 255.0)
+                            : Color.white.opacity(0.94))
+                        : Color.primary
 
-                        RoundedRectangle(cornerRadius: 0.75, style: .continuous)
-                            .fill(needleColor)
-                            .frame(width: 1.5, height: density.barHeight + 2.5)
-                            .shadow(color: Color.black.opacity(0.35), radius: 1, x: 0, y: 0.5)
-                            .offset(x: needleOffset, y: -1.25)
-                    }
+                    QuotaPaceNeedleShape(
+                        expectedFraction: CGFloat(pace.expectedRemainingPercent / 100.0),
+                        needleWidth: 1.5,
+                        overhang: 1.25
+                    )
+                    .fill(needleColor)
+                    .shadow(color: Color.black.opacity(0.35), radius: 1, x: 0, y: 0.5)
                 }
             }
+            .frame(maxWidth: .infinity)
             .frame(height: density.barHeight)
 
             let resetInfo = panelResetDisplayText(for: bucket, now: now)
@@ -999,7 +1036,7 @@ private struct WidgetQuotaMetricCell: View {
         }
         .padding(.horizontal, density.horizontalPadding)
         .padding(.vertical, density.verticalPadding)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, maxHeight: density.maxCellHeight != nil ? .infinity : nil, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 8.5, style: .continuous)
                 .fill(widgetSubCardFill(isDark: isDark))
@@ -1017,6 +1054,48 @@ private struct WidgetQuotaMetricCell: View {
                 }
             }
         )
+        .frame(maxHeight: density.maxCellHeight)
+    }
+}
+
+/// Pure `Shape`-based progress bar fill that avoids `GeometryReader` completely,
+/// preventing `SwiftUICore` `GeometryReaderLayout.placeSubviews` fatal assertions during WidgetKit timeline archival.
+nonisolated private struct QuotaBarFillShape: Shape {
+    let fraction: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        guard rect.width.isFinite, rect.height.isFinite, rect.width > 0, rect.height > 0 else {
+            return Path()
+        }
+        let clamped = max(0, min(1, fraction.isFinite ? fraction : 0))
+        let fillWidth = rect.width * clamped
+        guard fillWidth > 0 else { return Path() }
+        let fillRect = CGRect(x: rect.minX, y: rect.minY, width: fillWidth, height: rect.height)
+        let radius = min(fillRect.width, fillRect.height) / 2.0
+        return Path(roundedRect: fillRect, cornerRadius: radius, style: .continuous)
+    }
+}
+
+/// Pure `Shape`-based pace cursor needle positioned directly in `path(in:)` with zero `GeometryReader` layout passes.
+nonisolated private struct QuotaPaceNeedleShape: Shape {
+    let expectedFraction: CGFloat
+    let needleWidth: CGFloat
+    let overhang: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        guard rect.width.isFinite, rect.height.isFinite, rect.width > 0, rect.height > 0 else {
+            return Path()
+        }
+        let clamped = max(0, min(1, expectedFraction.isFinite ? expectedFraction : 0))
+        let rawX = rect.minX + rect.width * clamped - needleWidth / 2.0
+        let clampedX = max(rect.minX, min(rect.maxX - needleWidth, rawX))
+        let needleRect = CGRect(
+            x: clampedX,
+            y: rect.minY - overhang,
+            width: needleWidth,
+            height: rect.height + overhang * 2.0
+        )
+        return Path(roundedRect: needleRect, cornerRadius: needleWidth / 2.0, style: .continuous)
     }
 }
 
@@ -1040,33 +1119,31 @@ private struct QuotaProgressRow: View {
                 .foregroundStyle(.secondary)
                 .frame(width: 18, alignment: .leading)
 
-            GeometryReader { geo in
-                let fillW = max(0, min(geo.size.width, geo.size.width * bucket.clampedFraction))
-                ZStack(alignment: .leading) {
-                    Capsule()
-                        .fill(isDark ? Color.white.opacity(0.12) : Color.black.opacity(0.08))
-                    if fillW > 0 {
-                        Capsule()
-                            .fill(tint)
-                            .frame(width: fillW)
-                            .widgetAccentable()
-                    }
-                    if showPaceCursor, let pace = bucket.evaluatePace(windowHours: windowHours, now: now) {
-                        let expectedFrac = CGFloat(pace.expectedRemainingPercent / 100.0)
-                        let needleOffset = max(0, min(geo.size.width - 1.5, geo.size.width * expectedFrac - 0.75))
-                        let needleColor: Color = isFullColor
-                            ? (pace.isOver
-                                ? Color(red: 1.0, green: 159.0 / 255.0, blue: 10.0 / 255.0)
-                                : Color.white.opacity(0.94))
-                            : Color.primary
-                        RoundedRectangle(cornerRadius: 0.75, style: .continuous)
-                            .fill(needleColor)
-                            .frame(width: 1.5, height: 7.5)
-                            .shadow(color: Color.black.opacity(0.35), radius: 1, x: 0, y: 0.5)
-                            .offset(x: needleOffset, y: -1.0)
-                    }
+            ZStack {
+                Capsule()
+                    .fill(isDark ? Color.white.opacity(0.12) : Color.black.opacity(0.08))
+
+                QuotaBarFillShape(fraction: CGFloat(bucket.clampedFraction))
+                    .fill(tint)
+                    .widgetAccentable()
+
+                if showPaceCursor, let pace = bucket.evaluatePace(windowHours: windowHours, now: now) {
+                    let needleColor: Color = isFullColor
+                        ? (pace.isOver
+                            ? Color(red: 1.0, green: 159.0 / 255.0, blue: 10.0 / 255.0)
+                            : Color.white.opacity(0.94))
+                        : Color.primary
+
+                    QuotaPaceNeedleShape(
+                        expectedFraction: CGFloat(pace.expectedRemainingPercent / 100.0),
+                        needleWidth: 1.5,
+                        overhang: 1.0
+                    )
+                    .fill(needleColor)
+                    .shadow(color: Color.black.opacity(0.35), radius: 1, x: 0, y: 0.5)
                 }
             }
+            .frame(maxWidth: .infinity)
             .frame(height: 5.5)
 
             Text("\(bucket.intPercent)%")
@@ -1283,6 +1360,7 @@ struct WidgetSyncFooter: View {
     let syncedAt: Date
     let isDemo: Bool
     let isStale: Bool
+    var alignment: TextAlignment = .leading
 
     var body: some View {
         HStack(spacing: 4) {
@@ -1299,6 +1377,7 @@ struct WidgetSyncFooter: View {
                 Text(syncedAt, style: .relative)
                     .font(.system(size: 9.5, weight: .medium))
                     .foregroundStyle(.secondary)
+                    .multilineTextAlignment(alignment)
                     .lineLimit(1)
             }
         }
@@ -1356,6 +1435,8 @@ struct WidgetConversationRow: View {
     let item: AgentWidgetConversationItem
     let now: Date
     let showStepCount: Bool
+    var verticalPadding: CGFloat = 6.5
+    var maxRowHeight: CGFloat? = nil
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.widgetRenderingMode) private var renderingMode
 
@@ -1434,21 +1515,37 @@ struct WidgetConversationRow: View {
                         .lineLimit(1)
                         .widgetAccentable()
                 } else if let mod = item.lastModified {
-                    Text(mod, style: .relative)
+                    Text(compactRelativeTimeText(from: mod, now: now))
                         .font(.system(size: 10, weight: .medium, design: .rounded))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
+                        .layoutPriority(1)
                 }
             }
             .padding(.horizontal, 8.5)
-            .padding(.vertical, 6.5)
+            .padding(.vertical, verticalPadding)
+            .frame(maxWidth: .infinity, maxHeight: maxRowHeight != nil ? .infinity : nil, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: 9, style: .continuous)
                     .fill(widgetSubCardFill(isDark: isDark))
             )
+            .frame(maxHeight: maxRowHeight)
         }
         .buttonStyle(.plain)
     }
+}
+
+/// Formats a compact, intrinsic-width localized relative timestamp (e.g. "5分钟前", "1小时前", "5m ago")
+/// so trailing timestamps in widget rows right-align cleanly without greedily squeezing conversation titles.
+func compactRelativeTimeText(from date: Date, now: Date = Date()) -> String {
+    let elapsed = now.timeIntervalSince(date)
+    if elapsed < 60 {
+        return String(localized: "刚刚")
+    }
+    let formatter = RelativeDateTimeFormatter()
+    formatter.unitsStyle = .abbreviated
+    return formatter.localizedString(for: date, relativeTo: now)
 }
 
 // MARK: - Shared Formatting & Semantic Helpers
