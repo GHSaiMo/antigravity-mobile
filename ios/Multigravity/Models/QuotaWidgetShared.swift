@@ -23,14 +23,12 @@ nonisolated public enum QuotaWidgetConstants {
 
 // MARK: - Widget Configuration Intent (Extension-Only to prevent cross-process appintentsd stalls)
 
-nonisolated public enum QuotaWidgetProviderPreference: String, Sendable, CaseIterable {
+#if ACTIVITY_EXTENSION
+nonisolated public enum QuotaWidgetProviderPreference: String, AppEnum, Sendable, CaseIterable {
     case followApp = "follow_app"
     case gemini = "gemini"
     case claude = "claude"
-}
 
-#if ACTIVITY_EXTENSION
-extension QuotaWidgetProviderPreference: AppEnum {
     public static let typeDisplayRepresentation: TypeDisplayRepresentation = "监控模型"
 
     public static let caseDisplayRepresentations: [QuotaWidgetProviderPreference: DisplayRepresentation] = [
@@ -54,6 +52,12 @@ nonisolated public struct QuotaWidgetConfigurationIntent: WidgetConfigurationInt
     public init(provider: QuotaWidgetProviderPreference) {
         self.provider = provider
     }
+}
+#else
+nonisolated public enum QuotaWidgetProviderPreference: String, Sendable, CaseIterable {
+    case followApp = "follow_app"
+    case gemini = "gemini"
+    case claude = "claude"
 }
 #endif
 
