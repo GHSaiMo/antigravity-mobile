@@ -270,10 +270,17 @@ func FormatPairingQRCode(primaryHost string, port int, code string, ssl bool, ex
 	))
 
 	if ssl || (strings.Contains(primaryHost, ".") && strings.ContainsAny(primaryHost, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")) {
-		b.WriteString(i18n.T(
-			"  ☁️  Cloudflare 专属域名已就绪\n",
-			"  ☁️  Cloudflare exclusive HTTPS domain ready\n",
-		))
+		if isRelayDomainLabel(primaryHost) {
+			b.WriteString(i18n.T(
+				"  🔐 E2EE 端到端加密专属通道已就绪\n",
+				"  🔐 E2EE exclusive HTTPS relay ready\n",
+			))
+		} else {
+			b.WriteString(i18n.T(
+				"  ☁️  Cloudflare 专属域名已就绪\n",
+				"  ☁️  Cloudflare exclusive HTTPS domain ready\n",
+			))
+		}
 	} else {
 		scheme := "http://"
 		if ssl {
@@ -353,10 +360,17 @@ func PrintRawPairingQRCode(code string, uri string) {
 			sVal := q.Get("ssl") == "1" || (q.Get("ssl") == "" && (pVal == 443 || pVal == 0))
 
 			if sVal || (strings.Contains(h, ".") && strings.ContainsAny(h, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")) {
-				b.WriteString(i18n.T(
-					"  ☁️  Cloudflare 专属域名已就绪\n",
-					"  ☁️  Cloudflare exclusive HTTPS domain ready\n",
-				))
+				if isRelayDomainLabel(h) {
+					b.WriteString(i18n.T(
+						"  🔐 E2EE 端到端加密专属通道已就绪\n",
+						"  🔐 E2EE exclusive HTTPS relay ready\n",
+					))
+				} else {
+					b.WriteString(i18n.T(
+						"  ☁️  Cloudflare 专属域名已就绪\n",
+						"  ☁️  Cloudflare exclusive HTTPS domain ready\n",
+					))
+				}
 			} else if h != "" {
 				scheme := "http://"
 				if sVal {
@@ -375,5 +389,13 @@ func PrintRawPairingQRCode(code string, uri string) {
 	consoleMu.Lock()
 	defer consoleMu.Unlock()
 	_, _ = os.Stdout.WriteString(b.String())
+}
+
+// isRelayDomainLabel reports whether host (full FQDN or compressed subdomain)
+// belongs to an E2EE VPS relay endpoint (e.g. "r-541ba9e5", "r-541ba9e5.jiuge.space",
+// or "r-541ba9e5.tokyo.jiuge.space") rather than a legacy Cloudflare Tunnel subdomain.
+func isRelayDomainLabel(host string) bool {
+	h := strings.ToLower(strings.TrimSpace(host))
+	return strings.HasPrefix(h, "r-") || strings.Contains(h, ".relay.")
 }
 

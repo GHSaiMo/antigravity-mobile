@@ -749,3 +749,23 @@ func TestAuthHandler_PairFromEncryptedPayload(t *testing.T) {
 	}
 }
 
+func TestFormatPairingQRCode_RelayDomainLabel(t *testing.T) {
+	out := FormatPairingQRCode("r-541ba9e5.jiuge.space", 443, "testcode123", true, "192.168.50.99")
+	if strings.Contains(out, "Cloudflare") {
+		t.Fatalf("expected relay QR output not to claim Cloudflare tunnel, got:\n%s", out)
+	}
+	if !strings.Contains(out, "E2EE") {
+		t.Fatalf("expected relay QR output to show E2EE label, got:\n%s", out)
+	}
+	for _, host := range []string{"r-541ba9e5", "r-541ba9e5.jiuge.space", "r-541ba9e5.tokyo.jiuge.space", "sid.relay.example.com"} {
+		if !isRelayDomainLabel(host) {
+			t.Errorf("expected isRelayDomainLabel(%q) == true", host)
+		}
+	}
+	for _, host := range []string{"825a5a50", "825a5a50.jiuge.space", "192.168.50.99"} {
+		if isRelayDomainLabel(host) {
+			t.Errorf("expected isRelayDomainLabel(%q) == false", host)
+		}
+	}
+}
+

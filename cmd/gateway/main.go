@@ -187,6 +187,16 @@ func runGatewayServer(args []string) {
 		}
 	}
 
+	// Bind the TCP listener BEFORE touching ~/.multigravity/admin_token or starting background workers,
+	// so a duplicate `mgy` launch fails fast without mutating or rotating credentials owned by the running instance.
+	// Strictly listen on IPv4 only (tcp4) to prevent exposing IPv6 sockets or Bonjour/scanner characteristics.
+	listenAddr := fmt.Sprintf("%s:%d", *host, *port)
+	rawListener, err := net.Listen("tcp4", listenAddr)
+	if err != nil {
+		log.Fatalf("❌ Failed to bind server address %s: %v", listenAddr, err)
+	}
+	defer rawListener.Close()
+
 	if _, _, err := auth.EnsureAdminToken(true); err != nil {
 		log.Fatalf("❌ Failed to initialize MULTIGRAVITY_ADMIN_TOKEN: %v", err)
 	}
@@ -448,15 +458,7 @@ func runGatewayServer(args []string) {
 		},
 	}
 
-	// Synchronously bind the network listener so we verify port availability immediately
-	// Strictly listen on IPv4 only (tcp4) to prevent exposing IPv6 sockets or Bonjour/scanner characteristics.
-	rawListener, err := net.Listen("tcp4", server.Addr)
-	if err != nil {
-		log.Fatalf("❌ Failed to bind server address %s: %v", server.Addr, err)
-	}
-	defer rawListener.Close()
-
-	// Wrap with AdaptiveListener to support transparent PROXY protocol v1/v2 extraction
+	// Wrap the early-bound TCP listener with AdaptiveListener to support transparent PROXY protocol v1/v2 extraction
 	// while maintaining complete compatibility with local curl and direct LAN connections.
 	listener := netutil.NewAdaptiveListener(rawListener)
 	defer listener.Close()

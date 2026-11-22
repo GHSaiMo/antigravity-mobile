@@ -138,21 +138,34 @@ func runCloudflareStatusCmd() {
 	}
 	fmt.Fprintf(w, "调度器暗号\t%s\t私有 Worker 准入鉴权\n", codeStr)
 
-	// Tunnel Token
+	// Tunnel Mode & Token
+	isRelayMode := hasCache && cached.EffectiveMode() == ModeRelayV1
+	if isRelayMode {
+		fmt.Fprintf(w, "传输模式\t🔐 E2EE 端到端加密中继池 (relay_v1)\t零知识加密透传，自动优选最快 VPS 节点\n")
+	}
+
 	tokenDesc := "(由 Worker 自动管理)"
 	if cfCfg.Token != "" {
 		tokenDesc = "已手动指定自定义 Token"
 	} else if hasCache && cached.TunnelName != "" {
 		tokenDesc = fmt.Sprintf("已分配隧道: %s", cached.TunnelName)
 	}
-	fmt.Fprintf(w, "隧道凭据\t%s\tCloudflare Tunnel 鉴权信息\n", tokenDesc)
+	if isRelayMode {
+		fmt.Fprintf(w, "隧道凭据\t%s\tE2EE 中继节点池鉴权信息\n", tokenDesc)
+	} else {
+		fmt.Fprintf(w, "隧道凭据\t%s\tCloudflare Tunnel 鉴权信息\n", tokenDesc)
+	}
 
 	// Binary
-	binDesc := "❌ 未就绪 (启动网关或执行 mgy cf pull 自动下载)"
-	if hasBin {
-		binDesc = fmt.Sprintf("✅ 已就绪 (%s)", binPath)
+	if isRelayMode {
+		fmt.Fprintf(w, "穿透引擎\t✅ 内置 E2EE 中继引擎 (无需下载 cloudflared)\t零外部二进制依赖\n")
+	} else {
+		binDesc := "❌ 未就绪 (启动网关或执行 mgy cf pull 自动下载)"
+		if hasBin {
+			binDesc = fmt.Sprintf("✅ 已就绪 (%s)", binPath)
+		}
+		fmt.Fprintf(w, "穿透引擎 (cloudflared)\t%s\t官方穿透核心程序\n", binDesc)
 	}
-	fmt.Fprintf(w, "穿透引擎 (cloudflared)\t%s\t官方穿透核心程序\n", binDesc)
 
 	w.Flush()
 	fmt.Println("================================================================================")

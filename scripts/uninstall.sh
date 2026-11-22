@@ -192,13 +192,48 @@ msg \
     "🗑️  Multigravity (mgy) および関連コンポーネントをアンインストールしています..."
 echo "=================================================="
 
-# 1. 停止运行中的 mgy 进程
-if pgrep -f "mgy" >/dev/null 2>&1; then
+# 0. 先卸载后台自启守护服务（防止 KeepAlive 在卸载中途抢跑复活幽灵进程）
+if [ "$(uname -s 2>/dev/null || true)" = "Darwin" ]; then
+    UID_NUM="$(id -u)"
+    for plist in "${HOME}/Library/LaunchAgents/"*multigravity*.plist "${HOME}/Library/LaunchAgents/"*mgy*.plist; do
+        [ -f "${plist}" ] || continue
+        msg \
+            "⏹️  正在停止并移除 macOS 自启服务: ${plist}" \
+            "⏹️  Stopping and removing macOS LaunchAgent: ${plist}" \
+            "⏹️  macOS 自動起動サービスを停止・削除しています: ${plist}"
+        launchctl bootout "gui/${UID_NUM}" "${plist}" >/dev/null 2>&1 \
+            || launchctl bootout "user/${UID_NUM}" "${plist}" >/dev/null 2>&1 \
+            || launchctl unload -w "${plist}" >/dev/null 2>&1 \
+            || true
+        rm -f "${plist}" 2>/dev/null || true
+    done
+elif command -v systemctl >/dev/null 2>&1; then
+    for unit in mgy.service multigravity.service; do
+        if systemctl --user list-unit-files "${unit}" >/dev/null 2>&1 || [ -f "${HOME}/.config/systemd/user/${unit}" ]; then
+            systemctl --user disable --now "${unit}" >/dev/null 2>&1 || true
+            rm -f "${HOME}/.config/systemd/user/${unit}" 2>/dev/null || true
+            systemctl --user daemon-reload >/dev/null 2>&1 || true
+        fi
+    done
+fi
+
+# 1. 停止运行中的 mgy 进程并等待彻底退出
+if pgrep -x "mgy" >/dev/null 2>&1 || pgrep -f "/mgy([[:space:]]|$)" >/dev/null 2>&1; then
     msg \
         "⏹️  正在停止运行中的 mgy 进程..." \
         "⏹️  Stopping running mgy processes..." \
         "⏹️  実行中の mgy プロセスを停止しています..."
-    pkill -x "mgy" 2>/dev/null || pkill -f "/mgy" 2>/dev/null || true
+    pkill -x "mgy" 2>/dev/null || pkill -f "/mgy([[:space:]]|$)" 2>/dev/null || true
+    for _ in 1 2 3 4 5 6; do
+        if ! pgrep -x "mgy" >/dev/null 2>&1 && ! pgrep -f "/mgy([[:space:]]|$)" >/dev/null 2>&1; then
+            break
+        fi
+        sleep 0.5
+    done
+    if pgrep -x "mgy" >/dev/null 2>&1 || pgrep -f "/mgy([[:space:]]|$)" >/dev/null 2>&1; then
+        pkill -9 -x "mgy" 2>/dev/null || pkill -9 -f "/mgy([[:space:]]|$)" 2>/dev/null || true
+        sleep 0.3
+    fi
 fi
 if command -v taskkill >/dev/null 2>&1; then
     taskkill //F //IM mgy.exe >/dev/null 2>&1 || true
