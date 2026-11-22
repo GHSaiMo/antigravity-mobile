@@ -23,8 +23,18 @@ final class DemoGateway: @unchecked Sendable {
         Locale.preferredLanguages.first?.hasPrefix("zh") == true
     }
 
+    static var isJA: Bool {
+        Locale.preferredLanguages.first?.hasPrefix("ja") == true
+    }
+
     static func t(_ zh: String, _ en: String) -> String {
         isZH ? zh : en
+    }
+
+    static func t(_ zh: String, _ en: String, _ ja: String) -> String {
+        if isZH { return zh }
+        if isJA { return ja }
+        return en
     }
 
     struct Project {
@@ -388,9 +398,9 @@ final class DemoGateway: @unchecked Sendable {
         var payload: [String: Any] = [
             "status": "ok",
             "os": "darwin",
-            "platform": Self.t("macOS (Apple M4 Max · 演示网关)", "macOS (Apple M4 Max · Demo Gateway)"),
+            "platform": Self.t("macOS (Apple M4 Max · 演示网关)", "macOS (Apple M4 Max · Demo Gateway)", "macOS (Apple M4 Max · デモゲートウェイ)"),
             "usedInterface": "DemoLoopback",
-            "connectionDescription": Self.t("本机演示模拟网关", "Local On-Device Demo Gateway"),
+            "connectionDescription": Self.t("本机演示模拟网关", "Local On-Device Demo Gateway", "ローカルデモ模擬ゲートウェイ"),
             "upstream": [
                 "pid": 4821,
                 "port": 51034,
@@ -447,19 +457,19 @@ final class DemoGateway: @unchecked Sendable {
 
     func slashCommandsPayload() -> [String: Any] {
         let commands: [[String: Any]] = [
-            ["name": "compact", "title": Self.t("压缩上下文", "Compact Context"), "description": Self.t("提炼当前对话关键事实并大幅释放上下文窗口占用", "Summarize key facts and free context window capacity"), "icon": "collapse_all", "kind": "system"],
-            ["name": "plan", "title": Self.t("制定实施计划", "Create Plan"), "description": Self.t("先拆解架构、关键路径与风险，确认后再动手改代码", "Break down architecture, milestones, and risks before coding"), "icon": "ballot", "kind": "system"],
-            ["name": "grill-me", "title": Self.t("深度追问对齐", "Deep Clarify"), "description": Self.t("通过多轮聚焦提问暴露隐含前提并消除设计歧义", "Ask focused follow-up questions to resolve design ambiguity"), "icon": "forum", "kind": "system"],
-            ["name": "workflow", "title": Self.t("动态多智能体工作流", "Multi-Agent Workflow"), "description": Self.t("编写并执行 Python 并发/流水线编排工作流脚本", "Write and run a concurrent/pipelined multi-agent Python workflow"), "icon": "graph_2", "kind": "system"],
-            ["name": "teamwork", "title": Self.t("蜂群协同攻坚", "Swarm Teamwork"), "description": Self.t("组建多角色 Swarm Agent 协作板并发推进大型任务", "Coordinate multiple Swarm agents via a shared board"), "icon": "graph_2", "kind": "system"],
-            ["name": "goal", "title": Self.t("长程目标模式", "Goal Mode"), "description": Self.t("持续自主验证与迭代直至完全达成验收目标", "Iterate and self-verify autonomously until acceptance criteria pass"), "icon": "timer", "kind": "system"],
-            ["name": "boost", "title": Self.t("深度思考强化", "Deep Reasoning"), "description": Self.t("调用多视角严格验证与高算力推理链路", "Enable multi-perspective reasoning and rigorous verification"), "icon": "bolt", "kind": "system"],
-            ["name": "schedule", "title": Self.t("定时自动化", "Schedule Automation"), "description": Self.t("创建 Cron 定时巡检或延时唤醒触发器", "Create a recurring cron job or delayed timer trigger"), "icon": "schedule", "kind": "system"],
-            ["name": "btw", "title": Self.t("旁路快问", "Side Question"), "description": Self.t("不打断主线上下文的轻量临时提问", "Ask a lightweight side question without altering main context"), "icon": "chat_add_on", "kind": "system"],
-            ["name": "chart-generator", "title": "chart-generator", "description": Self.t("自动化图表生成与多维度可视化分析", "Automated data visualization and chart generation"), "icon": "code_blocks", "kind": "skill"],
-            ["name": "sql-inspector", "title": "sql-inspector", "description": Self.t("SQL 查询调优与执行计划诊断", "SQL query tuning and execution-plan diagnostics"), "icon": "code_blocks", "kind": "skill"],
-            ["name": "swift-concurrency-audit", "title": "swift-concurrency-audit", "description": Self.t("Swift 6 并发模型与 Actor 隔离静态审查", "Swift 6 concurrency and actor-isolation static audit"), "icon": "lightbulb_2", "kind": "skill"],
-            ["name": "swift-refactor", "title": "swift-refactor", "description": Self.t("SwiftUI / Swift 并发与视图拆分重构指南", "SwiftUI view decomposition and concurrency refactoring guide"), "icon": "code", "kind": "skill"]
+            ["name": "compact", "title": Self.t("压缩上下文", "Compact Context", "コンテキスト圧縮"), "description": Self.t("提炼当前对话关键事实并大幅释放上下文窗口占用", "Summarize key facts and free context window capacity", "現在の会話の要点を抽出しコンテキスト枠を大きく解放"), "icon": "collapse_all", "kind": "system"],
+            ["name": "plan", "title": Self.t("制定实施计划", "Create Plan", "実装計画の作成"), "description": Self.t("先拆解架构、关键路径与风险，确认后再动手改代码", "Break down architecture, milestones, and risks before coding", "実装前に構成・マイルストーン・リスクを整理して合意形成"), "icon": "ballot", "kind": "system"],
+            ["name": "grill-me", "title": Self.t("深度追问对齐", "Deep Clarify", "深掘りヒアリング"), "description": Self.t("通过多轮聚焦提问暴露隐含前提并消除设计歧义", "Ask focused follow-up questions to resolve design ambiguity", "集中的な質問で暗黙の前提を洗い出し設計の曖昧さを解消"), "icon": "forum", "kind": "system"],
+            ["name": "workflow", "title": Self.t("动态多智能体工作流", "Multi-Agent Workflow", "マルチエージェントワークフロー"), "description": Self.t("编写并执行 Python 并发/流水线编排工作流脚本", "Write and run a concurrent/pipelined multi-agent Python workflow", "並列・パイプライン構成の Python ワークフローを作成・実行"), "icon": "graph_2", "kind": "system"],
+            ["name": "teamwork", "title": Self.t("蜂群协同攻坚", "Swarm Teamwork", "スウォーム協調開発"), "description": Self.t("组建多角色 Swarm Agent 协作板并发推进大型任务", "Coordinate multiple Swarm agents via a shared board", "共有ボード上で複数 Swarm エージェントを並列連携"), "icon": "graph_2", "kind": "system"],
+            ["name": "goal", "title": Self.t("长程目标模式", "Goal Mode", "自律ゴールモード"), "description": Self.t("持续自主验证与迭代直至完全达成验收目标", "Iterate and self-verify autonomously until acceptance criteria pass", "受け入れ基準を満たすまで自律的に検証と反復を継続"), "icon": "timer", "kind": "system"],
+            ["name": "boost", "title": Self.t("深度思考强化", "Deep Reasoning", "ディープ推論強化"), "description": Self.t("调用多视角严格验证与高算力推理链路", "Enable multi-perspective reasoning and rigorous verification", "多角的な検証と高精度推論パスを有効化"), "icon": "bolt", "kind": "system"],
+            ["name": "schedule", "title": Self.t("定时自动化", "Schedule Automation", "スケジュール自動化"), "description": Self.t("创建 Cron 定时巡检或延时唤醒触发器", "Create a recurring cron job or delayed timer trigger", "定期実行 Cron または遅延タイマーのトリガーを作成"), "icon": "schedule", "kind": "system"],
+            ["name": "btw", "title": Self.t("旁路快问", "Side Question", "サイド質問"), "description": Self.t("不打断主线上下文的轻量临时提问", "Ask a lightweight side question without altering main context", "メインの文脈を崩さず軽い確認質問を投げる"), "icon": "chat_add_on", "kind": "system"],
+            ["name": "chart-generator", "title": "chart-generator", "description": Self.t("自动化图表生成与多维度可视化分析", "Automated data visualization and chart generation", "データ可視化とインタラクティブグラフの自動生成"), "icon": "code_blocks", "kind": "skill"],
+            ["name": "sql-inspector", "title": "sql-inspector", "description": Self.t("SQL 查询调优与执行计划诊断", "SQL query tuning and execution-plan diagnostics", "SQL クエリ最適化と実行計画の診断"), "icon": "code_blocks", "kind": "skill"],
+            ["name": "swift-concurrency-audit", "title": "swift-concurrency-audit", "description": Self.t("Swift 6 并发模型与 Actor 隔离静态审查", "Swift 6 concurrency and actor-isolation static audit", "Swift 6 並行処理モデルと Actor 分離の静的監査"), "icon": "lightbulb_2", "kind": "skill"],
+            ["name": "swift-refactor", "title": "swift-refactor", "description": Self.t("SwiftUI / Swift 并发与视图拆分重构指南", "SwiftUI view decomposition and concurrency refactoring guide", "SwiftUI ビュー分割と並行処理リファクタリング指針"), "icon": "code", "kind": "skill"]
         ]
         return ["commands": commands]
     }
@@ -572,9 +582,9 @@ final class DemoGateway: @unchecked Sendable {
         let days = secs / 86400
         let hours = (secs % 86400) / 3600
         let mins = (secs % 3600) / 60
-        if days > 0 { return Self.isZH ? "\(days) 天 \(hours) 小时后" : "in \(days)d \(hours)h" }
-        if hours > 0 { return Self.isZH ? "\(hours) 小时 \(mins) 分后" : "in \(hours)h \(mins)m" }
-        return Self.isZH ? "\(mins) 分钟后" : "in \(mins)m"
+        if days > 0 { return Self.t("\(days) 天 \(hours) 小时后", "in \(days)d \(hours)h", "\(days)日\(hours)時間後") }
+        if hours > 0 { return Self.t("\(hours) 小时 \(mins) 分后", "in \(hours)h \(mins)m", "\(hours)時間\(mins)分後") }
+        return Self.t("\(mins) 分钟后", "in \(mins)m", "\(mins)分後")
     }
 
     func tokenHistoryPayload() -> Data {
@@ -699,11 +709,11 @@ final class DemoGateway: @unchecked Sendable {
         let chosenModel = (model?.isEmpty == false) ? model! : activeGlobalModelId
         let conv = Conversation(
             id: id,
-            title: Self.t("新对话", "New Chat"),
+            title: Self.t("新对话", "New Chat", "新規チャット"),
             workspaceName: wsName,
             workspaceUri: wsUri,
             status: "CASCADE_RUN_STATUS_IDLE",
-            duration: Self.t("0秒", "0s"),
+            duration: Self.t("0秒", "0s", "0秒"),
             messages: [],
             pendingInteraction: nil,
             canProceed: false,
@@ -789,7 +799,7 @@ final class DemoGateway: @unchecked Sendable {
         for aid in attachmentIds {
             guard let f = files.values.first(where: { $0.id == aid }) else {
                 lock.unlock()
-                return Self.t("附件不存在或已过期", "Attachment not found or expired")
+                return Self.t("附件不存在或已过期", "Attachment not found or expired", "添付ファイルが見つからないか有効期限切れです")
             }
             attachmentLines.append(Self.attachmentLine(path: f.path, name: f.name, size: Int64(f.data.count)))
             attachmentNames.append(f.name)
@@ -813,11 +823,13 @@ final class DemoGateway: @unchecked Sendable {
                 let replyText = isRedesign
                     ? Self.t(
                         "已按方案完成首页改版：\n\n- ✅ 抽出 `Hero`、`CaseStudies`、`Pricing` 三个组件\n- ✅ 首屏只保留「免费试用」主按钮\n- ✅ 客户案例上移到第二屏\n- ✅ 价格区块改为三档对比卡片\n- ✅ 接入转化埋点（`home_cta_click`）\n\n测试全部通过，改动已提交到 `feat/home-redesign` 分支。",
-                        "Completed the homepage redesign as planned:\n\n- ✅ Extracted `Hero`, `CaseStudies`, and `Pricing` components\n- ✅ Kept a single primary \"Start Free Trial\" CTA above the fold\n- ✅ Moved Customer Case Studies into Section 2\n- ✅ Switched Pricing to a 3-tier comparison grid\n- ✅ Wired conversion telemetry (`home_cta_click`)\n\nAll tests passed and changes are committed to `feat/home-redesign`."
+                        "Completed the homepage redesign as planned:\n\n- ✅ Extracted `Hero`, `CaseStudies`, and `Pricing` components\n- ✅ Kept a single primary \"Start Free Trial\" CTA above the fold\n- ✅ Moved Customer Case Studies into Section 2\n- ✅ Switched Pricing to a 3-tier comparison grid\n- ✅ Wired conversion telemetry (`home_cta_click`)\n\nAll tests passed and changes are committed to `feat/home-redesign`.",
+                        "計画どおりトップページの刷新を完了しました：\n\n- ✅ `Hero`・`CaseStudies`・`Pricing` の3コンポーネントを分離\n- ✅ ファーストビューの主ボタンを「無料で試す」に一本化\n- ✅ 導入事例を第2セクションへ引き上げ\n- ✅ 料金セクションを3プラン比較カードに変更\n- ✅ CV計測イベント（`home_cta_click`）を接続\n\n全テスト通過済み、`feat/home-redesign` ブランチへコミット済みです。"
                     )
                     : Self.t(
                         "已按审批通过的方案完成实施与本地验证：\n\n1. 更新核心模块化边界，保留旧接口向后兼容。\n2. 全部单元测试与编译校验均已通过 ✅。\n\n如需查看本次修改的增量 Diff 或直接 Commit，可点击顶部栏的 **Changes** / **Commit**。",
-                        "Implemented the approved plan and completed local verification:\n\n1. Updated core module boundaries while keeping legacy API compatibility.\n2. All unit tests and build checks passed ✅.\n\nTap **Changes** or **Commit** in the top bar to inspect the incremental diff."
+                        "Implemented the approved plan and completed local verification:\n\n1. Updated core module boundaries while keeping legacy API compatibility.\n2. All unit tests and build checks passed ✅.\n\nTap **Changes** or **Commit** in the top bar to inspect the incremental diff.",
+                        "承認された計画に沿って実装とローカル検証を完了しました：\n\n1. 既存 API の後方互換を保ちつつコアモジュール境界を整理。\n2. 単体テストおよびビルド検証をすべてパス ✅。\n\n差分確認やコミットは上部バーの **Changes** / **Commit** から確認できます。"
                     )
                 self.conversations[i].messages.append(Self.agentMsg(
                     id: "\(cascadeId)-agent-\(s2)",
@@ -827,7 +839,7 @@ final class DemoGateway: @unchecked Sendable {
                     text: replyText
                 ))
                 self.conversations[i].status = "CASCADE_RUN_STATUS_IDLE"
-                self.conversations[i].duration = Self.t("4秒", "4s")
+                self.conversations[i].duration = Self.t("4秒", "4s", "4秒")
                 self.conversations[i].lastModified = Date()
                 self.bumpContextMeter(at: i, addInput: 3_200, addOutput: 410, speed: 54.6, ttft: 0.61)
             }
@@ -945,7 +957,8 @@ final class DemoGateway: @unchecked Sendable {
                     text: String(
                         format: Self.t(
                             "已完成上下文压缩 **`/compact`** ✅\n\n- 上下文占用从 **%.1f%%** 降至 **%.1f%%**（48.6K / 200K tokens）\n- 保留了核心需求、文件路径、改动 Diff 与验收约束，移除了冗余中间工具输出\n\n现在可以继续畅通对话了。",
-                            "Compacted conversation context via **`/compact`** ✅\n\n- Context usage dropped from **%.1f%%** to **%.1f%%** (48.6K / 200K tokens)\n- Preserved key requirements, file paths, code diffs, and constraints while trimming intermediate tool noise"
+                            "Compacted conversation context via **`/compact`** ✅\n\n- Context usage dropped from **%.1f%%** to **%.1f%%** (48.6K / 200K tokens)\n- Preserved key requirements, file paths, code diffs, and constraints while trimming intermediate tool noise",
+                            "コンテキスト圧縮 **`/compact`** を完了しました ✅\n\n- コンテキスト使用率：**%.1f%%** → **%.1f%%**（48.6K / 200K tokens）\n- 主要要件・ファイルパス・差分・制約を保持し、冗長な中間ツール出力を整理\n\nこのままスムーズに会話を続けられます。"
                         ),
                         prevPct, newPct
                     )
@@ -979,6 +992,16 @@ final class DemoGateway: @unchecked Sendable {
                         ```
 
                         I raised the pool size to 100 and added an acquire timeout so overload fails fast with HTTP 503 instead of hanging. Monitor `pool_wait_ms` after rollout.
+                        """,
+                        """
+                        復旧しました。ログを確認したところ、500 エラーの原因はピーク時の同時ログイン集中による `session_store` コネクションプール枯渇（上限 20）でした。
+
+                        ```diff
+                        - pool = create_pool(max_size=20)
+                        + pool = create_pool(max_size=100, acquire_timeout=3)
+                        ```
+
+                        プール上限を 100 に引き上げ、取得タイムアウト（3秒）を設定してハングせず HTTP 503 で即時フェイルするよう修正しました。リリース後は `pool_wait_ms` 指標の監視をおすすめします。
                         """
                     )
                 ))
@@ -987,11 +1010,11 @@ final class DemoGateway: @unchecked Sendable {
                 let wfSubId = "demo-subagent-live-wf-\(self.nextIdCounter)"
                 self.nextIdCounter += 1
                 let wfObj: [String: Any] = [
-                    "description": Self.t("实时触发的多智能体并发工作流", "On-Demand Multi-Agent Parallel Workflow"),
+                    "description": Self.t("实时触发的多智能体并发工作流", "On-Demand Multi-Agent Parallel Workflow", "オンデマンド並列マルチエージェントワークフロー"),
                     "scriptPath": "workflows/live_pipeline.py",
                     "phases": [
                         [
-                            "name": Self.t("Phase 1 · 并发采集与静态检查", "Phase 1 · Parallel Collection & Static Audit"),
+                            "name": Self.t("Phase 1 · 并发采集与静态检查", "Phase 1 · Parallel Collection & Static Audit", "Phase 1 · 並列収集＆静的チェック"),
                             "status": "done",
                             "logs": [
                                 "[00:00.2] spawn parallel workers (n=2)",
@@ -1001,27 +1024,27 @@ final class DemoGateway: @unchecked Sendable {
                                 [
                                     "conversationId": "demo-subagent-audit-1",
                                     "typeName": "research",
-                                    "role": Self.t("依赖与静态审计官", "Dependency & Static Auditor"),
+                                    "role": Self.t("依赖与静态审计官", "Dependency & Static Auditor", "依存関係・静的監査担当"),
                                     "modelTier": "flash",
                                     "status": "done",
                                     "stepCount": 4,
-                                    "title": Self.t("依赖与静态审计官", "Dependency & Static Auditor")
+                                    "title": Self.t("依赖与静态审计官", "Dependency & Static Auditor", "依存関係・静的監査担当")
                                 ]
                             ]
                         ],
                         [
-                            "name": Self.t("Phase 2 · 方案综合与收敛", "Phase 2 · Synthesis & Verification"),
+                            "name": Self.t("Phase 2 · 方案综合与收敛", "Phase 2 · Synthesis & Verification", "Phase 2 · 統合レビュー＆検証"),
                             "status": "done",
                             "logs": ["[00:02.0] aggregated summary & emitted JSON finish contract"],
                             "subagents": [
                                 [
                                     "conversationId": wfSubId,
                                     "typeName": "research",
-                                    "role": Self.t("结论校验子代理", "Verification Subagent"),
+                                    "role": Self.t("结论校验子代理", "Verification Subagent", "検証サブエージェント"),
                                     "modelTier": "pro",
                                     "status": "done",
                                     "stepCount": 3,
-                                    "title": Self.t("结论校验子代理", "Verification Subagent")
+                                    "title": Self.t("结论校验子代理", "Verification Subagent", "検証サブエージェント")
                                 ]
                             ]
                         ]
@@ -1030,7 +1053,7 @@ final class DemoGateway: @unchecked Sendable {
                         "workflow engine initialized (max_parallel=4)",
                         "all phases converged cleanly in 2.3s"
                     ],
-                    "output": Self.t("全部 2 个阶段已完成，无阻断风险。", "All 2 phases completed with zero blocking findings."),
+                    "output": Self.t("全部 2 个阶段已完成，无阻断风险。", "All 2 phases completed with zero blocking findings.", "全 2 フェーズが完了し、ブロッキングリスクはありません。"),
                     "resultJson": "{\"ok\":true,\"phases\":2,\"findings\":0,\"recommendedNextStep\":\"ready_to_commit\"}",
                     "status": "done",
                     "duration": "2.3s"
@@ -1051,7 +1074,7 @@ final class DemoGateway: @unchecked Sendable {
                     step: s2,
                     model: activeModelId,
                     modelName: activeModelName,
-                    text: Self.t("动态工作流已执行完毕，详见上方工作流编排卡片中的阶段日志与 JSON 产物。", "Dynamic workflow completed. Inspect phase logs and JSON artifacts in the workflow card above.")
+                    text: Self.t("动态工作流已执行完毕，详见上方工作流编排卡片中的阶段日志与 JSON 产物。", "Dynamic workflow completed. Inspect phase logs and JSON artifacts in the workflow card above.", "動的ワークフローの実行が完了しました。上のワークフローカードから各フェーズのログと JSON 成果物を確認できます。")
                 ))
                 self.bumpContextMeter(at: i, addInput: 4_800, addOutput: 520, speed: 58.2, ttft: 0.55)
             } else {
@@ -1070,7 +1093,7 @@ final class DemoGateway: @unchecked Sendable {
             }
 
             self.conversations[i].status = "CASCADE_RUN_STATUS_IDLE"
-            self.conversations[i].duration = Self.t("2秒", "2s")
+            self.conversations[i].duration = Self.t("2秒", "2s", "2秒")
             self.conversations[i].lastModified = Date()
         }
         return nil
@@ -1129,8 +1152,8 @@ final class DemoGateway: @unchecked Sendable {
             if skipped || allow == false {
                 let s = self.conversations[i].messages.count
                 let note = trimmedWriteIn.isEmpty
-                    ? Self.t("好的，已按你的选择取消/跳过该操作，工作区保持原状。", "Got it — operation skipped/cancelled. Workspace left unchanged.")
-                    : Self.t("已收到你的说明「\(trimmedWriteIn)」，暂不执行该操作，等待你的进一步指示。", "Received your note \"\(trimmedWriteIn)\". Holding execution pending your next instruction.")
+                    ? Self.t("好的，已按你的选择取消/跳过该操作，工作区保持原状。", "Got it — operation skipped/cancelled. Workspace left unchanged.", "了解しました。この操作をキャンセル・スキップし、ワークスペースは変更していません。")
+                    : Self.t("已收到你的说明「\(trimmedWriteIn)」，暂不执行该操作，等待你的进一步指示。", "Received your note \"\(trimmedWriteIn)\". Holding execution pending your next instruction.", "メモ「\(trimmedWriteIn)」を受け取りました。実行を保留し、次の指示をお待ちしています。")
                 self.conversations[i].messages.append(Self.agentMsg(
                     id: "\(cascadeId)-a-\(s)",
                     step: s,
@@ -1148,30 +1171,30 @@ final class DemoGateway: @unchecked Sendable {
                     toolNames: ["run_workflow"],
                     stepIndex: s1,
                     workflow: [
-                        "description": Self.t("灰度发布与冒烟验证流水线", "Canary Rollout & Smoke Verification Pipeline"),
+                        "description": Self.t("灰度发布与冒烟验证流水线", "Canary Rollout & Smoke Verification Pipeline", "カナリアリリース＆スモーク検証パイプライン"),
                         "scriptPath": "deploy/canary_rollout.py",
                         "phases": [
                             [
-                                "name": Self.t("构建镜像与推送", "Build & Push Image"),
+                                "name": Self.t("构建镜像与推送", "Build & Push Image", "イメージビルド＆プッシュ"),
                                 "status": "done",
                                 "logs": ["docker buildx ok", "pushed tag v2.35.0-canary"],
                                 "subagents": []
                             ],
                             [
-                                "name": Self.t("灰度发布 10% 流量", "Canary Rollout (10% Traffic)"),
+                                "name": Self.t("灰度发布 10% 流量", "Canary Rollout (10% Traffic)", "カナリア配信（10% トラフィック）"),
                                 "status": "done",
                                 "logs": ["canary pods 2/2 ready", "error rate 0.00%"],
                                 "subagents": []
                             ],
                             [
-                                "name": Self.t("冒烟验证", "Smoke Verification"),
+                                "name": Self.t("冒烟验证", "Smoke Verification", "スモーク検証"),
                                 "status": "done",
                                 "logs": ["18/18 smoke assertions passed"],
                                 "subagents": []
                             ]
                         ],
                         "logs": ["workflow completed after approval"],
-                        "output": Self.t("灰度实例健康检查通过，可随时全量切流。", "Canary health checks passed; ready for full traffic promotion."),
+                        "output": Self.t("灰度实例健康检查通过，可随时全量切流。", "Canary health checks passed; ready for full traffic promotion.", "カナリア環境のヘルスチェック通過。いつでも全量切替可能です。"),
                         "resultJson": "{\"canary\":\"healthy\",\"smokePassed\":18,\"p99Ms\":42}",
                         "status": "done",
                         "duration": "6.4s"
@@ -1183,7 +1206,7 @@ final class DemoGateway: @unchecked Sendable {
                     step: s2,
                     model: activeModelId,
                     modelName: activeModelName,
-                    text: Self.t("已批准并完成灰度发布工作流！18 项冒烟断言全部通过（P99 = 42ms）。", "Approved and completed canary rollout workflow! All 18 smoke assertions passed (P99 = 42ms).")
+                    text: Self.t("已批准并完成灰度发布工作流！18 项冒烟断言全部通过（P99 = 42ms）。", "Approved and completed canary rollout workflow! All 18 smoke assertions passed (P99 = 42ms).", "承認を受けカナリアリリースワークフローを完了しました！18 件のスモーク検証がすべて成功（P99 = 42ms）。")
                 ))
             } else {
                 let summary: String
@@ -1195,7 +1218,7 @@ final class DemoGateway: @unchecked Sendable {
                         let qWriteIn = (ans["writeInResponse"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
                         let qSkipped = ans["skipped"] as? Bool ?? false
                         if qSkipped {
-                            parts.append(Self.t("- 第 \(qIdx + 1) 题：已跳过", "- Question \(qIdx + 1): Skipped"))
+                            parts.append(Self.t("- 第 \(qIdx + 1) 题：已跳过", "- Question \(qIdx + 1): Skipped", "- 質問 \(qIdx + 1)：スキップ"))
                             continue
                         }
                         var chosenTexts: [String] = []
@@ -1207,11 +1230,13 @@ final class DemoGateway: @unchecked Sendable {
                         } else {
                             chosenTexts = ids
                         }
-                        if !qWriteIn.isEmpty { chosenTexts.append(Self.t("补充：\(qWriteIn)", "Note: \(qWriteIn)")) }
-                        let sep = Self.isZH ? "、" : ", "
-                        parts.append(Self.isZH
-                            ? "- 第 \(qIdx + 1) 题：\(chosenTexts.isEmpty ? "已确认" : chosenTexts.joined(separator: sep))"
-                            : "- Question \(qIdx + 1): \(chosenTexts.isEmpty ? "Confirmed" : chosenTexts.joined(separator: sep))")
+                        if !qWriteIn.isEmpty { chosenTexts.append(Self.t("补充：\(qWriteIn)", "Note: \(qWriteIn)", "補足：\(qWriteIn)")) }
+                        let sep = (Self.isZH || Self.isJA) ? "、" : ", "
+                        parts.append(Self.t(
+                            "- 第 \(qIdx + 1) 题：\(chosenTexts.isEmpty ? "已确认" : chosenTexts.joined(separator: sep))",
+                            "- Question \(qIdx + 1): \(chosenTexts.isEmpty ? "Confirmed" : chosenTexts.joined(separator: sep))",
+                            "- 質問 \(qIdx + 1)：\(chosenTexts.isEmpty ? "確認済み" : chosenTexts.joined(separator: sep))"
+                        ))
                     }
                     if cascadeId == "demo-0003-migration" {
                         summary = Self.t(
@@ -1246,21 +1271,38 @@ final class DemoGateway: @unchecked Sendable {
                             ```
 
                             ✅ Estimated lock hold `< 10ms`, zero write blocking on production orders. Ready to merge into this release.
+                            """,
+                            """
+                            ご選択いただいた方針で最終マイグレーションSQLとロールバック手順を生成しました：
+
+                            \(parts.joined(separator: "\n"))
+
+                            ```sql
+                            -- 0019_orders_created_idx.sql（ロックフリー並列インデックス作成）
+                            CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_orders_created_status
+                            ON orders (created_at DESC, status)
+                            WHERE deleted_at IS NULL;
+
+                            -- ロールバック: DROP INDEX CONCURRENTLY IF EXISTS idx_orders_created_status;
+                            ```
+
+                            ✅ 推定ロック保持時間は `< 10ms`、本番注文の書き込みブロックなし。そのまま今回リリースに組み込めます。
                             """
                         )
                     } else {
                         summary = Self.t(
                             "已收到你的确认选择：\n\n\(parts.joined(separator: "\n"))\n\n1. 已更新配置并生成变更摘要。\n2. 全部检查通过，随时可继续下一轮对话。",
-                            "Confirmed your selections:\n\n\(parts.joined(separator: "\n"))\n\n1. Updated configuration and generated change summary.\n2. All checks passed; ready for your next instruction."
+                            "Confirmed your selections:\n\n\(parts.joined(separator: "\n"))\n\n1. Updated configuration and generated change summary.\n2. All checks passed; ready for your next instruction.",
+                            "選択内容を確認しました：\n\n\(parts.joined(separator: "\n"))\n\n1. 設定を更新し変更サマリーを生成しました。\n2. 全チェック通過済み。続けて次の指示をどうぞ。"
                         )
                     }
                 } else if !trimmedWriteIn.isEmpty {
-                    summary = Self.t("已收到你的自定义回复「\(trimmedWriteIn)」，并按新要求继续执行完成 ✅。", "Received custom reply \"\(trimmedWriteIn)\" and completed execution ✅.")
+                    summary = Self.t("已收到你的自定义回复「\(trimmedWriteIn)」，并按新要求继续执行完成 ✅。", "Received custom reply \"\(trimmedWriteIn)\" and completed execution ✅.", "カスタム指示「\(trimmedWriteIn)」を反映し、実行を完了しました ✅。")
                 } else if let optionId, !optionId.isEmpty {
                     let chosenText = pendingOptions?.first(where: { ($0["id"] as? String) == optionId })?["text"] as? String ?? optionId
-                    summary = Self.t("已按所选方案（\(chosenText)）执行完毕 ✅。", "Executed with selected option (\(chosenText)) ✅.")
+                    summary = Self.t("已按所选方案（\(chosenText)）执行完毕 ✅。", "Executed with selected option (\(chosenText)) ✅.", "選択された案（\(chosenText)）で実行を完了しました ✅。")
                 } else {
-                    summary = Self.t("已获得执行权限并顺利完成命令运行 ✅。", "Permission granted and command completed ✅.")
+                    summary = Self.t("已获得执行权限并顺利完成命令运行 ✅。", "Permission granted and command completed ✅.", "実行許可を確認し、コマンドを正常終了しました ✅。")
                 }
                 let s = self.conversations[i].messages.count
                 self.conversations[i].messages.append(Self.agentMsg(
@@ -1272,7 +1314,7 @@ final class DemoGateway: @unchecked Sendable {
                 ))
             }
             self.conversations[i].status = "CASCADE_RUN_STATUS_IDLE"
-            self.conversations[i].duration = Self.t("3秒", "3s")
+            self.conversations[i].duration = Self.t("3秒", "3s", "3秒")
             self.conversations[i].lastModified = Date()
             self.bumpContextMeter(at: i, addInput: 1_900, addOutput: 260, speed: 53.1, ttft: 0.58)
         }
@@ -1450,12 +1492,12 @@ final class DemoGateway: @unchecked Sendable {
             if let preset = conv.chapters.first(where: { ($0["startStepIndex"] as? Int) == s }) {
                 out.append(preset)
             } else {
-                let firstUser = conv.messages.first(where: { $0.stepIndex >= s && $0.stepIndex < e && $0.type == "user" })?.text ?? Self.t("阶段 \(i + 1)", "Phase \(i + 1)")
+                let firstUser = conv.messages.first(where: { $0.stepIndex >= s && $0.stepIndex < e && $0.type == "user" })?.text ?? Self.t("阶段 \(i + 1)", "Phase \(i + 1)", "フェーズ \(i + 1)")
                 let shortTitle = String(firstUser.replacingOccurrences(of: "\n", with: " ").prefix(22))
                 out.append([
                     "startStepIndex": s,
                     "endStepIndexExclusive": e,
-                    "title": shortTitle.isEmpty ? Self.t("第 \(i + 1) 轮对话", "Turn \(i + 1)") : shortTitle,
+                    "title": shortTitle.isEmpty ? Self.t("第 \(i + 1) 轮对话", "Turn \(i + 1)", "ターン \(i + 1)") : shortTitle,
                     "generatedAt": Self.iso(Date())
                 ])
             }
@@ -1518,14 +1560,14 @@ final class DemoGateway: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         guard let conv = conversations.first(where: { $0.id == cascadeId }) else {
-            return ["markdown": Self.t("# 会话导出\n\n（未找到会话内容）", "# Conversation Export\n\n(No content found)")]
+            return ["markdown": Self.t("# 会话导出\n\n（未找到会话内容）", "# Conversation Export\n\n(No content found)", "# 会話エクスポート\n\n（会話内容が見つかりません）")]
         }
         var lines: [String] = [
             "# \(conv.title)",
             "",
-            "- **\(Self.t("工作区", "Workspace"))**: \(conv.workspaceName)",
-            "- **\(Self.t("模型", "Model"))**: \(conv.modelName)",
-            "- **\(Self.t("发起时间", "Started At"))**: \(conv.startedAt)",
+            "- **\(Self.t("工作区", "Workspace", "ワークスペース"))**: \(conv.workspaceName)",
+            "- **\(Self.t("模型", "Model", "モデル"))**: \(conv.modelName)",
+            "- **\(Self.t("发起时间", "Started At", "開始時刻"))**: \(conv.startedAt)",
             ""
         ]
         for msg in conv.messages {
@@ -1542,7 +1584,7 @@ final class DemoGateway: @unchecked Sendable {
                 lines.append(msg.text)
                 lines.append("")
             case "workflow":
-                lines.append("> **[Workflow]** \((msg.workflow?["description"] as? String) ?? Self.t("动态工作流", "Dynamic Workflow"))")
+                lines.append("> **[Workflow]** \((msg.workflow?["description"] as? String) ?? Self.t("动态工作流", "Dynamic Workflow", "動的ワークフロー"))")
                 lines.append("")
             case "tools":
                 let names = (msg.toolNames ?? []).joined(separator: ", ")
@@ -1569,8 +1611,8 @@ final class DemoGateway: @unchecked Sendable {
         return [
             "cascadeId": cascadeId,
             "coordinatorId": cascadeId,
-            "title": Self.t("蜂群协同", "Agent Swarm"),
-            "brief": ["active": false, "coordinatorId": cascadeId, "title": Self.t("蜂群协同", "Agent Swarm"), "phase": "", "headline": "", "workingCount": 0, "totalMembers": 0, "latestSeq": 0, "attentionCount": 0],
+            "title": Self.t("蜂群协同", "Agent Swarm", "エージェントスウォーム"),
+            "brief": ["active": false, "coordinatorId": cascadeId, "title": Self.t("蜂群协同", "Agent Swarm", "エージェントスウォーム"), "phase": "", "headline": "", "workingCount": 0, "totalMembers": 0, "latestSeq": 0, "attentionCount": 0],
             "members": [],
             "messages": []
         ]
@@ -1597,7 +1639,7 @@ final class DemoGateway: @unchecked Sendable {
             messages.append([
                 "seq": nextSwarmSeq,
                 "agent": "coordinator",
-                "text": Self.t("@reviewer @tester 已同步用户反馈「\(String(trimmed.prefix(36)))」，优先核查并汇总结果。", "@reviewer @tester Synced user feedback \"\(String(trimmed.prefix(36)))\" — please verify and report back."),
+                "text": Self.t("@reviewer @tester 已同步用户反馈「\(String(trimmed.prefix(36)))」，优先核查并汇总结果。", "@reviewer @tester Synced user feedback \"\(String(trimmed.prefix(36)))\" — please verify and report back.", "@reviewer @tester ユーザーフィードバック「\(String(trimmed.prefix(36)))」を共有しました。優先的に確認して報告してください。"),
                 "time": Self.iso(Date()),
                 "channel": "board",
                 "mentions": ["reviewer", "tester"]
@@ -1621,7 +1663,7 @@ final class DemoGateway: @unchecked Sendable {
             messages.append([
                 "seq": nextSwarmSeq,
                 "agent": "coordinator",
-                "text": Self.t("@\(workerName) 收到前端轻推（nudge），请回报当前阶段进展与阻塞项。", "@\(workerName) Nudge received from mobile — please report current progress and blockers."),
+                "text": Self.t("@\(workerName) 收到前端轻推（nudge），请回报当前阶段进展与阻塞项。", "@\(workerName) Nudge received from mobile — please report current progress and blockers.", "@\(workerName) モバイルからリマインド（nudge）を受信しました。現在の進捗とブロッカーを報告してください。"),
                 "time": Self.iso(Date()),
                 "channel": "nudge",
                 "mentions": [workerName]
@@ -1629,7 +1671,7 @@ final class DemoGateway: @unchecked Sendable {
             var members = (swarm["members"] as? [[String: Any]]) ?? []
             for mIdx in members.indices where (members[mIdx]["name"] as? String) == workerName {
                 members[mIdx]["lastNudgedSeq"] = nextSwarmSeq
-                members[mIdx]["lastActivity"] = Self.t("刚刚轻推唤醒", "Nudged just now")
+                members[mIdx]["lastActivity"] = Self.t("刚刚轻推唤醒", "Nudged just now", "たった今リマインド送信")
                 if (members[mIdx]["status"] as? String) == "waiting" {
                     members[mIdx]["status"] = "working"
                 }
@@ -1682,7 +1724,7 @@ final class DemoGateway: @unchecked Sendable {
             "pluginId": pluginId,
             "installed": true,
             "resumed": true,
-            "message": Self.t("演示模式已模拟安装插件 \(pluginId)", "Simulated plugin install for \(pluginId) in Demo Mode")
+            "message": Self.t("演示模式已模拟安装插件 \(pluginId)", "Simulated plugin install for \(pluginId) in Demo Mode", "デモモードでプラグイン \(pluginId) のインストールをシミュレートしました")
         ]
     }
 
@@ -1714,7 +1756,7 @@ final class DemoGateway: @unchecked Sendable {
                     "conversationId": linkedConvId,
                     "timestamp": nowIso,
                     "status": "SUCCESS",
-                    "message": Self.t("手动触发执行完成：检查通过 4 项，生成简报摘要。", "Manual trigger completed: 4 checks passed and summary generated.")
+                    "message": Self.t("手动触发执行完成：检查通过 4 项，生成简报摘要。", "Manual trigger completed: 4 checks passed and summary generated.", "手動トリガー実行完了：4 項目のチェックを通過しサマリーを生成しました。")
                 ], at: 0)
             default:
                 break
@@ -1766,13 +1808,14 @@ final class DemoGateway: @unchecked Sendable {
         list.insert(
             WorkflowTemplateRecord(
                 id: "fullstack_diagnose",
-                title: Self.t("全栈故障排查与修复", "Full-Stack Incident Triage & Fix"),
-                subtitle: Self.t("并发分析网关日志、前端请求链路与单测回归，给出最小修复补丁", "Concurrently inspect gateway logs, client request traces, and regressions to propose a minimal patch"),
+                title: Self.t("全栈故障排查与修复", "Full-Stack Incident Triage & Fix", "フルスタック障害切り分け＆修正"),
+                subtitle: Self.t("并发分析网关日志、前端请求链路与单测回归，给出最小修复补丁", "Concurrently inspect gateway logs, client request traces, and regressions to propose a minimal patch", "ゲートウェイログ・クライアント通信・単体テストを並列調査し最小修正パッチを提案"),
                 icon: "bolt",
                 color: "orange",
                 templatePrompt: Self.t(
                     "/workflow 请使用 run_workflow 编排并发排查：Worker-1 分析服务端日志与超时链路，Worker-2 验证接口契约与单测，汇总修复方案。",
-                    "/workflow Orchestrate parallel diagnostics with run_workflow: Worker-1 inspects server logs & timeout paths, Worker-2 verifies API contracts & unit tests, then synthesize a minimal fix."
+                    "/workflow Orchestrate parallel diagnostics with run_workflow: Worker-1 inspects server logs & timeout paths, Worker-2 verifies API contracts & unit tests, then synthesize a minimal fix.",
+                    "/workflow run_workflow で並列調査を実行：Worker-1 がサーバーログとタイムアウト経路を解析し、Worker-2 が API 契約と単体テストを検証して最小修正案をまとめて。"
                 ),
                 inQuickMenu: true
             ),
@@ -1907,18 +1950,20 @@ final class DemoGateway: @unchecked Sendable {
 
     private func demoReply(for prompt: String, attachmentNames: [String], hasMedia: Bool) -> String {
         if hasMedia || !attachmentNames.isEmpty {
-            let sep = Self.isZH ? "、" : ", "
+            let sep = (Self.isZH || Self.isJA) ? "、" : ", "
             let fileSummary = attachmentNames.isEmpty
-                ? Self.t("随消息发送的图片 / 文件", "attached image / file")
+                ? Self.t("随消息发送的图片 / 文件", "attached image / file", "添付された画像 / ファイル")
                 : attachmentNames.map { "`\($0)`" }.joined(separator: sep)
             return Self.t(
                 "已收到你上传的附件（\(fileSummary)，演示模式模拟分析）：\n\n- 已完成格式解析、字节校验与内容结构提取\n- 如需继续分析或导出报告，可直接追问下一步要求",
-                "Received your attachment (\(fileSummary)) in Demo Mode:\n\n- Parsed format headers, validated byte integrity, and extracted structure\n- Ask a follow-up question to analyze further or export a report"
+                "Received your attachment (\(fileSummary)) in Demo Mode:\n\n- Parsed format headers, validated byte integrity, and extracted structure\n- Ask a follow-up question to analyze further or export a report",
+                "添付ファイル（\(fileSummary)）を受信しました（デモモード模擬解析）：\n\n- フォーマット解析・整合性チェック・構造抽出を完了\n- 追加の分析やレポート出力が必要ならそのまま指示してください"
             )
         }
         return Self.t(
             "这是**演示模式**下的本地模拟回复（未连接真实电脑网关）：\n\n已收到你的消息：「\(String(prompt.prefix(60)))」。\n\n你可以继续体验：\n- 左滑或长按消息触发 **撤回 / 导出 Markdown**\n- 在输入框键入 **`/`** 呼出斜杠命令与技能，或长按 **Workflow** 胶囊体验快捷模板\n- 点击右上角导轨切换 **章节 TOC / 轮次跳转**，或点顶部 **Changes / Commit** 查看代码与 PR",
-            "This is an offline simulated reply in **Demo Mode** (no desktop gateway connected):\n\nReceived your prompt: \"\(String(prompt.prefix(60)))\".\n\nTry exploring:\n- Long-press messages to **Export Markdown** or **Copy**\n- Type **`/`** in the composer for slash commands & skills, or open **Workflow** templates\n- Tap the outline rail in the top-right to jump between **TOC Chapters / Turns**, or tap **Changes / Commit** to inspect diffs & PRs"
+            "This is an offline simulated reply in **Demo Mode** (no desktop gateway connected):\n\nReceived your prompt: \"\(String(prompt.prefix(60)))\".\n\nTry exploring:\n- Long-press messages to **Export Markdown** or **Copy**\n- Type **`/`** in the composer for slash commands & skills, or open **Workflow** templates\n- Tap the outline rail in the top-right to jump between **TOC Chapters / Turns**, or tap **Changes / Commit** to inspect diffs & PRs",
+            "これは **デモモード** のローカル模擬応答です（実機 PC ゲートウェイ未接続）：\n\n受信したプロンプト：「\(String(prompt.prefix(60)))」。\n\n以下の機能もお試しいただけます：\n- メッセージ長押しで **Markdown エクスポート / コピー**\n- 入力欄で **`/`** を打ってスラッシュコマンド・スキルを呼び出し、または **Workflow** テンプレートを実行\n- 右上ガイドから **目次（TOC）/ ターンジャンプ**、上部の **Changes / Commit** で差分・PR を確認"
         )
     }
 

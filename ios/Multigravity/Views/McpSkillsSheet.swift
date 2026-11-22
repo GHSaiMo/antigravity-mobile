@@ -1525,7 +1525,6 @@ public struct McpSkillsSheet: View {
     }
     
     private func applyDemoData() {
-        let isZH = DemoGateway.isZH
         self.mcpServers = [
             McpServerState(
                 spec: McpServerSpec(serverName: "github", command: "npx -y @modelcontextprotocol/server-github"),
@@ -1533,19 +1532,31 @@ public struct McpSkillsSheet: View {
                 tools: [
                     McpToolDefinition(
                         name: "search_repositories",
-                        description: isZH ? "检索 GitHub 开源仓库、Issue 与 Pull Request 上下文" : "Search GitHub repositories, issues, and pull requests",
+                        description: DemoGateway.t(
+                            "检索 GitHub 开源仓库、Issue 与 Pull Request 上下文",
+                            "Search GitHub repositories, issues, and pull requests",
+                            "GitHub リポジトリ・Issue・Pull Request のコンテキストを検索"
+                        ),
                         serverName: "github",
                         jsonSchemaString: "{\"properties\":{\"query\":{\"type\":\"string\",\"description\":\"Search query\"}},\"required\":[\"query\"]}"
                     ),
                     McpToolDefinition(
                         name: "get_file_contents",
-                        description: isZH ? "按分支与路径读取仓库源码文件内容" : "Read file contents by branch and path from a repository",
+                        description: DemoGateway.t(
+                            "按分支与路径读取仓库源码文件内容",
+                            "Read file contents by branch and path from a repository",
+                            "ブランチとパスを指定してリポジトリのソースファイルを読み取り"
+                        ),
                         serverName: "github",
                         jsonSchemaString: "{\"properties\":{\"owner\":{\"type\":\"string\"},\"repo\":{\"type\":\"string\"},\"path\":{\"type\":\"string\"}},\"required\":[\"owner\",\"repo\",\"path\"]}"
                     )
                 ],
                 serverInfo: McpServerInfoDetail(name: "github-mcp", version: "2.4.0"),
-                instructions: isZH ? "GitHub 仓库检索与 PR 协作工具集" : "GitHub repository search and pull request integration"
+                instructions: DemoGateway.t(
+                    "GitHub 仓库检索与 PR 协作工具集",
+                    "GitHub repository search and pull request integration",
+                    "GitHub リポジトリ検索および PR 連携ツールセット"
+                )
             ),
             McpServerState(
                 spec: McpServerSpec(serverName: "weather", command: "uv run weather-server"),
@@ -1553,13 +1564,21 @@ public struct McpSkillsSheet: View {
                 tools: [
                     McpToolDefinition(
                         name: "get_current_weather",
-                        description: isZH ? "获取指定城市的当前实时天气情况" : "Fetch current weather conditions for a city",
+                        description: DemoGateway.t(
+                            "获取指定城市的当前实时天气情况",
+                            "Fetch current weather conditions for a city",
+                            "指定した都市の現在の天気情報を取得"
+                        ),
                         serverName: "weather",
                         jsonSchemaString: "{\"properties\":{\"city\":{\"type\":\"string\",\"description\":\"City name\"}},\"required\":[\"city\"]}"
                     )
                 ],
                 serverInfo: McpServerInfoDetail(name: "weather-service", version: "1.2.0"),
-                instructions: isZH ? "全球实时与未来天气查询" : "Global real-time and forecast weather service"
+                instructions: DemoGateway.t(
+                    "全球实时与未来天气查询",
+                    "Global real-time and forecast weather service",
+                    "世界のリアルタイム天気・予報検索サービス"
+                )
             ),
             McpServerState(
                 spec: McpServerSpec(serverName: "postgres", command: "uvx mcp-postgres-readonly"),
@@ -1567,33 +1586,65 @@ public struct McpSkillsSheet: View {
                 tools: [
                     McpToolDefinition(
                         name: "explain_query",
-                        description: isZH ? "执行只读 EXPLAIN ANALYZE 查询计划诊断" : "Run read-only EXPLAIN ANALYZE query plan diagnostics",
+                        description: DemoGateway.t(
+                            "执行只读 EXPLAIN ANALYZE 查询计划诊断",
+                            "Run read-only EXPLAIN ANALYZE query plan diagnostics",
+                            "読み取り専用の EXPLAIN ANALYZE 実行計画診断を実行"
+                        ),
                         serverName: "postgres",
                         jsonSchemaString: "{\"properties\":{\"sql\":{\"type\":\"string\"}},\"required\":[\"sql\"]}"
                     )
                 ],
                 serverInfo: McpServerInfoDetail(name: "postgres-mcp", version: "1.8.0"),
-                instructions: isZH ? "PostgreSQL 只读 Schema 与执行计划排查" : "Read-only PostgreSQL schema and query-plan inspector"
+                instructions: DemoGateway.t(
+                    "PostgreSQL 只读 Schema 与执行计划排查",
+                    "Read-only PostgreSQL schema and query-plan inspector",
+                    "PostgreSQL 読み取り専用スキーマ＆実行計画インスペクター"
+                )
             )
         ]
         self.skills = [
             SkillInfo(
                 name: "chart-generator",
-                description: isZH ? "自动化图表生成与多维度可视化分析" : "Automated data visualization and chart rendering",
+                description: DemoGateway.t(
+                    "自动化图表生成与多维度可视化分析",
+                    "Automated data visualization and chart rendering",
+                    "自動グラフ生成と多次元データ可視化"
+                ),
                 path: "builtin/skills/chart-generator/SKILL.md",
-                content: isZH ? "# Chart Generator\n自动根据输入数据渲染交互图表" : "# Chart Generator\nRender interactive charts directly from structured datasets."
+                content: DemoGateway.t(
+                    "# Chart Generator\n自动根据输入数据渲染交互图表",
+                    "# Chart Generator\nRender interactive charts directly from structured datasets.",
+                    "# Chart Generator\n構造化データからインタラクティブなグラフを自動描画します。"
+                )
             ),
             SkillInfo(
                 name: "sql-inspector",
-                description: isZH ? "SQL 查询调优与执行计划诊断" : "SQL query tuning and execution plan diagnostics",
+                description: DemoGateway.t(
+                    "SQL 查询调优与执行计划诊断",
+                    "SQL query tuning and execution plan diagnostics",
+                    "SQL クエリチューニングと実行計画診断"
+                ),
                 path: "builtin/skills/sql-inspector/SKILL.md",
-                content: isZH ? "# SQL Inspector\n分析 SQL 慢查询并提出索引优化方案" : "# SQL Inspector\nAnalyze slow SQL queries and recommend safe indexing strategies."
+                content: DemoGateway.t(
+                    "# SQL Inspector\n分析 SQL 慢查询并提出索引优化方案",
+                    "# SQL Inspector\nAnalyze slow SQL queries and recommend safe indexing strategies.",
+                    "# SQL Inspector\nスロークエリを解析し、安全なインデックス最適化案を提案します。"
+                )
             ),
             SkillInfo(
                 name: "swift-concurrency-audit",
-                description: isZH ? "Swift 6 并发模型与 Actor 隔离静态审查" : "Swift 6 concurrency and actor-isolation audit workflow",
+                description: DemoGateway.t(
+                    "Swift 6 并发模型与 Actor 隔离静态审查",
+                    "Swift 6 concurrency and actor-isolation audit workflow",
+                    "Swift 6 並行処理モデルと Actor 分離の静的監査"
+                ),
                 path: "config/skills/swift-concurrency-audit/SKILL.md",
-                content: isZH ? "# Swift Concurrency Audit\n检查 @MainActor 隔离、Sendable 合规性与取消传递" : "# Swift Concurrency Audit\nVerify @MainActor isolation, Sendable conformance, and task cancellation."
+                content: DemoGateway.t(
+                    "# Swift Concurrency Audit\n检查 @MainActor 隔离、Sendable 合规性与取消传递",
+                    "# Swift Concurrency Audit\nVerify @MainActor isolation, Sendable conformance, and task cancellation.",
+                    "# Swift Concurrency Audit\n@MainActor 分離・Sendable 準拠・キャンセル伝播を検証します。"
+                )
             )
         ]
     }
