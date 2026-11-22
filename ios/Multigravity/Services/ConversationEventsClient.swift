@@ -399,9 +399,10 @@ public final class ConversationEventsClient {
         let hostStr = (wsURL.host ?? "").lowercased()
         let isCloudflare = CloudflareAnycastAccelerator.isCloudflareTunnelHost(hostStr)
         let connectURL: URL
-        if useAnycastEdge && isCloudflare && wsURL.scheme?.lowercased() == "wss" {
+        if useAnycastEdge && isCloudflare && wsURL.scheme?.lowercased() == "wss",
+           let edgeIP = CloudflareAnycastAccelerator.verifiedPrimaryIP {
             var edgeComps = components
-            edgeComps?.host = CloudflareAnycastAccelerator.primaryIP
+            edgeComps?.host = edgeIP
             if edgeComps?.port == nil {
                 edgeComps?.port = 443
             }

@@ -17,6 +17,7 @@ import kotlinx.serialization.json.*
 import okhttp3.Cache
 import okhttp3.Call
 import okhttp3.Callback
+import okhttp3.ConnectionPool
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType
@@ -120,11 +121,15 @@ class ApiClient(
     fun openWebSocket(request: Request, listener: okhttp3.WebSocketListener): okhttp3.WebSocket =
         E2eeWebSocketHelper.openWebSocket(client, request, prefs, listener)
 
+    private val connectionPool = ConnectionPool()
+
     private val client = OkHttpClient.Builder()
+        .connectionPool(connectionPool)
         .dns(CloudflareOptimizedDns)
         .cache(Cache(File(context.cacheDir, "http_cache"), 10L * 1024L * 1024L))
         .addInterceptor(RouteFailoverInterceptor(prefs, connectionManager))
         .addInterceptor(E2eeTransportInterceptor(prefs))
+        .addInterceptor(CloudflareEdgeFallbackInterceptor(connectionPool))
         .addInterceptor(LanCleartextSecurityInterceptor())
         .retryOnConnectionFailure(true)
         .connectTimeout(10, TimeUnit.SECONDS)

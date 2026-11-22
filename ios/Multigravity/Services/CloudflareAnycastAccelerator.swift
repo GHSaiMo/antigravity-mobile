@@ -2,63 +2,91 @@ import Foundation
 import Network
 import os
 
-/// Cloudflare Anycast 智能动态多线路优选网络加速器 (方案 A 深度落地 - iOS 端)
+/// Cloudflare Anycast 智能动态多线路优选网络加速器 (iOS 三层防 1034 自愈版)
 ///
-/// 核心机制：
-/// 1. Cloudflare Anycast 并非默认指向亚太。在未优选情况下，国内运营商常将流量路由至美西（200~300ms）。
-/// 2. 本加速器内置覆盖电信、联通、移动三大运营商高概率亚太直连的 Anycast 候选节点池；
-/// 3. 在后台利用非阻塞高并发 TCP 赛马测速，毫秒级锁定当前真实网络环境下延迟最低的节点（实测 60~70ms）；
-/// 4. 传输层建立 TLS 握手时直接定向至 Winner 节点并携带标准 SNI 与 Host 头部，保障毫秒级直连与 100% 容灾兜底。
+/// 核心防护：
+/// 1. 仅保留经无代理直连实测 HTTP 200 的健康 Anycast 边缘节点（已彻底移除 108.162.192.1 / 172.64.32.1 /
+///    162.159.0.1 / 198.41.214.1 等触发 Cloudflare Error 1034 的受限边缘 IP）。
+/// 2. 后台并发赛马测速升级为 TLS + HTTPS 7 层验活（请求 Cloudflare 边缘原生 /cdn-cgi/trace，零 Worker 消耗），
+///    仅返回 HTTP 200 的节点才允许成为 verifiedPrimaryIP；返回 403/1034 的节点自动拉黑 24 小时。
+/// 3. 在首个节点通过 HTTPS 验活前（或节点全部受限时），verifiedPrimaryIP 返回 nil，让上层直接走系统原生
+///    URLSession / DNS，杜绝冷启动误连受限边缘 IP；运行时命中 403/1034 亦可瞬时拉黑并回退系统栈。
 public final class CloudflareAnycastAccelerator: @unchecked Sendable {
     public static let shared = CloudflareAnycastAccelerator()
-    
-    // 覆盖国内电信、联通、移动全运营商的核心 Anycast 候选节点池
+
+    nonisolated private static let probeHost = "dispatcher.jiuge.space"
+    nonisolated private static let probeRequestData = Data(
+        "GET /cdn-cgi/trace HTTP/1.1\r\nHost: dispatcher.jiuge.space\r\nUser-Agent: Multigravity-Probe/1.0\r\nConnection: close\r\n\r\n".utf8
+    )
+    nonisolated private static let probeTimeoutSeconds: TimeInterval = 1.8
+    nonisolated private static let banTTLSeconds: TimeInterval = 24 * 60 * 60
+
+    // 经无代理直连实测 HTTP 200 的健康 Cloudflare Anycast 边缘节点池
     public static let candidateEdgeIPs: [String] = [
-        // 电信 / 多线 优质亚太直连段 (108.162.*, 172.64.*)
-        "172.64.153.208",  // 实测极速 ~67ms (Tokyo / Narita)
-        "108.162.192.1",   // 实测极速 ~70ms (Asia Edge)
-        "172.64.32.1",     // 实测极速 ~74ms
-        "172.64.0.1",
-        // 移动 / 亚太 CMI 优质直连段 (162.159.*, 141.101.*)
-        "162.159.0.1",     // 实测极速 ~67ms
+        // 电信 / 多线 优质亚太直连段
+        "172.64.153.208",  // Tokyo / Narita
+        "104.20.23.208",   // Tokyo / Narita
+        // 移动 / 亚太 CMI 优质直连段
         "162.159.131.182", // Hong Kong Anycast
         "162.159.153.1",
         "162.159.192.1",
-        "141.101.90.1",
-        "141.101.64.1",
-        // 联通 / 东京 / 香港经典优质段 (104.16.*, 104.18.*, 104.20.*, 104.26.*)
-        "104.20.23.208",   // Tokyo / Narita
+        // 联通 / 东京 / 香港经典优质段
         "104.18.0.1",
         "104.18.2.161",    // Hong Kong Anycast
         "104.16.160.1",    // Asia Anycast
         "104.26.0.1",
-        // 全球泛播与高可用兜底候选段 (188.114.*, 172.67.*, 104.19.*, 198.41.*)
+        // 全球泛播高可用兜底候选段
         "188.114.97.1",
         "172.67.75.1",
-        "104.19.16.1",
-        "198.41.214.1"
+        "104.19.16.1"
     ]
-    
-    private static let maxConcurrentProbeIPs = 6
-    private let lock = OSAllocatedUnfairLock(initialState: candidateEdgeIPs[0])
-    private let isProbingLock = OSAllocatedUnfairLock(initialState: false)
-    private let probeStateLock = OSAllocatedUnfairLock(initialState: (cursor: 0, hasWinner: false))
-    private var lastProbeTime: TimeInterval = 0
-    
-    public var currentPrimaryIP: String {
-        lock.withLock { $0 }
+
+    nonisolated private static let maxConcurrentProbeIPs = 6
+
+    private struct ProbeState {
+        var cursor: Int = 0
+        var lastProbeTime: TimeInterval = 0
     }
-    
+
+    private let winnerLock = OSAllocatedUnfairLock<String?>(initialState: nil)
+    private let bannedLock = OSAllocatedUnfairLock<[String: TimeInterval]>(initialState: [:])
+    private let isProbingLock = OSAllocatedUnfairLock(initialState: false)
+    private let probeStateLock = OSAllocatedUnfairLock(initialState: ProbeState())
+
+    /// 仅在存在通过 HTTPS `/cdn-cgi/trace` 200 验活且未被拉黑的边缘 IP 时返回非空值；
+    /// 否则返回 nil，提示调用方安全回退至系统原生 DNS / URLSession。
+    public var verifiedPrimaryIP: String? {
+        let now = Date().timeIntervalSince1970
+        guard let candidate = winnerLock.withLock({ $0 }) else {
+            return nil
+        }
+        if isBanned(candidate, now: now) {
+            winnerLock.withLock { current in
+                if current == candidate { current = nil }
+            }
+            return nil
+        }
+        return candidate
+    }
+
+    public static var verifiedPrimaryIP: String? {
+        shared.verifiedPrimaryIP
+    }
+
+    public var currentPrimaryIP: String {
+        verifiedPrimaryIP ?? Self.candidateEdgeIPs[0]
+    }
+
     public static var primaryIP: String {
         shared.currentPrimaryIP
     }
-    
+
     public init() {
         Task {
             await probeFastestIPsConcurrently()
         }
     }
-    
+
     public static func isCloudflareTunnelHost(_ host: String) -> Bool {
         let clean = host.trimmingCharacters(in: CharacterSet(charactersIn: "[]")).lowercased()
         if clean == "jiuge.space" || clean.hasSuffix(".trycloudflare.com") {
@@ -72,12 +100,38 @@ public final class CloudflareAnycastAccelerator: @unchecked Sendable {
         }
         return false
     }
-    
+
+    public static func isError1034Body(_ data: Data) -> Bool {
+        guard !data.isEmpty, data.count <= 4096 else { return false }
+        guard let text = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .ascii) else {
+            return false
+        }
+        return isError1034Text(text)
+    }
+
+    nonisolated private static func isError1034Text(_ text: String) -> Bool {
+        let lower = text.lowercased()
+        return lower.contains("error code: 1034") ||
+            (lower.contains("1034") && lower.contains("edge ip"))
+    }
+
+    /// 运行时命中 HTTP 403 / error code: 1034 时调用：立即拉黑该 IP 24 小时并清空当前优选结果。
+    public func reportEdgeRestricted(ip: String) {
+        banIP(ip)
+        winnerLock.withLock { current in
+            if current == ip {
+                current = nil
+            }
+        }
+        triggerProbeIfNeeded(force: true)
+    }
+
     public func triggerProbeIfNeeded(force: Bool = false) {
         let now = Date().timeIntervalSince1970
-        let hasWinner = probeStateLock.withLock { $0.hasWinner }
-        let minInterval: TimeInterval = hasWinner ? 300 : 180
-        if !force && (now - lastProbeTime < minInterval) {
+        let hasWinner = verifiedPrimaryIP != nil
+        let minInterval: TimeInterval = hasWinner ? 300 : 60
+        let lastTime = probeStateLock.withLock { $0.lastProbeTime }
+        if !force && (now - lastTime < minInterval) {
             return
         }
         let shouldProbe = isProbingLock.withLock { isProbing -> Bool in
@@ -86,8 +140,8 @@ public final class CloudflareAnycastAccelerator: @unchecked Sendable {
             return true
         }
         guard shouldProbe else { return }
-        
-        lastProbeTime = now
+
+        probeStateLock.withLock { $0.lastProbeTime = now }
         Task.detached(priority: .background) { [weak self] in
             guard let self = self else { return }
             defer { self.isProbingLock.withLock { $0 = false } }
@@ -95,95 +149,183 @@ public final class CloudflareAnycastAccelerator: @unchecked Sendable {
         }
     }
 
+    private func isBanned(_ ip: String, now: TimeInterval) -> Bool {
+        bannedLock.withLock { map in
+            guard let expiresAt = map[ip] else { return false }
+            if now >= expiresAt {
+                map.removeValue(forKey: ip)
+                return false
+            }
+            return true
+        }
+    }
+
+    private func banIP(_ ip: String) {
+        let expiresAt = Date().timeIntervalSince1970 + Self.banTTLSeconds
+        bannedLock.withLock { map in
+            map[ip] = expiresAt
+        }
+    }
+
     private func selectProbeBatch() -> [String] {
         let all = Self.candidateEdgeIPs
         guard !all.isEmpty else { return [] }
-        let currentPrimary = lock.withLock { $0 }
-        var batch: [String] = [currentPrimary]
-        probeStateLock.withLock { state in
+        let now = Date().timeIntervalSince1970
+        let bannedSet: Set<String> = bannedLock.withLock { map in
+            var active = Set<String>()
+            for (ip, expiresAt) in map {
+                if now < expiresAt {
+                    active.insert(ip)
+                }
+            }
+            return active
+        }
+        let initial: [String] = if let currentWinner = verifiedPrimaryIP, !bannedSet.contains(currentWinner) {
+            [currentWinner]
+        } else {
+            []
+        }
+        let maxCount = Self.maxConcurrentProbeIPs
+        return probeStateLock.withLock { state -> [String] in
+            var result = initial
             var scanned = 0
             var idx = state.cursor % all.count
-            while batch.count < Self.maxConcurrentProbeIPs && scanned < all.count {
+            while result.count < maxCount && scanned < all.count {
                 let candidate = all[idx]
-                if !batch.contains(candidate) {
-                    batch.append(candidate)
+                if !result.contains(candidate) && !bannedSet.contains(candidate) {
+                    result.append(candidate)
                 }
                 idx = (idx + 1) % all.count
                 scanned += 1
             }
             state.cursor = idx
+            return result
         }
-        return batch
     }
-    
+
+    private enum ProbeResult: Sendable {
+        case ok(Double)
+        case restricted
+        case failed
+    }
+
     private func probeFastestIPsConcurrently() async {
         let candidates = selectProbeBatch()
-        
-        let winner = await withTaskGroup(of: (String, Double)?.self) { group -> String? in
+        guard !candidates.isEmpty else { return }
+
+        let (validResults, restrictedIPs, failedIPs) = await withTaskGroup(of: (String, ProbeResult).self) { group -> ([(String, Double)], Set<String>, Set<String>) in
             for ip in candidates {
                 group.addTask {
-                    let rtt = await Self.pingTCP(ip: ip, port: 443, timeoutSeconds: 0.8)
-                    if rtt > 0 {
-                        return (ip, rtt)
-                    }
-                    return nil
+                    let result = await Self.probeHTTPTrace(ip: ip, timeoutSeconds: Self.probeTimeoutSeconds)
+                    return (ip, result)
                 }
             }
-            
-            var validResults: [(String, Double)] = []
-            for await result in group {
-                if let (ip, rtt) = result {
-                    validResults.append((ip, rtt))
+
+            var okList: [(String, Double)] = []
+            var restricted: Set<String> = []
+            var failed: Set<String> = []
+            for await (ip, result) in group {
+                switch result {
+                case .ok(let rtt):
+                    okList.append((ip, rtt))
+                case .restricted:
+                    restricted.insert(ip)
+                case .failed:
+                    failed.insert(ip)
                 }
             }
-            
-            validResults.sort { $0.1 < $1.1 }
-            return validResults.first?.0
+
+            okList.sort { $0.1 < $1.1 }
+            return (okList, restricted, failed)
         }
-        
-        if let fastest = winner {
-            lock.withLock { $0 = fastest }
-            probeStateLock.withLock { $0.hasWinner = true }
+
+        for ip in restrictedIPs {
+            banIP(ip)
+        }
+
+        if let fastest = validResults.first?.0 {
+            winnerLock.withLock { $0 = fastest }
+        } else {
+            winnerLock.withLock { current in
+                if let cur = current, restrictedIPs.contains(cur) || failedIPs.contains(cur) {
+                    current = nil
+                }
+            }
         }
     }
-    
-    private static func pingTCP(ip: String, port: UInt16, timeoutSeconds: TimeInterval) async -> Double {
-        let endpoint = NWEndpoint.hostPort(host: NWEndpoint.Host(ip), port: NWEndpoint.Port(rawValue: port)!)
-        let params = NWParameters.tcp
+
+    nonisolated private static func probeHTTPTrace(ip: String, timeoutSeconds: TimeInterval) async -> ProbeResult {
+        let requestData = Self.probeRequestData
+        let tlsOptions = NWProtocolTLS.Options()
+        sec_protocol_options_set_tls_server_name(tlsOptions.securityProtocolOptions, Self.probeHost)
+        let params = NWParameters(tls: tlsOptions)
         params.preferNoProxies = true
-        
+
+        let endpoint = NWEndpoint.hostPort(host: NWEndpoint.Host(ip), port: .https)
         let connection = NWConnection(to: endpoint, using: params)
         let startTime = Date().timeIntervalSince1970
-        
+
         return await withCheckedContinuation { continuation in
-            let finished = OSAllocatedUnfairLock(initialState: false)
-            @Sendable func complete(_ rtt: Double) {
-                let shouldRun = finished.withLock { flag -> Bool in
-                    if flag { return false }
-                    flag = true
+            let stateLock = OSAllocatedUnfairLock(initialState: (finished: false, sent: false))
+
+            @Sendable func complete(_ result: ProbeResult) {
+                let shouldRun = stateLock.withLock { state -> Bool in
+                    if state.finished { return false }
+                    state.finished = true
                     return true
                 }
                 guard shouldRun else { return }
                 connection.cancel()
-                continuation.resume(returning: rtt)
+                continuation.resume(returning: result)
             }
-            
+
             connection.stateUpdateHandler = { state in
                 switch state {
                 case .ready:
-                    let elapsed = (Date().timeIntervalSince1970 - startTime) * 1000
-                    complete(elapsed)
+                    let shouldSend = stateLock.withLock { s -> Bool in
+                        if s.finished || s.sent { return false }
+                        s.sent = true
+                        return true
+                    }
+                    guard shouldSend else { return }
+                    connection.send(content: requestData, completion: .contentProcessed { sendErr in
+                        if sendErr != nil {
+                            complete(.failed)
+                            return
+                        }
+                        connection.receive(minimumIncompleteLength: 1, maximumLength: 512) { data, _, _, recvErr in
+                            if recvErr != nil {
+                                complete(.failed)
+                                return
+                            }
+                            guard let data, !data.isEmpty,
+                                  let text = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .ascii) else {
+                                complete(.failed)
+                                return
+                            }
+                            let firstLine = text.components(separatedBy: "\r\n").first ?? text
+                            let statusCode = firstLine.split(separator: " ").dropFirst().first.flatMap { Int($0) } ?? -1
+                            let elapsedMs = (Date().timeIntervalSince1970 - startTime) * 1000
+                            if statusCode == 200 {
+                                complete(.ok(elapsedMs))
+                            } else if statusCode == 403 || Self.isError1034Text(text) {
+                                complete(.restricted)
+                            } else {
+                                complete(.failed)
+                            }
+                        }
+                    })
                 case .failed, .cancelled:
-                    complete(-1)
+                    complete(.failed)
                 default:
                     break
                 }
             }
-            
+
             connection.start(queue: DispatchQueue.global(qos: .utility))
-            
+
             DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + timeoutSeconds) {
-                complete(-1)
+                complete(.failed)
             }
         }
     }

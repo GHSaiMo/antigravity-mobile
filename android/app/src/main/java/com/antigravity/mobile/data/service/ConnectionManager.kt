@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import okhttp3.ConnectionPool
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
@@ -54,11 +55,15 @@ class LanCleartextSecurityInterceptor : okhttp3.Interceptor {
 class ConnectionManager(private val context: Context) {
     private val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
 
+    private val httpConnectionPool = ConnectionPool()
+
     private val httpClient = OkHttpClient.Builder()
+        .connectionPool(httpConnectionPool)
         .dns(CloudflareOptimizedDns)
         .connectTimeout(2500, TimeUnit.MILLISECONDS)
         .readTimeout(2500, TimeUnit.MILLISECONDS)
         .writeTimeout(2500, TimeUnit.MILLISECONDS)
+        .addInterceptor(CloudflareEdgeFallbackInterceptor(httpConnectionPool))
         .addInterceptor(LanCleartextSecurityInterceptor())
         .build()
 

@@ -283,11 +283,22 @@ public final class NetworkTransport: Sendable {
             return (data, response, preferCellular || isCellular)
         }
         if let url = req.url, url.scheme?.lowercased() == "https", CloudflareAnycastAccelerator.isCloudflareTunnelHost(url.host ?? "") {
-            do {
-                let (data, response) = try await sendCloudflareAcceleratedHTTPS(req)
-                return (data, response, false)
-            } catch {
-                // If Anycast acceleration fails, smoothly fall back to system URLSession
+            CloudflareAnycastAccelerator.shared.triggerProbeIfNeeded(force: false)
+            if let anycastIP = CloudflareAnycastAccelerator.verifiedPrimaryIP {
+                do {
+                    let (data, response) = try await sendCloudflareAcceleratedHTTPS(req, anycastIP: anycastIP)
+                    if let http = response as? HTTPURLResponse,
+                       http.statusCode == 403,
+                       CloudflareAnycastAccelerator.isError1034Body(data) {
+                        CloudflareAnycastAccelerator.shared.reportEdgeRestricted(ip: anycastIP)
+                        await AcceleratedConnectionPool.shared.evict(ip: anycastIP)
+                        // Fall through to system URLSession
+                    } else {
+                        return (data, response, false)
+                    }
+                } catch {
+                    // If Anycast acceleration fails, smoothly fall back to system URLSession
+                }
             }
         }
         let (data, response) = try await fallbackSession.data(for: req)
@@ -381,7 +392,8 @@ public final class NetworkTransport: Sendable {
         }
         let bypassedURLSession = Self.requiresCleartextATSBypass(request.url) ||
             (request.url?.scheme?.lowercased() == "https" &&
-             CloudflareAnycastAccelerator.isCloudflareTunnelHost(request.url?.host ?? ""))
+             CloudflareAnycastAccelerator.isCloudflareTunnelHost(request.url?.host ?? "") &&
+             CloudflareAnycastAccelerator.verifiedPrimaryIP != nil)
         let (data, response) = try await send(request: request)
         if bypassedURLSession,
            request.cachePolicy != .reloadIgnoringLocalCacheData,
@@ -444,9 +456,20 @@ public final class NetworkTransport: Sendable {
             }
             pool[key] = idle
         }
+
+        func evict(ip: String) {
+            let prefix = "\(ip):"
+            for key in Array(pool.keys) where key.hasPrefix(prefix) {
+                if let entries = pool.removeValue(forKey: key) {
+                    for entry in entries {
+                        entry.connection.cancel()
+                    }
+                }
+            }
+        }
     }
     
-    private func sendCloudflareAcceleratedHTTPS(_ request: URLRequest) async throws -> (Data, URLResponse) {
+    private func sendCloudflareAcceleratedHTTPS(_ request: URLRequest, anycastIP: String) async throws -> (Data, URLResponse) {
         guard let url = request.url else {
             throw URLError(.badURL)
         }
@@ -459,7 +482,6 @@ public final class NetworkTransport: Sendable {
         sec_protocol_options_set_tls_server_name(tlsOptions.securityProtocolOptions, bareHost)
         let parameters = NWParameters(tls: tlsOptions)
         
-        let anycastIP = CloudflareAnycastAccelerator.primaryIP
         let port = NWEndpoint.Port(rawValue: UInt16(url.port ?? 443)) ?? .https
         
         for attempt in 0..<2 {
@@ -570,7 +592,9 @@ public final class NetworkTransport: Sendable {
         sec_protocol_options_set_tls_server_name(tlsOptions.securityProtocolOptions, bareHost)
         let parameters = NWParameters(tls: tlsOptions)
 
-        let anycastIP = CloudflareAnycastAccelerator.primaryIP
+        guard let anycastIP = CloudflareAnycastAccelerator.verifiedPrimaryIP else {
+            throw URLError(.cannotFindHost)
+        }
         let port = NWEndpoint.Port(rawValue: UInt16(url.port ?? 443)) ?? .https
 
         let connection = NWConnection(host: NWEndpoint.Host(anycastIP), port: port, using: parameters)
@@ -585,6 +609,12 @@ public final class NetworkTransport: Sendable {
             fileURL: fileURL,
             onProgress: onProgress
         )
+        if let http = response as? HTTPURLResponse,
+           http.statusCode == 403,
+           CloudflareAnycastAccelerator.isError1034Body(data) {
+            CloudflareAnycastAccelerator.shared.reportEdgeRestricted(ip: anycastIP)
+            throw URLError(.cannotConnectToHost)
+        }
         return (data, decorateResponse(response, url: req.url))
     }
 
