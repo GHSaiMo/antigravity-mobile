@@ -203,6 +203,44 @@ public struct WeeklyPaceInfo: Sendable {
     }
 }
 
+public struct ModelTokenBreakdown: Codable, Identifiable, Sendable, Equatable {
+    public var id: String { model }
+    public let model: String
+    public let total: Int64
+    public let input: Int64
+    public let output: Int64
+    public let cacheRead: Int64
+    public let thinking: Int64
+    public let steps: Int
+    public let costUsd: Double
+
+    public init(
+        model: String,
+        total: Int64,
+        input: Int64 = 0,
+        output: Int64 = 0,
+        cacheRead: Int64 = 0,
+        thinking: Int64 = 0,
+        steps: Int = 0,
+        costUsd: Double = 0
+    ) {
+        self.model = model
+        self.total = total
+        self.input = input
+        self.output = output
+        self.cacheRead = cacheRead
+        self.thinking = thinking
+        self.steps = steps
+        self.costUsd = costUsd
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case model, total, input, output, thinking, steps
+        case cacheRead = "cache_read"
+        case costUsd = "cost_usd"
+    }
+}
+
 public struct DailyTokenRecord: Codable, Identifiable, Sendable, Equatable {
     public var id: String { date }
     public let date: String
@@ -214,11 +252,37 @@ public struct DailyTokenRecord: Codable, Identifiable, Sendable, Equatable {
     public let steps: Int
     public let costUsd: Double
     public let models: [String: Int64]
+    public let modelDetails: [String: ModelTokenBreakdown]?
+
+    public init(
+        date: String,
+        total: Int64,
+        input: Int64,
+        output: Int64,
+        cacheRead: Int64,
+        thinking: Int64,
+        steps: Int,
+        costUsd: Double,
+        models: [String: Int64],
+        modelDetails: [String: ModelTokenBreakdown]? = nil
+    ) {
+        self.date = date
+        self.total = total
+        self.input = input
+        self.output = output
+        self.cacheRead = cacheRead
+        self.thinking = thinking
+        self.steps = steps
+        self.costUsd = costUsd
+        self.models = models
+        self.modelDetails = modelDetails
+    }
 
     enum CodingKeys: String, CodingKey {
         case date, total, input, output, thinking, steps, models
         case cacheRead = "cache_read"
         case costUsd = "cost_usd"
+        case modelDetails = "model_details"
     }
 }
 
@@ -250,6 +314,19 @@ public struct TokenHistoryResponse: Codable, Sendable, Equatable {
     public let updatedAt: Int64
     public let summary: TokenHistorySummary
     public let dailyMatrix: [DailyTokenRecord]
+    public let modelSummary: [ModelTokenBreakdown]?
+
+    public init(
+        updatedAt: Int64,
+        summary: TokenHistorySummary,
+        dailyMatrix: [DailyTokenRecord],
+        modelSummary: [ModelTokenBreakdown]? = nil
+    ) {
+        self.updatedAt = updatedAt
+        self.summary = summary
+        self.dailyMatrix = dailyMatrix
+        self.modelSummary = modelSummary
+    }
 
     /// 后端下发毫秒级 Unix 时间戳；兼容秒级历史结构并转为本地可格式化 Date
     public var updatedAtDate: Date {
@@ -257,10 +334,31 @@ public struct TokenHistoryResponse: Codable, Sendable, Equatable {
         return Date(timeIntervalSince1970: seconds)
     }
 
+    /// 返回按总 Token 降序的全量模型明细（兼容旧网关未下发 model_summary 的情况）
+    public var resolvedModelSummary: [ModelTokenBreakdown] {
+        if let list = modelSummary, !list.isEmpty {
+            return list.sorted { lhs, rhs in
+                if lhs.total != rhs.total { return lhs.total > rhs.total }
+                return lhs.model < rhs.model
+            }
+        }
+        var totals: [String: Int64] = [:]
+        for rec in dailyMatrix {
+            for (m, cnt) in rec.models where cnt > 0 {
+                totals[m, default: 0] += cnt
+            }
+        }
+        return totals.sorted { lhs, rhs in
+            if lhs.value != rhs.value { return lhs.value > rhs.value }
+            return lhs.key < rhs.key
+        }.map { ModelTokenBreakdown(model: $0.key, total: $0.value) }
+    }
+
     enum CodingKeys: String, CodingKey {
         case summary
         case updatedAt = "updated_at"
         case dailyMatrix = "daily_matrix"
+        case modelSummary = "model_summary"
     }
 }
 

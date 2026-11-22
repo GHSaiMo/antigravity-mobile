@@ -18945,6 +18945,28 @@
         }
       }
     },
+    "模型用量明细": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Model Usage Details"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モデル別使用量の詳細"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模型用量明细"
+          }
+        }
+      }
+    },
     "次选模型": {
       "localizations": {
         "en": {

@@ -95,3 +95,34 @@ func TestParseGeneratorMetadataQuotedContextWindowAndOverflow(t *testing.T) {
 		t.Fatalf("expected context_overflow, got IsOverflow=%v ErrorKind=%q", item.IsOverflow, item.ErrorKind)
 	}
 }
+
+func TestParseGeneratorMetadataClaudeCacheCreation(t *testing.T) {
+	payload := `{
+		"generatorMetadata": [
+			{
+				"chatModel": {
+					"model": "MODEL_PLACEHOLDER_M402",
+					"modelDisplayName": "Claude Opus 5.5 (High)",
+					"usage": {
+						"inputTokens": "500",
+						"cacheCreationTokens": "18000",
+						"cacheReadTokens": "42000",
+						"outputTokens": "1200",
+						"thinkingOutputTokens": "450"
+					}
+				}
+			}
+		]
+	}`
+
+	item := parseGeneratorMetadata(strings.NewReader(payload))
+	if item == nil {
+		t.Fatal("expected non-nil ContextMeterItem")
+	}
+	if item.InputTokens != 18500 || item.CacheReadTokens != 42000 || item.OutputTokens != 1200 || item.ThinkingTokens != 450 {
+		t.Fatalf("unexpected Claude usage breakdown: %+v", item)
+	}
+	if item.UsedTokens != 61700 {
+		t.Fatalf("expected UsedTokens=61700, got %d", item.UsedTokens)
+	}
+}

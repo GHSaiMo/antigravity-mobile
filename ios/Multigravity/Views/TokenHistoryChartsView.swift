@@ -467,16 +467,23 @@ public struct TokenDailyBarsChartView: View {
 public struct TokenModelBreakdownChartView: View {
     public let matrix: [DailyTokenRecord]
     public let palette: TokenHistoryChartPalette
+    public let onOpenAllModels: (() -> Void)?
 
     public static let contentHeight: CGFloat = 112
 
-    public init(matrix: [DailyTokenRecord], palette: TokenHistoryChartPalette) {
+    public init(
+        matrix: [DailyTokenRecord],
+        palette: TokenHistoryChartPalette,
+        onOpenAllModels: (() -> Void)? = nil
+    ) {
         self.matrix = matrix
         self.palette = palette
+        self.onOpenAllModels = onOpenAllModels
     }
 
     public var body: some View {
         let series = TokenHistoryChartData.buildModelBreakdown(matrix: matrix)
+        let canOpen = onOpenAllModels != nil && !series.slices.isEmpty
 
         VStack(alignment: .leading, spacing: 8) {
             HStack {
@@ -485,9 +492,10 @@ public struct TokenModelBreakdownChartView: View {
                     .foregroundColor(palette.primaryText)
                 Spacer()
                 if series.uniqueModelCount > 0 {
-                    Text(String(localized: "\(series.uniqueModelCount) 款模型"))
+                    let baseLabel = String(localized: "\(series.uniqueModelCount) 款模型")
+                    Text(canOpen ? "\(baseLabel) ›" : baseLabel)
                         .font(.system(size: 10.5, weight: .medium, design: .monospaced))
-                        .foregroundColor(palette.secondaryText)
+                        .foregroundColor(canOpen ? palette.accent : palette.secondaryText)
                 } else {
                     Text("暂无数据")
                         .font(.system(size: 10.5))
@@ -553,6 +561,12 @@ public struct TokenModelBreakdownChartView: View {
                 }
                 .frame(height: Self.contentHeight)
             }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            guard canOpen else { return }
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            onOpenAllModels?()
         }
     }
 }
@@ -659,6 +673,7 @@ public struct TokenHistoryChartCarouselCard: View {
     @Binding public var selectedChart: TokenHistoryChartType
     public let onSelectDate: (String) -> Void
     public let onUserSelectChart: (TokenHistoryChartType) -> Void
+    public let onOpenAllModels: (() -> Void)?
 
     @Environment(\.colorScheme) private var colorScheme
 
@@ -667,13 +682,15 @@ public struct TokenHistoryChartCarouselCard: View {
         selectedDate: String?,
         selectedChart: Binding<TokenHistoryChartType>,
         onSelectDate: @escaping (String) -> Void,
-        onUserSelectChart: @escaping (TokenHistoryChartType) -> Void
+        onUserSelectChart: @escaping (TokenHistoryChartType) -> Void,
+        onOpenAllModels: (() -> Void)? = nil
     ) {
         self.matrix = matrix
         self.selectedDate = selectedDate
         self._selectedChart = selectedChart
         self.onSelectDate = onSelectDate
         self.onUserSelectChart = onUserSelectChart
+        self.onOpenAllModels = onOpenAllModels
     }
 
     public var body: some View {
@@ -692,7 +709,8 @@ public struct TokenHistoryChartCarouselCard: View {
 
                 TokenModelBreakdownChartView(
                     matrix: matrix,
-                    palette: palette
+                    palette: palette,
+                    onOpenAllModels: onOpenAllModels
                 )
                 .padding(.horizontal, 12)
                 .tag(TokenHistoryChartType.modelBreakdown)

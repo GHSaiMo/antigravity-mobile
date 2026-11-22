@@ -837,10 +837,12 @@ func parseGeneratorMetadataDetailed(r io.Reader) (*ContextMeterItem, generatorMe
 					} `json:"contextWindowMetadata"`
 				} `json:"chatStartMetadata"`
 				Usage *struct {
-					InputTokens          flexInt64 `json:"inputTokens"`
-					OutputTokens         flexInt64 `json:"outputTokens"`
-					CacheReadTokens      flexInt64 `json:"cacheReadTokens"`
-					ThinkingOutputTokens flexInt64 `json:"thinkingOutputTokens"`
+					InputTokens              flexInt64 `json:"inputTokens"`
+					OutputTokens             flexInt64 `json:"outputTokens"`
+					CacheCreationTokens      flexInt64 `json:"cacheCreationTokens"`
+					CacheCreationInputTokens flexInt64 `json:"cacheCreationInputTokens"`
+					CacheReadTokens          flexInt64 `json:"cacheReadTokens"`
+					ThinkingOutputTokens     flexInt64 `json:"thinkingOutputTokens"`
 				} `json:"usage"`
 				RetryInfos []struct {
 					Error string `json:"error"`
@@ -875,6 +877,13 @@ func parseGeneratorMetadataDetailed(r io.Reader) (*ContextMeterItem, generatorMe
 	var inp, outp, capTokens, thinking int64
 	if cm.Usage != nil {
 		inp = int64(cm.Usage.InputTokens)
+		cacheCreate := int64(cm.Usage.CacheCreationTokens)
+		if cacheCreate == 0 {
+			cacheCreate = int64(cm.Usage.CacheCreationInputTokens)
+		}
+		if cacheCreate > 0 {
+			inp += cacheCreate
+		}
 		outp = int64(cm.Usage.OutputTokens)
 		capTokens = int64(cm.Usage.CacheReadTokens)
 		thinking = int64(cm.Usage.ThinkingOutputTokens)

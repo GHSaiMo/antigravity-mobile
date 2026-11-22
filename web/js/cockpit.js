@@ -877,10 +877,21 @@ function renderInspector(rec) {
   if (modelsContainer) {
     modelsContainer.innerHTML = "";
     if (rec.models && Object.keys(rec.models).length > 0) {
-      Object.entries(rec.models).forEach(([modelName, tokens]) => {
+      const sortedModels = Object.entries(rec.models)
+        .filter(([, tokens]) => tokens > 0)
+        .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+      const detailsMap = rec.model_details || {};
+      sortedModels.forEach(([modelName, tokens]) => {
         const tag = document.createElement("div");
         tag.className = "inspector-model-tag";
-        tag.innerHTML = `<span>${escapeHtml(modelName)}</span><strong>${tokens.toLocaleString()}</strong>`;
+        const detail = detailsMap[modelName];
+        if (detail && (detail.input > 0 || detail.output > 0 || detail.cache_read > 0)) {
+          const thinkPart = detail.thinking > 0 ? ` · Think ${formatTokensCompact(detail.thinking)}` : "";
+          tag.title = `${modelName}: In ${formatTokensCompact(detail.input)} · Cache ${formatTokensCompact(detail.cache_read)} · Out ${formatTokensCompact(detail.output)}${thinkPart}`;
+          tag.innerHTML = `<span>${escapeHtml(modelName)}</span><strong>${tokens.toLocaleString()}</strong><small style="opacity:0.7;margin-left:6px;font-family:monospace;">In ${formatTokensCompact(detail.input)} / Out ${formatTokensCompact(detail.output)}</small>`;
+        } else {
+          tag.innerHTML = `<span>${escapeHtml(modelName)}</span><strong>${tokens.toLocaleString()}</strong>`;
+        }
         modelsContainer.appendChild(tag);
       });
     }

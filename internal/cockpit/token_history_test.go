@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -730,6 +731,313 @@ func TestGetTokenHistory_StreamingMemoizesSiblingSubagentsAndBatchSummariesDB(t 
 	}
 	if models["Claude Sonnet 4.6 (Thinking)"] != 3000 {
 		t.Errorf("Claude Sonnet 4.6 (Thinking) = %d, want 3000 (models=%v)", models["Claude Sonnet 4.6 (Thinking)"], models)
+	}
+}
+
+func encodeTestPBVarint(fieldNum int, v uint64) []byte {
+	var out []byte
+	out = append(out, encodeTestVarint(uint64((fieldNum<<3)|0))...)
+	out = append(out, encodeTestVarint(v)...)
+	return out
+}
+
+func encodeTestGenMetadataBlobWithUsage(slug, modelEnum, displayName, lastStepIndex string, usedClaude bool, inp, outp, cacheCreate, cacheRead, thinking uint64, respID string) []byte {
+	var inner []byte
+	if inp > 0 || outp > 0 || cacheCreate > 0 || cacheRead > 0 || thinking > 0 || respID != "" {
+		var usage []byte
+		if inp > 0 {
+			usage = append(usage, encodeTestPBVarint(2, inp)...)
+		}
+		if outp > 0 {
+			usage = append(usage, encodeTestPBVarint(3, outp)...)
+		}
+		if cacheCreate > 0 {
+			usage = append(usage, encodeTestPBVarint(4, cacheCreate)...)
+		}
+		if cacheRead > 0 {
+			usage = append(usage, encodeTestPBVarint(5, cacheRead)...)
+		}
+		if thinking > 0 {
+			usage = append(usage, encodeTestPBVarint(9, thinking)...)
+		}
+		if respID != "" {
+			usage = append(usage, encodeTestPBString(11, respID)...)
+		}
+		inner = append(inner, encodeTestPBBytes(4, usage)...)
+	}
+	if slug != "" {
+		inner = append(inner, encodeTestPBString(19, slug)...)
+	}
+	if modelEnum != "" {
+		kv := append(encodeTestPBString(1, "model_enum"), encodeTestPBString(2, modelEnum)...)
+		inner = append(inner, encodeTestPBBytes(20, kv)...)
+	}
+	if lastStepIndex != "" {
+		kv := append(encodeTestPBString(1, "last_step_index"), encodeTestPBString(2, lastStepIndex)...)
+		inner = append(inner, encodeTestPBBytes(20, kv)...)
+	}
+	if usedClaude {
+		kv := append(encodeTestPBString(1, "used_claude"), encodeTestPBString(2, "true")...)
+		inner = append(inner, encodeTestPBBytes(20, kv)...)
+	}
+	if displayName != "" {
+		inner = append(inner, encodeTestPBString(21, displayName)...)
+	}
+	return encodeTestPBBytes(1, inner)
+}
+
+func TestGetTokenHistory_TopLevelModelAndPerModelBreakdown(t *testing.T) {
+	tempHome := t.TempDir()
+	t.Setenv("HOME", tempHome)
+	t.Setenv("COCKPIT_TOOLS_DATA_DIR", filepath.Join(tempHome, ".cockpit_tools"))
+	t.Setenv("COCKPIT_DATA_DIR", "")
+
+	convDir := filepath.Join(tempHome, ".gemini", "antigravity", "brain", "conv-top-model", ".system_generated", "logs")
+	if err := os.MkdirAll(convDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Simulate modern Antigravity transcript with top-level "model", no USER_SETTINGS_CHANGE,
+	// including Claude Opus 5.5 with cache_creation_tokens and Gemini 4 Neon (XHigh).
+	logContent := `{"step_index":1,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"2026-11-22T08:00:00Z","model":"claude-opus-5-5-high","input_tokens":1000,"cache_creation_tokens":500,"cache_read_tokens":2000,"output_tokens":400,"thinking_output_tokens":150,"callId":"cm-1"}` + "\n" +
+		`{"step_index":3,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"2026-11-22T08:05:00Z","model":"claude-sonnet-5-5-medium","input_tokens":800,"cache_read_tokens":1200,"output_tokens":300,"callId":"cm-2"}` + "\n" +
+		`{"step_index":5,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"2026-11-22T08:10:00Z","model":"gemini-4-neon-xhigh","input_tokens":2000,"cache_read_tokens":3000,"output_tokens":500,"callId":"cm-3"}` + "\n"
+
+	if err := os.WriteFile(filepath.Join(convDir, "transcript.jsonl"), []byte(logContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	historyMu.Lock()
+	cachedLedger = nil
+	cachedLedgerPath = ""
+	cachedHistoryResp = nil
+	historyMu.Unlock()
+
+	resp, err := GetTokenHistory(true)
+	if err != nil {
+		t.Fatalf("GetTokenHistory() error = %v", err)
+	}
+	if len(resp.DailyMatrix) != 1 {
+		t.Fatalf("DailyMatrix len = %d, want 1", len(resp.DailyMatrix))
+	}
+	day := resp.DailyMatrix[0]
+	opus := day.ModelDetails["Claude Opus 5.5 (High)"]
+	if opus == nil {
+		t.Fatalf("missing Claude Opus 5.5 (High) in ModelDetails: %+v", day.ModelDetails)
+	}
+	if opus.Input != 1500 || opus.CacheRead != 2000 || opus.Output != 400 || opus.Thinking != 150 || opus.Total != 3900 || opus.Steps != 1 {
+		t.Fatalf("unexpected Opus breakdown: %+v", opus)
+	}
+	sonnet := day.ModelDetails["Claude Sonnet 5.5 (Medium)"]
+	if sonnet == nil || sonnet.Input != 800 || sonnet.CacheRead != 1200 || sonnet.Output != 300 || sonnet.Total != 2300 {
+		t.Fatalf("unexpected Sonnet breakdown: %+v", sonnet)
+	}
+	neon := day.ModelDetails["Gemini 4 Neon (XHigh)"]
+	if neon == nil || neon.Total != 5500 {
+		t.Fatalf("unexpected Neon breakdown (expected XHigh normalization): %+v", day.ModelDetails)
+	}
+	if len(resp.ModelSummary) != 3 {
+		t.Fatalf("ModelSummary len = %d, want 3 (%+v)", len(resp.ModelSummary), resp.ModelSummary)
+	}
+	if resp.ModelSummary[0].Model != "Gemini 4 Neon (XHigh)" || resp.ModelSummary[1].Model != "Claude Opus 5.5 (High)" || resp.ModelSummary[2].Model != "Claude Sonnet 5.5 (Medium)" {
+		t.Fatalf("unexpected ModelSummary sort order: %+v", resp.ModelSummary)
+	}
+}
+
+func TestGetTokenHistory_PureGoSQLiteReaderWithoutExternalTools(t *testing.T) {
+	sqliteBin, lookErr := exec.LookPath("sqlite3")
+	if lookErr != nil {
+		t.Skip("sqlite3 not available to create fixture")
+	}
+
+	tempHome := t.TempDir()
+	t.Setenv("HOME", tempHome)
+	t.Setenv("COCKPIT_TOOLS_DATA_DIR", filepath.Join(tempHome, ".cockpit_tools"))
+	t.Setenv("COCKPIT_DATA_DIR", "")
+
+	convsDir := filepath.Join(tempHome, ".gemini", "antigravity", "conversations")
+	if err := os.MkdirAll(convsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. Transcript with NO model info & NO thinking_output_tokens -> must resolve model + thinking from WAL DB with PATH=""
+	conv1 := "win-claude-wal-conv-1"
+	logDir1 := filepath.Join(tempHome, ".gemini", "antigravity", "brain", conv1, ".system_generated", "logs")
+	if err := os.MkdirAll(logDir1, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	transcript1 := `{"step_index":1,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"2026-11-22T09:00:00Z","input_tokens":1200,"cache_read_tokens":800,"output_tokens":350,"callId":"resp-claude-1"}` + "\n"
+	if err := os.WriteFile(filepath.Join(logDir1, "transcript.jsonl"), []byte(transcript1), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Include >5KB padding inside blob so SQLite uses overflow pages + WAL mode!
+	padSlug := make([]byte, 5000)
+	for i := range padSlug {
+		padSlug[i] = 'z'
+	}
+	blob1 := encodeTestGenMetadataBlobWithUsage("claude-opus-5-5-high", "MODEL_PLACEHOLDER_M402", "Claude Opus 5.5 (High)", "0", true, 1200, 350, 0, 800, 140, "resp-claude-1")
+	blob1 = append(blob1, encodeTestPBBytes(99, padSlug)...)
+	db1 := filepath.Join(convsDir, conv1+".db")
+	sql1 := "PRAGMA journal_mode=WAL; CREATE TABLE gen_metadata (idx integer PRIMARY KEY, data blob, size integer NOT NULL DEFAULT 0);" +
+		"INSERT INTO gen_metadata (idx, data, size) VALUES (0, X'" + hex.EncodeToString(blob1) + "', 5100);"
+	if out, err := exec.Command(sqliteBin, db1, sql1).CombinedOutput(); err != nil {
+		t.Fatalf("sqlite3 init db1 failed: %v (%s)", err, string(out))
+	}
+
+	// 2. DB-only Claude conversation (no transcript.jsonl at all) with used_claude fallback + usage
+	conv2 := "win-claude-dbonly-2"
+	blob2 := encodeTestGenMetadataBlobWithUsage("", "", "", "0", true, 900, 250, 100, 500, 80, "resp-dbonly-1")
+	db2 := filepath.Join(convsDir, conv2+".db")
+	sql2 := "CREATE TABLE gen_metadata (idx integer PRIMARY KEY, data blob, size integer NOT NULL DEFAULT 0);" +
+		"INSERT INTO gen_metadata (idx, data, size) VALUES (0, X'" + hex.EncodeToString(blob2) + "', 120);"
+	if out, err := exec.Command(sqliteBin, db2, sql2).CombinedOutput(); err != nil {
+		t.Fatalf("sqlite3 init db2 failed: %v (%s)", err, string(out))
+	}
+
+	// 3. Seed a stale v3 ledger where conv1 had empty Days (simulating Windows previously dropping it)
+	st1, err := os.Stat(filepath.Join(logDir1, "transcript.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	staleV3 := tokenHistoryLedger{
+		Version: 3,
+		Sessions: map[string]ledgerSession{
+			"desktop:" + conv1: {
+				Source:      "desktop",
+				Size:        st1.Size(),
+				ModTimeNano: st1.ModTime().UnixNano(),
+				Days:        map[string]DailyTokenRecord{},
+			},
+		},
+	}
+	cockpitDir := filepath.Join(tempHome, ".cockpit_tools")
+	if err := os.MkdirAll(cockpitDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := saveTokenHistoryLedger(filepath.Join(cockpitDir, "token_history_ledger.json"), &staleV3); err != nil {
+		t.Fatal(err)
+	}
+
+	// Wipe PATH completely to prove zero dependency on sqlite3/python!
+	t.Setenv("PATH", "")
+
+	historyMu.Lock()
+	cachedLedger = nil
+	cachedLedgerPath = ""
+	cachedHistoryResp = nil
+	historyMu.Unlock()
+
+	// Note: forceRefresh=false verifies automatic v3 -> v4 upgrade reparses the dropped session!
+	resp, err := GetTokenHistory(false)
+	if err != nil {
+		t.Fatalf("GetTokenHistory(PATH='') error = %v", err)
+	}
+
+	byModel := make(map[string]ModelTokenBreakdown)
+	for _, m := range resp.ModelSummary {
+		byModel[m.Model] = m
+	}
+
+	opus, ok := byModel["Claude Opus 5.5 (High)"]
+	if !ok {
+		t.Fatalf("expected Claude Opus 5.5 (High) recovered via pure Go SQLite reader, got %+v", resp.ModelSummary)
+	}
+	if opus.Input != 1200 || opus.CacheRead != 800 || opus.Output != 350 || opus.Thinking != 140 || opus.Total != 2350 {
+		t.Fatalf("unexpected Opus stats from WAL+overflow DB: %+v", opus)
+	}
+
+	claudeFallback, ok := byModel["Claude"]
+	if !ok {
+		t.Fatalf("expected DB-only Claude session recovered via used_claude fallback, got %+v", resp.ModelSummary)
+	}
+	if claudeFallback.Input != 1000 || claudeFallback.CacheRead != 500 || claudeFallback.Output != 250 || claudeFallback.Thinking != 80 || claudeFallback.Total != 1750 {
+		t.Fatalf("unexpected DB-only Claude stats: %+v", claudeFallback)
+	}
+}
+
+func TestPrettifyModelSlug(t *testing.T) {
+	cases := map[string]string{
+		"claude-opus-5-5-high":      "Claude Opus 5.5 (High)",
+		"claude-sonnet-4-6-thinking": "Claude Sonnet 4.6 (Thinking)",
+		"claude-opus-6-0-xhigh":     "Claude Opus 6.0 (XHigh)",
+		"gpt-oss-120b-medium":       "GPT OSS 120b (Medium)",
+	}
+	for slug, want := range cases {
+		if got := prettifyModelSlug(slug); got != want {
+			t.Errorf("prettifyModelSlug(%q) = %q, want %q", slug, got, want)
+		}
+	}
+}
+
+func TestPureGoSQLiteReader_MultiPageInteriorAndWAL(t *testing.T) {
+	sqliteBin, lookErr := exec.LookPath("sqlite3")
+	if lookErr != nil {
+		t.Skip("sqlite3 not available to build fixture")
+	}
+
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "multipage.db")
+
+	// Insert 120 rows (~600 bytes each -> forces interior B-tree pages) plus a WAL-mode update transaction.
+	var sqlBuf string
+	sqlBuf += "PRAGMA page_size=1024; PRAGMA journal_mode=WAL; CREATE TABLE gen_metadata (idx integer PRIMARY KEY, data blob, size integer NOT NULL DEFAULT 0); BEGIN;"
+	pad := make([]byte, 550)
+	for i := range pad {
+		pad[i] = byte('a' + (i % 26))
+	}
+	for i := 0; i < 120; i++ {
+		slug := "claude-sonnet-5-5-high"
+		if i%2 == 0 {
+			slug = "claude-opus-5-5-high"
+		}
+		blob := encodeTestGenMetadataBlobWithUsage(slug, "", "", strconvFormatInt(int64(i*2)), true, uint64(100+i), uint64(50+i), 0, uint64(200+i), 20, "r-"+strconvFormatInt(int64(i)))
+		blob = append(blob, encodeTestPBBytes(98, pad)...)
+		sqlBuf += "INSERT INTO gen_metadata (idx, data, size) VALUES (" + strconvFormatInt(int64(i)) + ", X'" + hex.EncodeToString(blob) + "', 600);"
+	}
+	sqlBuf += "COMMIT;\n"
+	initCmd := exec.Command(sqliteBin, dbPath)
+	initCmd.Stdin = strings.NewReader(sqlBuf)
+	if out, err := initCmd.CombinedOutput(); err != nil {
+		t.Fatalf("sqlite3 init multipage db failed: %v (%s)", err, string(out))
+	}
+
+	// Second committed transaction left in WAL (without checkpoint) updating row 119 + inserting row 120
+	extraBlob := encodeTestGenMetadataBlobWithUsage("claude-opus-5-5-medium", "", "Claude Opus 5.5 (Medium)", "240", true, 777, 111, 0, 333, 44, "r-120")
+	walSQL := "INSERT INTO gen_metadata (idx, data, size) VALUES (120, X'" + hex.EncodeToString(extraBlob) + "', 100);"
+	if out, err := exec.Command(sqliteBin, dbPath, walSQL).CombinedOutput(); err != nil {
+		t.Fatalf("sqlite3 wal insert failed: %v (%s)", err, string(out))
+	}
+
+	blobs, err := readGenMetadataBlobsPureGo(dbPath)
+	if err != nil {
+		t.Fatalf("readGenMetadataBlobsPureGo() error = %v", err)
+	}
+	if len(blobs) != 121 {
+		t.Fatalf("expected 121 blobs across interior B-tree + WAL, got %d", len(blobs))
+	}
+	last := parseGenMetadataBlobDetailed(blobs[120])
+	if last.modelName != "Claude Opus 5.5 (Medium)" || last.inputTokens != 777 || last.outputTokens != 111 || last.cacheReadTokens != 333 || last.thinkingTokens != 44 {
+		t.Fatalf("unexpected last WAL row: %+v", last)
+	}
+
+	// Also verify conversation_summaries.db pure-Go parent reader across both tables
+	sumDB := filepath.Join(dir, "conversation_summaries.db")
+	sumSQL := "PRAGMA journal_mode=WAL;" +
+		"CREATE TABLE conversation_parents (conversation_id TEXT PRIMARY KEY, parent_id TEXT);" +
+		"CREATE TABLE conversation_summaries (conversation_id TEXT PRIMARY KEY, title TEXT, parent_conversation_id TEXT);" +
+		"INSERT INTO conversation_parents VALUES ('child-a-12345678', 'parent-1-12345678');" +
+		"INSERT INTO conversation_summaries VALUES ('child-a-12345678', 't1', 'parent-ignored-123');" +
+		"INSERT INTO conversation_summaries VALUES ('child-b-12345678', 't2', 'parent-2-12345678');"
+	if out, err := exec.Command(sqliteBin, sumDB, sumSQL).CombinedOutput(); err != nil {
+		t.Fatalf("sqlite3 init summaries db failed: %v (%s)", err, string(out))
+	}
+	parents, err := readSummaryParentsPureGo(sumDB)
+	if err != nil {
+		t.Fatalf("readSummaryParentsPureGo() error = %v", err)
+	}
+	if parents["child-a-12345678"] != "parent-1-12345678" || parents["child-b-12345678"] != "parent-2-12345678" {
+		t.Fatalf("unexpected parent map: %+v", parents)
 	}
 }
 

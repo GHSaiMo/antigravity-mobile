@@ -481,12 +481,27 @@ fun TokenDailyBarsChartContent(
 @Composable
 fun TokenModelBreakdownChartContent(
     dailyMatrix: List<DailyTokenRecord>,
-    colors: AppColors
+    colors: AppColors,
+    onOpenAllModels: (() -> Unit)? = null
 ) {
     val series = remember(dailyMatrix) { TokenHistoryChartData.buildModelBreakdown(dailyMatrix) }
+    val canOpen = onOpenAllModels != null && series.slices.isNotEmpty()
 
     Column(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(
+                if (canOpen) {
+                    Modifier.clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) {
+                        onOpenAllModels?.invoke()
+                    }
+                } else {
+                    Modifier
+                }
+            ),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Row(
@@ -502,14 +517,15 @@ fun TokenModelBreakdownChartContent(
             )
             Text(
                 text = if (series.uniqueModelCount > 0) {
-                    "${series.uniqueModelCount} 款模型".loc
+                    val base = "${series.uniqueModelCount} 款模型".loc
+                    if (canOpen) "$base ›" else base
                 } else {
                     "暂无数据".loc
                 },
                 fontSize = 10.5.sp,
                 fontFamily = FontFamily.Monospace,
                 fontWeight = FontWeight.Medium,
-                color = colors.textSecondary
+                color = if (canOpen) colors.accentBlue else colors.textSecondary
             )
         }
 
@@ -744,7 +760,8 @@ fun TokenHistoryChartCarouselCard(
     selectedDate: String?,
     selectedChart: TokenHistoryChartType,
     onSelectDate: (String) -> Unit,
-    onUserSelectChart: (TokenHistoryChartType) -> Unit
+    onUserSelectChart: (TokenHistoryChartType) -> Unit,
+    onOpenAllModels: (() -> Unit)? = null
 ) {
     val colors = AntigravityTheme.colors
     val scope = rememberCoroutineScope()
@@ -803,7 +820,8 @@ fun TokenHistoryChartCarouselCard(
                     )
                     TokenHistoryChartType.MODEL_BREAKDOWN -> TokenModelBreakdownChartContent(
                         dailyMatrix = dailyMatrix,
-                        colors = colors
+                        colors = colors,
+                        onOpenAllModels = onOpenAllModels
                     )
                     TokenHistoryChartType.HEATMAP -> TokenHeatmapGridChartContent(
                         dailyMatrix = dailyMatrix,

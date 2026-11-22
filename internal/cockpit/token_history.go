@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -17,17 +18,30 @@ import (
 	"time"
 )
 
+// ModelTokenBreakdown represents per-model token usage and reference cost.
+type ModelTokenBreakdown struct {
+	Model     string  `json:"model"`
+	Total     int64   `json:"total"`
+	Input     int64   `json:"input"`
+	Output    int64   `json:"output"`
+	CacheRead int64   `json:"cache_read"`
+	Thinking  int64   `json:"thinking"`
+	Steps     int     `json:"steps"`
+	CostUSD   float64 `json:"cost_usd"`
+}
+
 // DailyTokenRecord represents the aggregated token usage and cost for a single calendar day.
 type DailyTokenRecord struct {
-	Date      string           `json:"date"`
-	Total     int64            `json:"total"`
-	Input     int64            `json:"input"`
-	Output    int64            `json:"output"`
-	CacheRead int64            `json:"cache_read"`
-	Thinking  int64            `json:"thinking"`
-	Steps     int              `json:"steps"`
-	CostUSD   float64          `json:"cost_usd"`
-	Models    map[string]int64 `json:"models,omitempty"`
+	Date         string                          `json:"date"`
+	Total        int64                           `json:"total"`
+	Input        int64                           `json:"input"`
+	Output       int64                           `json:"output"`
+	CacheRead    int64                           `json:"cache_read"`
+	Thinking     int64                           `json:"thinking"`
+	Steps        int                             `json:"steps"`
+	CostUSD      float64                         `json:"cost_usd"`
+	Models       map[string]int64                `json:"models,omitempty"`
+	ModelDetails map[string]*ModelTokenBreakdown `json:"model_details,omitempty"`
 }
 
 // TokenHistorySummary represents overall high-level statistics across all sessions.
@@ -45,9 +59,10 @@ type TokenHistorySummary struct {
 
 // TokenHistoryResponse is the full payload returned to the frontend.
 type TokenHistoryResponse struct {
-	UpdatedAt   int64              `json:"updated_at"`
-	Summary     TokenHistorySummary `json:"summary"`
-	DailyMatrix []DailyTokenRecord `json:"daily_matrix"`
+	UpdatedAt    int64                 `json:"updated_at"`
+	Summary      TokenHistorySummary   `json:"summary"`
+	DailyMatrix  []DailyTokenRecord    `json:"daily_matrix"`
+	ModelSummary []ModelTokenBreakdown `json:"model_summary,omitempty"`
 }
 
 type ledgerSession struct {
@@ -66,9 +81,10 @@ type transcriptJob struct {
 	convID string
 	path   string
 	source string
+	dbOnly bool
 }
 
-const currentTokenHistoryLedgerVersion = 3
+const currentTokenHistoryLedgerVersion = 4
 
 type parsedTranscriptRecord struct {
 	stepIndex int
@@ -97,6 +113,10 @@ func CalculateCostUSD(model string, input, cacheRead, output int64) float64 {
 	var inRate, cacheRate, outRate float64
 
 	switch {
+	case strings.Contains(m, "claude") && strings.Contains(m, "opus"):
+		inRate = 5.0 / 1e6
+		cacheRate = 0.5 / 1e6
+		outRate = 25.0 / 1e6
 	case strings.Contains(m, "claude"):
 		inRate = 3.0 / 1e6
 		cacheRate = 0.3 / 1e6
@@ -141,11 +161,13 @@ func isSafeConvID(s string) bool {
 }
 
 type transcriptChatModelUsageLite struct {
-	InputTokens          float64 `json:"inputTokens"`
-	OutputTokens         float64 `json:"outputTokens"`
-	CacheReadTokens      float64 `json:"cacheReadTokens"`
-	ThinkingOutputTokens float64 `json:"thinkingOutputTokens"`
-	ResponseID           string  `json:"responseId"`
+	InputTokens              float64 `json:"inputTokens"`
+	OutputTokens             float64 `json:"outputTokens"`
+	CacheCreationTokens      float64 `json:"cacheCreationTokens"`
+	CacheCreationInputTokens float64 `json:"cacheCreationInputTokens"`
+	CacheReadTokens          float64 `json:"cacheReadTokens"`
+	ThinkingOutputTokens     float64 `json:"thinkingOutputTokens"`
+	ResponseID               string  `json:"responseId"`
 }
 
 type transcriptChatModelLite struct {
@@ -156,21 +178,40 @@ type transcriptChatModelLite struct {
 // transcriptStepLite decodes only token/model metadata fields and intentionally omits
 // multi-MB "content", "thinking", and "tool_calls" payloads to avoid heap amplification (P1-3).
 type transcriptStepLite struct {
-	Type                 string                   `json:"type"`
-	StepIndex            *float64                 `json:"step_index"`
-	CreatedAt            string                   `json:"created_at"`
-	InputTokens          float64                  `json:"input_tokens"`
-	OutputTokens         float64                  `json:"output_tokens"`
-	CacheReadTokens      float64                  `json:"cache_read_tokens"`
-	ThinkingOutputTokens float64                  `json:"thinking_output_tokens"`
-	CallID               string                   `json:"callId"`
-	ResponseID           string                   `json:"responseId"`
-	ChatModel            *transcriptChatModelLite `json:"chatModel"`
+	Type                     string                   `json:"type"`
+	StepIndex                *float64                 `json:"step_index"`
+	CreatedAt                string                   `json:"created_at"`
+	Model                    string                   `json:"model"`
+	InputTokens              float64                  `json:"input_tokens"`
+	OutputTokens             float64                  `json:"output_tokens"`
+	CacheCreationTokens      float64                  `json:"cache_creation_tokens"`
+	CacheCreationInputTokens float64                  `json:"cache_creation_input_tokens"`
+	CacheReadTokens          float64                  `json:"cache_read_tokens"`
+	ThinkingOutputTokens     float64                  `json:"thinking_output_tokens"`
+	CallID                   string                   `json:"callId"`
+	ResponseID               string                   `json:"responseId"`
+	ChatModel                *transcriptChatModelLite `json:"chatModel"`
 }
 
 type transcriptContentEnvelope struct {
 	Type    string `json:"type"`
 	Content string `json:"content"`
+}
+
+func parseTranscriptDateKey(createdAt string) string {
+	if len(createdAt) < 10 {
+		return ""
+	}
+	if t, err := time.Parse(time.RFC3339Nano, createdAt); err == nil {
+		return t.Local().Format("2006-01-02")
+	} else if t, err := time.Parse(time.RFC3339, createdAt); err == nil {
+		return t.Local().Format("2006-01-02")
+	} else if t, err := time.Parse("2006-01-02T15:04:05Z07:00", createdAt); err == nil {
+		return t.Local().Format("2006-01-02")
+	} else if t, err := time.ParseInLocation("2006-01-02T15:04:05", createdAt, time.Local); err == nil {
+		return t.Format("2006-01-02")
+	}
+	return createdAt[:10]
 }
 
 // parseModelFromUserSettings extracts the model display name from <USER_SETTINGS_CHANGE> in USER_INPUT steps.
@@ -224,7 +265,7 @@ func parseModelFromUserSettingsText(rawType, content string) string {
 	if len(model) == 0 || len(model) > 60 || strings.ContainsAny(model, "{};\"\n\r") {
 		return ""
 	}
-	return model
+	return normalizeModelDisplayName(model)
 }
 
 func parseTranscriptFile(filePath, source string) []parsedTranscriptRecord {
@@ -258,6 +299,8 @@ func parseTranscriptFileCached(filePath, convID, source string, cache *tokenHist
 
 	currentModel := ""
 	parentConvID := ""
+	fallbackDateKey := ""
+	var stepDates map[int]string
 
 	for scanner.Scan() {
 		line := scanner.Bytes()
@@ -270,10 +313,14 @@ func parseTranscriptFileCached(filePath, convID, source string, cache *tokenHist
 		hasUsageOrChatModel := bytes.Contains(line, []byte(`"input_tokens"`)) ||
 			bytes.Contains(line, []byte(`"output_tokens"`)) ||
 			bytes.Contains(line, []byte(`"cache_read_tokens"`)) ||
+			bytes.Contains(line, []byte(`"cache_creation_tokens"`)) ||
+			bytes.Contains(line, []byte(`"cache_creation_input_tokens"`)) ||
+			bytes.Contains(line, []byte(`"thinking_output_tokens"`)) ||
 			bytes.Contains(line, []byte(`"chatModel"`))
 		maybeUserSettings := bytes.Contains(line, []byte(`"USER_INPUT"`)) && bytes.Contains(line, []byte("`Model Selection`"))
 		maybeSubagentHeader := parentConvID == "" && bytes.Contains(line, []byte(`"SYSTEM_MESSAGE"`)) && bytes.Contains(line, []byte("sender="))
-		if !hasUsageOrChatModel && !maybeUserSettings && !maybeSubagentHeader {
+		maybePlannerStep := !hasUsageOrChatModel && bytes.Contains(line, []byte(`"PLANNER_RESPONSE"`))
+		if !hasUsageOrChatModel && !maybeUserSettings && !maybeSubagentHeader && !maybePlannerStep {
 			continue
 		}
 
@@ -291,7 +338,7 @@ func parseTranscriptFileCached(filePath, convID, source string, cache *tokenHist
 					}
 				}
 			}
-			if !hasUsageOrChatModel {
+			if !hasUsageOrChatModel && !maybePlannerStep {
 				continue
 			}
 		}
@@ -301,32 +348,39 @@ func parseTranscriptFileCached(filePath, convID, source string, cache *tokenHist
 			continue
 		}
 
-		var inp, outp, capTokens, thinking int64
-		var callID, dateKey string
+		var inp, outp, capTokens, cacheCreate, thinking int64
+		var callID string
 		stepIndex := -1
 		if step.StepIndex != nil {
 			stepIndex = int(*step.StepIndex)
 		}
+		dateKey := parseTranscriptDateKey(step.CreatedAt)
+		if dateKey != "" {
+			if fallbackDateKey == "" {
+				fallbackDateKey = dateKey
+			}
+			if stepIndex >= 0 {
+				if stepDates == nil {
+					stepDates = make(map[int]string)
+				}
+				stepDates[stepIndex] = dateKey
+			}
+		}
 
-		if createdAt := step.CreatedAt; len(createdAt) >= 10 {
-			var t time.Time
-			var err error
-			if t, err = time.Parse(time.RFC3339Nano, createdAt); err == nil {
-				dateKey = t.Local().Format("2006-01-02")
-			} else if t, err = time.Parse(time.RFC3339, createdAt); err == nil {
-				dateKey = t.Local().Format("2006-01-02")
-			} else if t, err = time.Parse("2006-01-02T15:04:05Z07:00", createdAt); err == nil {
-				dateKey = t.Local().Format("2006-01-02")
-			} else if t, err = time.ParseInLocation("2006-01-02T15:04:05", createdAt, time.Local); err == nil {
-				dateKey = t.Format("2006-01-02")
-			} else {
-				dateKey = createdAt[:10]
+		// Newer Antigravity builds write top-level "model" directly on PLANNER_RESPONSE steps.
+		if rawModel := strings.TrimSpace(step.Model); rawModel != "" {
+			if resolved := resolveGenMetadataModelName("", rawModel, rawModel); resolved != "" && !strings.EqualFold(resolved, "default") {
+				currentModel = resolved
 			}
 		}
 
 		inp = int64(step.InputTokens)
 		outp = int64(step.OutputTokens)
 		capTokens = int64(step.CacheReadTokens)
+		cacheCreate = int64(step.CacheCreationTokens)
+		if cacheCreate == 0 {
+			cacheCreate = int64(step.CacheCreationInputTokens)
+		}
 		thinking = int64(step.ThinkingOutputTokens)
 
 		// Check chatModel metadata (extract model even if top-level token fields are present)
@@ -336,13 +390,20 @@ func parseTranscriptFileCached(filePath, convID, source string, cache *tokenHist
 					currentModel = resolved
 				}
 			}
-			if inp == 0 && outp == 0 && capTokens == 0 && cm.Usage != nil {
+			if inp == 0 && outp == 0 && capTokens == 0 && cacheCreate == 0 && cm.Usage != nil {
 				inp = int64(cm.Usage.InputTokens)
 				outp = int64(cm.Usage.OutputTokens)
 				capTokens = int64(cm.Usage.CacheReadTokens)
+				cacheCreate = int64(cm.Usage.CacheCreationTokens)
+				if cacheCreate == 0 {
+					cacheCreate = int64(cm.Usage.CacheCreationInputTokens)
+				}
 				thinking = int64(cm.Usage.ThinkingOutputTokens)
 				callID = cm.Usage.ResponseID
 			}
+		}
+		if cacheCreate > 0 {
+			inp += cacheCreate
 		}
 
 		if step.CallID != "" {
@@ -376,8 +437,21 @@ func parseTranscriptFileCached(filePath, convID, source string, cache *tokenHist
 		}
 	}
 
+	if len(records) == 0 && convID != "" {
+		if fallbackDateKey == "" {
+			if st, statErr := os.Stat(filePath); statErr == nil {
+				fallbackDateKey = st.ModTime().Local().Format("2006-01-02")
+			}
+		}
+		records = synthesizeRecordsFromGenMetadata(convID, source, currentModel, stepDates, fallbackDateKey, cache)
+	}
+
 	if hasUnresolvedModel(records) && convID != "" {
 		resolveMissingRecordModels(records, convID, parentConvID, source, cache)
+	}
+
+	if len(records) > 0 && convID != "" {
+		backfillThinkingFromGenMetadata(records, convID, source, cache)
 	}
 
 	return records
@@ -422,84 +496,109 @@ func parseParentConvIDFromSystemMessageText(rawType, content string) string {
 }
 
 type genMetadataModelEntry struct {
-	lastStepIndex int
-	modelName     string
+	lastStepIndex   int
+	modelName       string
+	inputTokens     int64
+	outputTokens    int64
+	cacheReadTokens int64
+	thinkingTokens  int64
+	responseID      string
 }
 
 var knownModelDisplayNames = map[string]string{
-	"model_placeholder_m26":     "Claude Opus 4.6 (Thinking)",
-	"claude-opus-4-6-thinking":  "Claude Opus 4.6 (Thinking)",
-	"model_placeholder_m35":     "Claude Sonnet 4.6 (Thinking)",
-	"claude-sonnet-4-6":         "Claude Sonnet 4.6 (Thinking)",
-	"model_placeholder_m36":     "Gemini 3.1 Pro (Low)",
-	"gemini-3.1-pro-low":        "Gemini 3.1 Pro (Low)",
-	"model_placeholder_m37":     "Gemini 3.1 Pro (High)",
-	"gemini-3.1-pro-high":       "Gemini 3.1 Pro (High)",
-	"model_placeholder_m318":    "Gemini 3.8 Flash (High)",
-	"gemini-3.8-flash-high":     "Gemini 3.8 Flash (High)",
-	"model_placeholder_m319":    "Gemini 3.8 Flash (Medium)",
-	"gemini-3.8-flash-medium":   "Gemini 3.8 Flash (Medium)",
-	"model_placeholder_m320":    "Gemini 3.8 Flash (Low)",
-	"gemini-3.8-flash-low":      "Gemini 3.8 Flash (Low)",
-	"model_placeholder_m322":    "Gemini 3.8 Flash",
-	"gemini-3.8-flash-tiered":   "Gemini 3.8 Flash",
-	"gemini-3.5-flash-lite":     "Gemini 3.5 Flash Lite",
-	"model_placeholder_m400":    "Claude Opus 5.5 (Low)",
-	"claude-opus-5-5-low":       "Claude Opus 5.5 (Low)",
-	"model_placeholder_m401":    "Claude Opus 5.5 (Medium)",
-	"claude-opus-5-5-medium":    "Claude Opus 5.5 (Medium)",
-	"model_placeholder_m402":    "Claude Opus 5.5 (High)",
-	"claude-opus-5-5-high":      "Claude Opus 5.5 (High)",
-	"model_placeholder_m403":    "Claude Sonnet 5.5 (Low)",
-	"claude-sonnet-5-5-low":     "Claude Sonnet 5.5 (Low)",
-	"model_placeholder_m404":    "Claude Sonnet 5.5 (Medium)",
-	"claude-sonnet-5-5-medium":  "Claude Sonnet 5.5 (Medium)",
-	"model_placeholder_m405":    "Claude Sonnet 5.5 (High)",
-	"claude-sonnet-5-5-high":    "Claude Sonnet 5.5 (High)",
-	"model_placeholder_m417":    "Gemini 4 Argon (High)",
-	"gemini-4-argon-high":       "Gemini 4 Argon (High)",
-	"model_placeholder_m418":    "Gemini 4 Argon (Medium)",
-	"gemini-4-argon-medium":     "Gemini 4 Argon (Medium)",
-	"model_placeholder_m419":    "Gemini 4 Argon (Low)",
-	"gemini-4-argon-low":        "Gemini 4 Argon (Low)",
-	"model_placeholder_m420":    "Gemini 4 Carbon (High)",
-	"model_placeholder_m427":    "Gemini 4 Carbon (High)",
-	"gemini-4-carbon-high":      "Gemini 4 Carbon (High)",
-	"model_placeholder_m421":    "Gemini 4 Carbon (Medium)",
-	"gemini-4-carbon-medium":    "Gemini 4 Carbon (Medium)",
-	"model_placeholder_m422":    "Gemini 4 Carbon (Low)",
-	"gemini-4-carbon-low":       "Gemini 4 Carbon (Low)",
-	"model_placeholder_m525":    "Gemini 4 Hydrogen (High)",
-	"gemini-4-hydrogen-high":    "Gemini 4 Hydrogen (High)",
-	"model_placeholder_m526":    "Gemini 4 Hydrogen (Medium)",
-	"gemini-4-hydrogen-medium":  "Gemini 4 Hydrogen (Medium)",
-	"model_placeholder_m527":    "Gemini 4 Hydrogen (Low)",
-	"gemini-4-hydrogen-low":     "Gemini 4 Hydrogen (Low)",
-	"model_placeholder_m528":    "Gemini 4 Hydrogen (Extra)",
-	"gemini-4-hydrogen-xhigh":   "Gemini 4 Hydrogen (Extra)",
-	"model_placeholder_m530":    "Gemini 4 Hydrogen (High)",
-	"model_placeholder_m531":    "Gemini 4 Hydrogen (Extra)",
-	"model_placeholder_m532":    "Gemini 4 Neon (High)",
-	"gemini-4-neon-high":        "Gemini 4 Neon (High)",
-	"model_placeholder_m533":    "Gemini 4 Neon (Medium)",
-	"gemini-4-neon-medium":      "Gemini 4 Neon (Medium)",
-	"model_placeholder_m534":    "Gemini 4 Neon (Low)",
-	"gemini-4-neon-low":         "Gemini 4 Neon (Low)",
-	"model_placeholder_m535":    "Gemini 4 Neon (Extra)",
-	"gemini-4-neon-xhigh":       "Gemini 4 Neon (Extra)",
-	"model_placeholder_m537":    "Orchestrator (Neon)",
+	"model_placeholder_m26":        "Claude Opus 4.6 (Thinking)",
+	"claude-opus-4-6":              "Claude Opus 4.6 (Thinking)",
+	"claude-opus-4-6-thinking":     "Claude Opus 4.6 (Thinking)",
+	"model_placeholder_m35":        "Claude Sonnet 4.6 (Thinking)",
+	"claude-sonnet-4-6":            "Claude Sonnet 4.6 (Thinking)",
+	"claude-sonnet-4-6-thinking":   "Claude Sonnet 4.6 (Thinking)",
+	"claude-opus-4-5":              "Claude Opus 4.5",
+	"claude-sonnet-4-5":            "Claude Sonnet 4.5",
+	"model_placeholder_m36":        "Gemini 3.1 Pro (Low)",
+	"gemini-3.1-pro-low":           "Gemini 3.1 Pro (Low)",
+	"model_placeholder_m37":        "Gemini 3.1 Pro (High)",
+	"gemini-3.1-pro-high":          "Gemini 3.1 Pro (High)",
+	"model_placeholder_m318":       "Gemini 3.8 Flash (High)",
+	"gemini-3.8-flash-high":        "Gemini 3.8 Flash (High)",
+	"model_placeholder_m319":       "Gemini 3.8 Flash (Medium)",
+	"gemini-3.8-flash-medium":      "Gemini 3.8 Flash (Medium)",
+	"model_placeholder_m320":       "Gemini 3.8 Flash (Low)",
+	"gemini-3.8-flash-low":         "Gemini 3.8 Flash (Low)",
+	"model_placeholder_m322":       "Gemini 3.8 Flash",
+	"gemini-3.8-flash-tiered":      "Gemini 3.8 Flash",
+	"gemini-3.5-flash-lite":        "Gemini 3.5 Flash Lite",
+	"model_placeholder_m400":       "Claude Opus 5.5 (Low)",
+	"claude-opus-5-5-low":          "Claude Opus 5.5 (Low)",
+	"model_placeholder_m401":       "Claude Opus 5.5 (Medium)",
+	"claude-opus-5-5-medium":       "Claude Opus 5.5 (Medium)",
+	"model_placeholder_m402":       "Claude Opus 5.5 (High)",
+	"claude-opus-5-5-high":         "Claude Opus 5.5 (High)",
+	"claude-opus-5-5-xhigh":        "Claude Opus 5.5 (XHigh)",
+	"model_placeholder_m403":       "Claude Sonnet 5.5 (Low)",
+	"claude-sonnet-5-5-low":        "Claude Sonnet 5.5 (Low)",
+	"model_placeholder_m404":       "Claude Sonnet 5.5 (Medium)",
+	"claude-sonnet-5-5-medium":     "Claude Sonnet 5.5 (Medium)",
+	"model_placeholder_m405":       "Claude Sonnet 5.5 (High)",
+	"claude-sonnet-5-5-high":       "Claude Sonnet 5.5 (High)",
+	"claude-sonnet-5-5-xhigh":      "Claude Sonnet 5.5 (XHigh)",
+	"model_placeholder_m417":       "Gemini 4 Argon (High)",
+	"gemini-4-argon-high":          "Gemini 4 Argon (High)",
+	"model_placeholder_m418":       "Gemini 4 Argon (Medium)",
+	"gemini-4-argon-medium":        "Gemini 4 Argon (Medium)",
+	"model_placeholder_m419":       "Gemini 4 Argon (Low)",
+	"gemini-4-argon-low":           "Gemini 4 Argon (Low)",
+	"model_placeholder_m420":       "Gemini 4 Carbon (High)",
+	"model_placeholder_m427":       "Gemini 4 Carbon (High)",
+	"gemini-4-carbon-high":         "Gemini 4 Carbon (High)",
+	"model_placeholder_m421":       "Gemini 4 Carbon (Medium)",
+	"gemini-4-carbon-medium":       "Gemini 4 Carbon (Medium)",
+	"model_placeholder_m422":       "Gemini 4 Carbon (Low)",
+	"gemini-4-carbon-low":          "Gemini 4 Carbon (Low)",
+	"model_placeholder_m525":       "Gemini 4 Hydrogen (High)",
+	"gemini-4-hydrogen-high":       "Gemini 4 Hydrogen (High)",
+	"gemini-4-hydrogen-tiered-high": "Gemini 4 Hydrogen (High)",
+	"model_placeholder_m526":       "Gemini 4 Hydrogen (Medium)",
+	"gemini-4-hydrogen-medium":     "Gemini 4 Hydrogen (Medium)",
+	"model_placeholder_m527":       "Gemini 4 Hydrogen (Low)",
+	"gemini-4-hydrogen-low":        "Gemini 4 Hydrogen (Low)",
+	"model_placeholder_m528":       "Gemini 4 Hydrogen (XHigh)",
+	"gemini-4-hydrogen-xhigh":      "Gemini 4 Hydrogen (XHigh)",
+	"gemini-4-hydrogen-tiered-xhigh": "Gemini 4 Hydrogen (XHigh)",
+	"model_placeholder_m530":       "Gemini 4 Hydrogen (High)",
+	"model_placeholder_m531":       "Gemini 4 Hydrogen (XHigh)",
+	"model_placeholder_m532":       "Gemini 4 Neon (High)",
+	"gemini-4-neon-high":           "Gemini 4 Neon (High)",
+	"model_placeholder_m533":       "Gemini 4 Neon (Medium)",
+	"gemini-4-neon-medium":         "Gemini 4 Neon (Medium)",
+	"model_placeholder_m534":       "Gemini 4 Neon (Low)",
+	"gemini-4-neon-low":            "Gemini 4 Neon (Low)",
+	"model_placeholder_m535":       "Gemini 4 Neon (XHigh)",
+	"gemini-4-neon-xhigh":          "Gemini 4 Neon (XHigh)",
+	"model_placeholder_m537":       "Orchestrator (Neon)",
 	"gemini-pro-orchestrator-neon": "Orchestrator (Neon)",
-	"model_placeholder_m667":    "Orchestrator (Carbon)",
-	"gemini-pro-orchestrator":   "Orchestrator (Carbon)",
-	"model_placeholder_m681":    "Orchestrator (Argon)",
+	"model_placeholder_m667":       "Orchestrator (Carbon)",
+	"gemini-pro-orchestrator":      "Orchestrator (Carbon)",
+	"model_placeholder_m681":       "Orchestrator (Argon)",
 	"gemini-pro-orchestrator-argon": "Orchestrator (Argon)",
-	"model_placeholder_m669":    "Gemini 4 Hydrogen (Orchestrator)",
-	"gemini-flash-worker-agy":   "Gemini 4 Hydrogen (Orchestrator)",
+	"model_placeholder_m669":       "Gemini 4 Hydrogen (Orchestrator)",
+	"gemini-flash-worker-agy":      "Gemini 4 Hydrogen (Orchestrator)",
+	"gpt-oss-120b-medium":          "GPT-OSS 120B (Medium)",
+}
+
+func normalizeModelDisplayName(name string) string {
+	n := strings.TrimSpace(name)
+	switch n {
+	case "Gemini 4 Neon (Extra)":
+		return "Gemini 4 Neon (XHigh)"
+	case "Gemini 4 Hydrogen (Extra)":
+		return "Gemini 4 Hydrogen (XHigh)"
+	}
+	return n
 }
 
 func resolveGenMetadataModelName(displayName, slug, modelEnum string) string {
 	if dn := strings.TrimSpace(displayName); dn != "" {
-		return dn
+		return normalizeModelDisplayName(dn)
 	}
 	if enumKey := strings.ToLower(strings.TrimSpace(modelEnum)); enumKey != "" {
 		if mapped, ok := knownModelDisplayNames[enumKey]; ok {
@@ -515,26 +614,81 @@ func resolveGenMetadataModelName(displayName, slug, modelEnum string) string {
 	return strings.TrimSpace(modelEnum)
 }
 
+func isAllDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return true
+}
+
 func prettifyModelSlug(slug string) string {
 	s := strings.TrimSpace(slug)
 	if s == "" {
 		return ""
 	}
 	if !strings.Contains(s, "-") {
+		return normalizeModelDisplayName(s)
+	}
+	rawParts := strings.Split(s, "-")
+	var filtered []string
+	for _, p := range rawParts {
+		if p != "" {
+			filtered = append(filtered, p)
+		}
+	}
+	if len(filtered) == 0 {
 		return s
 	}
-	parts := strings.Split(s, "-")
-	for i, p := range parts {
-		if len(p) == 0 {
-			continue
+
+	// Extract trailing tier/mode suffix into parentheses (e.g. claude-opus-5-5-high -> Claude Opus 5.5 (High))
+	suffix := ""
+	if len(filtered) >= 2 {
+		last := strings.ToLower(filtered[len(filtered)-1])
+		switch last {
+		case "low":
+			suffix = "Low"
+		case "medium":
+			suffix = "Medium"
+		case "high":
+			suffix = "High"
+		case "xhigh", "extra":
+			suffix = "XHigh"
+		case "thinking":
+			suffix = "Thinking"
 		}
-		if strings.EqualFold(p, "gpt") {
-			parts[i] = "GPT"
-		} else {
-			parts[i] = strings.ToUpper(p[:1]) + p[1:]
+		if suffix != "" {
+			filtered = filtered[:len(filtered)-1]
 		}
 	}
-	return strings.Join(parts, " ")
+
+	var out []string
+	for i := 0; i < len(filtered); i++ {
+		p := filtered[i]
+		// Merge adjacent numeric major-minor segments (e.g. "5", "5" -> "5.5", "4", "6" -> "4.6").
+		if isAllDigits(p) && i+1 < len(filtered) && isAllDigits(filtered[i+1]) && len(p) <= 2 && len(filtered[i+1]) <= 2 {
+			out = append(out, p+"."+filtered[i+1])
+			i++
+			continue
+		}
+		switch strings.ToLower(p) {
+		case "gpt":
+			out = append(out, "GPT")
+		case "oss":
+			out = append(out, "OSS")
+		default:
+			out = append(out, strings.ToUpper(p[:1])+p[1:])
+		}
+	}
+	res := strings.Join(out, " ")
+	if suffix != "" {
+		res += " (" + suffix + ")"
+	}
+	return normalizeModelDisplayName(res)
 }
 
 func conversationDBCandidates(convID, source string) []string {
@@ -575,12 +729,9 @@ func loadGenMetadataModels(convID, source string) []genMetadataModelEntry {
 		}
 		var entries []genMetadataModelEntry
 		for _, blob := range blobs {
-			lastStep, modelName := parseGenMetadataBlob(blob)
-			if modelName != "" {
-				entries = append(entries, genMetadataModelEntry{
-					lastStepIndex: lastStep,
-					modelName:     modelName,
-				})
+			entry := parseGenMetadataBlobDetailed(blob)
+			if entry.modelName != "" || entry.inputTokens+entry.outputTokens+entry.cacheReadTokens > 0 {
+				entries = append(entries, entry)
 			}
 		}
 		if len(entries) > 0 {
@@ -603,33 +754,43 @@ func loadGenMetadataModelsCached(convID, source string, cache *tokenHistoryScanC
 	return entries
 }
 
+func cockpitPythonCandidates() []string {
+	if runtime.GOOS == "windows" {
+		return []string{"python", "py", "python3"}
+	}
+	return []string{"python3", "python"}
+}
+
 func queryGenMetadataBlobs(dbPath string) ([][]byte, error) {
 	cleanDB, err := safeSQLitePathArg(dbPath)
 	if err != nil {
 		return nil, err
 	}
 
+	// 1. Fast, zero-dependency pure Go SQLite3 reader (works on Windows/macOS/Linux without sqlite3/python).
+	if blobs, pureErr := readGenMetadataBlobsPureGo(cleanDB); pureErr == nil {
+		return blobs, nil
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
 	var out []byte
+	var runErr error
 	if sqliteBin, lookErr := exec.LookPath("sqlite3"); lookErr == nil && isExecutableValid(sqliteBin) {
 		cmd := exec.CommandContext(ctx, sqliteBin, "-readonly", "-batch", "-noheader", "-cmd", ".timeout 2000", cleanDB, "SELECT hex(data) FROM gen_metadata ORDER BY idx;")
-		out, err = cmd.Output()
+		out, runErr = cmd.Output()
 	} else {
-		var pyBin string
-		for _, candidate := range []string{"python3", "python"} {
-			if p, pErr := exec.LookPath(candidate); pErr == nil && isExecutableValid(p) {
-				pyBin = p
-				break
-			}
-		}
-		if pyBin == "" {
-			return nil, os.ErrNotExist
-		}
+		runErr = os.ErrNotExist
+	}
+
+	if runErr != nil {
 		pyScript := `import pathlib, sqlite3, sys
-uri = pathlib.Path(sys.argv[1]).resolve().as_uri() + '?mode=ro'
-conn = sqlite3.connect(uri, uri=True, timeout=2.0)
+p = pathlib.Path(sys.argv[1]).resolve()
+try:
+    conn = sqlite3.connect(p.as_uri() + '?mode=ro', uri=True, timeout=2.0)
+except sqlite3.Error:
+    conn = sqlite3.connect(str(p), timeout=2.0)
 try:
     for (val,) in conn.execute('SELECT hex(data) FROM gen_metadata ORDER BY idx'):
         if val:
@@ -637,11 +798,23 @@ try:
 finally:
     conn.close()
 `
-		cmd := exec.CommandContext(ctx, pyBin, "-c", pyScript, cleanDB)
-		out, err = cmd.Output()
+		for _, candidate := range cockpitPythonCandidates() {
+			pyBin, pErr := exec.LookPath(candidate)
+			if pErr != nil || !isExecutableValid(pyBin) {
+				continue
+			}
+			cmd := exec.CommandContext(ctx, pyBin, "-c", pyScript, cleanDB)
+			if pyOut, pyErr := cmd.Output(); pyErr == nil {
+				out = pyOut
+				runErr = nil
+				break
+			} else {
+				runErr = pyErr
+			}
+		}
 	}
-	if err != nil {
-		return nil, err
+	if runErr != nil {
+		return nil, runErr
 	}
 
 	var blobs [][]byte
@@ -703,6 +876,13 @@ func skipProtobufWireField(b []byte, pos int, wireType int) (int, bool) {
 // parseGenMetadataBlob decodes GeneratorMetadata protobuf bytes from conversations/*.db
 // to extract last_step_index and the resolved human-readable model name.
 func parseGenMetadataBlob(blob []byte) (int, string) {
+	entry := parseGenMetadataBlobDetailed(blob)
+	return entry.lastStepIndex, entry.modelName
+}
+
+// parseGenMetadataBlobDetailed decodes GeneratorMetadata protobuf bytes from conversations/*.db
+// to extract model attribution and token usage metrics.
+func parseGenMetadataBlobDetailed(blob []byte) genMetadataModelEntry {
 	pos := 0
 	for pos < len(blob) {
 		tag, next, ok := readProtobufVarint(blob, pos)
@@ -717,7 +897,7 @@ func parseGenMetadataBlob(blob []byte) (int, string) {
 			if !ok || ln > uint64(len(blob)-valStart) {
 				break
 			}
-			return parseChatModelMetaFields(blob[valStart : valStart+int(ln)])
+			return parseChatModelMetaFieldsDetailed(blob[valStart : valStart+int(ln)])
 		}
 		nextPos, ok := skipProtobufWireField(blob, pos, wireType)
 		if !ok {
@@ -725,12 +905,64 @@ func parseGenMetadataBlob(blob []byte) (int, string) {
 		}
 		pos = nextPos
 	}
-	return -1, ""
+	return genMetadataModelEntry{lastStepIndex: -1}
 }
 
-func parseChatModelMetaFields(msg []byte) (int, string) {
-	lastStep := -1
+func parseChatModelUsageFields(msg []byte) (inp, outp, cacheRead, thinking int64, responseID string) {
+	var cacheCreate int64
+	pos := 0
+	for pos < len(msg) {
+		tag, next, ok := readProtobufVarint(msg, pos)
+		if !ok {
+			break
+		}
+		pos = next
+		fieldNum := int(tag >> 3)
+		wireType := int(tag & 7)
+		switch {
+		case wireType == 0:
+			v, nextPos, ok := readProtobufVarint(msg, pos)
+			if !ok {
+				return inp + cacheCreate, outp, cacheRead, thinking, responseID
+			}
+			pos = nextPos
+			switch fieldNum {
+			case 2:
+				inp = int64(v)
+			case 3:
+				outp = int64(v)
+			case 4:
+				cacheCreate = int64(v)
+			case 5:
+				cacheRead = int64(v)
+			case 9:
+				thinking = int64(v)
+			}
+		case wireType == 2:
+			ln, valStart, ok := readProtobufVarint(msg, pos)
+			if !ok || ln > uint64(len(msg)-valStart) {
+				return inp + cacheCreate, outp, cacheRead, thinking, responseID
+			}
+			chunk := msg[valStart : valStart+int(ln)]
+			pos = valStart + int(ln)
+			if fieldNum == 11 {
+				responseID = string(chunk)
+			}
+		default:
+			nextPos, ok := skipProtobufWireField(msg, pos, wireType)
+			if !ok {
+				return inp + cacheCreate, outp, cacheRead, thinking, responseID
+			}
+			pos = nextPos
+		}
+	}
+	return inp + cacheCreate, outp, cacheRead, thinking, responseID
+}
+
+func parseChatModelMetaFieldsDetailed(msg []byte) genMetadataModelEntry {
+	entry := genMetadataModelEntry{lastStepIndex: -1}
 	var slug, displayName, modelEnum string
+	usedClaude := false
 
 	pos := 0
 	for pos < len(msg) {
@@ -757,6 +989,8 @@ func parseChatModelMetaFields(msg []byte) (int, string) {
 		pos = valStart + int(ln)
 
 		switch fieldNum {
+		case 4:
+			entry.inputTokens, entry.outputTokens, entry.cacheReadTokens, entry.thinkingTokens, entry.responseID = parseChatModelUsageFields(chunk)
 		case 19:
 			slug = string(chunk)
 		case 21:
@@ -768,12 +1002,127 @@ func parseChatModelMetaFields(msg []byte) (int, string) {
 				modelEnum = v
 			case "last_step_index":
 				if idx, convErr := strconv.Atoi(v); convErr == nil {
-					lastStep = idx
+					entry.lastStepIndex = idx
+				}
+			case "used_claude":
+				if strings.EqualFold(strings.TrimSpace(v), "true") {
+					usedClaude = true
 				}
 			}
 		}
 	}
-	return lastStep, resolveGenMetadataModelName(displayName, slug, modelEnum)
+	entry.modelName = resolveGenMetadataModelName(displayName, slug, modelEnum)
+	if entry.modelName == "" && usedClaude {
+		entry.modelName = "Claude"
+	}
+	return entry
+}
+
+func synthesizeRecordsFromGenMetadata(convID, source, fallbackModel string, stepDates map[int]string, fallbackDateKey string, cache *tokenHistoryScanCache) []parsedTranscriptRecord {
+	entries := loadGenMetadataModelsCached(convID, source, cache)
+	if len(entries) == 0 {
+		return nil
+	}
+	if fallbackDateKey == "" {
+		for _, dbPath := range conversationDBCandidates(convID, source) {
+			if st, err := os.Stat(dbPath); err == nil && !st.IsDir() {
+				fallbackDateKey = st.ModTime().Local().Format("2006-01-02")
+				break
+			}
+		}
+	}
+	if fallbackDateKey == "" {
+		return nil
+	}
+
+	var records []parsedTranscriptRecord
+	for _, e := range entries {
+		tot := e.inputTokens + e.outputTokens + e.cacheReadTokens
+		if tot <= 0 {
+			continue
+		}
+		stepIdx := -1
+		if e.lastStepIndex >= 0 {
+			stepIdx = e.lastStepIndex + 1
+		}
+		dateKey := ""
+		if stepDates != nil {
+			if d := stepDates[stepIdx]; d != "" {
+				dateKey = d
+			} else if d := stepDates[e.lastStepIndex]; d != "" {
+				dateKey = d
+			}
+		}
+		if dateKey == "" {
+			dateKey = fallbackDateKey
+		}
+		model := e.modelName
+		if model == "" {
+			model = fallbackModel
+		}
+		records = append(records, parsedTranscriptRecord{
+			stepIndex: stepIdx,
+			dateKey:   dateKey,
+			input:     e.inputTokens,
+			output:    e.outputTokens,
+			cacheRead: e.cacheReadTokens,
+			thinking:  e.thinkingTokens,
+			total:     tot,
+			model:     model,
+			source:    source,
+			callID:    e.responseID,
+		})
+	}
+	return records
+}
+
+func backfillThinkingFromGenMetadata(records []parsedTranscriptRecord, convID, source string, cache *tokenHistoryScanCache) {
+	needThinking := false
+	for _, r := range records {
+		if r.thinking == 0 {
+			needThinking = true
+			break
+		}
+	}
+	if !needThinking || !conversationDBExists(convID, source) {
+		return
+	}
+	entries := loadGenMetadataModelsCached(convID, source, cache)
+	if len(entries) == 0 {
+		return
+	}
+	byResp := make(map[string]int64, len(entries))
+	byStep := make(map[int]genMetadataModelEntry, len(entries))
+	for _, e := range entries {
+		if e.thinkingTokens <= 0 {
+			continue
+		}
+		if e.responseID != "" {
+			byResp[e.responseID] = e.thinkingTokens
+		}
+		if e.lastStepIndex >= 0 {
+			byStep[e.lastStepIndex+1] = e
+		}
+	}
+	if len(byResp) == 0 && len(byStep) == 0 {
+		return
+	}
+	for i := range records {
+		if records[i].thinking > 0 {
+			continue
+		}
+		if records[i].callID != "" {
+			if th, ok := byResp[records[i].callID]; ok {
+				records[i].thinking = th
+				continue
+			}
+		}
+		if records[i].stepIndex >= 0 {
+			if e, ok := byStep[records[i].stepIndex]; ok && (e.outputTokens == 0 || e.outputTokens == records[i].output) {
+				records[i].thinking = e.thinkingTokens
+			}
+		}
+	}
 }
 
 func parseProtobufKV(msg []byte) (string, string) {
@@ -994,23 +1343,33 @@ func loadAllParentConvIDsFromSummariesDB(source string) map[string]string {
 		return result
 	}
 
+	// 1. Pure Go zero-dependency SQLite3 reader first (no sqlite3/python needed on Windows).
+	if pureMap, pureErr := readSummaryParentsPureGo(cleanDB); pureErr == nil {
+		return pureMap
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
 	var out []byte
+	var runErr error
 	if sqliteBin, lookErr := exec.LookPath("sqlite3"); lookErr == nil && isExecutableValid(sqliteBin) {
 		sqlStdin := ".timeout 1500\n.mode list\n.separator \"\\t\"\n" +
 			"SELECT conversation_id, parent_id FROM conversation_parents WHERE parent_id IS NOT NULL AND parent_id != '';\n" +
 			"SELECT conversation_id, parent_conversation_id FROM conversation_summaries WHERE parent_conversation_id IS NOT NULL AND parent_conversation_id != '';\n"
 		cmd := exec.CommandContext(ctx, sqliteBin, "-readonly", "-batch", "-noheader", cleanDB)
 		cmd.Stdin = strings.NewReader(sqlStdin)
-		out, _ = cmd.Output()
+		out, runErr = cmd.Output()
 	} else {
-		for _, candidate := range []string{"python3", "python"} {
-			if pyBin, pErr := exec.LookPath(candidate); pErr == nil && isExecutableValid(pyBin) {
-				pyScript := `import pathlib, sqlite3, sys
-uri = pathlib.Path(sys.argv[1]).resolve().as_uri() + '?mode=ro'
-conn = sqlite3.connect(uri, uri=True, timeout=1.5)
+		runErr = os.ErrNotExist
+	}
+	if runErr != nil {
+		pyScript := `import pathlib, sqlite3, sys
+p = pathlib.Path(sys.argv[1]).resolve()
+try:
+    conn = sqlite3.connect(p.as_uri() + '?mode=ro', uri=True, timeout=1.5)
+except sqlite3.Error:
+    conn = sqlite3.connect(str(p), timeout=1.5)
 try:
     for q in (
         "SELECT conversation_id, parent_id FROM conversation_parents WHERE parent_id IS NOT NULL AND parent_id != ''",
@@ -1025,8 +1384,14 @@ try:
 finally:
     conn.close()
 `
-				cmd := exec.CommandContext(ctx, pyBin, "-c", pyScript, cleanDB)
-				out, _ = cmd.Output()
+		for _, candidate := range cockpitPythonCandidates() {
+			pyBin, pErr := exec.LookPath(candidate)
+			if pErr != nil || !isExecutableValid(pyBin) {
+				continue
+			}
+			cmd := exec.CommandContext(ctx, pyBin, "-c", pyScript, cleanDB)
+			if pyOut, pyErr := cmd.Output(); pyErr == nil {
+				out = pyOut
 				break
 			}
 		}
@@ -1067,10 +1432,15 @@ func lookupParentConvIDFromSummariesDB(convID, source string) string {
 	if err != nil {
 		return ""
 	}
+	if pureMap, pureErr := readSummaryParentsPureGo(cleanDB); pureErr == nil {
+		return pureMap[convID]
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
 	var out []byte
+	var runErr error
 	if sqliteBin, lookErr := exec.LookPath("sqlite3"); lookErr == nil && isExecutableValid(sqliteBin) {
 		escaped := strings.ReplaceAll(convID, "'", "''")
 		sqlStdin := ".timeout 1000\n" +
@@ -1078,13 +1448,17 @@ func lookupParentConvIDFromSummariesDB(convID, source string) string {
 			"SELECT parent_conversation_id FROM conversation_summaries WHERE conversation_id = '" + escaped + "' LIMIT 1;\n"
 		cmd := exec.CommandContext(ctx, sqliteBin, "-readonly", "-batch", "-noheader", cleanDB)
 		cmd.Stdin = strings.NewReader(sqlStdin)
-		out, _ = cmd.Output()
+		out, runErr = cmd.Output()
 	} else {
-		for _, candidate := range []string{"python3", "python"} {
-			if pyBin, pErr := exec.LookPath(candidate); pErr == nil && isExecutableValid(pyBin) {
-				pyScript := `import pathlib, sqlite3, sys
-uri = pathlib.Path(sys.argv[1]).resolve().as_uri() + '?mode=ro'
-conn = sqlite3.connect(uri, uri=True, timeout=1.0)
+		runErr = os.ErrNotExist
+	}
+	if runErr != nil {
+		pyScript := `import pathlib, sqlite3, sys
+p = pathlib.Path(sys.argv[1]).resolve()
+try:
+    conn = sqlite3.connect(p.as_uri() + '?mode=ro', uri=True, timeout=1.0)
+except sqlite3.Error:
+    conn = sqlite3.connect(str(p), timeout=1.0)
 try:
     for q in (
         "SELECT parent_id FROM conversation_parents WHERE conversation_id = ?1 LIMIT 1",
@@ -1100,8 +1474,14 @@ try:
 finally:
     conn.close()
 `
-				cmd := exec.CommandContext(ctx, pyBin, "-c", pyScript, cleanDB, convID)
-				out, _ = cmd.Output()
+		for _, candidate := range cockpitPythonCandidates() {
+			pyBin, pErr := exec.LookPath(candidate)
+			if pErr != nil || !isExecutableValid(pyBin) {
+				continue
+			}
+			cmd := exec.CommandContext(ctx, pyBin, "-c", pyScript, cleanDB, convID)
+			if pyOut, pyErr := cmd.Output(); pyErr == nil {
+				out = pyOut
 				break
 			}
 		}
@@ -1285,6 +1665,16 @@ func scanParentTranscriptFull(fullPath string, candidates []string) *parentTrans
 					summary.fallbackModel = resolved
 				}
 			}
+		} else if bytes.Contains(line, []byte(`"PLANNER_RESPONSE"`)) && bytes.Contains(line, []byte(`"model"`)) {
+			var mWrap struct {
+				Type  string `json:"type"`
+				Model string `json:"model"`
+			}
+			if json.Unmarshal(line, &mWrap) == nil && mWrap.Type == "PLANNER_RESPONSE" && strings.TrimSpace(mWrap.Model) != "" {
+				if resolved := resolveGenMetadataModelName("", mWrap.Model, mWrap.Model); resolved != "" && !strings.EqualFold(resolved, "default") {
+					summary.fallbackModel = resolved
+				}
+			}
 		}
 
 		// Match spawned subagent IDs against any invoke_subagent step in [lineIdx-5, lineIdx-1].
@@ -1420,7 +1810,8 @@ func resolveSubagentModelFromParentCached(convID, parentConvID, source string, c
 	return summary.fallbackModel
 }
 
-// collectTranscriptJobs scans both desktop and CLI brain directories for transcript.jsonl files.
+// collectTranscriptJobs scans both desktop and CLI brain directories for transcript.jsonl files,
+// and appends conversation DB-only jobs when a conversations/*.db exists without a transcript.jsonl.
 func collectTranscriptJobs() []transcriptJob {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -1428,46 +1819,77 @@ func collectTranscriptJobs() []transcriptJob {
 	}
 
 	type dirJob struct {
-		dir    string
-		source string
+		brainDir string
+		convDir  string
+		source   string
 	}
 
 	dirs := []dirJob{
-		{dir: filepath.Join(home, ".gemini", "antigravity", "brain"), source: "desktop"},
-		{dir: filepath.Join(home, ".gemini", "antigravity-cli", "brain"), source: "cli"},
+		{
+			brainDir: filepath.Join(home, ".gemini", "antigravity", "brain"),
+			convDir:  filepath.Join(home, ".gemini", "antigravity", "conversations"),
+			source:   "desktop",
+		},
+		{
+			brainDir: filepath.Join(home, ".gemini", "antigravity-cli", "brain"),
+			convDir:  filepath.Join(home, ".gemini", "antigravity-cli", "conversations"),
+			source:   "cli",
+		},
 	}
 
 	var jobs []transcriptJob
+	seen := make(map[string]bool)
 
 	for _, dj := range dirs {
-		if _, err := os.Stat(dj.dir); err != nil {
-			continue
+		if entries, err := os.ReadDir(dj.brainDir); err == nil {
+			for _, entry := range entries {
+				if !entry.IsDir() {
+					continue
+				}
+				convID := entry.Name()
+				if !isSafeConvID(convID) {
+					continue
+				}
+				convDir := filepath.Join(dj.brainDir, convID)
+				// 1. Direct standard log path: .system_generated/logs/transcript.jsonl
+				stdPath := filepath.Join(convDir, ".system_generated", "logs", "transcript.jsonl")
+				if st, err := os.Stat(stdPath); err == nil && !st.IsDir() {
+					jobs = append(jobs, transcriptJob{convID: convID, path: stdPath, source: dj.source})
+					seen[dj.source+":"+convID] = true
+					continue
+				}
+				// 2. Fallback root transcript.jsonl
+				rootPath := filepath.Join(convDir, "transcript.jsonl")
+				if st, err := os.Stat(rootPath); err == nil && !st.IsDir() {
+					jobs = append(jobs, transcriptJob{convID: convID, path: rootPath, source: dj.source})
+					seen[dj.source+":"+convID] = true
+				}
+			}
 		}
 
-		entries, err := os.ReadDir(dj.dir)
-		if err != nil {
-			continue
-		}
-
-		for _, entry := range entries {
-			if !entry.IsDir() {
-				continue
-			}
-			convID := entry.Name()
-			if !isSafeConvID(convID) {
-				continue
-			}
-			convDir := filepath.Join(dj.dir, convID)
-			// 1. Direct standard log path: .system_generated/logs/transcript.jsonl
-			stdPath := filepath.Join(convDir, ".system_generated", "logs", "transcript.jsonl")
-			if st, err := os.Stat(stdPath); err == nil && !st.IsDir() {
-				jobs = append(jobs, transcriptJob{convID: convID, path: stdPath, source: dj.source})
-				continue
-			}
-			// 2. Fallback root transcript.jsonl
-			rootPath := filepath.Join(convDir, "transcript.jsonl")
-			if st, err := os.Stat(rootPath); err == nil && !st.IsDir() {
-				jobs = append(jobs, transcriptJob{convID: convID, path: rootPath, source: dj.source})
+		// 3. Fallback: conversations/*.db without a transcript.jsonl (recover gen_metadata usage directly)
+		if dbEntries, err := os.ReadDir(dj.convDir); err == nil {
+			for _, entry := range dbEntries {
+				if entry.IsDir() {
+					continue
+				}
+				name := entry.Name()
+				if !strings.HasSuffix(name, ".db") {
+					continue
+				}
+				convID := strings.TrimSuffix(name, ".db")
+				if !isSafeConvID(convID) {
+					continue
+				}
+				key := dj.source + ":" + convID
+				if seen[key] {
+					continue
+				}
+				dbPath := filepath.Join(dj.convDir, name)
+				if st, err := os.Stat(dbPath); err == nil && !st.IsDir() {
+					jobs = append(jobs, transcriptJob{convID: convID, path: dbPath, source: dj.source, dbOnly: true})
+					seen[key] = true
+				}
 			}
 		}
 	}
@@ -1519,6 +1941,24 @@ func saveTokenHistoryLedger(ledgerPath string, ledger *tokenHistoryLedger) error
 	return writeFileAtomic0600(ledgerPath, data)
 }
 
+func mergeModelBreakdown(dst map[string]*ModelTokenBreakdown, modelKey string, total, input, output, cacheRead, thinking int64, steps int, costUSD float64) {
+	if modelKey == "" || total <= 0 {
+		return
+	}
+	b, ok := dst[modelKey]
+	if !ok {
+		b = &ModelTokenBreakdown{Model: modelKey}
+		dst[modelKey] = b
+	}
+	b.Total += total
+	b.Input += input
+	b.Output += output
+	b.CacheRead += cacheRead
+	b.Thinking += thinking
+	b.Steps += steps
+	b.CostUSD += costUSD
+}
+
 func aggregateRecordsToDays(records []parsedTranscriptRecord) map[string]DailyTokenRecord {
 	days := make(map[string]DailyTokenRecord)
 	seenCalls := make(map[string]bool)
@@ -1531,7 +1971,7 @@ func aggregateRecordsToDays(records []parsedTranscriptRecord) map[string]DailyTo
 			seenCalls[rec.callID] = true
 		}
 
-		modelKey := strings.TrimSpace(rec.model)
+		modelKey := normalizeModelDisplayName(rec.model)
 		if modelKey == "" || strings.EqualFold(modelKey, "default") {
 			// Never emit a synthetic "default" bucket; unattributable turns are omitted from stats.
 			continue
@@ -1540,19 +1980,24 @@ func aggregateRecordsToDays(records []parsedTranscriptRecord) map[string]DailyTo
 		day, ok := days[rec.dateKey]
 		if !ok {
 			day = DailyTokenRecord{
-				Date:   rec.dateKey,
-				Models: make(map[string]int64),
+				Date:         rec.dateKey,
+				Models:       make(map[string]int64),
+				ModelDetails: make(map[string]*ModelTokenBreakdown),
 			}
+		} else if day.ModelDetails == nil {
+			day.ModelDetails = make(map[string]*ModelTokenBreakdown)
 		}
 
+		stepCost := CalculateCostUSD(modelKey, rec.input, rec.cacheRead, rec.output)
 		day.Total += rec.total
 		day.Input += rec.input
 		day.Output += rec.output
 		day.CacheRead += rec.cacheRead
 		day.Thinking += rec.thinking
 		day.Steps++
-		day.CostUSD += CalculateCostUSD(rec.model, rec.input, rec.cacheRead, rec.output)
+		day.CostUSD += stepCost
 		day.Models[modelKey] += rec.total
+		mergeModelBreakdown(day.ModelDetails, modelKey, rec.total, rec.input, rec.output, rec.cacheRead, rec.thinking, 1, stepCost)
 		days[rec.dateKey] = day
 	}
 
@@ -1563,6 +2008,23 @@ func sessionHasDefaultModel(sess ledgerSession) bool {
 	for _, day := range sess.Days {
 		for k, cnt := range day.Models {
 			if strings.EqualFold(k, "default") && cnt > 0 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func sessionNeedsV4Reparse(sess ledgerSession) bool {
+	if len(sess.Days) == 0 {
+		return true
+	}
+	for _, day := range sess.Days {
+		if day.Total > 0 && len(day.ModelDetails) == 0 {
+			return true
+		}
+		for k := range day.Models {
+			if normalizeModelDisplayName(k) != k {
 				return true
 			}
 		}
@@ -1613,6 +2075,9 @@ func sanitizeLedgerDefaultEntries(ledger *tokenHistoryLedger, cache *tokenHistor
 				if strings.EqualFold(mKey, "default") {
 					defaultCnt += cnt
 					delete(day.Models, mKey)
+					if day.ModelDetails != nil {
+						delete(day.ModelDetails, mKey)
+					}
 					changed = true
 				}
 			}
@@ -1666,15 +2131,25 @@ func upsertSessionFromFile(ledger *tokenHistoryLedger, job transcriptJob, forceR
 	modNano := st.ModTime().UnixNano()
 	if !forceReparse {
 		if existing, ok := ledger.Sessions[key]; ok && existing.Size == st.Size() && existing.ModTimeNano == modNano {
-			needsBackfill := sessionHasDefaultModel(existing) &&
-				(ledger.Version < currentTokenHistoryLedgerVersion || conversationDBExists(job.convID, job.source))
+			needsBackfill := (sessionHasDefaultModel(existing) && (ledger.Version < currentTokenHistoryLedgerVersion || conversationDBExists(job.convID, job.source))) ||
+				(ledger.Version < currentTokenHistoryLedgerVersion && sessionNeedsV4Reparse(existing))
 			if !needsBackfill {
 				return false
 			}
 		}
 	}
 
-	records := parseTranscriptFileCached(job.path, job.convID, job.source, cache)
+	var records []parsedTranscriptRecord
+	if job.dbOnly {
+		fallbackDate := st.ModTime().Local().Format("2006-01-02")
+		records = synthesizeRecordsFromGenMetadata(job.convID, job.source, "", nil, fallbackDate, cache)
+		if len(records) == 0 {
+			// Do not overwrite an archived session when a DB-only probe has no embedded usage rows.
+			return false
+		}
+	} else {
+		records = parseTranscriptFileCached(job.path, job.convID, job.source, cache)
+	}
 	days := aggregateRecordsToDays(records)
 
 	ledger.Sessions[key] = ledgerSession{
@@ -1705,10 +2180,18 @@ func ArchiveConversationTokens(cascadeID string) {
 	}
 
 	var targetPath string
+	dbOnly := false
 	for _, p := range candidates {
 		if st, err := os.Stat(p); err == nil && !st.IsDir() {
 			targetPath = p
 			break
+		}
+	}
+	if targetPath == "" {
+		dbPath := filepath.Join(home, ".gemini", "antigravity", "conversations", cascadeID+".db")
+		if st, err := os.Stat(dbPath); err == nil && !st.IsDir() {
+			targetPath = dbPath
+			dbOnly = true
 		}
 	}
 	if targetPath == "" {
@@ -1729,12 +2212,17 @@ func ArchiveConversationTokens(cascadeID string) {
 		convID: cascadeID,
 		path:   targetPath,
 		source: "desktop",
+		dbOnly: dbOnly,
 	}, false, scanCache) {
 		if err := saveTokenHistoryLedger(ledgerPath, ledger); err != nil {
 			slog.Warn("[TokenLedger] failed to save archived session", "cascadeID", cascadeID, "err", err)
 		}
 		cachedHistoryResp = nil
 	}
+}
+
+func roundCost4(v float64) float64 {
+	return float64(int(v*10000+0.5)) / 10000
 }
 
 // GetTokenHistory collects and aggregates token history across all live and archived sessions.
@@ -1784,6 +2272,7 @@ func GetTokenHistory(forceRefresh bool) (*TokenHistoryResponse, error) {
 	}
 
 	dailyMap := make(map[string]*DailyTokenRecord)
+	modelTotals := make(map[string]*ModelTokenBreakdown)
 	var totalTokens, desktopTokens, cliTokens int64
 	var totalCostUSD float64
 	var totalSteps int
@@ -1797,8 +2286,9 @@ func GetTokenHistory(forceRefresh bool) (*TokenHistoryResponse, error) {
 			day, ok := dailyMap[dateKey]
 			if !ok {
 				day = &DailyTokenRecord{
-					Date:   dateKey,
-					Models: make(map[string]int64),
+					Date:         dateKey,
+					Models:       make(map[string]int64),
+					ModelDetails: make(map[string]*ModelTokenBreakdown),
 				}
 				dailyMap[dateKey] = day
 			}
@@ -1810,11 +2300,61 @@ func GetTokenHistory(forceRefresh bool) (*TokenHistoryResponse, error) {
 			day.Thinking += dayRec.Thinking
 			day.Steps += dayRec.Steps
 			day.CostUSD += dayRec.CostUSD
-			for modelKey, cnt := range dayRec.Models {
-				if strings.EqualFold(modelKey, "default") || cnt <= 0 {
-					continue
+
+			if len(dayRec.ModelDetails) > 0 {
+				for rawKey, md := range dayRec.ModelDetails {
+					if md == nil || md.Total <= 0 {
+						continue
+					}
+					modelKey := normalizeModelDisplayName(rawKey)
+					if modelKey == "" || strings.EqualFold(modelKey, "default") {
+						continue
+					}
+					day.Models[modelKey] += md.Total
+					mergeModelBreakdown(day.ModelDetails, modelKey, md.Total, md.Input, md.Output, md.CacheRead, md.Thinking, md.Steps, md.CostUSD)
+					mergeModelBreakdown(modelTotals, modelKey, md.Total, md.Input, md.Output, md.CacheRead, md.Thinking, md.Steps, md.CostUSD)
 				}
-				day.Models[modelKey] += cnt
+			} else {
+				// Legacy archived session (pre-v4) without per-model breakdown: reconstruct cleanly from day totals.
+				var validKeys []string
+				var modelSum int64
+				for rawKey, cnt := range dayRec.Models {
+					modelKey := normalizeModelDisplayName(rawKey)
+					if modelKey == "" || strings.EqualFold(modelKey, "default") || cnt <= 0 {
+						continue
+					}
+					validKeys = append(validKeys, rawKey)
+					modelSum += cnt
+				}
+				for _, rawKey := range validKeys {
+					cnt := dayRec.Models[rawKey]
+					modelKey := normalizeModelDisplayName(rawKey)
+					day.Models[modelKey] += cnt
+					var mIn, mOut, mCache, mThink int64
+					var mSteps int
+					var mCost float64
+					if len(validKeys) == 1 {
+						mIn = dayRec.Input
+						mOut = dayRec.Output
+						mCache = dayRec.CacheRead
+						mThink = dayRec.Thinking
+						mSteps = dayRec.Steps
+						mCost = dayRec.CostUSD
+					} else if modelSum > 0 {
+						ratio := float64(cnt) / float64(modelSum)
+						mIn = int64(float64(dayRec.Input) * ratio)
+						mOut = int64(float64(dayRec.Output) * ratio)
+						mCache = int64(float64(dayRec.CacheRead) * ratio)
+						mThink = int64(float64(dayRec.Thinking) * ratio)
+						mSteps = int(float64(dayRec.Steps)*ratio + 0.5)
+						if mSteps < 1 && dayRec.Steps > 0 {
+							mSteps = 1
+						}
+						mCost = dayRec.CostUSD * ratio
+					}
+					mergeModelBreakdown(day.ModelDetails, modelKey, cnt, mIn, mOut, mCache, mThink, mSteps, mCost)
+					mergeModelBreakdown(modelTotals, modelKey, cnt, mIn, mOut, mCache, mThink, mSteps, mCost)
+				}
 			}
 
 			totalTokens += dayRec.Total
@@ -1845,10 +2385,31 @@ func GetTokenHistory(forceRefresh bool) (*TokenHistoryResponse, error) {
 	var dailyMatrix []DailyTokenRecord
 	for _, d := range dates {
 		rec := *dailyMap[d]
-		// Round cost to 4 decimal places
-		rec.CostUSD = float64(int(rec.CostUSD*10000+0.5)) / 10000
+		rec.CostUSD = roundCost4(rec.CostUSD)
+		if len(rec.ModelDetails) > 0 {
+			rounded := make(map[string]*ModelTokenBreakdown, len(rec.ModelDetails))
+			for k, v := range rec.ModelDetails {
+				cp := *v
+				cp.CostUSD = roundCost4(cp.CostUSD)
+				rounded[k] = &cp
+			}
+			rec.ModelDetails = rounded
+		}
 		dailyMatrix = append(dailyMatrix, rec)
 	}
+
+	modelSummary := make([]ModelTokenBreakdown, 0, len(modelTotals))
+	for _, v := range modelTotals {
+		cp := *v
+		cp.CostUSD = roundCost4(cp.CostUSD)
+		modelSummary = append(modelSummary, cp)
+	}
+	sort.Slice(modelSummary, func(i, j int) bool {
+		if modelSummary[i].Total != modelSummary[j].Total {
+			return modelSummary[i].Total > modelSummary[j].Total
+		}
+		return modelSummary[i].Model < modelSummary[j].Model
+	})
 
 	summary := TokenHistorySummary{
 		TotalTokens:      totalTokens,
@@ -1863,9 +2424,10 @@ func GetTokenHistory(forceRefresh bool) (*TokenHistoryResponse, error) {
 	}
 
 	cachedHistoryResp = &TokenHistoryResponse{
-		UpdatedAt:   now.UnixMilli(),
-		Summary:     summary,
-		DailyMatrix: dailyMatrix,
+		UpdatedAt:    now.UnixMilli(),
+		Summary:      summary,
+		DailyMatrix:  dailyMatrix,
+		ModelSummary: modelSummary,
 	}
 	cachedHistoryAt = now
 

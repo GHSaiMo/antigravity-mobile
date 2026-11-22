@@ -20,6 +20,8 @@ public struct AccountQuotaSheet: View {
     @State private var hasInitializedChartType: Bool
     @State private var suppressNextChartPersist: Bool = false
     @State private var showTokenHistoryShareSheet: Bool = false
+    @State private var showAllModelsSheet: Bool = false
+    @State private var expandedInspectorModel: String? = nil
     @State private var isCockpitGuideExpanded: Bool = false
     @State private var copiedFeedbackText: String? = nil
     @Binding public var quotaResponse: CockpitQuotaResponse?
@@ -417,6 +419,16 @@ public struct AccountQuotaSheet: View {
                         selectedRecord: selectedRec,
                         chartType: selectedChartType
                     )
+                }
+            }
+            .sheet(isPresented: $showAllModelsSheet) {
+                if let history = tokenHistory {
+                    let allModels = history.resolvedModelSummary
+                    if !allModels.isEmpty {
+                        ModelUsageBreakdownSheet(models: allModels)
+                            .presentationDetents([.medium, .large])
+                            .presentationDragIndicator(.visible)
+                    }
                 }
             }
         }
@@ -1075,15 +1087,20 @@ extension AccountQuotaSheet {
                 .background(Color(uiColor: .secondarySystemGroupedBackground))
                 .clipShape(RoundedRectangle(cornerRadius: 10))
 
+                let allModels = history.resolvedModelSummary
                 TokenHistoryChartCarouselCard(
                     matrix: matrix,
                     selectedDate: activeDate,
                     selectedChart: $selectedChartType,
                     onSelectDate: { date in
                         selectedHeatmapDate = date
+                        expandedInspectorModel = nil
                     },
                     onUserSelectChart: { chart in
                         AppSettings.shared.tokenHistoryChartType = chart.rawValue
+                    },
+                    onOpenAllModels: allModels.isEmpty ? nil : {
+                        showAllModelsSheet = true
                     }
                 )
                 .onAppear {
@@ -1158,7 +1175,10 @@ extension AccountQuotaSheet {
     }
 
     private func tokenInspectorCard(record: DailyTokenRecord) -> some View {
-        let topModels = record.models.sorted { $0.value > $1.value }.prefix(4)
+        let allDayModels = record.models.sorted { lhs, rhs in
+            if lhs.value != rhs.value { return lhs.value > rhs.value }
+            return lhs.key < rhs.key
+        }
         return VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text("\(record.date) 用量明细")
@@ -1178,18 +1198,50 @@ extension AccountQuotaSheet {
                 Spacer()
                 inspectorCell("Thinking", Self.formatTokensCompact(record.thinking))
             }
-            if !topModels.isEmpty {
+            if !allDayModels.isEmpty {
                 Divider()
-                VStack(spacing: 4) {
-                    ForEach(Array(topModels), id: \.key) { pair in
-                        HStack {
-                            Text(pair.key)
-                                .font(.system(size: 11))
+                VStack(spacing: 5) {
+                    ForEach(allDayModels, id: \.key) { pair in
+                        let detail = record.modelDetails?[pair.key]
+                        let canExpand = detail.map { $0.input > 0 || $0.output > 0 || $0.cacheRead > 0 || $0.thinking > 0 } ?? false
+                        let isExpanded = canExpand && expandedInspectorModel == pair.key
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Text(pair.key)
+                                    .font(.system(size: 11, weight: isExpanded ? .medium : .regular))
+                                    .foregroundColor(isExpanded ? .primary : .secondary)
+                                    .lineLimit(1)
+                                Spacer()
+                                Text(Self.formatTokensCompact(pair.value))
+                                    .font(.system(size: 11, design: .monospaced))
+                            }
+                            if isExpanded, let detail {
+                                HStack {
+                                    Text("In \(Self.formatTokensCompact(detail.input))")
+                                    Spacer()
+                                    Text("Cache \(Self.formatTokensCompact(detail.cacheRead))")
+                                    Spacer()
+                                    Text("Out \(Self.formatTokensCompact(detail.output))")
+                                    if detail.thinking > 0 {
+                                        Spacer()
+                                        Text("Think \(Self.formatTokensCompact(detail.thinking))")
+                                    }
+                                }
+                                .font(.system(size: 10, design: .monospaced))
                                 .foregroundColor(.secondary)
-                                .lineLimit(1)
-                            Spacer()
-                            Text(Self.formatTokensCompact(pair.value))
-                                .font(.system(size: 11, design: .monospaced))
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 5)
+                                .background(Color(uiColor: .systemGroupedBackground).opacity(0.75))
+                                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                            }
+                        }
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            guard canExpand else { return }
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            withAnimation(.easeInOut(duration: 0.16)) {
+                                expandedInspectorModel = isExpanded ? nil : pair.key
+                            }
                         }
                     }
                 }
@@ -1263,5 +1315,98 @@ extension AccountQuotaSheet {
     private func shareTokenHistory() {
         guard tokenHistory != nil, !isSavingTokenHistory, !isSharingTokenHistory else { return }
         showTokenHistoryShareSheet = true
+    }
+}
+
+private struct ModelUsageBreakdownSheet: View {
+    let models: [ModelTokenBreakdown]
+
+    private var grandTotal: Int64 {
+        max(1, models.reduce(Int64(0)) { $0 + $1.total })
+    }
+
+    private func dotColor(for idx: Int) -> Color {
+        switch idx % 4 {
+        case 0: return .blue
+        case 1: return Color(red: 0.22, green: 0.74, blue: 0.42)
+        case 2: return Color(red: 0.96, green: 0.62, blue: 0.04)
+        default: return Color(red: 0.66, green: 0.33, blue: 0.97)
+        }
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 10) {
+                    ForEach(Array(models.enumerated()), id: \.element.id) { idx, item in
+                        let pct = Double(item.total) * 100.0 / Double(grandTotal)
+                        let hasDetail = item.input > 0 || item.output > 0 || item.cacheRead > 0 || item.thinking > 0
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack(spacing: 6) {
+                                Circle()
+                                    .fill(dotColor(for: idx))
+                                    .frame(width: 7, height: 7)
+                                Text(item.model)
+                                    .font(.system(size: 12.5, weight: .semibold))
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+                                Spacer(minLength: 6)
+                                Text(AccountQuotaSheet.formatTokensCompact(item.total))
+                                    .font(.system(size: 12, weight: .bold, design: .monospaced))
+                                    .foregroundColor(.blue)
+                                Text(String(format: "%.1f%%", pct))
+                                    .font(.system(size: 11, design: .monospaced))
+                                    .foregroundColor(.secondary)
+                            }
+                            if hasDetail {
+                                Divider()
+                                HStack {
+                                    detailCell("Input", AccountQuotaSheet.formatTokensCompact(item.input))
+                                    Spacer()
+                                    detailCell("Cache Hit", AccountQuotaSheet.formatTokensCompact(item.cacheRead))
+                                    Spacer()
+                                    detailCell("Output", AccountQuotaSheet.formatTokensCompact(item.output))
+                                    Spacer()
+                                    detailCell("Thinking", AccountQuotaSheet.formatTokensCompact(item.thinking))
+                                }
+                                if item.steps > 0 || item.costUsd > 0 {
+                                    HStack {
+                                        Text("\(item.steps) 轮采样")
+                                            .font(.system(size: 10.5))
+                                            .foregroundColor(.secondary)
+                                        Spacer()
+                                        Text(String(format: "$%.3f", item.costUsd))
+                                            .font(.system(size: 10.5, design: .monospaced))
+                                            .foregroundColor(.secondary)
+                                    }
+                                }
+                            }
+                        }
+                        .padding(12)
+                        .background(Color(uiColor: .secondarySystemGroupedBackground))
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+            }
+            .background(Color(uiColor: .systemGroupedBackground))
+            .navigationTitle("模型用量明细")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Text("\(models.count) 款模型")
+                        .font(.system(size: 12, design: .monospaced))
+                        .foregroundColor(.secondary)
+                }
+            }
+        }
+    }
+
+    private func detailCell(_ label: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label).font(.system(size: 10)).foregroundColor(.secondary)
+            Text(value).font(.system(size: 12, weight: .semibold, design: .monospaced))
+        }
     }
 }

@@ -40,10 +40,11 @@
   - 修复 iOS 会话流 WebSocket 在代理/穿透网络下的首跳握手问题并增加 `25s` Ping 保活；网关 `/gateway/cascade/messages` 与 iOS / Android 双端全面支持 `ETag / 304 Not Modified` 零字节短路及空闲阶梯退避；
   - 修复 APNs 灵动岛 Push-to-Start 异常时的重试风暴（引入指数退避与环境错配 Token 自动清理），并新增穿透隧道凭据回收后的无感自愈重连；
   - 修复 iOS / Android 在「账户与配额」「设置」等面板打开状态下点击通知或深链时旧面板遮挡跳转的问题，支持自动收起全部顶层弹窗并直达目标会话或额度页面；
-  - 修复桌面网页版代理改写上游 `main.js` 移除 Google Fonts `@import` 时遗留未闭合 CSS 注释，导致 Mermaid 流程图节点渲染为纯黑块与连线消失的问题。
+  - 修复桌面网页版代理改写上游 `main.js` 移除 Google Fonts `@import` 时遗留未闭合 CSS 注释，导致 Mermaid 流程图节点渲染为纯黑块与连线消失的问题；
+  - 修复 Windows 等无 `sqlite3`/`python` 环境下本地 Token 历史漏统计 Claude 等默认模型会话的问题（新增纯 Go 零依赖只读 SQLite3/WAL 解析、支持顶层 `"model"` 与 `cache_creation_tokens` 字段及 `gen_metadata` 用量与思考 Token 回填），并在 Token 历史页支持点击「模型消耗占比」查看全量模型（不再截断 Claude）的输入 / 缓存 / 输出 / 思考明细与单日模型原地展开（#10）。
 - 💬 **社区与全端版本号对齐**：
   - 三语 README 新增微信用户群扫码入口；
-  - Android `1.2.4`（Version Code `29`）；iOS `1.2.4`（Build `31`）；桌面/服务端网关 `mgy` `1.2.4`。
+  - Android `1.2.4`（Version Code `30`）；iOS `1.2.4`（Build `31`）；桌面/服务端网关 `mgy` `1.2.4`。
 
 ---
 
@@ -75,10 +76,11 @@
   - Unified iOS `StreamWebSocketClient` onto `GatewayWebSocketTask` with `25s` keep-alive pings for rock-solid Cloudflare Tunnel and proxy connectivity, plus end-to-end `ETag / 304 Not Modified` short-circuiting and idle polling backoff across the Go gateway, iOS, and Android;
   - Added exponential backoff and automatic invalid/sandbox-mismatched token cleanup for APNs Live Activity pushes, along with automatic Cloudflare Tunnel credential self-recovery;
   - Fixed notification and deep-link routing on iOS & Android so tapping a push notification while Account & Quota, Settings, or any modal sheet is open automatically dismisses covering sheets and jumps straight to the target conversation or quota view;
-  - Fixed desktop web proxy localization stripping Google Fonts `@import` with an unclosed CSS comment in `main.js`, which swallowed Mermaid SVG CSS variables and caused solid black node boxes and missing edge strokes.
+  - Fixed desktop web proxy localization stripping Google Fonts `@import` with an unclosed CSS comment in `main.js`, which swallowed Mermaid SVG CSS variables and caused solid black node boxes and missing edge strokes;
+  - Fixed missing Claude / default-model sessions in local Token History on Windows hosts without `sqlite3` or `python` (added a zero-dependency pure-Go read-only SQLite3/WAL reader, top-level `"model"` & `cache_creation_tokens` parsing, and `gen_metadata` usage/thinking backfill), and added full per-model Input / Cache / Output / Thinking breakdown sheets & expandable daily model rows in Token History without truncating Claude models (#10).
 - 💬 **Community & Version Alignment**:
   - Added WeChat User Group QR code to trilingual READMEs;
-  - Android `1.2.4` (Version Code `29`); iOS `1.2.4` (Build `31`); desktop/server gateway `mgy` `1.2.4`.
+  - Android `1.2.4` (Version Code `30`); iOS `1.2.4` (Build `31`); desktop/server gateway `mgy` `1.2.4`.
 
 ---
 
@@ -91,5 +93,5 @@
 - 🔧 **iOS 長文チャットのスクロール安定化＆Tailscale 通信バイパス改善**：長文会話での `LazyVStack` 空白表示・意図しない最下部スナップ・Markdown テーブルの高さジャンプを修正。さらにファイルダウンロード・画像/メディア読込・QuickLook・音声入力/通話・補助 WebSocket を Tailscale ATS バイパス経路へ統合しました。
 - 🐝 **Swarm 概要ボード刷新・ハニカム Hive トポロジー＆ピクセル蜂ビジュアル**：最新の Swarm 体験に合わせ、`GOAL` カード・`Running` ライブタスク・展開式進捗リング・`Threads` 進捗バー・ピクセル女王蜂/働き蜂タイルを刷新。六角形ハニカム **Hive マップ（`Hive | Mentions` 切替）** や `/swarm` メッセージバブル内のピクセル女王蜂アイコンにも対応しました。
 - 🛡️ **フルスタックセキュリティ強化＆ストリーミング/キャッシュ最適化**：CSWSH/Host/Origin 検証、パス境界保護、認証情報保護、APNs TOFU バインディング、CSP/DOM サニタイズを強化し、ストリーミング `O(1)` 差分更新とキャッシュ効率を最適化しました。
-- 🌐 **リアルタイムストリーム安定化・ETag 通信削減・APNs 自動復旧＆通知ジャンプ修正**：iOS WebSocket ストリームの接続エンジン刷新と `25秒` キープアライブ追加、ゲートウェイおよび iOS / Android での `ETag / 304` 差分スキップ、APNs ライブアクティビティの指数バックオフとトークン自動修復、Cloudflare トンネル資格情報の自動再取得に対応。さらにクォータ画面や設定シートを開いたまま通知をタップした際にモーダルを自動終了して対象会話・クォータ画面へ直接遷移するよう修正し、デスクトップ Web 版で Google Fonts の `@import` 除去時に未閉じ CSS コメントが残り Mermaid 図のノードが黒塗り・接続線が消失する不具合も修正しました。
-- 📦 **バージョン統一**：iOS `1.2.4` (Build `31`) / Android `1.2.4` (Version Code `29`) / ゲートウェイ `mgy` `1.2.4`。
+- 🌐 **リアルタイムストリーム安定化・ETag 通信削減・APNs 自動復旧＆通知ジャンプ修正**：iOS WebSocket ストリームの接続エンジン刷新と `25秒` キープアライブ追加、ゲートウェイおよび iOS / Android での `ETag / 304` 差分スキップ、APNs ライブアクティビティの指数バックオフとトークン自動修復、Cloudflare トンネル資格情報の自動再取得に対応。さらにクォータ画面や設定シートを開いたまま通知をタップした際にモーダルを自動終了して対象会話・クォータ画面へ直接遷移するよう修正し、デスクトップ Web 版で Google Fonts の `@import` 除去時に未閉じ CSS コメントが残り Mermaid 図のノードが黒塗り・接続線が消失する不具合も修正しました。あわせて `sqlite3` / `python` 未導入の Windows 環境でも Claude 等のモデル別トークン履歴（Input / Cache / Output / Thinking）を完全取得・全モデル表示できるよう修正しました（#10）。
+- 📦 **バージョン統一**：iOS `1.2.4` (Build `31`) / Android `1.2.4` (Version Code `30`) / ゲートウェイ `mgy` `1.2.4`。
