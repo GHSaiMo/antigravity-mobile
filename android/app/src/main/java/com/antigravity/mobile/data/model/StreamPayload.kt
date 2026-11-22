@@ -221,6 +221,23 @@ data class SubagentItem(
 }
 
 @Serializable
+data class TurnOutlineItem(
+    val turnIndex: Int = 1,
+    val firstMessageId: String = "",
+    val messageOffset: Int = 0,
+    val messageCount: Int = 0,
+    val startStepIndex: Int? = null,
+    val endStepIndex: Int? = null,
+    val promptSummary: String = "",
+    val totalTools: Int = 0,
+    val artifacts: List<ArtifactItem>? = null,
+    val hasError: Boolean = false,
+    val modelName: String? = null,
+    val timestamp: String? = null,
+    val isVoiceTurn: Boolean = false
+)
+
+@Serializable
 data class StreamUpdatePayload(
     val type: String = "update", // "init", "update", "noop", "error"
     val rev: Long = 0L,
@@ -237,6 +254,7 @@ data class StreamUpdatePayload(
     val nextOffset: Int = 0,
     val workspaceUri: String? = null,
     val messages: List<GatewayMessageItem>? = null,
+    val turnOutline: List<TurnOutlineItem>? = null,
     val queuedMessages: List<QueuedMessageItem>? = null,
     val runningTasks: List<RunningTaskItem>? = null,
     val subagents: List<SubagentItem>? = null,

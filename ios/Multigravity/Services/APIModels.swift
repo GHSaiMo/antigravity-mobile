@@ -101,6 +101,7 @@ public struct PaginatedMessagesResponse: Codable, Sendable {
     public let hasMore: Bool
     public let nextOffset: Int
     public let messages: [GatewayMessageItem]?
+    public let turnOutline: [TurnOutlineItem]?
     public let cascadeConfigRaw: String?
     public let canProceed: Bool?
     public let proceedArtifactUri: String?
@@ -162,6 +163,7 @@ public struct FetchMessagesResult: Sendable {
     public let duration: String
     public let hasMore: Bool
     public let nextOffset: Int
+    public let turnOutline: [TurnOutlineItem]?
     public let cascadeConfigRaw: String?
     public let title: String?
     public let canProceed: Bool

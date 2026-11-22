@@ -21,6 +21,7 @@ func (p *Proxy) ParseTrajectoryDetails(rawResp *upstreamTrajectoryResp) Trajecto
 	totalSteps := len(steps)
 
 	allMessages, totalToolsCount := buildTrajectoryMessages(steps)
+	turnOutline := buildTurnOutline(allMessages)
 	duration := trajectoryDuration(steps)
 
 	activeModel, activeConfig := resolveActiveModel(rawResp)
@@ -62,6 +63,7 @@ func (p *Proxy) ParseTrajectoryDetails(rawResp *upstreamTrajectoryResp) Trajecto
 		WorkspaceURI:       wsURI,
 		Steps:              steps,
 		AllMessages:        allMessages,
+		TurnOutline:        turnOutline,
 		QueuedMessages:     queuedMessages,
 		RunningTasks:       runningTasks,
 		Subagents:          subagents,

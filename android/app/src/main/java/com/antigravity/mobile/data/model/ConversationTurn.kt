@@ -34,7 +34,13 @@ data class ConversationTurn(
     /** 本轮是否为语音交互提问 */
     val isVoiceTurn: Boolean = false,
     /** 本轮起始的步骤索引（用于 Antigravity 2.30.0 GetChapterTitles 章节标题生成） */
-    val startStepIndex: Int? = null
+    val startStepIndex: Int? = null,
+    /** 本轮结束的步骤索引（可选，用于未加载历史轮次的章节范围估算） */
+    val endStepIndex: Int? = null,
+    /** 本轮首条消息在服务端全量消息列表中的 0-based 偏移（用于按需直达加载） */
+    val messageOffset: Int? = null,
+    /** 本轮首条锚点消息是否已加载到本地消息流中 */
+    val isLoaded: Boolean = true
 )
 
 /**
@@ -53,6 +59,225 @@ data class ConversationChapter(
 )
 
 object ConversationTurnBuilder {
+    /**
+     * 结合服务端全量轻量目录索引 `outline` 与本地已加载 `messages` 构建完整 1..N 轮次列表。
+     * 若 `outline` 为空（旧版网关或本地草稿），自动退回仅基于 `messages` 构建。
+     */
+    fun buildTurns(
+        messages: List<GatewayMessageItem>,
+        outline: List<TurnOutlineItem>?,
+        isRunning: Boolean = false,
+        isAwaitingResponse: Boolean = false
+    ): List<ConversationTurn> {
+        if (outline.isNullOrEmpty()) {
+            return buildTurns(messages, isRunning, isAwaitingResponse)
+        }
+
+        val firstIdToIdx = HashMap<String, Int>(outline.size)
+        outline.forEachIndexed { idx, item ->
+            if (item.firstMessageId.isNotBlank()) {
+                firstIdToIdx[item.firstMessageId] = idx
+            }
+        }
+
+        var firstMatchedMsgPos: Int? = null
+        var firstMatchedOutlineIdx: Int? = null
+        for (pos in messages.indices) {
+            val oIdx = firstIdToIdx[messages[pos].id]
+            if (oIdx != null) {
+                firstMatchedMsgPos = pos
+                firstMatchedOutlineIdx = oIdx
+                break
+            }
+        }
+
+        val msgsByOutlineIdx = HashMap<Int, MutableList<GatewayMessageItem>>()
+        val trailingOptimisticTurns = mutableListOf<MutableList<GatewayMessageItem>>()
+
+        if (firstMatchedMsgPos != null && firstMatchedOutlineIdx != null) {
+            if (firstMatchedMsgPos > 0) {
+                val prefixIdx = (firstMatchedOutlineIdx - 1).coerceAtLeast(0)
+                val bucket = msgsByOutlineIdx.getOrPut(prefixIdx) { mutableListOf() }
+                for (p in 0 until firstMatchedMsgPos) {
+                    bucket.add(messages[p])
+                }
+            }
+            var activeOutlineIdx: Int? = firstMatchedOutlineIdx
+            for (pos in firstMatchedMsgPos until messages.size) {
+                val msg = messages[pos]
+                val oIdx = firstIdToIdx[msg.id]
+                if (oIdx != null) {
+                    activeOutlineIdx = oIdx
+                    msgsByOutlineIdx.getOrPut(oIdx) { mutableListOf() }.add(msg)
+                } else if (msg.isUser && (msg.id.startsWith("opt_") || msg.id.startsWith("optimistic-") || activeOutlineIdx == outline.size - 1)) {
+                    trailingOptimisticTurns.add(mutableListOf(msg))
+                    activeOutlineIdx = null
+                } else if (activeOutlineIdx != null) {
+                    msgsByOutlineIdx.getOrPut(activeOutlineIdx) { mutableListOf() }.add(msg)
+                } else if (trailingOptimisticTurns.isNotEmpty()) {
+                    trailingOptimisticTurns.last().add(msg)
+                }
+            }
+        } else if (messages.isNotEmpty()) {
+            val lastOutlineIdx = outline.size - 1
+            for (msg in messages) {
+                if (msg.isUser && (msg.id.startsWith("opt_") || msg.id.startsWith("optimistic-"))) {
+                    trailingOptimisticTurns.add(mutableListOf(msg))
+                } else if (trailingOptimisticTurns.isNotEmpty()) {
+                    trailingOptimisticTurns.last().add(msg)
+                } else {
+                    msgsByOutlineIdx.getOrPut(lastOutlineIdx) { mutableListOf() }.add(msg)
+                }
+            }
+        }
+
+        val turns = ArrayList<ConversationTurn>(outline.size + trailingOptimisticTurns.size)
+
+        outline.forEachIndexed { idx, item ->
+            val turnMessages = msgsByOutlineIdx[idx]?.toList() ?: emptyList()
+            val firstId = item.firstMessageId.takeIf { it.isNotBlank() }
+                ?: turnMessages.firstOrNull()?.id?.takeIf { it.isNotBlank() }
+                ?: "turn-${item.turnIndex}"
+            val turnId = "turn-$firstId"
+            val isLoaded = turnMessages.any { it.id == firstId }
+            val userMsg = turnMessages.firstOrNull { it.isUser }
+
+            val (userBody, attachedFiles) = if (userMsg != null) {
+                com.antigravity.mobile.data.service.AttachmentRules.parseBlock(userMsg.effectiveText)
+            } else {
+                "" to emptyList()
+            }
+            val isVoice = if (userMsg != null) {
+                VoiceTranscriptCleaner.isVoiceMessage(userBody, attachedFiles)
+            } else {
+                item.isVoiceTurn
+            }
+
+            val summary = if (userMsg != null) {
+                summarizeUserMessage(userMsg, userBody, attachedFiles, isVoice)
+            } else {
+                when (item.promptSummary) {
+                    "会话开场与初始化" -> "会话开场与初始化".loc
+                    "用户消息" -> "用户消息".loc
+                    else -> item.promptSummary
+                }
+            }
+
+            val localTools = turnMessages.sumOf { it.toolCount ?: 0 }
+            val totalTools = if (isLoaded) maxOf(localTools, item.totalTools) else if (item.totalTools > 0) item.totalTools else localTools
+
+            val uniqueTools = mutableListOf<String>()
+            for (msg in turnMessages) {
+                msg.toolNames?.forEach { name ->
+                    if (name !in uniqueTools) uniqueTools.add(name)
+                }
+            }
+
+            val uniqueArtifacts = mutableListOf<ArtifactItem>()
+            for (msg in turnMessages) {
+                msg.artifacts?.forEach { art ->
+                    if (uniqueArtifacts.none { it.uri == art.uri }) uniqueArtifacts.add(art)
+                }
+            }
+            if (uniqueArtifacts.isEmpty() && !item.artifacts.isNullOrEmpty()) {
+                uniqueArtifacts.addAll(item.artifacts)
+            }
+
+            val hasError = item.hasError || turnMessages.any { it.isError }
+            val isLastOverall = (idx == outline.size - 1) && trailingOptimisticTurns.isEmpty()
+            val isActive = isLastOverall && (isRunning || isAwaitingResponse)
+
+            val model = turnMessages.asReversed().firstNotNullOfOrNull { msg ->
+                msg.modelName?.takeIf { it.isNotBlank() } ?: msg.model?.takeIf { it.isNotBlank() }?.let { ModelDefaults.displayName(it) }
+            } ?: item.modelName?.takeIf { it.isNotBlank() }
+
+            val turnTimestamp = userMsg?.timestamp
+                ?: turnMessages.firstNotNullOfOrNull { it.timestamp }
+                ?: item.timestamp?.takeIf { it.isNotBlank() }
+
+            val startStep = item.startStepIndex
+                ?: userMsg?.stepIndex
+                ?: turnMessages.mapNotNull { it.stepIndex }.minOrNull()
+
+            val endStep = item.endStepIndex
+                ?: turnMessages.mapNotNull { it.stepIndex }.maxOrNull()
+
+            turns.add(
+                ConversationTurn(
+                    id = turnId,
+                    turnIndex = item.turnIndex,
+                    userMessage = userMsg,
+                    messages = turnMessages,
+                    firstMessageId = firstId,
+                    promptSummary = summary,
+                    totalTools = totalTools,
+                    toolNames = uniqueTools,
+                    artifacts = uniqueArtifacts,
+                    hasError = hasError,
+                    isActive = isActive,
+                    modelName = model,
+                    timestamp = turnTimestamp,
+                    isVoiceTurn = isVoice,
+                    startStepIndex = startStep,
+                    endStepIndex = endStep,
+                    messageOffset = item.messageOffset,
+                    isLoaded = isLoaded
+                )
+            )
+        }
+
+        var nextTurnIndex = (turns.lastOrNull()?.turnIndex ?: 0) + 1
+        trailingOptimisticTurns.forEachIndexed { tIdx, optMsgs ->
+            val builtOpt = buildTurns(optMsgs, isRunning, isAwaitingResponse)
+            val isLastOpt = (tIdx == trailingOptimisticTurns.size - 1)
+            for (b in builtOpt) {
+                turns.add(
+                    b.copy(
+                        turnIndex = nextTurnIndex,
+                        isActive = isLastOpt && (isRunning || isAwaitingResponse),
+                        messageOffset = null,
+                        isLoaded = true
+                    )
+                )
+                nextTurnIndex++
+            }
+        }
+
+        return turns
+    }
+
+    private fun summarizeUserMessage(
+        userMsg: GatewayMessageItem,
+        userBody: String,
+        attachedFiles: List<com.antigravity.mobile.data.service.AttachmentRules.ParsedFile>,
+        isVoice: Boolean
+    ): String {
+        if (isVoice) {
+            val cleaned = VoiceTranscriptCleaner.clean(userBody)
+            val cleanPrompt = cleaned
+                .replace(Regex("^(我|user|human|me)\\s*[:：]\\s*", RegexOption.IGNORE_CASE), "")
+                .trim()
+            val lines = cleanPrompt.lines().map { it.trim() }.filter { it.isNotEmpty() }
+            val combined = lines.take(2).joinToString(" ")
+            return if (combined.length > 48) combined.take(45) + "..." else combined
+        }
+        val clean = userBody.trim()
+        val validImageUrls = userMsg.imageUrls?.filter { com.antigravity.mobile.data.service.FileIconResolver.isImage(it) }
+        return if (clean.isNotEmpty()) {
+            val lines = clean.lines().map { it.trim() }.filter { it.isNotEmpty() }
+            val combined = lines.take(2).joinToString(" ")
+            if (combined.length > 48) combined.take(45) + "..." else combined
+        } else if (attachedFiles.isNotEmpty()) {
+            val firstFile = attachedFiles.first().name
+            if (attachedFiles.size == 1) "[附件: $firstFile]".loc else "[附件: $firstFile 等 ${attachedFiles.size} 个文件]".loc
+        } else if (userMsg.effectiveImageDataList.isNotEmpty() || !validImageUrls.isNullOrEmpty()) {
+            val count = maxOf(userMsg.effectiveImageDataList.size, validImageUrls?.size ?: 0)
+            "[包含 $count 张图片]".loc
+        } else {
+            "用户消息".loc
+        }
+    }
+
     fun buildTurns(
         messages: List<GatewayMessageItem>,
         isRunning: Boolean = false,
@@ -146,6 +371,7 @@ object ConversationTurnBuilder {
             }
             val turnTimestamp = userMsg?.timestamp ?: currentMessages.firstNotNullOfOrNull { it.timestamp }
             val turnStartStep = userMsg?.stepIndex ?: currentMessages.mapNotNull { it.stepIndex }.minOrNull()
+            val turnEndStep = currentMessages.mapNotNull { it.stepIndex }.maxOrNull()
 
             turns.add(
                 ConversationTurn(
@@ -163,7 +389,8 @@ object ConversationTurnBuilder {
                     modelName = model,
                     timestamp = turnTimestamp,
                     isVoiceTurn = isVoice,
-                    startStepIndex = turnStartStep
+                    startStepIndex = turnStartStep,
+                    endStepIndex = turnEndStep
                 )
             )
 
@@ -241,7 +468,8 @@ object ConversationTurnBuilder {
             val e: Int? = if (idx + 1 < raw.size && starts[idx + 1] != null) {
                 starts[idx + 1]
             } else {
-                ch.turns.flatMap { it.messages }.mapNotNull { it.stepIndex }.maxOrNull()?.let { it + 1 }
+                (ch.turns.mapNotNull { it.endStepIndex }.maxOrNull()
+                    ?: ch.turns.flatMap { it.messages }.mapNotNull { it.stepIndex }.maxOrNull())?.let { it + 1 }
             }
 
             var resolvedTitle = ch.title

@@ -119,8 +119,15 @@ func (p *Proxy) handleCascadeMessages(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	fromOffset := -1
+	if fo := r.URL.Query().Get("fromOffset"); fo != "" {
+		if val, err := strconv.Atoi(fo); err == nil && val >= 0 {
+			fromOffset = val
+		}
+	}
+
 	if verboseRPC {
-		slog.Info("[Proxy] CascadeMessages", "cascadeId", cascadeID, "limit", limit, "offset", offset)
+		slog.Info("[Proxy] CascadeMessages", "cascadeId", cascadeID, "limit", limit, "offset", offset, "fromOffset", fromOffset)
 	}
 
 	p.mu.RLock()
@@ -181,7 +188,25 @@ func (p *Proxy) handleCascadeMessages(w http.ResponseWriter, r *http.Request) {
 	hasMore := false
 	nextOffset := 0
 
-	if offset < 0 {
+	const maxRangeMessages = 500
+	if fromOffset >= 0 {
+		// Range catch-up fetch for jumping directly to an earlier turn in the outline:
+		// returns [targetStart : targetEnd), capped at maxRangeMessages per request.
+		targetEnd := offset
+		if targetEnd < 0 || targetEnd > totalMsgs {
+			targetEnd = totalMsgs
+		}
+		targetStart := fromOffset
+		if targetStart > targetEnd {
+			targetStart = targetEnd
+		}
+		if targetEnd-targetStart > maxRangeMessages {
+			targetStart = targetEnd - maxRangeMessages
+		}
+		sliced = details.AllMessages[targetStart:targetEnd]
+		hasMore = (targetStart > 0)
+		nextOffset = targetStart
+	} else if offset < 0 {
 		// Initial fetch: return latest 'limit' messages
 		start := totalMsgs - limit
 		if start < 0 {
@@ -222,6 +247,7 @@ func (p *Proxy) handleCascadeMessages(w http.ResponseWriter, r *http.Request) {
 		HasMore:            hasMore,
 		NextOffset:         nextOffset,
 		Messages:           sliced,
+		TurnOutline:        details.TurnOutline,
 		QueuedMessages:     details.QueuedMessages,
 		RunningTasks:       details.RunningTasks,
 		Subagents:          details.Subagents,

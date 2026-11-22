@@ -34,6 +34,7 @@ type StreamUpdatePayload struct {
 	WorkspaceURI       string               `json:"workspaceUri"`
 	Steps              []TrajectoryStep     `json:"steps,omitempty"`
 	Messages           []CascadeMessageItem `json:"messages,omitempty"`
+	TurnOutline        []TurnOutlineItem    `json:"turnOutline,omitempty"`
 	QueuedMessages     []QueuedMessageItem  `json:"queuedMessages"`
 	RunningTasks       []RunningTaskItem    `json:"runningTasks,omitempty"`
 	Subagents          []SubagentItem       `json:"subagents,omitempty"`
@@ -93,10 +94,10 @@ func (p *StreamUpdatePayload) Fingerprint() string {
 		}
 		tasksKey = sb.String()
 	}
-	msgsKey := fmt.Sprintf("%d", p.TotalMessages)
+	msgsKey := fmt.Sprintf("%d:%d", p.TotalMessages, len(p.TurnOutline))
 	if len(p.Messages) > 0 {
 		lastMsg := p.Messages[len(p.Messages)-1]
-		msgsKey = fmt.Sprintf("%d:%s:%d:%x", p.TotalMessages, lastMsg.ID, len(lastMsg.Text), hashStrings(lastMsg.Text))
+		msgsKey = fmt.Sprintf("%d:%d:%s:%d:%x", p.TotalMessages, len(p.TurnOutline), lastMsg.ID, len(lastMsg.Text), hashStrings(lastMsg.Text))
 	}
 	swarmKey := "none"
 	if p.Swarm != nil && p.Swarm.Active {
@@ -461,6 +462,7 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 			NextOffset:             streamStart,
 			WorkspaceURI:           details.WorkspaceURI,
 			Messages:               slicedMessages,
+			TurnOutline:            details.TurnOutline,
 			QueuedMessages:         details.QueuedMessages,
 			RunningTasks:           details.RunningTasks,
 			Subagents:              details.Subagents,
@@ -489,6 +491,7 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 		}
 		if omitMessages {
 			payload.Messages = nil
+			payload.TurnOutline = nil
 		}
 
 		if firstPush && !resumedFromRev {

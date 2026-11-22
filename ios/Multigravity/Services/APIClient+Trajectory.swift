@@ -14,6 +14,7 @@ extension APIClient {
         cascadeId: String,
         limit: Int = 10,
         offset: Int? = nil,
+        fromOffset: Int? = nil,
         baseURL: URL
     ) async throws -> FetchMessagesResult {
         var comps = URLComponents(url: baseURL.appendingPathComponent("gateway/cascade/messages"), resolvingAgainstBaseURL: true)
@@ -23,6 +24,9 @@ extension APIClient {
         ]
         if let o = offset {
             queryItems.append(URLQueryItem(name: "offset", value: "\(o)"))
+        }
+        if let fo = fromOffset {
+            queryItems.append(URLQueryItem(name: "fromOffset", value: "\(fo)"))
         }
         comps?.queryItems = queryItems
         
@@ -107,6 +111,7 @@ extension APIClient {
                         duration: decoded.duration,
                         hasMore: decoded.hasMore,
                         nextOffset: decoded.nextOffset,
+                        turnOutline: decoded.turnOutline,
                         cascadeConfigRaw: decoded.cascadeConfigRaw,
                         title: decoded.title,
                         canProceed: decoded.canProceed ?? false,
@@ -153,6 +158,7 @@ extension APIClient {
             duration: dur,
             hasMore: false,
             nextOffset: 0,
+            turnOutline: nil,
             cascadeConfigRaw: nil,
             title: title,
             canProceed: false,

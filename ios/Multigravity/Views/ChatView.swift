@@ -51,6 +51,9 @@ public struct ChatView: View {
     @State var isSlashPickerDismissed: Bool = false
     @State var highlightedTurnMessageId: String? = nil
     @State var targetScrollTurnId: String? = nil
+    @State var jumpingToTurnIndex: Int? = nil
+    @State var jumpTransitionDimmed: Bool = false
+    @State var activeTurnJumpTask: Task<Void, Never>? = nil
     @State var chatAreaHeight: CGFloat = 0
     let shouldAutoFocus: Bool
     let initialConversation: ConversationItem?
@@ -500,12 +503,12 @@ public struct ChatView: View {
                     currentTurnIndex: scrollHUD.currentVisibleTurnIndex,
                     isLoadingChapterTitles: viewModel.isLoadingChapterTitles,
                     onSelectTurn: { turn in
-                        scrollHUD.lockedTurnIndex = turn.turnIndex
-                        scrollHUD.currentVisibleTurnIndex = turn.turnIndex
-                        targetScrollTurnId = turn.firstMessageId
+                        jumpToTurn(turn)
                     },
                     onJumpToTop: {
-                        if let firstId = viewModel.messages.first?.id {
+                        if let firstTurn = viewModel.turns.first {
+                            jumpToTurn(firstTurn)
+                        } else if let firstId = viewModel.messages.first?.id {
                             scrollHUD.lockedTurnIndex = 1
                             scrollHUD.currentVisibleTurnIndex = 1
                             targetScrollTurnId = firstId
@@ -866,6 +869,10 @@ public struct ChatView: View {
         scrollHUD.isUserDragging = false
         scrollHUD.isScrollMoving = false
         scrollHUD.cancelScrollHealAndJumpTasks()
+        activeTurnJumpTask?.cancel()
+        activeTurnJumpTask = nil
+        jumpTransitionDimmed = false
+        jumpingToTurnIndex = nil
         scrollHUD.stepperDimTask?.cancel()
         scrollHUD.stepperDimTask = nil
         scrollHUD.stepperHideTask?.cancel()

@@ -1,5 +1,52 @@
 import Foundation
 
+/// 服务端返回的全会话轻量轮次目录索引（零正文、零 Thinking、零 Base64）
+public struct TurnOutlineItem: Codable, Sendable, Hashable {
+    public let turnIndex: Int
+    public let firstMessageId: String
+    public let messageOffset: Int
+    public let messageCount: Int
+    public let startStepIndex: Int?
+    public let endStepIndex: Int?
+    public let promptSummary: String
+    public let totalTools: Int?
+    public let artifacts: [ArtifactItem]?
+    public let hasError: Bool?
+    public let modelName: String?
+    public let timestamp: String?
+    public let isVoiceTurn: Bool?
+
+    public init(
+        turnIndex: Int,
+        firstMessageId: String,
+        messageOffset: Int,
+        messageCount: Int,
+        startStepIndex: Int? = nil,
+        endStepIndex: Int? = nil,
+        promptSummary: String,
+        totalTools: Int? = nil,
+        artifacts: [ArtifactItem]? = nil,
+        hasError: Bool? = nil,
+        modelName: String? = nil,
+        timestamp: String? = nil,
+        isVoiceTurn: Bool? = nil
+    ) {
+        self.turnIndex = turnIndex
+        self.firstMessageId = firstMessageId
+        self.messageOffset = messageOffset
+        self.messageCount = messageCount
+        self.startStepIndex = startStepIndex
+        self.endStepIndex = endStepIndex
+        self.promptSummary = promptSummary
+        self.totalTools = totalTools
+        self.artifacts = artifacts
+        self.hasError = hasError
+        self.modelName = modelName
+        self.timestamp = timestamp
+        self.isVoiceTurn = isVoiceTurn
+    }
+}
+
 /// 表示对话中的单轮问答（从用户输入提问开始，到下一个用户提问之前的所有 agent/tool 响应）
 public struct ConversationTurn: Identifiable, Sendable, Hashable {
     public let id: String
@@ -30,6 +77,12 @@ public struct ConversationTurn: Identifiable, Sendable, Hashable {
     public let isVoiceTurn: Bool
     /// 本轮起始的步骤索引（用于 Antigravity 2.30.0 GetChapterTitles 章节标题生成）
     public let startStepIndex: Int?
+    /// 本轮结束的步骤索引（可选，用于未加载历史轮次的章节范围估算）
+    public let endStepIndex: Int?
+    /// 本轮首条消息在服务端全量消息列表中的 0-based 偏移（用于按需直达加载）
+    public let messageOffset: Int?
+    /// 本轮首条锚点消息是否已加载到本地消息流中
+    public let isLoaded: Bool
     
     public init(
         id: String,
@@ -46,7 +99,10 @@ public struct ConversationTurn: Identifiable, Sendable, Hashable {
         modelName: String?,
         timestamp: String? = nil,
         isVoiceTurn: Bool = false,
-        startStepIndex: Int? = nil
+        startStepIndex: Int? = nil,
+        endStepIndex: Int? = nil,
+        messageOffset: Int? = nil,
+        isLoaded: Bool = true
     ) {
         self.id = id
         self.turnIndex = turnIndex
@@ -63,6 +119,9 @@ public struct ConversationTurn: Identifiable, Sendable, Hashable {
         self.timestamp = timestamp
         self.isVoiceTurn = isVoiceTurn
         self.startStepIndex = startStepIndex
+        self.endStepIndex = endStepIndex
+        self.messageOffset = messageOffset
+        self.isLoaded = isLoaded
     }
 }
 
@@ -102,6 +161,247 @@ public struct ConversationChapter: Identifiable, Sendable, Hashable {
 }
 
 public enum ConversationTurnBuilder {
+    /// 结合服务端全量轻量目录索引 `outline` 与本地已加载 `messages` 构建完整 1..N 轮次列表。
+    /// 若 `outline` 为空（旧版网关、本地草稿或演示模式），自动退回仅基于 `messages` 构建。
+    public static func buildTurns(
+        from messages: [ChatMessage],
+        outline: [TurnOutlineItem]?,
+        isRunning: Bool = false,
+        isAwaitingResponse: Bool = false
+    ) -> [ConversationTurn] {
+        guard let outline, !outline.isEmpty else {
+            return buildTurns(from: messages, isRunning: isRunning, isAwaitingResponse: isAwaitingResponse)
+        }
+
+        var firstIdToIdx: [String: Int] = [:]
+        firstIdToIdx.reserveCapacity(outline.count)
+        for (idx, item) in outline.enumerated() where !item.firstMessageId.isEmpty {
+            firstIdToIdx[item.firstMessageId] = idx
+        }
+
+        var firstMatchedMsgPos: Int? = nil
+        var firstMatchedOutlineIdx: Int? = nil
+        for (pos, msg) in messages.enumerated() {
+            if let oIdx = firstIdToIdx[msg.id] {
+                firstMatchedMsgPos = pos
+                firstMatchedOutlineIdx = oIdx
+                break
+            }
+        }
+
+        var msgsByOutlineIdx: [Int: [ChatMessage]] = [:]
+        var trailingOptimisticTurns: [[ChatMessage]] = []
+
+        if let firstMatchPos = firstMatchedMsgPos, let firstOIdx = firstMatchedOutlineIdx {
+            if firstMatchPos > 0 {
+                let prefixIdx = max(0, firstOIdx - 1)
+                msgsByOutlineIdx[prefixIdx, default: []].append(contentsOf: messages[0..<firstMatchPos])
+            }
+            var activeOutlineIdx: Int? = firstOIdx
+            for pos in firstMatchPos..<messages.count {
+                let msg = messages[pos]
+                if let oIdx = firstIdToIdx[msg.id] {
+                    activeOutlineIdx = oIdx
+                    msgsByOutlineIdx[oIdx, default: []].append(msg)
+                } else if msg.isUser && (msg.id.hasPrefix("optimistic-") || activeOutlineIdx == outline.count - 1) {
+                    trailingOptimisticTurns.append([msg])
+                    activeOutlineIdx = nil
+                } else if let idx = activeOutlineIdx {
+                    msgsByOutlineIdx[idx, default: []].append(msg)
+                } else if !trailingOptimisticTurns.isEmpty {
+                    trailingOptimisticTurns[trailingOptimisticTurns.count - 1].append(msg)
+                }
+            }
+        } else if !messages.isEmpty {
+            let lastOutlineIdx = outline.count - 1
+            for msg in messages {
+                if msg.isUser && msg.id.hasPrefix("optimistic-") {
+                    trailingOptimisticTurns.append([msg])
+                } else if !trailingOptimisticTurns.isEmpty {
+                    trailingOptimisticTurns[trailingOptimisticTurns.count - 1].append(msg)
+                } else {
+                    msgsByOutlineIdx[lastOutlineIdx, default: []].append(msg)
+                }
+            }
+        }
+
+        var turns: [ConversationTurn] = []
+        turns.reserveCapacity(outline.count + trailingOptimisticTurns.count)
+
+        for (idx, item) in outline.enumerated() {
+            let turnMessages = msgsByOutlineIdx[idx] ?? []
+            let firstId = item.firstMessageId.isEmpty
+                ? (turnMessages.first?.id ?? "turn-\(item.turnIndex)")
+                : item.firstMessageId
+            let turnId = "turn-\(firstId)"
+            let isLoaded = turnMessages.contains(where: { $0.id == firstId })
+            let userMsg = turnMessages.first(where: { $0.isUser })
+
+            let parsed = userMsg.map { AttachmentRules.parseBlock($0.content) }
+            let isVoice: Bool = {
+                if let u = userMsg {
+                    return VoiceTranscriptCleaner.isVoiceMessage(body: parsed?.body ?? u.content, files: parsed?.files ?? [])
+                }
+                return item.isVoiceTurn ?? false
+            }()
+
+            let summary: String = {
+                if let u = userMsg {
+                    return summarizeUserMessage(u, parsed: parsed, isVoice: isVoice)
+                }
+                switch item.promptSummary {
+                case "会话开场与初始化":
+                    return String(localized: "会话开场与初始化")
+                case "用户消息":
+                    return String(localized: "用户消息")
+                default:
+                    return item.promptSummary
+                }
+            }()
+
+            let localTools = turnMessages.reduce(0) { $0 + $1.toolCount }
+            let totalTools = isLoaded ? max(localTools, item.totalTools ?? 0) : (item.totalTools ?? localTools)
+
+            var uniqueTools: [String] = []
+            for msg in turnMessages {
+                for name in msg.toolNames where !uniqueTools.contains(name) {
+                    uniqueTools.append(name)
+                }
+            }
+
+            var uniqueArtifacts: [ArtifactItem] = []
+            for msg in turnMessages {
+                for art in msg.artifacts where !uniqueArtifacts.contains(where: { $0.uri == art.uri }) {
+                    uniqueArtifacts.append(art)
+                }
+            }
+            if uniqueArtifacts.isEmpty, let outlineArts = item.artifacts {
+                uniqueArtifacts = outlineArts
+            }
+
+            let hasError = (item.hasError ?? false) || turnMessages.contains(where: { $0.isError })
+            let isLastOverall = (idx == outline.count - 1) && trailingOptimisticTurns.isEmpty
+            let isActive = isLastOverall && (isRunning || isAwaitingResponse)
+
+            let model = turnMessages.reversed().compactMap(\.modelName).first
+                ?? turnMessages.reversed().compactMap(\.model).first
+                ?? (item.modelName?.isEmpty == false ? item.modelName : nil)
+
+            let turnTimestamp = userMsg?.timestamp
+                ?? turnMessages.compactMap(\.timestamp).first
+                ?? (item.timestamp?.isEmpty == false ? item.timestamp : nil)
+
+            let startStep = item.startStepIndex
+                ?? userMsg?.stepIndex
+                ?? turnMessages.compactMap(\.stepIndex).min()
+
+            let endStep = item.endStepIndex
+                ?? turnMessages.compactMap(\.stepIndex).max()
+
+            turns.append(ConversationTurn(
+                id: turnId,
+                turnIndex: item.turnIndex,
+                userMessage: userMsg,
+                messages: turnMessages,
+                firstMessageId: firstId,
+                promptSummary: summary,
+                totalTools: totalTools,
+                toolNames: uniqueTools,
+                artifacts: uniqueArtifacts,
+                hasError: hasError,
+                isActive: isActive,
+                modelName: model,
+                timestamp: turnTimestamp,
+                isVoiceTurn: isVoice,
+                startStepIndex: startStep,
+                endStepIndex: endStep,
+                messageOffset: item.messageOffset,
+                isLoaded: isLoaded
+            ))
+        }
+
+        // Append any local optimistic turns not yet echoed in server outline
+        var nextTurnIndex = (turns.last?.turnIndex ?? 0) + 1
+        for (tIdx, optMsgs) in trailingOptimisticTurns.enumerated() {
+            let builtOpt = buildTurns(
+                from: optMsgs,
+                isRunning: isRunning,
+                isAwaitingResponse: isAwaitingResponse
+            )
+            for b in builtOpt {
+                let isLastOpt = (tIdx == trailingOptimisticTurns.count - 1)
+                turns.append(ConversationTurn(
+                    id: b.id,
+                    turnIndex: nextTurnIndex,
+                    userMessage: b.userMessage,
+                    messages: b.messages,
+                    firstMessageId: b.firstMessageId,
+                    promptSummary: b.promptSummary,
+                    totalTools: b.totalTools,
+                    toolNames: b.toolNames,
+                    artifacts: b.artifacts,
+                    hasError: b.hasError,
+                    isActive: isLastOpt && (isRunning || isAwaitingResponse),
+                    modelName: b.modelName,
+                    timestamp: b.timestamp,
+                    isVoiceTurn: b.isVoiceTurn,
+                    startStepIndex: b.startStepIndex,
+                    endStepIndex: b.endStepIndex,
+                    messageOffset: nil,
+                    isLoaded: true
+                ))
+                nextTurnIndex += 1
+            }
+        }
+
+        return turns
+    }
+
+    private static func summarizeUserMessage(
+        _ u: ChatMessage,
+        parsed: (body: String, files: [AttachmentRules.ParsedFile])?,
+        isVoice: Bool
+    ) -> String {
+        if isVoice {
+            let cleaned = VoiceTranscriptCleaner.clean(parsed?.body ?? u.content)
+            let cleanPrompt = cleaned
+                .replacingOccurrences(of: #"^(我|user|human|me)\s*[:：]\s*"#, with: "", options: [.regularExpression, .caseInsensitive])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let lines = cleanPrompt.components(separatedBy: .newlines)
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+            let combined = lines.prefix(2).joined(separator: " ")
+            if combined.count > 48 {
+                return String(combined.prefix(45)) + "..."
+            }
+            return combined
+        }
+        let clean = (parsed?.body ?? u.content).trimmingCharacters(in: .whitespacesAndNewlines)
+        if !clean.isEmpty {
+            let lines = clean.components(separatedBy: .newlines)
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+            let combined = lines.prefix(2).joined(separator: " ")
+            if combined.count > 48 {
+                return String(combined.prefix(45)) + "..."
+            }
+            return combined
+        }
+        if let files = parsed?.files, !files.isEmpty {
+            let firstFile = files.first?.name ?? String(localized: "文件")
+            if files.count == 1 {
+                return String(localized: "[附件: \(firstFile)]")
+            } else {
+                return String(localized: "[附件: \(firstFile) 等 \(files.count) 个文件]")
+            }
+        }
+        if !u.imageDataList.isEmpty || !u.imageUrls.isEmpty {
+            let count = max(u.imageDataList.count, u.imageUrls.count)
+            return String(localized: "[包含 \(count) 张图片]")
+        }
+        return String(localized: "会话开场与初始化")
+    }
+
     public static func buildTurns(from messages: [ChatMessage], isRunning: Bool = false, isAwaitingResponse: Bool = false) -> [ConversationTurn] {
         guard !messages.isEmpty else { return [] }
         
@@ -188,6 +488,7 @@ public enum ConversationTurnBuilder {
             
             let turnTimestamp = userMsg?.timestamp ?? currentMessages.compactMap(\.timestamp).first
             let turnStartStep = userMsg?.stepIndex ?? currentMessages.compactMap(\.stepIndex).min()
+            let turnEndStep = currentMessages.compactMap(\.stepIndex).max()
             
             turns.append(ConversationTurn(
                 id: turnId,
@@ -204,7 +505,8 @@ public enum ConversationTurnBuilder {
                 modelName: model,
                 timestamp: turnTimestamp,
                 isVoiceTurn: isVoice,
-                startStepIndex: turnStartStep
+                startStepIndex: turnStartStep,
+                endStepIndex: turnEndStep
             ))
             
             currentTurnIndex += 1
@@ -297,7 +599,8 @@ public enum ConversationTurnBuilder {
                 if idx + 1 < raw.count, let nextStart = starts[idx + 1] {
                     return nextStart
                 }
-                if let maxStep = ch.turns.flatMap(\.messages).compactMap(\.stepIndex).max() {
+                if let maxStep = ch.turns.compactMap(\.endStepIndex).max()
+                    ?? ch.turns.flatMap(\.messages).compactMap(\.stepIndex).max() {
                     return maxStep + 1
                 }
                 return nil

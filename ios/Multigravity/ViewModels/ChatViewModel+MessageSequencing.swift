@@ -126,6 +126,7 @@ extension ChatViewModel {
             if self.pendingOptimisticMessageId == nil {
                 withAnimation(.easeInOut(duration: 0.2)) {
                     self.messages = []
+                    self.turnOutline = []
                     self.knownServerMessageIds = []
                     self.hasMore = false
                     self.nextOffset = 0
@@ -174,6 +175,7 @@ extension ChatViewModel {
         guard !incoming.isEmpty else {
             if self.pendingOptimisticMessageId == nil {
                 self.messages = []
+                self.turnOutline = []
                 self.knownServerMessageIds = []
                 self.hasMore = false
                 self.nextOffset = 0

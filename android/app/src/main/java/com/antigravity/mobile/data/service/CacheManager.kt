@@ -90,6 +90,18 @@ class CacheManager(context: Context) {
         }
     }
 
+    private fun trimmedForDiskPersistence(session: CachedChatSession): CachedChatSession {
+        if (session.messages.size <= MAX_DISK_CACHED_MESSAGES) return session
+        val dropped = session.messages.size - MAX_DISK_CACHED_MESSAGES
+        val tail = session.messages.takeLast(MAX_DISK_CACHED_MESSAGES)
+        val adjustedOffset = maxOf(0, session.nextOffset) + dropped
+        return session.copy(
+            hasMore = true,
+            nextOffset = adjustedOffset,
+            messages = tail
+        )
+    }
+
     private suspend fun writePendingSession(cascadeId: String) {
         if (!isValidCascadeId(cascadeId)) {
             pendingWrites.remove(cascadeId)
@@ -98,7 +110,8 @@ class CacheManager(context: Context) {
         fileMutex.withLock {
             val session = pendingWrites.remove(cascadeId) ?: return
             try {
-                val dataStr = json.encodeToString(session)
+                val diskSession = trimmedForDiskPersistence(session)
+                val dataStr = json.encodeToString(diskSession)
                 val targetFile = File(sessionsDir, "$cascadeId.json")
                 val tempFile = File(sessionsDir, "$cascadeId.json.tmp")
                 tempFile.writeText(dataStr, Charsets.UTF_8)
@@ -290,6 +303,7 @@ class CacheManager(context: Context) {
         private const val TAG = "CacheManager"
         private const val MAX_MEM_SESSIONS = 24
         private const val MAX_CACHED_SESSIONS = 100
+        private const val MAX_DISK_CACHED_MESSAGES = 40
         private const val SESSION_WRITE_INTERVAL_MS = 1500L
         private val SAFE_CASCADE_ID_REGEX = Regex("^(?:local_draft_|draft_)?[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
 

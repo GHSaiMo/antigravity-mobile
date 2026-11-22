@@ -227,6 +227,25 @@ type ContextMeterItem struct {
 	ErrorKind         string  `json:"errorKind,omitempty"`
 }
 
+// TurnOutlineItem is a lightweight, full-session index entry for a single conversation turn.
+// It carries no message bodies, thinking traces, or base64 media so clients can render the complete
+// 1..N outline and true turn counts without eagerly downloading full message history on session open.
+type TurnOutlineItem struct {
+	TurnIndex      int            `json:"turnIndex"`
+	FirstMessageID string         `json:"firstMessageId"`
+	MessageOffset  int            `json:"messageOffset"`
+	MessageCount   int            `json:"messageCount"`
+	StartStepIndex *int           `json:"startStepIndex,omitempty"`
+	EndStepIndex   *int           `json:"endStepIndex,omitempty"`
+	PromptSummary  string         `json:"promptSummary"`
+	TotalTools     int            `json:"totalTools,omitempty"`
+	Artifacts      []ArtifactItem `json:"artifacts,omitempty"`
+	HasError       bool           `json:"hasError,omitempty"`
+	ModelName      string         `json:"modelName,omitempty"`
+	Timestamp      string         `json:"timestamp,omitempty"`
+	IsVoiceTurn    bool           `json:"isVoiceTurn,omitempty"`
+}
+
 type CascadeMessagesResponse struct {
 	CascadeID          string               `json:"cascadeId"`
 	Title              string               `json:"title,omitempty"`
@@ -240,6 +259,7 @@ type CascadeMessagesResponse struct {
 	HasMore            bool                 `json:"hasMore"`
 	NextOffset         int                  `json:"nextOffset"`
 	Messages           []CascadeMessageItem `json:"messages"`
+	TurnOutline        []TurnOutlineItem    `json:"turnOutline,omitempty"`
 	QueuedMessages     []QueuedMessageItem  `json:"queuedMessages"`
 	RunningTasks       []RunningTaskItem    `json:"runningTasks,omitempty"`
 	Subagents          []SubagentItem       `json:"subagents,omitempty"`
@@ -655,6 +675,7 @@ type TrajectoryDetails struct {
 	WorkspaceURI       string               `json:"workspaceUri"`
 	Steps              []TrajectoryStep     `json:"steps"`
 	AllMessages        []CascadeMessageItem `json:"allMessages"`
+	TurnOutline        []TurnOutlineItem    `json:"-"`
 	QueuedMessages     []QueuedMessageItem  `json:"queuedMessages"`
 	RunningTasks       []RunningTaskItem    `json:"runningTasks,omitempty"`
 	Subagents          []SubagentItem       `json:"subagents,omitempty"`

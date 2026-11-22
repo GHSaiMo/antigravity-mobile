@@ -34,6 +34,7 @@ internal fun ChatViewModel.saveSessionToCache() {
         hasMore = state.hasMore,
         nextOffset = state.nextOffset,
         messages = toCache,
+        turnOutline = state.turnOutline.takeIf { it.isNotEmpty() },
         title = state.title.takeIf { it.isNotBlank() && it != "会话详情".loc && it != "未命名会话".loc },
         workspaceName = state.workspaceName.takeIf { it.isNotBlank() && it != "Chat" },
         cascadeConfigRaw = state.cascadeConfigRaw,
@@ -175,6 +176,7 @@ private fun ChatViewModel.buildStateFromCachedSession(
         isLatestMessageError = cached.status.equals("CASCADE_RUN_STATUS_ERROR", ignoreCase = true) || cached.status.equals("ERROR", ignoreCase = true),
         hasMore = hasMore,
         nextOffset = nextOffset,
+        turnOutline = cached.turnOutline.orEmpty(),
         stepCount = cached.stepCount,
         totalTools = cached.totalTools,
         duration = cached.duration,
@@ -503,8 +505,10 @@ internal fun ChatViewModel.initSession(
                     val wsFromPayload = payload.workspaceUri?.trimEnd('/')?.substringAfterLast('/')?.takeIf { it.isNotBlank() }
 
                     val hasEarliest = mergedMsgs.any { (it.stepIndex ?: extractStepIndex(it.id)) == 0 }
-                    val hasMore = if (hasEarliest) false else payload.hasMore
-                    val nextOffset = if (hasEarliest) 0 else payload.nextOffset
+                    val hasExpandedHistory = mergedMsgs.size > incoming.size && incoming.isNotEmpty()
+                    val hasMore = if (hasEarliest) false else if (hasExpandedHistory) _uiState.value.hasMore else payload.hasMore
+                    val nextOffset = if (hasEarliest) 0 else if (hasExpandedHistory) _uiState.value.nextOffset else payload.nextOffset
+                    val resolvedOutline = if (mergedMsgs.isEmpty()) emptyList() else (payload.turnOutline ?: _uiState.value.turnOutline)
 
                     val resolvedTitle = payload.title?.takeIf { it.isNotBlank() && it != "未命名会话".loc && it != "会话详情".loc }
                         ?: _uiState.value.title
@@ -550,6 +554,7 @@ internal fun ChatViewModel.initSession(
                         isLatestMessageError = isError,
                         hasMore = hasMore,
                         nextOffset = nextOffset,
+                        turnOutline = resolvedOutline,
                         stepCount = payload.totalSteps,
                         totalTools = payload.totalTools,
                         duration = payload.duration ?: _uiState.value.duration,
@@ -766,8 +771,10 @@ internal fun ChatViewModel.ensureWebSocketObserving() {
                 val wsFromPayload = payload.workspaceUri?.trimEnd('/')?.substringAfterLast('/')?.takeIf { it.isNotBlank() }
 
                 val hasEarliest = msgs.any { (it.stepIndex ?: extractStepIndex(it.id)) == 0 }
-                val hasMore = if (hasEarliest) false else (if (payload.hasMore) true else _uiState.value.hasMore)
-                val nextOffset = if (hasEarliest) 0 else (if (payload.nextOffset > 0) payload.nextOffset else _uiState.value.nextOffset)
+                val hasExpandedHistory = rawMsgs != null && rawMsgs.isNotEmpty() && msgs.size > rawMsgs.size
+                val hasMore = if (hasEarliest) false else if (hasExpandedHistory) _uiState.value.hasMore else (if (payload.hasMore) true else _uiState.value.hasMore)
+                val nextOffset = if (hasEarliest) 0 else if (hasExpandedHistory) _uiState.value.nextOffset else (if (payload.nextOffset > 0) payload.nextOffset else _uiState.value.nextOffset)
+                val resolvedOutline = if (msgs.isEmpty()) emptyList() else (payload.turnOutline ?: _uiState.value.turnOutline)
 
                 val activeRunningTasks = filterRunningTasks(payload.runningTasks)
                 _uiState.value = _uiState.value.copy(
@@ -806,6 +813,7 @@ internal fun ChatViewModel.ensureWebSocketObserving() {
                     isLatestMessageError = isError,
                     hasMore = hasMore,
                     nextOffset = nextOffset,
+                    turnOutline = resolvedOutline,
                     stepCount = if (payload.totalSteps > 0) payload.totalSteps else _uiState.value.stepCount,
                     totalTools = if (payload.totalTools > 0) payload.totalTools else _uiState.value.totalTools,
                     duration = payload.duration ?: _uiState.value.duration,
@@ -882,8 +890,10 @@ internal fun ChatViewModel.refresh(onComplete: (() -> Unit)? = null) {
                         val wsFromPayload = payload.workspaceUri?.trimEnd('/')?.substringAfterLast('/')?.takeIf { it.isNotBlank() }
 
                         val hasEarliest = msgs.any { (it.stepIndex ?: extractStepIndex(it.id)) == 0 }
-                        val hasMore = if (hasEarliest) false else payload.hasMore
-                        val nextOffset = if (hasEarliest) 0 else payload.nextOffset
+                        val hasExpandedHistory = incoming.isNotEmpty() && msgs.size > incoming.size
+                        val hasMore = if (hasEarliest) false else if (hasExpandedHistory) _uiState.value.hasMore else payload.hasMore
+                        val nextOffset = if (hasEarliest) 0 else if (hasExpandedHistory) _uiState.value.nextOffset else payload.nextOffset
+                        val resolvedOutline = if (msgs.isEmpty()) emptyList() else (payload.turnOutline ?: _uiState.value.turnOutline)
 
                         val resolvedTitle = payload.title?.takeIf { it.isNotBlank() && it != "未命名会话".loc && it != "会话详情".loc }
                             ?: _uiState.value.title
@@ -911,6 +921,7 @@ internal fun ChatViewModel.refresh(onComplete: (() -> Unit)? = null) {
                             isLatestMessageError = isError,
                             hasMore = hasMore,
                             nextOffset = nextOffset,
+                            turnOutline = resolvedOutline,
                             stepCount = payload.totalSteps,
                             totalTools = payload.totalTools,
                             duration = payload.duration ?: _uiState.value.duration,
@@ -991,6 +1002,7 @@ internal fun ChatViewModel.loadOlderMessages() {
                         isLoadingOlder = false,
                         hasMore = newHasMore,
                         nextOffset = newNextOffset,
+                        turnOutline = payload.turnOutline?.takeIf { it.isNotEmpty() } ?: _uiState.value.turnOutline,
                         stepCount = maxOf(_uiState.value.stepCount, payload.totalSteps),
                         totalTools = maxOf(_uiState.value.totalTools, payload.totalTools)
                     )
@@ -1003,4 +1015,101 @@ internal fun ChatViewModel.loadOlderMessages() {
                 }
             }
     }
+}
+
+/**
+ * 按需一次性补齐历史消息直至覆盖目标锚点（支持新网关 `fromOffset` 单请求直达，并向下兼容旧网关分页循环）。
+ */
+internal suspend fun ChatViewModel.loadMessagesThrough(
+    targetMessageId: String,
+    targetOffset: Int?
+): Boolean {
+    val initialState = _uiState.value
+    val cascadeId = initialState.cascadeId
+    if (cascadeId.isBlank()) return false
+    if (initialState.messages.any { it.id == targetMessageId }) return true
+    if (!initialState.hasMore) return false
+
+    // 等待可能正在进行中的单页加载收尾，避免并发重复拉取
+    var waitTries = 0
+    while (_uiState.value.isLoadingOlder && waitTries < 25) {
+        delay(40L)
+        waitTries++
+    }
+    if (_uiState.value.cascadeId != cascadeId) return false
+    if (_uiState.value.messages.any { it.id == targetMessageId }) return true
+    if (!_uiState.value.hasMore || _uiState.value.isLoadingOlder) {
+        return _uiState.value.messages.any { it.id == targetMessageId }
+    }
+
+    val hasEarliestNow = _uiState.value.messages.any { (it.stepIndex ?: extractStepIndex(it.id)) == 0 }
+    if (hasEarliestNow) {
+        _uiState.value = _uiState.value.copy(hasMore = false, nextOffset = 0)
+        return _uiState.value.messages.any { it.id == targetMessageId }
+    }
+
+    // 目标靠近会话起点（≤ 15 条）时直接对齐到 0，避免顶部残留极短的「查看更早的消息」按钮
+    val rawTarget = (targetOffset ?: 0).coerceAtLeast(0)
+    val desiredStart = if (rawTarget <= 15) 0 else rawTarget
+
+    _uiState.value = _uiState.value.copy(isLoadingOlder = true)
+    var fetchedAny = false
+    try {
+        for (attempt in 0 until 12) {
+            val cur = _uiState.value
+            if (cur.cascadeId != cascadeId || !cur.hasMore) break
+            if (cur.messages.any { it.id == targetMessageId }) break
+
+            val effectiveFrom = if (cur.nextOffset <= desiredStart) 0 else desiredStart
+            val result = apiClient.fetchMessages(
+                cascadeId = cascadeId,
+                limit = 50,
+                offset = cur.nextOffset,
+                fromOffset = effectiveFrom
+            )
+            val payload = result.getOrNull() ?: break
+            if (_uiState.value.cascadeId != cascadeId) return false
+
+            prefs?.updateDesktopActiveModel(payload.desktopActiveModel, payload.desktopActiveModelName)
+            val incoming = payload.messages ?: emptyList()
+            val latest = _uiState.value
+            val existingIds = latest.messages.map { it.id }.toSet()
+            val uniqueOlder = incoming.filter { !existingIds.contains(it.id) }
+            val combined = if (uniqueOlder.isNotEmpty()) {
+                fetchedAny = true
+                sanitizeMessageOrder(uniqueOlder + latest.messages)
+            } else {
+                latest.messages
+            }
+
+            val containsEarliest = combined.any { (it.stepIndex ?: extractStepIndex(it.id)) == 0 }
+            val newHasMore = if (!payload.hasMore || uniqueOlder.isEmpty() || payload.nextOffset <= 0 || containsEarliest) {
+                false
+            } else {
+                payload.hasMore
+            }
+            val newNextOffset = if (!newHasMore) 0 else payload.nextOffset
+
+            _uiState.value = latest.copy(
+                messages = combined,
+                hasMore = newHasMore,
+                nextOffset = newNextOffset,
+                turnOutline = payload.turnOutline?.takeIf { it.isNotEmpty() } ?: latest.turnOutline,
+                stepCount = maxOf(latest.stepCount, payload.totalSteps),
+                totalTools = maxOf(latest.totalTools, payload.totalTools)
+            )
+
+            if (!newHasMore || uniqueOlder.isEmpty()) break
+        }
+    } finally {
+        if (_uiState.value.cascadeId == cascadeId) {
+            _uiState.value = _uiState.value.copy(isLoadingOlder = false)
+            if (fetchedAny) {
+                saveSessionToCache()
+            }
+        }
+    }
+
+    val finalState = _uiState.value
+    return finalState.messages.any { it.id == targetMessageId } || !finalState.hasMore
 }

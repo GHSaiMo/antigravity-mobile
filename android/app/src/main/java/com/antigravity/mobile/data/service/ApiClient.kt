@@ -589,7 +589,8 @@ class ApiClient(
     suspend fun fetchMessages(
         cascadeId: String,
         limit: Int = 15,
-        offset: Int? = null
+        offset: Int? = null,
+        fromOffset: Int? = null
     ): Result<StreamUpdatePayload> = withContext(Dispatchers.IO) {
         if (!CacheManager.isValidCascadeId(cascadeId)) {
             return@withContext Result.failure(IllegalArgumentException("无效的会话 ID".loc))
@@ -598,6 +599,7 @@ class ApiClient(
         val encodedCid = URLEncoder.encode(cascadeId, "UTF-8")
         val urlBuilder = StringBuilder("$baseUrl/gateway/cascade/messages?cascadeId=$encodedCid&limit=$limit")
         offset?.let { urlBuilder.append("&offset=$it") }
+        fromOffset?.let { urlBuilder.append("&fromOffset=$it") }
 
         try {
             val urlStr = urlBuilder.toString()

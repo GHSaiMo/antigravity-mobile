@@ -12,6 +12,7 @@ public nonisolated struct CachedChatSession: Codable, Sendable {
     public let hasMore: Bool
     public let nextOffset: Int
     public let messages: [ChatMessage]
+    public let turnOutline: [TurnOutlineItem]?
     public let title: String?
     public let cascadeConfigRaw: String?
     public let canProceed: Bool?
@@ -31,6 +32,7 @@ public nonisolated struct CachedChatSession: Codable, Sendable {
         hasMore: Bool,
         nextOffset: Int,
         messages: [ChatMessage],
+        turnOutline: [TurnOutlineItem]? = nil,
         title: String? = nil,
         cascadeConfigRaw: String? = nil,
         canProceed: Bool? = nil,
@@ -49,6 +51,7 @@ public nonisolated struct CachedChatSession: Codable, Sendable {
         self.hasMore = hasMore
         self.nextOffset = nextOffset
         self.messages = messages
+        self.turnOutline = turnOutline
         self.title = title
         self.cascadeConfigRaw = cascadeConfigRaw
         self.canProceed = canProceed
@@ -793,14 +796,48 @@ public final class CacheManager: @unchecked Sendable {
         }
     }
 
+    /// Maximum number of tail messages written to on-disk session cache to prevent multi-MB
+    /// JSON serialization spikes during streaming after a user has expanded full history.
+    private static let maxDiskCachedMessages = 40
+
+    /// Returns a disk-safe copy capped to the latest tail window while preserving full `turnOutline`
+    /// and accurately shifting `hasMore`/`nextOffset` so the next cold open loads fast.
+    private static func trimmedForDiskPersistence(_ session: CachedChatSession) -> CachedChatSession {
+        guard session.messages.count > maxDiskCachedMessages else { return session }
+        let dropped = session.messages.count - maxDiskCachedMessages
+        let tail = Array(session.messages.suffix(maxDiskCachedMessages))
+        let adjustedOffset = max(0, session.nextOffset) + dropped
+        return CachedChatSession(
+            cascadeId: session.cascadeId,
+            status: session.status,
+            duration: session.duration,
+            stepCount: session.stepCount,
+            totalTools: session.totalTools,
+            hasMore: true,
+            nextOffset: adjustedOffset,
+            messages: tail,
+            turnOutline: session.turnOutline,
+            title: session.title,
+            cascadeConfigRaw: session.cascadeConfigRaw,
+            canProceed: session.canProceed,
+            proceedArtifactUri: session.proceedArtifactUri,
+            pendingInteraction: session.pendingInteraction,
+            queuedMessages: session.queuedMessages,
+            runningTasks: session.runningTasks,
+            workspaceName: session.workspaceName,
+            savedAt: session.savedAt
+        )
+    }
+
     /// Runs on `ioQueue`: encodes and writes the latest pending snapshot of one session.
     private func writePendingSession(_ cascadeId: String) {
         lock.lock()
         let session = pendingSessionWrites.removeValue(forKey: cascadeId)
         lock.unlock()
         guard Self.isValidCascadeId(cascadeId),
-              let session,
-              let data = try? Self.encoder.encode(session) else { return }
+              let session else { return }
+        let diskSession = Self.trimmedForDiskPersistence(session)
+        guard let data = try? Self.encoder.encode(diskSession) else { return }
         try? data.write(to: cacheDir.appendingPathComponent("sessions/\(cascadeId).json"), options: .atomic)
         pruneSessionFiles(maxCount: Self.maxDiskSessions)
     }

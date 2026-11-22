@@ -96,6 +96,12 @@ extension ChatViewModel {
             }
         }
         
+        if let outline = payload.turnOutline {
+            if self.turnOutline != outline {
+                self.turnOutline = outline
+            }
+        }
+        
         if let rawMessages = payload.messages {
             let parsedMessages = rawMessages.map { item -> ChatMessage in
                 let sender: ChatMessage.MessageSender = {
@@ -187,6 +193,7 @@ extension ChatViewModel {
                 if self.pendingOptimisticMessageId == nil {
                     withAnimation(.easeInOut(duration: 0.2)) {
                         self.messages = []
+                        self.turnOutline = []
                         self.knownServerMessageIds = []
                         self.hasMore = false
                         self.nextOffset = 0
@@ -331,6 +338,7 @@ extension ChatViewModel {
             hasMore: self.hasMore,
             nextOffset: self.nextOffset,
             messages: toCache,
+            turnOutline: self.turnOutline.isEmpty ? nil : self.turnOutline,
             title: self.currentTitle,
             cascadeConfigRaw: self.cascadeConfigRaw,
             canProceed: self.canProceed,

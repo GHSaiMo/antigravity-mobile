@@ -12,6 +12,7 @@ data class CachedChatSession(
     val hasMore: Boolean = false,
     val nextOffset: Int = 0,
     val messages: List<GatewayMessageItem> = emptyList(),
+    val turnOutline: List<TurnOutlineItem>? = null,
     val title: String? = null,
     val workspaceName: String? = null,
     val cascadeConfigRaw: String? = null,

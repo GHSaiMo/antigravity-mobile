@@ -126,6 +126,7 @@ import com.antigravity.mobile.ui.viewmodel.deleteQueuedMessage
 import com.antigravity.mobile.ui.viewmodel.downloadAndPreviewDocument
 import com.antigravity.mobile.ui.viewmodel.editQueuedMessage
 import com.antigravity.mobile.ui.viewmodel.initSession
+import com.antigravity.mobile.ui.viewmodel.loadMessagesThrough
 import com.antigravity.mobile.ui.viewmodel.loadOlderMessages
 import com.antigravity.mobile.ui.viewmodel.openAttachmentImageViewer
 import com.antigravity.mobile.ui.viewmodel.openMarkdownViewer
@@ -283,6 +284,22 @@ fun ChatScreen(
     }
     var selectedWorkflowSubagent by remember { mutableStateOf<com.antigravity.mobile.data.model.SubagentItem?>(null) }
     var lockedTurnIndex by remember { mutableStateOf<Int?>(null) }
+    var jumpingToTurnIndex by remember { mutableStateOf<Int?>(null) }
+    var jumpTransitionDimmed by remember { mutableStateOf(false) }
+    var highlightedTurnMessageId by remember { mutableStateOf<String?>(null) }
+    var activeTurnJumpJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    val listJumpAlpha by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (jumpTransitionDimmed) 0.35f else 1.0f,
+        animationSpec = androidx.compose.animation.core.tween(durationMillis = 200),
+        label = "listJumpAlpha"
+    )
+    LaunchedEffect(highlightedTurnMessageId) {
+        val currentId = highlightedTurnMessageId ?: return@LaunchedEffect
+        delay(1800L)
+        if (highlightedTurnMessageId == currentId) {
+            highlightedTurnMessageId = null
+        }
+    }
     var isSlashPickerDismissed by remember { mutableStateOf(false) }
     var previousInputTextForSlash by remember { mutableStateOf(inputText) }
     LaunchedEffect(inputText) {
@@ -294,8 +311,13 @@ fun ChatScreen(
         }
         previousInputTextForSlash = inputText
     }
-    val turns = remember(uiState.messages, uiState.isRunning, uiState.isAwaitingResponse) {
-        ConversationTurnBuilder.buildTurns(uiState.messages, uiState.isRunning, uiState.isAwaitingResponse)
+    val turns = remember(uiState.messages, uiState.turnOutline, uiState.isRunning, uiState.isAwaitingResponse) {
+        ConversationTurnBuilder.buildTurns(
+            uiState.messages,
+            uiState.turnOutline.takeIf { it.isNotEmpty() },
+            uiState.isRunning,
+            uiState.isAwaitingResponse
+        )
     }
     val chapters = remember(turns, uiState.chapterTitles) {
         ConversationTurnBuilder.buildChapters(turns, aiTitles = uiState.chapterTitles)
@@ -405,7 +427,9 @@ fun ChatScreen(
             } else if (!hasInitiallyAligned || isNearBottom || !listState.canScrollForward) {
                 turns.lastOrNull()?.turnIndex ?: 1
             } else if (!listState.canScrollBackward) {
-                turns.firstOrNull()?.turnIndex ?: 1
+                val firstMsgId = uiState.messages.firstOrNull()?.id
+                val firstLoadedTurn = firstMsgId?.let { turnIndexByMessageId[it] }
+                firstLoadedTurn ?: turns.firstOrNull()?.turnIndex ?: 1
             } else {
                 val layoutInfo = listState.layoutInfo
                 val anchorY = (layoutInfo.viewportEndOffset * 0.45f).toInt()
@@ -436,6 +460,55 @@ fun ChatScreen(
             savedScrollOffset = listState.firstVisibleItemScrollOffset
             preserveScrollOnReturn = latestHasInitiallyAligned
             latestOnOpenSubagent(sub)
+        }
+    }
+
+    fun jumpToTurn(turn: com.antigravity.mobile.data.model.ConversationTurn) {
+        activeTurnJumpJob?.cancel()
+        lockedTurnIndex = turn.turnIndex
+        hasUserInteracted = true
+        activeTurnJumpJob = coroutineScope.launch {
+            isProgrammaticScrolling = true
+            try {
+                val currentState = viewModel.uiState.value
+                val existingIdx = currentState.messages.indexOfFirst { it.id == turn.firstMessageId }
+                if (existingIdx >= 0) {
+                    jumpTransitionDimmed = false
+                    jumpingToTurnIndex = null
+                    val hasHeader = if (currentState.hasMore) 1 else 0
+                    val scrollIdx = existingIdx + hasHeader
+                    val distance = kotlin.math.abs(listState.firstVisibleItemIndex - scrollIdx)
+                    if (distance > 30) {
+                        listState.scrollToItem(scrollIdx)
+                    } else {
+                        listState.animateScrollToItem(scrollIdx)
+                    }
+                    highlightedTurnMessageId = turn.firstMessageId
+                    return@launch
+                }
+
+                jumpingToTurnIndex = turn.turnIndex
+                jumpTransitionDimmed = true
+                viewModel.loadMessagesThrough(turn.firstMessageId, turn.messageOffset)
+                val updatedState = viewModel.uiState.value
+                val updatedMsgs = updatedState.messages
+                if (updatedMsgs.isNotEmpty()) {
+                    val targetIdx = updatedMsgs.indexOfFirst { it.id == turn.firstMessageId }
+                        .takeIf { it >= 0 }
+                        ?: 0
+                    val hasHeader = if (updatedState.hasMore) 1 else 0
+                    val scrollIdx = targetIdx + hasHeader
+                    delay(40L)
+                    listState.scrollToItem(scrollIdx)
+                    delay(60L)
+                    highlightedTurnMessageId = updatedMsgs.getOrNull(targetIdx)?.id ?: turn.firstMessageId
+                }
+            } finally {
+                jumpTransitionDimmed = false
+                jumpingToTurnIndex = null
+                delay(50L)
+                isProgrammaticScrolling = false
+            }
         }
     }
 
@@ -1546,7 +1619,9 @@ fun ChatScreen(
 
                             LazyColumn(
                                 state = listState,
-                                modifier = Modifier.fillMaxSize(),
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .alpha(listJumpAlpha),
                                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                                 verticalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
@@ -1623,24 +1698,46 @@ fun ChatScreen(
                                             }
                                         } else null
                                     )
-                                    MessageBubble(
-                                        message = msg,
-                                        onPlanClick = stableOnPlanClick,
-                                        urlResolver = stableUrlResolver,
-                                        onImageClick = stableOnImageClick,
-                                        onImageGroupClick = stableOnImageGroupClick,
-                                        onSubagentClick = openSubagent,
-                                        onStopWorkflow = stableOnStopWorkflow,
-                                        onSelectWorkflowSubagent = stableOnSelectWorkflowSubagent,
-                                        onForkClick = stableOnForkClick,
-                                        onNarrateClick = stableOnNarrateClick,
-                                        onAskBtwClick = stableOnAskBtwClick,
-                                        onCompactClick = stableOnCompactClick,
-                                        onStartNewSessionClick = onStartNewSession,
-                                        onUndoClick = stableOnUndoClick,
-                                        onExportMarkdownClick = stableOnExportMarkdownClick,
-                                        shareContextProvider = stableShareContextProvider
+                                    val isHighlighted = highlightedTurnMessageId != null && rawMsg.id == highlightedTurnMessageId
+                                    val highlightBorderColor by androidx.compose.animation.animateColorAsState(
+                                        targetValue = if (isHighlighted) colors.accentIndigo else Color.Transparent,
+                                        animationSpec = androidx.compose.animation.core.tween(durationMillis = 280),
+                                        label = "turnHighlightBorder"
                                     )
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .then(
+                                                if (highlightBorderColor.alpha > 0.01f) {
+                                                    Modifier.border(
+                                                        width = 1.8.dp,
+                                                        color = highlightBorderColor,
+                                                        shape = RoundedCornerShape(18.dp)
+                                                    )
+                                                } else {
+                                                    Modifier
+                                                }
+                                            )
+                                    ) {
+                                        MessageBubble(
+                                            message = msg,
+                                            onPlanClick = stableOnPlanClick,
+                                            urlResolver = stableUrlResolver,
+                                            onImageClick = stableOnImageClick,
+                                            onImageGroupClick = stableOnImageGroupClick,
+                                            onSubagentClick = openSubagent,
+                                            onStopWorkflow = stableOnStopWorkflow,
+                                            onSelectWorkflowSubagent = stableOnSelectWorkflowSubagent,
+                                            onForkClick = stableOnForkClick,
+                                            onNarrateClick = stableOnNarrateClick,
+                                            onAskBtwClick = stableOnAskBtwClick,
+                                            onCompactClick = stableOnCompactClick,
+                                            onStartNewSessionClick = onStartNewSession,
+                                            onUndoClick = stableOnUndoClick,
+                                            onExportMarkdownClick = stableOnExportMarkdownClick,
+                                            shareContextProvider = stableShareContextProvider
+                                        )
+                                    }
                                 }
 
                                 // Active Thinking Animation Card
@@ -1696,6 +1793,35 @@ fun ChatScreen(
                     )
                 }
 
+                // 定位未加载早期轮次时的轻量过渡胶囊提示
+                jumpingToTurnIndex?.let { jumpIdx ->
+                    Surface(
+                        shape = RoundedCornerShape(999.dp),
+                        color = colors.surface.copy(alpha = 0.94f),
+                        tonalElevation = 4.dp,
+                        shadowElevation = 6.dp,
+                        modifier = Modifier.align(Alignment.Center)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(15.dp),
+                                strokeWidth = 2.dp,
+                                color = colors.accentIndigo
+                            )
+                            Text(
+                                text = "第 $jumpIdx 轮".loc,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = colors.textPrimary
+                            )
+                        }
+                    }
+                }
+
                 // 浮动跳跃双钮导航条 (Prompt Jump Stepper)
                 if (animatedStepperAlpha > 0.01f) {
                     com.antigravity.mobile.ui.components.PromptJumpStepper(
@@ -1706,48 +1832,28 @@ fun ChatScreen(
                         onJumpPrevious = {
                             stepperAlphaTarget = 1.0f
                             val targetTurn = (currentTurnIndex - 1).coerceAtLeast(1)
-                            lockedTurnIndex = targetTurn
                             val matchTurn = turns.firstOrNull { it.turnIndex == targetTurn }
                             if (matchTurn != null) {
-                                val targetIndex = uiState.messages.indexOfFirst { it.id == matchTurn.firstMessageId }
-                                if (targetIndex >= 0) {
-                                    coroutineScope.launch {
-                                        isProgrammaticScrolling = true
-                                        try {
-                                            listState.animateScrollToItem(targetIndex)
-                                        } finally {
-                                            isProgrammaticScrolling = false
-                                        }
-                                    }
-                                }
+                                jumpToTurn(matchTurn)
                             }
                         },
                         onJumpNextOrBottom = {
                             stepperAlphaTarget = 1.0f
                             if (currentTurnIndex < turns.size) {
                                 val targetTurn = currentTurnIndex + 1
-                                lockedTurnIndex = targetTurn
                                 val matchTurn = turns.firstOrNull { it.turnIndex == targetTurn }
                                 if (matchTurn != null) {
-                                    val targetIndex = uiState.messages.indexOfFirst { it.id == matchTurn.firstMessageId }
-                                    if (targetIndex >= 0) {
-                                        coroutineScope.launch {
-                                            isProgrammaticScrolling = true
-                                            try {
-                                                listState.animateScrollToItem(targetIndex)
-                                            } finally {
-                                                isProgrammaticScrolling = false
-                                            }
-                                        }
-                                    }
+                                    jumpToTurn(matchTurn)
                                 }
                             } else {
+                                activeTurnJumpJob?.cancel()
                                 lockedTurnIndex = null
                                 coroutineScope.launch {
-                                    if (uiState.messages.isNotEmpty()) {
+                                    val total = listState.layoutInfo.totalItemsCount
+                                    if (total > 0) {
                                         isProgrammaticScrolling = true
                                         try {
-                                            listState.animateScrollToItem(uiState.messages.size - 1)
+                                            listState.animateScrollToItem(total - 1)
                                         } finally {
                                             isProgrammaticScrolling = false
                                         }
@@ -1757,12 +1863,14 @@ fun ChatScreen(
                         },
                         onForceJumpBottom = {
                             stepperAlphaTarget = 1.0f
+                            activeTurnJumpJob?.cancel()
                             lockedTurnIndex = null
                             coroutineScope.launch {
-                                if (uiState.messages.isNotEmpty()) {
+                                val total = listState.layoutInfo.totalItemsCount
+                                if (total > 0) {
                                     isProgrammaticScrolling = true
                                     try {
-                                        listState.animateScrollToItem(uiState.messages.size - 1)
+                                        listState.animateScrollToItem(total - 1)
                                     } finally {
                                         isProgrammaticScrolling = false
                                     }
@@ -2512,39 +2620,35 @@ fun ChatScreen(
             isLoadingChapterTitles = uiState.isLoadingChapterTitles,
             onSelectTurn = { turn ->
                 showNavigatorSheet = false
-                lockedTurnIndex = turn.turnIndex
-                val targetIndex = uiState.messages.indexOfFirst { it.id == turn.firstMessageId }
-                if (targetIndex >= 0) {
+                jumpToTurn(turn)
+            },
+            onJumpToTop = {
+                showNavigatorSheet = false
+                val firstTurn = turns.firstOrNull()
+                if (firstTurn != null) {
+                    jumpToTurn(firstTurn)
+                } else {
+                    lockedTurnIndex = 1
                     coroutineScope.launch {
                         isProgrammaticScrolling = true
                         try {
-                            listState.animateScrollToItem(targetIndex)
+                            listState.animateScrollToItem(0)
                         } finally {
                             isProgrammaticScrolling = false
                         }
                     }
                 }
             },
-            onJumpToTop = {
-                showNavigatorSheet = false
-                lockedTurnIndex = 1
-                coroutineScope.launch {
-                    isProgrammaticScrolling = true
-                    try {
-                        listState.animateScrollToItem(0)
-                    } finally {
-                        isProgrammaticScrolling = false
-                    }
-                }
-            },
             onJumpToBottom = {
                 showNavigatorSheet = false
+                activeTurnJumpJob?.cancel()
                 lockedTurnIndex = null
                 coroutineScope.launch {
-                    if (uiState.messages.isNotEmpty()) {
+                    val total = listState.layoutInfo.totalItemsCount
+                    if (total > 0) {
                         isProgrammaticScrolling = true
                         try {
-                            listState.animateScrollToItem(uiState.messages.size - 1)
+                            listState.animateScrollToItem(total - 1)
                         } finally {
                             isProgrammaticScrolling = false
                         }

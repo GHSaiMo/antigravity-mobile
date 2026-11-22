@@ -116,6 +116,7 @@ data class ChatUiState(
     val hasMore: Boolean = false,
     val nextOffset: Int = 0,
     val isLoadingOlder: Boolean = false,
+    val turnOutline: List<TurnOutlineItem> = emptyList(),
     val stepCount: Int = 0,
     val totalTools: Int = 0,
     val duration: String = "",

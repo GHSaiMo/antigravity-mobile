@@ -23,6 +23,7 @@ public struct StreamUpdatePayload: Decodable, Sendable {
     public let workspaceUri: String?
     /// Complete window once `StreamWebSocketClient` has reassembled any `delta` frame (see StreamDeltaReassembler).
     public var messages: [PaginatedMessagesResponse.GatewayMessageItem]?
+    public let turnOutline: [TurnOutlineItem]?
     public let isFullSnapshot: Bool?
     public let cascadeConfigRaw: String?
     public let canProceed: Bool?

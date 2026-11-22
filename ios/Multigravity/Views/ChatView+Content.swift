@@ -25,6 +25,25 @@ extension ChatView {
                     ScrollViewReader { proxy in
                         ZStack(alignment: .bottomTrailing) {
                             messagesScrollView(proxy: proxy, viewportWidth: geometry.size.width, viewportHeight: geometry.size.height)
+                                .opacity(jumpTransitionDimmed ? 0.35 : 1.0)
+                                .animation(.easeOut(duration: 0.2), value: jumpTransitionDimmed)
+
+                            if let jumpIdx = jumpingToTurnIndex {
+                                HStack(spacing: 8) {
+                                    ProgressView()
+                                        .scaleEffect(0.85)
+                                    Text("第 \(jumpIdx) 轮")
+                                        .font(.system(size: 13, weight: .semibold))
+                                        .foregroundColor(.primary)
+                                }
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 10)
+                                .background(.ultraThinMaterial, in: Capsule())
+                                .shadow(color: .black.opacity(0.14), radius: 10, y: 4)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                                .transition(.opacity.combined(with: .scale(scale: 0.94)))
+                                .allowsHitTesting(false)
+                            }
                             
                             // 浮动跳跃双钮导航条 (Prompt Jump Stepper)
                             ChatStepperOverlayView(
@@ -202,6 +221,12 @@ extension ChatView {
                         scrollHUD.isUserDragging = true
                         scrollHUD.isScrollMoving = true
                         scrollHUD.cancelScrollHealAndJumpTasks()
+                        if activeTurnJumpTask != nil || jumpTransitionDimmed || jumpingToTurnIndex != nil {
+                            activeTurnJumpTask?.cancel()
+                            activeTurnJumpTask = nil
+                            jumpTransitionDimmed = false
+                            jumpingToTurnIndex = nil
+                        }
                         if !hasInitiallyAligned && !viewModel.messages.isEmpty {
                             hasInitiallyAligned = true
                         }
@@ -665,13 +690,14 @@ extension ChatView {
         // 3. 根据当前视口内可见的消息几何位置，计算处于阅读视觉重心处的消息所属轮次
         guard !visibleInViewport.isEmpty else { return }
         
-        // 若首条消息已在视口顶部附近，判定为第 1 轮
+        // 若首条已加载消息已在视口顶部附近，定位到它实际所属的轮次（避免未加载更早历史时误报第 1 轮）
         if let firstMsgId = viewModel.messages.first?.id,
            let firstGeo = visibleInViewport.first(where: { $0.id == firstMsgId }),
            firstGeo.minY >= -24 {
-            let firstIdx = turns.first?.turnIndex ?? 1
-            if scrollHUD.currentVisibleTurnIndex != firstIdx {
-                scrollHUD.currentVisibleTurnIndex = firstIdx
+            let firstLoadedIdx = turns.first(where: { $0.messages.contains(where: { $0.id == firstMsgId }) })?.turnIndex
+                ?? (viewModel.hasMore ? nil : turns.first?.turnIndex)
+            if let resolved = firstLoadedIdx, scrollHUD.currentVisibleTurnIndex != resolved {
+                scrollHUD.currentVisibleTurnIndex = resolved
             }
             return
         }
@@ -881,14 +907,68 @@ extension ChatView {
         }
     }
     
+    func jumpToTurn(_ turn: ConversationTurn) {
+        activeTurnJumpTask?.cancel()
+        scrollHUD.lockedTurnIndex = turn.turnIndex
+        scrollHUD.currentVisibleTurnIndex = turn.turnIndex
+
+        if viewModel.messages.contains(where: { $0.id == turn.firstMessageId }) {
+            if jumpTransitionDimmed || jumpingToTurnIndex != nil {
+                withAnimation(.easeOut(duration: 0.16)) {
+                    jumpTransitionDimmed = false
+                    jumpingToTurnIndex = nil
+                }
+            }
+            targetScrollTurnId = turn.firstMessageId
+            return
+        }
+
+        activeTurnJumpTask = Task { @MainActor in
+            withAnimation(.easeOut(duration: 0.14)) {
+                jumpingToTurnIndex = turn.turnIndex
+                jumpTransitionDimmed = true
+            }
+            _ = await viewModel.loadMessagesThrough(
+                targetMessageId: turn.firstMessageId,
+                targetOffset: turn.messageOffset
+            )
+            guard !Task.isCancelled else { return }
+
+            if !useLazyMessagesStack && ChatView.shouldUseLazyStack(for: viewModel.messages) {
+                useLazyMessagesStack = true
+                try? await Task.sleep(nanoseconds: 40_000_000)
+                guard !Task.isCancelled else { return }
+            }
+
+            let resolvedId: String? = {
+                if viewModel.messages.contains(where: { $0.id == turn.firstMessageId }) {
+                    return turn.firstMessageId
+                }
+                if let matched = viewModel.turns.first(where: { $0.turnIndex == turn.turnIndex })?.messages.first?.id {
+                    return matched
+                }
+                return viewModel.messages.first?.id
+            }()
+
+            if let targetId = resolvedId {
+                targetScrollTurnId = targetId
+            }
+
+            try? await Task.sleep(nanoseconds: 110_000_000)
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeOut(duration: 0.22)) {
+                jumpTransitionDimmed = false
+                jumpingToTurnIndex = nil
+            }
+        }
+    }
+
     private func jumpToPreviousTurn() {
         let turns = viewModel.turns
         guard !turns.isEmpty else { return }
         let targetIdx = max(1, scrollHUD.currentVisibleTurnIndex - 1)
-        scrollHUD.lockedTurnIndex = targetIdx
-        scrollHUD.currentVisibleTurnIndex = targetIdx
         if let match = turns.first(where: { $0.turnIndex == targetIdx }) {
-            targetScrollTurnId = match.firstMessageId
+            jumpToTurn(match)
         }
     }
     
@@ -898,10 +978,8 @@ extension ChatView {
         let lastIdx = turns.last?.turnIndex ?? 1
         if scrollHUD.currentVisibleTurnIndex < lastIdx {
             let targetIdx = scrollHUD.currentVisibleTurnIndex + 1
-            scrollHUD.lockedTurnIndex = targetIdx
-            scrollHUD.currentVisibleTurnIndex = targetIdx
             if let match = turns.first(where: { $0.turnIndex == targetIdx }) {
-                targetScrollTurnId = match.firstMessageId
+                jumpToTurn(match)
             }
         } else {
             forceJumpToBottom()
@@ -909,6 +987,14 @@ extension ChatView {
     }
     
     private func forceJumpToBottom() {
+        activeTurnJumpTask?.cancel()
+        activeTurnJumpTask = nil
+        if jumpTransitionDimmed || jumpingToTurnIndex != nil {
+            withAnimation(.easeOut(duration: 0.16)) {
+                jumpTransitionDimmed = false
+                jumpingToTurnIndex = nil
+            }
+        }
         scrollHUD.lockedTurnIndex = nil
         targetScrollTurnId = "BOTTOM_ANCHOR"
     }

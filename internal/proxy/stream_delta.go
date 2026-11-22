@@ -20,8 +20,10 @@ import (
 // "init" frames are always complete and reset the client's baseline. All other fields are
 // sent in full on every frame. Not safe for concurrent use; owned by one stream goroutine.
 type streamDeltaState struct {
-	msgSigs  map[string]uint64
-	stepSigs []uint64
+	msgSigs         map[string]uint64
+	stepSigs        []uint64
+	turnOutlineHash uint64
+	hasTurnOutline  bool
 }
 
 const (
@@ -414,6 +416,42 @@ func hashStep(s *TrajectoryStep) uint64 {
 	return uint64(h)
 }
 
+func hashTurnOutline(outline []TurnOutlineItem) uint64 {
+	h := newFNV64()
+	h.num(len(outline))
+	for i := range outline {
+		it := &outline[i]
+		h.num(it.TurnIndex)
+		h.str(it.FirstMessageID)
+		h.num(it.MessageOffset)
+		h.num(it.MessageCount)
+		if it.StartStepIndex != nil {
+			h.u8(1)
+			h.num(*it.StartStepIndex)
+		} else {
+			h.u8(0)
+		}
+		if it.EndStepIndex != nil {
+			h.u8(1)
+			h.num(*it.EndStepIndex)
+		} else {
+			h.u8(0)
+		}
+		h.str(it.PromptSummary)
+		h.num(it.TotalTools)
+		h.num(len(it.Artifacts))
+		for _, a := range it.Artifacts {
+			h.str(a.URI)
+			h.str(a.Title)
+		}
+		h.flag(it.HasError)
+		h.str(it.ModelName)
+		h.str(it.Timestamp)
+		h.flag(it.IsVoiceTurn)
+	}
+	return uint64(h)
+}
+
 // apply records the payload as the client's new baseline and, for non-init payloads,
 // rewrites it into delta form.
 func (d *streamDeltaState) apply(p *StreamUpdatePayload) {
@@ -439,8 +477,13 @@ func (d *streamDeltaState) apply(p *StreamUpdatePayload) {
 		}
 	}
 
+	outlineSig := hashTurnOutline(p.TurnOutline)
+	prevOutlineUnchanged := d.hasTurnOutline && d.turnOutlineHash == outlineSig
+
 	isInit := p.Type == "init"
 	d.msgSigs, d.stepSigs = newMsgSigs, newStepSigs
+	d.turnOutlineHash = outlineSig
+	d.hasTurnOutline = true
 	if isInit {
 		return
 	}
@@ -448,6 +491,9 @@ func (d *streamDeltaState) apply(p *StreamUpdatePayload) {
 	p.Delta = true
 	p.MessageIDs = ids
 	p.Messages = changed
+	if prevOutlineUnchanged {
+		p.TurnOutline = nil
+	}
 	if p.Steps != nil {
 		p.Steps = p.Steps[from:]
 		p.StepsFrom = &from
@@ -475,6 +521,8 @@ func (d *streamDeltaState) clone() streamDeltaState {
 		out.stepSigs = make([]uint64, len(d.stepSigs))
 		copy(out.stepSigs, d.stepSigs)
 	}
+	out.turnOutlineHash = d.turnOutlineHash
+	out.hasTurnOutline = d.hasTurnOutline
 	return out
 }
 

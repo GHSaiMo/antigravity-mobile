@@ -90,10 +90,14 @@ public final class ChatViewModel {
     public var messages: [ChatMessage] = [] {
         didSet { messagesRevision &+= 1 }
     }
+    public var turnOutline: [TurnOutlineItem] = [] {
+        didSet { turnOutlineRevision &+= 1 }
+    }
     
-    /// messages / chapterTitles 每次赋值（含整体替换与原地修改）都会递增的版本号，
+    /// messages / turnOutline / chapterTitles 每次赋值（含整体替换与原地修改）都会递增的版本号，
     /// 用作 turns / chapters 缓存键：O(1) 比较，且不会漏掉列表中间消息或同名章节标题的变化。
     @ObservationIgnored private var messagesRevision: UInt64 = 0
+    @ObservationIgnored private var turnOutlineRevision: UInt64 = 0
     @ObservationIgnored private var chapterTitlesRevision: UInt64 = 0
     @ObservationIgnored private var _cachedTurnsKey: String = ""
     @ObservationIgnored private var _cachedTurns: [ConversationTurn] = []
@@ -101,15 +105,21 @@ public final class ChatViewModel {
     @ObservationIgnored private var _cachedChapters: [ConversationChapter] = []
     @ObservationIgnored private var draftSaveTask: Task<Void, Never>? = nil
     
-    /// 当前会话按问答轮次自动聚合的结构列表（对齐 Antigravity 2.28.1 对话步骤导轨规范）
+    /// 当前会话按问答轮次自动聚合的结构列表（融合服务端全量目录索引与本地已加载消息）
     public var turns: [ConversationTurn] {
-        // 读取 messages 以保留 Observation 依赖追踪，版本号本身不被观察
+        // 读取 messages 与 turnOutline 以保留 Observation 依赖追踪，版本号本身不被观察
         let currentMessages = messages
-        let key = "\(messagesRevision)|\(isRunning)|\(isAwaitingResponse)"
+        let currentOutline = turnOutline
+        let key = "\(messagesRevision)|\(turnOutlineRevision)|\(isRunning)|\(isAwaitingResponse)"
         if key == _cachedTurnsKey {
             return _cachedTurns
         }
-        let built = ConversationTurnBuilder.buildTurns(from: currentMessages, isRunning: isRunning, isAwaitingResponse: isAwaitingResponse)
+        let built = ConversationTurnBuilder.buildTurns(
+            from: currentMessages,
+            outline: currentOutline.isEmpty ? nil : currentOutline,
+            isRunning: isRunning,
+            isAwaitingResponse: isAwaitingResponse
+        )
         _cachedTurnsKey = key
         _cachedTurns = built
         return built
@@ -688,6 +698,9 @@ public final class ChatViewModel {
         }
         let healed = self.sanitizeMessageOrder(cached.messages)
         self.messages = healed
+        if let outline = cached.turnOutline, !outline.isEmpty {
+            self.turnOutline = outline
+        }
         self.duration = cached.duration
         self.stepCount = cached.stepCount
         self.totalTools = cached.totalTools
@@ -734,6 +747,7 @@ public final class ChatViewModel {
                 hasMore: self.hasMore,
                 nextOffset: self.nextOffset,
                 messages: healed,
+                turnOutline: self.turnOutline.isEmpty ? cached.turnOutline : self.turnOutline,
                 title: self.currentTitle,
                 cascadeConfigRaw: cached.cascadeConfigRaw,
                 canProceed: cached.canProceed,
@@ -871,6 +885,9 @@ public final class ChatViewModel {
             }
             let healed = self.sanitizeMessageOrder(cached.messages)
             self.messages = healed
+            if let outline = cached.turnOutline, !outline.isEmpty {
+                self.turnOutline = outline
+            }
             self.duration = cached.duration
             self.stepCount = cached.stepCount
             self.totalTools = cached.totalTools
@@ -978,10 +995,17 @@ public final class ChatViewModel {
                 self.suggestedResponses = suggestions
             }
             
+            if let outline = result.turnOutline {
+                if self.turnOutline != outline {
+                    self.turnOutline = outline
+                }
+            }
+            
             if result.messages.isEmpty {
                 if self.pendingOptimisticMessageId == nil {
                     withAnimation(.easeInOut(duration: 0.2)) {
                         self.messages = []
+                        self.turnOutline = []
                         self.knownServerMessageIds = []
                         self.hasMore = false
                         self.nextOffset = 0
@@ -1101,6 +1125,7 @@ public final class ChatViewModel {
                 hasMore: self.hasMore,
                 nextOffset: self.nextOffset,
                 messages: toCache,
+                turnOutline: self.turnOutline.isEmpty ? nil : self.turnOutline,
                 title: self.currentTitle,
                 cascadeConfigRaw: self.cascadeConfigRaw,
                 canProceed: self.canProceed,
@@ -1223,6 +1248,9 @@ public final class ChatViewModel {
                     self.cacheManager.updateConversationTitle(cascadeId: self.cascadeId, newTitle: title)
                 }
             }
+            if let outline = result.turnOutline, !outline.isEmpty, self.turnOutline != outline {
+                self.turnOutline = outline
+            }
             let existingIds = Set(self.messages.map(\.id))
             let uniqueOlder = result.messages.filter { !existingIds.contains($0.id) }
             let combined = uniqueOlder + self.messages
@@ -1248,6 +1276,7 @@ public final class ChatViewModel {
                 hasMore: self.hasMore,
                 nextOffset: self.nextOffset,
                 messages: self.messages,
+                turnOutline: self.turnOutline.isEmpty ? nil : self.turnOutline,
                 title: self.currentTitle,
                 cascadeConfigRaw: self.cascadeConfigRaw,
                 canProceed: self.canProceed,
@@ -1261,6 +1290,114 @@ public final class ChatViewModel {
         } catch {
             self.isLoadingOlder = false
         }
+    }
+
+    /// 按需一次性补齐历史消息直至覆盖目标锚点（支持新网关 `fromOffset` 单请求直达，并自动向下兼容旧网关分页循环）。
+    @MainActor
+    @discardableResult
+    public func loadMessagesThrough(targetMessageId: String, targetOffset: Int?) async -> Bool {
+        if messages.contains(where: { $0.id == targetMessageId }) {
+            return true
+        }
+        guard hasMore, let url = settings.serverURL else {
+            return messages.contains(where: { $0.id == targetMessageId })
+        }
+        // 等待可能正在进行中的单页加载收尾，避免并发重复拉取
+        for _ in 0..<25 where isLoadingOlder {
+            try? await Task.sleep(nanoseconds: 40_000_000)
+        }
+        if messages.contains(where: { $0.id == targetMessageId }) {
+            return true
+        }
+        guard hasMore, !isLoadingOlder else {
+            return messages.contains(where: { $0.id == targetMessageId })
+        }
+        if messages.contains(where: { extractStepIndex(from: $0) == 0 }) {
+            self.hasMore = false
+            self.nextOffset = 0
+            return messages.contains(where: { $0.id == targetMessageId })
+        }
+
+        // 目标靠近会话起点（≤ 15 条）时直接对齐到 0，避免顶部残留极短的「查看更早的消息」按钮
+        let rawTarget = max(0, targetOffset ?? 0)
+        let desiredStart = rawTarget <= 15 ? 0 : rawTarget
+
+        isLoadingOlder = true
+        defer { isLoadingOlder = false }
+
+        var lastResult: FetchMessagesResult? = nil
+        do {
+            for _ in 0..<12 {
+                guard hasMore else { break }
+                if messages.contains(where: { $0.id == targetMessageId }) { break }
+                let effectiveFrom = (nextOffset <= desiredStart) ? 0 : desiredStart
+
+                let result = try await apiClient.fetchMessages(
+                    cascadeId: cascadeId,
+                    limit: 50,
+                    offset: nextOffset,
+                    fromOffset: effectiveFrom,
+                    baseURL: url
+                )
+                lastResult = result
+
+                if let configRaw = result.cascadeConfigRaw, !configRaw.isEmpty {
+                    self.cascadeConfigRaw = configRaw
+                }
+                if let title = result.title?.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines),
+                   !title.isEmpty, title != "未命名会话" {
+                    if self.currentTitle != title {
+                        self.currentTitle = title
+                        self.cacheManager.updateConversationTitle(cascadeId: self.cascadeId, newTitle: title)
+                    }
+                }
+                if let outline = result.turnOutline, !outline.isEmpty, self.turnOutline != outline {
+                    self.turnOutline = outline
+                }
+
+                let existingIds = Set(self.messages.map(\.id))
+                let uniqueOlder = result.messages.filter { !existingIds.contains($0.id) }
+                if !uniqueOlder.isEmpty {
+                    self.messages = sanitizeMessageOrder(uniqueOlder + self.messages)
+                }
+
+                let hasEarliest = self.messages.contains(where: { self.extractStepIndex(from: $0) == 0 })
+                if !result.hasMore || uniqueOlder.isEmpty || result.nextOffset <= 0 || hasEarliest {
+                    self.hasMore = false
+                    self.nextOffset = 0
+                    break
+                } else {
+                    self.hasMore = result.hasMore
+                    self.nextOffset = result.nextOffset
+                }
+            }
+
+            if let res = lastResult {
+                let toCache = self.messages.filter { $0.id != self.pendingOptimisticMessageId && !$0.id.hasPrefix("optimistic-") }
+                cacheManager.saveSession(CachedChatSession(
+                    cascadeId: cascadeId,
+                    status: res.status,
+                    duration: res.duration,
+                    stepCount: res.totalSteps,
+                    totalTools: res.totalTools,
+                    hasMore: self.hasMore,
+                    nextOffset: self.nextOffset,
+                    messages: toCache,
+                    turnOutline: self.turnOutline.isEmpty ? nil : self.turnOutline,
+                    title: self.currentTitle,
+                    cascadeConfigRaw: self.cascadeConfigRaw,
+                    canProceed: self.canProceed,
+                    proceedArtifactUri: self.proceedArtifactUri,
+                    pendingInteraction: self.pendingInteraction,
+                    queuedMessages: self.queuedMessages,
+                    runningTasks: self.runningTasks
+                ))
+            }
+        } catch {
+            // 保留已成功补齐的部分历史，静默退出加载态
+        }
+
+        return messages.contains(where: { $0.id == targetMessageId }) || !hasMore
     }
     
 }
