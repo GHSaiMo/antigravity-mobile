@@ -252,17 +252,28 @@ export function parseRelayPool(env) {
     if (!raw || typeof raw !== "object") return;
     if (raw.enabled === false) return;
     const endpoint = String(raw.endpoint || "").trim();
-    const baseDomain = String(raw.base_domain || raw.baseDomain || "").trim().toLowerCase().replace(/^\.+|\.+$/g, "");
+    let baseDomain = String(raw.base_domain || raw.baseDomain || "").trim().toLowerCase().replace(/^\.+|\.+$/g, "");
+    let prefix = raw.subdomain_prefix !== undefined
+      ? String(raw.subdomain_prefix || "").trim().toLowerCase()
+      : (raw.subdomainPrefix !== undefined ? String(raw.subdomainPrefix || "").trim().toLowerCase() : defaultPrefix);
+
+    // Also accept compact `host_template` (e.g. "r-{sid}.jiuge.space" or "r-{sid}.jp1.jiuge.space")
+    const hostTemplate = String(raw.host_template || raw.hostTemplate || "").trim().toLowerCase();
+    if (!baseDomain && hostTemplate.includes("{sid}.")) {
+      const idx = hostTemplate.indexOf("{sid}.");
+      prefix = hostTemplate.slice(0, idx);
+      baseDomain = hostTemplate.slice(idx + "{sid}.".length).replace(/^\.+|\.+$/g, "");
+    }
     if (!endpoint || !baseDomain) return;
+
     const region = String(raw.region || "auto").trim().toLowerCase() || "auto";
     const id = String(raw.id || `${region}-${nodes.length + 1}`).trim().toLowerCase();
     if (seenIds.has(id)) return;
     seenIds.add(id);
     const priority = Number.isFinite(Number(raw.priority)) ? Number(raw.priority) : (nodes.length + 1) * 10;
-    const prefix = raw.subdomain_prefix !== undefined
-      ? String(raw.subdomain_prefix || "").trim().toLowerCase()
-      : (raw.subdomainPrefix !== undefined ? String(raw.subdomainPrefix || "").trim().toLowerCase() : defaultPrefix);
     const healthUrl = String(raw.health_url || raw.healthUrl || "").trim() || deriveHealthUrl(endpoint);
+    const secretEnv = String(raw.secret_env || raw.secretEnv || "").trim();
+    const signingSecret = (secretEnv && String(env[secretEnv] || "").trim()) || String(env.RELAY_SIGNING_SECRET || "").trim();
     nodes.push({
       id,
       region,
@@ -271,6 +282,7 @@ export function parseRelayPool(env) {
       healthUrl,
       baseDomain,
       subdomainPrefix: prefix,
+      signingSecret,
     });
   };
 
@@ -673,7 +685,11 @@ export function orderRelayNodesForRegion(pool, region) {
 }
 
 function canDispatchRelay(cfg) {
-  return Boolean(cfg && cfg.relaySigningSecret && Array.isArray(cfg.relayPool) && cfg.relayPool.length > 0);
+  return Boolean(
+    cfg &&
+    Array.isArray(cfg.relayPool) &&
+    cfg.relayPool.some((n) => Boolean(n.signingSecret || cfg.relaySigningSecret))
+  );
 }
 
 async function buildRelayV1Response(cfg, shortId, ownerHash, region) {
@@ -685,8 +701,10 @@ async function buildRelayV1Response(cfg, shortId, ownerHash, region) {
   const relayNodes = [];
 
   for (const node of ordered) {
+    const secret = node.signingSecret || cfg.relaySigningSecret;
+    if (!secret) continue;
     const subdomain = `${node.subdomainPrefix}${shortId}.${node.baseDomain}`;
-    const token = await signRelayV1Token(cfg.relaySigningSecret, {
+    const token = await signRelayV1Token(secret, {
       v: 1,
       sid: shortId,
       oh: ownerHash.slice(0, 32),
@@ -704,6 +722,9 @@ async function buildRelayV1Response(cfg, shortId, ownerHash, region) {
       url: `https://${subdomain}`,
       token,
     });
+  }
+  if (relayNodes.length === 0) {
+    return null;
   }
 
   const primary = relayNodes[0];
