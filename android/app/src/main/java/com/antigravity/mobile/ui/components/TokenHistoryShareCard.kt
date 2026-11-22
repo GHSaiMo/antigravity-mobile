@@ -427,15 +427,18 @@ private fun InspectorCardSection(
         }
 
         if (record.models.isNotEmpty()) {
-            val topModels = remember(record.models) {
-                record.models.entries.sortedByDescending { it.value }.take(4)
+            val allDayModels = remember(record.models) {
+                record.models.entries.sortedWith(
+                    compareByDescending<Map.Entry<String, Long>> { it.value }.thenBy { it.key }
+                )
             }
             HorizontalDivider(thickness = 0.8.dp, color = colors.border)
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                topModels.forEach { (model, tokens) ->
+                allDayModels.forEach { (model, tokens) ->
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
                             text = model,

@@ -1285,11 +1285,7 @@ extension AccountQuotaSheet {
             exportDate: Date()
         )
 
-        let renderer = ImageRenderer(content: card)
-        renderer.isOpaque = true
-        renderer.scale = max(displayScale, 2.0)
-
-        guard let image = renderer.uiImage else {
+        guard let image = card.renderImage(displayScale: displayScale) else {
             alertTitle = failureTitle
             errorMessage = String(localized: "长图生成失败，请稍后重试")
             return nil

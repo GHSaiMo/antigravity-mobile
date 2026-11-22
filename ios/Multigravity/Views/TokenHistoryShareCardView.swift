@@ -257,7 +257,10 @@ public struct TokenHistoryShareCardView: View {
 
     // MARK: - Inspector Card
     private func inspectorCard(record: DailyTokenRecord) -> some View {
-        let topModels = record.models.sorted { $0.value > $1.value }.prefix(4)
+        let allDayModels = record.models.sorted { lhs, rhs in
+            if lhs.value != rhs.value { return lhs.value > rhs.value }
+            return lhs.key < rhs.key
+        }
         return VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text("\(record.date) 用量明细")
@@ -278,19 +281,20 @@ public struct TokenHistoryShareCardView: View {
                 Spacer()
                 inspectorCell("Thinking", AccountQuotaSheet.formatTokensCompact(record.thinking))
             }
-            if !topModels.isEmpty {
+            if !allDayModels.isEmpty {
                 Divider().overlay(cardBorderColor)
                 VStack(spacing: 4) {
-                    ForEach(Array(topModels), id: \.key) { pair in
+                    ForEach(allDayModels, id: \.key) { pair in
                         HStack {
                             Text(pair.key)
                                 .font(.system(size: 11))
                                 .foregroundColor(secondaryTextColor)
                                 .lineLimit(1)
-                            Spacer()
+                            Spacer(minLength: 8)
                             Text(AccountQuotaSheet.formatTokensCompact(pair.value))
                                 .font(.system(size: 11, design: .monospaced))
                                 .foregroundColor(primaryTextColor)
+                                .lineLimit(1)
                         }
                     }
                 }
@@ -325,6 +329,23 @@ public struct TokenHistoryShareCardView: View {
         }
         .padding(.horizontal, 4)
         .padding(.top, 2)
+    }
+
+    /// 离屏渲染长图（含 8192px 像素高度上限保护，避免模型明细过多时内存峰值过高）
+    @MainActor
+    public func renderImage(displayScale: CGFloat) -> UIImage? {
+        let renderer = ImageRenderer(content: self)
+        renderer.isOpaque = true
+        var scale = max(displayScale, 2.0)
+        renderer.scale = scale
+        var image = renderer.uiImage
+        let maxPixelHeight: CGFloat = 8192
+        if let current = image, current.size.height * scale > maxPixelHeight {
+            scale = max(1.0, maxPixelHeight / current.size.height)
+            renderer.scale = scale
+            image = renderer.uiImage
+        }
+        return image
     }
 
     // MARK: - Helpers
@@ -486,11 +507,7 @@ public struct TokenHistoryShareCardSheet: View {
             skin: selectedSkin,
             exportDate: Date()
         )
-        let renderer = ImageRenderer(content: card)
-        renderer.isOpaque = true
-        renderer.scale = max(displayScale, 2.0)
-
-        if let uiImage = renderer.uiImage {
+        if let uiImage = card.renderImage(displayScale: displayScale) {
             renderedImage = uiImage
         } else {
             renderFailed = true
