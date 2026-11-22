@@ -14,7 +14,8 @@ data class PairingInfo(
     val ddnsHost: String? = null,
     val relayHost: String? = null,
     val os: String? = null,
-    val platform: String? = null
+    val platform: String? = null,
+    val e2eePubKey: String? = null
 ) {
     val serverBaseUrl: String
         get() = formatUrl(host, port, ssl)
@@ -84,6 +85,7 @@ data class PairingInfo(
             val relay = params["relay"]
             val os = params["os"]
             val platform = params["platform"]
+            val e2eePubKey = params["pk"]?.trim()?.takeIf { it.isNotEmpty() }
 
             var host = rawHost.trim()
             if (!host.contains(".") && !host.contains(":") && !host.equals("localhost", ignoreCase = true)) {
@@ -107,7 +109,8 @@ data class PairingInfo(
                 ddnsHost = ddns,
                 relayHost = cleanRelay,
                 os = os,
-                platform = platform
+                platform = platform,
+                e2eePubKey = e2eePubKey
             )
         }
     }
@@ -125,7 +128,8 @@ data class PairingInfo(
 data class PairRequest(
     @SerialName("pairing_code") val pairingCode: String,
     @SerialName("device_name") val deviceName: String,
-    @SerialName("platform") val platform: String = "android"
+    @SerialName("platform") val platform: String = "android",
+    @SerialName("e2ee_pub") val e2eePub: String? = null
 )
 
 @Serializable
@@ -140,7 +144,10 @@ data class PairResponse(
     @SerialName("device_token") val deviceToken: String,
     val endpoints: List<EndpointInfo>? = null,
     val os: String? = null,
-    val platform: String? = null
+    val platform: String? = null,
+    @SerialName("e2ee_gateway_pub") val e2eeGatewayPub: String? = null,
+    @SerialName("e2ee_salt") val e2eeSalt: String? = null,
+    @SerialName("relay_cloud_url") val relayCloudUrl: String? = null
 )
 
 @Serializable

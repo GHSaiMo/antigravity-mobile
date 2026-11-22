@@ -74,7 +74,10 @@ object CloudflareOptimizedDns : Dns {
 
     override fun lookup(hostname: String): List<InetAddress> {
         val lowerHost = hostname.lowercase()
-        val isCloudflareTunnel = lowerHost.endsWith(".jiuge.space") || lowerHost == "jiuge.space"
+        // Only 1st-level *.jiuge.space (3 labels) and jiuge.space are Cloudflare Orange-Cloud proxied;
+        // 2nd-level regional VPS subdomains (e.g. r-xxxx.jp1.jiuge.space, >=4 labels) use direct DNS.
+        val isCloudflareTunnel = lowerHost == "jiuge.space" ||
+            (lowerHost.endsWith(".jiuge.space") && lowerHost.split('.').size == 3)
 
         if (!isCloudflareTunnel) {
             return Dns.SYSTEM.lookup(hostname)

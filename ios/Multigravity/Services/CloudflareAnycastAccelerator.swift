@@ -61,7 +61,16 @@ public final class CloudflareAnycastAccelerator: @unchecked Sendable {
     
     public static func isCloudflareTunnelHost(_ host: String) -> Bool {
         let clean = host.trimmingCharacters(in: CharacterSet(charactersIn: "[]")).lowercased()
-        return clean.hasSuffix(".jiuge.space") || clean == "jiuge.space" || clean.hasSuffix(".trycloudflare.com")
+        if clean == "jiuge.space" || clean.hasSuffix(".trycloudflare.com") {
+            return true
+        }
+        // Only 1st-level *.jiuge.space subdomains (3 DNS labels) are Cloudflare Orange-Cloud proxied;
+        // 2nd-level regional VPS subdomains (e.g. r-xxxx.jp1.jiuge.space, >=4 labels) use direct DNS.
+        if clean.hasSuffix(".jiuge.space") {
+            let labels = clean.split(separator: ".")
+            return labels.count == 3
+        }
+        return false
     }
     
     public func triggerProbeIfNeeded(force: Bool = false) {

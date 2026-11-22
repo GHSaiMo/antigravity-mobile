@@ -1,4 +1,5 @@
 import AppIntents
+import CryptoKit
 import Foundation
 import os
 import WidgetKit
@@ -624,6 +625,8 @@ nonisolated public struct AgentConversationsWidgetSnapshot: Codable, Hashable, S
 nonisolated public struct QuotaWidgetEndpointConfig: Codable, Sendable {
     public let candidateBaseURLs: [String]
     public let deviceToken: String?
+    public let deviceID: String?
+    public let e2eeKeyB64: String?
     public let preferClaude: Bool
     public let selectedBucketRaw: String?
     public let paceCursorEnabled: Bool
@@ -635,6 +638,8 @@ nonisolated public struct QuotaWidgetEndpointConfig: Codable, Sendable {
     public init(
         candidateBaseURLs: [String],
         deviceToken: String?,
+        deviceID: String? = nil,
+        e2eeKeyB64: String? = nil,
         preferClaude: Bool,
         selectedBucketRaw: String? = nil,
         paceCursorEnabled: Bool = true,
@@ -645,6 +650,8 @@ nonisolated public struct QuotaWidgetEndpointConfig: Codable, Sendable {
     ) {
         self.candidateBaseURLs = candidateBaseURLs
         self.deviceToken = deviceToken
+        self.deviceID = deviceID
+        self.e2eeKeyB64 = e2eeKeyB64
         self.preferClaude = preferClaude
         self.selectedBucketRaw = selectedBucketRaw
         self.paceCursorEnabled = paceCursorEnabled
@@ -655,7 +662,7 @@ nonisolated public struct QuotaWidgetEndpointConfig: Codable, Sendable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case candidateBaseURLs, deviceToken, preferClaude
+        case candidateBaseURLs, deviceToken, deviceID, e2eeKeyB64, preferClaude
         case selectedBucketRaw, paceCursorEnabled, isEmailMasked
         case isDemoMode, isPaired, updatedAt
     }
@@ -664,6 +671,8 @@ nonisolated public struct QuotaWidgetEndpointConfig: Codable, Sendable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         candidateBaseURLs = try c.decode([String].self, forKey: .candidateBaseURLs)
         deviceToken = try c.decodeIfPresent(String.self, forKey: .deviceToken)
+        deviceID = try c.decodeIfPresent(String.self, forKey: .deviceID)
+        e2eeKeyB64 = try c.decodeIfPresent(String.self, forKey: .e2eeKeyB64)
         preferClaude = try c.decodeIfPresent(Bool.self, forKey: .preferClaude) ?? false
         selectedBucketRaw = try c.decodeIfPresent(String.self, forKey: .selectedBucketRaw)
         paceCursorEnabled = try c.decodeIfPresent(Bool.self, forKey: .paceCursorEnabled) ?? true
@@ -956,6 +965,117 @@ nonisolated public final class QuotaWidgetStore: Sendable {
     /// Max raw response size (2.5 MB) decoded inside `ActivityExtension` to stay safely below iOS's ~30 MB Jetsam ceiling.
     private static let maxExtensionPayloadBytes = 2_500_000
 
+    private static func decodeBase64Flexible(_ raw: String) -> Data? {
+        var s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "-", with: "+")
+            .replacingOccurrences(of: "_", with: "/")
+        guard !s.isEmpty else { return nil }
+        let rem = s.count % 4
+        if rem > 0 { s += String(repeating: "=", count: 4 - rem) }
+        return Data(base64Encoded: s)
+    }
+
+    /// Executes a widget HTTP request, automatically encrypting via `POST /api/v1/e2ee/rpc` when
+    /// talking to a `r-*` relay host (or retrying encrypted if the gateway replies HTTP 426).
+    private static func sendWidgetRequest(
+        session: URLSession,
+        baseURL: URL,
+        method: String,
+        path: String,
+        headers: [String: String],
+        body: Data?,
+        config: QuotaWidgetEndpointConfig
+    ) async -> Data? {
+        let host = (baseURL.host ?? "").lowercased()
+        let hasE2EE: (deviceID: String, key: Data)? = {
+            guard let devID = config.deviceID?.trimmingCharacters(in: .whitespacesAndNewlines), !devID.isEmpty,
+                  let keyB64 = config.e2eeKeyB64,
+                  let rawKey = decodeBase64Flexible(keyB64), rawKey.count == 32 else {
+                return nil
+            }
+            return (devID, rawKey)
+        }()
+
+        func sendEncrypted(deviceID: String, key: Data) async -> Data? {
+            struct InnerReq: Encodable {
+                let m: String
+                let p: String
+                let h: [String: String]?
+                let b: String?
+            }
+            struct InnerResp: Decodable {
+                let s: Int
+                let b: String?
+            }
+            let normalizedPath = path.hasPrefix("/") ? path : "/\(path)"
+            let inner = InnerReq(
+                m: method,
+                p: normalizedPath,
+                h: headers.isEmpty ? nil : headers,
+                b: body.flatMap { $0.isEmpty ? nil : $0.base64EncodedString() }
+            )
+            guard let plain = try? JSONEncoder().encode(inner),
+                  let sealed = try? AES.GCM.seal(
+                      plain,
+                      using: SymmetricKey(data: key),
+                      authenticating: Data("mgy-e2ee-v1:\(deviceID):c2s".utf8)
+                  ),
+                  let combined = sealed.combined else {
+                return nil
+            }
+            let rpcURL = baseURL.appendingPathComponent("api/v1/e2ee/rpc")
+            var req = URLRequest(url: rpcURL)
+            req.httpMethod = "POST"
+            req.timeoutInterval = 2.8
+            req.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
+            req.setValue(deviceID, forHTTPHeaderField: "X-Mgy-E2EE-Device")
+            req.httpBody = combined
+
+            guard let (encResp, resp) = try? await session.data(for: req),
+                  let http = resp as? HTTPURLResponse,
+                  http.statusCode == 200,
+                  encResp.count >= 28,
+                  let box = try? AES.GCM.SealedBox(combined: encResp),
+                  let respPlain = try? AES.GCM.open(
+                      box,
+                      using: SymmetricKey(data: key),
+                      authenticating: Data("mgy-e2ee-v1:\(deviceID):s2c".utf8)
+                  ),
+                  let decoded = try? JSONDecoder().decode(InnerResp.self, from: respPlain),
+                  (200...299).contains(decoded.s) else {
+                return nil
+            }
+            let data = decoded.b.flatMap { Data(base64Encoded: $0) } ?? Data()
+            return data.count <= maxExtensionPayloadBytes ? data : nil
+        }
+
+        if baseURL.scheme?.lowercased() == "https", host.hasPrefix("r-"), let creds = hasE2EE {
+            return await sendEncrypted(deviceID: creds.deviceID, key: creds.key)
+        }
+
+        let trimmedPath = path.hasPrefix("/") ? String(path.dropFirst()) : path
+        let endpoint = baseURL.appendingPathComponent(trimmedPath)
+        var req = URLRequest(url: endpoint)
+        req.httpMethod = method
+        req.timeoutInterval = 2.8
+        for (k, v) in headers {
+            req.setValue(v, forHTTPHeaderField: k)
+        }
+        req.httpBody = body
+
+        guard let (data, response) = try? await session.data(for: req),
+              let http = response as? HTTPURLResponse else {
+            return nil
+        }
+        if http.statusCode == 426, let creds = hasE2EE {
+            return await sendEncrypted(deviceID: creds.deviceID, key: creds.key)
+        }
+        guard (200...299).contains(http.statusCode), data.count <= maxExtensionPayloadBytes else {
+            return nil
+        }
+        return data
+    }
+
     /// Lightweight background quota fetch used by WidgetKit timelines inside `ActivityExtension`.
     /// Races all candidate URLs concurrently with a short 3.2s ceiling so unreachable LAN/tunnel URLs never stall WidgetKit.
     public func fetchLatestQuotaFromGateway() async -> QuotaWidgetSnapshot? {
@@ -983,25 +1103,25 @@ nonisolated public final class QuotaWidgetStore: Sendable {
         let winner: QuotaWidgetSnapshot? = await withTaskGroup(of: QuotaWidgetSnapshot?.self) { group in
             for baseURL in validURLs {
                 group.addTask {
-                    let endpoint = baseURL.appendingPathComponent("api/v1/cockpit/quotas")
-                    var req = URLRequest(url: endpoint)
-                    req.httpMethod = "GET"
-                    req.timeoutInterval = 2.8
+                    var headers: [String: String] = [:]
                     if let token, !token.isEmpty {
-                        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+                        headers["Authorization"] = "Bearer \(token)"
                     }
-                    do {
-                        let (data, response) = try await session.data(for: req)
-                        guard let http = response as? HTTPURLResponse,
-                              (200...299).contains(http.statusCode),
-                              data.count <= Self.maxExtensionPayloadBytes else {
-                            return nil
-                        }
-                        let wire = try JSONDecoder().decode(QuotaWireResponse.self, from: data)
-                        return Self.buildSnapshot(from: wire, config: config, isDemo: false)
-                    } catch {
+                    guard let data = await Self.sendWidgetRequest(
+                        session: session,
+                        baseURL: baseURL,
+                        method: "GET",
+                        path: "/api/v1/cockpit/quotas",
+                        headers: headers,
+                        body: nil,
+                        config: config
+                    ) else {
                         return nil
                     }
+                    guard let wire = try? JSONDecoder().decode(QuotaWireResponse.self, from: data) else {
+                        return nil
+                    }
+                    return Self.buildSnapshot(from: wire, config: config, isDemo: false)
                 }
             }
 
@@ -1047,30 +1167,29 @@ nonisolated public final class QuotaWidgetStore: Sendable {
         let winner: AgentConversationsWidgetSnapshot? = await withTaskGroup(of: AgentConversationsWidgetSnapshot?.self) { group in
             for baseURL in validURLs {
                 group.addTask {
-                    let endpoint = baseURL.appendingPathComponent("api/exa.language_server_pb.LanguageServerService/GetAllCascadeTrajectories")
-                    var req = URLRequest(url: endpoint)
-                    req.httpMethod = "POST"
-                    req.timeoutInterval = 2.8
-                    req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                    req.setValue("1", forHTTPHeaderField: "Connect-Protocol-Version")
-                    req.setValue("1", forHTTPHeaderField: "X-Widget-Lite")
+                    var headers: [String: String] = [
+                        "Content-Type": "application/json",
+                        "Connect-Protocol-Version": "1",
+                        "X-Widget-Lite": "1"
+                    ]
                     if let token, !token.isEmpty {
-                        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+                        headers["Authorization"] = "Bearer \(token)"
                     }
-                    req.httpBody = Data("{}".utf8)
-
-                    do {
-                        let (data, response) = try await session.data(for: req)
-                        guard let http = response as? HTTPURLResponse,
-                              (200...299).contains(http.statusCode),
-                              data.count <= Self.maxExtensionPayloadBytes else {
-                            return nil
-                        }
-                        let wire = try JSONDecoder().decode(TrajectoriesWireResponse.self, from: data)
-                        return Self.buildConversationsSnapshot(from: wire, isDemo: false)
-                    } catch {
+                    guard let data = await Self.sendWidgetRequest(
+                        session: session,
+                        baseURL: baseURL,
+                        method: "POST",
+                        path: "/api/exa.language_server_pb.LanguageServerService/GetAllCascadeTrajectories",
+                        headers: headers,
+                        body: Data("{}".utf8),
+                        config: config
+                    ) else {
                         return nil
                     }
+                    guard let wire = try? JSONDecoder().decode(TrajectoriesWireResponse.self, from: data) else {
+                        return nil
+                    }
+                    return Self.buildConversationsSnapshot(from: wire, isDemo: false)
                 }
             }
 

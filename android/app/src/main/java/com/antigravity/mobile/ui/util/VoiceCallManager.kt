@@ -14,7 +14,9 @@ import android.media.audiofx.NoiseSuppressor
 import android.net.Uri
 import android.util.Log
 import com.antigravity.mobile.data.service.CloudflareOptimizedDns
+import com.antigravity.mobile.data.service.E2eeWebSocketHelper
 import com.antigravity.mobile.data.service.LanCleartextSecurityInterceptor
+import com.antigravity.mobile.data.service.PreferencesManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -56,6 +58,7 @@ enum class VoiceTranscriptRole {
 }
 
 class VoiceCallManager(private val context: Context) {
+    private val prefs by lazy { PreferencesManager(context) }
 
     companion object {
         /** 语音连接失败后，用户点「一键排查」时发送给智能体的预设提示词（三端保持一致）。 */
@@ -497,7 +500,7 @@ class VoiceCallManager(private val context: Context) {
             reqBuilder.header("x-device-token", token)
         }
 
-        webSocket = client.newWebSocket(reqBuilder.build(), object : WebSocketListener() {
+        webSocket = E2eeWebSocketHelper.openWebSocket(client, reqBuilder.build(), prefs, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 isSocketReady = true
                 if (_callState.value == VoiceCallState.CONNECTING) {

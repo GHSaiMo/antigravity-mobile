@@ -227,7 +227,7 @@ fun ApiClient.openTerminalWebSocket(terminalId: String, listener: WebSocketListe
     val base = currentBaseUrl ?: return null
     val wsBase = base.replaceFirst("https://", "wss://").replaceFirst("http://", "ws://").trimEnd('/')
     val req = buildAuthorizedRequest("$wsBase/gateway/terminal/stream?terminalId=${URLEncoder.encode(terminalId, "UTF-8")}").build()
-    return okHttpClient.newWebSocket(req, listener)
+    return openWebSocket(req, listener)
 }
 
 suspend fun ApiClient.sendStepsToBackground(cascadeId: String, stepIndices: List<Int>): Result<Boolean> {

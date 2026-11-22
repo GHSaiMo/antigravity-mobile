@@ -759,6 +759,8 @@ public final class AppSettings {
         let config = QuotaWidgetEndpointConfig(
             candidateBaseURLs: urls,
             deviceToken: isDemoMode ? nil : deviceToken,
+            deviceID: isDemoMode ? nil : E2EECrypto.shared.currentDeviceID,
+            e2eeKeyB64: isDemoMode ? nil : E2EECrypto.shared.currentDeviceKeyB64,
             preferClaude: preferClaude,
             selectedBucketRaw: selectedQuotaBucket.rawValue,
             paceCursorEnabled: weeklyPaceCursorEnabled,

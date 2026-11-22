@@ -91,7 +91,7 @@ const (
 // IsWhitelistedPath checks if a request path should bypass authentication.
 func IsWhitelistedPath(path string) bool {
 	// Root and standard static web files
-	if path == "/" || path == "/index.html" || path == "/desktop" || path == "/pwa" || path == "/onboarding" || path == "/manifest.json" || path == "/manifest-en.json" ||
+	if path == "/" || path == "/index.html" || path == "/desktop" || path == "/pwa" || path == "/onboarding" || path == "/manifest.json" || path == "/manifest-en.json" || path == "/manifest-ja.json" ||
 		path == "/sw.js" || path == "/style.css" || strings.HasPrefix(path, "/js/") ||
 		path == "/mermaid.min.js" || path == "/favicon.ico" ||
 		strings.HasPrefix(path, "/c/") || path == "/history" {
@@ -100,6 +100,11 @@ func IsWhitelistedPath(path string) bool {
 
 	// Web directory and static assets
 	if strings.HasPrefix(path, "/web/") || strings.HasPrefix(path, "/icons/") {
+		return true
+	}
+
+	// E2EE transport endpoints (authenticated cryptographically via AES-256-GCM + inner AuthMiddleware)
+	if path == "/api/v1/e2ee/rpc" || path == "/api/v1/e2ee/pair" || path == "/api/v1/e2ee/ws" {
 		return true
 	}
 

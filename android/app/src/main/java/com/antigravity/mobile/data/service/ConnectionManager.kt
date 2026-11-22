@@ -314,6 +314,74 @@ class ConnectionManager(private val context: Context) {
                 prefs.gatewayPlatform = plat
             }
 
+            // Silent legacy-to-E2EE key negotiation for pre-1.2.5 paired devices (zero user interaction)
+            if (!prefs.deviceToken.isNullOrBlank() && !E2eeCrypto.isReady(prefs) && reachable.isNotEmpty()) {
+                val reachableBase = reachable.first().urlString
+                E2eeCrypto.silentUpgradeIfNeeded(reachableBase, prefs, httpClient)
+            }
+
+            // Stateless multi-VPS pool auto-discovery when all known endpoints are unreachable
+            if (reachable.isEmpty() && E2eeCrypto.isReady(prefs) && !prefs.primaryCloudUrl.isNullOrBlank()) {
+                val migratedUrl = RelayPoolResolver.resolveReachableCloudUrl(
+                    currentCloudUrl = prefs.primaryCloudUrl,
+                    prefs = prefs,
+                    connectionManager = this@ConnectionManager,
+                    httpClient = httpClient
+                )
+                if (!migratedUrl.isNullOrBlank()) {
+                    val oldBase = prefs.gatewayBaseUrl
+                    prefs.primaryCloudUrl = migratedUrl
+                    prefs.gatewayBaseUrl = migratedUrl
+                    if (!oldBase.equals(migratedUrl, ignoreCase = true)) {
+                        routeChangeListeners.forEach { it.invoke(migratedUrl) }
+                    }
+                    return@withContext migratedUrl
+                }
+            }
+
+            // Self-heal: if primaryCloudUrl is missing, discover it from /api/v1/auth/endpoints on reachable gateway
+            if (prefs.primaryCloudUrl.isNullOrBlank() && reachable.isNotEmpty()) {
+                val token = prefs.deviceToken?.trim()?.takeIf { it.isNotBlank() }
+                for (ep in reachable) {
+                    val cleanBase = ep.urlString.trim().trimEnd('/')
+                    val probeUrl = "$cleanBase/api/v1/auth/endpoints"
+                    try {
+                        val reqBuilder = Request.Builder().url(probeUrl).get()
+                        if (token != null) {
+                            reqBuilder.header("Authorization", "Bearer $token")
+                        }
+                        httpClient.newCall(reqBuilder.build()).execute().use { resp ->
+                            if (resp.isSuccessful) {
+                                applyAdvertisedCloudUrl(resp.header("X-Antigravity-Cloud-URL"), prefs)
+                                if (prefs.primaryCloudUrl.isNullOrBlank()) {
+                                    val bodyStr = resp.body?.string().orEmpty()
+                                    val json = JSONObject(bodyStr)
+                                    val eps = json.optJSONArray("endpoints")
+                                    if (eps != null) {
+                                        for (i in 0 until eps.length()) {
+                                            val item = eps.optJSONObject(i) ?: continue
+                                            val type = item.optString("type").trim().lowercase()
+                                            val epUrl = item.optString("url").trim().trimEnd('/')
+                                            if ((type == "cloudflare" || type == "relay") &&
+                                                isValidAdvertisedCloudUrl(epUrl, prefs)
+                                            ) {
+                                                prefs.primaryCloudUrl = epUrl
+                                                break
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } catch (_: Exception) {}
+                    if (!prefs.primaryCloudUrl.isNullOrBlank()) {
+                        break
+                    }
+                }
+            }
+
+            val effectiveCloud = prefs.primaryCloudUrl?.trim()?.trimEnd('/')?.takeIf { it.isNotBlank() } ?: cloud
+
             // 智能路由选举：
             // 顺序：局域网 -> 自定义 -> 主域名兜底
             var selected: String? = null
@@ -333,8 +401,8 @@ class ConnectionManager(private val context: Context) {
             }
 
             // 3. 主域名（最终兜底）
-            if (selected == null && cloud != null) {
-                selected = reachable.firstOrNull { it.urlString.trimEnd('/') == cloud }?.urlString ?: cloud
+            if (selected == null && effectiveCloud != null) {
+                selected = reachable.firstOrNull { it.urlString.trimEnd('/') == effectiveCloud }?.urlString ?: effectiveCloud
             }
 
             if (selected != null) {
@@ -508,6 +576,81 @@ class ConnectionManager(private val context: Context) {
         fun isSameEndpoint(url1: String?, url2: String?): Boolean {
             if (url1.isNullOrBlank() || url2.isNullOrBlank()) return false
             return url1.trim().trimEnd('/') == url2.trim().trimEnd('/')
+        }
+
+        /**
+         * Validates an advertised public cloud/relay URL (from X-Antigravity-Cloud-URL or /api/v1/auth/endpoints),
+         * mirroring iOS NetworkTransport.isValidAdvertisedCloudURL to prevent untrusted origin hijacking.
+         */
+        fun isValidAdvertisedCloudUrl(
+            raw: String,
+            prefs: PreferencesManager?,
+            trustedByE2ee: Boolean = false
+        ): Boolean {
+            val trimmed = raw.trim().trimEnd('/')
+            if (trimmed.isEmpty()) return false
+            val uri = try {
+                URI(trimmed)
+            } catch (_: Exception) {
+                return false
+            }
+            if (!"https".equals(uri.scheme, ignoreCase = true)) return false
+            if (uri.userInfo != null) return false
+            val host = uri.host?.trim('[', ']')?.lowercase().orEmpty()
+            if (host.isEmpty() || isLanHost(host) || isTailscaleHost(host)) return false
+
+            if (trustedByE2ee || RelayPoolResolver.isPoolDomainHost(host)) {
+                return true
+            }
+            if (host.endsWith(".trycloudflare.com") || host.endsWith(".jiuge.space")) {
+                return true
+            }
+
+            val configuredHosts = buildSet {
+                if (prefs != null) {
+                    listOfNotNull(
+                        prefs.gatewayBaseUrl,
+                        prefs.primaryCloudUrl,
+                        prefs.lanServerUrl,
+                        prefs.customServerUrl,
+                        prefs.relayServerUrl
+                    ).forEach { rawEp ->
+                        val h = extractHost(rawEp)
+                        if (h.isNotEmpty()) add(h)
+                    }
+                }
+            }
+            if (configuredHosts.contains(host)) {
+                return true
+            }
+            val parts = host.split(".")
+            if (parts.size >= 3) {
+                val parentSuffix = "." + parts.drop(1).joinToString(".")
+                if (configuredHosts.any { it.endsWith(parentSuffix) }) {
+                    return true
+                }
+            }
+            return false
+        }
+
+        /**
+         * Silently hot-updates primaryCloudUrl when a trusted paired gateway advertises a migrated cloud/relay URL.
+         */
+        fun applyAdvertisedCloudUrl(
+            rawHeader: String?,
+            prefs: PreferencesManager,
+            trustedByE2ee: Boolean = false
+        ) {
+            val clean = rawHeader?.trim()?.trimEnd('/')?.takeIf { it.isNotBlank() } ?: return
+            if (!isValidAdvertisedCloudUrl(clean, prefs, trustedByE2ee = trustedByE2ee)) return
+            val host = extractHost(clean)
+            if (host.startsWith("r-")) {
+                E2eeCrypto.markHostRequiresE2ee(host)
+            }
+            val current = prefs.primaryCloudUrl?.trim()?.trimEnd('/')
+            if (current != clean) {
+                prefs.primaryCloudUrl = clean
+            }
         }
     }
 }

@@ -114,10 +114,14 @@ class ApiClient(
     val okHttpClient: OkHttpClient
         get() = client
 
+    fun openWebSocket(request: Request, listener: okhttp3.WebSocketListener): okhttp3.WebSocket =
+        E2eeWebSocketHelper.openWebSocket(client, request, prefs, listener)
+
     private val client = OkHttpClient.Builder()
         .dns(CloudflareOptimizedDns)
         .cache(Cache(File(context.cacheDir, "http_cache"), 10L * 1024L * 1024L))
         .addInterceptor(RouteFailoverInterceptor(prefs, connectionManager))
+        .addInterceptor(E2eeTransportInterceptor(prefs))
         .addInterceptor(LanCleartextSecurityInterceptor())
         .retryOnConnectionFailure(true)
         .connectTimeout(10, TimeUnit.SECONDS)
@@ -130,6 +134,8 @@ class ApiClient(
 
     /**
      * Attempts pairing with candidates from PairingInfo.
+     * Supports encrypted zero-knowledge pairing (`POST /api/v1/e2ee/pair`) when QR carries `&pk=...`
+     * over public relay hosts, as well as inline E2EE key negotiation during LAN/CF pairing.
      */
     suspend fun pair(info: PairingInfo): Result<PairResponse> = withContext(Dispatchers.IO) {
         val candidates = info.candidateBaseUrls()
@@ -138,30 +144,64 @@ class ApiClient(
         }
 
         val deviceName = "${Build.MANUFACTURER} ${Build.MODEL}"
+        val (ephemKp, ephemPubB64) = E2eeCrypto.generateEphemeralKeyPair()
         val pairReq = PairRequest(
             pairingCode = info.code,
             deviceName = deviceName,
-            platform = "android"
+            platform = "android",
+            e2eePub = ephemPubB64
         )
         val bodyStr = json.encodeToString(pairReq)
 
         var lastException: Exception? = null
         for (candidate in candidates) {
-            val endpoint = "$candidate/api/v1/auth/pair"
+            val candHost = ConnectionManager.extractHost(candidate)
+            val gwPub = info.e2eePubKey?.takeIf { it.isNotBlank() }
+            val useEncryptedPair = gwPub != null && !ConnectionManager.isLanHost(candHost) && !ConnectionManager.isTailscaleHost(candHost)
+            val endpoint = if (useEncryptedPair) "$candidate/api/v1/e2ee/pair" else "$candidate/api/v1/auth/pair"
             try {
+                var activePriv = ephemKp.private
+                var activeClientPub = ephemPubB64
+                val postBody = if (useEncryptedPair) {
+                    val (encKp, encPub, envJson) = E2eeCrypto.encryptPairEnvelope(bodyStr.toByteArray(Charsets.UTF_8), gwPub!!)
+                    activePriv = encKp.private
+                    activeClientPub = encPub
+                    envJson
+                } else {
+                    bodyStr
+                }
+
                 val request = Request.Builder()
                     .url(endpoint)
-                    .post(bodyStr.toRequestBody(jsonMediaType))
+                    .post(postBody.toRequestBody(jsonMediaType))
                     .build()
 
                 client.newCall(request).await().use { response ->
-                    if (!response.isSuccessful) {
-                        val errMsg = response.body?.string() ?: "HTTP ${response.code}"
+                    val rawRespStr = response.body?.string() ?: ""
+                    val (effectiveCode, respStr) = if (useEncryptedPair && response.isSuccessful) {
+                        E2eeCrypto.decryptPairEnvelope(rawRespStr, activePriv, activeClientPub, gwPub!!)
+                    } else {
+                        response.code to rawRespStr
+                    }
+                    if (effectiveCode !in 200..299) {
+                        val errMsg = respStr.ifBlank { "HTTP $effectiveCode" }
                         lastException = RuntimeException("配对响应失败: $errMsg".loc)
                         return@use
                     }
-                    val respStr = response.body?.string() ?: ""
                     val pairResp = json.decodeFromString<PairResponse>(respStr)
+
+                    // Persist device credentials & derive E2EE session key before updating endpoints
+                    prefs.deviceToken = pairResp.deviceToken
+                    prefs.deviceId = pairResp.deviceId
+                    if (!pairResp.e2eeGatewayPub.isNullOrBlank() && !pairResp.e2eeSalt.isNullOrBlank()) {
+                        E2eeCrypto.deriveAndSaveDeviceKey(
+                            privateKey = activePriv,
+                            gatewayPubB64 = pairResp.e2eeGatewayPub,
+                            saltB64 = pairResp.e2eeSalt,
+                            deviceId = pairResp.deviceId,
+                            prefs = prefs
+                        )
+                    }
 
                     var lanUrl: String? = info.lanBaseUrl
                     var relayUrl: String? = info.relayBaseUrl
@@ -174,13 +214,24 @@ class ApiClient(
                     if (pairResp.endpoints != null) {
                         for (ep in pairResp.endpoints) {
                             val epUrl = ep.url.trim().trimEnd('/')
-                            if (!ConnectionManager.isTrustedEndpoint(epUrl, info, candidate)) {
+                            val trusted = ConnectionManager.isTrustedEndpoint(epUrl, info, candidate) ||
+                                (useEncryptedPair && ConnectionManager.isValidAdvertisedCloudUrl(epUrl, prefs, trustedByE2ee = true))
+                            if (!trusted) {
                                 continue
                             }
                             when (ep.type.lowercase()) {
                                 "lan" -> lanUrl = epUrl
-                                "relay" -> relayUrl = epUrl
-                                "cloudflare" -> cloudUrl = epUrl
+                                "relay" -> {
+                                    relayUrl = epUrl
+                                    cloudUrl = epUrl
+                                    val rHost = ConnectionManager.extractHost(epUrl)
+                                    if (rHost.isNotEmpty()) E2eeCrypto.markHostRequiresE2ee(rHost)
+                                }
+                                "cloudflare" -> {
+                                    if (cloudUrl.isNullOrBlank() || relayUrl.isNullOrBlank()) {
+                                        cloudUrl = epUrl
+                                    }
+                                }
                                 "primary" -> {
                                     val h = ConnectionManager.extractHost(epUrl)
                                     when {
@@ -193,15 +244,26 @@ class ApiClient(
                         }
                     }
 
+                    val dualRelay = pairResp.relayCloudUrl?.trim()?.trimEnd('/')
+                    if (!dualRelay.isNullOrBlank() &&
+                        E2eeCrypto.isReady(prefs) &&
+                        ConnectionManager.isValidAdvertisedCloudUrl(dualRelay, prefs, trustedByE2ee = true)
+                    ) {
+                        relayUrl = dualRelay
+                        cloudUrl = dualRelay
+                        val rHost = ConnectionManager.extractHost(dualRelay)
+                        if (rHost.isNotEmpty()) E2eeCrypto.markHostRequiresE2ee(rHost)
+                    }
+
                     // Fallback classify the successful candidate into its slot if still unassigned
                     val candClean = candidate.trim().trimEnd('/')
-                    val candHost = ConnectionManager.extractHost(candClean)
                     when {
                         ConnectionManager.isLanHost(candHost) -> {
                             if (lanUrl.isNullOrBlank()) lanUrl = candClean
                         }
                         ConnectionManager.isRelayHost(candHost) -> {
                             if (relayUrl.isNullOrBlank()) relayUrl = candClean
+                            if (cloudUrl.isNullOrBlank()) cloudUrl = candClean
                         }
                         else -> {
                             // Public allocated domain (e.g. Cloudflare tunnel) strictly serves as background fallback, NEVER custom!
@@ -216,8 +278,6 @@ class ApiClient(
                         active = candidate,
                         primaryCloud = cloudUrl
                     )
-                    prefs.deviceToken = pairResp.deviceToken
-                    prefs.deviceId = pairResp.deviceId
                     val plat = pairResp.platform ?: pairResp.os ?: info.platform ?: info.os
                     if (!plat.isNullOrBlank()) {
                         prefs.gatewayPlatform = plat
@@ -1821,7 +1881,11 @@ class RouteFailoverInterceptor(
         }
 
         try {
-            return initialChain.proceed(request)
+            val response = initialChain.proceed(request)
+            if (response.code < 500) {
+                ConnectionManager.applyAdvertisedCloudUrl(response.header("X-Antigravity-Cloud-URL"), prefs)
+            }
+            return response
         } catch (e: IOException) {
             if (!canSafelyFailover(request, e)) {
                 throw e
@@ -1852,6 +1916,7 @@ class RouteFailoverInterceptor(
 
                         val fallbackResponse = chain.withConnectTimeout(10, TimeUnit.SECONDS).proceed(fallbackRequest)
                         if (fallbackResponse.isSuccessful || fallbackResponse.code < 500) {
+                            ConnectionManager.applyAdvertisedCloudUrl(fallbackResponse.header("X-Antigravity-Cloud-URL"), prefs)
                             Log.i("ApiClient", "Failover to $cloud succeeded! Updating active gateway to $cloud")
                             prefs.gatewayBaseUrl = cloud
                             connectionManager?.notifyRouteChanged(cloud)

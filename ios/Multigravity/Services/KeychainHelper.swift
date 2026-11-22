@@ -14,6 +14,7 @@ public final class KeychainHelper: Sendable {
     public enum Key: String {
         case deviceToken = "antigravity.device_token"
         case deviceID = "antigravity.device_id"
+        case e2eeKey = "antigravity.e2ee_key"
     }
     
     /// Saves or updates a string value in the Keychain.
@@ -54,6 +55,7 @@ public final class KeychainHelper: Sendable {
     public func clearAll() {
         delete(key: .deviceToken)
         delete(key: .deviceID)
+        delete(key: .e2eeKey)
     }
     
     // MARK: - Internal SecItem primitives

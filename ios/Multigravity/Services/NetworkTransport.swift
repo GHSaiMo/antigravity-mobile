@@ -43,18 +43,26 @@ public final class NetworkTransport: Sendable {
     }
     
     /// Decorates HTTPURLResponse with X-Antigravity-Interface header to indicate actual interface used
-    private func decorateResponse(_ response: URLResponse, url: URL?, forcedCellular: Bool = false) -> URLResponse {
+    private func decorateResponse(_ response: URLResponse, url: URL?, forcedCellular: Bool = false, trustedByE2EE: Bool = false) -> URLResponse {
         guard let http = response as? HTTPURLResponse, let targetURL = url ?? http.url else {
             return response
         }
         // Self-heal primary Cloud URL only when advertised by an authenticated, configured/local gateway over HTTPS
-        if let cloudHeader = http.value(forHTTPHeaderField: "X-Antigravity-Cloud-URL")?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !cloudHeader.isEmpty,
-           Self.isConfiguredOrLocalGatewayHost(targetURL.host ?? ""),
-           Self.isValidAdvertisedCloudURL(cloudHeader) {
-            Task { @MainActor in
-                if AppSettings.shared.primaryCloudURL != cloudHeader {
-                    AppSettings.shared.primaryCloudURL = cloudHeader
+        if let rawCloudHeader = http.value(forHTTPHeaderField: "X-Antigravity-Cloud-URL")?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !rawCloudHeader.isEmpty {
+            let cloudHeader = rawCloudHeader.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            if !cloudHeader.isEmpty,
+               (trustedByE2EE || Self.isConfiguredOrLocalGatewayHost(targetURL.host ?? "")),
+               Self.isValidAdvertisedCloudURL(cloudHeader, trustedByE2EE: trustedByE2EE) {
+                if let host = URL(string: cloudHeader)?.host, host.lowercased().hasPrefix("r-") {
+                    E2EECrypto.shared.markHostRequiresE2EE(host)
+                }
+                Task { @MainActor in
+                    let current = AppSettings.shared.primaryCloudURL?.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+                    if current != cloudHeader {
+                        AppSettings.shared.primaryCloudURL = cloudHeader
+                        AppSettings.shared.syncWidgetConfiguration(reloadWidget: false)
+                    }
                 }
             }
         }
@@ -235,7 +243,7 @@ public final class NetworkTransport: Sendable {
         return configuredGatewayHosts().contains(clean)
     }
 
-    nonisolated public static func isValidAdvertisedCloudURL(_ raw: String) -> Bool {
+    nonisolated public static func isValidAdvertisedCloudURL(_ raw: String, trustedByE2EE: Bool = false) -> Bool {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let url = URL(string: trimmed),
               url.scheme?.lowercased() == "https",
@@ -245,6 +253,11 @@ public final class NetworkTransport: Sendable {
               !host.isEmpty,
               !isLocalOrPrivateHost(host) else {
             return false
+        }
+        // Authenticated inside our own gateway's AES-256-GCM E2EE envelope or listed in dispatcher pool manifest:
+        // safely allows future VPS pool nodes on any HTTPS domain without requiring an app update.
+        if trustedByE2EE || RelayPoolResolver.shared.isPoolDomainHost(host) {
+            return true
         }
         if host.hasSuffix(".trycloudflare.com") || host.hasSuffix(".jiuge.space") {
             return true
@@ -264,8 +277,47 @@ public final class NetworkTransport: Sendable {
         return false
     }
 
+    private func sendRaw(_ req: URLRequest, preferCellular: Bool) async throws -> (Data, URLResponse, Bool) {
+        if Self.requiresCleartextATSBypass(req.url) {
+            let (data, response) = try await sendCleartextHTTP(req)
+            return (data, response, preferCellular || isCellular)
+        }
+        if let url = req.url, url.scheme?.lowercased() == "https", CloudflareAnycastAccelerator.isCloudflareTunnelHost(url.host ?? "") {
+            do {
+                let (data, response) = try await sendCloudflareAcceleratedHTTPS(req)
+                return (data, response, false)
+            } catch {
+                // If Anycast acceleration fails, smoothly fall back to system URLSession
+            }
+        }
+        let (data, response) = try await fallbackSession.data(for: req)
+        return (data, response, false)
+    }
+
+    private func sendOverE2EE(_ req: URLRequest, preferCellular: Bool) async throws -> (Data, URLResponse) {
+        guard let originalURL = req.url else {
+            throw URLError(.badURL)
+        }
+        let (outerReq, deviceID, key) = try E2EECrypto.shared.wrapHTTPRequest(req)
+        let (outerData, outerResp, usedCellular) = try await sendRaw(outerReq, preferCellular: preferCellular)
+        guard let outerHTTP = outerResp as? HTTPURLResponse else {
+            return (outerData, decorateResponse(outerResp, url: originalURL, forcedCellular: usedCellular))
+        }
+        if outerHTTP.statusCode != 200 {
+            return (outerData, decorateResponse(outerHTTP, url: originalURL, forcedCellular: usedCellular))
+        }
+        let (innerData, innerResp) = try E2EECrypto.shared.unwrapHTTPResponse(
+            encData: outerData,
+            originalURL: originalURL,
+            deviceID: deviceID,
+            key: key
+        )
+        return (innerData, decorateResponse(innerResp, url: originalURL, forcedCellular: usedCellular, trustedByE2EE: true))
+    }
+
     /// Sends a request using URLSession, except cleartext HTTP to Tailscale private tunnel nodes
     /// which App Transport Security blocks. Cleartext HTTP to public internet hosts is rejected.
+    /// Requests targeting E2EE relay hosts are transparently wrapped inside AES-256-GCM envelopes.
     public func send(request: URLRequest, preferCellular: Bool = false) async throws -> (Data, URLResponse) {
         var req = request
         if let url = req.url, url.scheme?.lowercased() == "http" {
@@ -282,23 +334,23 @@ public final class NetworkTransport: Sendable {
                 req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
             }
         }
-        
-        if Self.requiresCleartextATSBypass(req.url) {
-            let (data, response) = try await sendCleartextHTTP(req)
-            return (data, decorateResponse(response, url: req.url, forcedCellular: preferCellular || isCellular))
+
+        if E2EECrypto.shared.shouldEncrypt(url: req.url) {
+            return try await sendOverE2EE(req, preferCellular: preferCellular)
         }
-        
-        if let url = req.url, url.scheme?.lowercased() == "https", CloudflareAnycastAccelerator.isCloudflareTunnelHost(url.host ?? "") {
-            do {
-                let (data, response) = try await sendCloudflareAcceleratedHTTPS(req)
-                return (data, decorateResponse(response, url: req.url))
-            } catch {
-                // If Anycast acceleration fails, smoothly fall back to system URLSession
-            }
+
+        let (data, response, usedCellular) = try await sendRaw(req, preferCellular: preferCellular)
+        // Auto-recover if a custom relay domain enforces E2EE with HTTP 426 Upgrade Required
+        if let http = response as? HTTPURLResponse,
+           http.statusCode == 426,
+           E2EECrypto.shared.isReady,
+           let host = req.url?.host,
+           !Self.isLocalOrPrivateHost(host),
+           req.url?.path.hasPrefix("/api/v1/e2ee/") != true {
+            E2EECrypto.shared.markHostRequiresE2EE(host)
+            return try await sendOverE2EE(req, preferCellular: preferCellular)
         }
-        
-        let (data, response) = try await fallbackSession.data(for: req)
-        return (data, decorateResponse(response, url: req.url))
+        return (data, decorateResponse(response, url: req.url, forcedCellular: usedCellular))
     }
     
     /// ATS blocks cleartext HTTP to Tailscale private hosts (NSAllowsLocalNetworking only exempts RFC1918/loopback/.local).

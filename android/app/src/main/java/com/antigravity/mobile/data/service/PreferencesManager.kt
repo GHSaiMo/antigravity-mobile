@@ -200,6 +200,31 @@ class PreferencesManager(context: Context) {
             }
         }
 
+    var e2eeKeyB64: String?
+        get() {
+            if (memE2eeKeyLoaded) {
+                return memE2eeKeyB64
+            }
+            val loaded = securePrefs?.getString(KEY_E2EE_KEY_B64, null)
+            memE2eeKeyB64 = loaded
+            memE2eeKeyLoaded = true
+            return loaded
+        }
+        set(value) {
+            val sp = securePrefs
+            if (sp != null) {
+                if (value != null) {
+                    sp.edit().putString(KEY_E2EE_KEY_B64, value).apply()
+                } else {
+                    sp.edit().remove(KEY_E2EE_KEY_B64).apply()
+                }
+                memE2eeKeyB64 = value
+                memE2eeKeyLoaded = true
+            } else {
+                Log.e("PreferencesManager", "Cannot store e2eeKeyB64: EncryptedSharedPreferences unavailable.")
+            }
+        }
+
     var appLanguage: String
         get() = "system"
         set(_) {
@@ -940,6 +965,8 @@ class PreferencesManager(context: Context) {
         prefs.edit().clear().apply()
         memDeviceToken = null
         memDeviceTokenLoaded = false
+        memE2eeKeyB64 = null
+        memE2eeKeyLoaded = false
         memDeletedConversations = null
         memMcpServers = null
         memSkills = null
@@ -978,6 +1005,10 @@ class PreferencesManager(context: Context) {
         @Volatile
         private var memDeviceToken: String? = null
         @Volatile
+        private var memE2eeKeyLoaded: Boolean = false
+        @Volatile
+        private var memE2eeKeyB64: String? = null
+        @Volatile
         private var memDeletedConversations: Map<String, Long>? = null
         @Volatile
         private var memMcpServers: List<McpServerState>? = null
@@ -989,6 +1020,7 @@ class PreferencesManager(context: Context) {
         private const val KEY_PRIMARY_CLOUD_URL = "primary_cloud_url"
         private const val KEY_DEVICE_TOKEN = "device_token"
         private const val KEY_DEVICE_ID = "device_id"
+        private const val KEY_E2EE_KEY_B64 = "e2ee_key_b64"
         private const val KEY_THEME_MODE = "theme_mode"
         private const val KEY_APP_LANGUAGE = "app_language"
         private const val KEY_SHARE_CARD_SKIN_ID = "share_card_skin_id"

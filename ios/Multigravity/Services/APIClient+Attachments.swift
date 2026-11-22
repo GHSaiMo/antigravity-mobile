@@ -27,7 +27,18 @@ extension APIClient {
         
         let data: Data
         let response: URLResponse
-        if NetworkTransport.requiresCleartextATSBypass(endpoint) {
+        if !isDemoEndpoint, E2EECrypto.shared.shouldEncrypt(url: endpoint) {
+            do {
+                request.httpBody = try Data(contentsOf: fileURL)
+                onProgress?(0.25)
+                (data, response) = try await transport.send(request: request)
+                onProgress?(0.95)
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                throw APIError.networkError(error.localizedDescription)
+            }
+        } else if NetworkTransport.requiresCleartextATSBypass(endpoint) {
             // App Transport Security blocks cleartext HTTP to Tailscale hosts; stream 32 KB chunks over Network.framework.
             do {
                 (data, response) = try await transport.uploadCleartextHTTP(

@@ -24,6 +24,7 @@ import (
 	"antigravity-mobile/internal/auth"
 	"antigravity-mobile/internal/cockpit"
 	"antigravity-mobile/internal/config"
+	"antigravity-mobile/internal/e2ee"
 	"antigravity-mobile/internal/i18n"
 	"antigravity-mobile/internal/inspector"
 	"antigravity-mobile/internal/localtls"
@@ -31,6 +32,7 @@ import (
 	"antigravity-mobile/internal/netutil"
 	"antigravity-mobile/internal/notifier"
 	"antigravity-mobile/internal/proxy"
+	"antigravity-mobile/internal/relay"
 	"antigravity-mobile/internal/tunnel"
 	"antigravity-mobile/internal/updater"
 	"antigravity-mobile/web"
@@ -223,23 +225,40 @@ func runGatewayServer(args []string) {
 	defer authHandler.Close()
 	authHandler.SetEndpoints(netAddrs.LANIPv4, *ddnsHost)
 
+	if e2eeID, eErr := e2ee.LoadOrCreateIdentity(config.GetDataDir()); eErr != nil {
+		slog.Warn(i18n.T("⚠️  初始化 E2EE 密钥失败，中继加密将不可用", "⚠️  Failed to initialize E2EE identity"), "err", eErr)
+	} else {
+		auth.SetDefaultE2EEPubKey(e2eeID.PublicKeyB64())
+		authHandler.SetE2EEIdentity(e2eeID)
+	}
+
 	qrPort := *port
 
-	// 3.5. Prepare Cloudflare Tunnel configuration (fast disk cache read now; network/daemon init runs async after port bind)
+	// 3.5. Prepare public tunnel configuration (fast disk cache read now; dispatch & transport init run async after port bind)
+	tunnel.SetClientVersion(Version)
 	cfCfg := config.GetCloudflareConfig()
+	relayListener := relay.NewStreamListener()
 	var (
-		cfMu     sync.Mutex
-		cfTunnel *tunnel.CloudflareTunnel
-		cfDomain string
+		cfMu            sync.Mutex
+		activeTunnel    tunnel.Provider
+		secondaryTunnel tunnel.Provider
+		cfDomain        string
+		cfDomainMode    string
 	)
 	stopCFTunnel := func() {
 		cfMu.Lock()
-		tun := cfTunnel
-		cfTunnel = nil
+		tun1 := activeTunnel
+		tun2 := secondaryTunnel
+		activeTunnel = nil
+		secondaryTunnel = nil
 		cfMu.Unlock()
-		if tun != nil {
-			tun.Stop()
+		if tun1 != nil {
+			tun1.Stop()
 		}
+		if tun2 != nil {
+			tun2.Stop()
+		}
+		_ = relayListener.Close()
 	}
 	defer stopCFTunnel()
 
@@ -248,6 +267,7 @@ func runGatewayServer(args []string) {
 		if cfCfg.Token != "" {
 			cachedCFRes = &tunnel.CFTunnelResult{
 				Success:   true,
+				Mode:      tunnel.ModeCloudflare,
 				Token:     cfCfg.Token,
 				Subdomain: "custom.mgy",
 				URL:       "https://custom.mgy",
@@ -256,9 +276,17 @@ func runGatewayServer(args []string) {
 			cachedCFRes = tunnel.LoadCachedTunnelResult()
 		}
 		if cachedCFRes != nil {
-			authHandler.SetCloudflareURL(cachedCFRes.URL)
+			// If legacy non-E2EE devices exist, ignore a relay_v1 cache entry for the primary slot
+			// so legacy clients keep their Cloudflare URL during dual-track migration.
+			if cachedCFRes.EffectiveMode() == tunnel.ModeRelayV1 && authStore.HasLegacyNonE2EEDevices() {
+				cachedCFRes = nil
+			}
+		}
+		if cachedCFRes != nil {
+			authHandler.SetCloudEndpoint(cachedCFRes.URL, cachedCFRes.EffectiveMode())
 			authHandler.SetPrimary(cachedCFRes.Subdomain, 443, true)
 			cfDomain = cachedCFRes.URL
+			cfDomainMode = cachedCFRes.EffectiveMode()
 			qrHost = cachedCFRes.Subdomain
 			qrPort = 443
 			extraHosts = nil
@@ -385,7 +413,12 @@ func runGatewayServer(args []string) {
 	}
 
 	// 6 & 7. Build combined Root Router with Middleware
-	router := buildRouter(authStore, authHandler, p, insp, time.Now(), webHandler, authPolicy)
+	wsDialHost := "127.0.0.1"
+	if h := strings.TrimSpace(*host); h != "" && h != "0.0.0.0" && h != "::" && h != "[::]" {
+		wsDialHost = h
+	}
+	localWSAddr := fmt.Sprintf("%s:%d", wsDialHost, *port)
+	router := buildRouterWithWSAddr(authStore, authHandler, p, insp, time.Now(), webHandler, authPolicy, func() string { return localWSAddr })
 
 	server := &http.Server{
 		Addr:    fmt.Sprintf("%s:%d", *host, *port),
@@ -399,6 +432,20 @@ func runGatewayServer(args []string) {
 		ReadTimeout:  0,
 		WriteTimeout: 0,
 		IdleTimeout:  120 * time.Second,
+	}
+
+	// Dedicated in-process HTTP server for relay_v1 yamux streams: strictly enforces zero-knowledge E2EE
+	// via RelayGuardMiddleware + unspoofable ConnContext tagging (never bypassable via HTTP headers).
+	relayServer := &http.Server{
+		Handler:           e2ee.RelayGuardMiddleware(router),
+		ReadHeaderTimeout: 10 * time.Second,
+		MaxHeaderBytes:    64 << 10,
+		ReadTimeout:       0,
+		WriteTimeout:      0,
+		IdleTimeout:       120 * time.Second,
+		ConnContext: func(ctx context.Context, _ net.Conn) context.Context {
+			return e2ee.WithRelayTransport(ctx)
+		},
 	}
 
 	// Synchronously bind the network listener so we verify port availability immediately
@@ -421,6 +468,11 @@ func runGatewayServer(args []string) {
 	go func() {
 		if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Server error: %v", err)
+		}
+	}()
+	go func() {
+		if err := relayServer.Serve(relayListener); err != nil && err != http.ErrServerClosed && err != net.ErrClosed {
+			slog.Warn("[Relay] HTTP server exited", "err", err)
 		}
 	}()
 
@@ -463,11 +515,16 @@ func runGatewayServer(args []string) {
 		}
 	}
 	if cfDomain != "" {
-		fmt.Print(i18n.T("  ➜  云端穿透:   Cloudflare 专属域名已生成 (强制配对)\n",
-			"  ➜  Cloud Tunnel: Cloudflare exclusive HTTPS domain active (Pairing required)\n"))
+		if cfDomainMode == tunnel.ModeRelayV1 {
+			fmt.Print(i18n.T("  ➜  云端穿透:   E2EE 端到端加密专属通道已就绪 (强制配对)\n",
+				"  ➜  Cloud Tunnel: E2EE exclusive HTTPS relay active (Pairing required)\n"))
+		} else {
+			fmt.Print(i18n.T("  ➜  云端穿透:   Cloudflare 专属域名已生成 (强制配对)\n",
+				"  ➜  Cloud Tunnel: Cloudflare exclusive HTTPS domain active (Pairing required)\n"))
+		}
 	} else if cfCfg.Enabled {
-		fmt.Print(i18n.T("  ➜  云端穿透:   Cloudflare 专属隧道后台连接中... (强制配对)\n",
-			"  ➜  Cloud Tunnel: Cloudflare exclusive HTTPS tunnel connecting in background... (Pairing required)\n"))
+		fmt.Print(i18n.T("  ➜  云端穿透:   云端专属隧道后台连接中... (强制配对)\n",
+			"  ➜  Cloud Tunnel: Cloud exclusive HTTPS tunnel connecting in background... (Pairing required)\n"))
 	} else if *ddnsHost != "" {
 		fmt.Print(i18n.T("  ➜  云端穿透:   DDNS 专属域名已配置 (强制配对)\n",
 			"  ➜  Cloud Tunnel: DDNS domain configured (Pairing required)\n"))
@@ -507,54 +564,245 @@ func runGatewayServer(args []string) {
 		fmt.Println()
 	}
 
-	// Start Cloudflare Tunnel asynchronously after local HTTP server is already bound and serving (P1-5).
+	// Start public tunnel asynchronously after local HTTP server is already bound and serving (P1-5).
+	// Supports:
+	//   - Case A (brand-new install or all paired devices E2EE-ready): directly uses dispatcher choice
+	//     (relay_v1 E2EE pool without downloading cloudflared, with automatic Cloudflare fallback if all VPS nodes fail).
+	//   - Case B (legacy non-E2EE paired devices exist): Dual-Track migration — keeps legacy Cloudflare Tunnel alive
+	//     for un-upgraded Apps while spinning up parallel E2EE relay_v1 for upgraded Apps; once all devices upgrade
+	//     to E2EE, automatically retires legacy Cloudflare Tunnel after a 30s drain grace window.
 	if cfCfg.Enabled {
 		hadCachedDomain := cfDomain != ""
 		lanExtra := netAddrs.LANIPv4
 		go func(cfgCopy config.CloudflareConfig, preloaded *tunnel.CFTunnelResult) {
-			binPath, err := tunnel.EnsureCloudflaredBinary(watcherCtx)
-			if err != nil {
-				if watcherCtx.Err() == nil {
-					slog.Warn(i18n.T("⚠️  Cloudflare 穿透引擎准备失败", "⚠️  Failed to prepare Cloudflare tunnel engine"), "err", err)
+			var fallbackOnce sync.Once
+			var retireCFOnce sync.Once
+
+			makeRelayOpts := func(isDualTrack bool) tunnel.ProviderOptions {
+				return tunnel.ProviderOptions{
+					RelayListener: relayListener,
+					LocalAddr:     localWSAddr,
+					RefreshFunc: func(ctx context.Context) ([]relay.NodeConfig, error) {
+						if cfgCopy.WorkerURL == "" {
+							return nil, fmt.Errorf("worker url empty")
+						}
+						fresh, err := tunnel.RegisterOrFetchTunnelWithOptions(ctx, cfgCopy.WorkerURL, cfgCopy.InviteCode, tunnel.RegisterOptions{
+							ClientVersion: Version,
+							Capabilities:  []string{tunnel.ModeRelayV1},
+							SkipCache:     true,
+						})
+						if err != nil {
+							return nil, err
+						}
+						if len(fresh.RelayNodes) > 0 {
+							return fresh.RelayNodes, nil
+						}
+						if fresh.RelayEndpoint != "" && fresh.Token != "" && fresh.URL != "" {
+							healthURL := strings.Replace(fresh.RelayEndpoint, "wss://", "https://", 1)
+							healthURL = strings.Replace(healthURL, "ws://", "http://", 1)
+							healthURL = strings.Replace(healthURL, "/_mgy_tunnel", "/healthz", 1)
+							return []relay.NodeConfig{{
+								ID: "default", Region: fresh.Region, Priority: 10,
+								Endpoint: fresh.RelayEndpoint, HealthURL: healthURL,
+								Subdomain: fresh.Subdomain, URL: fresh.URL, Token: fresh.Token,
+							}}, nil
+						}
+						return nil, fmt.Errorf("no relay nodes returned")
+					},
+					OnEndpointChanged: func(node relay.NodeConfig) {
+						if isDualTrack && authHandler.DualTrackRelayURL() != "" {
+							authHandler.SetDualTrackRelayURL(node.URL)
+						} else {
+							authHandler.SetCloudEndpoint(node.URL, tunnel.ModeRelayV1)
+							authHandler.SetPrimary(node.Subdomain, 443, true)
+						}
+					},
+					OnAllFailed: func() {
+						if isDualTrack || cfgCopy.Token != "" || cfgCopy.WorkerURL == "" {
+							return
+						}
+						fallbackOnce.Do(func() {
+							slog.Warn("⚠️  [RelayPool] 所有中继节点持续不可用，正在自动回退至 Cloudflare 兜底隧道...")
+							fbRes, fbErr := tunnel.RegisterOrFetchTunnelWithOptions(watcherCtx, cfgCopy.WorkerURL, cfgCopy.InviteCode, tunnel.RegisterOptions{
+								ClientVersion: Version,
+								Capabilities:  []string{tunnel.ModeCloudflare},
+								SkipCache:     true,
+							})
+							if fbErr != nil || fbRes == nil || watcherCtx.Err() != nil {
+								slog.Warn("⚠️  [Fallback] Cloudflare 兜底隧道注册失败", "err", fbErr)
+								return
+							}
+							fbProv, pErr := tunnel.NewProvider(watcherCtx, fbRes, &cfgCopy)
+							if pErr != nil {
+								slog.Warn("⚠️  [Fallback] Cloudflare 兜底隧道初始化失败", "err", pErr)
+								return
+							}
+							if sErr := fbProv.Start(watcherCtx); sErr != nil {
+								slog.Warn("⚠️  [Fallback] Cloudflare 兜底隧道启动失败", "err", sErr)
+								return
+							}
+							cfMu.Lock()
+							if watcherCtx.Err() != nil {
+								cfMu.Unlock()
+								fbProv.Stop()
+								return
+							}
+							if secondaryTunnel != nil {
+								secondaryTunnel.Stop()
+							}
+							secondaryTunnel = fbProv
+							cfMu.Unlock()
+							authHandler.SetCloudEndpoint(fbProv.PublicURL(), tunnel.ModeCloudflare)
+							authHandler.SetPrimary(fbProv.Subdomain(), 443, true)
+							slog.Info("✅ [Fallback] Cloudflare 兜底隧道已自动激活", "url", fbProv.PublicURL())
+						})
+					},
 				}
-				return
 			}
+
+			hasLegacy := authStore.HasLegacyNonE2EEDevices()
 			cfRes := preloaded
-			if cfRes == nil {
-				cfRes, err = tunnel.RegisterOrFetchTunnel(watcherCtx, cfgCopy.WorkerURL, cfgCopy.InviteCode)
-				if err != nil {
-					if watcherCtx.Err() == nil {
-						slog.Warn(i18n.T("⚠️  Cloudflare 隧道注册失败", "⚠️  Cloudflare tunnel registration failed"), "err", err)
+			if hasLegacy {
+				// Case B: Dual-Track migration — keep legacy Cloudflare Tunnel running for un-upgraded devices.
+				if cfRes == nil {
+					var err error
+					cfRes, err = tunnel.RegisterOrFetchTunnelWithOptions(watcherCtx, cfgCopy.WorkerURL, cfgCopy.InviteCode, tunnel.RegisterOptions{
+						ClientVersion: Version,
+						Capabilities:  []string{tunnel.ModeCloudflare},
+					})
+					if err != nil {
+						if watcherCtx.Err() == nil {
+							slog.Warn(i18n.T("⚠️  云端隧道注册失败", "⚠️  Cloud tunnel registration failed"), "err", err)
+						}
+						return
 					}
-					return
+				}
+			} else {
+				// Case A: Pure modern startup (brand-new install or all paired devices E2EE-ready).
+				if cfRes == nil {
+					var err error
+					cfRes, err = tunnel.RegisterOrFetchTunnel(watcherCtx, cfgCopy.WorkerURL, cfgCopy.InviteCode)
+					if err != nil {
+						if watcherCtx.Err() == nil {
+							slog.Warn(i18n.T("⚠️  云端隧道注册失败", "⚠️  Cloud tunnel registration failed"), "err", err)
+						}
+						return
+					}
+				} else if cfRes.EffectiveMode() == tunnel.ModeRelayV1 && cfgCopy.Token == "" && cfgCopy.WorkerURL != "" {
+					// Refresh RELAY_POOL dynamically on boot so newly added VPS nodes take effect immediately.
+					refreshCtx, cancelRefresh := context.WithTimeout(watcherCtx, 6*time.Second)
+					freshRes, rErr := tunnel.RegisterOrFetchTunnelWithOptions(refreshCtx, cfgCopy.WorkerURL, cfgCopy.InviteCode, tunnel.RegisterOptions{
+						ClientVersion: Version,
+						Capabilities:  tunnel.SupportedCapabilities(),
+						SkipCache:     true,
+					})
+					cancelRefresh()
+					if rErr == nil && freshRes != nil && freshRes.EffectiveMode() == tunnel.ModeRelayV1 {
+						cfRes = freshRes
+					}
 				}
 			}
+
 			if cfRes == nil || watcherCtx.Err() != nil {
 				return
 			}
-			tun := tunnel.NewCloudflareTunnel(cfRes, &cfgCopy)
-			if err := tun.Start(watcherCtx, binPath); err != nil {
-				slog.Warn(i18n.T("⚠️  启动 cloudflared 失败", "⚠️  Failed to start cloudflared"), "err", err)
+
+			prov, err := tunnel.NewProviderWithOptions(watcherCtx, cfRes, &cfgCopy, makeRelayOpts(false))
+			if err != nil {
+				if watcherCtx.Err() == nil {
+					slog.Warn(i18n.T("⚠️  穿透引擎准备失败", "⚠️  Failed to prepare tunnel engine"), "mode", cfRes.EffectiveMode(), "err", err)
+				}
+				return
+			}
+			if err := prov.Start(watcherCtx); err != nil {
+				slog.Warn(i18n.T("⚠️  启动公网穿透隧道失败", "⚠️  Failed to start public tunnel"), "mode", prov.Mode(), "err", err)
 				return
 			}
 			cfMu.Lock()
 			if watcherCtx.Err() != nil {
 				cfMu.Unlock()
-				tun.Stop()
+				prov.Stop()
 				return
 			}
-			cfTunnel = tun
+			activeTunnel = prov
 			cfMu.Unlock()
 
-			authHandler.SetCloudflareURL(cfRes.URL)
-			authHandler.SetPrimary(cfRes.Subdomain, 443, true)
+			authHandler.SetCloudEndpoint(prov.PublicURL(), prov.Mode())
+			authHandler.SetPrimary(prov.Subdomain(), 443, true)
 			if !hadCachedDomain && shouldPrintQR && len(authStore.ListDevices()) == 0 {
 				if sess, sErr := pairingMgr.GenerateSession(5 * time.Minute); sErr == nil {
 					var extras []string
 					if lanExtra != "" {
 						extras = append(extras, lanExtra)
 					}
-					auth.PrintPairingQRCode(cfRes.Subdomain, 443, sess.Code, true, extras...)
+					auth.PrintPairingQRCode(prov.Subdomain(), 443, sess.Code, true, extras...)
+				}
+			}
+
+			// Dual-Track Step 2: While legacy Cloudflare Tunnel serves older Apps, attempt to launch parallel
+			// E2EE relay_v1 pool so upgraded Apps silently switch over without re-scanning QR codes.
+			if hasLegacy && prov.Mode() == tunnel.ModeCloudflare && cfgCopy.Token == "" && cfgCopy.WorkerURL != "" && authHandler.E2EEIdentity() != nil {
+				relayRes, rErr := tunnel.RegisterOrFetchTunnelWithOptions(watcherCtx, cfgCopy.WorkerURL, cfgCopy.InviteCode, tunnel.RegisterOptions{
+					ClientVersion: Version,
+					Capabilities:  []string{tunnel.ModeRelayV1},
+					SkipCache:     true,
+				})
+				if rErr == nil && relayRes != nil && relayRes.EffectiveMode() == tunnel.ModeRelayV1 && watcherCtx.Err() == nil {
+					relayProv, pErr := tunnel.NewProviderWithOptions(watcherCtx, relayRes, &cfgCopy, makeRelayOpts(true))
+					if pErr == nil {
+						if sErr := relayProv.Start(watcherCtx); sErr == nil {
+							cfMu.Lock()
+							if watcherCtx.Err() != nil {
+								cfMu.Unlock()
+								relayProv.Stop()
+								return
+							}
+							secondaryTunnel = relayProv
+							cfMu.Unlock()
+
+							authHandler.SetDualTrackRelayURL(relayProv.PublicURL())
+							slog.Info("🚀 [DualTrack] 并行 E2EE 中继通道已就绪，旧版 App 继续走 Cloudflare，新版 App 自动无感切换",
+								"relay_url", relayProv.PublicURL())
+
+							authHandler.SetOnDeviceE2EEUpgraded(func(allUpgraded bool) {
+								if !allUpgraded {
+									return
+								}
+								retireCFOnce.Do(func() {
+									go func() {
+										timer := time.NewTimer(30 * time.Second)
+										defer timer.Stop()
+										select {
+										case <-watcherCtx.Done():
+											return
+										case <-timer.C:
+										}
+										if authStore.HasLegacyNonE2EEDevices() || watcherCtx.Err() != nil {
+											return
+										}
+										cfMu.Lock()
+										oldCF := activeTunnel
+										newPrimary := secondaryTunnel
+										if newPrimary != nil && newPrimary.Mode() == tunnel.ModeRelayV1 {
+											activeTunnel = newPrimary
+											secondaryTunnel = nil
+										} else {
+											oldCF = nil
+										}
+										cfMu.Unlock()
+										if newPrimary != nil && oldCF != nil {
+											authHandler.SetCloudEndpoint(newPrimary.PublicURL(), tunnel.ModeRelayV1)
+											authHandler.SetPrimary(newPrimary.Subdomain(), 443, true)
+											authHandler.SetDualTrackRelayURL("")
+											oldCF.Stop()
+											_ = tunnel.InvalidateTunnelCache()
+											slog.Info("✅ [DualTrack] 全部已配对设备已完成 E2EE 升级，已平滑退役旧版 Cloudflare Tunnel")
+										}
+									}()
+								})
+							})
+						}
+					}
 				}
 			}
 		}(cfCfg, cachedCFRes)
@@ -574,9 +822,10 @@ func runGatewayServer(args []string) {
 	// 2. Gracefully close all tracked WebSocket connections so server.Shutdown can drain
 	p.Shutdown()
 
-	// 3. Shutdown HTTP server with 10s timeout (hijacked WS conns already closed)
+	// 3. Shutdown HTTP servers with 10s timeout (hijacked WS conns already closed)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+	_ = relayServer.Shutdown(ctx)
 	if err := server.Shutdown(ctx); err != nil {
 		slog.Warn("Server shutdown error", "err", err)
 	}
@@ -872,15 +1121,49 @@ func buildRouter(
 	webHandler http.Handler,
 	authPolicy auth.AuthPolicy,
 ) http.Handler {
+	return buildRouterWithWSAddr(authStore, authHandler, p, insp, startTime, webHandler, authPolicy, nil)
+}
+
+func buildRouterWithWSAddr(
+	authStore *auth.AuthStore,
+	authHandler *auth.AuthHandler,
+	p *proxy.Proxy,
+	insp inspector.UpstreamDiscoverer,
+	startTime time.Time,
+	webHandler http.Handler,
+	authPolicy auth.AuthPolicy,
+	localWSAddr func() string,
+) http.Handler {
 	rootMux := http.NewServeMux()
 
-	// Auth endpoints
+	// E2EE transport handler (zero-knowledge relay envelope termination)
+	e2eeHandler := &e2ee.Handler{
+		Identity: authHandler.E2EEIdentity(),
+		LookupKey: func(deviceID string) ([]byte, bool) {
+			return authStore.GetDeviceE2EEKey(deviceID)
+		},
+		ValidateToken: func(rawToken string) (string, bool) {
+			dev, ok := authStore.ValidateToken(rawToken)
+			if !ok || dev == nil {
+				return "", false
+			}
+			return dev.DeviceID, true
+		},
+		LocalWSAddr:    localWSAddr,
+		PairDispatcher: authHandler.PairFromEncryptedPayload,
+	}
+
+	// Auth & E2EE endpoints
 	rootMux.HandleFunc("/api/v1/auth/pair", authHandler.HandlePair)
 	rootMux.HandleFunc("/api/v1/auth/unpair", authHandler.HandleUnpair)
 	rootMux.HandleFunc("/api/v1/auth/logout", authHandler.HandleLogout)
 	rootMux.HandleFunc("/api/v1/auth/session", authHandler.HandleNewPairingSession)
 	rootMux.HandleFunc("/api/v1/auth/endpoints", authHandler.HandleEndpoints)
+	rootMux.HandleFunc("POST /api/v1/auth/e2ee/upgrade", authHandler.HandleE2EEUpgrade)
 	rootMux.HandleFunc("POST /api/v1/auth/ws-ticket", authHandler.HandleWSTicket)
+	rootMux.HandleFunc("/api/v1/e2ee/rpc", e2eeHandler.HandleRPC)
+	rootMux.HandleFunc("/api/v1/e2ee/pair", e2eeHandler.HandleEncryptedPair)
+	rootMux.HandleFunc("/api/v1/e2ee/ws", e2eeHandler.HandleWS)
 	rootMux.HandleFunc("/api/v1/devices/", authHandler.HandleDevices)
 	rootMux.HandleFunc("/api/v1/devices", authHandler.HandleDevices)
 
@@ -1207,12 +1490,17 @@ func buildRouter(
 		})
 	})
 	rootMux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, http.StatusOK, map[string]string{
+		resp := map[string]any{
 			"status":   "ok",
 			"version":  Version,
 			"os":       runtime.GOOS,
 			"platform": runtime.GOOS,
-		})
+		}
+		if pk := authHandler.E2EEPubKey(); pk != "" {
+			resp["e2ee"] = true
+			resp["e2ee_pub"] = pk
+		}
+		writeJSON(w, http.StatusOK, resp)
 	})
 	rootMux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
 		cur := insp.Current()
@@ -1273,7 +1561,7 @@ func buildRouter(
 
 		// Embedded web files for mobile PWA
 		if path == "/style.css" || strings.HasPrefix(path, "/js/") || path == "/mermaid.min.js" ||
-			path == "/manifest.json" || path == "/manifest-en.json" || path == "/sw.js" || path == "/favicon.ico" || strings.HasPrefix(path, "/icons/") {
+			path == "/manifest.json" || path == "/manifest-en.json" || path == "/manifest-ja.json" || path == "/sw.js" || path == "/favicon.ico" || strings.HasPrefix(path, "/icons/") {
 			webHandler.ServeHTTP(w, r)
 			return
 		}
@@ -1317,16 +1605,18 @@ func buildRouter(
 
 	rootMux.Handle("/", adaptiveWebHandler)
 
-	// Inject Cloudflare tunnel domain in response headers for authenticated client auto-discovery and healing
+	// Inject managed cloud tunnel domain in response headers for authenticated client auto-discovery and healing
 	endpointHeadersMiddleware := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if cf := authHandler.CloudflareURL(); cf != "" && authHandler.RequestAuthorized(r) {
-			w.Header().Set("X-Antigravity-Cloud-URL", cf)
+		if cloudURL := authHandler.CloudURLForRequest(r); cloudURL != "" && authHandler.RequestAuthorized(r) {
+			w.Header().Set("X-Antigravity-Cloud-URL", cloudURL)
 		}
 		rootMux.ServeHTTP(w, r)
 	})
 
 	// Wrap with security headers, body size ceiling (64MB), and authentication policy
-	return auth.SecurityHeadersMiddleware(auth.MaxBytesMiddleware(64*1024*1024, auth.AuthMiddlewareWithPolicy(authStore, endpointHeadersMiddleware, authPolicy)))
+	finalRouter := auth.SecurityHeadersMiddleware(auth.MaxBytesMiddleware(64*1024*1024, auth.AuthMiddlewareWithPolicy(authStore, endpointHeadersMiddleware, authPolicy)))
+	e2eeHandler.InnerHandler = finalRouter
+	return finalRouter
 }
 
 // sanitizeLocalRedirect restricts ?redirect= targets to safe local paths (SEC-06),

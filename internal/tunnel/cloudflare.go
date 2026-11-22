@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"antigravity-mobile/internal/config"
+	"antigravity-mobile/internal/relay"
 )
 
 // PinnedCloudflaredVersion is the verified official cloudflared release version.
@@ -43,15 +44,22 @@ var pinnedCloudflaredSHA256 = map[string]string{
 	"cloudflared-linux-arm64":       "b155cec3e48e489cfb8e5c602769fb8c771083018d8881d68b4d18a791567c5a",
 }
 
-// CFTunnelResult contains the acquired Cloudflare Tunnel credentials and endpoint.
+// CFTunnelResult contains the acquired public tunnel credentials and endpoint.
+// Forward-compatible fields (Mode, Region, RelayEndpoint, ZoneDomain) allow the dispatcher
+// to route traffic across multi-zone Cloudflare pools or future embedded relay nodes.
 type CFTunnelResult struct {
-	Success    bool   `json:"success"`
-	Reused     bool   `json:"reused"`
-	TunnelID   string `json:"tunnel_id"`
-	TunnelName string `json:"tunnel_name"`
-	Subdomain  string `json:"subdomain"`
-	URL        string `json:"url"`
-	Token      string `json:"token"`
+	Success       bool               `json:"success"`
+	Reused        bool               `json:"reused"`
+	Mode          string             `json:"mode,omitempty"`
+	Region        string             `json:"region,omitempty"`
+	RelayEndpoint string             `json:"relay_endpoint,omitempty"`
+	ZoneDomain    string             `json:"zone_domain,omitempty"`
+	TunnelID      string             `json:"tunnel_id"`
+	TunnelName    string             `json:"tunnel_name"`
+	Subdomain     string             `json:"subdomain"`
+	URL           string             `json:"url"`
+	Token         string             `json:"token"`
+	RelayNodes    []relay.NodeConfig `json:"relay_nodes,omitempty"`
 }
 
 // CloudflareTunnel manages the local cloudflared daemon child process.
@@ -100,6 +108,11 @@ func (t *CloudflareTunnel) Subdomain() string {
 		return ""
 	}
 	return t.result.Subdomain
+}
+
+// Mode returns the tunnel transport mode identifier.
+func (t *CloudflareTunnel) Mode() string {
+	return ModeCloudflare
 }
 
 // Start launches `cloudflared tunnel run --token ...` in the background with auto-recovery supervision.
@@ -768,16 +781,45 @@ func LoadCachedTunnelResult() *CFTunnelResult {
 	return &cached
 }
 
+func hasCapability(caps []string, mode string) bool {
+	target := strings.ToLower(strings.TrimSpace(mode))
+	if target == "" {
+		target = ModeCloudflare
+	}
+	for _, c := range caps {
+		if strings.EqualFold(strings.TrimSpace(c), target) {
+			return true
+		}
+	}
+	return false
+}
+
 // RegisterOrFetchTunnel requests a permanent tunnel from the Worker or loads from cache.
 func RegisterOrFetchTunnel(ctx context.Context, workerURL, inviteCode string) (*CFTunnelResult, error) {
-	cachePath := filepath.Join(config.GetDataDir(), "cf_tunnel.json")
+	return RegisterOrFetchTunnelWithOptions(ctx, workerURL, inviteCode, RegisterOptions{
+		ClientVersion: GetClientVersion(),
+		Capabilities:  SupportedCapabilities(),
+	})
+}
 
-	// 1. Try reading from cache
-	if data, err := os.ReadFile(cachePath); err == nil {
-		var cached CFTunnelResult
-		if err := json.Unmarshal(data, &cached); err == nil && cached.Token != "" && cached.URL != "" {
-			cached.Reused = true
-			return &cached, nil
+// RegisterOrFetchTunnelWithOptions requests a permanent tunnel from the dispatcher with explicit client metadata.
+func RegisterOrFetchTunnelWithOptions(ctx context.Context, workerURL, inviteCode string, opts RegisterOptions) (*CFTunnelResult, error) {
+	cachePath := filepath.Join(config.GetDataDir(), "cf_tunnel.json")
+	caps := opts.Capabilities
+	if len(caps) == 0 {
+		caps = SupportedCapabilities()
+	}
+
+	// 1. Try reading from cache (only reuse if its mode is supported by this build)
+	if !opts.SkipCache {
+		if data, err := os.ReadFile(cachePath); err == nil {
+			var cached CFTunnelResult
+			if err := json.Unmarshal(data, &cached); err == nil && cached.Token != "" && cached.URL != "" {
+				if hasCapability(caps, cached.EffectiveMode()) {
+					cached.Reused = true
+					return &cached, nil
+				}
+			}
 		}
 	}
 
@@ -787,10 +829,14 @@ func RegisterOrFetchTunnel(ctx context.Context, workerURL, inviteCode string) (*
 	}
 
 	machineID := GetStableMachineID()
-	reqBody := map[string]string{
-		"machine_id":  machineID,
-		"platform":    fmt.Sprintf("%s-%s", runtime.GOOS, runtime.GOARCH),
-		"invite_code": inviteCode,
+	reqBody := map[string]any{
+		"machine_id":   machineID,
+		"platform":     fmt.Sprintf("%s-%s", runtime.GOOS, runtime.GOARCH),
+		"invite_code":  inviteCode,
+		"capabilities": caps,
+	}
+	if ver := strings.TrimSpace(opts.ClientVersion); ver != "" {
+		reqBody["client_version"] = ver
 	}
 	bodyBytes, _ := json.Marshal(reqBody)
 
@@ -825,12 +871,31 @@ func RegisterOrFetchTunnel(ctx context.Context, workerURL, inviteCode string) (*
 		return nil, fmt.Errorf("parse worker response: %w", err)
 	}
 
+	if len(result.RelayNodes) > 0 {
+		first := result.RelayNodes[0]
+		if result.Token == "" {
+			result.Token = first.Token
+		}
+		if result.URL == "" {
+			result.URL = first.URL
+		}
+		if result.Subdomain == "" {
+			result.Subdomain = first.Subdomain
+		}
+		if result.RelayEndpoint == "" {
+			result.RelayEndpoint = first.Endpoint
+		}
+	}
+
 	if result.Token == "" || result.URL == "" {
 		return nil, fmt.Errorf("invalid worker response, missing token/url: %s", string(respData))
 	}
+	result.Mode = result.EffectiveMode()
 
-	// 2. Cache result locally
-	_ = os.WriteFile(cachePath, respData, 0600)
+	// 2. Cache result locally (unless SkipCache is set for dual-track or pool refresh calls)
+	if !opts.SkipCache {
+		_ = os.WriteFile(cachePath, respData, 0600)
+	}
 	return &result, nil
 }
 

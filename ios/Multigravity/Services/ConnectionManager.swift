@@ -212,6 +212,29 @@ public final class ConnectionManager {
         if let plat = reachable.first(where: { $0.platform != nil && !$0.platform!.isEmpty })?.platform {
             settings.gatewayPlatform = plat
         }
+
+        // Silent legacy-to-E2EE key negotiation for pre-1.2.5 paired devices (zero user interaction)
+        if settings.isPaired && !E2EECrypto.shared.isReady, let reachableBase = reachable.first?.urlString {
+            Task {
+                await E2EECrypto.shared.silentUpgradeIfNeeded(reachableBaseURL: reachableBase)
+            }
+        }
+
+        // Stateless multi-VPS pool auto-discovery: if all known endpoints are unreachable (e.g. gateway failed over
+        // or migrated to a newly added VPS in RELAY_POOL), probe /api/relay/pool and re-lock automatically.
+        if reachable.isEmpty && settings.isPaired && E2EECrypto.shared.isReady,
+           let currentCloud = settings.primaryCloudURL, !currentCloud.isEmpty {
+            if let migratedURL = await RelayPoolResolver.shared.resolveReachableCloudURL(currentCloudURL: currentCloud) {
+                settings.primaryCloudURL = migratedURL
+                settings.syncWidgetConfiguration(reloadWidget: false)
+                let oldActive = settings.activeServerURL
+                settings.activeServerURL = migratedURL
+                if oldActive != migratedURL {
+                    NotificationCenter.default.post(name: .networkRoutingPreferenceChanged, object: nil)
+                }
+                return migratedURL
+            }
+        }
         
         // Self-heal: If primaryCloudURL is missing, discover it from /api/v1/auth/endpoints on reachable gateway
         if settings.primaryCloudURL == nil {
@@ -220,16 +243,24 @@ public final class ConnectionManager {
                 if let probeURL = URL(string: "\(cleanBase)/api/v1/auth/endpoints") {
                     var req = URLRequest(url: probeURL)
                     req.timeoutInterval = 3.0
+                    if let token = settings.deviceToken?.trimmingCharacters(in: .whitespacesAndNewlines), !token.isEmpty {
+                        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+                    }
                     if let (data, resp) = try? await NetworkTransport.shared.send(request: req),
                        let http = resp as? HTTPURLResponse, http.statusCode == 200,
                        let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                        let eps = json["endpoints"] as? [[String: Any]] {
                         for item in eps {
-                            if let type = item["type"] as? String, type.lowercased() == "cloudflare",
-                               let epUrl = item["url"] as? String,
-                               NetworkTransport.isValidAdvertisedCloudURL(epUrl) {
-                                settings.primaryCloudURL = epUrl
-                                break
+                            if let type = item["type"] as? String,
+                               (type.lowercased() == "cloudflare" || type.lowercased() == "relay"),
+                               let rawUrl = item["url"] as? String {
+                                let epUrl = rawUrl.trimmingCharacters(in: .whitespacesAndNewlines)
+                                    .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+                                if NetworkTransport.isValidAdvertisedCloudURL(epUrl) {
+                                    settings.primaryCloudURL = epUrl
+                                    settings.syncWidgetConfiguration(reloadWidget: false)
+                                    break
+                                }
                             }
                         }
                     }

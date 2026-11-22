@@ -177,7 +177,7 @@ class ConversationEventsClient(
         val opened = java.util.concurrent.atomic.AtomicBoolean(false)
         val openedAtMs = java.util.concurrent.atomic.AtomicLong(0L)
         val receivedValidFrame = java.util.concurrent.atomic.AtomicBoolean(false)
-        val ws = client.newWebSocket(builder.build(), object : WebSocketListener() {
+        val ws = E2eeWebSocketHelper.openWebSocket(client, builder.build(), prefs, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 opened.set(true)
                 openedAtMs.set(System.currentTimeMillis())

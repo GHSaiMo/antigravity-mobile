@@ -8,3 +8,5 @@ require (
 )
 
 require github.com/pires/go-proxyproto v0.7.0
+
+require github.com/hashicorp/yamux v0.1.2

@@ -127,7 +127,7 @@ class StreamWebSocketClient(
 
         val request = requestBuilder.build()
 
-        webSocket = client.newWebSocket(request, object : WebSocketListener() {
+        webSocket = E2eeWebSocketHelper.openWebSocket(client, request, prefs, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 Log.d("StreamWS", "Connected to cascade stream: $cascadeId")
                 openedAtMs = System.currentTimeMillis()

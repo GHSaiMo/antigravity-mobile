@@ -1,12 +1,13 @@
 package auth
 
 import (
-	"log/slog"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net"
 	"os"
 	"path/filepath"
@@ -32,6 +33,11 @@ type PairedDevice struct {
 	// DeviceKey is a client-generated stable identifier (browser localStorage / app keychain).
 	// Re-pairing with the same key replaces the existing device instead of adding a duplicate.
 	DeviceKey string `json:"device_key,omitempty"`
+	// E2EEKeyB64 holds the base64url-encoded 32-byte per-device AES-256-GCM key for zero-knowledge relay transport.
+	// Redacted by ListDevices() before any external API response.
+	E2EEKeyB64 string `json:"e2ee_key_b64,omitempty"`
+	// E2EEReady indicates this device has negotiated an E2EE session key and can safely use relay_v1.
+	E2EEReady bool `json:"e2ee_ready,omitempty"`
 }
 
 // lastSeenUpdate is a lightweight event sent to the AuthStore's background worker.
@@ -597,10 +603,58 @@ func (s *AuthStore) ListDevices() []PairedDevice {
 	result := make([]PairedDevice, 0, len(s.devices))
 	for _, dev := range s.devices {
 		d := dev
-		d.TokenHash = "" // hide hash from external listing
+		d.TokenHash = ""  // hide hash from external listing
+		d.E2EEKeyB64 = "" // never leak E2EE session key in API listings
 		result = append(result, d)
 	}
 	return result
+}
+
+// SetDeviceE2EEKey stores a device's 32-byte AES-256-GCM E2EE key and marks the device E2EE-ready.
+func (s *AuthStore) SetDeviceE2EEKey(deviceID string, key []byte) error {
+	if len(key) != 32 {
+		return fmt.Errorf("invalid E2EE key length: %d", len(key))
+	}
+	s.mu.Lock()
+	dev, ok := s.devices[deviceID]
+	if !ok {
+		s.mu.Unlock()
+		return fmt.Errorf("device not found: %s", deviceID)
+	}
+	dev.E2EEKeyB64 = base64.RawURLEncoding.EncodeToString(key)
+	dev.E2EEReady = true
+	s.devices[deviceID] = dev
+	snap, seq := s.snapshotLocked()
+	s.mu.Unlock()
+	return s.persistSnapshot(snap, seq)
+}
+
+// GetDeviceE2EEKey returns a copy of the 32-byte AES-256-GCM key for deviceID, if configured.
+func (s *AuthStore) GetDeviceE2EEKey(deviceID string) ([]byte, bool) {
+	s.mu.RLock()
+	dev, ok := s.devices[deviceID]
+	s.mu.RUnlock()
+	if !ok || !dev.E2EEReady || dev.E2EEKeyB64 == "" {
+		return nil, false
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(dev.E2EEKeyB64)
+	if err != nil || len(raw) != 32 {
+		return nil, false
+	}
+	return raw, true
+}
+
+// HasLegacyNonE2EEDevices reports whether there is at least one paired device that has not yet upgraded to E2EE.
+// Brand-new gateways (0 paired devices) return false so they can start directly on E2EE relay_v1.
+func (s *AuthStore) HasLegacyNonE2EEDevices() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, dev := range s.devices {
+		if !dev.E2EEReady {
+			return true
+		}
+	}
+	return false
 }
 
 // RemoveDevice removes a device by device_id.

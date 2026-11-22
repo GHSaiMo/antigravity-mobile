@@ -1,6 +1,8 @@
 package auth
 
 import (
+	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -12,6 +14,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"antigravity-mobile/internal/e2ee"
 )
 
 func TestPairingManager_GenerateAndConsume(t *testing.T) {
@@ -556,6 +560,192 @@ func TestAuthHandler_HandleEndpoints_Security(t *testing.T) {
 			t.Errorf("expected 429 Too Many Requests after 60 requests, got %d on attempt %d", rr.Code, i+1)
 			break
 		}
+	}
+}
+
+func TestAuthHandler_SetCloudEndpoint_RelayMode(t *testing.T) {
+	store, _ := NewAuthStore(t.TempDir() + "/auth.json")
+	pm := NewPairingManager()
+	h := NewAuthHandler(store, pm, "192.168.1.100", 58900, false)
+	h.SetEndpoints("192.168.1.100", "")
+	h.SetCloudEndpoint("https://abcd1234.ap.jiuge.space", "relay_v1")
+
+	if got := h.CloudURL(); got != "https://abcd1234.ap.jiuge.space" {
+		t.Fatalf("expected CloudURL https://abcd1234.ap.jiuge.space, got %q", got)
+	}
+
+	eps := h.GetEndpoints()
+	if len(eps) < 1 || eps[0].Type != "relay" || eps[0].URL != "https://abcd1234.ap.jiuge.space" {
+		t.Fatalf("expected primary relay endpoint, got %+v", eps)
+	}
+
+	token := "test-relay-device-token-0123456789abcdef"
+	_ = store.AddDevice(PairedDevice{
+		DeviceID:  "dev-relay-1",
+		TokenHash: HashToken(token),
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/endpoints", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	h.HandleEndpoints(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	if got := rr.Header().Get("X-Antigravity-Cloud-URL"); got != "https://abcd1234.ap.jiuge.space" {
+		t.Errorf("expected X-Antigravity-Cloud-URL header for relay mode, got %q", got)
+	}
+}
+
+func TestAuthHandler_E2EEUpgradeAndDualTrackMigration(t *testing.T) {
+	store, err := NewAuthStore(t.TempDir() + "/auth.json")
+	if err != nil {
+		t.Fatalf("NewAuthStore: %v", err)
+	}
+	defer store.Close()
+
+	gwID, err := e2ee.GenerateIdentity()
+	if err != nil {
+		t.Fatalf("GenerateIdentity: %v", err)
+	}
+	clientID, err := e2ee.GenerateIdentity()
+	if err != nil {
+		t.Fatalf("GenerateIdentity client: %v", err)
+	}
+
+	pm := NewPairingManager()
+	h := NewAuthHandler(store, pm, "192.168.1.100", 58900, false)
+	defer h.Close()
+	h.SetE2EEIdentity(gwID)
+	h.SetCloudEndpoint("https://legacy123.jiuge.space", "cloudflare")
+	h.SetDualTrackRelayURL("https://r-a1b2c3d4.jiuge.space")
+
+	legacyTok := "legacy-device-token-0123456789abcdef"
+	_ = store.AddDevice(PairedDevice{
+		DeviceID:  "dev-legacy-1",
+		TokenHash: HashToken(legacyTok),
+	})
+
+	// Before upgrade: legacy device receives legacy CF URL, NOT relay URL (protects old Apps from HTTP 426)
+	reqBefore := httptest.NewRequest(http.MethodGet, "/api/v1/auth/endpoints", nil)
+	reqBefore.Header.Set("Authorization", "Bearer "+legacyTok)
+	if got := h.CloudURLForRequest(reqBefore); got != "https://legacy123.jiuge.space" {
+		t.Fatalf("expected legacy CF URL before upgrade, got %q", got)
+	}
+	if !store.HasLegacyNonE2EEDevices() {
+		t.Fatalf("expected HasLegacyNonE2EEDevices() == true before upgrade")
+	}
+
+	// Listen for all-upgraded callback
+	allUpgradedCh := make(chan bool, 1)
+	h.SetOnDeviceE2EEUpgraded(func(all bool) {
+		allUpgradedCh <- all
+	})
+
+	// Perform silent E2EE upgrade via POST /api/v1/auth/e2ee/upgrade
+	upBody, _ := json.Marshal(map[string]string{"client_pub": clientID.PublicKeyB64()})
+	upReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/e2ee/upgrade", bytes.NewReader(upBody))
+	upReq.Header.Set("Authorization", "Bearer "+legacyTok)
+	upRR := httptest.NewRecorder()
+	AuthMiddleware(store, http.HandlerFunc(h.HandleE2EEUpgrade)).ServeHTTP(upRR, upReq)
+	if upRR.Code != http.StatusOK {
+		t.Fatalf("HandleE2EEUpgrade status = %d, body = %s", upRR.Code, upRR.Body.String())
+	}
+
+	var upResp struct {
+		DeviceID   string `json:"device_id"`
+		GatewayPub string `json:"gateway_pub"`
+		E2EESalt   string `json:"e2ee_salt"`
+		CloudURL   string `json:"cloud_url"`
+	}
+	if err := json.Unmarshal(upRR.Body.Bytes(), &upResp); err != nil {
+		t.Fatalf("decode upgrade response: %v", err)
+	}
+	if upResp.DeviceID != "dev-legacy-1" || upResp.CloudURL != "https://r-a1b2c3d4.jiuge.space" {
+		t.Fatalf("unexpected upgrade response: %+v", upResp)
+	}
+
+	// Verify client derives the exact same 32-byte key persisted on the gateway
+	shared, err := clientID.ECDH(upResp.GatewayPub)
+	if err != nil {
+		t.Fatalf("client ECDH: %v", err)
+	}
+	salt, err := base64.RawURLEncoding.DecodeString(upResp.E2EESalt)
+	if err != nil {
+		t.Fatalf("decode salt: %v", err)
+	}
+	clientKey := e2ee.DeriveDeviceKey(shared, salt, upResp.DeviceID)
+	gwKey, ok := store.GetDeviceE2EEKey(upResp.DeviceID)
+	if !ok || !bytes.Equal(clientKey, gwKey) {
+		t.Fatalf("derived client E2EE key does not match stored gateway key")
+	}
+
+	// Verify E2EEKeyB64 is redacted in ListDevices()
+	for _, d := range store.ListDevices() {
+		if d.E2EEKeyB64 != "" {
+			t.Fatalf("expected E2EEKeyB64 to be redacted in ListDevices()")
+		}
+	}
+
+	// Verify callback fired with allUpgraded == true
+	select {
+	case all := <-allUpgradedCh:
+		if !all {
+			t.Fatalf("expected allUpgraded == true")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatalf("timed out waiting for onDeviceE2EEUpgraded callback")
+	}
+
+	// After upgrade: same device now receives relay URL
+	reqAfter := httptest.NewRequest(http.MethodGet, "/api/v1/auth/endpoints", nil)
+	reqAfter.Header.Set("Authorization", "Bearer "+legacyTok)
+	if got := h.CloudURLForRequest(reqAfter); got != "https://r-a1b2c3d4.jiuge.space" {
+		t.Fatalf("expected dual-track relay URL after upgrade, got %q", got)
+	}
+}
+
+func TestAuthHandler_PairFromEncryptedPayload(t *testing.T) {
+	store, err := NewAuthStore(t.TempDir() + "/auth.json")
+	if err != nil {
+		t.Fatalf("NewAuthStore: %v", err)
+	}
+	defer store.Close()
+
+	gwID, _ := e2ee.GenerateIdentity()
+	clientID, _ := e2ee.GenerateIdentity()
+
+	pm := NewPairingManager()
+	sess, _ := pm.GenerateSession(5 * time.Minute)
+	h := NewAuthHandler(store, pm, "192.168.1.100", 58900, false)
+	defer h.Close()
+	h.SetE2EEIdentity(gwID)
+	h.SetCloudEndpoint("https://r-11223344.jiuge.space", "relay_v1")
+
+	rawPair, _ := json.Marshal(PairRequest{
+		PairingCode: sess.Code,
+		DeviceName:  "iPhone 18 Pro",
+		Platform:    "ios",
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/e2ee/pair", nil)
+	respJSON, devID, status, err := h.PairFromEncryptedPayload(rawPair, clientID.PublicKeyB64(), req)
+	if err != nil || status != http.StatusOK || devID == "" {
+		t.Fatalf("PairFromEncryptedPayload failed: status=%d devID=%q err=%v body=%s", status, devID, err, string(respJSON))
+	}
+
+	var pr PairResponse
+	if err := json.Unmarshal(respJSON, &pr); err != nil {
+		t.Fatalf("unmarshal PairResponse: %v", err)
+	}
+	if pr.E2EEGatewayPub != gwID.PublicKeyB64() || pr.E2EESalt == "" {
+		t.Fatalf("expected E2EE fields in PairResponse, got %+v", pr)
+	}
+	shared, _ := clientID.ECDH(pr.E2EEGatewayPub)
+	salt, _ := base64.RawURLEncoding.DecodeString(pr.E2EESalt)
+	clientKey := e2ee.DeriveDeviceKey(shared, salt, pr.DeviceID)
+	gwKey, ok := store.GetDeviceE2EEKey(pr.DeviceID)
+	if !ok || !bytes.Equal(clientKey, gwKey) {
+		t.Fatalf("paired E2EE key mismatch between client and gateway")
 	}
 }
 

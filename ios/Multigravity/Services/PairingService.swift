@@ -12,6 +12,7 @@ public struct PairingInfo: Equatable, Sendable {
     public let relayHost: String?
     public let os: String?
     public let platform: String?
+    public let e2eePubKey: String?
     
     public init(
         host: String,
@@ -22,7 +23,8 @@ public struct PairingInfo: Equatable, Sendable {
         ddnsHost: String? = nil,
         relayHost: String? = nil,
         os: String? = nil,
-        platform: String? = nil
+        platform: String? = nil,
+        e2eePubKey: String? = nil
     ) {
         self.host = host
         self.port = port
@@ -33,6 +35,8 @@ public struct PairingInfo: Equatable, Sendable {
         self.relayHost = Self.normalizeHost(relayHost)
         self.os = os
         self.platform = platform
+        let trimmedPK = e2eePubKey?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.e2eePubKey = (trimmedPK?.isEmpty == false) ? trimmedPK : nil
     }
     
     public var gatewayDisplayName: String {
@@ -152,6 +156,7 @@ public final class PairingService: Sendable {
         var relayHost: String?
         var os: String?
         var platform: String?
+        var e2eePubKey: String?
         
         for item in queryItems {
             switch item.name.lowercased() {
@@ -177,6 +182,8 @@ public final class PairingService: Sendable {
                 os = item.value
             case "platform":
                 platform = item.value
+            case "pk":
+                e2eePubKey = item.value
             default:
                 break
             }
@@ -212,7 +219,8 @@ public final class PairingService: Sendable {
             ddnsHost: ddnsHost,
             relayHost: validRelay,
             os: os,
-            platform: platform
+            platform: platform,
+            e2eePubKey: e2eePubKey
         ))
     }
     
@@ -233,10 +241,12 @@ public final class PairingService: Sendable {
         }
         
         let deviceName = await MainActor.run { UIDevice.current.name }
+        let (ephemPriv, clientPubB64) = E2EECrypto.generateEphemeralKeyPair()
         let payload: [String: Any] = [
             "pairing_code": info.code,
             "device_name": deviceName,
-            "platform": "ios"
+            "platform": "ios",
+            "e2ee_pub": clientPubB64
         ]
         
         let bodyData: Data
@@ -257,34 +267,66 @@ public final class PairingService: Sendable {
             let endpoints: [EndpointResp]?
             let os: String?
             let platform: String?
+            let e2ee_gateway_pub: String?
+            let e2ee_salt: String?
+            let relay_cloud_url: String?
         }
         
         var lastError: Error?
         
         for baseURL in candidates {
-            guard let endpointURL = URL(string: "\(baseURL)/api/v1/auth/pair") else {
+            let candHost = URL(string: baseURL)?.host ?? ""
+            let useEncryptedPair = (info.e2eePubKey != nil) && !NetworkTransport.isLocalOrPrivateHost(candHost)
+            let pairPath = useEncryptedPair ? "/api/v1/e2ee/pair" : "/api/v1/auth/pair"
+            guard let endpointURL = URL(string: "\(baseURL)\(pairPath)") else {
                 continue
             }
             
             var request = URLRequest(url: endpointURL)
             request.httpMethod = "POST"
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.timeoutInterval = 6 // Fast timeout per candidate
-            request.httpBody = bodyData
+            request.timeoutInterval = 8 // Fast timeout per candidate
+
+            var activePairPriv = ephemPriv
+            var activeClientPub = clientPubB64
+            if useEncryptedPair, let gwPub = info.e2eePubKey {
+                let enc = try E2EECrypto.shared.encryptPairRequest(pairBody: bodyData, gatewayPubB64: gwPub)
+                activePairPriv = enc.privateKey
+                activeClientPub = enc.clientPubB64
+                request.httpBody = enc.envelopeBody
+            } else {
+                request.httpBody = bodyData
+            }
             
             do {
-                let (data, response) = try await NetworkTransport.shared.send(request: request)
+                let (rawData, response) = try await NetworkTransport.shared.send(request: request)
                 
                 guard let httpResponse = response as? HTTPURLResponse else {
                     continue
                 }
                 
-                if httpResponse.statusCode != 200 {
+                let effectiveStatus: Int
+                let data: Data
+                if useEncryptedPair, httpResponse.statusCode == 200, let gwPub = info.e2eePubKey {
+                    let dec = try E2EECrypto.shared.decryptPairResponse(
+                        outerData: rawData,
+                        privateKey: activePairPriv,
+                        clientPubB64: activeClientPub,
+                        gatewayPubB64: gwPub
+                    )
+                    effectiveStatus = dec.status
+                    data = dec.body
+                } else {
+                    effectiveStatus = httpResponse.statusCode
+                    data = rawData
+                }
+
+                if effectiveStatus != 200 {
                     if let errObj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                        let errMsg = errObj["error"] as? String {
                         throw PairingError.serverRejected(errMsg)
                     }
-                    throw PairingError.serverRejected("HTTP \(httpResponse.statusCode)")
+                    throw PairingError.serverRejected("HTTP \(effectiveStatus)")
                 }
                 
                 let decoded = try JSONDecoder().decode(PairResp.self, from: data)
@@ -292,6 +334,15 @@ public final class PairingService: Sendable {
                 // Persist to Keychain
                 KeychainHelper.shared.save(key: .deviceToken, value: decoded.device_token)
                 KeychainHelper.shared.save(key: .deviceID, value: decoded.device_id)
+                if let gwPub = decoded.e2ee_gateway_pub, !gwPub.isEmpty,
+                   let saltB64 = decoded.e2ee_salt, !saltB64.isEmpty {
+                    _ = try? E2EECrypto.shared.deriveAndSaveDeviceKey(
+                        privateKey: activePairPriv,
+                        gatewayPubB64: gwPub,
+                        saltB64: saltB64,
+                        deviceID: decoded.device_id
+                    )
+                }
                 
                 // Update AppSettings endpoints on MainActor
                 await MainActor.run {
@@ -308,7 +359,7 @@ public final class PairingService: Sendable {
                     
                     if let eps = decoded.endpoints {
                         for ep in eps {
-                            guard Self.isTrustedEndpoint(ep.url, pairing: info, usedBase: baseURL) else {
+                            guard Self.isTrustedEndpoint(ep.url, pairing: info, usedBase: baseURL) || (useEncryptedPair && NetworkTransport.isValidAdvertisedCloudURL(ep.url, trustedByE2EE: true)) else {
                                 continue
                             }
                             switch ep.type.lowercased() {
@@ -316,9 +367,14 @@ public final class PairingService: Sendable {
                                 lanURL = ep.url
                             case "relay":
                                 relayURL = ep.url
-                                if cloudURL == nil { cloudURL = ep.url }
-                            case "cloudflare":
                                 cloudURL = ep.url
+                                if let rHost = URL(string: ep.url)?.host {
+                                    E2EECrypto.shared.markHostRequiresE2EE(rHost)
+                                }
+                            case "cloudflare":
+                                if cloudURL == nil || relayURL == nil {
+                                    cloudURL = ep.url
+                                }
                             case "primary":
                                 let h = URL(string: ep.url)?.host ?? ""
                                 if NetworkTransport.isLocalOrPrivateHost(h) {
@@ -329,6 +385,17 @@ public final class PairingService: Sendable {
                             default:
                                 break
                             }
+                        }
+                    }
+
+                    if let dualRelay = decoded.relay_cloud_url?.trimmingCharacters(in: .whitespacesAndNewlines),
+                       !dualRelay.isEmpty,
+                       E2EECrypto.shared.isReady,
+                       NetworkTransport.isValidAdvertisedCloudURL(dualRelay, trustedByE2EE: true) {
+                        relayURL = dualRelay
+                        cloudURL = dualRelay
+                        if let rHost = URL(string: dualRelay)?.host {
+                            E2EECrypto.shared.markHostRequiresE2EE(rHost)
                         }
                     }
                     
@@ -349,6 +416,7 @@ public final class PairingService: Sendable {
                         active: baseURL,
                         primaryCloud: cloudURL
                     )
+                    AppSettings.shared.syncWidgetConfiguration(reloadWidget: false)
                     ActivityManager.shared.startRemoteTokenObservers()
                     PushNotificationManager.shared.syncAllTokensIfPaired(force: true)
                     Task {

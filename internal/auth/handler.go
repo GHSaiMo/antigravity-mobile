@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -10,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"antigravity-mobile/internal/e2ee"
 )
 
 const jsonBodyReadTimeout = 30 * time.Second
@@ -27,38 +30,46 @@ type PairRequest struct {
 	DeviceName  string `json:"device_name"`
 	Platform    string `json:"platform"`
 	DeviceKey   string `json:"device_key,omitempty"`
+	E2EEPubKey  string `json:"e2ee_pub,omitempty"`
 }
 
 // EndpointInfo represents an accessible network endpoint of the gateway.
 type EndpointInfo struct {
-	Type string `json:"type"` // "lan", "ddns", "primary"
+	Type string `json:"type"` // "lan", "ddns", "primary", "cloudflare", "relay"
 	URL  string `json:"url"`  // e.g. "http://192.168.1.50:58900"
 }
 
 // PairResponse is the response returned upon successful pairing.
 type PairResponse struct {
-	DeviceID    string         `json:"device_id"`
-	DeviceToken string         `json:"device_token"`
-	Endpoints   []EndpointInfo `json:"endpoints,omitempty"`
-	OS          string         `json:"os,omitempty"`
-	Platform    string         `json:"platform,omitempty"`
+	DeviceID       string         `json:"device_id"`
+	DeviceToken    string         `json:"device_token"`
+	Endpoints      []EndpointInfo `json:"endpoints,omitempty"`
+	OS             string         `json:"os,omitempty"`
+	Platform       string         `json:"platform,omitempty"`
+	E2EEGatewayPub string         `json:"e2ee_gateway_pub,omitempty"`
+	E2EESalt       string         `json:"e2ee_salt,omitempty"`
+	RelayCloudURL  string         `json:"relay_cloud_url,omitempty"`
 }
 
 // AuthHandler handles authentication and device management routes.
 type AuthHandler struct {
-	mu              sync.RWMutex
-	store           *AuthStore
-	pairingMgr      *PairingManager
-	host            string
-	port            int
-	ssl             bool
-	lanHost         string
-	ddnsHost        string
-	relayURL        string
-	cfURL           string
-	policy          AuthPolicy
-	limiter         *RateLimiter // unauthenticated & admin IP rate limiter (endpoints, pair, session)
-	wsTicketLimiter *RateLimiter // isolated limiter for authenticated /api/v1/auth/ws-ticket
+	mu                   sync.RWMutex
+	store                *AuthStore
+	pairingMgr           *PairingManager
+	host                 string
+	port                 int
+	ssl                  bool
+	lanHost              string
+	ddnsHost             string
+	relayURL             string
+	cfURL                string
+	cloudMode            string // "cloudflare" (default) | "relay_v1" | "relay"
+	relayCloudURL        string // Dual-track E2EE relay URL when running alongside legacy CF tunnel
+	e2eeIdentity         *e2ee.Identity
+	onDeviceE2EEUpgraded func(allUpgraded bool)
+	policy               AuthPolicy
+	limiter              *RateLimiter // unauthenticated & admin IP rate limiter (endpoints, pair, session)
+	wsTicketLimiter      *RateLimiter // isolated limiter for authenticated /api/v1/auth/ws-ticket
 }
 
 // NewAuthHandler creates a new AuthHandler.
@@ -113,9 +124,67 @@ func (h *AuthHandler) SetPrimary(host string, port int, ssl bool) {
 
 // SetCloudflareURL sets the Cloudflare Tunnel HTTPS endpoint URL for pairing responses.
 func (h *AuthHandler) SetCloudflareURL(cfURL string) {
+	h.SetCloudEndpoint(cfURL, "cloudflare")
+}
+
+// SetCloudEndpoint sets the active managed cloud tunnel HTTPS endpoint URL and transport mode ("cloudflare" | "relay_v1").
+func (h *AuthHandler) SetCloudEndpoint(cloudURL, mode string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.cfURL = strings.TrimSpace(cfURL)
+	h.cfURL = strings.TrimSpace(cloudURL)
+	m := strings.ToLower(strings.TrimSpace(mode))
+	if m == "" {
+		m = "cloudflare"
+	}
+	h.cloudMode = m
+}
+
+// SetE2EEIdentity attaches the gateway's persistent P-256 ECDH identity for E2EE pairing and upgrades.
+func (h *AuthHandler) SetE2EEIdentity(id *e2ee.Identity) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.e2eeIdentity = id
+}
+
+// E2EEIdentity returns the configured E2EE identity, if any.
+func (h *AuthHandler) E2EEIdentity() *e2ee.Identity {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.e2eeIdentity
+}
+
+// E2EEPubKey returns the gateway's Base64URL P-256 public key, or "" if E2EE is not configured.
+func (h *AuthHandler) E2EEPubKey() string {
+	h.mu.RLock()
+	id := h.e2eeIdentity
+	h.mu.RUnlock()
+	if id == nil {
+		return ""
+	}
+	return id.PublicKeyB64()
+}
+
+// SetDualTrackRelayURL registers an E2EE relay_v1 HTTPS URL running in parallel with a legacy Cloudflare Tunnel.
+// Only E2EE-ready devices receive this URL; legacy un-upgraded clients keep receiving the legacy Cloudflare URL.
+func (h *AuthHandler) SetDualTrackRelayURL(u string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.relayCloudURL = strings.TrimSpace(u)
+}
+
+// DualTrackRelayURL returns the active parallel relay_v1 URL, if running in dual-track migration mode.
+func (h *AuthHandler) DualTrackRelayURL() string {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.relayCloudURL
+}
+
+// SetOnDeviceE2EEUpgraded registers a callback fired whenever a paired device completes E2EE key negotiation.
+// allUpgraded is true when zero legacy non-E2EE paired devices remain in AuthStore.
+func (h *AuthHandler) SetOnDeviceE2EEUpgraded(fn func(allUpgraded bool)) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.onDeviceE2EEUpgraded = fn
 }
 
 // CloudflareURL returns the configured Cloudflare Tunnel HTTPS endpoint URL.
@@ -123,6 +192,52 @@ func (h *AuthHandler) CloudflareURL() string {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	return h.cfURL
+}
+
+// CloudURL returns the active public HTTPS tunnel URL (managed Cloudflare or relay endpoint)
+// for X-Antigravity-Cloud-URL advertisement and external access redaction.
+func (h *AuthHandler) CloudURL() string {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	if h.cfURL != "" {
+		return h.cfURL
+	}
+	if strings.HasPrefix(strings.ToLower(h.relayURL), "https://") {
+		return h.relayURL
+	}
+	return ""
+}
+
+// requestDeviceE2EEReady reports whether the authenticated caller has negotiated an E2EE session key.
+func (h *AuthHandler) requestDeviceE2EEReady(r *http.Request) bool {
+	if r == nil {
+		return false
+	}
+	if e2ee.IsRelayTransport(r.Context()) {
+		return true
+	}
+	if dev, ok := DeviceFromContext(r.Context()); ok && dev != nil && dev.E2EEReady {
+		return true
+	}
+	if token := ExtractToken(r); token != "" && h.store != nil {
+		if dev, ok := h.store.ValidateToken(token); ok && dev != nil && dev.E2EEReady {
+			return true
+		}
+	}
+	return false
+}
+
+// CloudURLForRequest returns the appropriate managed HTTPS tunnel URL for r.
+// In dual-track mode (legacy CF + parallel E2EE relay), E2EE-ready devices receive the relay_v1 URL
+// while un-upgraded legacy clients continue receiving the legacy Cloudflare URL so they never hit HTTP 426.
+func (h *AuthHandler) CloudURLForRequest(r *http.Request) string {
+	h.mu.RLock()
+	dualRelay := h.relayCloudURL
+	h.mu.RUnlock()
+	if dualRelay != "" && h.requestDeviceE2EEReady(r) {
+		return dualRelay
+	}
+	return h.CloudURL()
 }
 
 // relayHost extracts the hostname from the configured cloud relay URL.
@@ -165,8 +280,14 @@ func (h *AuthHandler) getPolicy() AuthPolicy {
 	return h.policy
 }
 
-// GetEndpoints returns candidate endpoint URLs for clients.
+// GetEndpoints returns candidate endpoint URLs for legacy or unauthenticated clients.
 func (h *AuthHandler) GetEndpoints() []EndpointInfo {
+	return h.GetEndpointsForDevice(false)
+}
+
+// GetEndpointsForDevice returns candidate endpoint URLs tailored to the client's E2EE readiness.
+// When dual-track relay_v1 is active, E2EE-ready devices receive the relay_v1 endpoint first.
+func (h *AuthHandler) GetEndpointsForDevice(e2eeReady bool) []EndpointInfo {
 	h.mu.RLock()
 	host := h.host
 	port := h.port
@@ -175,7 +296,14 @@ func (h *AuthHandler) GetEndpoints() []EndpointInfo {
 	ddnsHost := h.ddnsHost
 	relayURL := h.relayURL
 	cfURL := h.cfURL
+	cloudMode := h.cloudMode
+	dualRelayURL := h.relayCloudURL
 	h.mu.RUnlock()
+
+	if e2eeReady && dualRelayURL != "" {
+		cfURL = dualRelayURL
+		cloudMode = "relay_v1"
+	}
 
 	var endpoints []EndpointInfo
 	scheme := "http://"
@@ -183,10 +311,14 @@ func (h *AuthHandler) GetEndpoints() []EndpointInfo {
 		scheme = "https://"
 	}
 
-	// 1. Cloudflare Tunnel (Assigned HTTPS domain) - Top Priority
+	// 1. Managed Cloud Tunnel (Cloudflare or future relay_v1 HTTPS domain) - Top Priority
 	if cfURL != "" {
+		epType := "cloudflare"
+		if cloudMode == "relay_v1" || cloudMode == "relay" {
+			epType = "relay"
+		}
 		endpoints = append(endpoints, EndpointInfo{
-			Type: "cloudflare",
+			Type: epType,
 			URL:  cfURL,
 		})
 		lan := lanHost
@@ -288,16 +420,17 @@ func (h *AuthHandler) HandleEndpoints(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	authed := h.isAuthenticated(r)
-	cfURL := h.CloudflareURL()
-	if cfURL != "" && authed {
-		w.Header().Set("X-Antigravity-Cloud-URL", cfURL)
+	e2eeReady := h.requestDeviceE2EEReady(r)
+	cloudURL := h.CloudURLForRequest(r)
+	if cloudURL != "" && authed {
+		w.Header().Set("X-Antigravity-Cloud-URL", cloudURL)
 	}
 
-	allEndpoints := h.GetEndpoints()
+	allEndpoints := h.GetEndpointsForDevice(e2eeReady)
 	// SEC-AUDIT M-5: If the request comes from an external public IP (via proxy/tunnel)
 	// and caller is not authenticated, redact private LAN endpoints to avoid leaking internal topology.
 	isExternal := IsProxiedRequest(r)
-	if isExternal && cfURL != "" && !authed {
+	if isExternal && cloudURL != "" && !authed {
 		var safeEndpoints []EndpointInfo
 		for _, ep := range allEndpoints {
 			if ep.Type != "lan" {
@@ -384,42 +517,78 @@ func (h *AuthHandler) HandlePair(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	resp, status, errMsg, rateLimited := h.executePair(req, "", r)
+	if rateLimited {
+		w.Header().Set("Retry-After", "60")
+	}
+	if status != http.StatusOK {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		json.NewEncoder(w).Encode(map[string]string{"error": errMsg})
+		return
+	}
+
+	isSSL := requestIsHTTPS(r)
+	http.SetCookie(w, &http.Cookie{
+		Name:     DeviceCookieName,
+		Value:    resp.DeviceToken,
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		Secure:   isSSL,
+		MaxAge:   DefaultDeviceCookieMaxAge,
+	})
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(resp)
+}
+
+// PairFromEncryptedPayload serves as e2ee.Handler.PairDispatcher for `POST /api/v1/e2ee/pair`.
+// It runs the exact same rate limiting, pairing code validation, and device credential issuance
+// as HandlePair, while deriving the persistent per-device E2EE key directly from clientPubB64.
+func (h *AuthHandler) PairFromEncryptedPayload(rawBody []byte, clientPubB64 string, r *http.Request) ([]byte, string, int, error) {
+	var req PairRequest
+	if err := json.Unmarshal(rawBody, &req); err != nil {
+		errJSON, _ := json.Marshal(map[string]string{"error": "invalid json body"})
+		return errJSON, "", http.StatusBadRequest, nil
+	}
+	resp, status, errMsg, _ := h.executePair(req, clientPubB64, r)
+	if status != http.StatusOK {
+		errJSON, _ := json.Marshal(map[string]string{"error": errMsg})
+		return errJSON, "", status, nil
+	}
+	respJSON, err := json.Marshal(resp)
+	if err != nil {
+		return nil, "", http.StatusInternalServerError, err
+	}
+	return respJSON, resp.DeviceID, http.StatusOK, nil
+}
+
+func (h *AuthHandler) executePair(req PairRequest, envelopeClientPub string, r *http.Request) (PairResponse, int, string, bool) {
 	clientIP := ExtractClientIP(r)
 	rateKey := RateLimitKeyIP(clientIP)
 	if h.limiter != nil {
 		if !h.limiter.Allow("pair:global", 40, time.Minute) || !h.limiter.Allow("pair:"+rateKey, 8, time.Minute) {
 			auditWarn("RATE_LIMIT", "action", "pair", "ip", clientIP, "subnet", rateKey)
-			w.Header().Set("Retry-After", "60")
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusTooManyRequests)
-			json.NewEncoder(w).Encode(map[string]string{"error": "too many pairing attempts"})
-			return
+			return PairResponse{}, http.StatusTooManyRequests, "too many pairing attempts", true
 		}
 	}
 
 	req.PairingCode = strings.TrimSpace(req.PairingCode)
 	if req.PairingCode == "" {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "pairing_code is required"})
-		return
+		return PairResponse{}, http.StatusBadRequest, "pairing_code is required", false
 	}
 
 	// Validate and consume code immediately (prevent replay)
 	if !h.pairingMgr.ValidateAndConsume(req.PairingCode) {
 		auditWarn("PAIR_FAILURE", "reason", "invalid_or_expired_code", "ip", CleanIP(r.RemoteAddr))
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(map[string]string{"error": "invalid or expired pairing code"})
-		return
+		return PairResponse{}, http.StatusUnauthorized, "invalid or expired pairing code", false
 	}
 
 	deviceID, deviceToken, err := GenerateDeviceCredentials()
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "failed to generate credentials"})
-		return
+		return PairResponse{}, http.StatusInternalServerError, "failed to generate credentials", false
 	}
 
 	deviceName := strings.TrimSpace(req.DeviceName)
@@ -443,6 +612,7 @@ func (h *AuthHandler) HandlePair(w http.ResponseWriter, r *http.Request) {
 		deviceID = existing.DeviceID
 		createdAt = existing.CreatedAt
 	}
+
 	device := PairedDevice{
 		DeviceID:   deviceID,
 		DeviceName: deviceName,
@@ -454,32 +624,154 @@ func (h *AuthHandler) HandlePair(w http.ResponseWriter, r *http.Request) {
 		DeviceKey:  deviceKey,
 	}
 
+	resp := PairResponse{
+		DeviceID:    deviceID,
+		DeviceToken: deviceToken,
+		OS:          runtime.GOOS,
+		Platform:    runtime.GOOS,
+	}
+
+	// Negotiate persistent E2EE session key if client supplied its P-256 public key.
+	clientPub := strings.TrimSpace(envelopeClientPub)
+	if clientPub == "" {
+		clientPub = strings.TrimSpace(req.E2EEPubKey)
+	}
+	h.mu.RLock()
+	id := h.e2eeIdentity
+	dualRelayURL := h.relayCloudURL
+	upgradeCb := h.onDeviceE2EEUpgraded
+	h.mu.RUnlock()
+
+	if clientPub != "" && id != nil {
+		if shared, eErr := id.ECDH(clientPub); eErr == nil {
+			if salt, rErr := e2ee.RandomBytes(16); rErr == nil {
+				devE2EEKey := e2ee.DeriveDeviceKey(shared, salt, deviceID)
+				device.E2EEKeyB64 = base64.RawURLEncoding.EncodeToString(devE2EEKey)
+				device.E2EEReady = true
+				resp.E2EEGatewayPub = id.PublicKeyB64()
+				resp.E2EESalt = base64.RawURLEncoding.EncodeToString(salt)
+				if dualRelayURL != "" {
+					resp.RelayCloudURL = dualRelayURL
+				}
+			}
+		}
+	}
+
 	if err := h.store.AddDevice(device); err != nil {
+		return PairResponse{}, http.StatusInternalServerError, "failed to persist device", false
+	}
+
+	resp.Endpoints = h.GetEndpointsForDevice(device.E2EEReady)
+	if device.E2EEReady && upgradeCb != nil {
+		allUpgraded := !h.store.HasLegacyNonE2EEDevices()
+		go upgradeCb(allUpgraded)
+	}
+	return resp, http.StatusOK, "", false
+}
+
+// HandleE2EEUpgrade handles POST /api/v1/auth/e2ee/upgrade.
+// It allows an already-paired device upgrading to v1.2.5+ to negotiate its persistent
+// E2EE key silently over LAN or legacy Cloudflare Tunnel without re-scanning a QR code.
+func (h *AuthHandler) HandleE2EEUpgrade(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+		return
+	}
+	setJSONReadDeadline(w)
+
+	if BearerToken(r) == "" && !CookieWriteCSRFOK(r) {
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "failed to persist device"})
+		w.WriteHeader(http.StatusForbidden)
+		json.NewEncoder(w).Encode(map[string]string{"error": "forbidden: cross-origin request rejected"})
 		return
 	}
 
-	isSSL := requestIsHTTPS(r)
-	http.SetCookie(w, &http.Cookie{
-		Name:     DeviceCookieName,
-		Value:    deviceToken,
-		Path:     "/",
-		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
-		Secure:   isSSL,
-		MaxAge:   DefaultDeviceCookieMaxAge,
-	})
+	// Resolve real paired device: even on TrustLAN or localhost, prefer the explicit Bearer/Cookie device token
+	// so paired mobile apps upgrading over Wi-Fi get bound to their actual DeviceID.
+	var targetDev *PairedDevice
+	if tok := ExtractToken(r); tok != "" && h.store != nil {
+		if d, ok := h.store.ValidateToken(tok); ok && d != nil {
+			targetDev = d
+		}
+	}
+	if targetDev == nil {
+		if ctxDev, ok := DeviceFromContext(r.Context()); ok && ctxDev != nil &&
+			ctxDev.DeviceID != "" && ctxDev.DeviceID != "admin-local" && !strings.HasPrefix(ctxDev.DeviceID, "lan-") {
+			targetDev = ctxDev
+		}
+	}
+	if targetDev == nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		json.NewEncoder(w).Encode(map[string]string{"error": "paired device token required for e2ee upgrade"})
+		return
+	}
+
+	h.mu.RLock()
+	id := h.e2eeIdentity
+	dualRelayURL := h.relayCloudURL
+	upgradeCb := h.onDeviceE2EEUpgraded
+	h.mu.RUnlock()
+	if id == nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(map[string]string{"error": "e2ee not initialized"})
+		return
+	}
+
+	var req struct {
+		ClientPub string `json:"client_pub"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.ClientPub) == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "client_pub is required"})
+		return
+	}
+
+	shared, err := id.ECDH(req.ClientPub)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "invalid client_pub"})
+		return
+	}
+	salt, err := e2ee.RandomBytes(16)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": "rng failure"})
+		return
+	}
+	devKey := e2ee.DeriveDeviceKey(shared, salt, targetDev.DeviceID)
+	if err := h.store.SetDeviceE2EEKey(targetDev.DeviceID, devKey); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": "failed to persist e2ee key"})
+		return
+	}
+
+	cloudURL := dualRelayURL
+	if cloudURL == "" {
+		cloudURL = h.CloudURL()
+	}
+
+	auditInfo("E2EE_UPGRADE_SUCCESS", "device_id", targetDev.DeviceID, "ip", ExtractClientIP(r))
+	if upgradeCb != nil {
+		allUpgraded := !h.store.HasLegacyNonE2EEDevices()
+		go upgradeCb(allUpgraded)
+	}
 
 	w.Header().Set("Content-Type", "application/json")
+	if cloudURL != "" {
+		w.Header().Set("X-Antigravity-Cloud-URL", cloudURL)
+	}
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(PairResponse{
-		DeviceID:    deviceID,
-		DeviceToken: deviceToken,
-		Endpoints:   h.GetEndpoints(),
-		OS:          runtime.GOOS,
-		Platform:    runtime.GOOS,
+	json.NewEncoder(w).Encode(map[string]string{
+		"device_id":   targetDev.DeviceID,
+		"gateway_pub": id.PublicKeyB64(),
+		"e2ee_salt":   base64.RawURLEncoding.EncodeToString(salt),
+		"cloud_url":   cloudURL,
 	})
 }
 
@@ -786,6 +1078,7 @@ func (h *AuthHandler) HandleNewPairingSession(w http.ResponseWriter, r *http.Req
 		LANHost:     lanHost,
 		DDNSHost:    ddnsHost,
 		RelayHost:   relayHost,
+		E2EEPubKey:  h.E2EEPubKey(),
 	})
 
 	w.Header().Set("Content-Type", "application/json")

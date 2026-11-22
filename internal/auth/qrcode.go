@@ -50,6 +50,24 @@ func ConsoleLock() func() {
 
 const DefaultDomainSuffix = ".jiuge.space"
 
+var (
+	defaultE2EEPubMu  sync.RWMutex
+	defaultE2EEPubKey string
+)
+
+// SetDefaultE2EEPubKey registers the gateway's P-256 public key so generated pairing QR URIs embed `&pk=...`.
+func SetDefaultE2EEPubKey(pubB64 string) {
+	defaultE2EEPubMu.Lock()
+	defer defaultE2EEPubMu.Unlock()
+	defaultE2EEPubKey = strings.TrimSpace(pubB64)
+}
+
+func getDefaultE2EEPubKey() string {
+	defaultE2EEPubMu.RLock()
+	defer defaultE2EEPubMu.RUnlock()
+	return defaultE2EEPubKey
+}
+
 // CompressHost strips the default domain suffix (e.g. .jiuge.space) from the host if present,
 // reducing QR code density and avoiding direct exposure of the apex domain in URIs.
 func CompressHost(h string) string {
@@ -85,6 +103,7 @@ type MultiHostPairingParams struct {
 	LANHost     string
 	DDNSHost    string
 	RelayHost   string
+	E2EEPubKey  string
 }
 
 // GenerateMultiHostPairingURI formats the pairing URI according to the agy:// schema specification
@@ -131,6 +150,13 @@ func GenerateMultiHostPairingURI(p MultiHostPairingParams) string {
 	}
 	if relay := strings.TrimSpace(p.RelayHost); relay != "" && relay != cleanHost {
 		items = append(items, paramItem{"relay", relay})
+	}
+	pk := strings.TrimSpace(p.E2EEPubKey)
+	if pk == "" {
+		pk = getDefaultE2EEPubKey()
+	}
+	if pk != "" {
+		items = append(items, paramItem{"pk", pk})
 	}
 
 	var pairs []string

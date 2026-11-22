@@ -88,7 +88,7 @@ class AudioDictationManager(private val apiClient: ApiClient) {
         audioRecord = record
 
         val req = apiClient.buildAuthorizedRequest(wsUrl).build()
-        webSocket = apiClient.okHttpClient.newWebSocket(req, object : WebSocketListener() {
+        webSocket = apiClient.openWebSocket(req, object : WebSocketListener() {
             override fun onMessage(webSocket: WebSocket, text: String) {
                 try {
                     val obj = JSONObject(text)

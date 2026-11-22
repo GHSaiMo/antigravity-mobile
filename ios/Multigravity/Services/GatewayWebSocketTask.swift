@@ -16,7 +16,15 @@ public final class GatewayWebSocketTask: @unchecked Sendable {
         case nwConnection(connection: NWConnection)
     }
 
+    private struct E2EEConfig: Sendable {
+        let deviceID: String
+        let key: Data
+        let openPath: String
+        let openHeaders: [String: String]
+    }
+
     private let engine: Engine
+    private let e2eeConfig: E2EEConfig?
     private let stateLock = OSAllocatedUnfairLock(initialState: State())
     private let onOpen: (@Sendable () -> Void)?
     private let onClose: (@Sendable () -> Void)?
@@ -41,7 +49,43 @@ public final class GatewayWebSocketTask: @unchecked Sendable {
         self.onClose = onClose
         self.onFail = onFail
 
-        if let rawURL = request.url, NetworkTransport.requiresCleartextWebSocketATSBypass(rawURL) {
+        var effectiveRequest = request
+        var resolvedE2EE: E2EEConfig? = nil
+
+        if let rawURL = request.url,
+           E2EECrypto.shared.shouldEncrypt(url: rawURL),
+           let deviceID = E2EECrypto.shared.currentDeviceID,
+           let key = E2EECrypto.shared.currentDeviceKey,
+           let host = rawURL.host {
+            var innerPath = rawURL.path.isEmpty ? "/" : rawURL.path
+            if let q = rawURL.query, !q.isEmpty {
+                innerPath += "?\(q)"
+            }
+            var innerHeaders = request.allHTTPHeaderFields ?? [:]
+            if innerHeaders["Authorization"] == nil && innerHeaders["authorization"] == nil,
+               let tok = KeychainHelper.shared.read(key: .deviceToken), !tok.isEmpty {
+                innerHeaders["Authorization"] = "Bearer \(tok)"
+            }
+            resolvedE2EE = E2EEConfig(deviceID: deviceID, key: key, openPath: innerPath, openHeaders: innerHeaders)
+
+            var outerComps = URLComponents()
+            outerComps.scheme = "wss"
+            outerComps.host = host
+            outerComps.port = rawURL.port
+            outerComps.path = "/api/v1/e2ee/ws"
+            outerComps.queryItems = [URLQueryItem(name: "d", value: deviceID)]
+            if let outerURL = outerComps.url {
+                var outerReq = URLRequest(url: outerURL)
+                outerReq.timeoutInterval = request.timeoutInterval
+                if let hostHdr = request.value(forHTTPHeaderField: "Host") {
+                    outerReq.setValue(hostHdr, forHTTPHeaderField: "Host")
+                }
+                effectiveRequest = outerReq
+            }
+        }
+        self.e2eeConfig = resolvedE2EE
+
+        if let rawURL = effectiveRequest.url, NetworkTransport.requiresCleartextWebSocketATSBypass(rawURL) {
             var comps = URLComponents(url: rawURL, resolvingAgainstBaseURL: true)
             if comps?.scheme?.lowercased() == "http" {
                 comps?.scheme = "ws"
@@ -53,7 +97,7 @@ public final class GatewayWebSocketTask: @unchecked Sendable {
 
             var extraHeaders: [(String, String)] = []
             var subprotocols: [String] = []
-            if let fields = request.allHTTPHeaderFields {
+            if let fields = effectiveRequest.allHTTPHeaderFields {
                 for (key, value) in fields {
                     let lower = key.trimmingCharacters(in: .whitespaces).lowercased()
                     if lower == "host" || lower == "connection" || lower == "upgrade" ||
@@ -122,7 +166,7 @@ public final class GatewayWebSocketTask: @unchecked Sendable {
 
             let delegate = SessionDelegate()
             let session = URLSession(configuration: config, delegate: delegate, delegateQueue: nil)
-            let task = session.webSocketTask(with: request)
+            let task = session.webSocketTask(with: effectiveRequest)
             self.engine = .urlSession(session: session, task: task, delegate: delegate)
             delegate.owner = self
         }
@@ -138,16 +182,42 @@ public final class GatewayWebSocketTask: @unchecked Sendable {
     }
 
     public func send(_ message: Message, completionHandler: @escaping @Sendable ((any Error)?) -> Void) {
+        let outgoing: Message
+        if let e2ee = e2eeConfig {
+            var plain = Data()
+            switch message {
+            case .string(let text):
+                plain.append(1) // websocket.TextMessage
+                plain.append(Data(text.utf8))
+            case .data(let data):
+                plain.append(2) // websocket.BinaryMessage
+                plain.append(data)
+            }
+            do {
+                let enc = try E2EECrypto.encrypt(
+                    key: e2ee.key,
+                    plaintext: plain,
+                    aad: E2EECrypto.frameAAD(deviceID: e2ee.deviceID, direction: "ws-c2s")
+                )
+                outgoing = .data(enc)
+            } catch {
+                completionHandler(error)
+                return
+            }
+        } else {
+            outgoing = message
+        }
+
         switch engine {
         case .urlSession(_, let task, _):
-            switch message {
+            switch outgoing {
             case .string(let text):
                 task.send(.string(text), completionHandler: completionHandler)
             case .data(let data):
                 task.send(.data(data), completionHandler: completionHandler)
             }
         case .nwConnection(let connection):
-            switch message {
+            switch outgoing {
             case .string(let text):
                 let meta = NWProtocolWebSocket.Metadata(opcode: .text)
                 let ctx = NWConnection.ContentContext(identifier: "ws-text", metadata: [meta])
@@ -165,6 +235,43 @@ public final class GatewayWebSocketTask: @unchecked Sendable {
     }
 
     public func receive(completionHandler: @escaping @Sendable (Result<Message, any Error>) -> Void) {
+        let e2ee = self.e2eeConfig
+        let deliver: @Sendable (Result<Message, any Error>) -> Void = { result in
+            guard let e2ee else {
+                completionHandler(result)
+                return
+            }
+            switch result {
+            case .failure(let err):
+                completionHandler(.failure(err))
+            case .success(let msg):
+                guard case .data(let enc) = msg else {
+                    completionHandler(.failure(E2EEError.decryptionFailed))
+                    return
+                }
+                do {
+                    let plain = try E2EECrypto.decrypt(
+                        key: e2ee.key,
+                        frame: enc,
+                        aad: E2EECrypto.frameAAD(deviceID: e2ee.deviceID, direction: "ws-s2c")
+                    )
+                    guard let msgType = plain.first else {
+                        completionHandler(.failure(E2EEError.decryptionFailed))
+                        return
+                    }
+                    let payload = plain.dropFirst()
+                    if msgType == 1 {
+                        let text = String(data: Data(payload), encoding: .utf8) ?? ""
+                        completionHandler(.success(.string(text)))
+                    } else {
+                        completionHandler(.success(.data(Data(payload))))
+                    }
+                } catch {
+                    completionHandler(.failure(error))
+                }
+            }
+        }
+
         switch engine {
         case .urlSession(_, let task, _):
             task.receive { result in
@@ -172,20 +279,20 @@ public final class GatewayWebSocketTask: @unchecked Sendable {
                 case .success(let wsMsg):
                     switch wsMsg {
                     case .string(let str):
-                        completionHandler(.success(.string(str)))
+                        deliver(.success(.string(str)))
                     case .data(let data):
-                        completionHandler(.success(.data(data)))
+                        deliver(.success(.data(data)))
                     @unknown default:
-                        completionHandler(.success(.data(Data())))
+                        deliver(.success(.data(Data())))
                     }
                 case .failure(let err):
-                    completionHandler(.failure(err))
+                    deliver(.failure(err))
                 }
             }
         case .nwConnection(let connection):
             connection.receiveMessage { [weak self] content, context, isComplete, error in
                 if let error {
-                    completionHandler(.failure(error))
+                    deliver(.failure(error))
                     return
                 }
                 let meta = context?.protocolMetadata(definition: NWProtocolWebSocket.definition) as? NWProtocolWebSocket.Metadata
@@ -193,10 +300,10 @@ public final class GatewayWebSocketTask: @unchecked Sendable {
                     switch opcode {
                     case .text:
                         let text = String(data: content ?? Data(), encoding: .utf8) ?? ""
-                        completionHandler(.success(.string(text)))
+                        deliver(.success(.string(text)))
                         return
                     case .binary:
-                        completionHandler(.success(.data(content ?? Data())))
+                        deliver(.success(.data(content ?? Data())))
                         return
                     case .close:
                         if let self {
@@ -209,7 +316,7 @@ public final class GatewayWebSocketTask: @unchecked Sendable {
                                 self.onClose?()
                             }
                         }
-                        completionHandler(.failure(URLError(.networkConnectionLost)))
+                        deliver(.failure(URLError(.networkConnectionLost)))
                         return
                     case .ping, .pong, .cont:
                         self?.receive(completionHandler: completionHandler)
@@ -219,9 +326,9 @@ public final class GatewayWebSocketTask: @unchecked Sendable {
                     }
                 }
                 if let data = content, !data.isEmpty {
-                    completionHandler(.success(.data(data)))
+                    deliver(.success(.data(data)))
                 } else if isComplete {
-                    completionHandler(.failure(URLError(.networkConnectionLost)))
+                    deliver(.failure(URLError(.networkConnectionLost)))
                 } else {
                     self?.receive(completionHandler: completionHandler)
                 }
@@ -267,9 +374,52 @@ public final class GatewayWebSocketTask: @unchecked Sendable {
             st.didOpen = true
             return true
         }
-        if fire {
-            onOpen?()
+        guard fire else { return }
+
+        if let e2ee = e2eeConfig {
+            struct OpenPayload: Encodable {
+                let path: String
+                let headers: [String: String]?
+            }
+            do {
+                let openJSON = try JSONEncoder().encode(OpenPayload(
+                    path: e2ee.openPath,
+                    headers: e2ee.openHeaders.isEmpty ? nil : e2ee.openHeaders
+                ))
+                let frame0 = try E2EECrypto.encrypt(
+                    key: e2ee.key,
+                    plaintext: openJSON,
+                    aad: E2EECrypto.frameAAD(deviceID: e2ee.deviceID, direction: "ws-open")
+                )
+                switch engine {
+                case .urlSession(_, let task, _):
+                    task.send(.data(frame0)) { [weak self] err in
+                        guard let self else { return }
+                        if let err {
+                            self.notifySessionFailed(err)
+                        } else {
+                            self.onOpen?()
+                        }
+                    }
+                case .nwConnection(let connection):
+                    let meta = NWProtocolWebSocket.Metadata(opcode: .binary)
+                    let ctx = NWConnection.ContentContext(identifier: "ws-e2ee-open", metadata: [meta])
+                    connection.send(content: frame0, contentContext: ctx, isComplete: true, completion: .contentProcessed { [weak self] err in
+                        guard let self else { return }
+                        if let err {
+                            self.notifySessionFailed(err)
+                        } else {
+                            self.onOpen?()
+                        }
+                    })
+                }
+            } catch {
+                notifySessionFailed(error)
+            }
+            return
         }
+
+        onOpen?()
     }
 
     fileprivate func notifySessionClosed() {
