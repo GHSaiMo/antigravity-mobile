@@ -386,29 +386,29 @@ nonisolated public struct QuotaWidgetSnapshot: Codable, Hashable, Sendable {
 
     public static func demoPlaceholder(now: Date = Date()) -> QuotaWidgetSnapshot {
         let gShort = QuotaWidgetBucketSnapshot(
-            remainingPercent: 78.4,
-            resetAt: now.addingTimeInterval(2 * 3600 + 14 * 60),
-            resetFriendly: "2h 14m"
+            remainingPercent: 76.4,
+            resetAt: now.addingTimeInterval(3 * 3600 + 48 * 60),
+            resetFriendly: "3h 48m"
         )
         let gWeekly = QuotaWidgetBucketSnapshot(
-            remainingPercent: 86.2,
-            resetAt: now.addingTimeInterval(5 * 86400 + 11 * 3600),
-            resetFriendly: "5d 11h"
+            remainingPercent: 89.2,
+            resetAt: now.addingTimeInterval(5 * 86400 + 14 * 3600),
+            resetFriendly: "5d 14h"
         )
         let cShort = QuotaWidgetBucketSnapshot(
-            remainingPercent: 62.5,
-            resetAt: now.addingTimeInterval(3 * 3600 + 40 * 60),
-            resetFriendly: "3h 40m"
+            remainingPercent: 84.6,
+            resetAt: now.addingTimeInterval(4 * 3600 + 12 * 60),
+            resetFriendly: "4h 12m"
         )
         let cWeekly = QuotaWidgetBucketSnapshot(
-            remainingPercent: 91.0,
-            resetAt: now.addingTimeInterval(6 * 86400 + 4 * 3600),
-            resetFriendly: "6d 4h"
+            remainingPercent: 91.5,
+            resetAt: now.addingTimeInterval(6 * 86400 + 3 * 3600),
+            resetFriendly: "6d 3h"
         )
         return QuotaWidgetSnapshot(
             providerTitle: "Gemini",
             isClaude: false,
-            accountLabel: "Demo",
+            accountLabel: "alex@antigravity.dev",
             subscriptionTier: "ULTRA",
             isFreeTier: false,
             isDemo: true,
@@ -554,56 +554,56 @@ nonisolated public struct AgentConversationsWidgetSnapshot: Codable, Hashable, S
     public static func demoPlaceholder(now: Date = Date()) -> AgentConversationsWidgetSnapshot {
         let demoItems: [AgentWidgetConversationItem] = [
             AgentWidgetConversationItem(
-                id: "demo-1",
-                title: String(localized: "修复支付回调超时"),
-                workspaceName: "api-server",
+                id: "demo-0017-cmd-approval",
+                title: String(localized: "生产集群灰度发布与缓存清理"),
+                workspaceName: "deploy-scripts",
                 status: .action,
-                stepCount: 14,
-                lastModified: now.addingTimeInterval(-90),
+                stepCount: 12,
+                lastModified: now.addingTimeInterval(-60),
                 isUnread: false,
                 hasRunningTasks: false,
                 isPinned: true
             ),
             AgentWidgetConversationItem(
-                id: "demo-2",
-                title: String(localized: "补齐 iOS 全尺寸小组件"),
+                id: "demo-0012-swarm",
+                title: String(localized: "离线草稿冲突三路合并"),
                 workspaceName: "antigravity-mobile",
                 status: .running,
-                stepCount: 28,
-                lastModified: now.addingTimeInterval(-25),
+                stepCount: 18,
+                lastModified: now.addingTimeInterval(-35),
                 isUnread: false,
                 hasRunningTasks: true,
                 isPinned: false
             ),
             AgentWidgetConversationItem(
-                id: "demo-3",
-                title: String(localized: "核对本周发布日志与翻译"),
-                workspaceName: "docs-site",
-                status: .idle,
+                id: "demo-0001-upload",
+                title: String(localized: "附件流式上传与 SHA-256 校验"),
+                workspaceName: "antigravity-mobile",
+                status: .running,
                 stepCount: 9,
-                lastModified: now.addingTimeInterval(-12 * 60),
+                lastModified: now.addingTimeInterval(-120),
+                isUnread: false,
+                hasRunningTasks: true,
+                isPinned: true
+            ),
+            AgentWidgetConversationItem(
+                id: "demo-0005-redesign",
+                title: String(localized: "边缘网关缓存与 SSR 架构重构"),
+                workspaceName: "antigravity-mobile",
+                status: .idle,
+                stepCount: 7,
+                lastModified: now.addingTimeInterval(-14 * 60),
                 isUnread: true,
                 hasRunningTasks: false,
                 isPinned: false
             ),
             AgentWidgetConversationItem(
-                id: "demo-4",
-                title: String(localized: "优化数据库索引查询耗时"),
-                workspaceName: "billing-core",
+                id: "demo-0003-migration",
+                title: String(localized: "订单表无锁复合索引迁移评审"),
+                workspaceName: "risk-engine",
                 status: .idle,
-                stepCount: 19,
-                lastModified: now.addingTimeInterval(-47 * 60),
-                isUnread: false,
-                hasRunningTasks: false,
-                isPinned: false
-            ),
-            AgentWidgetConversationItem(
-                id: "demo-5",
-                title: String(localized: "整理周会架构讨论纪要"),
-                workspaceName: "Chat",
-                status: .idle,
-                stepCount: 6,
-                lastModified: now.addingTimeInterval(-2 * 3600),
+                stepCount: 11,
+                lastModified: now.addingTimeInterval(-38 * 60),
                 isUnread: false,
                 hasRunningTasks: false,
                 isPinned: false
@@ -611,7 +611,7 @@ nonisolated public struct AgentConversationsWidgetSnapshot: Codable, Hashable, S
         ]
         return AgentConversationsWidgetSnapshot(
             items: demoItems,
-            runningCount: 1,
+            runningCount: 2,
             pendingActionCount: 1,
             totalCount: demoItems.count,
             isDemo: true,

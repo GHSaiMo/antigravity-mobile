@@ -1937,6 +1937,116 @@
           }
         }
       }
+    },
+    "生产集群灰度发布与缓存清理": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "生产集群灰度发布与缓存清理"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Canary rollout & Redis TTL cleanup"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本番カナリア配信とRedisキャッシュ掃除"
+          }
+        }
+      }
+    },
+    "离线草稿冲突三路合并": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "离线草稿冲突三路合并"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offline draft 3-way conflict merge"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフライン下書きの3-way競合マージ"
+          }
+        }
+      }
+    },
+    "附件流式上传与 SHA-256 校验": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "附件流式上传与 SHA-256 校验"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Streaming attachment upload & SHA-256"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添付ファイルのストリーム送信とSHA-256検証"
+          }
+        }
+      }
+    },
+    "边缘网关缓存与 SSR 架构重构": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "边缘网关缓存与 SSR 架构重构"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edge SSR & canary caching plan"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edge SSR・カナリアキャッシュ刷新計画"
+          }
+        }
+      }
+    },
+    "订单表无锁复合索引迁移评审": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "订单表无锁复合索引迁移评审"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zero-downtime orders index migration"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ordersテーブル無停止複合インデックス移行"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

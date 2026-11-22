@@ -22,11 +22,11 @@
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
 
 <p align="center">
-  <img src="images/hero.jpg" alt="Multigravity — The Native Mobile Companion for Google Antigravity" width="760" />
+  <img src="images/en/hero.jpg" alt="Multigravity — The Native Mobile Companion for Google Antigravity" width="760" />
 </p>
 
 <p align="center">
-  🌐 <b>Website</b>: <a href="https://mgy.jiuge.space">mgy.jiuge.space</a> &nbsp;·&nbsp; 🍎 <b>App Store</b>: <a href="https://apps.apple.com/app/id6835508934">Download for iOS</a> &nbsp;·&nbsp; 🧪 <b>TestFlight</b>: <a href="https://testflight.apple.com/join/YM7f4aSK">Public Beta</a> &nbsp;·&nbsp; 📦 <a href="https://github.com/GHSaiMo/antigravity-mobile/releases/latest">Latest Release v1.2.4</a> &nbsp;·&nbsp; 💬 <a href="#wechat-group">WeChat Group</a>
+  🌐 <b>Website</b>: <a href="https://mgy.jiuge.space/en.html">mgy.jiuge.space/en.html</a> &nbsp;·&nbsp; 🍎 <b>App Store</b>: <a href="https://apps.apple.com/app/id6835508934">Download for iOS</a> &nbsp;·&nbsp; 🧪 <b>TestFlight</b>: <a href="https://testflight.apple.com/join/YM7f4aSK">Public Beta</a> &nbsp;·&nbsp; 📦 <a href="https://github.com/GHSaiMo/antigravity-mobile/releases/latest">Latest Release v1.2.4</a> &nbsp;·&nbsp; 💬 <a href="#wechat-group">WeChat Group</a>
 </p>
 
 > 🎉 **Multigravity for iOS is officially available on the Apple App Store!**  
@@ -83,20 +83,26 @@ When launched in the foreground, the gateway prints a one-time pairing QR code i
 
 <table>
   <tr>
-    <td align="center" valign="top" width="25%"><img src="images/screen_list.jpg" alt="Session List & Background Tasks" /><br/><b>Unified Overview</b><br/><sub>Status badges, background task pills, and quota burn-rate gauges</sub></td>
-    <td align="center" valign="top" width="25%"><img src="images/screen_question.jpg" alt="Interactive Decision Making" /><br/><b>One-Tap Decisions</b><br/><sub>Visible context watermark & throughput rate; multi-choice batch submission</sub></td>
-    <td align="center" valign="top" width="25%"><img src="images/screen_plan.jpg" alt="Plan Review & Proceed" /><br/><b>Plan Review & Proceed</b><br/><sub>Mermaid flowchart + plan side-by-side preview; one-click Proceed</sub></td>
-    <td align="center" valign="top" width="25%"><img src="images/screen_pdf.jpg" alt="Deliverable Preview" /><br/><b>Direct Artifact Preview</b><br/><sub>Interactive sales tables, native bar charts, and direct PDF viewer</sub></td>
+    <td align="center" valign="top" width="25%"><img src="images/en/screen_01_home_apns.jpg" alt="Unified Overview & Native APNs Push" /><br/><b>Overview & APNs Push</b><br/><sub>Native APNs approval alerts, status badges, background tasks & 5h quota bar</sub></td>
+    <td align="center" valign="top" width="25%"><img src="images/en/screen_02_island_widget.jpg" alt="Dynamic Island & Home Screen Widgets" /><br/><b>Dynamic Island & Widgets</b><br/><sub>Compact Dynamic Island status + 4×4 Quota & Active Chats Home Widget</sub></td>
+    <td align="center" valign="top" width="25%"><img src="images/en/screen_03_island_approval.jpg" alt="Dynamic Island One-Tap Approval" /><br/><b>Dynamic Island Approval</b><br/><sub>Long-press to expand and Allow or Deny high-risk commands off-desk</sub></td>
+    <td align="center" valign="top" width="25%"><img src="images/en/screen_04_lockscreen_live.jpg" alt="Lock Screen Live Activity & APNs" /><br/><b>Lock Screen Live Activity</b><br/><sub>Live step tracking & interactive Allow/Deny paired with native APNs</sub></td>
   </tr>
   <tr>
-    <td align="center" valign="top" width="25%"><img src="images/screen_workflow.jpg" alt="Dynamic Multi-Agent Workflow" /><br/><b>Multi-Agent Workflows</b><br/><sub>Stage pipelines, concurrent sub-agents, and live terminal streaming</sub></td>
-    <td align="center" valign="top" width="25%"><img src="images/screen_approval.jpg" alt="Workflow Script Security Approval" /><br/><b>Security Approval Gate</b><br/><sub>Precise orchestration script interception, source preview, and fine-grained approval</sub></td>
-    <td align="center" valign="top" width="25%"><img src="images/screen_quota.jpg" alt="Account & Quota Dashboard" /><br/><b>Account & Quotas</b><br/><sub>5h / weekly burn-rate gauges, token history, and hot-swap accounts</sub></td>
-    <td align="center" valign="top" width="25%"><img src="images/screen_tasks.jpg" alt="Tools & Task Dashboard" /><br/><b>Tools & Task Dashboard</b><br/><sub>Full control over MCPs, skills, plugins, automations, and daemons</sub></td>
+    <td align="center" valign="top" width="25%"><img src="images/en/screen_05_quota_accounts.jpg" alt="Live Quotas & Multi-Account Switcher" /><br/><b>Account & Quotas</b><br/><sub>5h / weekly burn-rate gauges & one-tap Ultra / Pro / Free account switching</sub></td>
+    <td align="center" valign="top" width="25%"><img src="images/en/screen_06_token_history.jpg" alt="Token History 20-Week Heatmap" /><br/><b>Token History & Spend</b><br/><sub>20-week heatmap, cache hit rate & Gemini 4 Neon / Opus 5.5 breakdown</sub></td>
+    <td align="center" valign="top" width="25%"><img src="images/en/screen_07_model_picker.jpg" alt="Dual-Column Gemini 4 Neon Model Picker" /><br/><b>Dual-Column Model Picker</b><br/><sub>Slide-pick Gemini 4 Neon (Extra/High), Orchestrator & Claude Opus 5.5</sub></td>
+    <td align="center" valign="top" width="25%"><img src="images/en/screen_08_cmd_approval.jpg" alt="High-Risk Production Command Approval" /><br/><b>Security Approval Gate</b><br/><sub>Read-only preflight summary + exact command preview with Allow/Deny</sub></td>
+  </tr>
+  <tr>
+    <td align="center" valign="top" width="25%"><img src="images/en/screen_09_swarm_hive.jpg" alt="Native Swarm Hive Pixel Graph" /><br/><b>Native Swarm Hive</b><br/><sub>Desktop-grade `/teamwork` Hive topology, pixel bees & live shared board</sub></td>
+    <td align="center" valign="top" width="25%"><img src="images/en/screen_10_plan_mermaid.jpg" alt="Plan Review, Mermaid & Proceed" /><br/><b>Plan Review & Proceed</b><br/><sub>Offline Mermaid flowcharts + implementation plan with one-tap Proceed</sub></td>
+    <td align="center" valign="top" width="25%"><img src="images/en/screen_11_workflow_subagents.jpg" alt="Parallel Multi-Agent Sub-Agents" /><br/><b>Multi-Agent Workflows</b><br/><sub>Parallel sub-agent status cards, live step counts & instant drill-down</sub></td>
+    <td align="center" valign="top" width="25%"><img src="images/en/screen_12_changes_diff.jpg" alt="Session Changes & Code Diff Review" /><br/><b>Session Changes & Diff</b><br/><sub>Compact changed-files drawer with line-delta stats & inline code diffs</sub></td>
   </tr>
 </table>
 
-> *The screenshots above are captured from the built-in **Demo Mode** (v1.2.0 interface), available out-of-the-box before pairing.*
+> *All screenshots above are captured from the built-in **offline Demo Mode** (v1.2.4 native dark English UI, aligned with Antigravity 2.34 protocols plus live iOS Dynamic Island, Lock Screen Live Activities & Home Screen Widgets) — try it out-of-the-box before pairing.*
 
 ---
 

@@ -22,7 +22,7 @@
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
 
 <p align="center">
-  <img src="images/hero.jpg" alt="Multigravity —— Google Antigravity 的原生移动伴侣" width="760" />
+  <img src="images/zh/hero.jpg" alt="Multigravity —— Google Antigravity 的原生移动伴侣" width="760" />
 </p>
 
 <p align="center">
@@ -83,20 +83,26 @@ mgy
 
 <table>
   <tr>
-    <td align="center" valign="top" width="25%"><img src="images/screen_list.jpg" alt="会话列表与后台任务" /><br/><b>全局视野</b><br/><sub>状态徽标、后台任务胶囊与额度均速刻度</sub></td>
-    <td align="center" valign="top" width="25%"><img src="images/screen_question.jpg" alt="多题交互决策" /><br/><b>一触即决</b><br/><sub>上下文水位速率可见，多题点选一次提交</sub></td>
-    <td align="center" valign="top" width="25%"><img src="images/screen_plan.jpg" alt="方案预览与 Proceed" /><br/><b>方案放行</b><br/><sub>Mermaid 流程图与方案同屏预览，一键 Proceed</sub></td>
-    <td align="center" valign="top" width="25%"><img src="images/screen_pdf.jpg" alt="交付物预览" /><br/><b>交付物直接看</b><br/><sub>销售表格、原生柱状图与 PDF 产物直接览</sub></td>
+    <td align="center" valign="top" width="25%"><img src="images/zh/screen_01_home_apns.jpg" alt="全局视野与原生 APNs 推送" /><br/><b>全局视野与推送</b><br/><sub>原生 APNs 审批推送、状态徽标、后台任务与 5h 额度条</sub></td>
+    <td align="center" valign="top" width="25%"><img src="images/zh/screen_02_island_widget.jpg" alt="灵动岛与主屏 4x4 大组件" /><br/><b>灵动岛与主屏组件</b><br/><sub>紧凑灵动岛进度提醒 + 主屏 4×4 额度与活跃对话小组件</sub></td>
+    <td align="center" valign="top" width="25%"><img src="images/zh/screen_03_island_approval.jpg" alt="灵动岛展开一键审批" /><br/><b>灵动岛一键审批</b><br/><sub>长按展开灵动岛，离席无需开 App 直接允许或拒绝高危命令</sub></td>
+    <td align="center" valign="top" width="25%"><img src="images/zh/screen_04_lockscreen_live.jpg" alt="锁屏实时活动与推送" /><br/><b>锁屏实时活动</b><br/><sub>锁屏卡片实时追踪步骤与交互审批，与原生 APNs 推送联动</sub></td>
   </tr>
   <tr>
-    <td align="center" valign="top" width="25%"><img src="images/screen_workflow.jpg" alt="动态多智能体工作流" /><br/><b>多智能体工作流</b><br/><sub>阶段流水线、并发子代理与日志实时穿透</sub></td>
-    <td align="center" valign="top" width="25%"><img src="images/screen_approval.jpg" alt="Workflow 脚本安全审批" /><br/><b>安全审批门禁</b><br/><sub>精准拦截编排脚本，支持源码预览与细粒度放行</sub></td>
-    <td align="center" valign="top" width="25%"><img src="images/screen_quota.jpg" alt="账户与配额看板" /><br/><b>账户与配额</b><br/><sub>5h / 每周额度均速刻度、Token 历史与热切账号</sub></td>
-    <td align="center" valign="top" width="25%"><img src="images/screen_tasks.jpg" alt="工具与任务看板" /><br/><b>工具与任务看板</b><br/><sub>MCP、技能、插件、定时任务与守护进程全掌控</sub></td>
+    <td align="center" valign="top" width="25%"><img src="images/zh/screen_05_quota_accounts.jpg" alt="实时配额与多账号热切" /><br/><b>账户与配额看板</b><br/><sub>5h / 每周额度均速刻度、Ultra / Pro / Free 多账号热切换</sub></td>
+    <td align="center" valign="top" width="25%"><img src="images/zh/screen_06_token_history.jpg" alt="Token 历史 20 周热力图" /><br/><b>Token 历史热力图</b><br/><sub>20 周活跃密度、缓存命中率与 Gemini 4 Neon 等各模型消耗明细</sub></td>
+    <td align="center" valign="top" width="25%"><img src="images/zh/screen_07_model_picker.jpg" alt="Gemini 4 Neon 双列选档" /><br/><b>双列模型选档</b><br/><sub>滑动直选 Gemini 4 Neon (Extra/High)、Orchestrator 与 Opus 5.5</sub></td>
+    <td align="center" valign="top" width="25%"><img src="images/zh/screen_08_cmd_approval.jpg" alt="高危生产命令安全审批" /><br/><b>高危命令安全门禁</b><br/><sub>只读预检摘要 + 完整命令预览，细粒度授权或拒绝执行</sub></td>
+  </tr>
+  <tr>
+    <td align="center" valign="top" width="25%"><img src="images/zh/screen_09_swarm_hive.jpg" alt="Swarm 多智能体像素蜂巢拓扑" /><br/><b>Swarm 蜂群拓扑</b><br/><sub>桌面级 `/teamwork` 蜂巢视图、像素蜜蜂分工与协作板回放</sub></td>
+    <td align="center" valign="top" width="25%"><img src="images/zh/screen_10_plan_mermaid.jpg" alt="方案预览、Mermaid 与一键 Proceed" /><br/><b>方案与架构放行</b><br/><sub>离线 Mermaid 架构图与实施计划同屏预览，一键 Proceed</sub></td>
+    <td align="center" valign="top" width="25%"><img src="images/zh/screen_11_workflow_subagents.jpg" alt="动态多智能体工作流" /><br/><b>并行子代理工作流</b><br/><sub>并发 Sub-Agents 状态网格、进度追踪与独立会话穿透查看</sub></td>
+    <td align="center" valign="top" width="25%"><img src="images/zh/screen_12_changes_diff.jpg" alt="会话改动 Diff 审查" /><br/><b>代码改动审查</b><br/><sub>紧凑文件改动列表、增删行数统计与行级代码 Diff 直览</sub></td>
   </tr>
 </table>
 
-> 以上截图来自客户端内置**演示模式**（v1.2.0 最新中文界面），未配对时即可直接体验。
+> 以上截图均来自客户端内置**离线演示模式**（v1.2.4 原生深色中文界面，完整对齐 Antigravity 2.34 真实协议与系统级灵动岛 / 锁屏实时活动 / 主屏小组件），下载后未配对即可零配置直接体验。
 
 ---
 

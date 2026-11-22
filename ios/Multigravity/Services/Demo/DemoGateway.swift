@@ -134,8 +134,11 @@ final class DemoGateway: @unchecked Sendable {
         let id: String
         var type: String // "user" | "agent" | "tools" | "error" | "subagent" | "workflow"
         var text: String
+        var thinking: String? = nil
+        var thinkingDuration: String? = nil
         var toolCount: Int?
         var toolNames: [String]?
+        var toolDetails: [[String: Any]]? = nil
         var imageUrls: [String]?
         var artifacts: [[String: Any]]?
         var stepIndex: Int
@@ -158,8 +161,11 @@ final class DemoGateway: @unchecked Sendable {
                 "text": text,
                 "stepIndex": stepIndex
             ]
+            if let thinking { dict["thinking"] = thinking }
+            if let thinkingDuration { dict["thinkingDuration"] = thinkingDuration }
             if let toolCount { dict["toolCount"] = toolCount }
             if let toolNames { dict["toolNames"] = toolNames }
+            if let toolDetails { dict["toolDetails"] = toolDetails }
             if let imageUrls { dict["imageUrls"] = imageUrls }
             if let artifacts { dict["artifacts"] = artifacts }
             if let attemptCount { dict["attemptCount"] = attemptCount }
@@ -191,11 +197,11 @@ final class DemoGateway: @unchecked Sendable {
         let email: String
         let name: String
         let tier: String
-        var claude5h: Int
-        var claudeWeekly: Int
-        var gemini5h: Int
-        var geminiWeekly: Int
-        var argon: Int?
+        var claude5h: Double
+        var claudeWeekly: Double
+        var gemini5h: Double
+        var geminiWeekly: Double
+        var argon: Double?
         var claude5hOffsetHours: Double
         var claudeWeeklyOffsetDays: Double
         var gemini5hOffsetHours: Double
@@ -208,7 +214,7 @@ final class DemoGateway: @unchecked Sendable {
     var files: [String: StoredFile] = [:]
     var accounts: [QuotaAccount] = []
     var activeAccountId: String = "acc-ultra"
-    var activeGlobalModelId: String = "gemini-4-carbon-high"
+    var activeGlobalModelId: String = "gemini-4-neon-high"
     var nextIdCounter = 100
     var plugins: [[String: Any]] = []
     var pluginProviders: [[String: Any]] = []
@@ -232,7 +238,7 @@ final class DemoGateway: @unchecked Sendable {
         files = [:]
         accounts = []
         activeAccountId = "acc-ultra"
-        activeGlobalModelId = "gemini-4-carbon-high"
+        activeGlobalModelId = "gemini-4-neon-high"
         nextIdCounter = 100
         plugins = []
         pluginProviders = []
@@ -396,18 +402,19 @@ final class DemoGateway: @unchecked Sendable {
         let first = conversations.first(where: { !$0.isSubagent })
         lock.unlock()
         var payload: [String: Any] = [
-            "status": "ok",
+            "status": "connected",
             "os": "darwin",
             "platform": Self.t("macOS (Apple M4 Max · 演示网关)", "macOS (Apple M4 Max · Demo Gateway)", "macOS (Apple M4 Max · デモゲートウェイ)"),
             "usedInterface": "DemoLoopback",
             "connectionDescription": Self.t("本机演示模拟网关", "Local On-Device Demo Gateway", "ローカルデモ模擬ゲートウェイ"),
             "upstream": [
-                "pid": 4821,
-                "port": 51034,
-                "is_healthy": true
+                "pid": 8341,
+                "port": 65020,
+                "is_healthy": true,
+                "version": "2.34.0"
             ],
             "compat": [
-                "version": "2.35.0",
+                "version": "2.34.0",
                 "checked": true,
                 "coreOk": true,
                 "unavailable": [],
@@ -429,26 +436,46 @@ final class DemoGateway: @unchecked Sendable {
 
     func modelsPayload() -> Data {
         let options: [ModelOption] = [
+            // Gemini 4 Neon (current flagship)
+            ModelOption(id: "gemini-4-neon-xhigh", name: "Gemini 4 Neon (Extra)", provider: "gemini", enum: "MODEL_PLACEHOLDER_M535", supportsImages: true, thinking: true, tag: "New"),
+            ModelOption(id: "gemini-4-neon-high", name: "Gemini 4 Neon (High)", provider: "gemini", enum: "MODEL_PLACEHOLDER_M532", supportsImages: true, thinking: true, tag: "New"),
+            ModelOption(id: "gemini-4-neon-medium", name: "Gemini 4 Neon (Medium)", provider: "gemini", enum: "MODEL_PLACEHOLDER_M533", supportsImages: true, thinking: true, tag: "New"),
+            ModelOption(id: "gemini-4-neon-low", name: "Gemini 4 Neon (Low)", provider: "gemini", enum: "MODEL_PLACEHOLDER_M534", supportsImages: true, thinking: true, tag: "New"),
+            // Gemini 4 Carbon
             ModelOption(id: "gemini-4-carbon-high", name: "Gemini 4 Carbon (High)", provider: "gemini", enum: "MODEL_PLACEHOLDER_M427", supportsImages: true, thinking: true, tag: "New"),
-            ModelOption(id: "gemini-4-carbon-medium", name: "Gemini 4 Carbon (Medium)", provider: "gemini", enum: "MODEL_PLACEHOLDER_M437", supportsImages: true, thinking: true, tag: nil),
-            ModelOption(id: "gemini-4-carbon-low", name: "Gemini 4 Carbon (Low)", provider: "gemini", enum: "MODEL_PLACEHOLDER_M438", supportsImages: true, thinking: true, tag: nil),
-            ModelOption(id: "gemini-4-argon-high", name: "Gemini 4 Argon (High)", provider: "gemini", enum: "MODEL_PLACEHOLDER_M417", supportsImages: true, thinking: true, tag: nil),
-            ModelOption(id: "gemini-4-argon-medium", name: "Gemini 4 Argon (Medium)", provider: "gemini", enum: "MODEL_PLACEHOLDER_M418", supportsImages: true, thinking: true, tag: nil),
-            ModelOption(id: "gemini-4-argon-low", name: "Gemini 4 Argon (Low)", provider: "gemini", enum: "MODEL_PLACEHOLDER_M419", supportsImages: true, thinking: false, tag: nil),
-            ModelOption(id: "gemini-4-hydrogen-high", name: "Gemini 4 Hydrogen (High)", provider: "gemini", enum: "MODEL_PLACEHOLDER_M525", supportsImages: true, thinking: true, tag: "Fast"),
+            ModelOption(id: "gemini-4-carbon-medium", name: "Gemini 4 Carbon (Medium)", provider: "gemini", enum: "MODEL_PLACEHOLDER_M437", supportsImages: true, thinking: true, tag: "New"),
+            ModelOption(id: "gemini-4-carbon-low", name: "Gemini 4 Carbon (Low)", provider: "gemini", enum: "MODEL_PLACEHOLDER_M438", supportsImages: true, thinking: true, tag: "New"),
+            // Gemini 4 Argon (independent quota pool)
+            ModelOption(id: "gemini-4-argon-high", name: "Gemini 4 Argon (High)", provider: "gemini", enum: "MODEL_PLACEHOLDER_M417", supportsImages: true, thinking: true, tag: "New"),
+            ModelOption(id: "gemini-4-argon-medium", name: "Gemini 4 Argon (Medium)", provider: "gemini", enum: "MODEL_PLACEHOLDER_M418", supportsImages: true, thinking: true, tag: "New"),
+            ModelOption(id: "gemini-4-argon-low", name: "Gemini 4 Argon (Low)", provider: "gemini", enum: "MODEL_PLACEHOLDER_M419", supportsImages: true, thinking: true, tag: "New"),
+            // Gemini 4 Hydrogen (fast worker / coding)
+            ModelOption(id: "gemini-4-hydrogen-xhigh", name: "Gemini 4 Hydrogen (Extra)", provider: "gemini", enum: "MODEL_PLACEHOLDER_M528", supportsImages: true, thinking: true, tag: "New"),
+            ModelOption(id: "gemini-4-hydrogen-high", name: "Gemini 4 Hydrogen (High)", provider: "gemini", enum: "MODEL_PLACEHOLDER_M525", supportsImages: true, thinking: true, tag: "New"),
+            ModelOption(id: "gemini-4-hydrogen-medium", name: "Gemini 4 Hydrogen (Medium)", provider: "gemini", enum: "MODEL_PLACEHOLDER_M526", supportsImages: true, thinking: true, tag: "New"),
+            ModelOption(id: "gemini-4-hydrogen-low", name: "Gemini 4 Hydrogen (Low)", provider: "gemini", enum: "MODEL_PLACEHOLDER_M527", supportsImages: true, thinking: true, tag: "New"),
+            // Gemini 3.8 Flash
             ModelOption(id: "gemini-3.8-flash-high", name: "Gemini 3.8 Flash (High)", provider: "gemini", enum: "MODEL_PLACEHOLDER_M318", supportsImages: true, thinking: true, tag: nil),
-            ModelOption(id: "claude-opus-5-5-high", name: "Claude Opus 5.5 (High)", provider: "claude", enum: "MODEL_PLACEHOLDER_M402", supportsImages: true, thinking: true, tag: "Peak"),
-            ModelOption(id: "claude-opus-5-5-medium", name: "Claude Opus 5.5 (Medium)", provider: "claude", enum: "MODEL_PLACEHOLDER_M401", supportsImages: true, thinking: true, tag: nil),
-            ModelOption(id: "claude-sonnet-5-5-high", name: "Claude Sonnet 5.5 (High)", provider: "claude", enum: "MODEL_PLACEHOLDER_M405", supportsImages: true, thinking: true, tag: nil),
-            ModelOption(id: "claude-sonnet-5-5-medium", name: "Claude Sonnet 5.5 (Medium)", provider: "claude", enum: "MODEL_PLACEHOLDER_M404", supportsImages: true, thinking: false, tag: nil),
-            ModelOption(id: "gemini-pro-orchestrator", name: "Orchestrator Carbon", provider: "orchestrator", enum: "MODEL_PLACEHOLDER_M667", supportsImages: true, thinking: true, tag: "Swarm")
+            ModelOption(id: "gemini-3.8-flash-medium", name: "Gemini 3.8 Flash (Medium)", provider: "gemini", enum: "MODEL_PLACEHOLDER_M319", supportsImages: true, thinking: true, tag: nil),
+            ModelOption(id: "gemini-3.8-flash-low", name: "Gemini 3.8 Flash (Low)", provider: "gemini", enum: "MODEL_PLACEHOLDER_M320", supportsImages: true, thinking: true, tag: nil),
+            // Claude 5.5
+            ModelOption(id: "claude-opus-5-5-high", name: "Claude Opus 5.5 (High)", provider: "claude", enum: "MODEL_PLACEHOLDER_M402", supportsImages: true, thinking: true, tag: "New"),
+            ModelOption(id: "claude-opus-5-5-medium", name: "Claude Opus 5.5 (Medium)", provider: "claude", enum: "MODEL_PLACEHOLDER_M401", supportsImages: true, thinking: true, tag: "New"),
+            ModelOption(id: "claude-opus-5-5-low", name: "Claude Opus 5.5 (Low)", provider: "claude", enum: "MODEL_PLACEHOLDER_M400", supportsImages: true, thinking: true, tag: "New"),
+            ModelOption(id: "claude-sonnet-5-5-high", name: "Claude Sonnet 5.5 (High)", provider: "claude", enum: "MODEL_PLACEHOLDER_M405", supportsImages: true, thinking: true, tag: "New"),
+            ModelOption(id: "claude-sonnet-5-5-medium", name: "Claude Sonnet 5.5 (Medium)", provider: "claude", enum: "MODEL_PLACEHOLDER_M404", supportsImages: true, thinking: true, tag: "New"),
+            ModelOption(id: "claude-sonnet-5-5-low", name: "Claude Sonnet 5.5 (Low)", provider: "claude", enum: "MODEL_PLACEHOLDER_M403", supportsImages: true, thinking: true, tag: "New"),
+            // Orchestrator
+            ModelOption(id: "gemini-pro-orchestrator-neon", name: "Orchestrator (Neon)", provider: "orchestrator", enum: "MODEL_PLACEHOLDER_M537", supportsImages: true, thinking: true, tag: "New"),
+            ModelOption(id: "gemini-pro-orchestrator", name: "Orchestrator (Carbon)", provider: "orchestrator", enum: "MODEL_PLACEHOLDER_M667", supportsImages: true, thinking: true, tag: "New"),
+            ModelOption(id: "gemini-pro-orchestrator-argon", name: "Orchestrator (Argon)", provider: "orchestrator", enum: "MODEL_PLACEHOLDER_M681", supportsImages: true, thinking: true, tag: "New")
         ]
         let response = ModelsResponse(
             models: options,
             defaults: [
-                "gemini": "gemini-4-carbon-high",
+                "gemini": "gemini-4-neon-high",
                 "claude": "claude-opus-5-5-high",
-                "orchestrator": "gemini-pro-orchestrator"
+                "orchestrator": "gemini-pro-orchestrator-neon"
             ],
             live: true
         )
@@ -484,6 +511,47 @@ final class DemoGateway: @unchecked Sendable {
         let start = max(0, end - clampedLimit)
         let slice = Array(c.messages[start..<end])
         let toolCount = c.messages.reduce(0) { $0 + ($1.toolCount ?? 0) }
+
+        // Build full-session TurnOutline aligned with live Antigravity gateway (4cf30438)
+        var turnOutline: [[String: Any]] = []
+        var turnIdx = 0
+        var i = 0
+        while i < c.messages.count {
+            let msg = c.messages[i]
+            if msg.type == "user" || turnOutline.isEmpty {
+                turnIdx += 1
+                var endIdx = i + 1
+                while endIdx < c.messages.count && c.messages[endIdx].type != "user" {
+                    endIdx += 1
+                }
+                let turnSlice = c.messages[i..<endIdx]
+                let turnTools = turnSlice.reduce(0) { $0 + ($1.toolCount ?? 0) }
+                let turnArtifacts = turnSlice.flatMap { $0.artifacts ?? [] }
+                let turnHasError = turnSlice.contains { $0.type == "error" }
+                let turnModel = turnSlice.last(where: { $0.modelName != nil })?.modelName ?? c.modelName
+                let rawPrompt = msg.text.replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+                let summary = rawPrompt.count > 48 ? String(rawPrompt.prefix(48)) + "…" : rawPrompt
+                var item: [String: Any] = [
+                    "turnIndex": turnIdx,
+                    "firstMessageId": msg.id,
+                    "messageOffset": i,
+                    "messageCount": endIdx - i,
+                    "startStepIndex": msg.stepIndex,
+                    "endStepIndex": turnSlice.last?.stepIndex ?? msg.stepIndex,
+                    "promptSummary": summary,
+                    "totalTools": turnTools,
+                    "hasError": turnHasError,
+                    "modelName": turnModel
+                ]
+                if !turnArtifacts.isEmpty { item["artifacts"] = turnArtifacts }
+                if let ts = msg.timestamp { item["timestamp"] = ts }
+                turnOutline.append(item)
+                i = endIdx
+            } else {
+                i += 1
+            }
+        }
+
         var payload: [String: Any] = [
             "cascadeId": c.id,
             "title": c.title,
@@ -500,8 +568,11 @@ final class DemoGateway: @unchecked Sendable {
             "activeModel": c.modelId,
             "activeModelName": c.modelName,
             "modelDisplayName": c.modelName,
+            "desktopActiveModel": c.modelId,
+            "desktopActiveModelName": c.modelName,
             "startedAt": c.startedAt,
-            "messages": slice.map { $0.toJSON() }
+            "messages": slice.map { $0.toJSON() },
+            "turnOutline": turnOutline
         ]
         if let uri = c.proceedArtifactUri { payload["proceedArtifactUri"] = uri }
         if let pi = c.pendingInteraction { payload["pendingInteraction"] = pi }
@@ -534,10 +605,11 @@ final class DemoGateway: @unchecked Sendable {
         defer { lock.unlock() }
         let now = Date()
         let updatedMs = Int64(now.timeIntervalSince1970 * 1000)
-        func bucket(_ pct: Int, _ reset: Date) -> [String: Any] {
-            [
-                "remaining_fraction": Double(pct) / 100.0,
-                "remaining_percent": Double(pct),
+        func bucket(_ pct: Double, _ reset: Date) -> [String: Any] {
+            let rounded = (pct * 10.0).rounded() / 10.0
+            return [
+                "remaining_fraction": rounded / 100.0,
+                "remaining_percent": rounded,
                 "reset_time": Self.iso(reset),
                 "reset_friendly": friendlyCountdown(from: now, to: reset)
             ]
@@ -569,7 +641,7 @@ final class DemoGateway: @unchecked Sendable {
         }
         let current = accounts.first { $0.id == activeAccountId } ?? accounts.first
         return [
-            "source": "demo-cockpit",
+            "source": "cockpit",
             "cockpit_installed": true,
             "current_account": current.map(accountDict) as Any,
             "accounts": accounts.map(accountDict),
@@ -582,9 +654,9 @@ final class DemoGateway: @unchecked Sendable {
         let days = secs / 86400
         let hours = (secs % 86400) / 3600
         let mins = (secs % 3600) / 60
-        if days > 0 { return Self.t("\(days) 天 \(hours) 小时后", "in \(days)d \(hours)h", "\(days)日\(hours)時間後") }
-        if hours > 0 { return Self.t("\(hours) 小时 \(mins) 分后", "in \(hours)h \(mins)m", "\(hours)時間\(mins)分後") }
-        return Self.t("\(mins) 分钟后", "in \(mins)m", "\(mins)分後")
+        if days > 0 { return Self.t("\(days)天\(hours)小时", "\(days)d \(hours)h", "\(days)日\(hours)時間") }
+        if hours > 0 { return Self.t("\(hours)小时\(mins)分", "\(hours)h \(mins)m", "\(hours)時間\(mins)分") }
+        return Self.t("\(mins)分钟", "\(mins)m", "\(mins)分")
     }
 
     func tokenHistoryPayload() -> Data {
@@ -594,6 +666,23 @@ final class DemoGateway: @unchecked Sendable {
         df.dateFormat = "yyyy-MM-dd"
         df.timeZone = TimeZone.current
 
+        struct ModelSpec {
+            let name: String
+            let weight: Double
+            let inputPricePerM: Double
+            let cachePricePerM: Double
+            let outputPricePerM: Double
+        }
+
+        let specs: [ModelSpec] = [
+            ModelSpec(name: "Gemini 4 Neon (High)", weight: 0.35, inputPricePerM: 2.00, cachePricePerM: 0.20, outputPricePerM: 12.0),
+            ModelSpec(name: "Gemini 4 Carbon (High)", weight: 0.22, inputPricePerM: 2.50, cachePricePerM: 0.25, outputPricePerM: 15.0),
+            ModelSpec(name: "Gemini 4 Hydrogen (High)", weight: 0.17, inputPricePerM: 0.60, cachePricePerM: 0.06, outputPricePerM: 3.0),
+            ModelSpec(name: "Claude Opus 5.5 (High)", weight: 0.13, inputPricePerM: 5.00, cachePricePerM: 0.50, outputPricePerM: 25.0),
+            ModelSpec(name: "Gemini 4 Neon (XHigh)", weight: 0.08, inputPricePerM: 2.00, cachePricePerM: 0.20, outputPricePerM: 12.0),
+            ModelSpec(name: "Gemini 3.8 Flash (High)", weight: 0.05, inputPricePerM: 0.15, cachePricePerM: 0.015, outputPricePerM: 0.60)
+        ]
+
         var matrix: [DailyTokenRecord] = []
         var totalTokens: Int64 = 0
         var todayTokens: Int64 = 0
@@ -602,15 +691,16 @@ final class DemoGateway: @unchecked Sendable {
         var activeDays = 0
         var totalSteps = 0
 
+        var aggTotals: [String: (total: Int64, input: Int64, output: Int64, cacheRead: Int64, thinking: Int64, steps: Int, cost: Double)] = [:]
+
         let totalDays = 364
         for offset in stride(from: -totalDays, through: 0, by: 1) {
             guard let date = cal.date(byAdding: .day, value: offset, to: today) else { continue }
             let dayStr = df.string(from: date)
             let weekday = cal.component(.weekday, from: date)
-            // Deterministic varied pattern so the 52-week heatmap looks authentic & active.
             let seed = abs(offset * 73 + weekday * 19) % 100
             let isRecent = offset >= -21
-            let isIdleDay = (offset < -3) && ((weekday == 1 && seed < 55) || seed < 14)
+            let isIdleDay = (offset < -3) && ((weekday == 1 && seed < 50) || seed < 12)
 
             if isIdleDay {
                 matrix.append(DailyTokenRecord(
@@ -622,60 +712,115 @@ final class DemoGateway: @unchecked Sendable {
                     thinking: 0,
                     steps: 0,
                     costUsd: 0,
-                    models: [:]
+                    models: [:],
+                    modelDetails: [:]
                 ))
                 continue
             }
 
             let intensityMultiplier: Int64 = {
-                if offset == 0 { return 9 }
-                if isRecent { return Int64(4 + (seed % 7)) }
-                if seed > 86 { return 10 }
-                if seed > 62 { return 6 }
-                if seed > 30 { return 3 }
+                if offset == 0 { return 11 }
+                if isRecent { return Int64(5 + (seed % 7)) }
+                if seed > 85 { return 10 }
+                if seed > 60 { return 6 }
+                if seed > 28 { return 3 }
                 return 1
             }()
 
-            let input = 140_000 * intensityMultiplier + Int64((seed % 11) * 12_000)
-            let cacheRead = 680_000 * intensityMultiplier + Int64((seed % 17) * 41_000)
-            let output = 48_000 * intensityMultiplier + Int64((seed % 9) * 3_500)
-            let thinking = 26_000 * intensityMultiplier + Int64((seed % 7) * 2_200)
-            let total = input + cacheRead + output + thinking
-            let steps = Int(intensityMultiplier * 14 + Int64(seed % 19))
-            let costUsd = (Double(input) * 1.25 + Double(cacheRead) * 0.12 + Double(output + thinking) * 5.0) / 1_000_000.0
+            // Authentic Antigravity prompt-cache profile (~87% cache read, ~10% fresh input, ~2% output, ~1% thinking)
+            let baseTotal = 4_800_000 * intensityMultiplier + Int64((seed % 19) * 320_000)
+            var dayInput: Int64 = 0
+            var dayCacheRead: Int64 = 0
+            var dayOutput: Int64 = 0
+            var dayThinking: Int64 = 0
+            var daySteps = 0
+            var dayCost = 0.0
+            var dayModels: [String: Int64] = [:]
+            var dayDetails: [String: ModelTokenBreakdown] = [:]
 
-            let carbonShare = Int64(Double(total) * 0.44)
-            let opusShare = Int64(Double(total) * 0.31)
-            let flashShare = Int64(Double(total) * 0.17)
-            let argonShare = max(0, total - carbonShare - opusShare - flashShare)
-            let models: [String: Int64] = [
-                "Gemini 4 Carbon (High)": carbonShare,
-                "Claude Opus 5.5 (High)": opusShare,
-                "Gemini 3.8 Flash": flashShare,
-                "Gemini 4 Argon (High)": argonShare
-            ]
+            for (idx, sp) in specs.enumerated() {
+                // Slight realistic daily variation per model
+                let jitter = 0.85 + Double((seed + idx * 17) % 31) / 100.0
+                let mTotal = Int64(Double(baseTotal) * sp.weight * jitter)
+                guard mTotal > 0 else { continue }
+                let mCache = Int64(Double(mTotal) * 0.872)
+                let mInput = Int64(Double(mTotal) * 0.098)
+                let mOutput = Int64(Double(mTotal) * 0.021)
+                let mThink = max(0, mTotal - mCache - mInput - mOutput)
+                let mSteps = max(4, Int(Double(intensityMultiplier * 28) * sp.weight * jitter))
+                let mCost = (
+                    Double(mInput) * sp.inputPricePerM +
+                    Double(mCache) * sp.cachePricePerM +
+                    Double(mOutput + mThink) * sp.outputPricePerM
+                ) / 1_000_000.0
 
+                dayInput += mInput
+                dayCacheRead += mCache
+                dayOutput += mOutput
+                dayThinking += mThink
+                daySteps += mSteps
+                dayCost += mCost
+                dayModels[sp.name] = mTotal
+                dayDetails[sp.name] = ModelTokenBreakdown(
+                    model: sp.name,
+                    total: mTotal,
+                    input: mInput,
+                    output: mOutput,
+                    cacheRead: mCache,
+                    thinking: mThink,
+                    steps: mSteps,
+                    costUsd: (mCost * 10000).rounded() / 10000
+                )
+
+                var cur = aggTotals[sp.name] ?? (0, 0, 0, 0, 0, 0, 0)
+                cur.total += mTotal
+                cur.input += mInput
+                cur.output += mOutput
+                cur.cacheRead += mCache
+                cur.thinking += mThink
+                cur.steps += mSteps
+                cur.cost += mCost
+                aggTotals[sp.name] = cur
+            }
+
+            let dayTotal = dayInput + dayCacheRead + dayOutput + dayThinking
             matrix.append(DailyTokenRecord(
                 date: dayStr,
-                total: total,
-                input: input,
-                output: output,
-                cacheRead: cacheRead,
-                thinking: thinking,
-                steps: steps,
-                costUsd: costUsd,
-                models: models
+                total: dayTotal,
+                input: dayInput,
+                output: dayOutput,
+                cacheRead: dayCacheRead,
+                thinking: dayThinking,
+                steps: daySteps,
+                costUsd: (dayCost * 100).rounded() / 100,
+                models: dayModels,
+                modelDetails: dayDetails
             ))
 
-            totalTokens += total
-            if offset == 0 { todayTokens = total }
-            if offset >= -6 { last7dTokens += total }
-            totalCostUsd += costUsd
+            totalTokens += dayTotal
+            if offset == 0 { todayTokens = dayTotal }
+            if offset >= -6 { last7dTokens += dayTotal }
+            totalCostUsd += dayCost
             activeDays += 1
-            totalSteps += steps
+            totalSteps += daySteps
         }
 
-        let desktopTokens = Int64(Double(totalTokens) * 0.72)
+        let modelSummary: [ModelTokenBreakdown] = aggTotals
+            .map { key, v in
+                ModelTokenBreakdown(
+                    model: key,
+                    total: v.total,
+                    input: v.input,
+                    output: v.output,
+                    cacheRead: v.cacheRead,
+                    thinking: v.thinking,
+                    steps: v.steps,
+                    costUsd: (v.cost * 100).rounded() / 100
+                )
+            }
+            .sorted { $0.total > $1.total }
+
+        let desktopTokens = Int64(Double(totalTokens) * 0.78)
         let cliTokens = totalTokens - desktopTokens
         let summary = TokenHistorySummary(
             totalTokens: totalTokens,
@@ -683,15 +828,16 @@ final class DemoGateway: @unchecked Sendable {
             last7dTokens: last7dTokens,
             desktopTokens: desktopTokens,
             cliTokens: cliTokens,
-            estimatedCostUsd: totalCostUsd,
-            estimatedCostCny: totalCostUsd * 7.24,
+            estimatedCostUsd: (totalCostUsd * 100).rounded() / 100,
+            estimatedCostCny: (totalCostUsd * 7.25 * 100).rounded() / 100,
             activeDays: activeDays,
             totalSteps: totalSteps
         )
         let resp = TokenHistoryResponse(
             updatedAt: Int64(Date().timeIntervalSince1970 * 1000),
             summary: summary,
-            dailyMatrix: matrix
+            dailyMatrix: matrix,
+            modelSummary: modelSummary
         )
         return (try? JSONEncoder().encode(resp)) ?? Data("{}".utf8)
     }
@@ -728,7 +874,7 @@ final class DemoGateway: @unchecked Sendable {
             startedAt: Self.iso(Date()),
             contextMeter: ContextMeterItem(
                 usedTokens: 0,
-                maxTokens: 200_000,
+                maxTokens: 512_000,
                 percentage: 0,
                 inputTokens: 0,
                 outputTokens: 0,
@@ -738,7 +884,7 @@ final class DemoGateway: @unchecked Sendable {
                 streamingDurationSec: nil,
                 tokensPerSecond: nil,
                 isOverflow: false,
-                errorKind: nil
+                errorKind: "none"
             ),
             swarm: nil,
             subagents: [],
@@ -818,7 +964,7 @@ final class DemoGateway: @unchecked Sendable {
                 defer { self.lock.unlock() }
                 guard let i = self.conversations.firstIndex(where: { $0.id == cascadeId }) else { return }
                 let s1 = self.conversations[i].messages.count
-                self.conversations[i].messages.append(Self.toolMsg(id: "\(cascadeId)-tool-\(s1)", step: s1, tools: ["write_to_file", "run_command", "read_file"]))
+                self.conversations[i].messages.append(Self.toolMsg(id: "\(cascadeId)-tool-\(s1)", step: s1, tools: ["write_file", "run_command", "read_file"]))
                 let s2 = self.conversations[i].messages.count
                 let replyText = isRedesign
                     ? Self.t(
@@ -932,8 +1078,8 @@ final class DemoGateway: @unchecked Sendable {
             if lower.hasPrefix("/compact") {
                 let s = self.conversations[i].messages.count
                 let prevPct = self.conversations[i].contextMeter?.percentage ?? 88.0
-                let newUsed: Int64 = 48_600
-                let maxT: Int64 = 200_000
+                let newUsed: Int64 = 124_600
+                let maxT: Int64 = 512_000
                 let newPct = Double(newUsed) / Double(maxT) * 100.0
                 self.conversations[i].contextMeter = ContextMeterItem(
                     usedTokens: newUsed,
@@ -965,7 +1111,7 @@ final class DemoGateway: @unchecked Sendable {
                 ))
             } else if trimmed == "Continue" && isLogin500 {
                 let s1 = self.conversations[i].messages.count
-                self.conversations[i].messages.append(Self.toolMsg(id: "\(cascadeId)-t-\(s1)", step: s1, tools: ["read_file", "write_to_file"]))
+                self.conversations[i].messages.append(Self.toolMsg(id: "\(cascadeId)-t-\(s1)", step: s1, tools: ["read_file", "edit_file"]))
                 let s2 = self.conversations[i].messages.count
                 self.conversations[i].messages.append(Self.agentMsg(
                     id: "\(cascadeId)-a-\(s2)",
@@ -1101,8 +1247,8 @@ final class DemoGateway: @unchecked Sendable {
 
     private func bumpContextMeter(at index: Int, addInput: Int64, addOutput: Int64, speed: Double, ttft: Double) {
         let prev = conversations[index].contextMeter
-        let maxT = prev?.maxTokens ?? 200_000
-        let newUsed = min(maxT - 1_200, (prev?.usedTokens ?? 18_400) + addInput + addOutput)
+        let maxT = prev?.maxTokens ?? 512_000
+        let newUsed = min(maxT - 1_200, (prev?.usedTokens ?? 48_400) + addInput + addOutput)
         let pct = Double(newUsed) / Double(maxT) * 100.0
         conversations[index].contextMeter = ContextMeterItem(
             usedTokens: newUsed,
@@ -1110,13 +1256,13 @@ final class DemoGateway: @unchecked Sendable {
             percentage: pct,
             inputTokens: (prev?.inputTokens ?? 8_200) + addInput,
             outputTokens: (prev?.outputTokens ?? 1_100) + addOutput,
-            cacheReadTokens: (prev?.cacheReadTokens ?? 24_000) + addInput * 2,
+            cacheReadTokens: (prev?.cacheReadTokens ?? 40_000) + addInput * 3,
             thinkingTokens: (prev?.thinkingTokens ?? 620) + addOutput / 2,
             timeToFirstTokenSec: ttft,
             streamingDurationSec: max(1.2, Double(addOutput) / speed),
             tokensPerSecond: speed,
             isOverflow: pct >= 95.0,
-            errorKind: pct >= 95.0 ? "context_overflow" : nil
+            errorKind: pct >= 95.0 ? "context_overflow" : "none"
         )
     }
 
@@ -1160,6 +1306,34 @@ final class DemoGateway: @unchecked Sendable {
                     model: activeModelId,
                     modelName: activeModelName,
                     text: note
+                ))
+            } else if interactionType == "run_command" {
+                let s1 = self.conversations[i].messages.count
+                self.conversations[i].messages.append(Self.toolMsg(
+                    id: "\(cascadeId)-t-\(s1)",
+                    step: s1,
+                    tools: ["run_command"],
+                    thinking: Self.t("已获得批准，正在执行生产缓存清理与网关平滑重载，并核验健康检查端点。", "Approval received. Running TTL cleanup, issuing zero-downtime SIGHUP reload, and verifying health probes.", "承認を確認しました。期限切れキー掃除と無停止 SIGHUP リロードを実行し、ヘルスチェックを検証します。"),
+                    thinkingDuration: "2.1s",
+                    toolDetails: [[
+                        "name": "run_command",
+                        "summary": "bash scripts/prod_cleanup.sh --prefix 'v1:session:tmp:*' --reload-gateway",
+                        "status": "done",
+                        "duration": "1.8s",
+                        "stepIndex": s1
+                    ]]
+                ))
+                let s2 = self.conversations[i].messages.count
+                self.conversations[i].messages.append(Self.agentMsg(
+                    id: "\(cascadeId)-a-\(s2)",
+                    step: s2,
+                    model: activeModelId,
+                    modelName: activeModelName,
+                    text: Self.t(
+                        "已获批并执行完毕 ✅\n\n- 清理 `v1:session:tmp:*` 过期键 **14,218** 条，释放 Redis 内存 **412 MB**\n- 网关已完成 `SIGHUP` 热重载，活跃 SSE / WebSocket 连接 **0 中断**\n- `/healthz` 探针返回 `200 OK`（P99 = **38ms**）",
+                        "Approved and executed cleanly ✅\n\n- Purged **14,218** expired `v1:session:tmp:*` keys (**412 MB** Redis memory reclaimed)\n- Completed zero-downtime `SIGHUP` reload (**0** dropped SSE / WebSocket streams)\n- `/healthz` check passed `200 OK` (P99 = **38ms**)",
+                        "承認を受けて実行完了しました ✅\n\n- `v1:session:tmp:*` の期限切れキー **14,218 件**を削除（Redis メモリ **412 MB** 解放）\n- `SIGHUP` ホットリロード完了（稼働中 SSE / WebSocket 切断 **0 件**）\n- `/healthz` 正常応答 `200 OK`（P99 = **38ms**）"
+                    )
                 ))
             } else if interactionType == "workflow_approval" {
                 let s1 = self.conversations[i].messages.count
@@ -1852,8 +2026,8 @@ final class DemoGateway: @unchecked Sendable {
         defer { lock.unlock() }
         for i in accounts.indices {
             if accounts[i].tier.uppercased() != "FREE" {
-                accounts[i].claude5h = min(100, accounts[i].claude5h + 2)
-                accounts[i].gemini5h = min(100, accounts[i].gemini5h + 2)
+                accounts[i].claude5h = min(100.0, accounts[i].claude5h + 1.5)
+                accounts[i].gemini5h = min(100.0, accounts[i].gemini5h + 1.5)
             }
         }
     }
@@ -1995,8 +2169,8 @@ final class DemoGateway: @unchecked Sendable {
     static func agentMsg(
         id: String,
         step: Int,
-        model: String? = "gemini-4-carbon-high",
-        modelName: String? = "Gemini 4 Carbon (High)",
+        model: String? = "gemini-4-neon-high",
+        modelName: String? = "Gemini 4 Neon (High)",
         text: String,
         artifacts: [[String: Any]]? = nil,
         timestamp: String? = nil
@@ -2013,8 +2187,25 @@ final class DemoGateway: @unchecked Sendable {
         )
     }
 
-    static func toolMsg(id: String, step: Int, tools: [String]) -> Message {
-        Message(id: id, type: "tools", text: "", toolCount: tools.count, toolNames: tools, stepIndex: step)
+    static func toolMsg(
+        id: String,
+        step: Int,
+        tools: [String],
+        thinking: String? = nil,
+        thinkingDuration: String? = nil,
+        toolDetails: [[String: Any]]? = nil
+    ) -> Message {
+        Message(
+            id: id,
+            type: "tools",
+            text: "",
+            thinking: thinking,
+            thinkingDuration: thinkingDuration,
+            toolCount: tools.count,
+            toolNames: tools,
+            toolDetails: toolDetails,
+            stepIndex: step
+        )
     }
 
     static func errorMsg(

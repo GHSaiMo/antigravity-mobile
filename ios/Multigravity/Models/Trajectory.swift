@@ -803,7 +803,7 @@ public enum ToolLocalization {
 
         // 文件与代码
         case "view_file": return String(localized: "查看文件")
-        case "write_to_file": return String(localized: "写入文件")
+        case "write_to_file", "write_file": return String(localized: "写入文件")
         case "replace_file_content": return String(localized: "编辑文件")
         case "edit_file": return String(localized: "编辑文件")
         case "create_file": return String(localized: "创建文件")
@@ -823,6 +823,12 @@ public enum ToolLocalization {
         case "manage_subagents": return String(localized: "管理子代理")
         case "send_message": return String(localized: "发送消息")
         case "browser_subagent": return String(localized: "浏览器代理")
+        case "run_workflow": return String(localized: "运行工作流")
+        case "swarm": return String(localized: "蜂群协同")
+        case "post_message": return String(localized: "发布公告")
+        case "read_board": return String(localized: "查看公告板")
+        case "swarm_wait": return String(localized: "等待协作")
+        case "checkpoint": return String(localized: "检查点")
 
         // 人机交互与生成
         case "ask_question": return String(localized: "询问用户")

@@ -1371,7 +1371,7 @@ public struct ConversationListView: View {
                         .cornerRadius(6)
                 } else if item.isWorking {
                     let isTerminal = item.hasRunningTasks
-                    let label = isTerminal ? "Running command" : "Working"
+                    let label = isTerminal ? String(localized: "Running command") : String(localized: "Working")
                     HStack(spacing: 4) {
                         if isTerminal {
                             TerminalRunningIndicator(size: 12, color: .green)

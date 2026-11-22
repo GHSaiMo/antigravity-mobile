@@ -22,7 +22,7 @@
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
 
 <p align="center">
-  <img src="images/hero.jpg" alt="Multigravity — Google Antigravity のネイティブモバイルコンパニオン" width="760" />
+  <img src="images/ja/hero.jpg" alt="Multigravity — Google Antigravity のネイティブモバイルコンパニオン" width="760" />
 </p>
 
 <p align="center">
@@ -83,20 +83,26 @@ mgy
 
 <table>
   <tr>
-    <td align="center" valign="top" width="25%"><img src="images/screen_list.jpg" alt="セッション一覧とバックグラウンドタスク" /><br/><b>全体をひと目で把握</b><br/><sub>ステータスバッジ、バックグラウンドタスク表示、クォータ消費ペース計</sub></td>
-    <td align="center" valign="top" width="25%"><img src="images/screen_question.jpg" alt="インタラクティブな意思決定" /><br/><b>ワンタップで意思決定</b><br/><sub>コンテキスト使用率と生成速度を確認しながら、複数設問をまとめて送信</sub></td>
-    <td align="center" valign="top" width="25%"><img src="images/screen_plan.jpg" alt="プラン確認と Proceed" /><br/><b>プラン確認＆承認</b><br/><sub>Mermaid フローチャートと実行計画を同時に確認し、ワンタップで Proceed</sub></td>
-    <td align="center" valign="top" width="25%"><img src="images/screen_pdf.jpg" alt="成果物プレビュー" /><br/><b>成果物をそのまま閲覧</b><br/><sub>データ表、ネイティブ棒グラフ、PDF ファイルをアプリ内で直接プレビュー</sub></td>
+    <td align="center" valign="top" width="25%"><img src="images/ja/screen_01_home_apns.jpg" alt="全体俯瞰と純正 APNs 通知" /><br/><b>全体俯瞰＆APNs 通知</b><br/><sub>純正 APNs 承認バナー、ステータスバッジ、バックグラウンドタスク、5h 枠</sub></td>
+    <td align="center" valign="top" width="25%"><img src="images/ja/screen_02_island_widget.jpg" alt="Dynamic Island とホームウィジェット" /><br/><b>Dynamic Island＆ウィジェット</b><br/><sub>コンパクト島の進捗表示＋ホーム画面 4×4 クォータ＆アクティブ会話</sub></td>
+    <td align="center" valign="top" width="25%"><img src="images/ja/screen_03_island_approval.jpg" alt="Dynamic Island 展開ワンタップ承認" /><br/><b>Dynamic Island ワンタップ承認</b><br/><sub>長押し展開でアプリを開かず本番コマンドを即座に許可・拒否</sub></td>
+    <td align="center" valign="top" width="25%"><img src="images/ja/screen_04_lockscreen_live.jpg" alt="ロック画面ライブアクティビティ" /><br/><b>ロック画面ライブアクティビティ</b><br/><sub>ステップ進捗と許可・拒否ボタン、APNs 通知をロック画面で完結</sub></td>
   </tr>
   <tr>
-    <td align="center" valign="top" width="25%"><img src="images/screen_workflow.jpg" alt="動的マルチエージェントワークフロー" /><br/><b>マルチエージェントワークフロー</b><br/><sub>ステージパイプライン、並列サブエージェント、リアルタイムログを可視化</sub></td>
-    <td align="center" valign="top" width="25%"><img src="images/screen_approval.jpg" alt="ワークフロースクリプトの安全承認" /><br/><b>安全承認ゲート</b><br/><sub>オーケストレーション用スクリプトを検知し、ソース確認のうえ細粒度で承認</sub></td>
-    <td align="center" valign="top" width="25%"><img src="images/screen_quota.jpg" alt="アカウントとクォータダッシュボード" /><br/><b>アカウント＆クォータ</b><br/><sub>5時間 / 週間クォータの消費ペース計、トークン履歴、アカウント即時切替</sub></td>
-    <td align="center" valign="top" width="25%"><img src="images/screen_tasks.jpg" alt="ツール＆タスクダッシュボード" /><br/><b>ツール＆タスク管理</b><br/><sub>MCP、スキル、プラグイン、定期実行タスク、デーモンを一元管理</sub></td>
+    <td align="center" valign="top" width="25%"><img src="images/ja/screen_05_quota_accounts.jpg" alt="アカウントと残枠ダッシュボード" /><br/><b>アカウント＆クォータ</b><br/><sub>5時間 / 週間クォータの消費ペース計、Ultra / Pro / Free 即時切替</sub></td>
+    <td align="center" valign="top" width="25%"><img src="images/ja/screen_06_token_history.jpg" alt="トークン履歴ヒートマップ" /><br/><b>トークン履歴＆内訳</b><br/><sub>直近 20 週ヒートマップ、キャッシュ率、Gemini 4 Neon 等モデル別集計</sub></td>
+    <td align="center" valign="top" width="25%"><img src="images/ja/screen_07_model_picker.jpg" alt="Gemini 4 Neon 2列モデルスイッチャー" /><br/><b>2列モデルスイッチャー</b><br/><sub>Gemini 4 Neon (Extra/High)・Orchestrator・Opus 5.5 をスライド即切替</sub></td>
+    <td align="center" valign="top" width="25%"><img src="images/ja/screen_08_cmd_approval.jpg" alt="本番コマンド安全承認ゲート" /><br/><b>高リスクコマンド承認</b><br/><sub>事前ドライラン結果と実行コマンドを明示し、細粒度で許可・拒否</sub></td>
+  </tr>
+  <tr>
+    <td align="center" valign="top" width="25%"><img src="images/ja/screen_09_swarm_hive.jpg" alt="Swarm 蜂群 Hive グラフ" /><br/><b>Swarm 蜂群グラフ</b><br/><sub>デスクトップ同等の `/teamwork` Hive トポロジと共有ボードを可視化</sub></td>
+    <td align="center" valign="top" width="25%"><img src="images/ja/screen_10_plan_mermaid.jpg" alt="Mermaid 構成図とワンタップ進める" /><br/><b>プラン確認＆承認</b><br/><sub>オフライン Mermaid 構成図と実装計画を同時確認し、ワンタップで実行</sub></td>
+    <td align="center" valign="top" width="25%"><img src="images/ja/screen_11_workflow_subagents.jpg" alt="並列サブエージェントワークフロー" /><br/><b>並列サブエージェント</b><br/><sub>複数サブエージェントの進捗とステップをリアルタイムに一覧・詳細閲覧</sub></td>
+    <td align="center" valign="top" width="25%"><img src="images/ja/screen_12_changes_diff.jpg" alt="この会話の変更 Diff プレビュー" /><br/><b>コード変更＆Diff 確認</b><br/><sub>変更ファイル一覧、追加・削除行数、インライン Diff を手元でレビュー</sub></td>
   </tr>
 </table>
 
-> *上記スクリーンショットはクライアント内蔵の**デモモード**（v1.2.0 インターフェース）で撮影したもので、ペアリング前でもすぐに操作感を体験できます。*
+> *上記スクリーンショットはクライアント内蔵の**オフラインデモモード**（v1.2.4 ネイティブ日本語ダーク UI・Antigravity 2.34 準拠および実機 Dynamic Island / ロック画面ライブアクティビティ / ホームウィジェット）で撮影したもので、ペアリング前でもすぐ操作感を体験できます。*
 
 ---
 

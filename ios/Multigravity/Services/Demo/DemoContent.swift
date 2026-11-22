@@ -57,47 +57,47 @@ extension DemoGateway {
             )
         ]
 
-        // MARK: Accounts & Quotas
+        // MARK: Accounts & Quotas (Aligned with real Cockpit 5h / Weekly + independent Argon pool)
         accounts = [
             QuotaAccount(
                 id: "acc-ultra",
-                email: "demo-ultra@antigravity.dev",
-                name: "Demo Ultra",
+                email: "alex@antigravity.dev",
+                name: "Alex · Ultra",
                 tier: "ULTRA",
-                claude5h: 86,
-                claudeWeekly: 92,
-                gemini5h: 74,
-                geminiWeekly: 88,
-                argon: 100,
-                claude5hOffsetHours: 3.6,
-                claudeWeeklyOffsetDays: 4.8,
-                gemini5hOffsetHours: 4.2,
-                geminiWeeklyOffsetDays: 5.5
+                claude5h: 84.6,
+                claudeWeekly: 91.5,
+                gemini5h: 76.4,
+                geminiWeekly: 89.2,
+                argon: 96.2,
+                claude5hOffsetHours: 4.2,
+                claudeWeeklyOffsetDays: 6.1,
+                gemini5hOffsetHours: 3.8,
+                geminiWeeklyOffsetDays: 5.6
             ),
             QuotaAccount(
                 id: "acc-pro",
-                email: "demo-pro@antigravity.dev",
-                name: "Demo Pro",
+                email: "alex-work@antigravity.dev",
+                name: "Alex Work",
                 tier: "PRO",
-                claude5h: 42,
-                claudeWeekly: 68,
-                gemini5h: 55,
-                geminiWeekly: 79,
-                argon: 62,
-                claude5hOffsetHours: 1.8,
-                claudeWeeklyOffsetDays: 2.3,
+                claude5h: 41.8,
+                claudeWeekly: 67.4,
+                gemini5h: 54.2,
+                geminiWeekly: 78.6,
+                argon: 24.6,
+                claude5hOffsetHours: 1.7,
+                claudeWeeklyOffsetDays: 2.4,
                 gemini5hOffsetHours: 2.4,
-                geminiWeeklyOffsetDays: 3.1
+                geminiWeeklyOffsetDays: 3.2
             ),
             QuotaAccount(
                 id: "acc-free",
-                email: "demo-free@antigravity.dev",
-                name: "Demo Free",
+                email: "alex-lab@antigravity.dev",
+                name: "Alex Lab",
                 tier: "FREE",
-                claude5h: 18,
-                claudeWeekly: 25,
-                gemini5h: 30,
-                geminiWeekly: 40,
+                claude5h: 18.0,
+                claudeWeekly: 22.0,
+                gemini5h: 31.0,
+                geminiWeekly: 38.5,
                 argon: nil,
                 claude5hOffsetHours: 0.7,
                 claudeWeeklyOffsetDays: 1.2,
@@ -206,7 +206,7 @@ extension DemoGateway {
             SkillInfo(name: "release-checklist", description: Self.t("Xcode Archive、签名校验与 TestFlight 灰度检查", "Verify Xcode Archive, signing identity, and TestFlight release notes", "Xcode Archive・署名検証・TestFlight リリース前チェック"), path: "/Users/demo/.gemini/config/skills/release-checklist/SKILL.md", content: Self.t("# Release Checklist\n核验 Bundle Version、签名证书指纹与崩溃符号表上传。", "# Release Checklist\nValidate bundle version, signing certificate fingerprint, and dSYM upload.", "# Release Checklist\nバンドル番号・署名証明書フィンガープリント・dSYM アップロードを確認します。"))
         ]
 
-        // MARK: Plugins & Providers
+        // MARK: Plugins & Providers (Aligned with CascadePluginItem & PluginAuthProviderItem)
         plugins = [
             [
                 "id": "plugin-git-inspector",
@@ -214,12 +214,11 @@ extension DemoGateway {
                 "description": Self.t("实时读取分支状态、Diff 与 GitHub Pull Request", "Inspect branch status, diffs, and GitHub Pull Requests in real time", "ブランチ状態・コード差分・GitHub Pull Request をリアルタイム確認"),
                 "version": "1.8.2",
                 "enabled": true,
-                "canToggle": true,
-                "scope": "global",
-                "providerName": "GitHub",
-                "signedIn": true,
-                "accountIdentity": "demo-dev@github.com",
-                "tools": ["git_status", "git_diff", "pr_checks"]
+                "installed": true,
+                "kind": "plugin",
+                "icon": "arrow.triangle.branch",
+                "authStatus": "authenticated",
+                "accounts": ["alex@github.com"]
             ],
             [
                 "id": "plugin-xcode-bridge",
@@ -227,12 +226,11 @@ extension DemoGateway {
                 "description": Self.t("真机无线调试状态监测与构建日志流推送", "Monitor wireless device pairing state and stream build logs", "ワイヤレスデバッグ接続状態の監視とビルドログのリアルタイム配信"),
                 "version": "2.1.0",
                 "enabled": true,
-                "canToggle": true,
-                "scope": "global",
-                "providerName": "Apple Developer",
-                "signedIn": true,
-                "accountIdentity": "Demo Team (8A92KQ)",
-                "tools": ["xcode_build", "device_pair"]
+                "installed": true,
+                "kind": "plugin",
+                "icon": "hammer",
+                "authStatus": "authenticated",
+                "accounts": ["Apple Developer Team"]
             ],
             [
                 "id": "plugin-notion-sync",
@@ -240,99 +238,83 @@ extension DemoGateway {
                 "description": Self.t("将技术评审与会议纪要一键归档至团队知识库", "Archive architecture reviews and meeting notes to Notion", "設計レビューや議事録をワンタップでチーム Notion にアーカイブ"),
                 "version": "0.9.4",
                 "enabled": false,
-                "canToggle": true,
-                "scope": "workspace",
-                "providerName": "Notion",
-                "signedIn": false,
-                "accountIdentity": "",
-                "tools": ["notion_export"]
+                "installed": false,
+                "kind": "plugin",
+                "icon": "doc.text",
+                "authStatus": "unauthenticated",
+                "accounts": []
             ]
         ]
 
         pluginProviders = [
             [
-                "provider": "github",
-                "pluginId": "plugin-git-inspector",
-                "pluginName": "Git & PR Inspector",
-                "displayName": "GitHub OAuth",
-                "signedIn": true,
-                "accounts": [
-                    ["name": "demo-main", "label": Self.t("工作账号", "Work", "仕事用"), "email": "demo-dev@github.com", "isDefault": true]
-                ]
+                "id": "github",
+                "name": "GitHub OAuth",
+                "signedIn": true
             ],
             [
-                "provider": "apple",
-                "pluginId": "plugin-xcode-bridge",
-                "pluginName": "Xcode Wireless Bridge",
-                "displayName": "Apple Developer",
-                "signedIn": true,
-                "accounts": [
-                    ["name": "team-demo", "label": "Demo Team", "email": "dev@antigravity.dev", "isDefault": true]
-                ]
+                "id": "apple",
+                "name": "Apple Developer",
+                "signedIn": true
             ],
             [
-                "provider": "notion",
-                "pluginId": "plugin-notion-sync",
-                "pluginName": "Notion Knowledge Sync",
-                "displayName": "Notion Workspace",
-                "signedIn": false,
-                "accounts": []
+                "id": "notion",
+                "name": "Notion Workspace",
+                "signedIn": false
             ]
         ]
 
-        // MARK: Automations
+        // MARK: Automations (Aligned with AutomationSidecarItem & AutomationEventItem)
+        let demoTZ = Self.t("Asia/Shanghai", "America/Los_Angeles", "Asia/Tokyo")
         automations = [
             [
                 "id": "auto-nightly-ci",
                 "name": Self.t("夜间回归测试巡检", "Nightly Regression Suite", "夜間リグレッション自動巡回"),
+                "description": Self.t("每日凌晨执行 Go 竞态单测与 iOS 无头编译检查，异常时通过 APNs 推送摘要。", "Run go test -race and headless iOS build checks every night with APNs summaries.", "毎晩 go test -race とヘッドレス iOS ビルド検証を実行し、失敗時に APNs 通知します。"),
+                "status": "RUNNING",
+                "cronExpression": "0 2 * * *",
+                "timeZone": demoTZ,
+                "model": "gemini-4-neon-high",
                 "prompt": Self.t("运行 go test -race ./... 与 iOS 编译检查，若有失败则推送错误摘要。", "Run go test -race ./... and iOS build checks; notify on failure.", "go test -race ./... と iOS ビルド検証を実行し、失敗時に要約を通知。"),
-                "scheduleType": "cron",
-                "cron": "0 2 * * *",
-                "scheduleSummary": Self.t("每天 02:00", "Daily at 02:00", "毎日 02:00"),
-                "model": "gemini-4-carbon-high",
-                "workspace": "/Users/demo/Projects/antigravity-mobile",
-                "enabled": true,
-                "runCount": 42,
                 "lastRunAt": isoAgo(minutes: 420),
                 "nextRunAt": Self.iso(now.addingTimeInterval(6 * 3600)),
-                "lastResult": "success"
+                "enabled": true,
+                "workspaceUri": "file:///Users/demo/Projects/antigravity-mobile"
             ],
             [
                 "id": "auto-quota-alert",
-                "name": Self.t("配额水位预警", "Quota Threshold Watch", "クォータ残量アラート"),
+                "name": Self.t("配额水位与重置监测", "Quota Headroom Watch", "クォータ残量＆リセット監視"),
+                "description": Self.t("每小时巡检 5h / Weekly 与 Argon 池余量，低于 20% 时推送切号提醒。", "Check 5h, Weekly, and Argon pools hourly and alert below 20%.", "毎時 5h・週間・Argon の各枠残量を監視し、20% 未満でアカウント切替を通知します。"),
+                "status": "READY",
+                "cronExpression": "0 * * * *",
+                "timeZone": demoTZ,
+                "model": "gemini-4-hydrogen-high",
                 "prompt": Self.t("每小时检查各账号 5h 额度池余量，低于 20% 时提醒切换备用账号。", "Check 5h model quota headroom hourly and alert below 20%.", "1時間ごとに各アカウントの 5h 枠残量を監視し、20% 未満で切替を通知。"),
-                "scheduleType": "interval",
-                "intervalSeconds": 3600,
-                "scheduleSummary": Self.t("每 1 小时", "Every 1 hour", "1時間ごと"),
-                "model": "gemini-3.8-flash",
-                "workspace": "",
-                "enabled": true,
-                "runCount": 118,
                 "lastRunAt": isoAgo(minutes: 28),
                 "nextRunAt": Self.iso(now.addingTimeInterval(32 * 60)),
-                "lastResult": "success"
+                "enabled": true,
+                "workspaceUri": ""
             ],
             [
                 "id": "auto-friday-digest",
                 "name": Self.t("周五版本发布周报", "Friday Release Digest", "金曜リリース週次ダイジェスト"),
+                "description": Self.t("汇总本周合并 PR、线上 P99 延迟与未闭环 Issue 生成发布周报。", "Summarize merged PRs, P99 latency, and open issues into a Markdown digest.", "今週の PR・P99 レイテンシ・未解決 Issue を Markdown 週報にまとめます。"),
+                "status": "STOPPED",
+                "cronExpression": "0 17 * * 5",
+                "timeZone": demoTZ,
+                "model": "claude-opus-5-5-high",
                 "prompt": Self.t("汇总本周 PR 合并清单、线上崩溃率与未闭环 Issue，生成 Markdown 周报。", "Summarize merged PRs, crash-free rate, and open issues in Markdown.", "今週マージされた PR・クラッシュフリー率・未解決 Issue を Markdown 週報に集計。"),
-                "scheduleType": "cron",
-                "cron": "0 17 * * 5",
-                "scheduleSummary": Self.t("每周五 17:00", "Fridays at 17:00", "毎週金曜 17:00"),
-                "model": "claude-opus-5-5-thinking",
-                "workspace": "/Users/demo/Projects/antigravity-mobile",
-                "enabled": false,
-                "runCount": 9,
                 "lastRunAt": isoAgo(minutes: 4320),
-                "lastResult": "paused"
+                "enabled": false,
+                "workspaceUri": "file:///Users/demo/Projects/antigravity-mobile"
             ]
         ]
 
         automationEvents = [
-            ["automationId": "auto-nightly-ci", "automationName": Self.t("夜间回归测试巡检", "Nightly Regression Suite", "夜間リグレッション自動巡回"), "status": "completed", "message": "41/41 tests passed", "timestamp": isoAgo(minutes: 420)],
-            ["automationId": "auto-quota-alert", "automationName": Self.t("配额水位预警", "Quota Threshold Watch", "クォータ残量アラート"), "status": "completed", "message": Self.t("Demo Ultra 86% · Pro 42% · Free 18% (已提示)", "Demo Ultra 86% · Pro 42% · Free 18% (Alert sent)", "Demo Ultra 86% · Pro 42% · Free 18%（通知済み）"), "timestamp": isoAgo(minutes: 28)],
-            ["automationId": "auto-nightly-ci", "automationName": Self.t("夜间回归测试巡检", "Nightly Regression Suite", "夜間リグレッション自動巡回"), "status": "running", "message": Self.t("正在执行 iOS xcodebuild 增量检查...", "Running incremental iOS xcodebuild check...", "iOS xcodebuild 差分ビルド検証を実行中..."), "timestamp": isoAgo(minutes: 425)],
-            ["automationId": "auto-friday-digest", "automationName": Self.t("周五版本发布周报", "Friday Release Digest", "金曜リリース週次ダイジェスト"), "status": "skipped", "message": Self.t("自动化已暂停", "Automation paused", "自動化を一時停止中"), "timestamp": isoAgo(minutes: 1440)]
+            ["id": "evt-1", "scheduleId": "auto-nightly-ci", "sidecarId": "auto-nightly-ci", "conversationId": "demo-0001-upload", "status": "SUCCESS", "message": Self.t("41/41 项测试通过 · iOS 编译零警告", "41/41 tests passed · iOS build clean", "41/41 テスト通過 · iOS ビルド警告ゼロ"), "timestamp": isoAgo(minutes: 420)],
+            ["id": "evt-2", "scheduleId": "auto-quota-alert", "sidecarId": "auto-quota-alert", "conversationId": "demo-0012-swarm", "status": "SUCCESS", "message": Self.t("Ultra 5h 76.4% · Pro Argon 24.6%（已提示）", "Ultra 5h 76.4% · Pro Argon 24.6% (alert sent)", "Ultra 5h 76.4% · Pro Argon 24.6%（通知済み）"), "timestamp": isoAgo(minutes: 28)],
+            ["id": "evt-3", "scheduleId": "auto-nightly-ci", "sidecarId": "auto-nightly-ci", "conversationId": "demo-0014-running", "status": "RUNNING", "message": Self.t("正在执行 iOS xcodebuild 增量校验...", "Running incremental iOS xcodebuild check...", "iOS xcodebuild 差分ビルド検証を実行中..."), "timestamp": isoAgo(minutes: 425)],
+            ["id": "evt-4", "scheduleId": "auto-friday-digest", "sidecarId": "auto-friday-digest", "conversationId": "demo-0005-redesign", "status": "SKIPPED", "message": Self.t("定时任务已暂停", "Automation paused", "定期実行は一時停止中"), "timestamp": isoAgo(minutes: 1440)]
         ]
 
         // MARK: Workflow Templates
@@ -343,9 +325,9 @@ extension DemoGateway {
             [
                 "taskId": "task-demo-upload-build",
                 "conversationId": "demo-0001-upload",
-                "conversationTitle": Self.t("实现文件附件上传", "File Attachment Upload Flow", "ファイル添付アップロード実装"),
+                "conversationTitle": Self.t("附件流式上传与 SHA-256 校验", "Streaming attachment upload & SHA-256", "添付ファイルのストリーム送信とSHA-256検証"),
                 "commandLine": "go test -v ./internal/gateway -run TestAttachmentUpload",
-                "toolSummary": Self.t("验证多端附件上传测试", "Verify attachment upload tests", "マルチ端末の添付アップロードテストを検証"),
+                "toolSummary": Self.t("运行网关附件上传单测", "Run gateway attachment upload tests", "ゲートウェイ添付アップロード単体テストを実行"),
                 "startedAt": isoAgo(minutes: 2),
                 "isDaemon": false,
                 "elapsedSeconds": 24,
@@ -354,9 +336,9 @@ extension DemoGateway {
             [
                 "taskId": "task-vite-daemon",
                 "conversationId": "demo-0014-running",
-                "conversationTitle": Self.t("实时联调与守护进程监控", "Live Dev Server & Daemon Logs", "開発サーバー＆デーモンログ監視"),
+                "conversationTitle": Self.t("本地 HMR 守护进程与竞态测试", "Local HMR dev server & race suite", "ローカルHMR常駐サーバーとレース検証"),
                 "commandLine": "npm run dev -- --host 0.0.0.0 --port 5173",
-                "toolSummary": Self.t("启动 Web 控制台热更新守护进程", "Web Console HMR Dev Server", "Web コンソール HMR 開発サーバーを起動"),
+                "toolSummary": Self.t("Web 控制台热更新守护进程", "Web Console HMR Dev Server", "Web コンソール HMR 開発サーバー"),
                 "startedAt": isoAgo(minutes: 6),
                 "isDaemon": true,
                 "elapsedSeconds": 360,
@@ -365,9 +347,9 @@ extension DemoGateway {
             [
                 "taskId": "task-go-race",
                 "conversationId": "demo-0014-running",
-                "conversationTitle": Self.t("实时联调与守护进程监控", "Live Dev Server & Daemon Logs", "開発サーバー＆デーモンログ監視"),
+                "conversationTitle": Self.t("本地 HMR 守护进程与竞态测试", "Local HMR dev server & race suite", "ローカルHMR常駐サーバーとレース検証"),
                 "commandLine": "go test -race -count=1 ./internal/cockpit/...",
-                "toolSummary": Self.t("运行 Go 并发竞态回归测试", "Run Go race-detector suite", "Go 並行レース検出テストを実行"),
+                "toolSummary": Self.t("执行 Go 并发竞态回归测试", "Run Go race-detector suite", "Go 並行レース検出テストを実行"),
                 "startedAt": isoAgo(minutes: 1.5),
                 "isDaemon": false,
                 "elapsedSeconds": 90,
@@ -421,15 +403,26 @@ extension DemoGateway {
                 Self.userMsg(
                     id: "sub1-u0",
                     step: 0,
-                    text: Self.t("全面扫描 `handlers/rule_eval.go` 与 `repo/score_store.go` 的参数绑定、租户隔离和 Token 校验逻辑。", "Scan `handlers/rule_eval.go` and `repo/score_store.go` for parameter binding, tenant isolation, and auth token validation.", "handlers/rule_eval.go と repo/score_store.go のパラメータバインド・テナント分離・トークン検証を全面スキャンして。"),
+                    text: Self.t("全面扫描 `handlers/rule_eval.go` 与 `repo/score_store.go` 的参数绑定、租户隔离和 Token 校验逻辑。", "Scan `handlers/rule_eval.go` and `repo/score_store.go` for parameter binding, tenant isolation, and auth token validation.", "`handlers/rule_eval.go` と `repo/score_store.go` のパラメータバインド・テナント分離・トークン検証を全面スキャンして。"),
                     timestamp: isoAgo(minutes: 25)
                 ),
-                Self.toolMsg(id: "sub1-t1", step: 1, tools: ["GrepSearch", "ReadFile", "RunStaticAudit"]),
+                Self.toolMsg(
+                    id: "sub1-t1",
+                    step: 1,
+                    tools: ["grep_search", "read_file", "run_command"],
+                    thinking: Self.t("检查 14 个风控 handler 的 SQL 拼接与租户条件注入点，重点核对 ORDER BY 和动态过滤条件。", "Auditing SQL string building and tenant isolation across 14 handlers, focusing on dynamic ORDER BY clauses.", "14 個のハンドラで SQL 構築とテナント分離を監査し、動的 ORDER BY 句を中心に検査します。"),
+                    thinkingDuration: "4.6s",
+                    toolDetails: [
+                        ["name": "grep_search", "summary": "ORDER BY|fmt.Sprintf in internal/repo/", "status": "done", "duration": "0.3s", "stepIndex": 1],
+                        ["name": "read_file", "summary": "repo/score_store.go (L60-L125)", "status": "done", "duration": "0.2s", "stepIndex": 1],
+                        ["name": "run_command", "summary": "gosec -quiet ./handlers/... ./repo/...", "status": "done", "duration": "1.9s", "stepIndex": 1]
+                    ]
+                ),
                 Self.agentMsg(
                     id: "sub1-a2",
                     step: 2,
-                    model: "claude-opus-5-5-thinking",
-                    modelName: "Claude Opus 5.5 (Thinking)",
+                    model: "claude-opus-5-5-high",
+                    modelName: "Claude Opus 5.5 (High)",
                     text: Self.t(
                         """
                         已完成 **安全扫描**（共检查 14 个 handler，发现 1 处中高危问题）：
@@ -470,10 +463,10 @@ extension DemoGateway {
             lastModified: ago(minutes: 24),
             unread: false,
             pinned: false,
-            modelId: "claude-opus-5-5-thinking",
-            modelName: "Claude Opus 5.5 (Thinking)",
+            modelId: "claude-opus-5-5-high",
+            modelName: "Claude Opus 5.5 (High)",
             startedAt: isoAgo(minutes: 25),
-            contextMeter: Self.meter(input: 18_400, output: 1_250, tps: 49.4, ttft: 0.72),
+            contextMeter: Self.meter(used: 44_200, maxTokens: 200_000, tps: 66.4, ttft: 3.4),
             swarm: nil,
             subagents: [],
             parentConversationId: "demo-0011-workflow",
@@ -494,20 +487,30 @@ extension DemoGateway {
                 Self.userMsg(
                     id: "sub2-u0",
                     step: 0,
-                    text: Self.t("分析 `EvaluateRiskBatch` 在 500 QPS 下的 CPU pprof 火焰图，定位 P99 抖动来源。", "Analyze the CPU pprof flamegraph for `EvaluateRiskBatch` at 500 QPS and locate P99 latency spikes.", "500 QPS 時の EvaluateRiskBatch の CPU pprof フレームグラフを解析し、P99 スパイクの原因を特定して。"),
+                    text: Self.t("分析 `EvaluateRiskBatch` 在 500 QPS 下的 CPU pprof 火焰图，定位 P99 抖动来源。", "Analyze the CPU pprof flamegraph for `EvaluateRiskBatch` at 500 QPS and locate P99 latency spikes.", "500 QPS 時の `EvaluateRiskBatch` の CPU pprof フレームグラフを解析し、P99 スパイクの原因を特定して。"),
                     timestamp: isoAgo(minutes: 24)
                 ),
-                Self.toolMsg(id: "sub2-t1", step: 1, tools: ["RunBenchmark", "InspectProfile"]),
+                Self.toolMsg(
+                    id: "sub2-t1",
+                    step: 1,
+                    tools: ["run_command", "read_file"],
+                    thinking: Self.t("运行压测基准并读取 pprof 热点栈，确认 CPU 与内存分配主要落点。", "Running benchmark profile and inspecting top alloc/CPU frames.", "ベンチマークを実行して pprof のホットスポットとメモリ確保箇所を特定します。"),
+                    thinkingDuration: "2.8s",
+                    toolDetails: [
+                        ["name": "run_command", "summary": "go test -bench=BenchmarkEvaluateRiskBatch -cpuprofile=cpu.out", "status": "done", "duration": "3.4s", "stepIndex": 1],
+                        ["name": "read_file", "summary": "engine/evaluator.go (L110-L184)", "status": "done", "duration": "0.2s", "stepIndex": 1]
+                    ]
+                ),
                 Self.agentMsg(
                     id: "sub2-a2",
                     step: 2,
-                    model: "gemini-3.8-flash",
-                    modelName: "Gemini 3.8 Flash",
+                    model: "gemini-4-hydrogen-high",
+                    modelName: "Gemini 4 Hydrogen (High)",
                     text: Self.t(
                         """
                         压测采样已完成，P99 耗时 **184ms** 主要集中在两处：
 
-                        - `regexp.Compile` 在规则循环内重复编译（占总 CPU 44%），改用启动期预编译后可降至 **< 1%**.
+                        - `regexp.Compile` 在规则循环内重复编译（占总 CPU 44%），改用启动期预编译后可降至 **< 1%**。
                         - `sync.Pool` 复用临时评分切片可减少 68% GC 停顿。
                         """,
                         """
@@ -534,10 +537,10 @@ extension DemoGateway {
             lastModified: ago(minutes: 23),
             unread: false,
             pinned: false,
-            modelId: "gemini-3.8-flash",
-            modelName: "Gemini 3.8 Flash",
+            modelId: "gemini-4-hydrogen-high",
+            modelName: "Gemini 4 Hydrogen (High)",
             startedAt: isoAgo(minutes: 24),
-            contextMeter: Self.meter(input: 14_200, output: 940, tps: 118.5, ttft: 0.24),
+            contextMeter: Self.meter(used: 68_400, maxTokens: 512_000, tps: 162.5, ttft: 2.1),
             swarm: nil,
             subagents: [],
             parentConversationId: "demo-0011-workflow",
@@ -558,16 +561,26 @@ extension DemoGateway {
                 Self.userMsg(
                     id: "sub3-u0",
                     step: 0,
-                    text: Self.t("根据审计和性能结论，为 `handlers/rule_eval_test.go` 补充白名单校验与批量超时单测。", "Add allowlist validation and batch timeout unit tests to `handlers/rule_eval_test.go` based on audit & perf findings.", "監査と性能解析の結果をもとに、handlers/rule_eval_test.go にホワイトリスト検証とバッチタイムアウトの単体テストを追加して。"),
+                    text: Self.t("根据审计和性能结论，为 `handlers/rule_eval_test.go` 补充白名单校验与批量超时单测。", "Add allowlist validation and batch timeout unit tests to `handlers/rule_eval_test.go` based on audit & perf findings.", "監査と性能解析の結果をもとに、`handlers/rule_eval_test.go` にホワイトリスト検証とバッチタイムアウトの単体テストを追加して。"),
                     timestamp: isoAgo(minutes: 22)
                 ),
-                Self.toolMsg(id: "sub3-t1", step: 1, tools: ["EditFile", "GoTest"]),
+                Self.toolMsg(
+                    id: "sub3-t1",
+                    step: 1,
+                    tools: ["edit_file", "run_command"],
+                    thinking: Self.t("补充 6 组表驱动用例覆盖非法 sortBy 注入和 50ms 上下文取消边界，然后执行 go test -race 验证。", "Adding 6 table-driven cases for invalid sortBy injection and 50ms context deadline, then running go test -race.", "不正な sortBy 入力と 50ms コンテキストキャンセルを網羅する 6 件のテーブル駆動テストを追加し、go test -race を回します。"),
+                    thinkingDuration: "3.9s",
+                    toolDetails: [
+                        ["name": "edit_file", "summary": "handlers/rule_eval_test.go (+84/-6)", "status": "done", "duration": "0.5s", "stepIndex": 1],
+                        ["name": "run_command", "summary": "go test -race -v ./handlers -run TestRuleEval", "status": "running", "duration": "4.2s", "stepIndex": 1]
+                    ]
+                ),
                 Self.agentMsg(
                     id: "sub3-a2",
                     step: 2,
-                    model: "gpt-6-astra",
-                    modelName: "GPT-6 Astra",
-                    text: Self.t("正在写入 6 组表驱动测试用例并执行并发竞争检验，完成后会自动向主流程汇报。", "Writing 6 table-driven test cases and running race checks; will report back to the parent workflow once complete.", "6 パターンのテーブル駆動テストを作成し、-race 並行検証を実行中です。完了次第メインフローへ報告します。"),
+                    model: "gemini-4-neon-high",
+                    modelName: "Gemini 4 Neon (High)",
+                    text: Self.t("正在写入 6 组表驱动测试用例并执行并发竞态检验，完成后会自动向主流程汇报。", "Writing 6 table-driven test cases and running race checks; will report back to the parent workflow once complete.", "6 パターンのテーブル駆動テストを作成し、`-race` 並行検証を実行中です。完了次第メインフローへ報告します。"),
                     timestamp: isoAgo(minutes: 21.5)
                 )
             ],
@@ -579,10 +592,10 @@ extension DemoGateway {
             lastModified: ago(minutes: 21.5),
             unread: false,
             pinned: false,
-            modelId: "gpt-6-astra",
-            modelName: "GPT-6 Astra",
+            modelId: "gemini-4-neon-high",
+            modelName: "Gemini 4 Neon (High)",
             startedAt: isoAgo(minutes: 22),
-            contextMeter: Self.meter(input: 11_800, output: 520, tps: 78.2, ttft: 0.45),
+            contextMeter: Self.meter(used: 92_600, maxTokens: 512_000, tps: 138.2, ttft: 4.5),
             swarm: nil,
             subagents: [],
             parentConversationId: "demo-0011-workflow",
@@ -592,12 +605,115 @@ extension DemoGateway {
             chapters: []
         )
 
-        // MARK: - 16 Showcase + Everyday Conversations
+        // MARK: - 17 Authentic Antigravity Conversations
 
-        // 1. Pinned Classic + Running Task + Queued Message (Multigravity)
+        // 1. Pinned Command Approval (triggers Lock Screen Live Activity & Dynamic Island Allow/Deny buttons!)
+        let c17CmdApproval = Conversation(
+            id: "demo-0017-cmd-approval",
+            title: Self.t("生产集群灰度发布与缓存清理", "Canary rollout & Redis TTL cleanup", "本番カナリア配信とRedisキャッシュ掃除"),
+            workspaceName: Self.t("部署脚本", "Deploy Scripts", "デプロイスクリプト"),
+            workspaceUri: "file:///Users/demo/Projects/deploy-scripts",
+            status: "CASCADE_RUN_STATUS_RUNNING",
+            duration: Self.t("等待审批", "Needs Approval", "承認待ち"),
+            messages: [
+                Self.userMsg(
+                    id: "c17-u0",
+                    step: 0,
+                    text: Self.t("先帮我检查生产 Redis `v1:session:tmp:*` 过期键数量，确认无活跃会话误伤后，再执行灰度清理与网关热重载。", "Dry-run expired `v1:session:tmp:*` keys in production Redis first; once verified safe, run the cleanup and zero-downtime gateway reload.", "本番 Redis の `v1:session:tmp:*` 期限切れキー件数を先にドライラン確認して。稼働中セッションに影響がないと確認できたら掃除と無停止リロードを実行して。"),
+                    timestamp: isoAgo(minutes: 6)
+                ),
+                Self.toolMsg(
+                    id: "c17-t1",
+                    step: 1,
+                    tools: ["read_file", "run_command"],
+                    thinking: Self.t("先读取 scripts/prod_cleanup.sh 确认只匹配 TTL 已过期前缀，再跑只读 --dry-run 核验命中键数与预计释放内存。", "Inspecting scripts/prod_cleanup.sh to verify strict TTL prefix filtering before running a read-only --dry-run scan.", "`scripts/prod_cleanup.sh` のフィルタ条件を確認した上で、読み取り専用の `--dry-run` スキャンを実行します。"),
+                    thinkingDuration: "5.2s",
+                    toolDetails: [
+                        ["name": "read_file", "summary": "scripts/prod_cleanup.sh (L1-L78)", "status": "done", "duration": "0.2s", "stepIndex": 1],
+                        ["name": "run_command", "summary": "bash scripts/prod_cleanup.sh --dry-run --prefix 'v1:session:tmp:*'", "status": "done", "duration": "1.6s", "stepIndex": 1]
+                    ]
+                ),
+                Self.agentMsg(
+                    id: "c17-a2",
+                    step: 2,
+                    model: "gemini-4-neon-high",
+                    modelName: "Gemini 4 Neon (High)",
+                    text: Self.t(
+                        """
+                        只读预检已完成，确认零活跃会话受影响：
+
+                        | 检查项 | 预检结果 | 影响 |
+                        | --- | ---: | :---: |
+                        | 过期键 | **14,218** | 🟢 零活跃 |
+                        | 释放内存 | **412 MB** | 🟢 -18.4% |
+                        | 网关重载 | `SIGHUP` | 🟢 零断连 |
+
+                        接下来需要执行带写入与重载权限的生产脚本，请确认是否放行。
+                        """,
+                        """
+                        Read-only preflight passed with zero active sessions affected:
+
+                        | Check | Result | Impact |
+                        | --- | ---: | :---: |
+                        | Expired keys | **14,218** | 🟢 Safe |
+                        | Freeable RAM | **412 MB** | 🟢 -18.4% |
+                        | Reload | `SIGHUP` | 🟢 0 drops |
+
+                        Ready to run the production cleanup & reload command — approve below or directly from your Lock Screen / Dynamic Island.
+                        """,
+                        """
+                        読み取り専用の事前チェックが完了しました。稼働中セッションへの影響はありません：
+
+                        | 項目 | 確認結果 | 影響 |
+                        | --- | ---: | :---: |
+                        | 期限切れキー | **14,218件** | 🟢 安全 |
+                        | 解放メモリ | **412 MB** | 🟢 -18.4% |
+                        | 再読込 | `SIGHUP` | 🟢 無停止 |
+
+                        本番クリーンアップとリロードの実行許可をお願いします（ロック画面・Dynamic Island からもワンタップ承認可能です）。
+                        """
+                    ),
+                    timestamp: isoAgo(minutes: 1)
+                )
+            ],
+            pendingInteraction: [
+                "type": "run_command",
+                "trajectoryId": "demo-0017-cmd-approval",
+                "stepIndex": 2,
+                "title": Self.t("请求执行生产终端命令", "Run Production Command", "本番ターミナルコマンドの実行承認"),
+                "target": "bash scripts/prod_cleanup.sh --prefix 'v1:session:tmp:*' --reload-gateway",
+                "action": "run_command",
+                "description": Self.t("将清理 14,218 个已过期 Redis 键并发送 SIGHUP 平滑重载网关配置。", "Deletes 14,218 expired Redis keys and sends SIGHUP for zero-downtime gateway reload.", "期限切れ Redis キー 14,218 件を削除し、SIGHUP で無停止リロードを実行します。"),
+                "options": [
+                    ["id": "1", "text": Self.t("允许本次执行", "Allow Once", "今回のみ許可")],
+                    ["id": "2", "text": Self.t("本会话始终允许", "Always Allow in Session", "この会話で常に許可")],
+                    ["id": "5", "text": Self.t("拒绝执行", "Deny", "実行を拒否"), "isDeny": true]
+                ]
+            ],
+            canProceed: false,
+            proceedArtifactUri: nil,
+            runningTasks: [],
+            queuedMessages: [],
+            lastModified: ago(minutes: 1),
+            unread: false,
+            pinned: true,
+            modelId: "gemini-4-neon-high",
+            modelName: "Gemini 4 Neon (High)",
+            startedAt: isoAgo(minutes: 6),
+            contextMeter: Self.meter(used: 118_400, maxTokens: 512_000, tps: 136.8, ttft: 5.1),
+            swarm: nil,
+            subagents: [],
+            parentConversationId: nil,
+            subagentRole: nil,
+            gitStatus: nil,
+            changes: [],
+            chapters: []
+        )
+
+        // 2. Pinned Streaming Attachment Upload + Running Task + Queued Message (Multigravity)
         let c01Upload = Conversation(
             id: "demo-0001-upload",
-            title: Self.t("实现文件附件上传", "File Attachment Upload Flow", "ファイル添付アップロード実装"),
+            title: Self.t("附件流式上传与 SHA-256 校验", "Streaming attachment upload & SHA-256", "添付ファイルのストリーム送信とSHA-256検証"),
             workspaceName: "Multigravity",
             workspaceUri: "file:///Users/demo/Projects/antigravity-mobile",
             status: "CASCADE_RUN_STATUS_RUNNING",
@@ -606,48 +722,57 @@ extension DemoGateway {
                 Self.userMsg(
                     id: "c01-u0",
                     step: 0,
-                    text: Self.t("帮我给移动端接入“📎 文件附件上传”功能：选中的文档或图片先上传到网关 `Inbox`，再把路径一行写入消息里，并同时跑一下网关测试。", "Wire up \"📎 File Attachment Uploads\" on mobile: upload selected files/images to the gateway `Inbox`, insert attachment links into the prompt, and run gateway tests.", "モバイル側に「📎 ファイル添付アップロード」を実装して。選んだ書類や画像をゲートウェイの `Inbox` に先上げし、パスをプロンプトに自動挿入してテストも回してほしい。"),
+                    text: Self.t("帮我把移动端大文件附件上传接到本地网关 `Inbox`，落盘按 SHA-256 短 ID 去重，顺手把网关单测也跑一下。", "Wire mobile attachment uploads into the local gateway `Inbox` with SHA-256 short-ID deduplication, and run the gateway upload test suite.", "モバイル側の添付ファイル送信をローカルゲートウェイの `Inbox` につないで、SHA-256 短縮 ID で重複排除しつつゲートウェイの単体テストも回して。"),
                     timestamp: isoAgo(minutes: 9)
                 ),
-                Self.toolMsg(id: "c01-t1", step: 1, tools: ["ReadFile", "EditFile", "RunCommand"]),
+                Self.toolMsg(
+                    id: "c01-t1",
+                    step: 1,
+                    tools: ["read_file", "edit_file", "run_command"],
+                    thinking: Self.t("读取 internal/gateway/attachments.go 和 iOS APIClient+Attachments.swift，改用流式 io.TeeReader 计算 SHA-256 避免大 PDF 占内存。", "Reading gateway & iOS attachment handlers; switching to streaming io.TeeReader SHA-256 hashing so >50MB PDFs never spike RAM.", "ゲートウェイと iOS の添付処理を確認し、大容量 PDF でもメモリを圧迫しないストリーム SHA-256 計算に変更します。"),
+                    thinkingDuration: "6.4s",
+                    toolDetails: [
+                        ["name": "read_file", "summary": "internal/gateway/attachments.go (L1-L140)", "status": "done", "duration": "0.2s", "stepIndex": 1],
+                        ["name": "edit_file", "summary": "internal/gateway/attachments.go (+46/-8)", "status": "done", "duration": "0.6s", "stepIndex": 1],
+                        ["name": "edit_file", "summary": "ios/Multigravity/Services/APIClient+Attachments.swift (+19/-5)", "status": "done", "duration": "0.4s", "stepIndex": 1],
+                        ["name": "run_command", "summary": "go test -v ./internal/gateway -run TestAttachmentUpload", "status": "running", "duration": "24s", "stepIndex": 1]
+                    ]
+                ),
                 Self.agentMsg(
                     id: "c01-a2",
                     step: 2,
-                    model: "claude-opus-5-5-thinking",
-                    modelName: "Claude Opus 5.5 (Thinking)",
+                    model: "gemini-4-neon-xhigh",
+                    modelName: "Gemini 4 Neon (Extra)",
                     text: Self.t(
                         """
-                        已完成前后两端附件上传链路与校验保护：
+                        已完成前后两端流式附件上传与 SHA-256 去重：
 
-                        1. **网关接收端点 (`POST /api/v1/attachments`)**：按 `X-File-Name` 读取文件流，计算 SHA-256 生成 8 位文件短 ID，落盘至工作区 `Inbox/2026-11/` 并返回标准 `UploadedAttachment` 元数据。
-                        2. **iOS 客户端发送拼接**：选中文件或从“图库 / 文件 / 粘贴板”导入后先并发上传，再生成固定格式引用行：
+                        1. **网关接收端点 (`POST /api/v1/attachments`)**：通过 `io.TeeReader` 边落盘边计算 8 位 SHA-256 短 ID，写入 `Inbox/2026-11/`，突破云端 20MB 限制。
+                        2. **iOS 并发上传与路径注入**：支持相册、PDF、本地文件直传，自动写入引用行：
                            ```markdown
-                           📎 附件（已上传到本机，可直接读取）：
                            - [sales_q3.csv](/Users/demo/Multigravity/Inbox/2026-11/9f2a4c1b-sales_q3.csv) (1.8 KB)
                            ```
-                        3. **后台测试运行中**：正在执行 `go test -v ./internal/gateway -run TestAttachmentUpload`，你也可以随时在顶部卡片点击**查看实时日志**或**停止任务**。
+                        3. **后台测试运行中**：正在执行 `go test -v ./internal/gateway -run TestAttachmentUpload`，可点顶部任务条查看实时日志。
                         """,
                         """
-                        Implemented end-to-end attachment uploads with validation:
+                        Implemented end-to-end streaming uploads with SHA-256 deduplication:
 
-                        1. **Gateway Upload Endpoint (`POST /api/v1/attachments`)**: Reads filename via `X-File-Name`, computes an 8-char SHA-256 ID, saves to `Inbox/2026-11/`, and returns `UploadedAttachment` metadata.
-                        2. **iOS Composer Integration**: Uploads selected Photos, Files, or clipboard items concurrently and injects formatted lines:
+                        1. **Gateway Endpoint (`POST /api/v1/attachments`)**: Streams via `io.TeeReader` to compute an 8-char SHA-256 ID while writing to `Inbox/2026-11/`, bypassing cloud 20MB caps.
+                        2. **iOS Composer Integration**: Uploads Photos, PDFs, and Files directly over local LAN/Tailscale and injects clean local path links:
                            ```markdown
-                           📎 Attachments (uploaded locally):
                            - [sales_q3.csv](/Users/demo/Multigravity/Inbox/2026-11/9f2a4c1b-sales_q3.csv) (1.8 KB)
                            ```
-                        3. **Background Tests Running**: `go test -v ./internal/gateway -run TestAttachmentUpload` is active — tap the **Live Tasks** bar above to stream logs or stop it anytime.
+                        3. **Tests Running**: `go test -v ./internal/gateway -run TestAttachmentUpload` is active — tap the live task bar above to tail stdout.
                         """,
                         """
-                        フロント・バックエンド双方の添付アップロード経路とバリデーションを実装しました：
+                        フロント・バックエンド双方のストリーム添付アップロードと SHA-256 重複排除を実装しました：
 
-                        1. **ゲートウェイ受信 API（`POST /api/v1/attachments`）**：`X-File-Name` からファイル名を取得し、SHA-256 の先頭 8 桁 ID で `Inbox/2026-11/` へ保存、`UploadedAttachment` メタデータを返却。
-                        2. **iOS 入力欄との連携**：写真・ファイル・クリップボードから選択した添付を並列アップロードし、定型リンクを自動挿入：
+                        1. **ゲートウェイ API（`POST /api/v1/attachments`）**：`io.TeeReader` で書き込みと同時に 8 桁 SHA-256 短縮 ID を計算し `Inbox/2026-11/` へ保存（クラウド 20MB 制限なし）。
+                        2. **iOS 直結アップロード**：写真・大容量 PDF・ファイルをローカル直結で送信し、参照パスを自動挿入：
                            ```markdown
-                           📎 添付ファイル（ローカルにアップロード済み）：
                            - [sales_q3.csv](/Users/demo/Multigravity/Inbox/2026-11/9f2a4c1b-sales_q3.csv) (1.8 KB)
                            ```
-                        3. **バックグラウンドテスト実行中**：現在 `go test -v ./internal/gateway -run TestAttachmentUpload` が稼働中です。上部の **実行中タスクバー** からライブログ閲覧や停止ができます。
+                        3. **単体テスト実行中**：現在 `go test -v ./internal/gateway -run TestAttachmentUpload` が稼働中です。上部タスクバーからライブログを確認できます。
                         """
                     ),
                     timestamp: isoAgo(minutes: 2)
@@ -661,8 +786,8 @@ extension DemoGateway {
                     "id": "task-demo-upload-build",
                     "stepIndex": 1,
                     "commandLine": "go test -v ./internal/gateway -run TestAttachmentUpload",
-                    "toolName": "RunCommand",
-                    "toolSummary": Self.t("验证多端附件上传测试", "Verify attachment upload tests", "マルチ端末の添付アップロードテストを検証"),
+                    "toolName": "run_command",
+                    "toolSummary": Self.t("运行网关附件上传单测", "Run gateway attachment upload tests", "ゲートウェイ添付アップロード単体テストを実行"),
                     "toolAction": "running",
                     "startedAt": isoAgo(minutes: 2),
                     "isDaemon": false
@@ -671,17 +796,17 @@ extension DemoGateway {
             queuedMessages: [
                 [
                     "id": "queue-demo-1",
-                    "text": Self.t("测试全部通过后，再帮我把大于 25MB 的文件拦截提示补一条中文错误码文档。", "Once tests pass, document the HTTP 413 error code for >25MB attachments.", "テストが全部通ったら、25MB 超えファイル拒否時の HTTP 413 エラーコード仕様もドキュメントに追記して。"),
+                    "text": Self.t("测试通过后，再帮我把超过 100MB 时的分块提示和 HTTP 413 响应体补齐。", "Once tests pass, also add chunked upload hints and HTTP 413 payload details for >100MB files.", "テスト通過後、100MB 超え時のチャンク案内と HTTP 413 レスポンス仕様も追記して。"),
                     "createdAt": isoAgo(minutes: 1)
                 ]
             ],
-            lastModified: ago(minutes: 1),
+            lastModified: ago(minutes: 2),
             unread: false,
             pinned: true,
-            modelId: "claude-opus-5-5-thinking",
-            modelName: "Claude Opus 5.5 (Thinking)",
+            modelId: "gemini-4-neon-xhigh",
+            modelName: "Gemini 4 Neon (Extra)",
             startedAt: isoAgo(minutes: 9),
-            contextMeter: Self.meter(input: 48_600, output: 3_420, tps: 56.4, ttft: 0.62),
+            contextMeter: Self.meter(used: 186_400, maxTokens: 512_000, tps: 132.9, ttft: 7.4),
             swarm: nil,
             subagents: [],
             parentConversationId: nil,
@@ -690,7 +815,7 @@ extension DemoGateway {
                 branch: "feat/attachment-inbox",
                 ahead: 2,
                 modifiedCount: 2,
-                prTitle: "feat(attachments): persist uploads under Inbox with sha256 short id",
+                prTitle: "feat(attachments): streaming SHA-256 inbox uploads without 20MB cap",
                 prNumber: 421,
                 prState: "OPEN"
             ),
@@ -705,7 +830,7 @@ extension DemoGateway {
                         ("UNCHANGED", "func handleUploadAttachment(w http.ResponseWriter, r *http.Request) {"),
                         ("DELETE", "    name := r.URL.Query().Get(\"name\")"),
                         ("INSERT", "    name := firstNonEmpty(r.Header.Get(\"X-File-Name\"), r.URL.Query().Get(\"name\"))"),
-                        ("INSERT", "    id := shortSHA256(payload)[:8]"),
+                        ("INSERT", "    id := shortSHA256Stream(r.Body, tmpFile)[:8]"),
                         ("INSERT", "    dest := filepath.Join(inboxDir, fmt.Sprintf(\"%s-%s\", id, sanitizeName(name)))"),
                         ("UNCHANGED", "    writeJSON(w, http.StatusOK, result)")
                     ]
@@ -724,91 +849,112 @@ extension DemoGateway {
                 )
             ],
             chapters: [
-                ["id": "c01-ch1", "title": Self.t("需求与 Inbox 路径规范", "Requirements & Inbox Spec", "要件定義と Inbox 保存規約"), "stepIndex": 0, "summary": Self.t("定义多端附件落盘规则与短 ID 格式", "Define upload layout & SHA-256 short ID", "アップロード保存先と SHA-256 短縮 ID 形式を定義")],
-                ["id": "c01-ch2", "title": Self.t("网关上传接口与单测", "Gateway Endpoint & Tests", "ゲートウェイ API と単体テスト"), "stepIndex": 2, "summary": Self.t("实现 SHA-256 持久化并运行 go test", "Persist files and run go test", "SHA-256 永続化を実装し go test を実行")]
+                ["startStepIndex": 0, "endStepIndexExclusive": 2, "title": Self.t("附件流式落盘与去重设计", "Streaming Inbox & SHA-256 Design", "ストリーム保存とSHA-256重複排除"), "generatedAt": isoAgo(minutes: 5)],
+                ["startStepIndex": 2, "endStepIndexExclusive": 3, "title": Self.t("网关与 iOS 端实现及单测", "Gateway + iOS Impl & Tests", "ゲートウェイ・iOS実装とテスト"), "generatedAt": isoAgo(minutes: 2)]
             ]
         )
 
-        // 2. Multi-turn Refactor + Chapters TOC + Changes + PR #412 + ContextMeter
+        // 3. Multi-turn Refactor + Chapters TOC + TurnOutline + Changes + PR #412
         let c10Turns = Conversation(
             id: "demo-0010-turns",
-            title: Self.t("多轮重构与代码审校（Chapters · Diff）", "Multi-Turn Refactor (Chapters · Diff)", "マルチターンリファクタ（目次 · Diff）"),
+            title: Self.t("移动端网络重试与断线重连优化", "Mobile retry backoff & SSE reconnect", "モバイル通信リトライとSSE即時再接続"),
             workspaceName: "Multigravity",
             workspaceUri: "file:///Users/demo/Projects/antigravity-mobile",
             status: "CASCADE_RUN_STATUS_IDLE",
             duration: Self.t("24秒", "24s", "24秒"),
             messages: [
-                Self.userMsg(id: "c10-u0", step: 0, text: Self.t("先帮我梳理 `APIClient` 目前有哪些网络重试痛点，给出改造方案。", "Audit current retry & reconnect pain points in `APIClient` and propose a clean fix.", "現在の `APIClient` にあるリトライ・再接続まわりの課題を洗い出して、きれいな改善案を出して。"), timestamp: isoAgo(minutes: 45)),
-                Self.toolMsg(id: "c10-t1", step: 1, tools: ["GrepSearch", "ReadFile"]),
+                Self.userMsg(id: "c10-u0", step: 0, text: Self.t("帮我排查一下 `APIClient` 弱网和切 Wi-Fi/5G 时的重试与重连逻辑，看看有哪些隐患。", "Audit `APIClient` retry and Wi-Fi/5G handoff reconnect behavior for reliability gaps.", "弱回線や Wi-Fi / 5G 切替時の `APIClient` リトライ・再接続処理に問題がないか調査して。"), timestamp: isoAgo(minutes: 45)),
+                Self.toolMsg(
+                    id: "c10-t1",
+                    step: 1,
+                    tools: ["grep_search", "read_file"],
+                    thinking: Self.t("检索所有重试循环和 WebSocket/SSE 重连退避计时器，确认是否存在非幂等 POST 重放。", "Searching retry loops and stream reconnect timers to check for non-idempotent POST replays.", "リトライ処理とストリーム再接続タイマーを検索し、非冪等な POST の再送有無を確認します。"),
+                    thinkingDuration: "4.1s",
+                    toolDetails: [
+                        ["name": "grep_search", "summary": "retry|reconnect in ios/Multigravity/Services/", "status": "done", "duration": "0.2s", "stepIndex": 1],
+                        ["name": "read_file", "summary": "Services/StreamWatcher.swift (L1-L160)", "status": "done", "duration": "0.2s", "stepIndex": 1]
+                    ]
+                ),
                 Self.agentMsg(
                     id: "c10-a2",
                     step: 2,
-                    model: "gemini-4-carbon-high",
-                    modelName: "Gemini 4 Carbon (High)",
+                    model: "gemini-4-neon-high",
+                    modelName: "Gemini 4 Neon (High)",
                     text: Self.t(
                         """
-                        排查 `Services/APIClient*.swift` 后发现 3 个主要痛点：
+                        排查 `Services/APIClient*.swift` 后定位到 3 个核心问题：
 
-                        1. **401 / 502 重试未区分幂等方法**，POST 请求超时也被重复发送。
-                        2. **SSE 断线重连延迟固定 3s**，切换 Wi-Fi / 5G 时恢复偏慢。
-                        3. **大附件预览未复用内存缓存**，每次返回详情都重新拉流。
+                        1. **401 / 502 重试未区分幂等方法**，超时后的 `POST` 发送请求会被重复提交。
+                        2. **SSE 断线重连写死 3 秒延迟**，地铁切 5G 或回局域网恢复体感偏慢。
+                        3. **大附件预览未复用内存缓存**，每次退出重进都会重新拉流。
                         """,
                         """
                         Found 3 reliability gaps across `Services/APIClient*.swift`:
 
                         1. **Non-idempotent retries on 401/502**: timed-out `POST` mutations were retried automatically.
-                        2. **Fixed 3s SSE reconnect timer**: slow recovery when switching between Wi-Fi and 5G.
-                        3. **Uncached attachment previews**: large artifacts re-downloaded on every sheet open.
+                        2. **Fixed 3s SSE reconnect timer**: sluggish recovery when handing off between Wi-Fi and 5G.
+                        3. **Uncached attachment previews**: large artifacts re-downloaded on every sheet reopen.
                         """,
                         """
-                        `Services/APIClient*.swift` を調査したところ、主に 3 つの信頼性課題が見つかりました：
+                        `Services/APIClient*.swift` を調査し、3 つの信頼性課題を特定しました：
 
                         1. **401 / 502 リトライで冪等性を未判定**：タイムアウトした `POST` 更新系も自動再送されてしまいます。
                         2. **SSE 再接続が 3 秒固定**：Wi-Fi ⇔ 5G 切替時の復帰がワンテンポ遅れます。
-                        3. **大型添付プレビューのメモリキャッシュ未実装**：シートを開くたびに再取得が発生しています。
+                        3. **大型添付プレビューのキャッシュ未実装**：シートを開くたびに再取得が発生しています。
                         """
                     ),
                     timestamp: isoAgo(minutes: 44)
                 ),
-                Self.userMsg(id: "c10-u3", step: 3, text: Self.t("好，第 1 和第 2 点先按指数退避 + 仅对 GET 幂等请求重试来改，第 3 点加 LRU 缓存。", "Apply exponential backoff only on idempotent GETs for #1, NWPathMonitor reconnect for #2, and an LRU cache for #3.", "いいね。1 は冪等な GET のみ指数バックオフ、2 は NWPathMonitor で即時再接続、3 は LRU キャッシュを入れて進めて。"), timestamp: isoAgo(minutes: 39)),
-                Self.toolMsg(id: "c10-t4", step: 4, tools: ["EditFile", "EditFile", "XcodeBuild"]),
+                Self.userMsg(id: "c10-u3", step: 3, text: Self.t("按指数退避 + 仅对 GET 幂等请求重试来改第 1 点，第 2 点接入 NWPathMonitor 立即重连，第 3 点加 64MB LRU 缓存。", "Use exponential backoff on idempotent GETs for #1, NWPathMonitor instant reconnect for #2, and a 64MB LRU cache for #3.", "1 は冪等な GET のみ指数バックオフ、2 は NWPathMonitor で即時再接続、3 は 64MB の LRU キャッシュを入れて進めて。"), timestamp: isoAgo(minutes: 39)),
+                Self.toolMsg(
+                    id: "c10-t4",
+                    step: 4,
+                    tools: ["write_file", "edit_file", "run_command"],
+                    thinking: Self.t("新建 RetryPolicy.swift 严格限定 GET/HEAD，更新 StreamWatcher 监听 NWPathMonitor，并在 mac99 远端执行无头 xcodebuild 校验。", "Creating RetryPolicy.swift scoped to GET/HEAD, wiring NWPathMonitor in StreamWatcher, and verifying headless xcodebuild.", "GET/HEAD 限定の RetryPolicy.swift を作成し、StreamWatcher へ NWPathMonitor を組み込んでビルド検証します。"),
+                    thinkingDuration: "5.8s",
+                    toolDetails: [
+                        ["name": "write_file", "summary": "ios/Multigravity/Services/RetryPolicy.swift (+42)", "status": "done", "duration": "0.3s", "stepIndex": 4],
+                        ["name": "edit_file", "summary": "ios/Multigravity/Services/StreamWatcher.swift (+24/-9)", "status": "done", "duration": "0.4s", "stepIndex": 4],
+                        ["name": "run_command", "summary": "ssh mac99 xcodebuild -scheme Multigravity build", "status": "done", "duration": "14.2s", "stepIndex": 4]
+                    ]
+                ),
                 Self.agentMsg(
                     id: "c10-a5",
                     step: 5,
-                    model: "gemini-4-carbon-high",
-                    modelName: "Gemini 4 Carbon (High)",
+                    model: "gemini-4-neon-high",
+                    modelName: "Gemini 4 Neon (High)",
                     text: Self.t(
                         """
-                        已完成第 1 阶段改造并验证编译通过：
+                        已完成改造并通过编译校验：
 
-                        - `RetryPolicy.swift`：对 `GET` / `HEAD` 开启 `0.4s -> 0.8s -> 1.6s` 退避，POST 严格不自动重发。
-                        - `StreamWatcher.swift`：监听 `NWPathMonitor` 切换事件，网络切换后立即重连 SSE。
-                        - `PreviewCache.swift`：新增 64MB `NSCache` 预览缓存。
+                        - `RetryPolicy.swift`：仅对 `GET` / `HEAD` 启用 `0.4s -> 0.8s -> 1.6s` 退避，`POST` 绝不自动重发。
+                        - `StreamWatcher.swift`：监听 `NWPathMonitor` 网络切换，接口恢复后立即重连。
+                        - `PreviewCache.swift`：接入 64MB `NSCache` 预览缓存。
                         """,
                         """
-                        Phase 1 landed and compiles cleanly:
+                        Implemented all three fixes and verified a clean build:
 
-                        - `RetryPolicy.swift`: `0.4s -> 0.8s -> 1.6s` backoff scoped strictly to `GET` / `HEAD`.
-                        - `StreamWatcher.swift`: `NWPathMonitor` triggers instant SSE reconnect on interface handoff.
+                        - `RetryPolicy.swift`: `0.4s -> 0.8s -> 1.6s` backoff strictly scoped to `GET` / `HEAD`.
+                        - `StreamWatcher.swift`: `NWPathMonitor` triggers instant reconnect on interface handoff.
                         - `PreviewCache.swift`: Added 64MB `NSCache` artifact buffer.
                         """,
                         """
-                        第 1 フェーズの改修とビルド検証を完了しました：
+                        3 点の改修とビルド検証を完了しました：
 
                         - `RetryPolicy.swift`：`GET` / `HEAD` に限定して `0.4s -> 0.8s -> 1.6s` の指数バックオフを適用（`POST` は再送なし）。
                         - `StreamWatcher.swift`：`NWPathMonitor` で回線切替を検知し、SSE を即時再接続。
-                        - `PreviewCache.swift`：64MB 上限の `NSCache` プレビューバッファを追加。
+                        - `PreviewCache.swift`：64MB 上限の `NSCache` プレビューキャッシュを追加。
                         """
                     ),
                     timestamp: isoAgo(minutes: 37)
                 ),
-                Self.userMsg(id: "c10-u6", step: 6, text: Self.t("帮我再确认下后台切回前台时，如果网关重连失败会不会弹出重复 Toast？", "Verify foreground transitions won't spam duplicate error toasts if the gateway is unreachable.", "バックグラウンドから復帰したとき、ゲートウェイ未接続でも重複トーストが出ないか念のため確認して。"), timestamp: isoAgo(minutes: 31)),
+                Self.userMsg(id: "c10-u6", step: 6, text: Self.t("再确认一下后台切回前台时，如果网关暂时不可达会不会连弹重复 Toast？", "Double-check foreground resume won't spam duplicate error toasts if the gateway is unreachable.", "バックグラウンドから復帰したとき、ゲートウェイ未接続でも重複トーストが出ないか確認して。"), timestamp: isoAgo(minutes: 31)),
                 Self.agentMsg(
                     id: "c10-a7",
                     step: 7,
-                    model: "gemini-4-carbon-high",
-                    modelName: "Gemini 4 Carbon (High)",
-                    text: Self.t("已补充 8 秒防抖窗口与错误签名去重（`lastErrorSignature`），短时间内同一网关断连只会提示 1 次。右上角可点击 **Changes / Git** 直接查看本轮全部文件 Diff 与已合并 PR `#412`。", "Added an 8s debounce window with `lastErrorSignature` deduplication so repeated failures surface at most once. Open **Changes / Git** in the toolbar to inspect the full diff and merged PR `#412`.", "8 秒のデバウンス窓とエラー署名重複排除（`lastErrorSignature`）を追加したため、短時間の連続切断でも通知は 1 回のみ表示されます。上部バーの **Changes / Git** から全ファイル差分とマージ済み PR `#412` を確認できます。"),
+                    model: "gemini-4-neon-high",
+                    modelName: "Gemini 4 Neon (High)",
+                    text: Self.t("已加上 8 秒防抖窗口与 `lastErrorSignature` 去重，短时间内同一网关断连最多提示 1 次。本轮改动已合并至 PR `#412`。", "Added an 8s debounce window with `lastErrorSignature` deduplication so repeated failures surface at most once. Changes are merged in PR `#412`.", "8 秒のデバウンス窓と `lastErrorSignature` 重複排除を追加したため、短時間の連続切断でも通知は 1 回のみ表示されます。変更は PR `#412` にマージ済みです。"),
                     timestamp: isoAgo(minutes: 29)
                 )
             ],
@@ -820,10 +966,10 @@ extension DemoGateway {
             lastModified: ago(minutes: 12),
             unread: false,
             pinned: false,
-            modelId: "gemini-4-carbon-high",
-            modelName: "Gemini 4 Carbon (High)",
+            modelId: "gemini-4-neon-high",
+            modelName: "Gemini 4 Neon (High)",
             startedAt: isoAgo(minutes: 45),
-            contextMeter: Self.meter(input: 112_400, output: 8_910, tps: 84.3, ttft: 0.36),
+            contextMeter: Self.meter(used: 238_400, maxTokens: 512_000, tps: 141.6, ttft: 4.9),
             swarm: nil,
             subagents: [],
             parentConversationId: nil,
@@ -877,16 +1023,16 @@ extension DemoGateway {
                 )
             ],
             chapters: [
-                ["id": "ch-1", "title": Self.t("诊断重试与缓存痛点", "Diagnose Retry & Cache Gaps", "リトライ＆キャッシュ課題の診断"), "stepIndex": 0, "summary": Self.t("梳理 401/502 误重试、固定 3s 重连与缓存缺失", "Identify non-idempotent retries & uncached assets", "非冪等リトライ・固定 3s 再接続・キャッシュ欠落を特定")],
-                ["id": "ch-2", "title": Self.t("实现退避策略与路径监听", "Backoff & NWPathMonitor", "指数バックオフと回線監視の実装"), "stepIndex": 3, "summary": Self.t("新增 RetryPolicy 与 NWPathMonitor 立即重连", "Add RetryPolicy and instant SSE reconnect", "RetryPolicy と NWPathMonitor 即時再接続を追加")],
-                ["id": "ch-3", "title": Self.t("Toast 防抖与错误去重", "Toast Debounce & Dedup", "トースト重複排除とデバウンス"), "stepIndex": 6, "summary": Self.t("8 秒窗口防抖避免反复弹窗", "8s debounce to suppress duplicate alerts", "8秒ウィンドウで連続エラー通知を抑制")]
+                ["startStepIndex": 0, "endStepIndexExclusive": 3, "title": Self.t("诊断重试与缓存痛点", "Diagnose Retry & Cache Gaps", "リトライ＆キャッシュ課題の診断"), "generatedAt": isoAgo(minutes: 40)],
+                ["startStepIndex": 3, "endStepIndexExclusive": 6, "title": Self.t("退避策略与 NWPathMonitor", "Backoff & NWPathMonitor", "指数バックオフと回線監視"), "generatedAt": isoAgo(minutes: 34)],
+                ["startStepIndex": 6, "endStepIndexExclusive": 8, "title": Self.t("前台恢复防抖去重", "Foreground Toast Debounce", "復帰時トースト重複排除"), "generatedAt": isoAgo(minutes: 28)]
             ]
         )
 
-        // 3. Dynamic Workflow + Clickable Subagents
+        // 4. Dynamic Workflow + Clickable Subagents
         let c11Workflow = Conversation(
             id: "demo-0011-workflow",
-            title: Self.t("动态多 Agent 质量门禁巡检", "Parallel Quality Gate Workflow", "動的マルチ Agent 品質ゲート巡回"),
+            title: Self.t("风控引擎发布前并行质量门禁", "Risk engine pre-release quality gates", "リスクエンジン本番前並列品質ゲート"),
             workspaceName: Self.t("风控引擎", "Risk Engine", "リスクエンジン"),
             workspaceUri: "file:///Users/demo/Projects/risk-engine",
             status: "CASCADE_RUN_STATUS_RUNNING",
@@ -904,9 +1050,10 @@ extension DemoGateway {
                     type: "workflow",
                     text: "",
                     toolCount: 1,
+                    toolNames: ["run_workflow"],
                     stepIndex: 1,
-                    model: "claude-opus-5-5-thinking",
-                    modelName: "Claude Opus 5.5 (Thinking)",
+                    model: "gemini-pro-orchestrator-neon",
+                    modelName: "Orchestrator (Neon)",
                     timestamp: isoAgo(minutes: 25),
                     workflow: [
                         "description": Self.t("发版前并行门禁流水线：安全扫描 + 压测定位 -> 单测补全", "Pre-release parallel gate: security + profiling -> test authoring", "リリース前並列ゲート：セキュリティ監査＋負荷解析 → 単体テスト補完"),
@@ -960,7 +1107,7 @@ extension DemoGateway {
                             Self.t("Phase 1 完成（2/2 子代理通过），正在推进 Phase 2...", "Phase 1 completed (2/2 passed); running Phase 2...", "Phase 1 完了（2/2 サブエージェント通過）、Phase 2 を進行中...")
                         ],
                         "status": "running",
-                        "duration": Self.t("进行中 · 25s", "Running · 25s", "実行中 · 25秒")
+                        "duration": Self.t("进行中 · 25秒", "Running · 25s", "実行中 · 25秒")
                     ]
                 ),
                 Self.subagentMsg(
@@ -999,9 +1146,9 @@ extension DemoGateway {
                 Self.agentMsg(
                     id: "c11-a5",
                     step: 5,
-                    model: "claude-opus-5-5-thinking",
-                    modelName: "Claude Opus 5.5 (Thinking)",
-                    text: Self.t("前两个并行子代理已完成分析（点击上方**工作流卡片**或**子代理胶囊**可直接点进去查看各自完整对话详情），第 3 个测试子代理正在补齐单测中。", "Phase 1 subagents finished (tap any **workflow step** or **subagent pill** above to open its full transcript); the test-author subagent is wrapping up coverage.", "Phase 1 の並列サブエージェント 2 名が完了しました（上の**ワークフローカード**や**サブエージェントバッジ**をタップすると個別の詳細ログを開けます）。現在 3 人目のテスト担当がカバレッジを補完中です。"),
+                    model: "gemini-pro-orchestrator-neon",
+                    modelName: "Orchestrator (Neon)",
+                    text: Self.t("Phase 1 两个并行子代理已完成分析并汇总了根因，点按上方任意子代理条目即可查看完整上下文；Phase 2 正在补齐表驱动单测并运行 `-race` 验证。", "Phase 1 parallel subagents finished and reported root causes — tap any subagent row above to inspect its full transcript. Phase 2 is authoring table-driven tests and running `-race`.", "Phase 1 の並列サブエージェント 2 名が解析と原因特定を完了しました（上の各行をタップすると個別ログを確認できます）。現在 Phase 2 でテーブル駆動テスト追加と `-race` 検証を実行中です。"),
                     timestamp: isoAgo(minutes: 21)
                 )
             ],
@@ -1013,10 +1160,10 @@ extension DemoGateway {
             lastModified: ago(minutes: 15),
             unread: false,
             pinned: false,
-            modelId: "claude-opus-5-5-thinking",
-            modelName: "Claude Opus 5.5 (Thinking)",
+            modelId: "gemini-pro-orchestrator-neon",
+            modelName: "Orchestrator (Neon)",
             startedAt: isoAgo(minutes: 26),
-            contextMeter: Self.meter(input: 64_200, output: 4_120, tps: 52.8, ttft: 0.68),
+            contextMeter: Self.meter(used: 164_200, maxTokens: 512_000, tps: 134.8, ttft: 5.4),
             swarm: nil,
             subagents: [
                 [
@@ -1060,57 +1207,70 @@ extension DemoGateway {
             chapters: []
         )
 
-        // 4. Swarm 4-Tab Collaboration (/teamwork)
+        // 5. Active Swarm 4-Tab Collaboration (/teamwork — activates SwarmBannerView + Hive Pixel Bees!)
         let c12Swarm = Conversation(
             id: "demo-0012-swarm",
-            title: Self.t("Swarm 协同开发 · 离线草稿同步（/teamwork）", "Swarm Teamwork · Offline Draft Merge", "Swarm 協調開発 · オフライン下書き同期（/teamwork）"),
+            title: Self.t("离线草稿冲突三路合并", "Offline draft 3-way conflict merge", "オフライン下書きの3-way競合マージ"),
             workspaceName: "Multigravity",
             workspaceUri: "file:///Users/demo/Projects/antigravity-mobile",
-            status: "CASCADE_RUN_STATUS_IDLE",
-            duration: Self.t("38秒", "38s", "38秒"),
+            status: "CASCADE_RUN_STATUS_RUNNING",
+            duration: Self.t("运行中", "Running", "実行中"),
             messages: [
                 Self.userMsg(
                     id: "c12-u0",
                     step: 0,
-                    text: Self.t("/teamwork 组建一个小队同时完成「离线草稿冲突合并」的后端协议、iOS 持久化以及 E2E 校验，并在面板实时同步进度。", "/teamwork Spin up a squad to implement offline draft conflict merging across backend CAS, iOS persistence, and cross-review.", "/teamwork チームを編成して「オフライン下書き競合マージ」のバックエンド楽観ロック・iOS 永続化・相互レビューを並列で進めて、ボードに進捗を同期して。"),
-                    timestamp: isoAgo(minutes: 50),
+                    text: Self.t("/teamwork 组建小队并行推进「离线草稿冲突合并」：后端加 CAS 乐观锁、iOS 补三路合并提示条、独立验证并发边界，所有进展同步到 Swarm 公告板。", "/teamwork Spin up a swarm for offline draft 3-way conflict merging: Go CAS versioning, iOS merge banner, and independent race verification on the shared board.", "/teamwork 「オフライン下書き 3-way 競合マージ」をスウォーム並列開発して：Go 楽観ロック、iOS マージバナー、並行競合テストを共有ボード連携で進めて。"),
+                    timestamp: isoAgo(minutes: 18),
                     slashCommands: [["name": "teamwork", "description": Self.t("组建多代理协同团队与共享公告板", "Coordinate multiple agents via shared board", "共有ボードで複数エージェントを並列協調")]]
                 ),
-                Self.agentMsg(
-                    id: "c12-a1",
+                Self.toolMsg(
+                    id: "c12-t1",
                     step: 1,
-                    model: "claude-opus-5-5-thinking",
-                    modelName: "Claude Opus 5.5 (Thinking)",
+                    tools: ["swarm", "post_message", "read_board"],
+                    thinking: Self.t("按模块边界拆分 3 名并行 Worker：@backend 负责 Go 乐观锁，@ios-ui 负责 SwiftUI 三路合并，@verifier 负责交叉审校与 -race 验证。", "Splitting work across 3 isolated workers: @backend (Go CAS), @ios-ui (SwiftUI 3-way merge), and @verifier (cross-review & -race).", "責務を 3 名のワーカーに分割します：@backend（Go 楽観ロック）、@ios-ui（SwiftUI マージ UI）、@verifier（相互レビュー＆レース検証）。"),
+                    thinkingDuration: "5.7s",
+                    toolDetails: [
+                        ["name": "swarm", "summary": "add backend (gemini-4-neon-high, share)", "status": "done", "duration": "0.8s", "stepIndex": 1],
+                        ["name": "swarm", "summary": "add ios-ui (claude-opus-5-5-high, share)", "status": "done", "duration": "0.7s", "stepIndex": 1],
+                        ["name": "swarm", "summary": "add verifier (gemini-4-hydrogen-high, inherit)", "status": "done", "duration": "0.6s", "stepIndex": 1],
+                        ["name": "read_board", "summary": "seq 1..6 (4 active members)", "status": "done", "duration": "0.2s", "stepIndex": 1]
+                    ]
+                ),
+                Self.agentMsg(
+                    id: "c12-a2",
+                    step: 2,
+                    model: "gemini-pro-orchestrator-neon",
+                    modelName: "Orchestrator (Neon)",
                     text: Self.t(
                         """
-                        已拉起 **Swarm 协同团队（4 位成员）** 并在独立工作区共享公告板上完成协同交付：
+                        已组建 **4-Agent Swarm 协同小队**，各成员正在独立 worktree 并行推进：
 
-                        - **`@backend`（GPT-6 Astra）**：新增 `version` 乐观锁字段，冲突时返回 `409 Conflict` 与服务端快照。
-                        - **`@ios-ui`（Claude Opus 5.5）**：在 `DraftStore` 实现三路合并提示条，保留用户未发文字。
-                        - **`@reviewer`（Gemini 4 Carbon）**：已评审全部 3 个文件，未发现死锁或数据覆盖缺陷。
+                        - **`@backend`（Gemini 4 Neon · High）**：已完成 `/api/v1/drafts` 的 `version` CAS 校验与 `409 Conflict` 快照响应，正在补齐并发压测。
+                        - **`@ios-ui`（Claude Opus 5.5 · High）**：正在打磨 `DraftStore.mergeRemote` 三路合并与断连草稿本地持久化，确保未发长文零丢失。
+                        - **`@verifier`（Gemini 4 Hydrogen · High）**：已审校网关补丁，等待 iOS 编译通过后合流终验 PR `#418`。
 
-                        点击顶部或工具栏中的 **Swarm** 按钮可切换 4 个标签页（总览 / 成员 / 公告板 / 互动发帖），可直接在公告板向任意 `@成员` 下发新指令。
+                        顶部蜂群状态栏实时同步各成员状态，点按即可展开蜂巢视图、依赖星图与共享公告板。
                         """,
                         """
-                        Launched a **4-agent Swarm** on the shared coordination board:
+                        Spun up a **4-agent Swarm** working in isolated worktrees on the shared board:
 
-                        - **`@backend` (GPT-6 Astra)**: Added optimistic `version` CAS checks returning `409 Conflict` snapshots.
-                        - **`@ios-ui` (Claude Opus 5.5)**: Implemented 3-way draft merge prompts in `DraftStore` preserving unsent edits.
-                        - **`@reviewer` (Gemini 4 Carbon)**: Verified all 3 modified files with zero race or overwrite risks.
+                        - **`@backend` (Gemini 4 Neon · High)**: Landed `/api/v1/drafts` optimistic `version` CAS & `409 Conflict` snapshots; finalizing race stress tests.
+                        - **`@ios-ui` (Claude Opus 5.5 · High)**: Wiring `DraftStore.mergeRemote` 3-way merge & local persistence so unsent drafts never drop on reconnect.
+                        - **`@verifier` (Gemini 4 Hydrogen · High)**: Approved the Go patch; standing by to run cross-platform verification for PR `#418`.
 
-                        Tap **Swarm** in the toolbar to explore Summary, Members, Message Board, and live Feedback.
+                        Tap the live Swarm banner above to inspect the Hive bees, dependency graph, and live message board.
                         """,
                         """
-                        **4 名の Swarm チーム**を起動し、共有ボード上で協調開発を完了しました：
+                        **4 名の Swarm チーム**を独立ワークツリーで起動し、共有ボード上で並列進行中です：
 
-                        - **`@backend`（GPT-6 Astra）**：`version` 楽観ロックを追加し、競合時に `409 Conflict` とサーバースナップショットを返却。
-                        - **`@ios-ui`（Claude Opus 5.5）**：`DraftStore` に 3-way マージ通知バーを実装し、未送信テキストを保護。
-                        - **`@reviewer`（Gemini 4 Carbon）**：変更 3 ファイルを全件レビュー済み。レースや上書きリスクなし。
+                        - **`@backend`（Gemini 4 Neon · High）**：`/api/v1/drafts` の `version` 楽観ロックと `409 Conflict` スナップショット返却を実装済み。並行ストレステスト実行中。
+                        - **`@ios-ui`（Claude Opus 5.5 · High）**：`DraftStore.mergeRemote` の 3-way マージと未送信下書きのローカル永続化を仕上げ中。
+                        - **`@verifier`（Gemini 4 Hydrogen · High）**：Go パッチをレビュー承認済み。iOS ビルド通過後に PR `#418` を最終検証します。
 
-                        上部ツールバーの **Swarm** ボタンから 4 タブ（概要 / メンバー / ボード / フィードバック）を切り替え、任意の `@メンバー` に直接追加指示を出せます。
+                        上部のスウォームバナーをタップすると、ハイブ稼働状況・依存グラフ・共有ボードをリアルタイムで確認できます。
                         """
                     ),
-                    timestamp: isoAgo(minutes: 40)
+                    timestamp: isoAgo(minutes: 3)
                 )
             ],
             pendingInteraction: nil,
@@ -1118,14 +1278,14 @@ extension DemoGateway {
             proceedArtifactUri: nil,
             runningTasks: [],
             queuedMessages: [],
-            lastModified: ago(minutes: 18),
+            lastModified: ago(minutes: 3),
             unread: false,
             pinned: false,
-            modelId: "claude-opus-5-5-thinking",
-            modelName: "Claude Opus 5.5 (Thinking)",
-            startedAt: isoAgo(minutes: 50),
-            contextMeter: Self.meter(input: 79_300, output: 5_240, tps: 54.0, ttft: 0.64),
-            swarm: Self.initialSwarmSnapshot(minutesAgo: 40),
+            modelId: "gemini-pro-orchestrator-neon",
+            modelName: "Orchestrator (Neon)",
+            startedAt: isoAgo(minutes: 18),
+            contextMeter: Self.meter(used: 194_800, maxTokens: 512_000, tps: 139.4, ttft: 6.1),
+            swarm: Self.initialSwarmSnapshot(minutesAgo: 3),
             subagents: [],
             parentConversationId: nil,
             subagentRole: nil,
@@ -1135,7 +1295,7 @@ extension DemoGateway {
                 modifiedCount: 2,
                 prTitle: "feat(drafts): optimistic concurrency merge for mobile offline drafts",
                 prNumber: 418,
-                prState: "DRAFT"
+                prState: "OPEN"
             ),
             changes: [
                 DemoFileDiff(
@@ -1150,15 +1310,28 @@ extension DemoGateway {
                         ("INSERT", "    return .conflict(local: local, server: remote)"),
                         ("INSERT", "}")
                     ]
+                ),
+                DemoFileDiff(
+                    fileUri: "file:///Users/demo/Projects/antigravity-mobile/internal/proxy/drafts_cas.go",
+                    fileName: "internal/proxy/drafts_cas.go",
+                    actionType: "CREATE",
+                    additions: 58,
+                    deletions: 0,
+                    diffLines: [
+                        ("INSERT", "if req.BaseVersion < current.Version {"),
+                        ("INSERT", "    writeJSON(w, http.StatusConflict, current)"),
+                        ("INSERT", "    return"),
+                        ("INSERT", "}")
+                    ]
                 )
             ],
             chapters: []
         )
 
-        // 5. Classic Error & Retry Recovery
+        // 6. Error & Retry Recovery
         let c02Login500 = Conversation(
             id: "demo-0002-login-500",
-            title: Self.t("登录接口 500 错误排查", "Auth Login 500 Incident Triage", "ログイン API 500 エラー調査"),
+            title: Self.t("登录接口 500 错误排查", "Auth login 500 incident triage", "ログインAPI 500エラー調査"),
             workspaceName: Self.t("风控引擎", "Risk Engine", "リスクエンジン"),
             workspaceUri: "file:///Users/demo/Projects/risk-engine",
             status: "CASCADE_RUN_STATUS_ERROR",
@@ -1170,7 +1343,18 @@ extension DemoGateway {
                     text: Self.t("线上 `/api/v2/auth/login` 在高峰期偶发 HTTP 500，日志里报错 `context deadline exceeded` 和 `pq: sorry, too many clients already`，帮我查下连接池配置。", "Production `/api/v2/auth/login` intermittently returns HTTP 500 with `context deadline exceeded` and `pq: sorry, too many clients already`. Check pool config.", "本番の `/api/v2/auth/login` でピーク時に HTTP 500 が断続発生中。ログに `context deadline exceeded` と `pq: sorry, too many clients already` が出てるのでコネクションプール設定を調べて。"),
                     timestamp: isoAgo(minutes: 28)
                 ),
-                Self.toolMsg(id: "c02-t1", step: 1, tools: ["GrepSearch", "ReadFile", "RunPostgresExplain"]),
+                Self.toolMsg(
+                    id: "c02-t1",
+                    step: 1,
+                    tools: ["grep_search", "read_file", "call_mcp_tool"],
+                    thinking: Self.t("检索 session_store 初始化参数并通过 postgres-prod MCP 探测当前连接上限。", "Checking session_store pool initialization and probing staging Postgres max_connections via MCP.", "session_store のプール設定を検索し、postgres-prod MCP で最大接続数を確認します。"),
+                    thinkingDuration: "3.9s",
+                    toolDetails: [
+                        ["name": "grep_search", "summary": "SetMaxOpenConns|create_pool in internal/auth/", "status": "done", "duration": "0.2s", "stepIndex": 1],
+                        ["name": "read_file", "summary": "internal/auth/session_store.go (L18-L64)", "status": "done", "duration": "0.1s", "stepIndex": 1],
+                        ["name": "call_mcp_tool", "summary": "postgres-prod: query (SHOW max_connections)", "status": "error", "duration": "5.0s", "stepIndex": 1]
+                    ]
+                ),
                 Self.errorMsg(
                     id: "c02-e2",
                     step: 2,
@@ -1189,10 +1373,10 @@ extension DemoGateway {
             lastModified: ago(minutes: 21),
             unread: false,
             pinned: false,
-            modelId: "claude-opus-5-5-thinking",
-            modelName: "Claude Opus 5.5 (Thinking)",
+            modelId: "claude-opus-5-5-high",
+            modelName: "Claude Opus 5.5 (High)",
             startedAt: isoAgo(minutes: 28),
-            contextMeter: Self.meter(input: 32_100, output: 1_840, tps: 50.2, ttft: 0.70),
+            contextMeter: Self.meter(used: 62_400, maxTokens: 200_000, tps: 68.2, ttft: 3.7),
             swarm: nil,
             subagents: [],
             parentConversationId: nil,
@@ -1202,10 +1386,10 @@ extension DemoGateway {
             chapters: []
         )
 
-        // 6. Classic Interactive Multi-Question ask_question
+        // 7. Interactive Multi-Question ask_question
         let c03Migration = Conversation(
             id: "demo-0003-migration",
-            title: Self.t("数据库迁移方案评审", "Zero-Downtime DB Migration Review", "無停止 DB マイグレーション設計レビュー"),
+            title: Self.t("订单表无锁复合索引迁移评审", "Zero-downtime orders index migration", "ordersテーブル無停止複合インデックス移行"),
             workspaceName: Self.t("风控引擎", "Risk Engine", "リスクエンジン"),
             workspaceUri: "file:///Users/demo/Projects/risk-engine",
             status: "CASCADE_RUN_STATUS_RUNNING",
@@ -1217,7 +1401,17 @@ extension DemoGateway {
                     text: Self.t("`orders` 表目前有 1.8 亿行，要在生产环境加上 `(created_at DESC, status)` 复合索引并迁移历史状态，帮我评估停机窗口和回滚方案。", "The `orders` table has 180M rows. Plan a zero-downtime migration adding `(created_at DESC, status)` plus rollback safeguards.", "`orders` テーブルが 1.8 億行あります。本番無停止で `(created_at DESC, status)` 複合インデックスを追加し履歴ステータスもバックフィルしたい。ダウンタイムとロールバック方針を評価して。"),
                     timestamp: isoAgo(minutes: 33)
                 ),
-                Self.toolMsg(id: "c03-t1", step: 1, tools: ["ReadFile", "InspectMigrations"]),
+                Self.toolMsg(
+                    id: "c03-t1",
+                    step: 1,
+                    tools: ["read_file", "call_mcp_tool", "ask_question"],
+                    thinking: Self.t("检查已有迁移脚本版本与当前索引分布，确认无锁建索引与历史回填并发度需与用户拍板。", "Inspecting existing migration history and index cardinality; preparing 3 rollout decisions for confirmation.", "既存マイグレーション履歴とインデックス構成を確認し、本番適用方針の 3 点をユーザーに確認します。"),
+                    thinkingDuration: "4.8s",
+                    toolDetails: [
+                        ["name": "read_file", "summary": "migrations/0018_orders_status.sql", "status": "done", "duration": "0.1s", "stepIndex": 1],
+                        ["name": "call_mcp_tool", "summary": "postgres-prod: describe_table (orders)", "status": "done", "duration": "0.6s", "stepIndex": 1]
+                    ]
+                ),
                 Self.agentMsg(
                     id: "c03-a2",
                     step: 2,
@@ -1277,7 +1471,7 @@ extension DemoGateway {
             modelId: "gemini-4-carbon-high",
             modelName: "Gemini 4 Carbon (High)",
             startedAt: isoAgo(minutes: 33),
-            contextMeter: Self.meter(input: 41_500, output: 2_380, tps: 76.0, ttft: 0.41),
+            contextMeter: Self.meter(used: 148_500, maxTokens: 512_000, tps: 118.4, ttft: 5.8),
             swarm: nil,
             subagents: [],
             parentConversationId: nil,
@@ -1287,11 +1481,11 @@ extension DemoGateway {
             chapters: []
         )
 
-        // 7. Classic Data Report: Unread + Attached CSV/MD + Inline Chart PNG + 4-page PDF
+        // 8. Data Report: Unread + Attached CSV/MD + Inline Chart PNG + 4-page PDF
         let chartBase64 = chartData.base64EncodedString()
         let c04Sales = Conversation(
             id: "demo-0004-sales",
-            title: Self.t("整理季度销售报告（4页 PDF）", "Q3 Sales Report & Charts (4-Page PDF)", "Q3 売上分析レポート作成（4ページ PDF）"),
+            title: Self.t("Q3 区域经营分析与汇报 PDF", "Q3 regional revenue report & PDF", "Q3 エリア別売上分析と経営陣向けPDF"),
             workspaceName: Self.t("数据分析台", "Analytics Hub", "データ分析ハブ"),
             workspaceUri: "file:///Users/demo/Projects/data-analytics",
             status: "CASCADE_RUN_STATUS_IDLE",
@@ -1325,12 +1519,22 @@ extension DemoGateway {
                     ),
                     timestamp: isoAgo(minutes: 62)
                 ),
-                Self.toolMsg(id: "c04-t1", step: 1, tools: ["ReadCSV", "GenerateChart", "BuildPDF"]),
+                Self.toolMsg(
+                    id: "c04-t1",
+                    step: 1,
+                    tools: ["read_file", "run_command", "write_file"],
+                    thinking: Self.t("读取两份附件原始数据，汇总三季度区域环比与客单价，调用 Python 脚本渲染趋势图并合成 4 页 PDF 报告。", "Parsing attached CSV and review notes, computing QoQ regional deltas, plotting the bar chart, and exporting a 4-page PDF.", "添付 CSV と議事録を読み込み、エリア別四半期推移を集計して棒グラフと 4 ページ PDF を生成します。"),
+                    thinkingDuration: "5.1s",
+                    toolDetails: [
+                        ["name": "read_file", "summary": "Documents/sales_q3.csv & meeting_notes.md", "status": "done", "duration": "0.2s", "stepIndex": 1],
+                        ["name": "run_command", "summary": "python3 scripts/build_q3_report.py --chart --pdf", "status": "done", "duration": "2.4s", "stepIndex": 1]
+                    ]
+                ),
                 Self.agentMsg(
                     id: "c04-a2",
                     step: 2,
-                    model: "gemini-4-carbon-high",
-                    modelName: "Gemini 4 Carbon (High)",
+                    model: "gemini-4-neon-high",
+                    modelName: "Gemini 4 Neon (High)",
                     text: Self.t(
                         """
                         已完成 Q1–Q3 销售归因分析并打包了 **4 页高管汇报 PDF**（点击下方文件名或图表即可全屏预览与分享导出）：
@@ -1343,7 +1547,7 @@ extension DemoGateway {
 
                         ![Q1-Q3 分区销售增长趋势图](data:image/png;base64,\(chartBase64))
 
-                        ### 生成产物与原始文档（点击预览）
+                        ### 生成产物与原始文档
                         - 📄 [三季度销售报告.pdf](file:///Users/demo/Documents/三季度销售报告.pdf)（共 4 页：封面概览 / 核心趋势图表 / 区域拆解 / Q4 行动建议）
                         - 📊 [sales_chart.png](file:///Users/demo/Documents/sales_chart.png)
                         - 📑 [销售数据.csv](file:///Users/demo/Documents/销售数据.csv) · [会议纪要.md](file:///Users/demo/Documents/会议纪要.md)
@@ -1375,7 +1579,7 @@ extension DemoGateway {
 
                         ![Q1-Q3 エリア別売上推移グラフ](data:image/png;base64,\(chartBase64))
 
-                        ### 成果物と元データ（タップでプレビュー）
+                        ### 成果物と元データ
                         - 📄 [q3_sales_report.pdf](file:///Users/demo/Documents/q3_sales_report.pdf)（全 4 ページ：サマリー / 推移グラフ / エリア別詳細 / Q4 施策）
                         - 📊 [sales_chart.png](file:///Users/demo/Documents/sales_chart.png)
                         - 📑 [sales_q3.csv](file:///Users/demo/Documents/sales_q3.csv) · [meeting_notes.md](file:///Users/demo/Documents/meeting_notes.md)
@@ -1384,7 +1588,9 @@ extension DemoGateway {
                     artifacts: [
                         [
                             "uri": Self.t("file:///Users/demo/Documents/三季度销售报告.pdf", "file:///Users/demo/Documents/q3_sales_report.pdf", "file:///Users/demo/Documents/q3_sales_report.pdf"),
-                            "title": Self.t("三季度销售报告.pdf", "q3_sales_report.pdf", "q3_sales_report.pdf")
+                            "title": Self.t("三季度销售报告.pdf", "q3_sales_report.pdf", "q3_sales_report.pdf"),
+                            "summary": Self.t("2026 Q1-Q3 区域经营分析与 Q4 资源排期报告（4 页 PDF）", "2026 Q1–Q3 regional sales analysis and Q4 action plan (4-page PDF)", "2026 Q1〜Q3 エリア別売上分析および Q4 アクション計画（4 ページ PDF）"),
+                            "userFacing": true
                         ]
                     ],
                     timestamp: isoAgo(minutes: 58)
@@ -1398,10 +1604,10 @@ extension DemoGateway {
             lastModified: ago(minutes: 58),
             unread: true,
             pinned: false,
-            modelId: "gemini-4-carbon-high",
-            modelName: "Gemini 4 Carbon (High)",
+            modelId: "gemini-4-neon-high",
+            modelName: "Gemini 4 Neon (High)",
             startedAt: isoAgo(minutes: 62),
-            contextMeter: Self.meter(input: 36_800, output: 3_110, tps: 81.2, ttft: 0.39),
+            contextMeter: Self.meter(used: 126_800, maxTokens: 512_000, tps: 138.2, ttft: 4.4),
             swarm: nil,
             subagents: [],
             parentConversationId: nil,
@@ -1411,10 +1617,10 @@ extension DemoGateway {
             chapters: []
         )
 
-        // 8. Classic Implementation Plan with Mermaid + Proceed Approval Card (Multigravity)
+        // 9. Authentic Antigravity Implementation Plan + Mermaid + Proceed Approval Card (Multigravity)
         let c05Redesign = Conversation(
             id: "demo-0005-redesign",
-            title: Self.t("官网首页改版方案（Proceed 审批）", "Homepage Redesign Plan (Proceed)", "公式サイトトップ刷新計画（Proceed 承認）"),
+            title: Self.t("边缘网关缓存与 SSR 架构重构", "Edge SSR & canary caching plan", "Edge SSR・カナリアキャッシュ刷新計画"),
             workspaceName: "Multigravity",
             workspaceUri: "file:///Users/demo/Projects/antigravity-mobile",
             status: "CASCADE_RUN_STATUS_IDLE",
@@ -1423,64 +1629,95 @@ extension DemoGateway {
                 Self.userMsg(
                     id: "c05-u0",
                     step: 0,
-                    text: Self.t("帮我先写一份官网首页改版的架构与迁移 `implementation_plan.md`，支持渐进发布与性能指标观测，我审批后再动手改代码。", "Draft an `implementation_plan.md` for our homepage redesign with progressive canary rollout and telemetry before editing code.", "コードを書く前に、公式サイトトップページ刷新の段階的カナリア配信と指標監視を含む `implementation_plan.md` を作成して。承認したら実装に進もう。"),
-                    timestamp: isoAgo(minutes: 75)
+                    text: Self.t("/plan 帮我先梳理官网边缘缓存与首页 SSR 改造方案，输出 `implementation_plan.md` 列出基线指标、灰度切流拓扑和回滚门禁，我审完点 Proceed 再动手。", "/plan Draft an `implementation_plan.md` for our Edge SSR & canary caching rollout with real LCP baselines, routing topology, and rollback gates before editing code.", "/plan コード変更の前に、公式サイトの Edge SSR とカナリアキャッシュ導入に向けた `implementation_plan.md`（実測ベースライン・切替構成・ロールバック条件）を作って。レビューして Proceed を押したら実装に入ろう。"),
+                    timestamp: isoAgo(minutes: 18),
+                    slashCommands: [["name": "plan", "description": Self.t("先拆解架构、关键路径与风险，确认后再动手改代码", "Plan carefully before executing a task", "実装前に構成・マイルストーン・リスクを整理して合意形成")]]
                 ),
-                Self.toolMsg(id: "c05-t1", step: 1, tools: ["ReadWorkspace", "WriteArtifact"]),
+                Self.toolMsg(
+                    id: "c05-t1",
+                    step: 1,
+                    tools: ["read_file", "grep_search", "write_file"],
+                    thinking: Self.t("汇总近 7 天 Cloudflare Web Vitals 基线与当前静态打包产物体积，拆解 Edge Worker 灰度路由、ISR 60s 缓存与 5 秒自动回退方案写入 implementation_plan.md。", "Analyzing 7-day Web Vitals baseline and bundle footprint; structuring Edge Worker canary routing, 60s ISR cache, and 5s auto-rollback inside implementation_plan.md.", "直近 7 日間の Web Vitals ベースラインとバンドル構成を分析し、Edge Worker カナリア配信・60秒 ISR・5秒自動ロールバックを `implementation_plan.md` にまとめます。"),
+                    thinkingDuration: "7.8s",
+                    toolDetails: [
+                        ["name": "read_file", "summary": "web/next.config.ts & worker/edge_router.ts", "status": "done", "duration": "0.3s", "stepIndex": 1],
+                        ["name": "write_file", "summary": "brain/demo-0005/implementation_plan.md (RequestFeedback=true)", "status": "done", "duration": "0.4s", "stepIndex": 1]
+                    ]
+                ),
                 Self.agentMsg(
                     id: "c05-a2",
                     step: 2,
-                    model: "claude-opus-5-5-thinking",
-                    modelName: "Claude Opus 5.5 (Thinking)",
+                    model: "gemini-4-neon-xhigh",
+                    modelName: "Gemini 4 Neon (Extra)",
                     text: Self.t(
                         """
-                        已起草新版首页架构与发布方案，核心流量切换链路如下：
+                        已完成基线审计并起草实施计划 [implementation_plan.md](file:///Users/demo/.gemini/antigravity/brain/demo-0005/implementation_plan.md)，核心灰度切流拓扑如下：
 
                         ```mermaid
-                        flowchart LR
-                            U["访客流量"] --> EDGE["CDN Edge Worker"]
-                            EDGE -->|"10% 灰度"| NEW["Next.js 16 SSR 首页"]
-                            EDGE -->|"90% 保底"| OLD["旧版静态页面"]
-                            NEW -->|"LCP < 1.2s"| PROMOTE["全量放量 100%"]
+                        graph TD
+                            U[访客流量] --> EDGE[Edge Worker]
+                            EDGE -->|10% 灰度| NEW[Next.js 16 SSR]
+                            EDGE -->|90% 基线| OLD[静态资源包]
+                            NEW -->|LCP 达标| PROMOTE[全量 100%]
                         ```
 
-                        完整实施清单见 Artifact：[implementation_plan.md](file:///Users/demo/.gemini/antigravity/brain/demo-0005/implementation_plan.md)。你可以点击文档查看全文，或直接点击下方 **Proceed** 审批通过并启动编码。
+                        | 指标 | 基线 P75 | 目标 |
+                        | --- | ---: | ---: |
+                        | 首页 LCP | `2.64 s` | **`1.20 s`** |
+                        | 核心 JS | `184 KB` | **`95 KB`** |
+                        | 异常回退 | `~8 min` | **`5 s`** |
+
+                        请审阅上方计划文档，确认无误后点击下方 **Proceed** 启动分阶段编码与自动化验收。
                         """,
                         """
-                        Drafted the homepage architecture & canary rollout pipeline:
+                        Baseline audit complete and implementation plan drafted in [implementation_plan.md](file:///Users/demo/.gemini/antigravity/brain/demo-0005/implementation_plan.md). Core canary routing pipeline:
 
                         ```mermaid
-                        flowchart LR
-                            U["Visitor Traffic"] --> EDGE["CDN Edge Worker"]
-                            EDGE -->|"10% Canary"| NEW["Next.js 16 SSR Home"]
-                            EDGE -->|"90% Baseline"| OLD["Legacy Static Bundle"]
-                            NEW -->|"LCP < 1.2s"| PROMOTE["Promote 100%"]
+                        graph TD
+                            U[Visitor Traffic] --> EDGE[Edge Worker]
+                            EDGE -->|10% Canary| NEW[Next.js 16 SSR]
+                            EDGE -->|90% Baseline| OLD[Static Bundle]
+                            NEW -->|LCP Pass| PROMOTE[Promote 100%]
                         ```
 
-                        Full spec artifact: [implementation_plan.md](file:///Users/demo/.gemini/antigravity/brain/demo-0005/implementation_plan.md). Open the document or tap **Proceed** below to start implementation.
+                        | Metric | P75 Now | Target |
+                        | --- | ---: | ---: |
+                        | Home LCP | `2.64 s` | **`1.20 s`** |
+                        | Crit. JS | `184 KB` | **`95 KB`** |
+                        | Rollback | `~8 min` | **`5 s`** |
+
+                        Review the artifact above and tap **Proceed** below to begin phased implementation.
                         """,
                         """
-                        新トップページのアーキテクチャとカナリア配信計画をまとめました：
+                        ベースライン調査を完了し、実装計画書 [implementation_plan.md](file:///Users/demo/.gemini/antigravity/brain/demo-0005/implementation_plan.md) を作成しました。カナリア切替フローは以下のとおりです：
 
                         ```mermaid
-                        flowchart LR
-                            U["アクセス流入"] --> EDGE["CDN Edge Worker"]
-                            EDGE -->|"10% カナリア"| NEW["Next.js 16 SSR 新トップ"]
-                            EDGE -->|"90% 現行"| OLD["旧静的バンドル"]
-                            NEW -->|"LCP < 1.2s"| PROMOTE["100% 全量切替"]
+                        graph TD
+                            U[アクセス流入] --> EDGE[Edge Worker]
+                            EDGE -->|10% カナリア| NEW[Next.js 16 SSR]
+                            EDGE -->|90% 現行| OLD[静的バンドル]
+                            NEW -->|LCP 合格| PROMOTE[全量 100%]
                         ```
 
-                        詳細な実装計画はこちら：[implementation_plan.md](file:///Users/demo/.gemini/antigravity/brain/demo-0005/implementation_plan.md)。内容を確認のうえ、下の **Proceed** をタップすると実装を開始します。
+                        | 指標 | 現行 P75 | 目標 |
+                        | --- | ---: | ---: |
+                        | LCP | `2.64 s` | **`1.20 s`** |
+                        | 初期 JS | `184 KB` | **`95 KB`** |
+                        | 切り戻し | `約8分` | **`5 s`** |
+
+                        計画書をご確認のうえ、問題なければ下の **Proceed** をタップして段階的実装を開始してください。
                         """
                     ),
                     artifacts: [
                         [
                             "uri": "file:///Users/demo/.gemini/antigravity/brain/demo-0005/implementation_plan.md",
-                            "title": "implementation_plan.md",
-                            "request_feedback": true
+                            "title": "Implementation Plan",
+                            "summary": Self.t("官网 Edge Worker 10%→100% 灰度切流、Next.js 16 流式 SSR + 60s ISR 缓存与 5 秒自动熔断回滚实施方案（含验证计划）。", "Phased Edge Worker 10%→100% canary rollout, Next.js 16 streaming SSR + 60s ISR cache, and 5s automated rollback plan.", "Edge Worker 10%→100% カナリア配信・Next.js 16 ストリーミング SSR + 60秒 ISR キャッシュ・5秒自動ロールバック実装計画。"),
+                            "requestFeedback": true,
+                            "userFacing": true
                         ]
                     ],
-                    timestamp: isoAgo(minutes: 70)
+                    timestamp: isoAgo(minutes: 14)
                 )
             ],
             pendingInteraction: nil,
@@ -1488,13 +1725,13 @@ extension DemoGateway {
             proceedArtifactUri: "file:///Users/demo/.gemini/antigravity/brain/demo-0005/implementation_plan.md",
             runningTasks: [],
             queuedMessages: [],
-            lastModified: ago(minutes: 70),
-            unread: false,
+            lastModified: ago(minutes: 14),
+            unread: true,
             pinned: false,
-            modelId: "claude-opus-5-5-thinking",
-            modelName: "Claude Opus 5.5 (Thinking)",
-            startedAt: isoAgo(minutes: 75),
-            contextMeter: Self.meter(input: 29_500, output: 2_640, tps: 53.7, ttft: 0.65),
+            modelId: "gemini-4-neon-xhigh",
+            modelName: "Gemini 4 Neon (Extra)",
+            startedAt: isoAgo(minutes: 18),
+            contextMeter: Self.meter(used: 156_200, maxTokens: 512_000, tps: 131.4, ttft: 7.2),
             swarm: nil,
             subagents: [],
             parentConversationId: nil,
@@ -1504,10 +1741,10 @@ extension DemoGateway {
             chapters: []
         )
 
-        // 9. Classic Receipt OCR with 2 Image Previews & Reconciliation Table
+        // 10. Receipt OCR with 2 Image Previews & Reconciliation Table
         let c06Invoice = Conversation(
             id: "demo-0006-invoice",
-            title: Self.t("发票识别与整理（多图识别）", "Receipt OCR & Expense Table", "領収書 OCR 読取＆経費精算表（複数画像）"),
+            title: Self.t("差旅发票 OCR 识别与报销汇总", "Travel receipt OCR & reconciliation", "出張領収書のOCR読取と経費精算"),
             workspaceName: Self.t("数据分析台", "Analytics Hub", "データ分析ハブ"),
             workspaceUri: "file:///Users/demo/Projects/data-analytics",
             status: "CASCADE_RUN_STATUS_IDLE",
@@ -1523,12 +1760,22 @@ extension DemoGateway {
                     ],
                     timestamp: isoAgo(minutes: 95)
                 ),
-                Self.toolMsg(id: "c06-t1", step: 1, tools: ["OCRDocument", "VerifyTaxInvoice"]),
+                Self.toolMsg(
+                    id: "c06-t1",
+                    step: 1,
+                    tools: ["read_file", "call_mcp_tool"],
+                    thinking: Self.t("调用本地 OCR 解析两张票据图片并核验票号、日期与价税合计字段。", "Running OCR extraction across both receipt photos and validating totals.", "2 枚の領収書画像を OCR 解析し、伝票番号と税込合計を突合します。"),
+                    thinkingDuration: "3.1s",
+                    toolDetails: [
+                        ["name": "read_file", "summary": "invoice_coffee.jpg & invoice_taxi.jpg", "status": "done", "duration": "0.2s", "stepIndex": 1],
+                        ["name": "call_mcp_tool", "summary": "xiaomi_ocr: ocr_document (2 images)", "status": "done", "duration": "1.8s", "stepIndex": 1]
+                    ]
+                ),
                 Self.agentMsg(
                     id: "c06-a2",
                     step: 2,
-                    model: "gemini-4-carbon-high",
-                    modelName: "Gemini 4 Carbon (High)",
+                    model: "gemini-4-neon-high",
+                    modelName: "Gemini 4 Neon (High)",
                     text: Self.t(
                         """
                         已完成 **2 张报销发票** OCR 提取与验真（点上方图片可双指缩放查看原票细节）：
@@ -1538,7 +1785,7 @@ extension DemoGateway {
                         | 1 | 业务招待 / 餐饮 | 星河精品咖啡（北京国贸店） | `NO.20261108-88412` | **¥158.00** | ✅ 已验真 |
                         | 2 | 市内交通 / 出租 | 京B·82716 首都机场 → 国贸CBD | `NO.20261108-51904` | **¥116.00** | ✅ 已验真 |
 
-                        **合计报销金额：¥274.00**。如需自动导出报销汇总 CSV，直接回复「导出 CSV」即可。
+                        **合计报销金额：¥274.00**。如需导出报销汇总 CSV，直接回复即可。
                         """,
                         """
                         Extracted & verified **2 travel receipts** (tap images above to zoom in):
@@ -1558,7 +1805,7 @@ extension DemoGateway {
                         | 1 | 会議費 / カフェ | スターバースト珈琲 渋谷スクランブル店 | `NO.20261108-88412` | **¥2,850** | ✅ 確認済み |
                         | 2 | 旅費交通費 | 品川 500 あ 8271 · 羽田空港T2 → 渋谷 | `NO.20261108-51904` | **¥9,000** | ✅ 確認済み |
 
-                        **精算合計：¥11,850**。経理提出用の CSV 出力が必要なら「CSV を出力」と返信してください。
+                        **精算合計：¥11,850**。経理提出用の CSV 出力が必要ならそのまま返信してください。
                         """
                     ),
                     timestamp: isoAgo(minutes: 92)
@@ -1572,10 +1819,10 @@ extension DemoGateway {
             lastModified: ago(minutes: 92),
             unread: false,
             pinned: false,
-            modelId: "gemini-4-carbon-high",
-            modelName: "Gemini 4 Carbon (High)",
+            modelId: "gemini-4-neon-high",
+            modelName: "Gemini 4 Neon (High)",
             startedAt: isoAgo(minutes: 95),
-            contextMeter: Self.meter(input: 22_800, output: 1_510, tps: 79.4, ttft: 0.34),
+            contextMeter: Self.meter(used: 78_200, maxTokens: 512_000, tps: 140.4, ttft: 3.9),
             swarm: nil,
             subagents: [],
             parentConversationId: nil,
@@ -1585,10 +1832,10 @@ extension DemoGateway {
             chapters: []
         )
 
-        // 10. Pending Workflow Approval Interaction
+        // 11. Pending Workflow Approval Interaction (4-button Workflow Gate)
         let c13WorkflowApproval = Conversation(
             id: "demo-0013-wf-approval",
-            title: Self.t("高危发布脚本审批（Workflow Approval）", "Production Script Approval Gate", "本番デプロイスクリプト承認（Workflow 実行承認）"),
+            title: Self.t("发布前自动化回归与灰度审批", "Pre-release canary pipeline approval", "リリース前カナリア検証ワークフロー承認"),
             workspaceName: Self.t("部署脚本", "Deploy Scripts", "デプロイスクリプト"),
             workspaceUri: "file:///Users/demo/Projects/deploy-scripts",
             status: "CASCADE_RUN_STATUS_RUNNING",
@@ -1597,41 +1844,51 @@ extension DemoGateway {
                 Self.userMsg(
                     id: "c13-u0",
                     step: 0,
-                    text: Self.t("执行生产 Redis 缓存前缀清理并重载 Gateway 配置，先跑一次预检查然后向我申请执行确认。", "Run a preflight dry-run for cleaning expired Redis session keys and reloading the gateway config, then request my approval.", "本番 Redis の期限切れセッションキー掃除と Gateway 設定リロードをやりたい。まずドライランで影響件数を確認して、実行前に承認リクエストを送って。"),
-                    timestamp: isoAgo(minutes: 105)
+                    text: Self.t("跑一下 `canary_rollout.py` 灰度发布流水线：先扫描过期 Redis 会话键，再切 10% 流量并做冒烟验证，正式执行前向我申请审批。", "Run `canary_rollout.py` to scan expired Redis session keys, shift 10% canary traffic, and execute smoke probes — ask for approval before running.", "`canary_rollout.py` のカナリア配信パイプラインを回したい。期限切れ Redis キー確認・10% 切替・スモーク検証の前に実行承認リクエストを送って。"),
+                    timestamp: isoAgo(minutes: 8)
                 ),
-                Self.toolMsg(id: "c13-t1", step: 1, tools: ["InspectDeployScript", "DryRunRedisCleanup"]),
+                Self.toolMsg(
+                    id: "c13-t1",
+                    step: 1,
+                    tools: ["read_file", "run_command"],
+                    thinking: Self.t("读取 deploy/canary_rollout.py 验证并发上限与只读 preflight，并封装为 run_workflow 审批请求等待用户放行。", "Inspecting deploy/canary_rollout.py concurrency bounds and staging dry-run output before requesting run_workflow approval.", "`deploy/canary_rollout.py` の並列制限とドライラン結果を確認し、`run_workflow` の実行承認を申請します。"),
+                    thinkingDuration: "4.5s",
+                    toolDetails: [
+                        ["name": "read_file", "summary": "deploy/canary_rollout.py (L1-L46)", "status": "done", "duration": "0.2s", "stepIndex": 1],
+                        ["name": "run_command", "summary": "redis-cli --scan --pattern 'v1:session:tmp:*' | wc -l", "status": "done", "duration": "1.1s", "stepIndex": 1]
+                    ]
+                ),
                 Self.agentMsg(
                     id: "c13-a2",
                     step: 2,
-                    model: "claude-opus-5-5-thinking",
-                    modelName: "Claude Opus 5.5 (Thinking)",
-                    text: Self.t("预检查完成：将扫描并删除 `v1:session:tmp:*` 下约 14,200 个过期键，随后向本机集群发送 `SIGHUP` 热重载。请在下方授权卡片中批准或拒绝本次命令执行。", "Dry-run complete: ~14,200 expired `v1:session:tmp:*` keys matched, followed by zero-downtime `SIGHUP` config reload. Approve or deny below.", "事前チェック完了：`v1:session:tmp:*` 配下の期限切れキー約 14,200 件を削除し、その後ローカルクラスタへ無停止 `SIGHUP` リロードを実行します。下の承認カードから許可または拒否を選択してください。"),
-                    timestamp: isoAgo(minutes: 103)
+                    model: "claude-opus-5-5-high",
+                    modelName: "Claude Opus 5.5 (High)",
+                    text: Self.t("预检查完成：命中 `v1:session:tmp:*` 过期键 14,200 条，随后将执行 10% 灰度放量与 18 项冒烟断言。请在下方审批卡片中确认是否运行该工作流。", "Preflight complete: 14,200 expired `v1:session:tmp:*` keys matched, followed by 10% canary shift and 18 smoke checks. Approve or deny the workflow below.", "事前チェック完了：`v1:session:tmp:*` 配下の期限切れキー 14,200 件を確認後、10% カナリア配信と 18 項目のスモーク検証を実行します。下の承認カードから許可または拒否を選択してください。"),
+                    timestamp: isoAgo(minutes: 6)
                 )
             ],
             pendingInteraction: [
                 "type": "workflow_approval",
                 "trajectoryId": "demo-0013-wf-approval",
                 "stepIndex": 2,
-                "title": Self.t("高危环境变更 · 请求执行工作流命令", "Production Change · Command Approval Requested", "本番環境変更 · ワークフロー実行承認リクエスト"),
-                "description": Self.t("该脚本将清理过期会话缓存前缀并触发生产网关配置重载。", "Cleans expired Redis session prefixes and hot-reloads production gateway.", "期限切れ Redis セッションキャッシュを削除し、本番ゲートウェイ設定をホットリロードします。"),
-                "commandLine": "bash scripts/prod_cleanup.sh --prefix 'v1:session:tmp:*' --reload-gateway",
+                "title": Self.t("高危环境变更 · 请求执行工作流", "Production Change · Workflow Approval", "本番環境変更 · ワークフロー実行承認"),
+                "description": Self.t("将清理过期会话缓存前缀、切 10% 灰度流量并触发网关热重载。", "Cleans expired Redis session prefixes, shifts 10% canary traffic, and hot-reloads gateway.", "期限切れ Redis キャッシュを削除し、10% カナリア配信と本番ゲートウェイのホットリロードを実行します。"),
+                "commandLine": "python3 deploy/canary_rollout.py --traffic 10% --reload-gateway",
                 "workflowApproval": [
-                    "description": Self.t("生产网关滚动重载与前缀清理 · 预计影响 14,200 个临时键，网关平滑重载不中断活跃 SSE 连接。", "Canary Cache Cleanup & Gateway Reload · Affects ~14,200 TTL keys; active SSE streams stay connected.", "本番ゲートウェイ無停止リロード＆キャッシュ掃除 · 対象約 14,200 キー、稼働中の SSE 接続は維持されます。"),
-                    "scriptPath": "scripts/prod_cleanup.sh",
+                    "description": Self.t("生产网关灰度放量与缓存清理 · 预计影响 14,200 个过期键，活跃 SSE 连接零中断。", "Canary Rollout & Cache Cleanup · Affects 14,200 expired TTL keys; active SSE streams stay connected.", "本番カナリア配信＆キャッシュ掃除 · 対象 14,200 キー、稼働中 SSE 接続は維持されます。"),
+                    "scriptPath": "deploy/canary_rollout.py",
                     "script": """
                     #!/usr/bin/env python3
                     from workflow import phase, run_command
 
                     with phase("preflight"):
                         run_command("redis-cli --scan --pattern 'v1:session:tmp:*' | wc -l")
-                    with phase("cleanup_and_reload"):
+                    with phase("canary_and_reload"):
                         run_command("bash scripts/prod_cleanup.sh --prefix 'v1:session:tmp:*' --reload-gateway")
                     """,
                     "estimatedPhases": [
                         Self.t("Preflight 扫描 (14,200 keys)", "Preflight Scan (14,200 keys)", "事前スキャン (14,200 keys)"),
-                        Self.t("清理前缀并热重载", "Clean Keys & Reload", "キー削除＆ホットリロード")
+                        Self.t("清理缓存并灰度切流", "Clean Cache & Canary Shift", "掃除＆カナリア切替")
                     ],
                     "maxConcurrency": 2
                 ],
@@ -1645,13 +1902,13 @@ extension DemoGateway {
             proceedArtifactUri: nil,
             runningTasks: [],
             queuedMessages: [],
-            lastModified: ago(minutes: 103),
+            lastModified: ago(minutes: 6),
             unread: false,
             pinned: false,
-            modelId: "claude-opus-5-5-thinking",
-            modelName: "Claude Opus 5.5 (Thinking)",
-            startedAt: isoAgo(minutes: 105),
-            contextMeter: Self.meter(input: 19_400, output: 1_120, tps: 51.6, ttft: 0.61),
+            modelId: "claude-opus-5-5-high",
+            modelName: "Claude Opus 5.5 (High)",
+            startedAt: isoAgo(minutes: 8),
+            contextMeter: Self.meter(used: 54_800, maxTokens: 200_000, tps: 71.2, ttft: 3.6),
             swarm: nil,
             subagents: [],
             parentConversationId: nil,
@@ -1661,10 +1918,10 @@ extension DemoGateway {
             chapters: []
         )
 
-        // 11. Running Background Tasks + Daemon Logs
+        // 12. Running Background Tasks + Daemon Logs
         let c14Running = Conversation(
             id: "demo-0014-running",
-            title: Self.t("实时联调与守护进程监控（Daemon Logs）", "Live Dev Server & Daemon Logs", "開発サーバー＆デーモンログ監視（Daemon Logs）"),
+            title: Self.t("本地 HMR 守护进程与竞态测试", "Local HMR dev server & race suite", "ローカルHMR常駐サーバーとレース検証"),
             workspaceName: Self.t("部署脚本", "Deploy Scripts", "デプロイスクリプト"),
             workspaceUri: "file:///Users/demo/Projects/deploy-scripts",
             status: "CASCADE_RUN_STATUS_RUNNING",
@@ -1673,39 +1930,49 @@ extension DemoGateway {
                 Self.userMsg(
                     id: "c14-u0",
                     step: 0,
-                    text: Self.t("同时把 Vite 热更新前端守护进程和 Go `-race` 并发回归测试跑起来，方便我在手机上实时看日志和按需中止。", "Start the Vite HMR dev server daemon and the Go `-race` test suite so I can tail logs and manage tasks from mobile.", "Vite の HMR 開発サーバーと Go の `-race` 並行回帰テストを同時に走らせて。スマホからリアルタイムログ確認と個別停止ができるようにしたい。"),
+                    text: Self.t("把 Vite 热更新守护进程和 Go `-race` 并发回归测试同时跑起来，我在外面随时看输出日志，不需要的话直接手机停掉。", "Start the Vite HMR dev server daemon and the Go `-race` test suite so I can tail logs and stop tasks individually from mobile.", "Vite の HMR 常駐サーバーと Go の `-race` 並行回帰テストを同時に走らせて。外出先からライブログ確認と個別停止ができるようにしたい。"),
                     timestamp: isoAgo(minutes: 112)
                 ),
-                Self.toolMsg(id: "c14-t1", step: 1, tools: ["StartDaemon", "RunCommand"]),
+                Self.toolMsg(
+                    id: "c14-t1",
+                    step: 1,
+                    tools: ["run_command", "manage_task"],
+                    thinking: Self.t("以 IsDaemon=true 拉起 Vite 5173 开发服务，再并行启动 ./internal/cockpit/... 竞态测试任务。", "Launching Vite HMR as a background daemon and running ./internal/cockpit/... with -race in parallel.", "Vite HMR をデーモン起動し、並行して `./internal/cockpit/...` の `-race` テストを実行します。"),
+                    thinkingDuration: "2.3s",
+                    toolDetails: [
+                        ["name": "run_command", "summary": "npm run dev -- --host 0.0.0.0 --port 5173 (daemon)", "status": "running", "duration": "360s", "stepIndex": 1],
+                        ["name": "run_command", "summary": "go test -race -count=1 ./internal/cockpit/...", "status": "running", "duration": "90s", "stepIndex": 1]
+                    ]
+                ),
                 Self.agentMsg(
                     id: "c14-a2",
                     step: 2,
-                    model: "gpt-6-astra",
-                    modelName: "GPT-6 Astra",
+                    model: "gemini-4-hydrogen-high",
+                    modelName: "Gemini 4 Hydrogen (High)",
                     text: Self.t(
                         """
-                        已同时启动 2 个后台进程：
+                        已并行拉起 2 个后台进程：
 
-                        1. **守护进程 `task-vite-daemon`**：监听 `0.0.0.0:5173`，供局域网浏览器实时预览。
-                        2. **阻塞任务 `task-go-race`**：正在执行 `./internal/cockpit/...` 并发竞态测试。
+                        1. **守护进程 `task-vite-daemon`**：监听 `0.0.0.0:5173`，局域网实时热更新就绪。
+                        2. **验证任务 `task-go-race`**：正在执行 `./internal/cockpit/...` 并发竞态测试。
 
-                        点击对话顶部的**后台任务栏**（或左下角运行指示器）可展开实时输出日志，或单独停止其中某个任务。
+                        点击顶部任务条可展开实时终端输出或单独中止任一进程。
                         """,
                         """
-                        Started 2 background tasks:
+                        Started 2 background processes:
 
-                        1. **Daemon `task-vite-daemon`**: Listening on `0.0.0.0:5173` for LAN live preview.
-                        2. **Blocking Task `task-go-race`**: Running `-race` tests across `./internal/cockpit/...`.
+                        1. **Daemon `task-vite-daemon`**: Listening on `0.0.0.0:5173` for LAN live HMR preview.
+                        2. **Task `task-go-race`**: Running `-race` tests across `./internal/cockpit/...`.
 
-                        Tap the **Live Tasks** bar above (or the status pill) to tail live logs or stop either process individually.
+                        Tap the live tasks bar above to stream stdout or stop either process individually.
                         """,
                         """
-                        バックグラウンドタスクを 2 件起動しました：
+                        バックグラウンドプロセスを 2 件起動しました：
 
-                        1. **常駐デーモン `task-vite-daemon`**：`0.0.0.0:5173` で待機中（LAN プレビュー対応）。
+                        1. **常駐デーモン `task-vite-daemon`**：`0.0.0.0:5173` で LAN プレビュー待機中。
                         2. **検証タスク `task-go-race`**：`./internal/cockpit/...` の `-race` テストを実行中。
 
-                        画面上部の **実行中タスクバー**（またはステータス表示）からライブログ確認や個別停止ができます。
+                        画面上部のタスクバーからライブログ確認や個別停止ができます。
                         """
                     ),
                     timestamp: isoAgo(minutes: 110)
@@ -1719,7 +1986,7 @@ extension DemoGateway {
                     "id": "task-vite-daemon",
                     "stepIndex": 1,
                     "commandLine": "npm run dev -- --host 0.0.0.0 --port 5173",
-                    "toolName": "RunCommand",
+                    "toolName": "run_command",
                     "toolSummary": Self.t("Web 控制台 HMR 守护进程", "Web Console HMR Daemon", "Web コンソール HMR デーモン"),
                     "toolAction": "running",
                     "startedAt": isoAgo(minutes: 6),
@@ -1729,7 +1996,7 @@ extension DemoGateway {
                     "id": "task-go-race",
                     "stepIndex": 1,
                     "commandLine": "go test -race -count=1 ./internal/cockpit/...",
-                    "toolName": "RunCommand",
+                    "toolName": "run_command",
                     "toolSummary": Self.t("Go 并发竞态测试", "Go Race-Detector Suite", "Go 並行レース検出テスト"),
                     "toolAction": "running",
                     "startedAt": isoAgo(minutes: 1.5),
@@ -1740,10 +2007,10 @@ extension DemoGateway {
             lastModified: ago(minutes: 110),
             unread: false,
             pinned: false,
-            modelId: "gpt-6-astra",
-            modelName: "GPT-6 Astra",
+            modelId: "gemini-4-hydrogen-high",
+            modelName: "Gemini 4 Hydrogen (High)",
             startedAt: isoAgo(minutes: 112),
-            contextMeter: Self.meter(input: 27_400, output: 1_960, tps: 88.0, ttft: 0.37),
+            contextMeter: Self.meter(used: 71_400, maxTokens: 512_000, tps: 168.0, ttft: 2.2),
             swarm: nil,
             subagents: [],
             parentConversationId: nil,
@@ -1753,10 +2020,10 @@ extension DemoGateway {
             chapters: []
         )
 
-        // 12. Context Overflow + /compact rescue
+        // 13. Context Overflow + /compact rescue
         let c15Overflow = Conversation(
             id: "demo-0015-overflow",
-            title: Self.t("上下文超限自救演示（Context Overflow · /compact）", "Context Overflow Recovery (/compact)", "コンテキスト上限リカバリ（Context Overflow · /compact）"),
+            title: Self.t("反欺诈规则全量日志字段对比", "Fraud rule schema drift audit", "不正検知ルール全量ログ差分監査"),
             workspaceName: Self.t("风控引擎", "Risk Engine", "リスクエンジン"),
             workspaceUri: "file:///Users/demo/Projects/risk-engine",
             status: "CASCADE_RUN_STATUS_ERROR",
@@ -1768,7 +2035,13 @@ extension DemoGateway {
                     text: Self.t("把 `internal/rules/` 目录下 42 个反欺诈规则脚本和最近一周的压测 JSONL 全量读进来对比字段差异。", "Load all 42 fraud-rule scripts in `internal/rules/` alongside last week's load-test JSONL logs and compare schema drift.", "`internal/rules/` 配下の不正検知ルール 42 本と先週の負荷テスト JSONL ログを全量読み込んでスキーマ差分を比較して。"),
                     timestamp: isoAgo(minutes: 130)
                 ),
-                Self.toolMsg(id: "c15-t1", step: 1, tools: ["ReadFileBatch", "DiffJSONL"]),
+                Self.toolMsg(
+                    id: "c15-t1",
+                    step: 1,
+                    tools: ["find_by_name", "read_file", "run_command"],
+                    thinking: Self.t("批量读取 42 份规则文件与 7 天 JSONL 采样日志，当前上下文 token 接近窗口上限。", "Loading 42 rule files and 7-day JSONL benchmark dumps; context utilization approaching hard ceiling.", "42 本のルール定義と 7 日分の JSONL ログを読み込んだ結果、コンテキスト上限に近づいています。"),
+                    thinkingDuration: "6.2s"
+                ),
                 Self.errorMsg(
                     id: "c15-e2",
                     step: 2,
@@ -1787,10 +2060,10 @@ extension DemoGateway {
             lastModified: ago(minutes: 126),
             unread: false,
             pinned: false,
-            modelId: "claude-opus-5-5-thinking",
-            modelName: "Claude Opus 5.5 (Thinking)",
+            modelId: "claude-opus-5-5-high",
+            modelName: "Claude Opus 5.5 (High)",
             startedAt: isoAgo(minutes: 130),
-            contextMeter: Self.meter(input: 184_200, output: 8_200, tps: 47.5, ttft: 0.85, isOverflow: true),
+            contextMeter: Self.meter(used: 192_400, maxTokens: 200_000, tps: 63.5, ttft: 4.8, isOverflow: true),
             swarm: nil,
             subagents: [],
             parentConversationId: nil,
@@ -1800,10 +2073,10 @@ extension DemoGateway {
             chapters: []
         )
 
-        // 13. Classic Code Blocks (diff / SQL / bash) + Pre-populated Local Draft
+        // 14. Code Blocks (diff / SQL / bash) + Pre-populated Local Draft
         let c07Python = Conversation(
             id: "demo-0007-python",
-            title: Self.t("Python 脚本性能优化（带草稿）", "Python Feature Pipeline Optimization", "Python 特徴量パイプライン高速化（下書きあり）"),
+            title: Self.t("交易流水特征管道向量化提速", "Vectorize 2M-row feature pipeline", "取引ログ200万件の特徴量パイプライン高速化"),
             workspaceName: Self.t("风控引擎", "Risk Engine", "リスクエンジン"),
             workspaceUri: "file:///Users/demo/Projects/risk-engine",
             status: "CASCADE_RUN_STATUS_IDLE",
@@ -1815,12 +2088,22 @@ extension DemoGateway {
                     text: Self.t("我们的特征清洗脚本跑 200 万条流水要 18 分钟，帮我用批量 SQL 聚合 + NumPy 向量化改写一下。", "Our feature-prep script takes 18 minutes for 2M ledger rows. Rewrite it with set-based SQL + vectorized NumPy.", "200 万件の取引ログを処理する特徴量スクリプトが 18 分かかってます。SQL ウィンドウ集計＋NumPy ベクトル化で書き直して。"),
                     timestamp: isoAgo(minutes: 165)
                 ),
-                Self.toolMsg(id: "c07-t1", step: 1, tools: ["ReadFile", "RunProfiler"]),
+                Self.toolMsg(
+                    id: "c07-t1",
+                    step: 1,
+                    tools: ["read_file", "run_command", "edit_file"],
+                    thinking: Self.t("先跑 cProfile 确认 94% 耗时卡在逐行查库，改为单条窗口 SQL 下推加 NumPy 向量化衰减计算。", "Profiling confirms 94% wall time in row-by-row DB fetches; rewriting into window SQL + vectorized NumPy.", "cProfile で 94% が行単位 DB クエリと判明。ウィンドウ SQL 集約＋NumPy ベクトル化へ書き換えます。"),
+                    thinkingDuration: "4.3s",
+                    toolDetails: [
+                        ["name": "read_file", "summary": "pipelines/feature_prep.py (L1-L148)", "status": "done", "duration": "0.1s", "stepIndex": 1],
+                        ["name": "run_command", "summary": "pytest tests/test_feature_vectorized.py -v", "status": "done", "duration": "2.6s", "stepIndex": 1]
+                    ]
+                ),
                 Self.agentMsg(
                     id: "c07-a2",
                     step: 2,
-                    model: "gpt-6-astra",
-                    modelName: "GPT-6 Astra",
+                    model: "gemini-4-neon-high",
+                    modelName: "Gemini 4 Neon (High)",
                     text: Self.t(
                         """
                         已定位瓶颈在逐行 Python `for` 循环查库（200 万次往返），改造后端到端耗时由 **18 分钟降至 42 秒**：
@@ -1843,8 +2126,6 @@ extension DemoGateway {
                         ```bash
                         pytest tests/test_feature_vectorized.py -v --benchmark-min-rounds=5
                         ```
-
-                        （底部输入框已预置一条“追问草稿”，可以直接体验局部草稿持久化与继续编辑。）
                         """,
                         """
                         Eliminated the row-by-row Python loop (2M DB round-trips), cutting runtime from **18m down to 42s**:
@@ -1867,8 +2148,6 @@ extension DemoGateway {
                         ```bash
                         pytest tests/test_feature_vectorized.py -v --benchmark-min-rounds=5
                         ```
-
-                        *(A follow-up draft is pre-filled in the composer below to preview persistent per-thread drafts.)*
                         """,
                         """
                         ボトルネックだった Python の 1 行ごとの DB 参照ループ（200 万往復）を解消し、処理時間を **18 分 → 42 秒** に短縮しました：
@@ -1891,8 +2170,6 @@ extension DemoGateway {
                         ```bash
                         pytest tests/test_feature_vectorized.py -v --benchmark-min-rounds=5
                         ```
-
-                        *（下の入力欄に続きの質問下書きが入っています。スレッド別下書きの自動保存をお試しいただけます）*
                         """
                     ),
                     timestamp: isoAgo(minutes: 160)
@@ -1906,10 +2183,10 @@ extension DemoGateway {
             lastModified: ago(minutes: 160),
             unread: false,
             pinned: false,
-            modelId: "gpt-6-astra",
-            modelName: "GPT-6 Astra",
+            modelId: "gemini-4-neon-high",
+            modelName: "Gemini 4 Neon (High)",
             startedAt: isoAgo(minutes: 165),
-            contextMeter: Self.meter(input: 31_200, output: 2_410, tps: 83.4, ttft: 0.38),
+            contextMeter: Self.meter(used: 114_200, maxTokens: 512_000, tps: 135.4, ttft: 4.1),
             swarm: nil,
             subagents: [],
             parentConversationId: nil,
@@ -1919,10 +2196,10 @@ extension DemoGateway {
             chapters: []
         )
 
-        // 14. Rich Rendering Showcase: Unread + Jupyter Notebook + LaTeX + Table (Pure Chat)
+        // 15. Rich Rendering Showcase: Unread + Jupyter Notebook + LaTeX + Table (Pure Chat)
         let c16Notebook = Conversation(
             id: "demo-0016-notebook",
-            title: Self.t("量化策略笔记本与 LaTeX 推导（Notebook）", "Kelly Allocation & Jupyter Notebook", "ケリー基準と LaTeX 数式展開（Jupyter Notebook）"),
+            title: Self.t("多资产凯利仓位推导与回测脚本", "Multi-asset Kelly sizing & notebook", "マルチアセット・ケリー配分とノートブック"),
             workspaceName: "Chat",
             workspaceUri: "",
             status: "CASCADE_RUN_STATUS_IDLE",
@@ -1959,7 +2236,7 @@ extension DemoGateway {
                         | Half Kelly（推荐） | 18.6% | -15.9% | $\\gamma = 0.5$ |
                         | Quarter Kelly | 11.2% | -7.4% | $\\gamma = 0.25$ |
 
-                        点击下方链接可直接在 iOS 原生预览器中查看完整分 Cell 渲染效果：
+                        完整分 Cell 回测脚本已写入：
                         📓 [analytics.ipynb](file:///Users/demo/Documents/analytics.ipynb)
                         """,
                         """
@@ -1981,7 +2258,7 @@ extension DemoGateway {
                         | Half Kelly (Rec.) | 18.6% | -15.9% | $\\gamma = 0.5$ |
                         | Quarter Kelly | 11.2% | -7.4% | $\\gamma = 0.25$ |
 
-                        Tap below to inspect rendered Markdown & code cells natively:
+                        Full notebook ready for native cell preview:
                         📓 [analytics.ipynb](file:///Users/demo/Documents/analytics.ipynb)
                         """,
                         """
@@ -2003,14 +2280,16 @@ extension DemoGateway {
                         | Half Kelly（推奨） | 18.6% | -15.9% | $\\gamma = 0.5$ |
                         | Quarter Kelly | 11.2% | -7.4% | $\\gamma = 0.25$ |
 
-                        下をタップすると iOS ネイティブビューアで Markdown とコードセルをそのまま確認できます：
+                        各セルをネイティブプレビューできるノートブックを保存しました：
                         📓 [analytics.ipynb](file:///Users/demo/Documents/analytics.ipynb)
                         """
                     ),
                     artifacts: [
                         [
                             "uri": "file:///Users/demo/Documents/analytics.ipynb",
-                            "title": "analytics.ipynb"
+                            "title": "analytics.ipynb",
+                            "summary": Self.t("多资产凯利公式分档回测 Jupyter Notebook", "Fractional Kelly multi-asset simulation notebook", "マルチアセット・ケリー配分シミュレーション Notebook"),
+                            "userFacing": true
                         ]
                     ],
                     timestamp: isoAgo(minutes: 205)
@@ -2022,12 +2301,12 @@ extension DemoGateway {
             runningTasks: [],
             queuedMessages: [],
             lastModified: ago(minutes: 205),
-            unread: true,
+            unread: false,
             pinned: false,
             modelId: "gemini-4-carbon-high",
             modelName: "Gemini 4 Carbon (High)",
             startedAt: isoAgo(minutes: 210),
-            contextMeter: Self.meter(input: 16_400, output: 1_890, tps: 77.6, ttft: 0.42),
+            contextMeter: Self.meter(used: 88_400, maxTokens: 512_000, tps: 121.6, ttft: 5.2),
             swarm: nil,
             subagents: [],
             parentConversationId: nil,
@@ -2037,10 +2316,10 @@ extension DemoGateway {
             chapters: []
         )
 
-        // 15. Classic CSS Bug Fix + Code Diff (Multigravity)
+        // 16. CSS Safe-Area Bug Fix + Code Diff (Multigravity)
         let c08LoginStyle = Conversation(
             id: "demo-0008-login-style",
-            title: Self.t("修复登录页样式问题", "Fix Mobile Safe-Area & Dark CSS", "ログイン画面の Safe-Area ＆ダークCSS修正"),
+            title: Self.t("修复 Web 登录页安全区与暗黑对比度", "Fix mobile safe-area & dark CSS", "Webログイン画面のSafe-Area・ダークCSS修正"),
             workspaceName: "Multigravity",
             workspaceUri: "file:///Users/demo/Projects/antigravity-mobile",
             status: "CASCADE_RUN_STATUS_IDLE",
@@ -2052,12 +2331,22 @@ extension DemoGateway {
                     text: Self.t("iPhone 刘海屏 / 灵动岛机型打开 Web 登录页时，底部提交按钮被安全区遮挡，深色模式下输入框边框也太淡，帮忙修一下。", "On Dynamic Island iPhones, the web login CTA overlaps the home indicator and input borders fade out in Dark Mode.", "Dynamic Island 搭載の iPhone で Web ログイン画面を開くと、下部の送信ボタンがホームバーと重なり、ダークモードでは入力枠の線も薄すぎるので直して。"),
                     timestamp: isoAgo(minutes: 280)
                 ),
-                Self.toolMsg(id: "c08-t1", step: 1, tools: ["ReadFile", "EditFile"]),
+                Self.toolMsg(
+                    id: "c08-t1",
+                    step: 1,
+                    tools: ["read_file", "edit_file"],
+                    thinking: Self.t("检查 web/src/styles/login.css 的视口高度与暗黑配色 token，替换为 100dvh 与 safe-area-inset-bottom。", "Inspecting login.css viewport height and dark-mode border contrast; switching to 100dvh and safe-area-inset-bottom.", "`login.css` のビューポート高とダークモード枠線を確認し、`100dvh` と `safe-area-inset-bottom` に修正します。"),
+                    thinkingDuration: "1.9s",
+                    toolDetails: [
+                        ["name": "read_file", "summary": "web/src/styles/login.css (L1-L92)", "status": "done", "duration": "0.1s", "stepIndex": 1],
+                        ["name": "edit_file", "summary": "web/src/styles/login.css (+11/-3)", "status": "done", "duration": "0.2s", "stepIndex": 1]
+                    ]
+                ),
                 Self.agentMsg(
                     id: "c08-a2",
                     step: 2,
-                    model: "gemini-3.8-flash",
-                    modelName: "Gemini 3.8 Flash",
+                    model: "gemini-3.8-flash-high",
+                    modelName: "Gemini 3.8 Flash (High)",
                     text: Self.t(
                         """
                         已修复 `web/src/styles/login.css` 两处样式兼容性问题：
@@ -2089,10 +2378,10 @@ extension DemoGateway {
             lastModified: ago(minutes: 277),
             unread: false,
             pinned: false,
-            modelId: "gemini-3.8-flash",
-            modelName: "Gemini 3.8 Flash",
+            modelId: "gemini-3.8-flash-high",
+            modelName: "Gemini 3.8 Flash (High)",
             startedAt: isoAgo(minutes: 280),
-            contextMeter: Self.meter(input: 12_900, output: 980, tps: 112.0, ttft: 0.25),
+            contextMeter: Self.meter(used: 42_900, maxTokens: 512_000, tps: 184.0, ttft: 1.4),
             swarm: nil,
             subagents: [],
             parentConversationId: nil,
@@ -2117,10 +2406,10 @@ extension DemoGateway {
             chapters: []
         )
 
-        // 16. Classic Pure Chat: Weekend Travel Itinerary
+        // 17. Pure Chat: Weekend Travel Itinerary
         let c09Chat = Conversation(
             id: "demo-0009-chat",
-            title: Self.t("杭州三日游行程", "3-Day Kyoto & Lake Itinerary", "京都・宇治 2泊3日のんびり家族旅行プラン"),
+            title: Self.t("杭州西湖三日慢游行程", "3-day Lake Tahoe & Napa itinerary", "京都・宇治 2泊3日のんびり家族旅行プラン"),
             workspaceName: "Chat",
             workspaceUri: "",
             status: "CASCADE_RUN_STATUS_IDLE",
@@ -2129,14 +2418,14 @@ extension DemoGateway {
                 Self.userMsg(
                     id: "c09-u0",
                     step: 0,
-                    text: Self.t("下周末带爸妈去杭州玩三天两晚，不想太赶，想吃点地道的杭帮菜、逛逛西湖与茶园，帮我排一份舒适行程。", "Plan a relaxed 3-day weekend trip with parents: scenic lake walks, local cuisine, and tea gardens without rushing.", "来週末に両親と京都へ 2 泊 3 日で行きます。歩き疲れすぎないペースで、京料理や静かなお寺、宇治茶を楽しめるゆったりプランを組んで。"),
+                    text: Self.t("下周末带爸妈去杭州玩三天两晚，不想太赶，想吃点地道的杭帮菜、逛逛西湖与茶园，帮我排一份舒适行程。", "Plan a relaxed 3-day weekend trip with parents around Lake Tahoe & Napa: easy scenic walks, local dining, and tea/vineyard stops without rushing.", "来週末に両親と京都へ 2 泊 3 日で行きます。歩き疲れすぎないペースで、京料理や静かなお寺、宇治茶を楽しめるゆったりプランを組んで。"),
                     timestamp: isoAgo(minutes: 420)
                 ),
                 Self.agentMsg(
                     id: "c09-a1",
                     step: 1,
-                    model: "gemini-3.8-flash",
-                    modelName: "Gemini 3.8 Flash",
+                    model: "gemini-3.8-flash-high",
+                    modelName: "Gemini 3.8 Flash (High)",
                     text: Self.t(
                         """
                         为你规划了一份节奏舒缓、兼顾西湖人文与茶山清净的 **杭州 3 天 2 晚舒适版行程**：
@@ -2158,22 +2447,22 @@ extension DemoGateway {
                         **出行贴士**：带一把晴雨两用伞和防滑平底鞋；苏堤、灵隐景区步行石板路偏多，景区观光车按段招手即停，带长辈非常省力。
                         """,
                         """
-                        Here is a unhurried **3-Day Scenic & Tea Garden Itinerary** designed with gentle walking paces:
+                        Here is an unhurried **3-Day Lake Tahoe & Napa Weekend Itinerary** tailored for easy walking:
 
-                        ### Day 1 · Waterfront Promenade & Old Quarter
-                        - **Morning**: Stroll along the shaded lakeside path and botanical gardens (hop on park shuttles anytime).
-                        - **Lunch**: Book an early 11:15 AM table for seasonal local specialties and braised delicacies.
-                        - **Sunset**: Relax at an overlook teahouse along the western causeway.
+                        ### Day 1 · Emerald Bay & Lakeside Promenade
+                        - **Morning**: Drive the West Shore scenic overlook with short flat boardwalk stops at Vikingsholm overlook.
+                        - **Lunch**: Book an early 11:30 AM lakefront table in Tahoe City for seasonal California fare.
+                        - **Sunset**: Relax on the deck at Commons Beach before checking in.
 
-                        ### Day 2 · Morning Temple Walk & Highland Tea Fields
-                        - **08:30 AM**: Beat the crowds with an easy 2-hour flat walk through ancient cedar groves.
-                        - **Afternoon**: Head up to the hillside tea terraces for freshly roasted green tea tasting and farm-to-table lunch.
-                        - **Evening**: Casual dusk stroll through the lantern-lit historic lanes.
+                        ### Day 2 · Morning Forest Stroll & Valley Tastings
+                        - **08:30 AM**: Beat the crowds with an easy paved walk along the Truckee River path.
+                        - **Afternoon**: Cross over to Napa Valley for a seated estate tasting and shaded courtyard lunch.
+                        - **Evening**: Unhurried dinner in downtown Yountville.
 
-                        ### Day 3 · Canal Cafe & Departure
-                        - **Morning**: Grab pour-over coffee by the canal, browse artisan craft shops, and pick up fresh leaf tea gifts.
+                        ### Day 3 · Roastery Coffee & Departure
+                        - **Morning**: Grab pour-over coffee, browse Oxbow Public Market for artisan olive oil and local pastries, then head home.
 
-                        **Travel Tip**: Pack cushioned walking shoes and a compact travel umbrella; point-to-point park shuttles save knees on stone walkways.
+                        **Travel Tip**: Pack layered jackets for cool lakeside mornings and cushioned walking shoes for cobblestone market walkways.
                         """,
                         """
                         ご両親と無理なく回れる **京都・宇治 2 泊 3 日ゆったりプラン** を作成しました：
@@ -2205,10 +2494,10 @@ extension DemoGateway {
             lastModified: ago(minutes: 416),
             unread: false,
             pinned: false,
-            modelId: "gemini-3.8-flash",
-            modelName: "Gemini 3.8 Flash",
+            modelId: "gemini-3.8-flash-high",
+            modelName: "Gemini 3.8 Flash (High)",
             startedAt: isoAgo(minutes: 420),
-            contextMeter: Self.meter(input: 4_800, output: 1_120, tps: 121.4, ttft: 0.22),
+            contextMeter: Self.meter(used: 18_400, maxTokens: 512_000, tps: 192.4, ttft: 1.1),
             swarm: nil,
             subagents: [],
             parentConversationId: nil,
@@ -2219,17 +2508,18 @@ extension DemoGateway {
         )
 
         conversations = [
+            c17CmdApproval,
             c01Upload,
-            c10Turns,
-            c11Workflow,
             c12Swarm,
-            c02Login500,
-            c03Migration,
-            c04Sales,
-            c05Redesign,
-            c06Invoice,
             c13WorkflowApproval,
+            c05Redesign,
+            c11Workflow,
+            c10Turns,
+            c03Migration,
+            c02Login500,
+            c04Sales,
             c14Running,
+            c06Invoice,
             c15Overflow,
             c07Python,
             c16Notebook,
@@ -2246,34 +2536,38 @@ extension DemoGateway {
             key: "demo-0007-python",
             text: Self.t("另外如果把 pandas 预处理也换成 polars，内存峰值还能压低多少？", "How much lower would peak memory go if we also switch pandas preprocessing to Polars?", "ちなみに pandas の前処理も Polars に置き換えたら、ピークメモリはどれくらい下がる？")
         )
+        CacheManager.shared.setPinned(cascadeId: "demo-0017-cmd-approval", pinned: true)
         CacheManager.shared.setPinned(cascadeId: "demo-0001-upload", pinned: true)
     }
 
     // MARK: - Helpers & Generated Sample Assets
 
     private static func meter(
-        input: Int64,
-        output: Int64,
+        used: Int64,
+        maxTokens: Int64 = 512_000,
         tps: Double,
         ttft: Double,
         isOverflow: Bool = false
     ) -> ContextMeterItem {
-        let maxTokens: Int64 = 200_000
-        let used = input + output
-        let pct = min(100.0, Double(used) / Double(maxTokens) * 100.0)
+        let pct = min(100.0, (Double(used) / Double(maxTokens) * 1000.0).rounded() / 10.0)
+        // Authentic Antigravity prompt-cache split (~88% cache read, ~9% fresh input, ~2% output, ~1% thinking)
+        let cacheRead = Int64(Double(used) * 0.88)
+        let input = Int64(Double(used) * 0.092)
+        let output = Int64(Double(used) * 0.020)
+        let thinking = max(240, used - cacheRead - input - output)
         return ContextMeterItem(
             usedTokens: used,
             maxTokens: maxTokens,
             percentage: pct,
             inputTokens: input,
             outputTokens: output,
-            cacheReadTokens: input / 2,
-            thinkingTokens: output / 3,
+            cacheReadTokens: cacheRead,
+            thinkingTokens: thinking,
             timeToFirstTokenSec: ttft,
-            streamingDurationSec: max(1.0, Double(output) / max(1.0, tps)),
+            streamingDurationSec: max(2.2, Double(output) / max(1.0, tps)),
             tokensPerSecond: tps,
             isOverflow: isOverflow,
-            errorKind: isOverflow ? "context_overflow" : nil
+            errorKind: isOverflow ? "context_overflow" : "none"
         )
     }
 
@@ -2285,10 +2579,17 @@ extension DemoGateway {
         prNumber: Int,
         prState: String
     ) -> DemoGitState {
+        let paths = [
+            "ios/Multigravity/Services/RetryPolicy.swift",
+            "internal/gateway/attachments.go",
+            "ios/Multigravity/Models/DraftStore.swift"
+        ]
         let modifiedFiles: [[String: Any]] = (0..<modifiedCount).map { idx in
             [
-                "path": idx == 0 ? "ios/Multigravity/Services/RetryPolicy.swift" : "internal/gateway/attachments.go",
-                "status": "M",
+                "path": paths[idx % paths.count],
+                "index": " ",
+                "worktree": "M",
+                "status": "MODIFIED",
                 "staged": false
             ]
         }
@@ -2301,90 +2602,277 @@ extension DemoGateway {
             detached: false,
             files: modifiedFiles,
             githubTarget: [
+                "host": "github.com",
                 "owner": "multigravity-demo",
                 "repo": "antigravity-mobile",
-                "baseBranch": "main"
+                "branch": branch
             ],
             pullRequests: [
                 [
+                    "host": "github.com",
+                    "owner": "multigravity-demo",
+                    "repo": "antigravity-mobile",
                     "number": prNumber,
                     "title": prTitle,
                     "state": prState,
                     "url": "https://github.com/multigravity-demo/antigravity-mobile/pull/\(prNumber)",
-                    "headBranch": branch,
-                    "baseBranch": "main",
-                    "draft": prState == "DRAFT",
-                    "updatedAt": iso(Date().addingTimeInterval(-900))
+                    "authorLogin": "alex-dev",
+                    "headRefName": branch,
+                    "baseRefName": "main"
                 ]
             ]
         )
     }
 
+    /// 100% aligned with `SwarmSnapshot` (`SwarmModels.swift` & `internal/proxy/swarm.go`)
+    /// Activates `SwarmBannerView`, `SwarmPixelBeeView` (Hive), `SwarmGraphTabView`, and live board.
     private static func initialSwarmSnapshot(minutesAgo m: Double) -> [String: Any] {
-        let t = iso(Date().addingTimeInterval(-m * 60))
+        let cid = "demo-0012-swarm"
+        let title = Self.t("离线草稿冲突合并小队", "Offline Draft Merge Squad", "オフライン下書き競合マージ小隊")
+        let headline = Self.t("Go CAS 乐观锁 + iOS 三路合并并行攻坚", "Go CAS versioning + iOS 3-way draft merge", "Go 楽観ロック＋iOS 3-way マージ並列進行中")
         return [
-            "swarmId": "swarm-demo-draft-merge",
-            "title": Self.t("离线草稿冲突合并小队", "Offline Draft Merge Squad", "オフライン下書き競合マージ小隊"),
-            "active": true,
+            "cascadeId": cid,
+            "coordinatorId": cid,
+            "title": title,
+            "etag": "swarm-demo-v6",
+            "brief": [
+                "active": true,
+                "coordinatorId": cid,
+                "title": title,
+                "phase": Self.t("阶段 2/3 · 并行实现与验证", "Phase 2/3 · Parallel Build & Verify", "フェーズ 2/3 · 並列実装＆検証"),
+                "headline": headline,
+                "workingCount": 2,
+                "totalMembers": 4,
+                "latestSeq": 6,
+                "attentionCount": 0
+            ],
             "members": [
                 [
                     "name": "coordinator",
-                    "role": Self.t("主控协调者", "Coordinator", "コーディネーター"),
-                    "model": "claude-opus-5-5-thinking",
-                    "state": "waiting",
-                    "isCoordinator": true
+                    "conversationId": cid,
+                    "model": "gemini-pro-orchestrator-neon",
+                    "role": "coordinator",
+                    "wakeMode": "mentions",
+                    "lastReadSeq": 6,
+                    "lastNudgedSeq": 6,
+                    "killed": false,
+                    "status": "waiting",
+                    "lastActivity": Self.t("等待 @ios-ui 合流后统一验收", "Waiting for @ios-ui patch before final merge", "@ios-ui の完了待ちで最終検証準備中"),
+                    "activityKind": "board",
+                    "steps": 18,
+                    "posts": 3,
+                    "lastPostSeq": 5,
+                    "workspaceMode": "inherit",
+                    "roleWorker": false,
+                    "unreadCount": 0,
+                    "isCurrent": true
                 ],
                 [
                     "name": "backend",
-                    "role": Self.t("Go 协议开发", "Go Backend Engineer", "Go バックエンド担当"),
-                    "model": "gpt-6-astra",
-                    "state": "waiting",
-                    "workspace": "share"
+                    "conversationId": "demo-swarm-backend",
+                    "model": "gemini-4-neon-high",
+                    "role": "worker",
+                    "wakeMode": "working",
+                    "lastReadSeq": 5,
+                    "lastNudgedSeq": 5,
+                    "killed": false,
+                    "status": "working",
+                    "lastActivity": Self.t("运行 go test -race ./internal/proxy/...", "Running go test -race ./internal/proxy/...", "go test -race ./internal/proxy/... 実行中"),
+                    "activityKind": "tool",
+                    "steps": 14,
+                    "posts": 2,
+                    "lastPostSeq": 4,
+                    "workspace": "/Users/demo/.gemini/antigravity/worktrees/swarm-backend",
+                    "workspaceMode": "share",
+                    "roleWorker": true,
+                    "unreadCount": 1,
+                    "isCurrent": false
                 ],
                 [
                     "name": "ios-ui",
-                    "role": Self.t("iOS 客户端开发", "iOS UI Engineer", "iOS UI 担当"),
-                    "model": "claude-opus-5-5-thinking",
-                    "state": "waiting",
-                    "workspace": "share"
+                    "conversationId": "demo-swarm-ios-ui",
+                    "model": "claude-opus-5-5-high",
+                    "role": "worker",
+                    "wakeMode": "working",
+                    "lastReadSeq": 5,
+                    "lastNudgedSeq": 5,
+                    "killed": false,
+                    "status": "working",
+                    "lastActivity": Self.t("完善 DraftStore.mergeRemote 三路合并 UI", "Refining DraftStore.mergeRemote 3-way merge banner", "DraftStore.mergeRemote 3-way マージ UI を実装中"),
+                    "activityKind": "edit",
+                    "steps": 11,
+                    "posts": 1,
+                    "lastPostSeq": 3,
+                    "workspace": "/Users/demo/.gemini/antigravity/worktrees/swarm-ios-ui",
+                    "workspaceMode": "share",
+                    "roleWorker": true,
+                    "unreadCount": 1,
+                    "isCurrent": false
                 ],
                 [
-                    "name": "reviewer",
-                    "role": Self.t("交叉代码评审", "Code Reviewer", "クロスコードレビュー"),
-                    "model": "gemini-4-carbon-high",
-                    "state": "waiting",
-                    "workspace": "inherit"
+                    "name": "verifier",
+                    "conversationId": "demo-swarm-verifier",
+                    "model": "gemini-4-hydrogen-high",
+                    "role": "worker",
+                    "wakeMode": "mentions",
+                    "lastReadSeq": 6,
+                    "lastNudgedSeq": 6,
+                    "killed": false,
+                    "status": "waiting",
+                    "lastActivity": Self.t("Go 补丁交叉审校通过，待测 iOS 合并流", "Go CAS diff approved; ready to verify iOS merge", "Go 差分レビュー通過・iOS 側検証待機中"),
+                    "activityKind": "review",
+                    "steps": 9,
+                    "posts": 1,
+                    "lastPostSeq": 6,
+                    "workspaceMode": "inherit",
+                    "roleWorker": true,
+                    "unreadCount": 0,
+                    "isCurrent": false
                 ]
             ],
             "messages": [
                 [
                     "seq": 1,
-                    "sender": "coordinator",
-                    "mentions": ["backend", "ios-ui"],
-                    "body": Self.t("@backend 负责在 `/api/v1/drafts` 加入 `version` 乐观锁；@ios-ui 负责客户端冲突三路合并 UI。", "@backend please add optimistic `version` locking to `/api/v1/drafts`; @ios-ui build the 3-way conflict banner.", "@backend は `/api/v1/drafts` に `version` 楽観ロックを実装、@ios-ui は 3-way 競合マージバナーをお願いします。"),
-                    "timestamp": iso(Date().addingTimeInterval(-(m + 8) * 60))
+                    "agent": "coordinator",
+                    "text": Self.t("@backend 负责在 `/api/v1/drafts` 加入 `version` 乐观锁与 409 快照；@ios-ui 负责 `DraftStore` 三路合并横幅；@verifier 负责双端交叉审计。", "@backend owns `/api/v1/drafts` optimistic `version` CAS + 409 snapshots; @ios-ui owns `DraftStore` 3-way merge banner; @verifier runs independent audit.", "@backend は `/api/v1/drafts` の `version` 楽観ロックと 409 スナップショット、@ios-ui は `DraftStore` 3-way マージ UI、@verifier は相互監査をお願いします。"),
+                    "time": iso(Date().addingTimeInterval(-(m + 14) * 60)),
+                    "channel": "board",
+                    "mentions": ["backend", "ios-ui", "verifier"]
                 ],
                 [
                     "seq": 2,
-                    "sender": "backend",
-                    "mentions": ["coordinator", "reviewer"],
-                    "body": Self.t("服务端已完成 `version` 自增校验与 `409 Conflict` 快照响应，所有 Go 单元测试通过，请 @reviewer 核验。", "Server `version` CAS check and `409 Conflict` snapshot payload are ready; Go unit tests green. Over to @reviewer.", "サーバー側の `version` CAS 検証と `409 Conflict` スナップショット返却を実装済み。Go 単体テスト全緑です。@reviewer 確認お願いします。"),
-                    "timestamp": iso(Date().addingTimeInterval(-(m + 5) * 60))
+                    "agent": "backend",
+                    "text": Self.t("已完成 `drafts_cas.go` 版本自增校验与 `409 Conflict` 快照载荷，12 项单测全绿，请 @verifier 先行审校。", "Implemented `drafts_cas.go` CAS check & `409 Conflict` payload (12/12 tests green). Ready for @verifier review.", "`drafts_cas.go` の楽観ロックと `409 Conflict` 応答を実装（12/12 テスト通過）。@verifier 先行レビューお願いします。"),
+                    "time": iso(Date().addingTimeInterval(-(m + 10) * 60)),
+                    "channel": "board",
+                    "mentions": ["coordinator", "verifier"]
                 ],
                 [
                     "seq": 3,
-                    "sender": "ios-ui",
-                    "mentions": ["coordinator", "reviewer"],
-                    "body": Self.t("客户端 `DraftStore.mergeRemote` 与底部合并提示横幅已接入，本地保留未发送草稿不会丢字。", "`DraftStore.mergeRemote` and the conflict banner are wired up; unsent local text is preserved.", "`DraftStore.mergeRemote` と下部の競合マージバナーを接続しました。未送信テキストが消えないようローカル保持しています。"),
-                    "timestamp": iso(Date().addingTimeInterval(-(m + 3) * 60))
+                    "agent": "ios-ui",
+                    "text": Self.t("已接入 `DraftStore.mergeRemote`，断网重连自动保留未发送长文草稿，正在补齐暗黑模式对比度细节。", "Wired `DraftStore.mergeRemote` so unsent long drafts survive disconnects; polishing dark-mode merge banner contrast.", "`DraftStore.mergeRemote` を接続し、切断復帰時も未送信長文を保持できるようにしました。ダークモード視認性を仕上げ中です。"),
+                    "time": iso(Date().addingTimeInterval(-(m + 7) * 60)),
+                    "channel": "board",
+                    "mentions": ["coordinator"]
                 ],
                 [
                     "seq": 4,
-                    "sender": "reviewer",
-                    "mentions": ["coordinator"],
-                    "body": Self.t("已完成两端交叉审校 ✅ 边界条件与并发读写均无问题，PR #418 已就绪。", "Cross-reviewed both patches ✅ Edge cases and concurrent mutations look solid. PR #418 is ready.", "両側のパッチを相互レビュー完了 ✅ 境界条件と並行書き込みともに問題なし。PR #418 マージ準備 OK です。"),
-                    "timestamp": t
+                    "agent": "backend",
+                    "text": Self.t("正在补充 32 并发 goroutine 写入的 `-race` 压测，确保零脏读。", "Adding a 32-goroutine concurrent write `-race` stress test to rule out lost updates.", "32 goroutine 同時書き込みの `-race` ストレステストを追加検証中です。"),
+                    "time": iso(Date().addingTimeInterval(-(m + 5) * 60)),
+                    "channel": "board",
+                    "mentions": ["coordinator"]
+                ],
+                [
+                    "seq": 5,
+                    "agent": "coordinator",
+                    "text": Self.t("@verifier 收到，Go 压测与 @ios-ui 合并横幅就绪后合入 PR #418 跑全量回归。", "@verifier Copy that — once Go stress tests and @ios-ui banner land, we'll run full regression on PR #418.", "@verifier 了解です。Go 負荷テストと @ios-ui の改修が揃い次第 PR #418 で全体回帰を回します。"),
+                    "time": iso(Date().addingTimeInterval(-(m + 3) * 60)),
+                    "channel": "board",
+                    "mentions": ["verifier", "ios-ui"]
+                ],
+                [
+                    "seq": 6,
+                    "agent": "verifier",
+                    "text": Self.t("Go 乐观锁补丁审校通过 ✅ 无锁泄漏、边界条件完备；正在待命验收 iOS 侧增量 Diff。", "Go CAS patch verified ✅ Zero lock leaks and solid edge-case handling; standing by for iOS diff.", "Go 楽観ロック差分を承認 ✅ デッドロック・境界値とも問題なし。iOS 側の最終差分待ちです。"),
+                    "time": iso(Date().addingTimeInterval(-m * 60)),
+                    "channel": "board",
+                    "mentions": ["coordinator"]
                 ]
+            ],
+            "plan": [
+                "goal": [
+                    "title": title,
+                    "line": headline
+                ],
+                "tasks": [
+                    "backend": Self.t("实现 /api/v1/drafts 乐观锁与 -race 并发验证", "Implement /api/v1/drafts CAS & -race stress tests", "/api/v1/drafts 楽観ロックと -race 負荷検証"),
+                    "ios-ui": Self.t("接入 DraftStore 三路合并与断连持久草稿", "Wire DraftStore 3-way merge & offline persistence", "DraftStore 3-way マージと下書き永続化"),
+                    "verifier": Self.t("双端交叉代码审计与 PR #418 门禁核验", "Cross-review backend + iOS patches for PR #418", "両端クロスレビューと PR #418 品質確認")
+                ],
+                "threads": [
+                    [
+                        "id": "t-cas-protocol",
+                        "title": Self.t("协议与服务端 CAS", "Gateway CAS Protocol", "ゲートウェイ楽観ロック"),
+                        "goal": Self.t("防止多端同时编辑互相覆盖未发草稿", "Prevent cross-device draft overwrites", "複数端末間の下書き上書きを防止"),
+                        "tasks": ["backend", "verifier"]
+                    ],
+                    [
+                        "id": "t-ios-merge",
+                        "title": Self.t("iOS 三路合并体验", "iOS 3-Way Merge UX", "iOS 3-way マージ UX"),
+                        "goal": Self.t("断网重连零丢字、轻触合并冲突", "Zero lost drafts on reconnect with 1-tap merge", "切断復帰時の消失ゼロとワンタップ統合"),
+                        "tasks": ["ios-ui", "verifier"]
+                    ]
+                ]
+            ],
+            "view": [
+                "version": "1",
+                "as_of_seq": 6,
+                "updated_at": iso(Date().addingTimeInterval(-m * 60)),
+                "headline": headline,
+                "goal": [
+                    "title": title,
+                    "line": headline
+                ],
+                "running_summary": Self.t("2 名成员并行编码验证中，服务端 CAS 已过审", "2 workers actively building & verifying; Go CAS approved", "2 名が並列実装・検証中、Go CAS はレビュー承認済み"),
+                "phase": [
+                    "label": Self.t("并行实现与验证", "Parallel Build & Verify", "並列実装＆検証"),
+                    "index": 2,
+                    "total": 3
+                ],
+                "attention": [],
+                "workstreams": [
+                    [
+                        "id": "ws-backend",
+                        "title": Self.t("Go CAS 乐观锁与并发压测", "Go CAS Locking & Race Tests", "Go 楽観ロック＆レーステスト"),
+                        "owners": ["backend"],
+                        "state": "active",
+                        "note": Self.t("12/12 单元测试通过，正在跑 32 并发压测", "12/12 unit tests passing; running 32-goroutine race test", "12/12 単体テスト通過、32 並行テスト実行中")
+                    ],
+                    [
+                        "id": "ws-ios",
+                        "title": Self.t("iOS DraftStore 三路合并", "iOS DraftStore 3-Way Merge", "iOS DraftStore 3-way マージ"),
+                        "owners": ["ios-ui"],
+                        "state": "active",
+                        "note": Self.t("合并逻辑已接入，正在优化暗黑对比度", "Merge wired; polishing dark-mode banner contrast", "マージ実装済み、ダークモード調整中")
+                    ],
+                    [
+                        "id": "ws-verify",
+                        "title": Self.t("双端交叉审查与门禁", "Cross-Review & Gate Check", "クロスレビュー＆品質ゲート"),
+                        "owners": ["verifier"],
+                        "state": "done",
+                        "note": Self.t("Go 补丁已审校通过", "Go patch verified clean", "Go パッチ監査完了")
+                    ]
+                ],
+                "threads": [
+                    [
+                        "id": "t-cas-protocol",
+                        "title": Self.t("协议与服务端 CAS", "Gateway CAS Protocol", "ゲートウェイ楽観ロック"),
+                        "goal": Self.t("乐观锁版本校验与 409 快照", "Optimistic versioning + 409 snapshots", "バージョン検証と 409 スナップショット"),
+                        "now": Self.t("运行 -race 并发测试", "Running -race stress suite", "-race 負荷テスト実行中"),
+                        "state": "active",
+                        "workstreams": ["ws-backend", "ws-verify"],
+                        "attention": []
+                    ],
+                    [
+                        "id": "t-ios-merge",
+                        "title": Self.t("iOS 三路合并体验", "iOS 3-Way Merge UX", "iOS 3-way マージ UX"),
+                        "goal": Self.t("本地持久化防闪退丢稿", "Crash-safe local draft persistence", "クラッシュ耐性のある下書き永続化"),
+                        "now": Self.t("完善暗黑模式冲突横幅", "Polishing dark-mode conflict banner", "ダークモード競合バナー仕上げ中"),
+                        "state": "active",
+                        "workstreams": ["ws-ios"],
+                        "attention": []
+                    ]
+                ],
+                "now": [
+                    "backend": Self.t("go test -race ./internal/proxy/...", "go test -race ./internal/proxy/...", "go test -race ./internal/proxy/..."),
+                    "ios-ui": Self.t("编辑 DraftStore.swift", "Editing DraftStore.swift", "DraftStore.swift を編集中")
+                ],
+                "milestones": [
+                    ["id": "m1", "text": Self.t("服务端 /api/v1/drafts CAS 协议落地并通过交叉审计", "Server /api/v1/drafts CAS landed & cross-reviewed", "サーバー側 /api/v1/drafts CAS 実装＆監査通過")],
+                    ["id": "m2", "text": Self.t("iOS DraftStore 本地持久化与三路合并引擎接入", "iOS DraftStore persistence & 3-way merge wired", "iOS DraftStore 永続化と 3-way マージ接続完了")]
+                ],
+                "risks": []
             ]
         ]
     }
@@ -2483,49 +2971,100 @@ extension DemoGateway {
     private static var planMarkdown: String {
         Self.t(
             """
-            # 官网首页改版技术实施方案
+            # 官网边缘缓存与首页 SSR 重构实施方案
 
-            ## 1. 目标与关键指标
-            - 将桌面端与移动端首页 **LCP（最大内容绘制）** 从 2.6s 压降至 **< 1.2s**。
-            - 首屏核心包体控制在 95KB gzip 以内，支持零停机灰度切流与一键回滚。
+            > [!IMPORTANT]
+            > 本次改造保持旧版静态包 100% 在线兜底，所有灰度流量均通过 Edge Worker 按 Cookie 哈希切流，发现 P95 LCP 超标或 5xx 升高可在 5 秒内自动熔断回滚。
 
-            ## 2. 架构拆分
-            - **Edge Worker 层**：负责基于 Cookie / 地理区域做 10% → 50% → 100% 金丝雀分流。
-            - **Next.js 16 App Router**：关键 Hero 区采用流式 SSR + 边缘静态缓存（ISR 60s）。
-            - **Web Vitals 监控**：实时上报 LCP、INP、CLS 至 Prometheus。
+            ## 一、线上实测基线与目标指标
 
-            ## 3. 回滚预案
-            - 任意时刻若 LCP P95 > 1.8s 或 5xx > 0.2%，Edge 开关 5 秒内自动切回旧版静态资源包。
+            | 观测指标 | 当前基线（近 7 天 P75） | 目标验收值 |
+            | --- | ---: | ---: |
+            | 首页 LCP | `2.64 s` | **`< 1.20 s`** |
+            | 首屏关键 JS | `184 KB gzip` | **`< 95 KB gzip`** |
+            | 边缘缓存命中率 | `61.4%` | **`>= 92.0%`** |
+            | 异常回滚耗时 | 手动切流 ~8 min | **`< 5 s` 自动回退** |
+
+            ## 二、分模块改动清单
+
+            ### 1. Edge Worker 灰度路由层
+            - **[MODIFY] `worker/edge_router.ts`**：实现 `10% → 50% → 100%` 确定性灰度桶分配，注入 `X-Mgy-Variant` 响应头便于观测。
+            - **[NEW] `worker/circuit_breaker.ts`**：采样边缘 5xx 比率与 TTFB，超阈值自动将流量切回静态源站。
+
+            ### 2. Next.js 16 App Router 流式渲染
+            - **[MODIFY] `web/app/page.tsx`**：将 Hero 与实时特性对比拆分为独立 Server Component，开启 `revalidate = 60` 边缘 ISR。
+            - **[MODIFY] `web/next.config.ts`**：剔除非首屏多语言包与冗余字体预载，压缩核心包至 `< 95 KB gzip`。
+
+            > [!CAUTION]
+            > 切流前务必核对 CDN 缓存键包含 `Accept-Language`（`zh` / `en` / `ja`），避免跨语种 HTML 互相污染缓存。
+
+            ## 三、Verification Plan（验证与验收）
+            1. **自动化回归**：执行 `pnpm build && pnpm test:e2e`，验证三语首屏零 Hydration Warning。
+            2. **灰度实测**：放量 10% 观察 30 分钟 Prometheus Web Vitals（`LCP < 1.2s`、`5xx < 0.1%`）后再推全量。
             """,
             """
-            # Homepage Redesign Implementation Plan
+            # Edge SSR & Canary Caching Implementation Plan
 
-            ## 1. Goals & Core Metrics
-            - Reduce desktop & mobile homepage **LCP** from 2.6s to **< 1.2s**.
-            - Keep critical above-the-fold JS under 95KB gzipped with zero-downtime canary routing.
+            > [!IMPORTANT]
+            > The legacy static bundle stays warm as a 100% fallback. Canary buckets route deterministically via Edge Worker cookie hashing with automated 5-second circuit-breaker rollback.
 
-            ## 2. Architecture Breakdown
-            - **Edge Worker Layer**: Deterministic 10% -> 50% -> 100% canary traffic splitting by cookie/region.
-            - **Next.js 16 App Router**: Streaming SSR for the Hero section paired with 60s edge ISR cache.
-            - **Web Vitals Telemetry**: Export real-time LCP, INP, and CLS metrics to Prometheus.
+            ## 1. Baseline Metrics & Acceptance Gates
 
-            ## 3. Rollback Plan
-            - If LCP P95 exceeds 1.8s or 5xx > 0.2%, the edge flag reverts to the static bundle within 5 seconds.
+            | Metric | Current 7d P75 | Target Gate |
+            | --- | ---: | ---: |
+            | Home LCP | `2.64 s` | **`< 1.20 s`** |
+            | Critical JS | `184 KB gzip` | **`< 95 KB gzip`** |
+            | Edge Cache Hit Ratio | `61.4%` | **`>= 92.0%`** |
+            | Rollback Time | Manual ~8 min | **`< 5 s` auto-revert** |
+
+            ## 2. Proposed Changes
+
+            ### Edge Worker Routing Layer
+            - **[MODIFY] `worker/edge_router.ts`**: Deterministic `10% → 50% → 100%` canary routing with `X-Mgy-Variant` telemetry headers.
+            - **[NEW] `worker/circuit_breaker.ts`**: Auto-reverts traffic to static origin if 5xx > 0.2% or P95 LCP > 1.8s.
+
+            ### Next.js 16 Streaming SSR
+            - **[MODIFY] `web/app/page.tsx`**: Split Hero and live feature matrix into streaming Server Components with `revalidate = 60` ISR.
+            - **[MODIFY] `web/next.config.ts`**: Trim off-fold locale bundles to keep critical JS under `95 KB gzip`.
+
+            > [!CAUTION]
+            > Ensure the CDN cache key varies by `Accept-Language` (`en` / `ja` / `zh`) before shifting traffic so localized HTML never collides in edge cache.
+
+            ## 3. Verification Plan
+            1. **Automated Suite**: Run `pnpm build && pnpm test:e2e` across all 3 locales with zero hydration warnings.
+            2. **Canary Soak**: Hold 10% traffic for 30 minutes while verifying Prometheus Web Vitals (`LCP < 1.2s`, `5xx < 0.1%`) before full promotion.
             """,
             """
-            # 公式サイトトップ刷新 実装計画書
+            # Edge SSR・カナリアキャッシュ刷新 実装計画書
 
-            ## 1. 目標と主要指標
-            - PC・モバイル双方のトップページ **LCP** を 2.6s から **1.2s 未満** に短縮。
-            - ファーストビューの主要 JS を gzip 95KB 以下に抑え、無停止カナリア切替と即時ロールバックに対応。
+            > [!IMPORTANT]
+            > 現行の静的バンドルは 100% フォールバック待機させたまま、Edge Worker の Cookie ハッシュで段階切替します。P95 LCP 悪化や 5xx 増加時は 5 秒以内に自動ロールバックします。
 
-            ## 2. アーキテクチャ分割
-            - **Edge Worker 層**：Cookie・リージョン別に 10% → 50% → 100% のカナリア配信を制御。
-            - **Next.js 16 App Router**：Hero 領域にストリーミング SSR と 60 秒 Edge ISR キャッシュを併用。
-            - **Web Vitals 計測**：LCP / INP / CLS を Prometheus へリアルタイム送信。
+            ## 1. 現行実測ベースラインと目標ゲート
 
-            ## 3. ロールバック手順
-            - LCP P95 > 1.8s または 5xx > 0.2% を検知した場合、Edge フラグで 5 秒以内に旧静的バンドルへ自動復帰。
+            | 観測指標 | 現行 7 日間 P75 | 目標受け入れ基準 |
+            | --- | ---: | ---: |
+            | トップ LCP | `2.64 s` | **`< 1.20 s`** |
+            | 初期 JS 容量 | `184 KB gzip` | **`< 95 KB gzip`** |
+            | エッジキャッシュヒット率 | `61.4%` | **`>= 92.0%`** |
+            | 異常時ロールバック | 手動 約8分 | **`< 5 s` 自動復帰** |
+
+            ## 2. モジュール別変更計画
+
+            ### Edge Worker ルーティング層
+            - **[MODIFY] `worker/edge_router.ts`**：`10% → 50% → 100%` の決定的カナリア振り分けと `X-Mgy-Variant` 計測ヘッダを追加。
+            - **[NEW] `worker/circuit_breaker.ts`**：5xx > 0.2% または P95 LCP > 1.8s を検知した際、5 秒以内に静的オリジンへ自動切替。
+
+            ### Next.js 16 ストリーミング SSR
+            - **[MODIFY] `web/app/page.tsx`**：Hero と機能比較を Server Component 分離し、`revalidate = 60` のエッジ ISR を適用。
+            - **[MODIFY] `web/next.config.ts`**：初期バンドルから非表示ロケールを除外し `95 KB gzip` 未満を維持。
+
+            > [!CAUTION]
+            > 配信開始前に CDN キャッシュキーへ `Accept-Language`（`ja` / `en` / `zh`）を含め、多言語 HTML のキャッシュ混在を防止してください。
+
+            ## 3. 検証計画（Verification Plan）
+            1. **自動テスト**：`pnpm build && pnpm test:e2e` を 3 言語で実行し Hydration 警告ゼロを確認。
+            2. **カナリア監視**：10% 配信を 30 分継続し Prometheus で `LCP < 1.2s`・`5xx < 0.1%` を確認後に全量切替。
             """
         )
     }
