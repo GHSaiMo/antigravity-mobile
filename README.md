@@ -26,7 +26,7 @@
 </p>
 
 <p align="center">
-  🌐 <b>官网</b>：<a href="https://mgy.jiuge.space">mgy.jiuge.space</a> &nbsp;·&nbsp; 🍎 <b>App Store</b>：<a href="https://apps.apple.com/app/id6835508934">iOS 正式版下载</a> &nbsp;·&nbsp; 🧪 <b>TestFlight</b>：<a href="https://testflight.apple.com/join/YM7f4aSK">公开测试通道</a> &nbsp;·&nbsp; 📦 <a href="https://github.com/GHSaiMo/antigravity-mobile/releases/latest">最新版 v1.2.4</a> &nbsp;·&nbsp; 💬 <a href="#wechat-group">微信用户群</a>
+  🌐 <b>官网</b>：<a href="https://mgy.jiuge.space">mgy.jiuge.space</a> &nbsp;·&nbsp; 🍎 <b>App Store</b>：<a href="https://apps.apple.com/app/id6835508934">iOS 正式版下载</a> &nbsp;·&nbsp; 🧪 <b>TestFlight</b>：<a href="https://testflight.apple.com/join/YM7f4aSK">公开测试通道</a> &nbsp;·&nbsp; 📦 <a href="https://github.com/GHSaiMo/antigravity-mobile/releases/latest">最新版 v1.2.5</a> &nbsp;·&nbsp; 💬 <a href="#wechat-group">微信用户群</a>
 </p>
 
 > 🎉 **反重力智能体移动伴侣 iOS 版现已正式上架 Apple App Store！**  
@@ -40,7 +40,7 @@ https://github.com/user-attachments/assets/37360cde-3875-45bf-947e-7774e800094c
 
 ### 1. 安装桌面 / 服务器网关 (`mgy`)
 
-支持 **macOS (Apple Silicon / Intel)**、**Linux (x86_64 / NAS / 无头服务器)** 与 **Windows (x86_64)**，自动探测本地代理并在直连受阻时自动切换加速节点：
+支持 **macOS (Apple Silicon / Intel)**、**Linux (x86_64 / NAS / 无头服务器)** 与 **Windows (x86_64)**，安装/卸载脚本支持中/英/日三语自适应，自动探测本地代理并按网络环境智能切换直连或镜像加速节点：
 
 **macOS / Linux / Windows (Git Bash)：**
 ```bash
@@ -68,7 +68,7 @@ irm https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/scripts/in
 
 ### 2. 安装或打开移动端
 - **iOS**：🎉 现已正式上架 Apple App Store，直接前往 **[App Store 下载 Multigravity](https://apps.apple.com/app/id6835508934)** 一键安装（中文系统自动优先展示中文介绍与演示截图），也可通过 **[TestFlight 公开测试](https://testflight.apple.com/join/YM7f4aSK)** 抢先体验最新构建（如需自行源码编译调试，仍可参考 [iOS 本地构建与真机调试指南](docs/ios_build_guide.md)）。
-- **Android**：前往 [GitHub Releases](https://github.com/GHSaiMo/antigravity-mobile/releases/latest) 直接下载安装 `Multigravity-v1.2.4.apk`（支持覆盖升级，请仅从官方 Releases 下载）。
+- **Android**：前往 [GitHub Releases](https://github.com/GHSaiMo/antigravity-mobile/releases/latest) 直接下载安装 `Multigravity-v1.2.5.apk`（支持覆盖升级，请仅从官方 Releases 下载）。
 - **PWA / Web**：无需安装 App，手机浏览器直接访问网关地址（或 `/?view=pwa`）即可添加到主屏幕。
 
 ### 3. 启动并扫码配对
@@ -102,7 +102,7 @@ mgy
   </tr>
 </table>
 
-> 以上截图均来自客户端内置**离线演示模式**（v1.2.4 原生深色中文界面，完整对齐 Antigravity 2.34 真实协议与系统级灵动岛 / 锁屏实时活动 / 主屏小组件），下载后未配对即可零配置直接体验。
+> 以上截图均来自客户端内置**离线演示模式**（v1.2.5 原生深色中文界面，完整对齐 Antigravity 2.34 真实协议与系统级灵动岛 / 锁屏实时活动 / 主屏小组件），下载后未配对即可零配置直接体验。
 
 ---
 
@@ -110,7 +110,7 @@ mgy
 
 ### 1. 全端一致的实时流式体验
 - **三端全覆盖与原生三语自适应**：原生 **iOS**（SwiftUI / Swift 6）、原生 **Android**（Jetpack Compose Material 3）与零构建嵌入式 **PWA Web**，全端支持**简体中文 / English / 日本語**自动识别与切换，提供「跟随系统 / 浅色 / 深色」原生外观与独立「精简模式」二级降噪开关。
-- **低延迟增量推流与断点续传**：响应式 Connect 流 Hub + WebSocket `sinceRev` 增量断点续传、长思考静默期心跳保活与内容哈希校验，配合增量 Markdown LRU 缓存、步骤导轨、长对话目录（TOC）及稳态立即发送，超长会话依然丝滑。
+- **低延迟增量推流与超长会话秒级跳转**：响应式 Connect 流 Hub + WebSocket `sinceRev` 增量断点续传、长思考静默期心跳保活与内容哈希校验；内置**全量会话轮次大纲（Turn Outline）、按需轮次跳转与尾部窗口磁盘缓存**，配合增量 Markdown LRU 缓存、步骤导轨及稳态立即发送，超长会话秒开且任意回溯丝滑流畅。
 - **专业级富媒体排版与交互**：180+ 语言离线语法高亮（含 `R / R Markdown`）、单列行号槽 + 词级行内代码 Diff、LaTeX 公式、Mermaid 容错渲染、**MCP Apps (`ui://`) 交互式组件桥接**、**文档页内查找（Find in Page）**及高密度 PDF 懒加载预览。
 
 ### 2. 关键决策、分级权限与模型协同
@@ -136,24 +136,24 @@ mgy
 - **代码与工作区管理直达**：支持首页按项目 / Chat 原地筛选、新建本地工作区、克隆 GitHub 仓库、会话全文秒搜（SQLite FTS5）、导出 Markdown、查看 `Changes` Diff、带短时缓存提速的原生 `Commit & Push` 与分支管理；会话列表与气泡自动关联 **GitHub PR 实时状态胶囊与详情弹窗**，同时支持 `/slash` 斜杠命令、交互提示与手势指南及 MCP/技能健康看板。
 - **跨端游标与物理外设**：Follow-Me 游标引擎智能仲裁桌面与移动端活跃会话；支持 `integrations/yoooclaw/` 随身硬件按键语音直连注入活跃会话。
 
-### 7. 零配置公网穿透、智能选路与安全推送
-- **多通道并发测速选路**：同时管理 Cloudflare Tunnel 专属 HTTPS 域名、局域网 Wi-Fi 与 Tailscale，一键并发探活并自动切换最低延迟链路。
+### 7. 零知识端到端加密、多地域中继池与安全推送
+- **多通道并发测速与多地域中继池**：支持零知识多节点 VPS 中继池（并发 RTT 测速、滞回钉选、故障自动切换）、Cloudflare Tunnel 专属 HTTPS 域名自动回退、局域网 Wi-Fi 与 Tailscale 并发探活，自动择优切换最低延迟链路。
 - **分级消息通知与灵动岛**：iOS 原生支持 **APNs 推送与远程 Live Activity 灵动岛状态更新**（经无状态 Cloudflare Relay 转发，开箱即用）；Android 支持 `dataSync` 前台保活同步与 FCM 推送，在任务完成、等待审批、工作流节点及低额度预警时即时唤醒。
-- **本地优先安全架构**：纯本地直连，无第三方云端中转；设备凭据存入系统 Keychain / EncryptedSharedPreferences，集成敏感路径黑名单与 WS 限流防刷。
+- **零知识 E2EE 与本地优先安全架构**：全端内置 **`mgy-e2ee-v1` 端到端加密协议**（ECDH P-256 + HKDF-SHA256 + AES-256-GCM），中继路径强制拒绝明文（HTTP 426）确保中转节点零知识不可见；支持老设备双轨静默升级，设备凭据存入系统 Keychain / EncryptedSharedPreferences，集成敏感路径黑名单与 WS 限流防刷。
 
 ---
 
 ## 🏛️ 架构概览
 
 ```text
-手机端 (iOS / Android / PWA) ──[LAN / Tailscale / Cloudflare HTTPS]──▶ mgy Go 网关 ──▶ Antigravity Core (language_server)
+手机端 (iOS / Android / PWA) ──[LAN / Tailscale / Zero-Knowledge E2EE Relay / Cloudflare HTTPS]──▶ mgy Go 网关 ──▶ Antigravity Core (language_server)
 ```
 
 | 层级 | 核心组件 | 说明 |
 | :--- | :--- | :--- |
-| **移动客户端** | iOS (SwiftUI) · Android (Compose) · PWA (`web/`) | 完整交互体验、语音通话、工作流看板、额度与 Token 审计 |
-| **本地网关 (`mgy`)** | Go 单一二进制 (`cmd/gateway` / `internal/`) | 实例自愈发现、WS/ConnectRPC 代理、FTS5 检索、配额与通知引擎 |
-| **远程与外设** | Cloudflare Tunnel · 智能选路 · YoooClaw | 零配置公网 HTTPS 穿透、多链路并发测速、硬件语音网桥 |
+| **移动客户端** | iOS (SwiftUI) · Android (Compose) · PWA (`web/`) | 完整交互体验、透明 E2EE 传输、语音通话、工作流看板、额度与 Token 审计 |
+| **本地网关 (`mgy`)** | Go 单一二进制 (`cmd/gateway` / `internal/`) | 实例自愈发现、E2EE 中继/WS/ConnectRPC 代理、FTS5 检索、配额与通知引擎 |
+| **远程与外设** | 零知识中继池 (`mgy-relay`) · Cloudflare Tunnel · YoooClaw | 端到端加密多地域中继、自动 Cloudflare 回退、多链路并发测速、硬件语音网桥 |
 
 ---
 

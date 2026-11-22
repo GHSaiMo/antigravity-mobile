@@ -40,7 +40,7 @@ enum HTTP11Codec {
             }
         }
         if !hasUserAgent {
-            lines.append("User-Agent: Multigravity/1.2.4 (iOS)")
+            lines.append("User-Agent: Multigravity/1.2.5 (iOS)")
         }
         // URLSession adds this implicitly; without it the gateway (and Cloudflare) reply uncompressed.
         if !hasAcceptEncoding {

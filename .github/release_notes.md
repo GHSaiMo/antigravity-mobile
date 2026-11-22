@@ -1,4 +1,4 @@
-# 🚀 Multigravity v1.2.4
+# 🚀 Multigravity v1.2.5
 
 > 🎉 **Multigravity（反重力智能体移动伴侣）iOS 版现已正式上架 Apple App Store！**  
 > 无需本地编译或自签，前往 👉 **[App Store 下载 Multigravity](https://apps.apple.com/app/id6835508934)**（覆盖海外 174 个国家/地区，内置零配置**离线演示模式**）；也可加入 👉 **[TestFlight 公开测试](https://testflight.apple.com/join/YM7f4aSK)** 抢先体验最新构建。
@@ -15,36 +15,25 @@
 
 ### ✨ 核心亮点与新特性
 
-- 📊 **iOS & Android 可滑动 Token 历史三视图图表与所见即所得海报**：
-  - 新增三页左右滑动图表轮播：**近 14 天每日消耗柱状图**、**累计模型占比分析**与**右对齐铺满卡片的 20 周热力图**（彻底消除内层横向滚动手势冲突）；
-  - 智能冷启动默认策略：活跃天数 `< 28` 天自动默认展示每日柱状图，`≥ 28` 天默认展示周热力图，手动切换后自动持久化记忆偏好；
-  - Token 历史保存/分享长图海报与当前选中的图表视图保持所见即所得同步，完整覆盖全部主题皮肤与中 / 英 / 日三语。
-- 🧩 **iOS 全尺寸额度小组件矩阵 & 全新「活跃对话」小组件（`QuotaStatusWidget` & `AgentStatusWidget`）**：
-  - 额度监控小组件扩展支持全套 WidgetKit 尺寸（锁屏单行 `Inline` / 圆环 `Circular` / 矩形 `Rectangular`，以及桌面 `Small` / `Medium` / `Large` / iPad `ExtraLarge`），桌面中/大号复刻面板 **2×2 四宫格配额卡片**（含一位小数进度、纯矢量 `Shape` 进度条与匀速游标刻度、选中框高亮与 `ULTRA` 琥珀橙徽章），并采用 `StaticConfiguration` 毫秒级缓存秒开与多路并发竞速刷新；
-  - 新增独立 **`AgentStatusWidget`（活跃对话监控）** 小 / 中 / 大号桌面小组件（大号 6 行对称自适应排布与紧凑右对齐相对时间），在 iPhone、iPad、StandBy 与 Mac 桌面上实时总览多会话运行进度与待审批状态，100% 适配中 / 英 / 日三语；修复点击桌面额度小组件跳转额度弹窗时的 80ms 误关闭竞态。
-- 🇯🇵 **Android & PWA 原生日语（`ja`）全量覆盖，实现全端三语大满贯**：
-  - Android 原生客户端（`values-ja`、`locales_config.xml`、`L10n.kt`）与嵌入式 PWA Web（`i18n.js`、`manifest-ja.json`）全面支持原生日语并可根据系统/浏览器语言自动识别切换；
-  - 至此 iOS、Android、PWA Web、GitHub 文档与官方网站实现 100% 简体中文 / English / 日本語三语体验对齐。
-- ⚡ **Cockpit 备选账号智能分级排序**：
-  - 备选账号列表自动将 **ULTRA** 订阅账号置顶优先展示、**FREE** 免费账号排至末尾，多账号快速热切更直观高效。
-- 🔧 **iOS 长会话滚动稳定性与 Tailscale 全链路穿透修复**：
-  - 修复 iOS 超长对话浏览时 `LazyVStack` 偶发白屏、误触发回到底部吸附以及 Markdown 表格渲染高度跳变的问题；
-  - 将 iOS 文件下载、气泡图片/媒体加载、QuickLook 预览、语音听写/实时通话及辅助 WebSocket 全面路由至 `NetworkTransport` / `GatewayWebSocketTask` Tailscale ATS 旁路通道，彻底解决纯 HTTP Tailscale / 局域网链路下的媒体与附件加载受阻问题。
-- 🐝 **全新蜂群（Swarm）全景看板、蜂巢拓扑（Hive）与像素蜜蜂视觉体系**：
-  - 全面对齐最新桌面端 Swarm 体验：概览页新增 `GOAL` 目标卡、`Running` 实时任务流与 `In review` 徽标、可展开任务进度环、`Threads` 线程分段进度条及像素蜂王/工蜂成员筛选矩阵；
-  - 拓扑页新增 **蜂巢六边形地图（`Hive | Mentions` 双视图切换）**，支持任务完成绿弧边框、工蜂动态扇翅、曲线消息光束与黄色等待虚线回放；`/swarm` 斜杠菜单、输入胶囊与用户消息气泡同步展示高清像素蜂王图标。
-- 🛡️ **全栈安全加固与流式/缓存性能收敛**：
-  - 网关与边缘层强化 CSWSH / Host / Origin 校验、工作区路径与符号链接沙箱边界、跨平台凭据保护、APNs TOFU 设备绑定及 Web / 移动端严格 CSP 与 DOM 净化；
-  - 实时流引入 `O(1)` 增量 Diff、会话轨迹快照缓存收敛与有界 HTTP / WebSocket 缓冲区优化，长时运行更省电省内存。
-- 🌐 **全端实时流稳定性、边缘省流与推送自愈优化**：
-  - 修复 iOS 会话流 WebSocket 在代理/穿透网络下的首跳握手问题并增加 `25s` Ping 保活；网关 `/gateway/cascade/messages` 与 iOS / Android 双端全面支持 `ETag / 304 Not Modified` 零字节短路及空闲阶梯退避；
-  - 修复 APNs 灵动岛 Push-to-Start 异常时的重试风暴（引入指数退避与环境错配 Token 自动清理），并新增穿透隧道凭据回收后的无感自愈重连；
-  - 修复 iOS / Android 在「账户与配额」「设置」等面板打开状态下点击通知或深链时旧面板遮挡跳转的问题，支持自动收起全部顶层弹窗并直达目标会话或额度页面；
-  - 修复桌面网页版代理改写上游 `main.js` 移除 Google Fonts `@import` 时遗留未闭合 CSS 注释，导致 Mermaid 流程图节点渲染为纯黑块与连线消失的问题；
-  - 修复 Windows 等无 `sqlite3`/`python` 环境下本地 Token 历史漏统计 Claude 等默认模型会话的问题（新增纯 Go 零依赖只读 SQLite3/WAL 解析、支持顶层 `"model"` 与 `cache_creation_tokens` 字段及 `gen_metadata` 用量与思考 Token 回填），并在 Token 历史页支持点击「模型消耗占比」查看全量模型（不再截断 Claude）的输入 / 缓存 / 输出 / 思考明细与单日模型原地展开（#10）。
-- 💬 **社区与全端版本号对齐**：
-  - 三语 README 新增微信用户群扫码入口；
-  - Android `1.2.4`（Version Code `30`）；iOS `1.2.4`（Build `31`）；桌面/服务端网关 `mgy` `1.2.4`。
+- 🔐 **全栈零知识端到端加密（`mgy-e2ee-v1`）与多地域 VPS 中继池**：
+  - 全新引入 **`mgy-relay`** 零知识反向中继服务（`cmd/relay`、`internal/relay`）与多节点 **`RelayPoolProvider`**，支持并发 RTT 测速、滞回防抖钉选、故障自动切换、周期性节点池刷新及 **Cloudflare Tunnel 自动无缝回退**；
+  - Cloudflare Worker 调度层升级至 **`v1.7.0`**，支持多 VPS `RELAY_POOL` 调度、节点级独立 HMAC 签名密钥、区域优先级排序与无状态 `GET /api/relay/pool`；
+  - 全端落地 **`mgy-e2ee-v1`** 加密协议（ECDH P-256 + HKDF-SHA256 + AES-256-GCM），中继网关启用 `RelayGuardMiddleware` 严禁明文流量通过（直返 `HTTP 426`），完整覆盖加密 HTTP RPC（`/api/v1/e2ee/rpc`）、加密 WebSocket（`/api/v1/e2ee/ws`）、加密配对（`/api/v1/e2ee/pair`）与存量设备静默升级（`/api/v1/auth/e2ee/upgrade`）；
+  - 网关内置**双轨平滑迁移**机制：未升级的老版本客户端继续沿用 Cloudflare Tunnel，待所有已配对设备完成 E2EE 升级后无缝切换至零知识中继；
+  - iOS（含 WidgetKit 小组件）、Android（API 26+ JCA 与全量 WebSocket）及 PWA Web 全面透明接入 E2EE 传输与无状态 `RelayPoolResolver`，并新增区域 VPS 直连 DNS 旁路避开 Cloudflare Anycast 绕路。
+- 🧭 **超长会话全量轮次大纲、按需跳转与尾部窗口磁盘缓存（Go / iOS / Android）**：
+  - 代理层与 iOS / Android 双端新增**全量会话轮次大纲（Turn Outline）**及按需加载跳转能力，配合尾部窗口磁盘缓存机制，超长会话既可毫秒级秒开最新对话，又能通过目录瞬时定位并按需拉取任意历史轮次，大幅降低内存占用。
+- 🌍 **安装/卸载脚本全量原生中/英/日三语自适应与智能路由**：
+  - `scripts/install.sh`、`install.ps1`、`uninstall.sh`、`uninstall.ps1` 全面支持 **简体中文 / English / 日本語** 原生本地化提示，并依据系统语言与代理连通状态智能选择 GitHub 直连或国内镜像加速源。
+- 🤖 **Android 相册排序修复与文档下载体验重构**：
+  - 修复 Android 相册选择器（`AttachmentPickerSheet`）因 AOSP `QUERY_ARG_SORT_COLUMNS` 多列拼接导致「最近项目」倒序（最旧照片排在最前）的问题，改用显式 SQL 双降序与时间戳精确排序；
+  - 重构 Android 文档下载状态流与进度弹窗：独立单调递增 `documentDownloadProgress` 流避免并发状态刷新导致的进度条跳回或闪烁，取消下载立即中断底层 OkHttp 请求并清理唯一临时文件，同时修复带 `?uri=` 参数的附件文件名提取。
+- 🎨 **iOS 离线演示模式（Demo Mode）升级、工具本地化补齐与三语视觉资产焕新**：
+  - 升级 iOS 内置离线 Demo Mode（`DemoContent` / `DemoGateway` / `QuotaWidgetShared`），完整对齐 Antigravity 2.34、Gemini 4 Neon / Orchestrator / Opus 5.5、Swarm 蜂群与小组件真实数据结构；
+  - 补全 `write_file`、`run_workflow`、`swarm`、`post_message`、`read_board`、`swarm_wait`、`checkpoint` 及会话运行态标签的三语本地化；
+  - 中 / 英 / 日三语 README 同步换装全新分语言 12 图暗黑实机界面画廊与 Hero 横幅。
+- 📦 **全端版本号对齐**：
+  - Android `1.2.5`（Version Code `31`）；iOS `1.2.5`（Build `32`）；桌面/服务端网关 `mgy` `1.2.5`。
 
 ---
 
@@ -52,46 +41,33 @@
 
 ### ✨ Highlights & New Features
 
-- 📊 **Swipeable 3-View Token History Charts & WYSIWYG Share Posters (iOS & Android)**:
-  - Added a 3-page swipeable chart carousel: **14-day daily trend bars**, **cumulative model breakdown**, and a **right-aligned 20-week heatmap** filling the card width without inner scroll gesture conflicts;
-  - Smart cold-start defaults (`< 28` active days defaults to daily trend bars, `≥ 28` days defaults to the heatmap) with local preference persistence once manually switched;
-  - Synced Token History save/share posters (WYSIWYG) with the currently active chart across all curated themes and localized in Chinese, English, and Japanese.
-- 🧩 **Full-Size iOS Quota Widget Suite & New Active Chats Widget (`QuotaStatusWidget` & `AgentStatusWidget`)**:
-  - Expanded `QuotaStatusWidget` across all WidgetKit families (`accessoryInline`, `accessoryCircular`, `accessoryRectangular`, `systemSmall`, `systemMedium`, `systemLarge`, and iPad `systemExtraLarge`), featuring a replicated **2×2 panel metric grid** with pure-`Shape` progress bars & pace cursor needles (eliminating `SwiftUICore` `GeometryReader` archival crashes), selected-bucket highlight, `ULTRA` amber gradient badges, `StaticConfiguration` instant cached rendering, and concurrent multi-URL refresh;
-  - Added a dedicated **`AgentStatusWidget` (Active Chats)** supporting `systemSmall`, `systemMedium`, and `systemLarge` (balanced 6-row layout with crisp right-aligned relative timestamps) across iPhone, iPad, StandBy, and macOS Desktop, and fixed the modal-dismissal race that briefly closed the Account & Quota sheet when deep-linking from the Quota Widget.
-- 🇯🇵 **Full Native Japanese (`ja`) Support on Android & PWA Web**:
-  - Added complete native Japanese localization with automatic system/browser locale detection for Android (`values-ja`, `locales_config.xml`, `L10n.kt`) and PWA Web (`i18n.js`, `manifest-ja.json`), achieving 100% trilingual (`zh` / `en` / `ja`) parity across iOS, Android, PWA, GitHub docs, and the official website.
-- ⚡ **Tier-Aware Backup Account Sorting in Cockpit**:
-  - Automatically prioritizes **ULTRA** accounts at the top and deprioritizes **FREE** accounts at the bottom of the backup accounts list for faster high-tier hot-swapping.
-- 🔧 **iOS Long-Chat Scroll Stability & Tailscale Media/WebSocket Bypass Fixes**:
-  - Fixed `LazyVStack` blank screen rendering, false snap-to-bottom jumps, and Markdown table height shifts when scrolling long conversations on iOS;
-  - Routed iOS file downloads, inline media loaders, QuickLook previews, audio dictation, live voice calls, and secondary WebSockets through the custom `NetworkTransport` / `GatewayWebSocketTask` Tailscale ATS bypass so plain-HTTP Tailscale and LAN links work seamlessly end-to-end.
-- 🐝 **Revamped Swarm Overview, Honeycomb Hive Topology & Pixel Bee Visuals**:
-  - Upgraded the Swarm sheet to match the latest desktop Swarm experience with `GOAL` cards, live `Running` tasks & `In review` badges, expandable task progress rings, `Threads` segmented progress bars, and Coordinator/Crew pixel bee filter tiles;
-  - Added the interactive **Honeycomb Hive map (`Hive | Mentions` toggle)** with task completion arcs, animated pixel bees, curved message beams, and dashed waiting arrows, plus crisp inline Queen Pixel Bee icons in `/swarm` user bubbles, chips, and command pickers.
-- 🛡️ **Full-Stack Security Hardening & Streaming/Cache Optimizations**:
-  - Hardened gateway CSWSH/Host/Origin checks, workspace path/symlink confinement, cross-platform credential storage, APNs TOFU token binding, and strict Web/Mobile CSP & DOM sanitization;
-  - Added `O(1)` incremental streaming diffs, trajectory snapshot cache convergence, and bounded HTTP/WebSocket buffers for lower memory and battery usage.
-- 🌐 **Real-Time Stream Reliability, ETag Bandwidth Savings & Push Self-Healing**:
-  - Unified iOS `StreamWebSocketClient` onto `GatewayWebSocketTask` with `25s` keep-alive pings for rock-solid Cloudflare Tunnel and proxy connectivity, plus end-to-end `ETag / 304 Not Modified` short-circuiting and idle polling backoff across the Go gateway, iOS, and Android;
-  - Added exponential backoff and automatic invalid/sandbox-mismatched token cleanup for APNs Live Activity pushes, along with automatic Cloudflare Tunnel credential self-recovery;
-  - Fixed notification and deep-link routing on iOS & Android so tapping a push notification while Account & Quota, Settings, or any modal sheet is open automatically dismisses covering sheets and jumps straight to the target conversation or quota view;
-  - Fixed desktop web proxy localization stripping Google Fonts `@import` with an unclosed CSS comment in `main.js`, which swallowed Mermaid SVG CSS variables and caused solid black node boxes and missing edge strokes;
-  - Fixed missing Claude / default-model sessions in local Token History on Windows hosts without `sqlite3` or `python` (added a zero-dependency pure-Go read-only SQLite3/WAL reader, top-level `"model"` & `cache_creation_tokens` parsing, and `gen_metadata` usage/thinking backfill), and added full per-model Input / Cache / Output / Thinking breakdown sheets & expandable daily model rows in Token History without truncating Claude models (#10).
-- 💬 **Community & Version Alignment**:
-  - Added WeChat User Group QR code to trilingual READMEs;
-  - Android `1.2.4` (Version Code `30`); iOS `1.2.4` (Build `31`); desktop/server gateway `mgy` `1.2.4`.
+- 🔐 **Zero-Knowledge End-to-End Encryption (`mgy-e2ee-v1`) & Multi-Region VPS Relay Pool**:
+  - Introduced the **`mgy-relay`** zero-knowledge reverse-relay server (`cmd/relay`, `internal/relay`) and multi-node **`RelayPoolProvider`** featuring concurrent RTT probing, hysteresis pinning, automatic failover, periodic pool refreshes, and seamless **Cloudflare Tunnel fallback**;
+  - Upgraded the Cloudflare Worker dispatcher to **`v1.7.0`** with multi-VPS `RELAY_POOL` orchestration, per-node HMAC signing secrets, region ordering, and stateless `GET /api/relay/pool`;
+  - Implemented cross-platform **`mgy-e2ee-v1`** (ECDH P-256 + HKDF-SHA256 + AES-256-GCM) with strict `RelayGuardMiddleware` enforcement (rejecting plaintext over relay with `HTTP 426`), covering encrypted HTTP RPC (`/api/v1/e2ee/rpc`), encrypted WebSockets (`/api/v1/e2ee/ws`), encrypted pairing (`/api/v1/e2ee/pair`), and silent legacy upgrade (`/api/v1/auth/e2ee/upgrade`);
+  - Wired **dual-track migration** in the gateway so older paired clients continue operating via Cloudflare Tunnel until every paired device completes the silent E2EE upgrade;
+  - Added transparent E2EE transport and stateless `RelayPoolResolver` across iOS (including WidgetKit), Android (API 26+ JCA and all WebSockets), and Web PWA, plus direct regional VPS DNS bypass for Cloudflare Anycast accelerators.
+- 🧭 **Full-Session Turn Outline, On-Demand Turn Jump & Tail-Window Disk Cache (Go / iOS / Android)**:
+  - Added full-session turn outline indexing and on-demand turn jumping paired with tail-window disk caching across the Go proxy, iOS, and Android — keeping ultra-long conversations fast to open while enabling instant TOC jumps to any historical turn on demand.
+- 🌍 **Trilingual (`zh` / `en` / `ja`) Install & Uninstall Scripts with Locale-Aware Routing**:
+  - Upgraded `scripts/install.sh`, `install.ps1`, `uninstall.sh`, and `uninstall.ps1` with native Chinese, English, and Japanese localization plus locale- and proxy-aware GitHub direct vs. mirror routing.
+- 🤖 **Android Photo Library Ordering Fix & Resilient Document Downloads**:
+  - Fixed Android `AttachmentPickerSheet` showing Recents in oldest-first order (caused by AOSP `QUERY_ARG_SORT_COLUMNS` multi-column SQL expansion) by switching to explicit `DATE_ADDED DESC, _ID DESC` ordering;
+  - Refactored Android document downloads with a dedicated monotonic `documentDownloadProgress` flow, smooth animated progress bars, instant OkHttp call cancellation and temp-file cleanup, and accurate filename decoding for `?uri=` query links.
+- 🎨 **Upgraded iOS Offline Demo Mode, Tool Localizations & Trilingual README Visuals**:
+  - Refreshed iOS built-in Demo Mode (`DemoContent`, `DemoGateway`, `QuotaWidgetShared`) to reflect Antigravity 2.34, Gemini 4 Neon / Orchestrator / Opus 5.5, Swarm Hive, and live widget snapshots;
+  - Completed trilingual localization for newer tool names (`write_file`, `run_workflow`, `swarm`, `post_message`, `read_board`, `swarm_wait`, `checkpoint`) and conversation status labels;
+  - Updated all trilingual READMEs with localized dark-mode 12-screen galleries and Hero banners.
+- 📦 **Version Alignment**:
+  - Android `1.2.5` (Version Code `31`); iOS `1.2.5` (Build `32`); desktop/server gateway `mgy` `1.2.5`.
 
 ---
 
 ## 🇯🇵 日本語リリースノート
 
-- 📊 **スワイプ切替対応トークン履歴 3 ビューチャート＆WYSIWYG 共有ポスター（iOS & Android）**：**直近14日間の日別推移棒グラフ**・**モデル別累計内訳**・**右揃え20週間ヒートマップ**の3ページカルーセルを新搭載（スクロール競合を解消）。利用日数に応じたスマート初期表示（28日未満は日別グラフ、28日以上はヒートマップ）と選択状態の保存、現在表示中のチャートと連動するロング画像ポスター出力に対応しました。
-- 🧩 **iOS フルサイズクォータウィジェット＆新「アクティブチャット」ウィジェット（`QuotaStatusWidget` & `AgentStatusWidget`）**：クォータ監視が全サイズ（`Inline` / `Circular` / `Rectangular` / `Small`〜`ExtraLarge`）に対応し、パネル同様の **2×2 クォータカード配置**（ペースカーソル・選択枠ハイライト・`ULTRA` アンバーバッジ・高速キャッシュ描画）を採用。さらに複数セッションの進行状況や承認待ちを一覧できる **`AgentStatusWidget`**（小・中・大）を追加しました（日・英・中 3言語対応）。
-- 🇯🇵 **Android & PWA Web も完全日本語対応（全プラットフォーム 3言語統一）**：Android アプリおよび組み込み PWA Web がシステム / ブラウザ言語の自動判別によるネイティブ日本語表示に対応し、iOS・Android・PWA・GitHub・公式サイトすべてで日本語・英語・中国語の完全対応を達成しました。
-- ⚡ **Cockpit バックアップアカウントの優先度ソート**：予備アカウント一覧で **ULTRA** プランを最上部に優先表示し、**FREE** プランを下部に配置するよう改善しました。
-- 🔧 **iOS 長文チャットのスクロール安定化＆Tailscale 通信バイパス改善**：長文会話での `LazyVStack` 空白表示・意図しない最下部スナップ・Markdown テーブルの高さジャンプを修正。さらにファイルダウンロード・画像/メディア読込・QuickLook・音声入力/通話・補助 WebSocket を Tailscale ATS バイパス経路へ統合しました。
-- 🐝 **Swarm 概要ボード刷新・ハニカム Hive トポロジー＆ピクセル蜂ビジュアル**：最新の Swarm 体験に合わせ、`GOAL` カード・`Running` ライブタスク・展開式進捗リング・`Threads` 進捗バー・ピクセル女王蜂/働き蜂タイルを刷新。六角形ハニカム **Hive マップ（`Hive | Mentions` 切替）** や `/swarm` メッセージバブル内のピクセル女王蜂アイコンにも対応しました。
-- 🛡️ **フルスタックセキュリティ強化＆ストリーミング/キャッシュ最適化**：CSWSH/Host/Origin 検証、パス境界保護、認証情報保護、APNs TOFU バインディング、CSP/DOM サニタイズを強化し、ストリーミング `O(1)` 差分更新とキャッシュ効率を最適化しました。
-- 🌐 **リアルタイムストリーム安定化・ETag 通信削減・APNs 自動復旧＆通知ジャンプ修正**：iOS WebSocket ストリームの接続エンジン刷新と `25秒` キープアライブ追加、ゲートウェイおよび iOS / Android での `ETag / 304` 差分スキップ、APNs ライブアクティビティの指数バックオフとトークン自動修復、Cloudflare トンネル資格情報の自動再取得に対応。さらにクォータ画面や設定シートを開いたまま通知をタップした際にモーダルを自動終了して対象会話・クォータ画面へ直接遷移するよう修正し、デスクトップ Web 版で Google Fonts の `@import` 除去時に未閉じ CSS コメントが残り Mermaid 図のノードが黒塗り・接続線が消失する不具合も修正しました。あわせて `sqlite3` / `python` 未導入の Windows 環境でも Claude 等のモデル別トークン履歴（Input / Cache / Output / Thinking）を完全取得・全モデル表示できるよう修正しました（#10）。
-- 📦 **バージョン統一**：iOS `1.2.4` (Build `31`) / Android `1.2.4` (Version Code `30`) / ゲートウェイ `mgy` `1.2.4`。
+- 🔐 **ゼロ知識エンドツーエンド暗号化（`mgy-e2ee-v1`）＆マルチリージョン VPS リレープール**：ゼロ知識リバースリレー `mgy-relay` とマルチノード `RelayPoolProvider`（並列 RTT 計測・ヒステリシス固定・自動フェイルオーバー・Cloudflare Tunnel 自動フォールバック）を新搭載。Cloudflare Worker を `v1.7.0` へ刷新し、ECDH P-256 + HKDF-SHA256 + AES-256-GCM による E2EE 通信（リレー経路の平文は `HTTP 426` で厳格拒否）と既存端末向けデュアルトラック自動移行を iOS（WidgetKit 含む）・Android・PWA・Go ゲートウェイ全端で実装しました。
+- 🧭 **超長文セッション向け全ターン目次・オンデマンドジャンプ＆末尾ウィンドウキャッシュ**：Go プロキシ・iOS・Android に全ターン目次（Turn Outline）とオンデマンド読み込みジャンプ、末尾ウィンドウディスクキャッシュを追加。巨大セッションでも最新発言を即座に開きつつ、任意の過去ターンへ高速移動できます。
+- 🌍 **インストール／アンインストールスクリプトの完全 3 言語対応**：`install.sh` / `install.ps1` / `uninstall.sh` / `uninstall.ps1` が日本語・英語・中国語にネイティブ対応し、ロケールとプロキシ環境に応じて最適ダウンロード経路を自動選択します。
+- 🤖 **Android アルバム並び順修正＆ドキュメントダウンロード刷新**：AOSP の複数カラムソート不具合で「最近の項目」が古い順になっていた問題を修正。さらに単調増加プログレス Flow・キャンセル時の即時 OkHttp 中断と一時ファイル削除・`?uri=` 形式のファイル名抽出を改善しました。
+- 🎨 **iOS オフラインデモモード刷新・ツール名ローカライズ補完＆3 言語 README 刷新**：Demo Mode を Antigravity 2.34 / Gemini 4 Neon / Swarm 準拠へ全面更新し、新ツール名（`swarm` / `run_workflow` 等）のローカライズと日・英・中 3 言語 README の 12 枚ダーク UI スクリーンショットを刷新しました。
+- 📦 **バージョン統一**：iOS `1.2.5` (Build `32`) / Android `1.2.5` (Version Code `31`) / ゲートウェイ `mgy` `1.2.5`。

@@ -26,7 +26,7 @@
 </p>
 
 <p align="center">
-  🌐 <b>公式サイト</b>：<a href="https://mgy.jiuge.space/ja.html">mgy.jiuge.space/ja.html</a> &nbsp;·&nbsp; 🍎 <b>App Store</b>：<a href="https://apps.apple.com/app/id6835508934">iOS 正式版をダウンロード</a> &nbsp;·&nbsp; 🧪 <b>TestFlight</b>：<a href="https://testflight.apple.com/join/YM7f4aSK">パブリックベータ</a> &nbsp;·&nbsp; 📦 <a href="https://github.com/GHSaiMo/antigravity-mobile/releases/latest">最新リリース v1.2.4</a> &nbsp;·&nbsp; 💬 <a href="#wechat-group">WeChat ユーザーグループ</a>
+  🌐 <b>公式サイト</b>：<a href="https://mgy.jiuge.space/ja.html">mgy.jiuge.space/ja.html</a> &nbsp;·&nbsp; 🍎 <b>App Store</b>：<a href="https://apps.apple.com/app/id6835508934">iOS 正式版をダウンロード</a> &nbsp;·&nbsp; 🧪 <b>TestFlight</b>：<a href="https://testflight.apple.com/join/YM7f4aSK">パブリックベータ</a> &nbsp;·&nbsp; 📦 <a href="https://github.com/GHSaiMo/antigravity-mobile/releases/latest">最新リリース v1.2.5</a> &nbsp;·&nbsp; 💬 <a href="#wechat-group">WeChat ユーザーグループ</a>
 </p>
 
 > 🎉 **Multigravity for iOS が Apple App Store にて正式公開されました！**  
@@ -40,7 +40,7 @@ https://github.com/user-attachments/assets/37360cde-3875-45bf-947e-7774e800094c
 
 ### 1. デスクトップ / サーバーゲートウェイ (`mgy`) のインストール
 
-**macOS (Apple Silicon / Intel)**、**Linux (x86_64 / NAS / ヘッドレスサーバー)**、**Windows (x86_64)** に対応。ローカルプロキシを自動検出し、直接接続できない環境ではミラーノードへ自動フォールバックします。
+**macOS (Apple Silicon / Intel)**、**Linux (x86_64 / NAS / ヘッドレスサーバー)**、**Windows (x86_64)** に対応。インストール／アンインストールスクリプトは **日本語 / English / 简体中文** にネイティブ対応し、ローカルプロキシとロケールに応じて GitHub 直結または高速ミラーへ自動ルーティングします。
 
 **macOS / Linux / Windows (Git Bash):**
 ```bash
@@ -68,7 +68,7 @@ irm https://ghfast.top/https://raw.githubusercontent.com/GHSaiMo/antigravity-mob
 
 ### 2. モバイルクライアントのインストール・起動
 - **iOS**：🎉 Apple App Store にて正式配信中。**[App Store](https://apps.apple.com/app/id6835508934)** からワンタップでインストールできるほか、**[TestFlight パブリックベータ](https://testflight.apple.com/join/YM7f4aSK)** で最新ビルドを先行体験できます（ソースコードからのビルドや実機デバッグを行う場合は [iOS ローカルビルド＆実機デバッグガイド](docs/ios_build_guide.md) を参照してください）。
-- **Android**：[GitHub Releases](https://github.com/GHSaiMo/antigravity-mobile/releases/latest) から `Multigravity-v1.2.4.apk` を直接ダウンロードしてインストールしてください（上書きアップデート対応。必ず公式 Releases から入手してください）。
+- **Android**：[GitHub Releases](https://github.com/GHSaiMo/antigravity-mobile/releases/latest) から `Multigravity-v1.2.5.apk` を直接ダウンロードしてインストールしてください（上書きアップデート対応。必ず公式 Releases から入手してください）。
 - **PWA / Web**：アプリをインストールせず、モバイルブラウザからゲートウェイ URL（または `/?view=pwa`）を開いてホーム画面に追加するだけで利用できます。
 
 ### 3. 起動して QR コードでペアリング
@@ -102,7 +102,7 @@ mgy
   </tr>
 </table>
 
-> *上記スクリーンショットはクライアント内蔵の**オフラインデモモード**（v1.2.4 ネイティブ日本語ダーク UI・Antigravity 2.34 準拠および実機 Dynamic Island / ロック画面ライブアクティビティ / ホームウィジェット）で撮影したもので、ペアリング前でもすぐ操作感を体験できます。*
+> *上記スクリーンショットはクライアント内蔵の**オフラインデモモード**（v1.2.5 ネイティブ日本語ダーク UI・Antigravity 2.34 準拠および実機 Dynamic Island / ロック画面ライブアクティビティ / ホームウィジェット）で撮影したもので、ペアリング前でもすぐ操作感を体験できます。*
 
 ---
 
@@ -110,7 +110,7 @@ mgy
 
 ### 1. 全プラットフォームで一貫したリアルタイムストリーミング体験
 - **3 プラットフォーム＆3 言語完全対応**：ネイティブ **iOS**（SwiftUI / Swift 6）、ネイティブ **Android**（Jetpack Compose Material 3）、ビルド不要の組み込み **PWA Web** を提供し、全クライアントで**日本語 / English / 简体中文**の自動判別・切替に対応。システム連動 / ライト / ダーク外観に加え、情報密度を抑える独立した「コンパクトモード」切替も備えています。
-- **低遅延ストリーミングとレジューム対応**：リアクティブな Connect ストリーミング Hub と WebSocket `sinceRev` による差分レジュームを実装。長時間推論時のハートビート維持、コンテンツハッシュ検証、Markdown LRU キャッシュ、ステップレール、長文会話の目次（TOC）、定常状態での即時送信により、超長文セッションでも軽快に動作します。
+- **低遅延ストリーミングと超長文セッション即時ジャンプ**：リアクティブな Connect ストリーミング Hub と WebSocket `sinceRev` による差分レジュームを実装。**全ターン目次（Turn Outline）・オンデマンドターンジャンプ・末尾ウィンドウディスクキャッシュ**に加え、長時間推論時のハートビート維持、Markdown LRU キャッシュ、ステップレール、定常状態での即時送信により、超長文セッションでも即座に開いて任意の履歴へ滑らかに移動できます。
 - **プロ品質のリッチメディア描画と操作性**：180 言語以上のオフライン構文ハイライト（`R / R Markdown` 対応）、単一ガター行番号＋単語単位インラインコード Diff、LaTeX 数式、フォールトトレラントな Mermaid 描画、**MCP Apps (`ui://`) インタラクティブコンポーネント連携**、**ドキュメント内検索（Find in Page）**、高密度 PDF 遅延読み込みプレビューを備えています。
 
 ### 2. 重要な意思決定・段階的権限管理・モデル連携
@@ -136,24 +136,24 @@ mgy
 - **コード＆ワークスペース管理**：ホーム画面でのプロジェクト / Chat インライン絞り込み、ローカルワークスペース新規作成、GitHub リポジトリのクローン、SQLite FTS5 による会話全文の高速検索、Markdown エクスポート、`Changes` Diff 閲覧、キャッシュ最適化された `git status` とネイティブ `Commit & Push`・ブランチ管理に対応。セッション一覧とチャット内には **GitHub PR のリアルタイムステータスバッジと詳細ポップアップ**が自動連携され、`/slash` コマンド、操作ヒント＆ジェスチャーガイド、MCP / スキルヘルスダッシュボードも備えています。
 - **クロスデバイスカーソルと物理ハードウェア連携**：Follow-Me カーソルエンジンがデスクトップとモバイル間のアクティブセッションを自動調停。`integrations/yoooclaw/` 経由でウェアラブルデバイスの物理ボタンから音声をアクティブセッションへ直接送信できます。
 
-### 7. ゼロ設定リモートアクセス・スマート経路選択・セキュア通知
-- **マルチ経路の並列レイテンシ計測と自動切替**：専用の Cloudflare Tunnel HTTPS ドメイン、LAN Wi-Fi、Tailscale を一括管理し、ワンタップで全経路を並列疎通テストして最小遅延ルートへ自動切替します。
+### 7. ゼロ知識 E2EE・マルチリージョンリレープール・セキュア通知
+- **マルチリージョンリレープールとスマート経路選択**：ゼロ知識マルチ VPS リレープール（並列 RTT 計測・ヒステリシス固定・自動フェイルオーバー）、Cloudflare Tunnel 自動フォールバック、LAN Wi-Fi、Tailscale を一括管理し、並列疎通テストで最小遅延ルートへ自動切替します。
 - **段階的プッシュ通知と Dynamic Island**：iOS はネイティブ **APNs プッシュ通知およびリモート Live Activity（Dynamic Island）進捗更新**に対応（ステートレスな Cloudflare Relay 経由で設定不要・即利用可能）。Android は `dataSync` フォアグラウンド同期と FCM プッシュに対応し、タスク完了・承認待ち・ワークフロー節目・クォータ残量低下を即時通知します。
-- **ローカルファーストのセキュリティ設計**：サードパーティのクラウド中継に依存しない純ローカル直結アーキテクチャを採用。デバイス認証情報は OS の Keychain / EncryptedSharedPreferences に安全に保存され、機密パスブラックリストと WebSocket レート制限も標準搭載しています。
+- **ゼロ知識 E2EE とローカルファースト設計**：全クライアント＆ゲートウェイに **`mgy-e2ee-v1` エンドツーエンド暗号化**（ECDH P-256 + HKDF-SHA256 + AES-256-GCM）を実装し、リレー経路での平文アクセスを厳格に拒否（HTTP 426）。既存デバイスのデュアルトラック自動移行、Keychain / EncryptedSharedPreferences による認証情報保護、機密パスブラックリスト、WebSocket レート制限も標準搭載しています。
 
 ---
 
 ## 🏛️ アーキテクチャ概要
 
 ```text
-モバイルクライアント (iOS / Android / PWA) ──[LAN / Tailscale / Cloudflare HTTPS]──▶ mgy Go ゲートウェイ ──▶ Antigravity Core (language_server)
+モバイルクライアント (iOS / Android / PWA) ──[LAN / Tailscale / Zero-Knowledge E2EE Relay / Cloudflare HTTPS]──▶ mgy Go ゲートウェイ ──▶ Antigravity Core (language_server)
 ```
 
 | レイヤー | 主なコンポーネント | 役割 |
 | :--- | :--- | :--- |
-| **モバイルクライアント** | iOS (SwiftUI) · Android (Compose) · PWA (`web/`) | チャット UI、リアルタイム音声、ワークフローボード、クォータ＆トークン監査 |
-| **ローカルゲートウェイ (`mgy`)** | 単一 Go バイナリ (`cmd/gateway` / `internal/`) | インスタンス自動検出＆自己修復、WS / ConnectRPC ブリッジ、FTS5 検索、クォータ＆通知エンジン |
-| **リモート＆周辺機器** | Cloudflare Tunnel · スマート経路選択 · YoooClaw | ゼロ設定の公開 HTTPS トンネル、複数経路の並列疎通計測、ウェアラブル音声ブリッジ |
+| **モバイルクライアント** | iOS (SwiftUI) · Android (Compose) · PWA (`web/`) | チャット UI、透過 E2EE 通信、リアルタイム音声、ワークフローボード、クォータ＆トークン監査 |
+| **ローカルゲートウェイ (`mgy`)** | 単一 Go バイナリ (`cmd/gateway` / `internal/`) | インスタンス自動検出＆自己修復、E2EE リレー/WS/ConnectRPC ブリッジ、FTS5 検索、クォータ＆通知エンジン |
+| **リモート＆周辺機器** | ゼロ知識リレー (`mgy-relay`) · Cloudflare Tunnel · YoooClaw | マルチリージョン E2EE リレー、Cloudflare 自動フォールバック、複数経路並列計測、ウェアラブル音声ブリッジ |
 
 ---
 

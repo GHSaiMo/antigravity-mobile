@@ -175,7 +175,7 @@ public final class StreamWebSocketClient {
         var request = URLRequest(url: wsURL)
         request.timeoutInterval = 15
         request.cachePolicy = .reloadIgnoringLocalCacheData
-        request.setValue("Multigravity/1.2.4 (iOS)", forHTTPHeaderField: "User-Agent")
+        request.setValue("Multigravity/1.2.5 (iOS)", forHTTPHeaderField: "User-Agent")
         if CloudflareAnycastAccelerator.isCloudflareTunnelHost(hostStr) {
             request.setValue(hostStr, forHTTPHeaderField: "Host")
         }

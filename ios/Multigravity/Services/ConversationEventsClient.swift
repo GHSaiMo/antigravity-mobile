@@ -252,7 +252,7 @@ public final class ConversationEventsClient {
         if isCloudflare {
             request.setValue(hostStr, forHTTPHeaderField: "Host")
         }
-        request.setValue("Multigravity/1.2.4 (iPhone; iOS)", forHTTPHeaderField: "User-Agent")
+        request.setValue("Multigravity/1.2.5 (iPhone; iOS)", forHTTPHeaderField: "User-Agent")
 
         if let token = KeychainHelper.shared.read(key: .deviceToken) ?? AppSettings.shared.deviceToken, !token.isEmpty {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")

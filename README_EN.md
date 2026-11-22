@@ -26,7 +26,7 @@
 </p>
 
 <p align="center">
-  🌐 <b>Website</b>: <a href="https://mgy.jiuge.space/en.html">mgy.jiuge.space/en.html</a> &nbsp;·&nbsp; 🍎 <b>App Store</b>: <a href="https://apps.apple.com/app/id6835508934">Download for iOS</a> &nbsp;·&nbsp; 🧪 <b>TestFlight</b>: <a href="https://testflight.apple.com/join/YM7f4aSK">Public Beta</a> &nbsp;·&nbsp; 📦 <a href="https://github.com/GHSaiMo/antigravity-mobile/releases/latest">Latest Release v1.2.4</a> &nbsp;·&nbsp; 💬 <a href="#wechat-group">WeChat Group</a>
+  🌐 <b>Website</b>: <a href="https://mgy.jiuge.space/en.html">mgy.jiuge.space/en.html</a> &nbsp;·&nbsp; 🍎 <b>App Store</b>: <a href="https://apps.apple.com/app/id6835508934">Download for iOS</a> &nbsp;·&nbsp; 🧪 <b>TestFlight</b>: <a href="https://testflight.apple.com/join/YM7f4aSK">Public Beta</a> &nbsp;·&nbsp; 📦 <a href="https://github.com/GHSaiMo/antigravity-mobile/releases/latest">Latest Release v1.2.5</a> &nbsp;·&nbsp; 💬 <a href="#wechat-group">WeChat Group</a>
 </p>
 
 > 🎉 **Multigravity for iOS is officially available on the Apple App Store!**  
@@ -40,7 +40,7 @@ https://github.com/user-attachments/assets/37360cde-3875-45bf-947e-7774e800094c
 
 ### 1. Install Desktop / Server Gateway (`mgy`)
 
-Supports **macOS (Apple Silicon / Intel)**, **Linux (x86_64 / NAS / Headless Servers)**, and **Windows (x86_64)**. Automatically probes local proxies and falls back to accelerated mirror endpoints if direct connection is blocked:
+Supports **macOS (Apple Silicon / Intel)**, **Linux (x86_64 / NAS / Headless Servers)**, and **Windows (x86_64)** with native **English / 简体中文 / 日本語** installer & uninstaller output. Automatically probes local proxies and selects direct GitHub or accelerated mirrors based on locale and reachability:
 
 **macOS / Linux / Windows (Git Bash):**
 ```bash
@@ -68,7 +68,7 @@ irm https://ghfast.top/https://raw.githubusercontent.com/GHSaiMo/antigravity-mob
 
 ### 2. Install or Open the Mobile Client
 - **iOS**: 🎉 Officially released on the Apple App Store! Install directly via **[App Store](https://apps.apple.com/app/id6835508934)** with one tap, or join the **[TestFlight Public Beta](https://testflight.apple.com/join/YM7f4aSK)** to test pre-release builds (for building from source or debugging on physical devices, refer to the [iOS Local Build & Device Debugging Guide](docs/ios_build_guide.md)).
-- **Android**: Download `Multigravity-v1.2.4.apk` directly from [GitHub Releases](https://github.com/GHSaiMo/antigravity-mobile/releases/latest) (supports in-place upgrade; please download only from official Releases).
+- **Android**: Download `Multigravity-v1.2.5.apk` directly from [GitHub Releases](https://github.com/GHSaiMo/antigravity-mobile/releases/latest) (supports in-place upgrade; please download only from official Releases).
 - **PWA / Web**: No app installation needed. Open the gateway URL (or `/?view=pwa`) directly in your mobile browser and add it to your Home Screen.
 
 ### 3. Launch & Scan QR Code to Pair
@@ -102,7 +102,7 @@ When launched in the foreground, the gateway prints a one-time pairing QR code i
   </tr>
 </table>
 
-> *All screenshots above are captured from the built-in **offline Demo Mode** (v1.2.4 native dark English UI, aligned with Antigravity 2.34 protocols plus live iOS Dynamic Island, Lock Screen Live Activities & Home Screen Widgets) — try it out-of-the-box before pairing.*
+> *All screenshots above are captured from the built-in **offline Demo Mode** (v1.2.5 native dark English UI, aligned with Antigravity 2.34 protocols plus live iOS Dynamic Island, Lock Screen Live Activities & Home Screen Widgets) — try it out-of-the-box before pairing.*
 
 ---
 
@@ -110,7 +110,7 @@ When launched in the foreground, the gateway prints a one-time pairing QR code i
 
 ### 1. Consistent Real-Time Streaming Across All Platforms
 - **Cross-Platform & Trilingual Parity**: Native **iOS** (SwiftUI / Swift 6), native **Android** (Jetpack Compose Material 3), and zero-build embedded **PWA Web**, with native **English / 简体中文 / 日本語** localization and automatic locale detection. Supports System/Light/Dark themes and an independent "Compact Mode" toggle for reduced visual noise.
-- **Low-Latency Streaming & Resumable Sessions**: Reactive Connect streaming Hub + WebSocket `sinceRev` incremental resumption, heartbeat keep-alive during prolonged reasoning periods, content-hash verification, Markdown LRU caching, step rail navigation, long-conversation Table of Contents (TOC), and steady-state instant sending. Ultra-long sessions remain silky smooth.
+- **Low-Latency Streaming & Instant Long-Session Jump**: Reactive Connect streaming Hub + WebSocket `sinceRev` incremental resumption, heartbeat keep-alive during prolonged reasoning, and content-hash verification. Built-in **full-session Turn Outline, on-demand turn jumping, and tail-window disk caching** work alongside Markdown LRU caching, step rail navigation, and steady-state instant sending so even massive sessions open instantly and jump smoothly to any turn.
 - **Professional-Grade Rich Media & Interactive Rendering**: 180+ languages offline syntax highlighting (including `R / R Markdown`), single-gutter line-numbered & word-level inline code diffs, LaTeX math equations, fault-tolerant Mermaid rendering, **interactive MCP Apps (`ui://`) bridging**, **Find in Page**, and high-density PDF lazy loading.
 
 ### 2. Critical Decisions, Tiered Permissions & Model Synergy
@@ -136,24 +136,24 @@ When launched in the foreground, the gateway prints a one-time pairing QR code i
 - **Code & Workspace Management**: Inline project/Chat filtering on the home list, local workspace creation, GitHub repo cloning, instant full-text search across conversations (SQLite FTS5), Markdown export, `Changes` diffs, cached fast `git status` + native `Commit & Push` and branch management. Conversation list and chat bubbles automatically display **real-time GitHub PR status pills and detail popups**, alongside `/slash` commands, Tips & Gestures Guide, and MCP/skill health boards.
 - **Cross-Device Cursor & Physical Peripherals**: Follow-Me cursor engine intelligently arbitrates active sessions between desktop and mobile. Hardware integration via `integrations/yoooclaw/` enables wearable push-to-talk buttons to inject voice directly into the active session.
 
-### 7. Zero-Config Remote Access, Smart Routing & Secure Push
-- **Multi-Route Concurrent Latency Testing**: Simultaneously manages dedicated Cloudflare Tunnel HTTPS domains, LAN Wi-Fi, and Tailscale; probes all available routes concurrently and auto-switches to the lowest-latency path.
+### 7. Zero-Knowledge E2EE, Multi-Region Relay Pool & Secure Push
+- **Multi-Region Relay Pool & Smart Routing**: Combines a zero-knowledge multi-VPS relay pool (concurrent RTT probing, hysteresis pinning, automatic failover) with automatic Cloudflare Tunnel HTTPS fallback, LAN Wi-Fi, and Tailscale — probing all paths concurrently and switching to the lowest-latency route automatically.
 - **Tiered Notifications & Dynamic Island**: iOS features native **APNs push notifications and remote Live Activity Dynamic Island tracking** (relayed via stateless Cloudflare Worker, ready out of the box); Android supports `dataSync` foreground sync and FCM push to alert on task completion, pending approvals, workflow milestones, and low quota warnings.
-- **Local-First Security Architecture**: Direct local connection without third-party cloud data relays. Device credentials stored securely in Keychain / EncryptedSharedPreferences. Hardened with sensitive path blacklists and WebSocket rate limiting.
+- **Zero-Knowledge E2EE & Local-First Security**: Implements **`mgy-e2ee-v1`** (ECDH P-256 + HKDF-SHA256 + AES-256-GCM) end-to-end across iOS, Android, PWA, and Go gateway, strictly rejecting plaintext over relay routes (`HTTP 426`) with dual-track silent migration for legacy paired devices. Credentials stay in Keychain / EncryptedSharedPreferences, hardened with sensitive path blacklists and WebSocket rate limiting.
 
 ---
 
 ## 🏛️ Architecture Overview
 
 ```text
-Mobile Clients (iOS / Android / PWA) ──[LAN / Tailscale / Cloudflare HTTPS]──▶ mgy Go Gateway ──▶ Antigravity Core (language_server)
+Mobile Clients (iOS / Android / PWA) ──[LAN / Tailscale / Zero-Knowledge E2EE Relay / Cloudflare HTTPS]──▶ mgy Go Gateway ──▶ Antigravity Core (language_server)
 ```
 
 | Layer | Core Components | Description |
 | :--- | :--- | :--- |
-| **Mobile Clients** | iOS (SwiftUI) · Android (Compose) · PWA (`web/`) | Complete conversational UI, voice calls, workflow boards, quota & token audits |
-| **Local Gateway (`mgy`)** | Single Go Binary (`cmd/gateway` / `internal/`) | Self-healing instance discovery, WS/ConnectRPC proxy, FTS5 search, quota & push engine |
-| **Remote & Hardware** | Cloudflare Tunnel · Smart Routing · YoooClaw | Zero-config public HTTPS tunnel, multi-path concurrent probing, wearable hardware voice bridge |
+| **Mobile Clients** | iOS (SwiftUI) · Android (Compose) · PWA (`web/`) | Complete conversational UI, transparent E2EE transport, voice calls, workflow boards, quota & token audits |
+| **Local Gateway (`mgy`)** | Single Go Binary (`cmd/gateway` / `internal/`) | Self-healing instance discovery, E2EE relay/WS/ConnectRPC proxy, FTS5 search, quota & push engine |
+| **Remote & Hardware** | Zero-Knowledge Relay (`mgy-relay`) · Cloudflare Tunnel · YoooClaw | Multi-region E2EE relay pool, automatic Cloudflare fallback, concurrent latency probing, wearable hardware voice bridge |
 
 ---
 
