@@ -50,12 +50,14 @@ nonisolated struct AgentStatusTimelineProvider: TimelineProvider {
         Task {
             let now = Date()
             let config = QuotaWidgetStore.shared.loadConfig()
-            let fresh = await QuotaWidgetStore.shared.fetchLatestConversationsFromGateway()
+            let cached = QuotaWidgetStore.shared.loadConversationsSnapshot()
+            let isFresh = cached.map { now.timeIntervalSince($0.syncedAt) < 90 } ?? false
+            let fresh = isFresh ? cached : await QuotaWidgetStore.shared.fetchLatestConversationsFromGateway()
 
             let entry: AgentStatusWidgetEntry
             if let fresh {
                 entry = AgentStatusWidgetEntry(date: now, snapshot: fresh, isPaired: true, isStale: false)
-            } else if let cached = QuotaWidgetStore.shared.loadConversationsSnapshot() {
+            } else if let cached {
                 let stale = now.timeIntervalSince(cached.syncedAt) > 25 * 60
                 entry = AgentStatusWidgetEntry(date: now, snapshot: cached, isPaired: true, isStale: stale)
             } else {

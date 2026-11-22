@@ -92,41 +92,48 @@ struct SwarmGraphTabView: View {
         let replaySeq: Int? = replayIndex != nil ? (currentReplayMessage?.seq ?? 0) : nil
         let hiveModel = SwarmHiveEngine.buildHiveMap(snap: snapshot, synth: synth, replaySeq: replaySeq)
 
-        ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                replayControlsBar
-                    .padding(.horizontal, 16)
-                    .padding(.top, 14)
+        GeometryReader { rootGeo in
+            let hiveAvailW = max(280, rootGeo.size.width - 20)
 
-                if graphMode == .hive {
-                    hiveHoneycombSection(hiveModel: hiveModel, synth: synth)
-                        .padding(.horizontal, 10)
-
-                    hiveLegendRow
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    replayControlsBar
                         .padding(.horizontal, 16)
+                        .padding(.top, 14)
 
-                    if let selId = selectedCellId,
-                       let selCell = hiveModel.cells.first(where: { $0.id == selId }) {
-                        selectedHiveCellCard(cell: selCell, hiveModel: hiveModel, synth: synth)
+                    if graphMode == .hive {
+                        hiveHoneycombSection(availW: hiveAvailW, hiveModel: hiveModel, synth: synth)
+                            .padding(.horizontal, 10)
+
+                        hiveLegendRow
+                            .padding(.horizontal, 16)
+
+                        if let selId = selectedCellId,
+                           let selCell = hiveModel.cells.first(where: { $0.id == selId }) {
+                            selectedHiveCellCard(cell: selCell, hiveModel: hiveModel, synth: synth)
+                                .padding(.horizontal, 16)
+                        }
+                    } else {
+                        mentionsFilterRow
+                            .padding(.horizontal, 16)
+
+                        graphCanvasCard
+                            .padding(.horizontal, 12)
+
+                        mentionsLegendRow
                             .padding(.horizontal, 16)
                     }
-                } else {
-                    mentionsFilterRow
-                        .padding(.horizontal, 16)
 
-                    graphCanvasCard
-                        .padding(.horizontal, 12)
-
-                    mentionsLegendRow
-                        .padding(.horizontal, 16)
+                    if let detailMsg = displayDetailMessage {
+                        detailCard(detailMsg)
+                            .padding(.horizontal, 16)
+                    }
                 }
-
-                if let detailMsg = displayDetailMessage {
-                    detailCard(detailMsg)
-                        .padding(.horizontal, 16)
-                }
+                .frame(width: rootGeo.size.width, alignment: .leading)
+                .padding(.bottom, 22)
             }
-            .padding(.bottom, 22)
+            .frame(width: rootGeo.size.width, height: rootGeo.size.height)
+            .background(SwarmTheme.bg)
         }
         .background(SwarmTheme.bg)
         .onAppear {
@@ -439,6 +446,7 @@ struct SwarmGraphTabView: View {
         let spriteW: CGFloat
         let spriteH: CGFloat
         let padRadius: CGFloat
+        let labelMaxW: CGFloat
         let showName: Bool
         let isQueen: Bool
     }
@@ -453,14 +461,73 @@ struct SwarmGraphTabView: View {
     }
 
     @ViewBuilder
-    private func hiveHoneycombSection(hiveModel: SwarmHiveMapModel, synth: SwarmSynthesizedModel) -> some View {
-        GeometryReader { outerGeo in
-            let availW = max(300, outerGeo.size.width)
-            let layout = computeHiveGeometry(availW: availW, zoom: hiveZoom, hiveModel: hiveModel)
+    private func hiveHoneycombSection(availW: CGFloat, hiveModel: SwarmHiveMapModel, synth: SwarmSynthesizedModel) -> some View {
+        let baseLayout = computeHiveGeometry(availW: availW, zoom: 1.0, hiveModel: hiveModel)
+        let layout = computeHiveGeometry(availW: availW, zoom: hiveZoom, hiveModel: hiveModel)
+        let needsInnerScroll = layout.canvasW > availW + 1.0 || hiveZoom > 1.01
+        let viewportH: CGFloat = needsInnerScroll
+            ? min(layout.canvasH, max(baseLayout.canvasH, 420))
+            : layout.canvasH
 
-            ZStack(alignment: .topTrailing) {
-                ScrollView(hiveZoom > 1.01 ? [.horizontal, .vertical] : [], showsIndicators: false) {
-                    ZStack(alignment: .topLeading) {
+        ZStack(alignment: .topTrailing) {
+            if needsInnerScroll {
+                ScrollView([.horizontal, .vertical], showsIndicators: false) {
+                    hiveCanvasContent(layout: layout, hiveModel: hiveModel)
+                }
+            } else {
+                hiveCanvasContent(layout: layout, hiveModel: hiveModel)
+            }
+
+            // Compact Zoom Pill (shown when zoomed in or when many cells shrink R)
+            if layout.maxZoom > 1.15 && (hiveZoom > 1.01 || layout.baseRadius < 68) {
+                HStack(spacing: 2) {
+                    Button(action: {
+                        withAnimation(.easeInOut(duration: 0.18)) {
+                            hiveZoom = max(1.0, hiveZoom / 1.35)
+                        }
+                    }) {
+                        Image(systemName: "minus")
+                            .font(.system(size: 11, weight: .semibold))
+                            .frame(width: 24, height: 24)
+                    }
+                    .disabled(hiveZoom <= 1.01)
+
+                    Button(action: {
+                        withAnimation(.easeInOut(duration: 0.18)) {
+                            hiveZoom = min(layout.maxZoom, hiveZoom * 1.35)
+                        }
+                    }) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 11, weight: .semibold))
+                            .frame(width: 24, height: 24)
+                    }
+                    .disabled(hiveZoom >= layout.maxZoom - 0.02)
+
+                    if hiveZoom > 1.01 {
+                        Button(action: {
+                            withAnimation(.easeInOut(duration: 0.18)) { hiveZoom = 1.0 }
+                        }) {
+                            Text("Fit")
+                                .font(.system(size: 10.5, weight: .semibold))
+                                .padding(.horizontal, 5)
+                                .frame(height: 24)
+                        }
+                    }
+                }
+                .foregroundColor(SwarmTheme.ink)
+                .padding(.horizontal, 4)
+                .background(SwarmTheme.surfaceBg.opacity(0.92))
+                .clipShape(Capsule())
+                .overlay(Capsule().stroke(SwarmTheme.border, lineWidth: 0.8))
+                .padding(6)
+            }
+        }
+        .frame(width: availW, height: viewportH, alignment: .topLeading)
+    }
+
+    @ViewBuilder
+    private func hiveCanvasContent(layout: ComputedHiveLayout, hiveModel: SwarmHiveMapModel) -> some View {
+        ZStack(alignment: .topLeading) {
                         // 1. Hexagonal cells, green task-done borders, message beams & waiting arrows
                         Canvas { ctx, _ in
                             let r = layout.radius
@@ -552,7 +619,7 @@ struct SwarmGraphTabView: View {
                                                 .foregroundColor(SwarmTheme.ink)
                                                 .multilineTextAlignment(.center)
                                                 .lineLimit(r >= 56 ? 2 : 1)
-                                                .frame(maxWidth: r * 1.32)
+                                                .frame(maxWidth: r * 1.24)
 
                                             Text(cell.countOnly.map { "\($0)" } ?? "\(cell.done)/\(cell.total)")
                                                 .font(.system(size: r >= 80 ? 10.5 : 9.5, design: .rounded))
@@ -623,7 +690,8 @@ struct SwarmGraphTabView: View {
                                                 .font(.system(size: layout.radius >= 80 ? 9.5 : 8.5))
                                                 .foregroundColor(SwarmTheme.muted)
                                                 .lineLimit(1)
-                                                .frame(maxWidth: bp.spriteW + 22)
+                                                .truncationMode(.tail)
+                                                .frame(maxWidth: bp.labelMaxW)
                                         }
                                     }
                                 }
@@ -633,64 +701,8 @@ struct SwarmGraphTabView: View {
                                 .animation(.spring(response: 0.45, dampingFraction: 0.82), value: bp.y)
                             }
                         }
-                    }
-                    .frame(width: layout.canvasW, height: layout.canvasH)
-                }
-
-                // Compact Zoom Pill (shown when zoomed in or when many cells shrink R)
-                if layout.maxZoom > 1.15 && (hiveZoom > 1.01 || layout.baseRadius < 68) {
-                    HStack(spacing: 2) {
-                        Button(action: {
-                            withAnimation(.easeInOut(duration: 0.18)) {
-                                hiveZoom = max(1.0, hiveZoom / 1.35)
-                            }
-                        }) {
-                            Image(systemName: "minus")
-                                .font(.system(size: 11, weight: .semibold))
-                                .frame(width: 24, height: 24)
-                        }
-                        .disabled(hiveZoom <= 1.01)
-
-                        Button(action: {
-                            withAnimation(.easeInOut(duration: 0.18)) {
-                                hiveZoom = min(layout.maxZoom, hiveZoom * 1.35)
-                            }
-                        }) {
-                            Image(systemName: "plus")
-                                .font(.system(size: 11, weight: .semibold))
-                                .frame(width: 24, height: 24)
-                        }
-                        .disabled(hiveZoom >= layout.maxZoom - 0.02)
-
-                        if hiveZoom > 1.01 {
-                            Button(action: {
-                                withAnimation(.easeInOut(duration: 0.18)) { hiveZoom = 1.0 }
-                            }) {
-                                Text("Fit")
-                                    .font(.system(size: 10.5, weight: .semibold))
-                                    .padding(.horizontal, 5)
-                                    .frame(height: 24)
-                            }
-                        }
-                    }
-                    .foregroundColor(SwarmTheme.ink)
-                    .padding(.horizontal, 4)
-                    .background(SwarmTheme.surfaceBg.opacity(0.92))
-                    .clipShape(Capsule())
-                    .overlay(Capsule().stroke(SwarmTheme.border, lineWidth: 0.8))
-                    .padding(6)
-                }
-            }
         }
-        .frame(height: estimatedHiveViewportHeight(cellCount: hiveModel.cells.count))
-    }
-
-    private func estimatedHiveViewportHeight(cellCount: Int) -> CGFloat {
-        if cellCount == 0 { return 220 }
-        if cellCount == 1 { return 290 }
-        if cellCount <= 3 { return 340 }
-        if cellCount <= 6 { return 375 }
-        return 390
+        .frame(width: layout.canvasW, height: layout.canvasH)
     }
 
     private struct ComputedHiveLayout {
@@ -714,9 +726,11 @@ struct SwarmGraphTabView: View {
         let minX = xs.min() ?? 0, maxX = xs.max() ?? 0
         let minY = ys.min() ?? 0, maxY = ys.max() ?? 0
         let spanX = max(2.0, (maxX - minX) + 2.0)
-        let spanY = max(2.0 * k, (maxY - minY) + 2.0 * k)
 
-        let fit = (availW - 4.0) / spanX
+        let padX: CGFloat = 8.0
+        let padY: CGFloat = 10.0
+
+        let fit = (availW - padX * 2.0) / spanX
         let gap: CGFloat = fit < 44 ? 3.5 : 5.5
         let rFit = max(18.0, min(104.0, fit - gap / 2.0))
         let maxZ = max(1.0, 104.0 / rFit)
@@ -724,10 +738,12 @@ struct SwarmGraphTabView: View {
         let r = min(104.0, rFit * clampedZoom)
         let stepG = r + gap / 2.0
 
-        let canvasW = max(availW, ceil(spanX * stepG + 8.0))
-        let canvasH = ceil(spanY * stepG + 14.0)
+        let contentW = (maxX - minX) * stepG + 2.0 * r
+        let contentH = (maxY - minY) * stepG + 2.0 * k * r
+        let canvasW = max(availW, ceil(contentW + padX * 2.0))
+        let canvasH = ceil(contentH + padY * 2.0)
         let ox = canvasW / 2.0 - ((maxX + minX) / 2.0) * stepG
-        let oy = 7.0 + k * r - minY * stepG
+        let oy = padY + k * r - minY * stepG
 
         var cellPlacements: [HiveCellPlacement] = []
         var beePlacements: [HiveBeePlacement] = []
@@ -752,6 +768,7 @@ struct SwarmGraphTabView: View {
             spriteW: queenW,
             spriteH: queenH,
             padRadius: queenW * 0.56,
+            labelMaxW: queenW,
             showName: false,
             isQueen: true
         ))
@@ -796,16 +813,31 @@ struct SwarmGraphTabView: View {
                 ? [Array(shown.prefix(perRow)), Array(shown.dropFirst(perRow))]
                 : [shown]
 
-            let horizStep = min(r >= 82 ? 50 : 34, (1.62 * r) / CGFloat(max(1, perRow)))
             let rowGap: CGFloat = showNames ? (r >= 82 ? 44 : 33) : 24
             let topLimit = cy - k * r + (r >= 82 ? 46 : 36)
             let botLimit = cy + k * r - (showNames ? 16 : 8)
             let baseY = (topLimit + botLimit) / 2.0 - CGFloat(rows.count - 1) * rowGap / 2.0
 
             for (ri, row) in rows.enumerated() {
+                let by = baseY + CGFloat(ri) * rowGap
+                let dyFromCenter = abs((by + (r >= 82 ? 14.0 : 12.0)) - cy)
+                let innerR = max(12.0, r - 4.0)
+                let hexHalfW = max(workerW * 0.6, innerR * (1.0 - 0.5 * min(1.0, dyFromCenter / max(1.0, k * innerR))))
+                let availRowW = hexHalfW * 2.0
+
+                let rowHorizStep: CGFloat
+                let labelMaxW: CGFloat
+                if row.count <= 1 {
+                    rowHorizStep = 0
+                    labelMaxW = min(r * 1.15, max(workerW + 8.0, availRowW - 6.0))
+                } else {
+                    let maxStepByHex = (availRowW - 4.0) / CGFloat(row.count)
+                    rowHorizStep = min(r >= 82 ? 62.0 : 52.0, max(workerW + 2.0, maxStepByHex))
+                    labelMaxW = max(workerW, rowHorizStep - 4.0)
+                }
+
                 for (ci, name) in row.enumerated() {
-                    let bx = cx + (CGFloat(ci) - CGFloat(row.count - 1) / 2.0) * horizStep
-                    let by = baseY + CGFloat(ri) * rowGap
+                    let bx = cx + (CGFloat(ci) - CGFloat(row.count - 1) / 2.0) * rowHorizStep
                     beePlacements.append(HiveBeePlacement(
                         name: name,
                         x: bx,
@@ -813,6 +845,7 @@ struct SwarmGraphTabView: View {
                         spriteW: workerW,
                         spriteH: workerH,
                         padRadius: workerW * 0.56,
+                        labelMaxW: labelMaxW,
                         showName: showNames,
                         isQueen: false
                     ))

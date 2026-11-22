@@ -616,6 +616,7 @@ private data class HiveBeePosAndroid(
     val spriteW: Float,
     val spriteH: Float,
     val padRadius: Float,
+    val labelMaxW: Float,
     val showName: Boolean,
     val isQueen: Boolean
 )
@@ -662,19 +663,10 @@ private fun HiveHoneycombSectionAndroid(
         label = "waitDash"
     )
 
-    val viewportHeight = when {
-        hiveModel.cells.isEmpty() -> 220.dp
-        hiveModel.cells.size == 1 -> 290.dp
-        hiveModel.cells.size <= 3 -> 340.dp
-        hiveModel.cells.size <= 6 -> 375.dp
-        else -> 390.dp
-    }
-
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 10.dp)
-            .height(viewportHeight)
     ) {
         val availWDp = maxWidth.value.coerceAtLeast(300f)
         val k = (sqrt(3.0) / 2.0).toFloat()
@@ -688,9 +680,11 @@ private fun HiveHoneycombSectionAndroid(
         val minY = ys.minOrNull() ?: 0f
         val maxY = ys.maxOrNull() ?: 0f
         val spanX = maxOf(2f, (maxX - minX) + 2f)
-        val spanY = maxOf(2f * k, (maxY - minY) + 2f * k)
 
-        val fit = (availWDp - 4f) / spanX
+        val padX = 8f
+        val padY = 10f
+
+        val fit = (availWDp - padX * 2f) / spanX
         val gap = if (fit < 44f) 3.5f else 5.5f
         val rFit = (fit - gap / 2f).coerceIn(18f, 104f)
         val maxZ = maxOf(1f, 104f / rFit)
@@ -698,10 +692,18 @@ private fun HiveHoneycombSectionAndroid(
         val rDp = minOf(104f, rFit * clampedZoom)
         val stepG = rDp + gap / 2f
 
-        val canvasWDp = maxOf(availWDp, ceil(spanX * stepG + 8f))
-        val canvasHDp = ceil(spanY * stepG + 14f)
+        val baseStepG = rFit + gap / 2f
+        val baseCanvasHDp = ceil((maxY - minY) * baseStepG + 2f * k * rFit + padY * 2f)
+
+        val contentWDp = (maxX - minX) * stepG + 2f * rDp
+        val contentHDp = (maxY - minY) * stepG + 2f * k * rDp
+        val canvasWDp = maxOf(availWDp, ceil(contentWDp + padX * 2f))
+        val canvasHDp = ceil(contentHDp + padY * 2f)
         val ox = canvasWDp / 2f - ((maxX + minX) / 2f) * stepG
-        val oy = 7f + k * rDp - minY * stepG
+        val oy = padY + k * rDp - minY * stepG
+
+        val needsInnerScroll = canvasWDp > availWDp + 1f || clampedZoom > 1.01f
+        val viewportHDp = if (needsInnerScroll) minOf(canvasHDp, maxOf(baseCanvasHDp, 420f)) else canvasHDp
 
         val cellPlacements = mutableListOf<HiveCellPosAndroid>()
         val beePlacements = mutableListOf<HiveBeePosAndroid>()
@@ -711,7 +713,7 @@ private fun HiveHoneycombSectionAndroid(
 
         val queenW = if (rDp >= 82f) 56f else if (rDp >= 52f) 42f else 26f
         val queenH = queenW * 18f / 22f
-        beePlacements.add(HiveBeePosAndroid("coordinator", ox, oy - (if (rDp >= 52f) rDp * 0.14f else 4f), queenW, queenH, queenW * 0.56f, false, true))
+        beePlacements.add(HiveBeePosAndroid("coordinator", ox, oy - (if (rDp >= 52f) rDp * 0.14f else 4f), queenW, queenH, queenW * 0.56f, queenW, false, true))
 
         val showNames = rDp >= 56f
         val workerW = if (rDp >= 82f) 38f else if (rDp >= 56f) 28f else 20f
@@ -737,26 +739,46 @@ private fun HiveHoneycombSectionAndroid(
             val perRow = if (rDp >= 56f) (1.7f * rDp / 38f).toInt().coerceIn(2, 3) else 2
             val shown = born.take(perRow * 2)
             val rows = if (shown.size > perRow) listOf(shown.take(perRow), shown.drop(perRow)) else listOf(shown)
-            val horizStep = minOf(if (rDp >= 82f) 50f else 34f, (1.62f * rDp) / maxOf(1, perRow))
             val rowGap = if (showNames) (if (rDp >= 82f) 44f else 33f) else 24f
             val topLim = cy - k * rDp + (if (rDp >= 82f) 46f else 36f)
             val botLim = cy + k * rDp - (if (showNames) 16f else 8f)
             val baseY = (topLim + botLim) / 2f - (rows.size - 1) * rowGap / 2f
 
             rows.forEachIndexed { ri, row ->
+                val by = baseY + ri * rowGap
+                val dyFromCenter = abs((by + (if (rDp >= 82f) 14f else 12f)) - cy)
+                val innerR = maxOf(12f, rDp - 4f)
+                val hexHalfW = maxOf(workerW * 0.6f, innerR * (1f - 0.5f * minOf(1f, dyFromCenter / maxOf(1f, k * innerR))))
+                val availRowW = hexHalfW * 2f
+
+                val rowHorizStep: Float
+                val labelMaxW: Float
+                if (row.size <= 1) {
+                    rowHorizStep = 0f
+                    labelMaxW = minOf(rDp * 1.15f, maxOf(workerW + 8f, availRowW - 6f))
+                } else {
+                    val maxStepByHex = (availRowW - 4f) / row.size.toFloat()
+                    rowHorizStep = minOf(if (rDp >= 82f) 62f else 52f, maxOf(workerW + 2f, maxStepByHex))
+                    labelMaxW = maxOf(workerW, rowHorizStep - 4f)
+                }
+
                 row.forEachIndexed { ci, name ->
-                    val bx = cx + (ci - (row.size - 1) / 2f) * horizStep
-                    val by = baseY + ri * rowGap
-                    beePlacements.add(HiveBeePosAndroid(name, bx, by, workerW, workerH, workerW * 0.56f, showNames, false))
+                    val bx = cx + (ci - (row.size - 1) / 2f) * rowHorizStep
+                    beePlacements.add(HiveBeePosAndroid(name, bx, by, workerW, workerH, workerW * 0.56f, labelMaxW, showNames, false))
                 }
             }
         }
         val beeMap = beePlacements.associateBy { it.name }
 
         val hScroll = rememberScrollState()
-        Box(modifier = Modifier.fillMaxSize()) {
+        val vScroll = rememberScrollState()
+        Box(modifier = Modifier.fillMaxWidth().height(viewportHDp.dp)) {
             Box(
-                modifier = if (clampedZoom > 1.01f) Modifier.fillMaxSize().horizontalScroll(hScroll) else Modifier.fillMaxSize()
+                modifier = if (needsInnerScroll) {
+                    Modifier.fillMaxSize().horizontalScroll(hScroll).verticalScroll(vScroll)
+                } else {
+                    Modifier.fillMaxSize()
+                }
             ) {
                 Box(modifier = Modifier.size(canvasWDp.dp, canvasHDp.dp)) {
                     val surfCol = SwarmColors.surfaceBg(isDark)
@@ -889,7 +911,7 @@ private fun HiveHoneycombSectionAndroid(
                                 if (rDp >= 38f) {
                                     Column(
                                         horizontalAlignment = Alignment.CenterHorizontally,
-                                        modifier = Modifier.padding(top = if (rDp >= 80f) 12.dp else 9.dp).widthIn(max = (rDp * 1.32f).dp)
+                                        modifier = Modifier.padding(top = if (rDp >= 80f) 12.dp else 9.dp).widthIn(max = (rDp * 1.24f).dp)
                                     ) {
                                         Text(
                                             text = cell.title,
@@ -938,7 +960,7 @@ private fun HiveHoneycombSectionAndroid(
                                 SwarmHiveBeeState.DONE -> SwarmColors.liveGreen(isDark)
                                 else -> null
                             }
-                            val boxW = bp.spriteW + 20f
+                            val boxW = maxOf(bp.spriteW, bp.labelMaxW)
                             Column(
                                 horizontalAlignment = Alignment.CenterHorizontally,
                                 modifier = Modifier

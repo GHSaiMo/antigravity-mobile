@@ -525,9 +525,12 @@ public final class ConversationListViewModel {
     @MainActor
     public func publishQuotaToWidget() {
         settings.syncWidgetConfiguration(reloadWidget: false)
+        let emailMasked = UserDefaults.standard.bool(forKey: "cockpit_email_masked")
         QuotaWidgetStore.shared.publishFromApp(
             response: quotaResponse,
             preferredBucket: settings.selectedQuotaBucket,
+            paceCursorEnabled: settings.weeklyPaceCursorEnabled,
+            isEmailMasked: emailMasked,
             isDemo: settings.isDemoMode
         )
     }

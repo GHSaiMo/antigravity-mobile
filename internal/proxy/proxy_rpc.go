@@ -1051,6 +1051,11 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 		}
 	}
 
+	if r.Header.Get("X-Widget-Lite") == "1" {
+		summaries = compactSummariesForWidget(summaries)
+		rawMap = map[string]json.RawMessage{}
+	}
+
 	rawMap["trajectorySummaries"], _ = json.Marshal(summaries)
 	respBytes, err := json.Marshal(rawMap)
 	if err != nil {
@@ -1062,6 +1067,56 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 	w.Header().Set("Content-Length", strconv.Itoa(len(respBytes)))
 	w.WriteHeader(http.StatusOK)
 	w.Write(respBytes)
+}
+
+// compactSummariesForWidget strips bulky step/metadata payloads and archived sessions
+// when serving iOS WidgetKit background fetches (30 MB Jetsam memory cap).
+func compactSummariesForWidget(summaries map[string]map[string]interface{}) map[string]map[string]interface{} {
+	lite := make(map[string]map[string]interface{}, len(summaries))
+	keepKeys := [...]string{
+		"summary",
+		"stepCount",
+		"lastModifiedTime",
+		"status",
+		"workspaceName",
+		"workspaces",
+		"needsInput",
+		"hasError",
+		"hasRunningTasks",
+		"runningTaskCount",
+		"hasRunningSubagents",
+		"notFullyIdle",
+		"backgroundTaskCount",
+	}
+	for id, s := range summaries {
+		if s == nil {
+			continue
+		}
+		if ann, ok := s["annotations"].(map[string]interface{}); ok {
+			if archived, _ := ann["archived"].(bool); archived {
+				continue
+			}
+		}
+		item := make(map[string]interface{}, 10)
+		for _, k := range keepKeys {
+			if v, exists := s[k]; exists {
+				item[k] = v
+			}
+		}
+		if ann, ok := s["annotations"].(map[string]interface{}); ok {
+			liteAnn := make(map[string]interface{}, 3)
+			for _, ak := range [...]string{"title", "markedAsUnread", "pinned"} {
+				if av, exists := ann[ak]; exists {
+					liteAnn[ak] = av
+				}
+			}
+			if len(liteAnn) > 0 {
+				item["annotations"] = liteAnn
+			}
+		}
+		lite[id] = item
+	}
+	return lite
 }
 
 // isTrajectorySnapshotFreshForSummary reports whether a cached GetCascadeTrajectory snapshot

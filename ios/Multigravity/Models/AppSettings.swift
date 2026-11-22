@@ -275,6 +275,7 @@ public final class AppSettings {
     public var weeklyPaceCursorEnabled: Bool {
         didSet {
             UserDefaults.standard.set(weeklyPaceCursorEnabled, forKey: weeklyPaceCursorKey)
+            syncWidgetConfiguration()
         }
     }
 
@@ -754,10 +755,14 @@ public final class AppSettings {
         }
 
         let preferClaude = (selectedQuotaBucket == .claude5h || selectedQuotaBucket == .claudeWeekly)
+        let isEmailMasked = UserDefaults.standard.bool(forKey: "cockpit_email_masked")
         let config = QuotaWidgetEndpointConfig(
             candidateBaseURLs: urls,
             deviceToken: isDemoMode ? nil : deviceToken,
             preferClaude: preferClaude,
+            selectedBucketRaw: selectedQuotaBucket.rawValue,
+            paceCursorEnabled: weeklyPaceCursorEnabled,
+            isEmailMasked: isEmailMasked,
             isDemoMode: isDemoMode,
             isPaired: isPaired
         )

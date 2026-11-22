@@ -296,7 +296,10 @@ public struct AccountQuotaSheet: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     if selectedTab == 0 {
-                        Button(action: { isMasked.toggle() }) {
+                        Button(action: {
+                            isMasked.toggle()
+                            AppSettings.shared.syncWidgetConfiguration()
+                        }) {
                             Image(systemName: isMasked ? "eye.slash.fill" : "eye.slash")
                                 .font(.system(size: 15, weight: .medium))
                                 .foregroundColor(isMasked ? .blue : .secondary)

@@ -1,5 +1,6 @@
 import AppIntents
 import Foundation
+import os
 import WidgetKit
 
 // MARK: - Shared Constants
@@ -20,13 +21,16 @@ nonisolated public enum QuotaWidgetConstants {
     }
 }
 
-// MARK: - Widget Configuration Intent (Long-Press "Edit Widget")
+// MARK: - Widget Configuration Intent (Extension-Only to prevent cross-process appintentsd stalls)
 
-nonisolated public enum QuotaWidgetProviderPreference: String, AppEnum, Sendable, CaseIterable {
+nonisolated public enum QuotaWidgetProviderPreference: String, Sendable, CaseIterable {
     case followApp = "follow_app"
     case gemini = "gemini"
     case claude = "claude"
+}
 
+#if ACTIVITY_EXTENSION
+extension QuotaWidgetProviderPreference: AppEnum {
     public static let typeDisplayRepresentation: TypeDisplayRepresentation = "监控模型"
 
     public static let caseDisplayRepresentations: [QuotaWidgetProviderPreference: DisplayRepresentation] = [
@@ -36,23 +40,27 @@ nonisolated public enum QuotaWidgetProviderPreference: String, AppEnum, Sendable
     ]
 }
 
-public struct QuotaWidgetConfigurationIntent: WidgetConfigurationIntent {
+nonisolated public struct QuotaWidgetConfigurationIntent: WidgetConfigurationIntent {
     public static let title: LocalizedStringResource = "额度监控设置"
     public static let description = IntentDescription("选择小组件优先展示的模型额度。")
 
     @Parameter(title: "监控模型", default: .followApp)
     public var provider: QuotaWidgetProviderPreference
 
-    public init() {}
+    public init() {
+        self.provider = .followApp
+    }
 
     public init(provider: QuotaWidgetProviderPreference) {
         self.provider = provider
     }
 }
+#endif
 
 // MARK: - Shared Quota Snapshot Models
 
 nonisolated public struct QuotaWidgetPaceSummary: Hashable, Sendable {
+    public let expectedRemainingPercent: Double
     public let deltaPercent: Double
     public let isOver: Bool
     public let isNormal: Bool
@@ -94,9 +102,10 @@ nonisolated public struct QuotaWidgetBucketSnapshot: Codable, Hashable, Sendable
         let expectedRemaining = min(100.0, max(0.0, (remainingSeconds / totalSeconds) * 100.0))
         let delta = remainingPercent - expectedRemaining
         return QuotaWidgetPaceSummary(
+            expectedRemainingPercent: expectedRemaining,
             deltaPercent: delta,
-            isOver: delta < -2.0,
-            isNormal: abs(delta) <= 2.0
+            isOver: delta < -1.0,
+            isNormal: abs(delta) <= 1.0
         )
     }
 }
@@ -106,13 +115,34 @@ nonisolated public struct ResolvedProviderQuota: Hashable, Sendable {
     public let isClaude: Bool
     public let shortWindow: QuotaWidgetBucketSnapshot?
     public let weeklyWindow: QuotaWidgetBucketSnapshot?
+    public let preferWeekly: Bool
+
+    public init(
+        providerTitle: String,
+        isClaude: Bool,
+        shortWindow: QuotaWidgetBucketSnapshot?,
+        weeklyWindow: QuotaWidgetBucketSnapshot?,
+        preferWeekly: Bool = false
+    ) {
+        self.providerTitle = providerTitle
+        self.isClaude = isClaude
+        self.shortWindow = shortWindow
+        self.weeklyWindow = weeklyWindow
+        self.preferWeekly = preferWeekly
+    }
 
     public var primaryWindow: QuotaWidgetBucketSnapshot? {
-        shortWindow ?? weeklyWindow
+        if preferWeekly {
+            return weeklyWindow ?? shortWindow
+        }
+        return shortWindow ?? weeklyWindow
     }
 
     public var primaryWindowTag: String {
-        shortWindow != nil ? "5h" : "7d"
+        if preferWeekly && weeklyWindow != nil {
+            return "7d"
+        }
+        return shortWindow != nil ? "5h" : "7d"
     }
 }
 
@@ -129,6 +159,9 @@ nonisolated public struct QuotaWidgetSnapshot: Codable, Hashable, Sendable {
     public let geminiWeekly: QuotaWidgetBucketSnapshot?
     public let claudeShort: QuotaWidgetBucketSnapshot?
     public let claudeWeekly: QuotaWidgetBucketSnapshot?
+    public let selectedBucketRaw: String?
+    public let paceCursorEnabled: Bool
+    public let isEmailMasked: Bool
     public let syncedAt: Date
 
     public init(
@@ -144,6 +177,9 @@ nonisolated public struct QuotaWidgetSnapshot: Codable, Hashable, Sendable {
         geminiWeekly: QuotaWidgetBucketSnapshot? = nil,
         claudeShort: QuotaWidgetBucketSnapshot? = nil,
         claudeWeekly: QuotaWidgetBucketSnapshot? = nil,
+        selectedBucketRaw: String? = nil,
+        paceCursorEnabled: Bool = true,
+        isEmailMasked: Bool = false,
         syncedAt: Date
     ) {
         self.providerTitle = providerTitle
@@ -158,6 +194,9 @@ nonisolated public struct QuotaWidgetSnapshot: Codable, Hashable, Sendable {
         self.geminiWeekly = geminiWeekly ?? (!isClaude ? weeklyWindow : nil)
         self.claudeShort = claudeShort ?? (isClaude ? shortWindow : nil)
         self.claudeWeekly = claudeWeekly ?? (isClaude ? weeklyWindow : nil)
+        self.selectedBucketRaw = selectedBucketRaw
+        self.paceCursorEnabled = paceCursorEnabled
+        self.isEmailMasked = isEmailMasked
         self.syncedAt = syncedAt
     }
 
@@ -165,6 +204,7 @@ nonisolated public struct QuotaWidgetSnapshot: Codable, Hashable, Sendable {
         case providerTitle, isClaude, accountLabel, subscriptionTier, isFreeTier, isDemo
         case shortWindow, weeklyWindow
         case geminiShort, geminiWeekly, claudeShort, claudeWeekly
+        case selectedBucketRaw, paceCursorEnabled, isEmailMasked
         case syncedAt
     }
 
@@ -182,6 +222,9 @@ nonisolated public struct QuotaWidgetSnapshot: Codable, Hashable, Sendable {
         let geminiWeekly = try c.decodeIfPresent(QuotaWidgetBucketSnapshot.self, forKey: .geminiWeekly)
         let claudeShort = try c.decodeIfPresent(QuotaWidgetBucketSnapshot.self, forKey: .claudeShort)
         let claudeWeekly = try c.decodeIfPresent(QuotaWidgetBucketSnapshot.self, forKey: .claudeWeekly)
+        let selectedBucketRaw = try c.decodeIfPresent(String.self, forKey: .selectedBucketRaw)
+        let paceCursorEnabled = try c.decodeIfPresent(Bool.self, forKey: .paceCursorEnabled) ?? true
+        let isEmailMasked = try c.decodeIfPresent(Bool.self, forKey: .isEmailMasked) ?? false
         let syncedAt = try c.decode(Date.self, forKey: .syncedAt)
 
         self.init(
@@ -197,6 +240,35 @@ nonisolated public struct QuotaWidgetSnapshot: Codable, Hashable, Sendable {
             geminiWeekly: geminiWeekly,
             claudeShort: claudeShort,
             claudeWeekly: claudeWeekly,
+            selectedBucketRaw: selectedBucketRaw,
+            paceCursorEnabled: paceCursorEnabled,
+            isEmailMasked: isEmailMasked,
+            syncedAt: syncedAt
+        )
+    }
+
+    /// Applies the latest app-side display preferences (`selectedBucketRaw`, `paceCursorEnabled`, `isEmailMasked`)
+    /// from `QuotaWidgetEndpointConfig` so toggling settings in the app immediately updates cached timelines.
+    public func applying(config: QuotaWidgetEndpointConfig?) -> QuotaWidgetSnapshot {
+        guard let config else { return self }
+        let nextBucket = config.selectedBucketRaw ?? selectedBucketRaw
+        let nextClaude = config.preferClaude
+        return QuotaWidgetSnapshot(
+            providerTitle: nextClaude ? "Claude" : "Gemini",
+            isClaude: nextClaude,
+            accountLabel: accountLabel,
+            subscriptionTier: subscriptionTier,
+            isFreeTier: isFreeTier,
+            isDemo: isDemo,
+            shortWindow: nextClaude ? (claudeShort ?? geminiShort) : (geminiShort ?? claudeShort),
+            weeklyWindow: nextClaude ? (claudeWeekly ?? geminiWeekly) : (geminiWeekly ?? claudeWeekly),
+            geminiShort: geminiShort,
+            geminiWeekly: geminiWeekly,
+            claudeShort: claudeShort,
+            claudeWeekly: claudeWeekly,
+            selectedBucketRaw: nextBucket,
+            paceCursorEnabled: config.paceCursorEnabled,
+            isEmailMasked: config.isEmailMasked,
             syncedAt: syncedAt
         )
     }
@@ -209,13 +281,39 @@ nonisolated public struct QuotaWidgetSnapshot: Codable, Hashable, Sendable {
         shortWindow != nil ? "5h" : "7d"
     }
 
+    private var prefersWeeklyInApp: Bool {
+        selectedBucketRaw?.hasSuffix("_weekly") == true
+    }
+
+    /// Resolves the effective highlighted bucket key matching `AccountQuotaSheet`'s selection logic.
+    public var resolvedSelectedBucketRaw: String? {
+        let preferred = selectedBucketRaw ?? (isClaude ? "claude_5h" : "gemini_5h")
+        let hasBucket: (String) -> Bool = { key in
+            switch key {
+            case "gemini_5h": return !isFreeTier && geminiShort != nil
+            case "gemini_weekly": return geminiWeekly != nil
+            case "claude_5h": return !isFreeTier && claudeShort != nil
+            case "claude_weekly": return claudeWeekly != nil
+            default: return false
+            }
+        }
+        if hasBucket(preferred) {
+            return preferred
+        }
+        let fallbackOrder = isFreeTier
+            ? ["gemini_weekly", "claude_weekly"]
+            : ["gemini_5h", "gemini_weekly", "claude_5h", "claude_weekly"]
+        return fallbackOrder.first(where: hasBucket)
+    }
+
     public var geminiBundle: ResolvedProviderQuota? {
         guard geminiShort != nil || geminiWeekly != nil else { return nil }
         return ResolvedProviderQuota(
             providerTitle: "Gemini",
             isClaude: false,
             shortWindow: geminiShort,
-            weeklyWindow: geminiWeekly
+            weeklyWindow: geminiWeekly,
+            preferWeekly: selectedBucketRaw == "gemini_weekly"
         )
     }
 
@@ -225,7 +323,8 @@ nonisolated public struct QuotaWidgetSnapshot: Codable, Hashable, Sendable {
             providerTitle: "Claude",
             isClaude: true,
             shortWindow: claudeShort,
-            weeklyWindow: claudeWeekly
+            weeklyWindow: claudeWeekly,
+            preferWeekly: selectedBucketRaw == "claude_weekly"
         )
     }
 
@@ -247,6 +346,9 @@ nonisolated public struct QuotaWidgetSnapshot: Codable, Hashable, Sendable {
     public var displayAccountTitle: String {
         let trimmed = accountLabel.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty { return "Multigravity" }
+        if isEmailMasked, trimmed.contains("@") {
+            return Self.maskEmail(trimmed)
+        }
         if trimmed.count > 22, let atIdx = trimmed.firstIndex(of: "@") {
             let prefix = String(trimmed[..<atIdx])
             if !prefix.isEmpty { return prefix }
@@ -254,13 +356,53 @@ nonisolated public struct QuotaWidgetSnapshot: Codable, Hashable, Sendable {
         return trimmed
     }
 
+    private static func maskEmail(_ email: String) -> String {
+        let parts = email.split(separator: "@", maxSplits: 1, omittingEmptySubsequences: false)
+        guard parts.count == 2 else { return email }
+        let local = String(parts[0])
+        let domain = String(parts[1])
+
+        func maskPart(_ str: String) -> String {
+            let chars = Array(str)
+            guard !chars.isEmpty else { return "" }
+            if chars.count == 1 { return String(chars[0]) + "*" }
+            if chars.count == 2 { return String(chars[0]) + "*" + String(chars[1]) }
+            return String(chars[0]) + String(repeating: "*", count: chars.count - 2) + String(chars[chars.count - 1])
+        }
+
+        if let dotIdx = domain.lastIndex(of: ".") {
+            let domainName = String(domain[..<dotIdx])
+            let domainExt = String(domain[dotIdx...])
+            return "\(maskPart(local))@\(maskPart(domainName))\(domainExt)"
+        }
+        return "\(maskPart(local))@\(maskPart(domain))"
+    }
+
     /// Resolves which single provider to display given the user's per-widget configuration.
     public func resolvedProvider(for preference: QuotaWidgetProviderPreference) -> ResolvedProviderQuota? {
         switch preference {
         case .gemini:
-            return geminiBundle ?? claudeBundle
+            if let g = geminiBundle {
+                return ResolvedProviderQuota(
+                    providerTitle: g.providerTitle,
+                    isClaude: false,
+                    shortWindow: g.shortWindow,
+                    weeklyWindow: g.weeklyWindow,
+                    preferWeekly: false
+                )
+            }
+            return claudeBundle
         case .claude:
-            return claudeBundle ?? geminiBundle
+            if let c = claudeBundle {
+                return ResolvedProviderQuota(
+                    providerTitle: c.providerTitle,
+                    isClaude: true,
+                    shortWindow: c.shortWindow,
+                    weeklyWindow: c.weeklyWindow,
+                    preferWeekly: false
+                )
+            }
+            return geminiBundle
         case .followApp:
             if isClaude {
                 return claudeBundle ?? geminiBundle
@@ -271,30 +413,30 @@ nonisolated public struct QuotaWidgetSnapshot: Codable, Hashable, Sendable {
 
     public static func demoPlaceholder(now: Date = Date()) -> QuotaWidgetSnapshot {
         let gShort = QuotaWidgetBucketSnapshot(
-            remainingPercent: 78,
+            remainingPercent: 78.4,
             resetAt: now.addingTimeInterval(2 * 3600 + 14 * 60),
             resetFriendly: "2h 14m"
         )
         let gWeekly = QuotaWidgetBucketSnapshot(
-            remainingPercent: 64,
-            resetAt: now.addingTimeInterval(4 * 86400),
-            resetFriendly: "4d"
+            remainingPercent: 86.2,
+            resetAt: now.addingTimeInterval(5 * 86400 + 11 * 3600),
+            resetFriendly: "5d 11h"
         )
         let cShort = QuotaWidgetBucketSnapshot(
-            remainingPercent: 62,
+            remainingPercent: 62.5,
             resetAt: now.addingTimeInterval(3 * 3600 + 40 * 60),
             resetFriendly: "3h 40m"
         )
         let cWeekly = QuotaWidgetBucketSnapshot(
-            remainingPercent: 81,
-            resetAt: now.addingTimeInterval(5 * 86400),
-            resetFriendly: "5d"
+            remainingPercent: 91.0,
+            resetAt: now.addingTimeInterval(6 * 86400 + 4 * 3600),
+            resetFriendly: "6d 4h"
         )
         return QuotaWidgetSnapshot(
             providerTitle: "Gemini",
             isClaude: false,
             accountLabel: "Demo",
-            subscriptionTier: "PRO",
+            subscriptionTier: "ULTRA",
             isFreeTier: false,
             isDemo: true,
             shortWindow: gShort,
@@ -303,6 +445,9 @@ nonisolated public struct QuotaWidgetSnapshot: Codable, Hashable, Sendable {
             geminiWeekly: gWeekly,
             claudeShort: cShort,
             claudeWeekly: cWeekly,
+            selectedBucketRaw: "gemini_5h",
+            paceCursorEnabled: true,
+            isEmailMasked: false,
             syncedAt: now
         )
     }
@@ -411,6 +556,28 @@ nonisolated public struct AgentConversationsWidgetSnapshot: Codable, Hashable, S
             && isDemo == other.isDemo
     }
 
+    /// Compares visible conversation structure & status while ignoring per-step `stepCount` / `lastModified` ticks,
+    /// preventing WidgetKit `reloadTimelines` storms during multi-step Agent execution.
+    public func isStructurallyEqual(to other: AgentConversationsWidgetSnapshot) -> Bool {
+        guard runningCount == other.runningCount,
+              pendingActionCount == other.pendingActionCount,
+              isDemo == other.isDemo,
+              items.count == other.items.count else {
+            return false
+        }
+        for (lhs, rhs) in zip(items, other.items) {
+            if lhs.id != rhs.id
+                || lhs.title != rhs.title
+                || lhs.workspaceName != rhs.workspaceName
+                || lhs.status != rhs.status
+                || lhs.isUnread != rhs.isUnread
+                || lhs.hasRunningTasks != rhs.hasRunningTasks {
+                return false
+            }
+        }
+        return true
+    }
+
     public static func demoPlaceholder(now: Date = Date()) -> AgentConversationsWidgetSnapshot {
         let demoItems: [AgentWidgetConversationItem] = [
             AgentWidgetConversationItem(
@@ -486,6 +653,9 @@ nonisolated public struct QuotaWidgetEndpointConfig: Codable, Sendable {
     public let candidateBaseURLs: [String]
     public let deviceToken: String?
     public let preferClaude: Bool
+    public let selectedBucketRaw: String?
+    public let paceCursorEnabled: Bool
+    public let isEmailMasked: Bool
     public let isDemoMode: Bool
     public let isPaired: Bool
     public let updatedAt: Date
@@ -494,6 +664,9 @@ nonisolated public struct QuotaWidgetEndpointConfig: Codable, Sendable {
         candidateBaseURLs: [String],
         deviceToken: String?,
         preferClaude: Bool,
+        selectedBucketRaw: String? = nil,
+        paceCursorEnabled: Bool = true,
+        isEmailMasked: Bool = false,
         isDemoMode: Bool,
         isPaired: Bool,
         updatedAt: Date = Date()
@@ -501,9 +674,31 @@ nonisolated public struct QuotaWidgetEndpointConfig: Codable, Sendable {
         self.candidateBaseURLs = candidateBaseURLs
         self.deviceToken = deviceToken
         self.preferClaude = preferClaude
+        self.selectedBucketRaw = selectedBucketRaw
+        self.paceCursorEnabled = paceCursorEnabled
+        self.isEmailMasked = isEmailMasked
         self.isDemoMode = isDemoMode
         self.isPaired = isPaired
         self.updatedAt = updatedAt
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case candidateBaseURLs, deviceToken, preferClaude
+        case selectedBucketRaw, paceCursorEnabled, isEmailMasked
+        case isDemoMode, isPaired, updatedAt
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        candidateBaseURLs = try c.decode([String].self, forKey: .candidateBaseURLs)
+        deviceToken = try c.decodeIfPresent(String.self, forKey: .deviceToken)
+        preferClaude = try c.decodeIfPresent(Bool.self, forKey: .preferClaude) ?? false
+        selectedBucketRaw = try c.decodeIfPresent(String.self, forKey: .selectedBucketRaw)
+        paceCursorEnabled = try c.decodeIfPresent(Bool.self, forKey: .paceCursorEnabled) ?? true
+        isEmailMasked = try c.decodeIfPresent(Bool.self, forKey: .isEmailMasked) ?? false
+        isDemoMode = try c.decodeIfPresent(Bool.self, forKey: .isDemoMode) ?? false
+        isPaired = try c.decodeIfPresent(Bool.self, forKey: .isPaired) ?? false
+        updatedAt = try c.decodeIfPresent(Date.self, forKey: .updatedAt) ?? Date()
     }
 }
 
@@ -648,6 +843,8 @@ nonisolated private struct TrajectoryWireMetadata: Decodable, Sendable {
 nonisolated public final class QuotaWidgetStore: Sendable {
     public static let shared = QuotaWidgetStore()
 
+    private let lastConversationsReloadLock = OSAllocatedUnfairLock<Date?>(initialState: nil)
+
     private init() {}
 
     private var containerURL: URL? {
@@ -784,7 +981,11 @@ nonisolated public final class QuotaWidgetStore: Sendable {
 
     // MARK: Background Network Fetchers (Widget Extension)
 
+    /// Max raw response size (2.5 MB) decoded inside `ActivityExtension` to stay safely below iOS's ~30 MB Jetsam ceiling.
+    private static let maxExtensionPayloadBytes = 2_500_000
+
     /// Lightweight background quota fetch used by WidgetKit timelines inside `ActivityExtension`.
+    /// Races all candidate URLs concurrently with a short 3.2s ceiling so unreachable LAN/tunnel URLs never stall WidgetKit.
     public func fetchLatestQuotaFromGateway() async -> QuotaWidgetSnapshot? {
         guard let config = loadConfig() else {
             return nil
@@ -794,45 +995,61 @@ nonisolated public final class QuotaWidgetStore: Sendable {
             saveSnapshot(demo)
             return demo
         }
-        guard config.isPaired, !config.candidateBaseURLs.isEmpty else {
+        let validURLs = config.candidateBaseURLs.compactMap { URL(string: $0) }
+        guard config.isPaired, !validURLs.isEmpty else {
             return nil
         }
 
         let sessionConfig = URLSessionConfiguration.ephemeral
-        sessionConfig.timeoutIntervalForRequest = 6
-        sessionConfig.timeoutIntervalForResource = 8
+        sessionConfig.timeoutIntervalForRequest = 2.8
+        sessionConfig.timeoutIntervalForResource = 3.2
         sessionConfig.waitsForConnectivity = false
         let session = URLSession(configuration: sessionConfig)
         defer { session.invalidateAndCancel() }
 
-        for rawBase in config.candidateBaseURLs {
-            guard let baseURL = URL(string: rawBase) else { continue }
-            let endpoint = baseURL.appendingPathComponent("api/v1/cockpit/quotas")
-            var req = URLRequest(url: endpoint)
-            req.httpMethod = "GET"
-            req.timeoutInterval = 6
-            if let token = config.deviceToken, !token.isEmpty {
-                req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        let token = config.deviceToken
+        let winner: QuotaWidgetSnapshot? = await withTaskGroup(of: QuotaWidgetSnapshot?.self) { group in
+            for baseURL in validURLs {
+                group.addTask {
+                    let endpoint = baseURL.appendingPathComponent("api/v1/cockpit/quotas")
+                    var req = URLRequest(url: endpoint)
+                    req.httpMethod = "GET"
+                    req.timeoutInterval = 2.8
+                    if let token, !token.isEmpty {
+                        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+                    }
+                    do {
+                        let (data, response) = try await session.data(for: req)
+                        guard let http = response as? HTTPURLResponse,
+                              (200...299).contains(http.statusCode),
+                              data.count <= Self.maxExtensionPayloadBytes else {
+                            return nil
+                        }
+                        let wire = try JSONDecoder().decode(QuotaWireResponse.self, from: data)
+                        return Self.buildSnapshot(from: wire, config: config, isDemo: false)
+                    } catch {
+                        return nil
+                    }
+                }
             }
 
-            do {
-                let (data, response) = try await session.data(for: req)
-                guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
-                    continue
-                }
-                let wire = try JSONDecoder().decode(QuotaWireResponse.self, from: data)
-                if let snap = Self.buildSnapshot(from: wire, preferClaude: config.preferClaude, isDemo: false) {
-                    saveSnapshot(snap)
+            for await candidate in group {
+                if let snap = candidate {
+                    group.cancelAll()
                     return snap
                 }
-            } catch {
-                continue
             }
+            return nil
         }
-        return nil
+
+        if let winner {
+            saveSnapshot(winner)
+        }
+        return winner
     }
 
     /// Lightweight background conversations fetch used by WidgetKit timelines inside `ActivityExtension`.
+    /// Sends `X-Widget-Lite: 1` and races candidate URLs concurrently within 3.2s to avoid timeouts & 30 MB Jetsam kills.
     public func fetchLatestConversationsFromGateway() async -> AgentConversationsWidgetSnapshot? {
         guard let config = loadConfig() else {
             return nil
@@ -842,47 +1059,69 @@ nonisolated public final class QuotaWidgetStore: Sendable {
             saveConversationsSnapshot(demo)
             return demo
         }
-        guard config.isPaired, !config.candidateBaseURLs.isEmpty else {
+        let validURLs = config.candidateBaseURLs.compactMap { URL(string: $0) }
+        guard config.isPaired, !validURLs.isEmpty else {
             return nil
         }
 
         let sessionConfig = URLSessionConfiguration.ephemeral
-        sessionConfig.timeoutIntervalForRequest = 6
-        sessionConfig.timeoutIntervalForResource = 8
+        sessionConfig.timeoutIntervalForRequest = 2.8
+        sessionConfig.timeoutIntervalForResource = 3.2
         sessionConfig.waitsForConnectivity = false
         let session = URLSession(configuration: sessionConfig)
         defer { session.invalidateAndCancel() }
 
-        for rawBase in config.candidateBaseURLs {
-            guard let baseURL = URL(string: rawBase) else { continue }
-            let endpoint = baseURL.appendingPathComponent("api/exa.language_server_pb.LanguageServerService/GetAllCascadeTrajectories")
-            var req = URLRequest(url: endpoint)
-            req.httpMethod = "POST"
-            req.timeoutInterval = 6
-            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            req.setValue("1", forHTTPHeaderField: "Connect-Protocol-Version")
-            if let token = config.deviceToken, !token.isEmpty {
-                req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-            }
-            req.httpBody = Data("{}".utf8)
+        let token = config.deviceToken
+        let winner: AgentConversationsWidgetSnapshot? = await withTaskGroup(of: AgentConversationsWidgetSnapshot?.self) { group in
+            for baseURL in validURLs {
+                group.addTask {
+                    let endpoint = baseURL.appendingPathComponent("api/exa.language_server_pb.LanguageServerService/GetAllCascadeTrajectories")
+                    var req = URLRequest(url: endpoint)
+                    req.httpMethod = "POST"
+                    req.timeoutInterval = 2.8
+                    req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                    req.setValue("1", forHTTPHeaderField: "Connect-Protocol-Version")
+                    req.setValue("1", forHTTPHeaderField: "X-Widget-Lite")
+                    if let token, !token.isEmpty {
+                        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+                    }
+                    req.httpBody = Data("{}".utf8)
 
-            do {
-                let (data, response) = try await session.data(for: req)
-                guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
-                    continue
+                    do {
+                        let (data, response) = try await session.data(for: req)
+                        guard let http = response as? HTTPURLResponse,
+                              (200...299).contains(http.statusCode),
+                              data.count <= Self.maxExtensionPayloadBytes else {
+                            return nil
+                        }
+                        let wire = try JSONDecoder().decode(TrajectoriesWireResponse.self, from: data)
+                        return Self.buildConversationsSnapshot(from: wire, isDemo: false)
+                    } catch {
+                        return nil
+                    }
                 }
-                let wire = try JSONDecoder().decode(TrajectoriesWireResponse.self, from: data)
-                let snap = Self.buildConversationsSnapshot(from: wire, isDemo: false)
-                saveConversationsSnapshot(snap)
-                return snap
-            } catch {
-                continue
             }
+
+            for await candidate in group {
+                if let snap = candidate {
+                    group.cancelAll()
+                    return snap
+                }
+            }
+            return nil
         }
-        return nil
+
+        if let winner {
+            saveConversationsSnapshot(winner)
+        }
+        return winner
     }
 
-    private static func buildSnapshot(from wire: QuotaWireResponse, preferClaude: Bool, isDemo: Bool) -> QuotaWidgetSnapshot? {
+    private static func buildSnapshot(
+        from wire: QuotaWireResponse,
+        config: QuotaWidgetEndpointConfig,
+        isDemo: Bool
+    ) -> QuotaWidgetSnapshot? {
         guard let acc = wire.currentAccount else { return nil }
         let isFree = acc.subscriptionTier?.trimmingCharacters(in: .whitespacesAndNewlines).uppercased() == "FREE"
             || (acc.gemini5h == nil && acc.claude5h == nil)
@@ -920,7 +1159,7 @@ nonisolated public final class QuotaWidgetStore: Sendable {
         let hasGemini = gShort != nil || gWeekly != nil
         guard hasClaude || hasGemini else { return nil }
 
-        let useClaude = preferClaude ? hasClaude : !hasGemini && hasClaude
+        let useClaude = config.preferClaude ? hasClaude : !hasGemini && hasClaude
         let shortSnap = useClaude ? cShort : gShort
         let weeklySnap = useClaude ? cWeekly : gWeekly
 
@@ -941,6 +1180,9 @@ nonisolated public final class QuotaWidgetStore: Sendable {
             geminiWeekly: gWeekly,
             claudeShort: cShort,
             claudeWeekly: cWeekly,
+            selectedBucketRaw: config.selectedBucketRaw,
+            paceCursorEnabled: config.paceCursorEnabled,
+            isEmailMasked: config.isEmailMasked,
             syncedAt: Date()
         )
     }
@@ -1069,7 +1311,13 @@ nonisolated public final class QuotaWidgetStore: Sendable {
 
     #if !ACTIVITY_EXTENSION
     /// Converts a main-app `CockpitQuotaResponse` directly into a shared widget snapshot and triggers reload.
-    public func publishFromApp(response: CockpitQuotaResponse?, preferredBucket: QuotaBucketKind, isDemo: Bool) {
+    public func publishFromApp(
+        response: CockpitQuotaResponse?,
+        preferredBucket: QuotaBucketKind,
+        paceCursorEnabled: Bool = true,
+        isEmailMasked: Bool = false,
+        isDemo: Bool
+    ) {
         guard let acc = response?.currentAccount else { return }
 
         let gShort = acc.gemini5h.map {
@@ -1128,6 +1376,9 @@ nonisolated public final class QuotaWidgetStore: Sendable {
             geminiWeekly: gWeekly,
             claudeShort: cShort,
             claudeWeekly: cWeekly,
+            selectedBucketRaw: preferredBucket.rawValue,
+            paceCursorEnabled: paceCursorEnabled,
+            isEmailMasked: isEmailMasked,
             syncedAt: Date()
         )
         saveSnapshot(snap)
@@ -1171,19 +1422,32 @@ nonisolated public final class QuotaWidgetStore: Sendable {
         let now = Date()
         let nextSnap = Self.finalizeConversationsSnapshot(mapped, isDemo: false, now: now)
         let prev = loadConversationsSnapshot()
-        let unchanged = prev.map { $0.isSemanticallyEqual(to: nextSnap) } ?? false
-        let recentlySynced = prev.map { now.timeIntervalSince($0.syncedAt) < 180 } ?? false
+        let structurallyUnchanged = prev.map { $0.isStructurallyEqual(to: nextSnap) } ?? false
 
         saveConversationsSnapshot(nextSnap)
-        if !unchanged || !recentlySynced {
+
+        let shouldReload = lastConversationsReloadLock.withLock { lastReload -> Bool in
+            let elapsed = lastReload.map { now.timeIntervalSince($0) } ?? .greatestFiniteMagnitude
+            if !structurallyUnchanged && elapsed >= 6 {
+                lastReload = now
+                return true
+            }
+            if elapsed >= 120 {
+                lastReload = now
+                return true
+            }
+            return false
+        }
+        if shouldReload {
             reloadWidgetTimelines()
         }
     }
     #endif
 }
 
-// MARK: - Interactive Widget Refresh Intents (Tap-to-Refresh without opening App)
+// MARK: - Interactive Widget Refresh Intents (Extension-Only so taps execute directly inside ActivityExtension)
 
+#if ACTIVITY_EXTENSION
 nonisolated public struct RefreshQuotaWidgetIntent: AppIntent {
     public static let title: LocalizedStringResource = "刷新额度"
     public static let description = IntentDescription("从本地 Multigravity 网关拉取最新 5 小时与 7 天额度。")
@@ -1192,42 +1456,10 @@ nonisolated public struct RefreshQuotaWidgetIntent: AppIntent {
     public init() {}
 
     public func perform() async throws -> some IntentResult {
-        #if !ACTIVITY_EXTENSION
-        let (isPaired, isDemo, serverURL, preferredBucket) = await MainActor.run {
-            let s = AppSettings.shared
-            s.syncWidgetConfiguration(reloadWidget: false)
-            return (s.isPaired, s.isDemoMode, s.serverURL, s.selectedQuotaBucket)
-        }
-        if isDemo {
-            let now = Date()
-            QuotaWidgetStore.shared.saveSnapshot(QuotaWidgetSnapshot.demoPlaceholder(now: now))
-            QuotaWidgetStore.shared.saveConversationsSnapshot(AgentConversationsWidgetSnapshot.demoPlaceholder(now: now))
-            QuotaWidgetStore.shared.reloadWidgetTimelines()
-            return .result()
-        }
-        if isPaired, let url = serverURL {
-            async let quotaRes = try? APIClient.shared.fetchCockpitQuotas(baseURL: url)
-            async let convRes = try? APIClient.shared.fetchConversations(baseURL: url)
-            if let response = await quotaRes {
-                QuotaWidgetStore.shared.publishFromApp(
-                    response: response,
-                    preferredBucket: preferredBucket,
-                    isDemo: false
-                )
-            }
-            if let conversations = await convRes {
-                QuotaWidgetStore.shared.publishConversationsFromApp(items: conversations, isDemo: false)
-            }
-            QuotaWidgetStore.shared.reloadWidgetTimelines()
-            return .result()
-        }
-        QuotaWidgetStore.shared.reloadWidgetTimelines()
-        #else
         async let quotaTask = QuotaWidgetStore.shared.fetchLatestQuotaFromGateway()
         async let convTask = QuotaWidgetStore.shared.fetchLatestConversationsFromGateway()
         _ = await (quotaTask, convTask)
         QuotaWidgetStore.shared.reloadWidgetTimelines()
-        #endif
         return .result()
     }
 }
@@ -1240,27 +1472,9 @@ nonisolated public struct RefreshAgentStatusWidgetIntent: AppIntent {
     public init() {}
 
     public func perform() async throws -> some IntentResult {
-        #if !ACTIVITY_EXTENSION
-        let (isPaired, isDemo, serverURL) = await MainActor.run {
-            let s = AppSettings.shared
-            s.syncWidgetConfiguration(reloadWidget: false)
-            return (s.isPaired, s.isDemoMode, s.serverURL)
-        }
-        if isDemo {
-            QuotaWidgetStore.shared.saveConversationsSnapshot(AgentConversationsWidgetSnapshot.demoPlaceholder())
-            QuotaWidgetStore.shared.reloadWidgetTimelines()
-            return .result()
-        }
-        if isPaired, let url = serverURL {
-            if let conversations = try? await APIClient.shared.fetchConversations(baseURL: url) {
-                QuotaWidgetStore.shared.publishConversationsFromApp(items: conversations, isDemo: false)
-            }
-        }
-        QuotaWidgetStore.shared.reloadWidgetTimelines()
-        #else
         _ = await QuotaWidgetStore.shared.fetchLatestConversationsFromGateway()
-        QuotaWidgetStore.shared.reloadWidgetTimelines()
-        #endif
+        WidgetCenter.shared.reloadTimelines(ofKind: QuotaWidgetConstants.agentWidgetKind)
         return .result()
     }
 }
+#endif

@@ -66,3 +66,49 @@ func TestIsReadOnlyRPC(t *testing.T) {
 		}
 	}
 }
+
+func TestCompactSummariesForWidget(t *testing.T) {
+	in := map[string]map[string]interface{}{
+		"active-1": {
+			"summary":             "Fix widget skeleton",
+			"stepCount":           12,
+			"status":              "CASCADE_RUN_STATUS_RUNNING",
+			"workspaceName":       "antigravity-mobile",
+			"needsInput":          true,
+			"trajectoryMetadata":  map[string]interface{}{"huge": "payload"},
+			"latestNotifyUserStep": map[string]interface{}{"markdown": "big step"},
+			"annotations": map[string]interface{}{
+				"title":          "Widget Fix",
+				"markedAsUnread": true,
+				"extraBlob":      "drop-me",
+			},
+		},
+		"archived-1": {
+			"summary": "Old archived",
+			"annotations": map[string]interface{}{
+				"archived": true,
+			},
+		},
+	}
+	got := compactSummariesForWidget(in)
+	if _, exists := got["archived-1"]; exists {
+		t.Fatalf("expected archived session to be excluded")
+	}
+	item, ok := got["active-1"]
+	if !ok {
+		t.Fatalf("expected active-1 to be kept")
+	}
+	if _, leaked := item["trajectoryMetadata"]; leaked {
+		t.Fatalf("expected trajectoryMetadata to be stripped")
+	}
+	if _, leaked := item["latestNotifyUserStep"]; leaked {
+		t.Fatalf("expected latestNotifyUserStep to be stripped")
+	}
+	ann, _ := item["annotations"].(map[string]interface{})
+	if ann["title"] != "Widget Fix" {
+		t.Fatalf("expected title preserved, got %v", ann["title"])
+	}
+	if _, leaked := ann["extraBlob"]; leaked {
+		t.Fatalf("expected extraBlob stripped from annotations")
+	}
+}

@@ -20,7 +20,7 @@
   - 智能冷启动默认策略：活跃天数 `< 28` 天自动默认展示每日柱状图，`≥ 28` 天默认展示周热力图，手动切换后自动持久化记忆偏好；
   - Token 历史保存/分享长图海报与当前选中的图表视图保持所见即所得同步，完整覆盖全部主题皮肤与中 / 英 / 日三语。
 - 🧩 **iOS 全尺寸额度小组件矩阵 & 全新「活跃对话」小组件（`QuotaStatusWidget` & `AgentStatusWidget`）**：
-  - 额度监控小组件扩展支持全套 WidgetKit 尺寸（锁屏单行 `Inline` / 圆环 `Circular` / 矩形 `Rectangular`，以及桌面 `Small` / `Medium` / `Large` / iPad `ExtraLarge`）；
+  - 额度监控小组件扩展支持全套 WidgetKit 尺寸（锁屏单行 `Inline` / 圆环 `Circular` / 矩形 `Rectangular`，以及桌面 `Small` / `Medium` / `Large` / iPad `ExtraLarge`），桌面中/大号复刻面板 **2×2 四宫格配额卡片**（含一位小数进度、匀速游标刻度、选中框高亮与 `ULTRA` 琥珀橙徽章）并支持毫秒级缓存秒开与多路并发竞速刷新；
   - 新增独立 **`AgentStatusWidget`（活跃对话监控）** 小 / 中 / 大号桌面小组件，在 iPhone、iPad、StandBy 与 Mac 桌面上实时总览多会话运行进度与待审批状态，100% 适配中 / 英 / 日三语。
 - 🇯🇵 **Android & PWA 原生日语（`ja`）全量覆盖，实现全端三语大满贯**：
   - Android 原生客户端（`values-ja`、`locales_config.xml`、`L10n.kt`）与嵌入式 PWA Web（`i18n.js`、`manifest-ja.json`）全面支持原生日语并可根据系统/浏览器语言自动识别切换；
@@ -41,7 +41,7 @@
   - 修复 APNs 灵动岛 Push-to-Start 异常时的重试风暴（引入指数退避与环境错配 Token 自动清理），并新增穿透隧道凭据回收后的无感自愈重连。
 - 💬 **社区与全端版本号对齐**：
   - 三语 README 新增微信用户群扫码入口；
-  - Android `1.2.4`（Version Code `27`）；iOS `1.2.4`（Build `28`）；桌面/服务端网关 `mgy` `1.2.4`。
+  - Android `1.2.4`（Version Code `28`）；iOS `1.2.4`（Build `29`）；桌面/服务端网关 `mgy` `1.2.4`。
 
 ---
 
@@ -54,7 +54,7 @@
   - Smart cold-start defaults (`< 28` active days defaults to daily trend bars, `≥ 28` days defaults to the heatmap) with local preference persistence once manually switched;
   - Synced Token History save/share posters (WYSIWYG) with the currently active chart across all curated themes and localized in Chinese, English, and Japanese.
 - 🧩 **Full-Size iOS Quota Widget Suite & New Active Chats Widget (`QuotaStatusWidget` & `AgentStatusWidget`)**:
-  - Expanded `QuotaStatusWidget` across all WidgetKit families (`accessoryInline`, `accessoryCircular`, `accessoryRectangular`, `systemSmall`, `systemMedium`, `systemLarge`, and iPad `systemExtraLarge`);
+  - Expanded `QuotaStatusWidget` across all WidgetKit families (`accessoryInline`, `accessoryCircular`, `accessoryRectangular`, `systemSmall`, `systemMedium`, `systemLarge`, and iPad `systemExtraLarge`), featuring a replicated **2×2 panel metric grid** with pace cursor needles, selected-bucket highlight, `ULTRA` amber gradient badges, instant cached rendering, and concurrent multi-URL refresh;
   - Added a dedicated **`AgentStatusWidget` (Active Chats)** supporting `systemSmall`, `systemMedium`, and `systemLarge` across iPhone, iPad, StandBy, and macOS Desktop for at-a-glance multi-session status and approval tracking in Chinese, English, and Japanese.
 - 🇯🇵 **Full Native Japanese (`ja`) Support on Android & PWA Web**:
   - Added complete native Japanese localization with automatic system/browser locale detection for Android (`values-ja`, `locales_config.xml`, `L10n.kt`) and PWA Web (`i18n.js`, `manifest-ja.json`), achieving 100% trilingual (`zh` / `en` / `ja`) parity across iOS, Android, PWA, GitHub docs, and the official website.
@@ -74,18 +74,18 @@
   - Added exponential backoff and automatic invalid/sandbox-mismatched token cleanup for APNs Live Activity pushes, along with automatic Cloudflare Tunnel credential self-recovery.
 - 💬 **Community & Version Alignment**:
   - Added WeChat User Group QR code to trilingual READMEs;
-  - Android `1.2.4` (Version Code `27`); iOS `1.2.4` (Build `28`); desktop/server gateway `mgy` `1.2.4`.
+  - Android `1.2.4` (Version Code `28`); iOS `1.2.4` (Build `29`); desktop/server gateway `mgy` `1.2.4`.
 
 ---
 
 ## 🇯🇵 日本語リリースノート
 
 - 📊 **スワイプ切替対応トークン履歴 3 ビューチャート＆WYSIWYG 共有ポスター（iOS & Android）**：**直近14日間の日別推移棒グラフ**・**モデル別累計内訳**・**右揃え20週間ヒートマップ**の3ページカルーセルを新搭載（スクロール競合を解消）。利用日数に応じたスマート初期表示（28日未満は日別グラフ、28日以上はヒートマップ）と選択状態の保存、現在表示中のチャートと連動するロング画像ポスター出力に対応しました。
-- 🧩 **iOS フルサイズクォータウィジェット＆新「アクティブチャット」ウィジェット（`QuotaStatusWidget` & `AgentStatusWidget`）**：クォータ監視が全サイズ（`Inline` / `Circular` / `Rectangular` / `Small`〜`ExtraLarge`）に対応したほか、複数セッションの進行状況や承認待ちをホーム画面・iPad・Mac で一覧できる **`AgentStatusWidget`**（小・中・大）を追加しました（日・英・中 3言語対応）。
+- 🧩 **iOS フルサイズクォータウィジェット＆新「アクティブチャット」ウィジェット（`QuotaStatusWidget` & `AgentStatusWidget`）**：クォータ監視が全サイズ（`Inline` / `Circular` / `Rectangular` / `Small`〜`ExtraLarge`）に対応し、パネル同様の **2×2 クォータカード配置**（ペースカーソル・選択枠ハイライト・`ULTRA` アンバーバッジ・高速キャッシュ描画）を採用。さらに複数セッションの進行状況や承認待ちを一覧できる **`AgentStatusWidget`**（小・中・大）を追加しました（日・英・中 3言語対応）。
 - 🇯🇵 **Android & PWA Web も完全日本語対応（全プラットフォーム 3言語統一）**：Android アプリおよび組み込み PWA Web がシステム / ブラウザ言語の自動判別によるネイティブ日本語表示に対応し、iOS・Android・PWA・GitHub・公式サイトすべてで日本語・英語・中国語の完全対応を達成しました。
 - ⚡ **Cockpit バックアップアカウントの優先度ソート**：予備アカウント一覧で **ULTRA** プランを最上部に優先表示し、**FREE** プランを下部に配置するよう改善しました。
 - 🔧 **iOS 長文チャットのスクロール安定化＆Tailscale 通信バイパス改善**：長文会話での `LazyVStack` 空白表示・意図しない最下部スナップ・Markdown テーブルの高さジャンプを修正。さらにファイルダウンロード・画像/メディア読込・QuickLook・音声入力/通話・補助 WebSocket を Tailscale ATS バイパス経路へ統合しました。
 - 🐝 **Swarm 概要ボード刷新・ハニカム Hive トポロジー＆ピクセル蜂ビジュアル**：最新の Swarm 体験に合わせ、`GOAL` カード・`Running` ライブタスク・展開式進捗リング・`Threads` 進捗バー・ピクセル女王蜂/働き蜂タイルを刷新。六角形ハニカム **Hive マップ（`Hive | Mentions` 切替）** や `/swarm` メッセージバブル内のピクセル女王蜂アイコンにも対応しました。
 - 🛡️ **フルスタックセキュリティ強化＆ストリーミング/キャッシュ最適化**：CSWSH/Host/Origin 検証、パス境界保護、認証情報保護、APNs TOFU バインディング、CSP/DOM サニタイズを強化し、ストリーミング `O(1)` 差分更新とキャッシュ効率を最適化しました。
 - 🌐 **リアルタイムストリーム安定化・ETag 通信削減・APNs 自動復旧**：iOS WebSocket ストリームの接続エンジン刷新と `25秒` キープアライブ追加、ゲートウェイおよび iOS / Android での `ETag / 304` 差分スキップ、APNs ライブアクティビティの指数バックオフとトークン自動修復、Cloudflare トンネル資格情報の自動再取得に対応しました。
-- 📦 **バージョン統一**：iOS `1.2.4` (Build `28`) / Android `1.2.4` (Version Code `27`) / ゲートウェイ `mgy` `1.2.4`。
+- 📦 **バージョン統一**：iOS `1.2.4` (Build `29`) / Android `1.2.4` (Version Code `28`) / ゲートウェイ `mgy` `1.2.4`。

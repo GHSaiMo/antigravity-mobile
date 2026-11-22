@@ -1299,6 +1299,28 @@
         }
       }
     },
+    "未知": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知"
+          }
+        }
+      }
+    },
     "核对本周发布日志与翻译": {
       "localizations": {
         "en": {
@@ -1867,6 +1889,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "额度监控设置"
+          }
+        }
+      }
+    },
+    "配额充足": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Healthy Quota"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "残枠十分"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "配额充足"
           }
         }
       }
