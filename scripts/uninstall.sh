@@ -2,13 +2,15 @@
 set -euo pipefail
 
 # ==============================================================================
-# Multigravity (mgy) 一键彻底卸载脚本 (macOS / Linux / Windows Git Bash)
-# 包含: 停止运行进程、卸载 mgy、卸载 cloudflared 穿透引擎、彻底清除配置与配对数据 (~/.multigravity)
+# Multigravity (mgy) Complete Uninstaller (macOS / Linux / Windows Git Bash)
+# Stops running processes, removes mgy, cloudflared, and ~/.multigravity data
+# Supports native zh / en / ja auto-detection (override via MGY_LANG or --lang)
 #
-# 用法:
-#   ./scripts/uninstall.sh               # 默认彻底卸载 (包含 mgy、cloudflared、所有配置文件与配对数据)
-#   ./scripts/uninstall.sh --keep-config # 仅卸载二进制与 cloudflared，保留 ~/.multigravity 配置文件
-#   ./scripts/uninstall.sh --keep-cf     # 卸载 mgy 与配置，保留 cloudflared 穿透引擎二进制
+# Usage:
+#   ./scripts/uninstall.sh               # Full uninstall (mgy, cloudflared, configs & pairing data)
+#   ./scripts/uninstall.sh --keep-config # Keep ~/.multigravity config & pairing data
+#   ./scripts/uninstall.sh --keep-cf     # Keep cloudflared tunnel engine binary
+#   ./scripts/uninstall.sh --lang en     # Override UI language (zh | en | ja)
 # ==============================================================================
 
 INSTALL_DIR="${HOME}/.local/bin"
@@ -16,34 +18,186 @@ CONF_DIR="${HOME}/.multigravity"
 
 KEEP_CONFIG=false
 KEEP_CF=false
+CLI_LANG=""
+SHOW_HELP=false
 
-for arg in "$@"; do
-    case "${arg}" in
+while [ $# -gt 0 ]; do
+    case "$1" in
         --keep-config|-k)
             KEEP_CONFIG=true
             ;;
         --keep-cf)
             KEEP_CF=true
             ;;
+        --lang=*)
+            CLI_LANG="${1#*=}"
+            ;;
+        --lang|-l)
+            if [ $# -ge 2 ]; then
+                CLI_LANG="$2"
+                shift
+            fi
+            ;;
         --help|-h)
-            echo "Multigravity (mgy) 卸载工具"
-            echo "用法: $0 [选项]"
-            echo "选项:"
-            echo "  --keep-config, -k   保留 ~/.multigravity 配置目录（包含配对数据与 Token）"
-            echo "  --keep-cf           保留已下载的 cloudflared 穿透引擎二进制"
-            echo "  --help, -h          显示此帮助信息"
-            exit 0
+            SHOW_HELP=true
+            ;;
+        *)
             ;;
     esac
+    shift
 done
 
+normalize_lang() {
+    local raw
+    raw="$(printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
+    case "${raw}" in
+        zh|zh_*|zh-*|cn|chinese)
+            printf 'zh'
+            ;;
+        ja|ja_*|ja-*|jp|jpn|japanese)
+            printf 'ja'
+            ;;
+        en|en_*|en-*|english)
+            printf 'en'
+            ;;
+        *)
+            printf ''
+            ;;
+    esac
+}
+
+detect_ui_lang() {
+    local candidate=""
+    local normalized=""
+    local lower_cand=""
+    local mac_lang=""
+    local win_lang=""
+
+    if [ -n "${CLI_LANG}" ]; then
+        normalized="$(normalize_lang "${CLI_LANG}")"
+        if [ -n "${normalized}" ]; then
+            printf '%s' "${normalized}"
+            return 0
+        fi
+    fi
+
+    for candidate in "${MGY_LANG:-}" "${MULTIGRAVITY_LANG:-}"; do
+        if [ -n "${candidate}" ]; then
+            normalized="$(normalize_lang "${candidate}")"
+            if [ -n "${normalized}" ]; then
+                printf '%s' "${normalized}"
+                return 0
+            fi
+        fi
+    done
+
+    for candidate in "${LC_ALL:-}" "${LC_MESSAGES:-}" "${LANG:-}" "${LANGUAGE:-}"; do
+        candidate="${candidate%%:*}"
+        if [ -z "${candidate}" ]; then
+            continue
+        fi
+        lower_cand="$(printf '%s' "${candidate}" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
+        case "${lower_cand}" in
+            utf-8|utf8)
+                continue
+                ;;
+            c|posix|c.*)
+                printf 'en'
+                return 0
+                ;;
+        esac
+        normalized="$(normalize_lang "${lower_cand}")"
+        if [ -n "${normalized}" ]; then
+            printf '%s' "${normalized}"
+            return 0
+        fi
+        printf 'en'
+        return 0
+    done
+
+    if [ "$(uname -s 2>/dev/null || true)" = "Darwin" ] && command -v defaults >/dev/null 2>&1; then
+        mac_lang="$(defaults read -g AppleLanguages 2>/dev/null | sed -n '2p' | tr -d ' ",' || true)"
+        if [ -z "${mac_lang}" ]; then
+            mac_lang="$(defaults read -g AppleLocale 2>/dev/null || true)"
+        fi
+        normalized="$(normalize_lang "${mac_lang}")"
+        if [ -n "${normalized}" ]; then
+            printf '%s' "${normalized}"
+            return 0
+        fi
+    fi
+
+    case "$(uname -s 2>/dev/null || true)" in
+        MINGW*|MSYS*|CYGWIN*|Windows_NT)
+            if command -v powershell.exe >/dev/null 2>&1; then
+                win_lang="$(powershell.exe -NoProfile -Command '[System.Globalization.CultureInfo]::CurrentUICulture.Name' 2>/dev/null | tr -d '\r\n' || true)"
+                normalized="$(normalize_lang "${win_lang}")"
+                if [ -n "${normalized}" ]; then
+                    printf '%s' "${normalized}"
+                    return 0
+                fi
+            fi
+            ;;
+    esac
+
+    printf 'en'
+}
+
+UI_LANG="$(detect_ui_lang)"
+
+msg() {
+    case "${UI_LANG}" in
+        zh) printf '%s\n' "$1" ;;
+        ja) printf '%s\n' "$3" ;;
+        *)  printf '%s\n' "$2" ;;
+    esac
+}
+
+if [ "${SHOW_HELP}" = "true" ]; then
+    msg \
+        "Multigravity (mgy) 卸载工具" \
+        "Multigravity (mgy) Uninstaller" \
+        "Multigravity (mgy) アンインストーラー"
+    msg \
+        "用法: $0 [选项]" \
+        "Usage: $0 [options]" \
+        "使い方: $0 [オプション]"
+    msg \
+        "选项:" \
+        "Options:" \
+        "オプション:"
+    msg \
+        "  --keep-config, -k   保留 ~/.multigravity 配置目录（包含配对数据与 Token）" \
+        "  --keep-config, -k   Keep ~/.multigravity config directory (pairing data & tokens)" \
+        "  --keep-config, -k   ~/.multigravity 設定ディレクトリ（ペアリング情報・トークン）を保持"
+    msg \
+        "  --keep-cf           保留已下载的 cloudflared 穿透引擎二进制" \
+        "  --keep-cf           Keep downloaded cloudflared tunnel engine binary" \
+        "  --keep-cf           ダウンロード済みの cloudflared トンネルエンジンを保持"
+    msg \
+        "  --lang <zh|en|ja>   指定输出语言（默认自动识别系统语言）" \
+        "  --lang <zh|en|ja>   Override output language (default: auto-detect locale)" \
+        "  --lang <zh|en|ja>   表示言語を指定（デフォルト: システム言語を自動判別）"
+    msg \
+        "  --help, -h          显示此帮助信息" \
+        "  --help, -h          Show this help message" \
+        "  --help, -h          このヘルプを表示"
+    exit 0
+fi
+
 echo "=================================================="
-echo "🗑️  正在彻底卸载 Multigravity (mgy) 及关联组件..."
+msg \
+    "🗑️  正在彻底卸载 Multigravity (mgy) 及关联组件..." \
+    "🗑️  Uninstalling Multigravity (mgy) and related components..." \
+    "🗑️  Multigravity (mgy) および関連コンポーネントをアンインストールしています..."
 echo "=================================================="
 
 # 1. 停止运行中的 mgy 进程
 if pgrep -f "mgy" >/dev/null 2>&1; then
-    echo "⏹️  正在停止运行中的 mgy 进程..."
+    msg \
+        "⏹️  正在停止运行中的 mgy 进程..." \
+        "⏹️  Stopping running mgy processes..." \
+        "⏹️  実行中の mgy プロセスを停止しています..."
     pkill -x "mgy" 2>/dev/null || pkill -f "/mgy" 2>/dev/null || true
 fi
 if command -v taskkill >/dev/null 2>&1; then
@@ -53,7 +207,10 @@ fi
 # 2. 停止运行中的 cloudflared 进程（仅当未指定 --keep-cf 时）
 if [ "${KEEP_CF}" = false ]; then
     if pgrep -f "cloudflared" >/dev/null 2>&1; then
-        echo "⏹️  正在停止运行中的 cloudflared 穿透进程..."
+        msg \
+            "⏹️  正在停止运行中的 cloudflared 穿透进程..." \
+            "⏹️  Stopping running cloudflared tunnel processes..." \
+            "⏹️  実行中の cloudflared トンネルプロセスを停止しています..."
         pkill -x "cloudflared" 2>/dev/null || pkill -f "cloudflared.*tunnel" 2>/dev/null || true
     fi
     if command -v taskkill >/dev/null 2>&1; then
@@ -74,10 +231,16 @@ for target in "${MGY_TARGETS[@]}"; do
     if [ -n "${target}" ] && ([ -L "${target}" ] || [ -f "${target}" ]); then
         if [ -w "${target}" ] || [ -w "$(dirname "${target}")" ]; then
             rm -f "${target}" 2>/dev/null || true
-            echo "✅ 已移除 mgy 执行文件/软链接: ${target}"
+            msg \
+                "✅ 已移除 mgy 执行文件/软链接: ${target}" \
+                "✅ Removed mgy binary/symlink: ${target}" \
+                "✅ mgy バイナリ/シンボリックリンクを削除しました: ${target}"
         elif sudo -n true 2>/dev/null; then
             sudo rm -f "${target}" 2>/dev/null || true
-            echo "✅ 已通过 sudo 移除系统快捷方式: ${target}"
+            msg \
+                "✅ 已通过 sudo 移除系统快捷方式: ${target}" \
+                "✅ Removed system symlink via sudo: ${target}" \
+                "✅ sudo 経由でシステムリンクを削除しました: ${target}"
         fi
     fi
 done
@@ -95,23 +258,38 @@ if [ "${KEEP_CF}" = false ]; then
     for cf_target in "${CF_TARGETS[@]}"; do
         if [ -n "${cf_target}" ] && [ -f "${cf_target}" ]; then
             rm -f "${cf_target}" 2>/dev/null || true
-            echo "✅ 已移除 Cloudflare 穿透引擎: ${cf_target}"
+            msg \
+                "✅ 已移除 Cloudflare 穿透引擎: ${cf_target}" \
+                "✅ Removed Cloudflare tunnel engine: ${cf_target}" \
+                "✅ Cloudflare トンネルエンジンを削除しました: ${cf_target}"
         fi
     done
 else
-    echo "💡 跳过 Cloudflare 引擎移除 (--keep-cf)"
+    msg \
+        "💡 跳过 Cloudflare 引擎移除 (--keep-cf)" \
+        "💡 Keeping Cloudflare tunnel engine (--keep-cf)" \
+        "💡 Cloudflare トンネルエンジンの削除をスキップしました (--keep-cf)"
 fi
 
 # 5. 清理配置与数据目录 ~/.multigravity
 if [ -d "${CONF_DIR}" ]; then
     if [ "${KEEP_CONFIG}" = false ]; then
         rm -rf "${CONF_DIR}"
-        echo "✅ 已彻底清除配置与数据目录: ${CONF_DIR} (包含配对数据、授权令牌与缓存)"
+        msg \
+            "✅ 已彻底清除配置与数据目录: ${CONF_DIR} (包含配对数据、授权令牌与缓存)" \
+            "✅ Removed config & data directory: ${CONF_DIR} (pairing data, tokens & cache)" \
+            "✅ 設定・データディレクトリを削除しました: ${CONF_DIR}（ペアリング情報・トークン・キャッシュを含む）"
     else
-        echo "💡 已保留配置与数据目录: ${CONF_DIR} (--keep-config)"
+        msg \
+            "💡 已保留配置与数据目录: ${CONF_DIR} (--keep-config)" \
+            "💡 Keeping config & data directory: ${CONF_DIR} (--keep-config)" \
+            "💡 設定・データディレクトリを保持しました: ${CONF_DIR} (--keep-config)"
     fi
 fi
 
 echo "=================================================="
-echo "🎉 Multigravity (mgy) 及 Cloudflare 组件已彻底卸载完成！"
+msg \
+    "🎉 Multigravity (mgy) 及 Cloudflare 组件已彻底卸载完成！" \
+    "🎉 Multigravity (mgy) and Cloudflare components completely uninstalled!" \
+    "🎉 Multigravity (mgy) および Cloudflare コンポーネントのアンインストールが完了しました！"
 echo "=================================================="

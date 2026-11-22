@@ -1,22 +1,97 @@
-﻿# Multigravity Windows 一键安装脚本
+﻿# Multigravity (mgy) Windows One-Line Installer (zh / en / ja)
+# Usage:
+#   irm https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/scripts/install.ps1 | iex
+#   $env:MGY_LANG="ja"; irm https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/scripts/install.ps1 | iex
+param(
+    [string]$Lang = ""
+)
+
 $ErrorActionPreference = "Stop"
 
-# 1. 强制控制台与输出流使用 UTF-8 编码，防止 Windows PowerShell 默认 GBK 导致乱码
+# 1. Force UTF-8 console & stream encoding to prevent garbled CJK/emoji output on PowerShell 5.1
 try {
     [Console]::InputEncoding = [System.Text.Encoding]::UTF8
     [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
     $OutputEncoding = [System.Text.Encoding]::UTF8
 } catch {}
 
+# 0. Native i18n (zh / en / ja)
+function Normalize-MgyLang([string]$Raw) {
+    if ([string]::IsNullOrWhiteSpace($Raw)) { return "" }
+    $s = $Raw.Trim().ToLowerInvariant()
+    if ($s -match '^(zh($|[-_])|cn$|chinese$)') { return "zh" }
+    if ($s -match '^(ja($|[-_])|jp$|jpn$|japanese$)') { return "ja" }
+    if ($s -match '^(en($|[-_])|english$)') { return "en" }
+    return ""
+}
+
+function Get-UiLang([string]$ExplicitLang) {
+    $n = Normalize-MgyLang $ExplicitLang
+    if ($n) { return $n }
+
+    foreach ($envVal in @($env:MGY_LANG, $env:MULTIGRAVITY_LANG)) {
+        $n = Normalize-MgyLang $envVal
+        if ($n) { return $n }
+    }
+
+    foreach ($locVal in @($env:LC_ALL, $env:LC_MESSAGES, $env:LANG, $env:LANGUAGE)) {
+        if ([string]::IsNullOrWhiteSpace($locVal)) { continue }
+        $first = ($locVal -split ':')[0].Trim().ToLowerInvariant()
+        if ($first -in @("utf-8", "utf8")) { continue }
+        if ($first -match '^(c|posix|c\.)') { return "en" }
+        $n = Normalize-MgyLang $first
+        if ($n) { return $n }
+        return "en"
+    }
+
+    try {
+        $uiCulture = [System.Globalization.CultureInfo]::CurrentUICulture.Name
+        $n = Normalize-MgyLang $uiCulture
+        if ($n) { return $n }
+    } catch {}
+
+    return "en"
+}
+
+$uiLang = Get-UiLang $Lang
+
+function Get-Msg([string]$Zh, [string]$En, [string]$Ja) {
+    switch ($uiLang) {
+        "zh" { return $Zh }
+        "ja" { return $Ja }
+        default { return $En }
+    }
+}
+
+$preferMirror = $false
+if ($env:MGY_USE_MIRROR -match '^(?i)(1|true|yes)$') {
+    $preferMirror = $true
+} elseif ($env:MGY_USE_MIRROR -match '^(?i)(0|false|no)$') {
+    $preferMirror = $false
+} elseif ($uiLang -eq "zh") {
+    $preferMirror = $true
+}
+
+$appStoreUrl = "https://apps.apple.com/app/id6835508934"
+
 Write-Host "==================================================" -ForegroundColor Cyan
-Write-Host "  📱 Multigravity (mgy) - Windows 一键安装与配置  " -ForegroundColor Cyan
+Write-Host (Get-Msg `
+    "  📱 Multigravity (mgy) - Windows 一键安装与配置  " `
+    "  📱 Multigravity (mgy) - Windows Installer       " `
+    "  📱 Multigravity (mgy) - Windows インストーラー   ") -ForegroundColor Cyan
 Write-Host "==================================================" -ForegroundColor Cyan
 
 # 2. 架构检测 (Windows 优先使用 amd64 预编译包，ARM64 系统通过内置仿真无缝运行)
 $arch = $env:PROCESSOR_ARCHITECTURE
 $pkgArch = "amd64"
 $archDesc = "Windows x86_64"
-Write-Host "🖥️  检测到系统架构: $archDesc ($pkgArch)" -ForegroundColor Cyan
+if ($arch -match "(?i)ARM64") {
+    $archDesc = Get-Msg "Windows ARM64 (amd64 仿真)" "Windows ARM64 (amd64 emulation)" "Windows ARM64 (amd64 エミュレーション)"
+}
+Write-Host (Get-Msg `
+    "🖥️  检测到系统架构: $archDesc ($pkgArch)" `
+    "🖥️  Detected architecture: $archDesc ($pkgArch)" `
+    "🖥️  システムアーキテクチャを検出: $archDesc ($pkgArch)") -ForegroundColor Cyan
 
 # 3. 准备安装与配置目录 (收紧当前用户专属 ACL 权限)
 $installDir = "$HOME\.local\bin"
@@ -31,7 +106,8 @@ try {
 
 # 4. 初始化默认配置 .env (若不存在)
 if (!(Test-Path "$confDir\.env")) {
-    $defaultEnv = @"
+    if ($uiLang -eq "zh") {
+        $defaultEnv = @"
 # Multigravity 全局环境变量配置文件
 # 保存路径: ~/.multigravity/.env
 
@@ -51,17 +127,74 @@ MULTIGRAVITY_PORT=58900
 # APNS_ENABLED=1
 # LIVE_ACTIVITY_PUSH_ENABLED=1
 # APNS_RELAY_URL=https://push.jiuge.space
+
 # 局域网免配对信任模式 (0: 需配对码[默认推荐], 1: 信任局域网免配对直连)
 # 本机 127.0.0.1 始终免配对，Cloudflare 公网穿透始终强制验证
 MULTIGRAVITY_TRUST_LAN=0
 "@
+    } elseif ($uiLang -eq "ja") {
+        $defaultEnv = @"
+# Multigravity グローバル環境設定ファイル
+# 保存先: ~/.multigravity/.env
+
+# ゲートウェイの待受ポート (デフォルト: 58900)
+MULTIGRAVITY_PORT=58900
+
+# 待受ホスト/IP (空欄で全 IPv4 インターフェースにバインド、127.0.0.1 でローカル限定)
+# MULTIGRAVITY_HOST=127.0.0.1
+
+# ☁️ Cloudflare Tunnel リモート公開設定 (そのまま利用可能)
+# CF_WORKER_URL=https://dispatcher.jiuge.space
+# CF_INVITE_CODE=
+# CF_TUNNEL_TOKEN=
+# CF_TUNNEL_ENABLED=1
+
+# 🔔 iOS ネイティブ APNs プッシュ通知と Dynamic Island 更新 (デフォルト有効)
+# APNS_ENABLED=1
+# LIVE_ACTIVITY_PUSH_ENABLED=1
+# APNS_RELAY_URL=https://push.jiuge.space
+
+# LAN アクセスセキュリティ設定 (0: ペアリングコード必須 [推奨], 1: LAN を信頼してペアリング不要)
+# ローカル 127.0.0.1 は常にペアリング不要、Cloudflare パブリックトンネルは常に認証必須
+MULTIGRAVITY_TRUST_LAN=0
+"@
+    } else {
+        $defaultEnv = @"
+# Multigravity Global Environment Configuration
+# Path: ~/.multigravity/.env
+
+# Gateway listen port (default: 58900)
+MULTIGRAVITY_PORT=58900
+
+# Gateway bind host/IP (leave empty to bind all IPv4 interfaces; 127.0.0.1 for local only)
+# MULTIGRAVITY_HOST=127.0.0.1
+
+# ☁️ Cloudflare Tunnel remote access configuration (ready out of the box)
+# CF_WORKER_URL=https://dispatcher.jiuge.space
+# CF_INVITE_CODE=
+# CF_TUNNEL_TOKEN=
+# CF_TUNNEL_ENABLED=1
+
+# 🔔 Native iOS APNs push & Live Activity Dynamic Island updates (enabled by default)
+# APNS_ENABLED=1
+# LIVE_ACTIVITY_PUSH_ENABLED=1
+# APNS_RELAY_URL=https://push.jiuge.space
+
+# LAN access security policy (0: pairing code required [recommended], 1: trust LAN without pairing)
+# Local 127.0.0.1 never requires pairing; public Cloudflare Tunnel always requires pairing
+MULTIGRAVITY_TRUST_LAN=0
+"@
+    }
     [System.IO.File]::WriteAllText("$confDir\.env", $defaultEnv, [System.Text.Encoding]::UTF8)
     try {
         if ($env:USERNAME) {
             & icacls.exe "$confDir\.env" /inheritance:r /grant:r "$($env:USERNAME):F" "SYSTEM:F" "Administrators:F" | Out-Null
         }
     } catch {}
-    Write-Host "📝 已生成全局默认配置: $confDir\.env" -ForegroundColor Green
+    Write-Host (Get-Msg `
+        "📝 已生成全局默认配置: $confDir\.env" `
+        "📝 Created default configuration: $confDir\.env" `
+        "📝 デフォルト設定ファイルを作成しました: $confDir\.env") -ForegroundColor Green
 }
 
 # 5. 下载预编译 Release 包 (多镜像容灾)
@@ -78,7 +211,17 @@ if (-not $env:https_proxy -and -not $env:http_proxy -and -not $env:all_proxy) {
             if ($async.AsyncWaitHandle.WaitOne(150, $false) -and $tcp.Connected) {
                 $proxyPort = $p
                 $tcp.Close()
-                Write-Host "⚡ 检测到本机代理环境 (127.0.0.1:$p)，将优先从加速镜像站直连下载（官方源备用加速）" -ForegroundColor Cyan
+                if ($preferMirror) {
+                    Write-Host (Get-Msg `
+                        "⚡ 检测到本机代理环境 (127.0.0.1:${p})，将优先从加速镜像站直连下载（官方源备用加速）" `
+                        "⚡ Detected local proxy (127.0.0.1:${p}); trying mirrors first (official source via proxy as fallback)" `
+                        "⚡ ローカルプロキシ (127.0.0.1:${p}) を検出しました。加速ミラー優先でダウンロードします（公式ソースはプロキシ経由で予備利用）") -ForegroundColor Cyan
+                } else {
+                    Write-Host (Get-Msg `
+                        "⚡ 检测到本机代理环境 (127.0.0.1:${p})，将通过本机代理加速访问 GitHub 官方源" `
+                        "⚡ Detected local proxy (127.0.0.1:${p}); GitHub official downloads will use it" `
+                        "⚡ ローカルプロキシ (127.0.0.1:${p}) を検出しました。GitHub 公式ソースのダウンロードに使用します") -ForegroundColor Cyan
+                }
                 break
             }
             $tcp.Close()
@@ -86,12 +229,19 @@ if (-not $env:https_proxy -and -not $env:http_proxy -and -not $env:all_proxy) {
     }
 }
 
-# 优先镜像站直连加速下载，官方源排在最后作为兜底
-$urls = @(
-    "https://ghfast.top/https://github.com/$repo/releases/latest/download/$zipName",
-    "https://ghproxy.net/https://github.com/$repo/releases/latest/download/$zipName",
-    "https://github.com/$repo/releases/latest/download/$zipName"
-)
+if ($preferMirror) {
+    $urls = @(
+        "https://ghfast.top/https://github.com/$repo/releases/latest/download/$zipName",
+        "https://ghproxy.net/https://github.com/$repo/releases/latest/download/$zipName",
+        "https://github.com/$repo/releases/latest/download/$zipName"
+    )
+} else {
+    $urls = @(
+        "https://github.com/$repo/releases/latest/download/$zipName",
+        "https://ghfast.top/https://github.com/$repo/releases/latest/download/$zipName",
+        "https://ghproxy.net/https://github.com/$repo/releases/latest/download/$zipName"
+    )
+}
 
 $tempDir = Join-Path ([System.IO.Path]::GetTempPath()) ("mgy-" + [System.Guid]::NewGuid().ToString().Substring(0, 8))
 New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
@@ -100,7 +250,10 @@ $checksumsFile = Join-Path $tempDir "checksums.txt"
 $officialChecksumsUrl = "https://github.com/$repo/releases/latest/download/checksums.txt"
 
 # HIGH-02: 仅从 GitHub 官方 HTTPS 源获取 checksums.txt 并执行 Fail-Closed 校验
-Write-Host "🔒 正在从 GitHub 官方源获取 SHA-256 校验清单..." -ForegroundColor Cyan
+Write-Host (Get-Msg `
+    "🔒 正在从 GitHub 官方源获取 SHA-256 校验清单..." `
+    "🔒 Fetching official SHA-256 checksums from GitHub..." `
+    "🔒 GitHub 公式ソースから SHA-256 チェックサムを取得しています...") -ForegroundColor Cyan
 try {
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
     if (Get-Command curl.exe -ErrorAction SilentlyContinue) {
@@ -119,7 +272,10 @@ try {
     }
 } catch {
     Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
-    Write-Host "❌ 安全校验失败: 无法从 GitHub 官方 HTTPS 源获取 checksums.txt ($officialChecksumsUrl)。" -ForegroundColor Red
+    Write-Host (Get-Msg `
+        "❌ 安全校验失败: 无法从 GitHub 官方 HTTPS 源获取 checksums.txt ($officialChecksumsUrl)。" `
+        "❌ Security check failed: unable to fetch checksums.txt from GitHub ($officialChecksumsUrl)." `
+        "❌ セキュリティ検証に失敗しました: GitHub 公式 HTTPS から checksums.txt を取得できませんでした ($officialChecksumsUrl)。") -ForegroundColor Red
     exit 1
 }
 
@@ -136,23 +292,38 @@ foreach ($csLine in (Get-Content $checksumsFile -ErrorAction SilentlyContinue)) 
 }
 if (-not $expectedZipSha) {
     Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
-    Write-Host "❌ 安全校验失败: 官方 checksums.txt 中未找到 $zipName 的 SHA-256 记录。" -ForegroundColor Red
+    Write-Host (Get-Msg `
+        "❌ 安全校验失败: 官方 checksums.txt 中未找到 $zipName 的 SHA-256 记录。" `
+        "❌ Security check failed: SHA-256 entry for $zipName not found in official checksums.txt." `
+        "❌ セキュリティ検証に失敗しました: 公式 checksums.txt に $zipName の SHA-256 が見つかりません。") -ForegroundColor Red
     exit 1
 }
 
 $downloadSuccess = $false
-Write-Host "📥 正在获取 Multigravity ($pkgArch) 最新发行版..." -ForegroundColor Cyan
+Write-Host (Get-Msg `
+    "📥 正在获取 Multigravity ($pkgArch) 最新发行版..." `
+    "📥 Downloading latest Multigravity release ($pkgArch)..." `
+    "📥 Multigravity ($pkgArch) の最新リリースをダウンロードしています...") -ForegroundColor Cyan
 
 foreach ($url in $urls) {
     $isOfficial = ($url -like "https://github.com/*")
     if ($isOfficial) {
         if ($proxyPort) {
-            Write-Host "🔗 尝试从 GitHub 官方源（走本机代理加速）下载: $url" -ForegroundColor Gray
+            Write-Host (Get-Msg `
+                "🔗 尝试从 GitHub 官方源（走本机代理加速）下载: $url" `
+                "🔗 Downloading from GitHub official source (via local proxy): $url" `
+                "🔗 GitHub 公式ソース（ローカルプロキシ経由）からダウンロード中: $url") -ForegroundColor Gray
         } else {
-            Write-Host "🔗 尝试从 GitHub 官方源下载: $url" -ForegroundColor Gray
+            Write-Host (Get-Msg `
+                "🔗 尝试从 GitHub 官方源下载: $url" `
+                "🔗 Downloading from GitHub official source: $url" `
+                "🔗 GitHub 公式ソースからダウンロード中: $url") -ForegroundColor Gray
         }
     } else {
-        Write-Host "🔗 尝试从加速镜像站直连下载: $url" -ForegroundColor Gray
+        Write-Host (Get-Msg `
+            "🔗 尝试从加速镜像站直连下载: $url" `
+            "🔗 Downloading from mirror: $url" `
+            "🔗 加速ミラーからダウンロード中: $url") -ForegroundColor Gray
     }
 
     try {
@@ -176,21 +347,33 @@ foreach ($url in $urls) {
         if (Test-Path $zipFile) {
             $gotSha = (Get-FileHash -Path $zipFile -Algorithm SHA256).Hash.ToLowerInvariant()
             if ($gotSha -eq $expectedZipSha) {
-                Write-Host "🔒 SHA-256 校验通过 ($($gotSha.Substring(0, 12))...)" -ForegroundColor Green
+                Write-Host (Get-Msg `
+                    "🔒 SHA-256 校验通过 ($($gotSha.Substring(0, 12))...)" `
+                    "🔒 SHA-256 verified ($($gotSha.Substring(0, 12))...)" `
+                    "🔒 SHA-256 検証に成功しました ($($gotSha.Substring(0, 12))...)") -ForegroundColor Green
                 $downloadSuccess = $true
                 break
             }
-            Write-Host "⚠️  SHA-256 校验不匹配 (got $gotSha)，已丢弃并切换备用源..." -ForegroundColor Yellow
+            Write-Host (Get-Msg `
+                "⚠️  SHA-256 校验不匹配 (got $gotSha)，已丢弃并切换备用源..." `
+                "⚠️  SHA-256 mismatch (got $gotSha); discarding and trying next source..." `
+                "⚠️  SHA-256 チェックサムが一致しません (got $gotSha)。破棄して次のソースを試行します...") -ForegroundColor Yellow
             Remove-Item $zipFile -Force -ErrorAction SilentlyContinue
         }
     } catch {
-        Write-Host "⚠️  下载异常或连接超时，正在切换下一个镜像源..." -ForegroundColor Yellow
+        Write-Host (Get-Msg `
+            "⚠️  下载异常或连接超时，正在切换下一个镜像源..." `
+            "⚠️  Download failed or timed out; trying fallback source..." `
+            "⚠️  ダウンロードに失敗またはタイムアウトしました。予備ソースを試行します...") -ForegroundColor Yellow
         if (Test-Path $zipFile) { Remove-Item $zipFile -Force -ErrorAction SilentlyContinue }
     }
 }
 
 if ($downloadSuccess) {
-    Write-Host "📦 校验通过，正在定向提取 mgy.exe..." -ForegroundColor Green
+    Write-Host (Get-Msg `
+        "📦 校验通过，正在定向提取 mgy.exe..." `
+        "📦 Verified. Extracting mgy.exe..." `
+        "📦 検証完了。mgy.exe を展開しています...") -ForegroundColor Green
 
     # 停止旧版本 mgy 进程以防文件占用锁
     Get-Process -Name mgy -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
@@ -202,7 +385,10 @@ if ($downloadSuccess) {
     try {
         $targetEntry = $archive.Entries | Where-Object { $_.Name -ieq "mgy.exe" -and $_.FullName -notmatch "\.\." } | Select-Object -First 1
         if (-not $targetEntry) {
-            throw "归档中未找到合法的 mgy.exe"
+            throw (Get-Msg `
+                "归档中未找到合法的 mgy.exe" `
+                "Valid mgy.exe not found in archive" `
+                "アーカイブ内に有効な mgy.exe が見つかりませんでした")
         }
         $stagedExe = "$installDir\mgy.exe.tmp"
         [System.IO.Compression.ZipFileExtensions]::ExtractToFile($targetEntry, $stagedExe, $true)
@@ -212,8 +398,14 @@ if ($downloadSuccess) {
     }
 } else {
     Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
-    Write-Host "❌ 未能下载并通过官方 SHA-256 校验获取发行包 ($zipName)。" -ForegroundColor Red
-    Write-Host "   请检查网络连接或前往官方 Release 下载: https://github.com/$repo/releases/latest" -ForegroundColor Yellow
+    Write-Host (Get-Msg `
+        "❌ 未能下载并通过官方 SHA-256 校验获取发行包 ($zipName)。" `
+        "❌ Failed to download and verify release package ($zipName)." `
+        "❌ リリースパッケージ ($zipName) のダウンロードおよび SHA-256 検証に失敗しました。") -ForegroundColor Red
+    Write-Host (Get-Msg `
+        "   请检查网络连接或前往官方 Release 下载: https://github.com/$repo/releases/latest" `
+        "   Please check your network or download manually from GitHub Releases: https://github.com/$repo/releases/latest" `
+        "   ネットワーク接続を確認するか、公式 Releases から手動でダウンロードしてください: https://github.com/$repo/releases/latest") -ForegroundColor Yellow
     exit 1
 }
 
@@ -257,25 +449,39 @@ if (!$cfExisting -and (Test-Path $cfTarget)) {
 }
 
 if ($cfExisting) {
-    Write-Host "✅ 检测到 Cloudflare 穿透引擎已就绪: $cfExisting" -ForegroundColor Green
+    Write-Host (Get-Msg `
+        "✅ 检测到 Cloudflare 穿透引擎已就绪: $cfExisting" `
+        "✅ Cloudflare tunnel engine already installed: $cfExisting" `
+        "✅ Cloudflare トンネルエンジンを検出済み: $cfExisting") -ForegroundColor Green
     if (!(Test-Path "$installDir\cloudflared.exe") -and (Test-Path $cfTarget)) {
         try { Copy-Item -Path $cfTarget -Destination "$installDir\cloudflared.exe" -Force } catch {}
     }
 } else {
     $cfVersion = "2026.11.1"
     $cfExpectedSha = "341deda3db5ec498a0482254d6c38c0b7cf01a30c37bb5dd95d2216d08955e35"
-    $cfUrls = @(
-        "https://ghfast.top/https://github.com/cloudflare/cloudflared/releases/download/$cfVersion/cloudflared-windows-amd64.exe",
-        "https://ghproxy.net/https://github.com/cloudflare/cloudflared/releases/download/$cfVersion/cloudflared-windows-amd64.exe",
-        "https://github.com/cloudflare/cloudflared/releases/download/$cfVersion/cloudflared-windows-amd64.exe"
-    )
+    if ($preferMirror) {
+        $cfUrls = @(
+            "https://ghfast.top/https://github.com/cloudflare/cloudflared/releases/download/$cfVersion/cloudflared-windows-amd64.exe",
+            "https://ghproxy.net/https://github.com/cloudflare/cloudflared/releases/download/$cfVersion/cloudflared-windows-amd64.exe",
+            "https://github.com/cloudflare/cloudflared/releases/download/$cfVersion/cloudflared-windows-amd64.exe"
+        )
+    } else {
+        $cfUrls = @(
+            "https://github.com/cloudflare/cloudflared/releases/download/$cfVersion/cloudflared-windows-amd64.exe",
+            "https://ghfast.top/https://github.com/cloudflare/cloudflared/releases/download/$cfVersion/cloudflared-windows-amd64.exe",
+            "https://ghproxy.net/https://github.com/cloudflare/cloudflared/releases/download/$cfVersion/cloudflared-windows-amd64.exe"
+        )
+    }
 
     $cfDone = $false
     $keepTrying = $true
 
     while ($keepTrying -and -not $cfDone) {
         Write-Host ""
-        Write-Host "⏬ 正在预先获取 Cloudflare 穿透引擎 (cloudflared.exe, 约 65MB)..." -ForegroundColor Cyan
+        Write-Host (Get-Msg `
+            "⏬ 正在预先获取 Cloudflare 穿透引擎 (cloudflared.exe, 约 65MB)..." `
+            "⏬ Pre-downloading Cloudflare tunnel engine (cloudflared.exe, ~65MB)..." `
+            "⏬ Cloudflare トンネルエンジン (cloudflared.exe, 約 65MB) を事前ダウンロードしています...") -ForegroundColor Cyan
 
         # 动态重新探测本机代理端口（支持用户切换节点后重试）
         $cfProxyPort = $proxyPort
@@ -298,12 +504,21 @@ if ($cfExisting) {
             $isOfficial = ($url -like "https://github.com/*")
             if ($isOfficial) {
                 if ($cfProxyPort) {
-                    Write-Host "🔗 尝试从 Cloudflare 官方源（走本机代理 127.0.0.1:$cfProxyPort）下载..." -ForegroundColor Gray
+                    Write-Host (Get-Msg `
+                        "🔗 尝试从 Cloudflare 官方源（走本机代理 127.0.0.1:${cfProxyPort}）下载..." `
+                        "🔗 Downloading from Cloudflare official source (via local proxy 127.0.0.1:${cfProxyPort})..." `
+                        "🔗 Cloudflare 公式ソース（ローカルプロキシ 127.0.0.1:${cfProxyPort} 経由）からダウンロード中...") -ForegroundColor Gray
                 } else {
-                    Write-Host "🔗 尝试从 Cloudflare 官方源下载: $url" -ForegroundColor Gray
+                    Write-Host (Get-Msg `
+                        "🔗 尝试从 Cloudflare 官方源下载: $url" `
+                        "🔗 Downloading from Cloudflare official source: $url" `
+                        "🔗 Cloudflare 公式ソースからダウンロード中: $url") -ForegroundColor Gray
                 }
             } else {
-                Write-Host "🔗 尝试从加速镜像站直连下载: $url" -ForegroundColor Gray
+                Write-Host (Get-Msg `
+                    "🔗 尝试从加速镜像站直连下载: $url" `
+                    "🔗 Downloading from mirror: $url" `
+                    "🔗 加速ミラーからダウンロード中: $url") -ForegroundColor Gray
             }
 
             $tmpFile = "$cfTarget.tmp"
@@ -334,38 +549,65 @@ if ($cfExisting) {
                         Move-Item -Path $tmpFile -Destination $cfTarget -Force
                         try { Copy-Item -Path $cfTarget -Destination "$installDir\cloudflared.exe" -Force } catch {}
                         $cfDone = $true
-                        Write-Host "✅ Cloudflare 穿透引擎 SHA-256 校验通过并安装成功: $cfTarget" -ForegroundColor Green
+                        Write-Host (Get-Msg `
+                            "✅ Cloudflare 穿透引擎 SHA-256 校验通过并安装成功: $cfTarget" `
+                            "✅ Cloudflare tunnel engine verified and installed: $cfTarget" `
+                            "✅ Cloudflare トンネルエンジンの SHA-256 を検証しインストールしました: $cfTarget") -ForegroundColor Green
                         break
                     }
-                    Write-Host "⚠️  cloudflared SHA-256 校验不匹配 (got $gotCfSha)，已丢弃并切换备用源..." -ForegroundColor Yellow
+                    Write-Host (Get-Msg `
+                        "⚠️  cloudflared SHA-256 校验不匹配 (got $gotCfSha)，已丢弃并切换备用源..." `
+                        "⚠️  cloudflared SHA-256 mismatch (got $gotCfSha); discarding and trying next source..." `
+                        "⚠️  cloudflared の SHA-256 が一致しません (got $gotCfSha)。破棄して次のソースを試行します...") -ForegroundColor Yellow
                     Remove-Item $tmpFile -Force -ErrorAction SilentlyContinue
                 }
             } catch {
-                Write-Host "⚠️  当前源下载异常或超时，尝试下一个备用源..." -ForegroundColor Yellow
+                Write-Host (Get-Msg `
+                    "⚠️  当前源下载异常或超时，尝试下一个备用源..." `
+                    "⚠️  Download failed or timed out; trying fallback source..." `
+                    "⚠️  ダウンロードに失敗またはタイムアウトしました。予備ソースを試行します...") -ForegroundColor Yellow
                 if (Test-Path $tmpFile) { Remove-Item $tmpFile -Force }
             }
         }
 
         if (-not $cfDone) {
             Write-Host ""
-            Write-Host "⚠️  Cloudflare 穿透引擎下载失败（所有镜像与官方源均连接超时或受阻）。" -ForegroundColor Yellow
-            Write-Host "💡 提示: cloudflared 体积约 65MB，国内部分网络访问可能受限。可切换代理节点或开启代理客户端后重试。" -ForegroundColor Gray
-            
+            Write-Host (Get-Msg `
+                "⚠️  Cloudflare 穿透引擎下载失败（所有镜像与官方源均连接超时或受阻）。" `
+                "⚠️  Failed to download Cloudflare tunnel engine (all sources timed out or failed)." `
+                "⚠️  Cloudflare トンネルエンジンのダウンロードに失敗しました（全ソースでタイムアウトまたは接続失敗）。") -ForegroundColor Yellow
+            Write-Host (Get-Msg `
+                "💡 提示: cloudflared 体积约 65MB，国内部分网络访问可能受限。可切换代理节点或开启代理客户端后重试。" `
+                "💡 Tip: cloudflared is ~65MB and may fail on restricted networks. Switch networks or enable a proxy and retry." `
+                "💡 ヒント: cloudflared は約 65MB あり、ネットワーク制限により失敗することがあります。プロキシや回線を切り替えて再試行してください。") -ForegroundColor Gray
+
             # 检测是否支持交互式输入
             $isInteractive = [Environment]::UserInteractive -and -not [Console]::IsInputRedirected
             if ($isInteractive) {
                 Write-Host ""
-                $userChoice = Read-Host "❓ 是否尝试切换代理节点/网络后重试下载？(Y: 切换后重试 / N: 跳过稍后)"
+                $userChoice = Read-Host (Get-Msg `
+                    "❓ 是否尝试切换代理节点/网络后重试下载？(Y: 切换后重试 / N: 跳过稍后)" `
+                    "❓ Retry download after switching network/proxy? (Y: retry / N: skip for now)" `
+                    "❓ ネットワークやプロキシを切り替えて再試行しますか？ (Y: 再試行 / N: スキップ)")
                 if ($userChoice -and $userChoice -match "^[Nn]$") {
                     $keepTrying = $false
-                    Write-Host "⚠️  已跳过 Cloudflare 引擎预装。后续运行 mgy 时若开启穿透，引擎仍会自动尝试拉取；亦可手动放置 cloudflared.exe 至 $cfTarget" -ForegroundColor Yellow
+                    Write-Host (Get-Msg `
+                        "⚠️  已跳过 Cloudflare 引擎预装。后续运行 mgy 时若开启穿透，引擎仍会自动尝试拉取；亦可手动放置 cloudflared.exe 至 $cfTarget" `
+                        "⚠️  Skipped cloudflared pre-install. mgy will retry automatically when tunneling is enabled, or you can place cloudflared.exe manually at $cfTarget" `
+                        "⚠️  cloudflared の事前インストールをスキップしました。次回 mgy 起動時に自動で再取得されます（手動配置先: $cfTarget）。") -ForegroundColor Yellow
                 } else {
-                    Write-Host "🔄 正在准备重试下载，请确保网络或代理已切换就绪..." -ForegroundColor Cyan
+                    Write-Host (Get-Msg `
+                        "🔄 正在准备重试下载，请确保网络或代理已切换就绪..." `
+                        "🔄 Preparing to retry download. Please make sure your network/proxy is ready..." `
+                        "🔄 ダウンロードを再試行します。ネットワークまたはプロキシの準備を確認してください...") -ForegroundColor Cyan
                     Start-Sleep -Seconds 1
                 }
             } else {
                 $keepTrying = $false
-                Write-Host "⚠️  非交互式终端，已跳过预下载。后续运行 mgy 时仍会自动尝试拉取。" -ForegroundColor Yellow
+                Write-Host (Get-Msg `
+                    "⚠️  非交互式终端，已跳过预下载。后续运行 mgy 时仍会自动尝试拉取。" `
+                    "⚠️  Non-interactive terminal; skipping pre-download. mgy will retry automatically on launch." `
+                    "⚠️  非対話型ターミナルのため事前ダウンロードをスキップしました。mgy 起動時に自動で再取得されます。") -ForegroundColor Yellow
             }
         }
     }
@@ -386,26 +628,59 @@ if (-not $lanPrefConfigured -or ($env:FORCE_CONFIG -eq "1")) {
     if ($isInteractive) {
         Write-Host ""
         Write-Host "==================================================" -ForegroundColor Cyan
-        Write-Host "⚙️  Multigravity 局域网访问安全偏好配置向导" -ForegroundColor Cyan
+        Write-Host (Get-Msg `
+            "⚙️  Multigravity 局域网访问安全偏好配置向导" `
+            "⚙️  Multigravity LAN Access Security Setup" `
+            "⚙️  Multigravity LAN アクセスセキュリティ設定") -ForegroundColor Cyan
         Write-Host "==================================================" -ForegroundColor Cyan
-        Write-Host "当您在手机、iPad 或同局域网其他电脑访问本网关时，是否需要配对码？"
+        Write-Host (Get-Msg `
+            "当您在手机、iPad 或同局域网其他电脑访问本网关时，是否需要配对码？" `
+            "Require a pairing code when phones, iPads, or other devices on your LAN connect?" `
+            "スマートフォン・iPad・同一 LAN 内の他端末から接続する際、ペアリングコードを必須にしますか？")
         Write-Host ""
-        Write-Host "  [1] 🔐 开启局域网配对校验（默认推荐）" -ForegroundColor Green
-        Write-Host "      适合办公网络、公共 Wi-Fi 或有多人/访客环境。" -ForegroundColor Gray
-        Write-Host "      新设备首次接入必须输入配对码授权。" -ForegroundColor Gray
+        Write-Host (Get-Msg `
+            "  [1] 🔐 开启局域网配对校验（默认推荐）" `
+            "  [1] 🔐 Require LAN pairing code (Recommended)" `
+            "  [1] 🔐 LAN ペアリング認証を有効にする（推奨・デフォルト）") -ForegroundColor Green
+        Write-Host (Get-Msg `
+            "      适合办公网络、公共 Wi-Fi 或有多人/访客环境。" `
+            "      Best for office networks, public Wi-Fi, or shared environments." `
+            "      オフィス・公衆 Wi-Fi・共有ネットワーク環境に最適です。") -ForegroundColor Gray
+        Write-Host (Get-Msg `
+            "      新设备首次接入必须输入配对码授权。" `
+            "      New devices must authorize with a pairing code on first connection." `
+            "      新しいデバイスは初回接続時にペアリングコードでの認可が必要です。") -ForegroundColor Gray
         Write-Host ""
-        Write-Host "  [2] 🚀 信任局域网免配对（极简直连）" -ForegroundColor Yellow
-        Write-Host "      适合家庭纯净内网、私人可控网络。" -ForegroundColor Gray
-        Write-Host "      同局域网设备打开网页即可直接进入桌面工作台，公网穿透仍强制验证。" -ForegroundColor Gray
+        Write-Host (Get-Msg `
+            "  [2] 🚀 信任局域网免配对（极简直连）" `
+            "  [2] 🚀 Trust LAN without pairing (Instant access)" `
+            "  [2] 🚀 LAN を信頼してペアリング不要にする（ダイレクト接続）") -ForegroundColor Yellow
+        Write-Host (Get-Msg `
+            "      适合家庭纯净内网、私人可控网络。" `
+            "      Best for private, trusted home networks." `
+            "      自宅など完全に管理されたプライベートネットワーク向けです。") -ForegroundColor Gray
+        Write-Host (Get-Msg `
+            "      同局域网设备打开网页即可直接进入桌面工作台，公网穿透仍强制验证。" `
+            "      LAN devices connect directly; public Cloudflare Tunnel always requires pairing." `
+            "      同一 LAN からは即座に接続できます（パブリックトンネル経由は常に認証必須）。") -ForegroundColor Gray
         Write-Host ""
 
-        $lanChoice = Read-Host "请选择 [1-2] (默认: 1)"
+        $lanChoice = Read-Host (Get-Msg `
+            "请选择 [1-2] (默认: 1)" `
+            "Select [1-2] (default: 1)" `
+            "[1-2] を選択してください (デフォルト: 1)")
         if ($lanChoice -eq "2") {
             $trustVal = "1"
-            Write-Host "✅ 已启用局域网信任免配对直连模式 (MULTIGRAVITY_TRUST_LAN=1)" -ForegroundColor Green
+            Write-Host (Get-Msg `
+                "✅ 已启用局域网信任免配对直连模式 (MULTIGRAVITY_TRUST_LAN=1)" `
+                "✅ Enabled trusted LAN direct mode (MULTIGRAVITY_TRUST_LAN=1)" `
+                "✅ 信頼済み LAN ダイレクト接続を有効にしました (MULTIGRAVITY_TRUST_LAN=1)") -ForegroundColor Green
         } else {
             $trustVal = "0"
-            Write-Host "✅ 已保持标准安全配对模式 (MULTIGRAVITY_TRUST_LAN=0)" -ForegroundColor Green
+            Write-Host (Get-Msg `
+                "✅ 已保持标准安全配对模式 (MULTIGRAVITY_TRUST_LAN=0)" `
+                "✅ Kept standard LAN pairing verification (MULTIGRAVITY_TRUST_LAN=0)" `
+                "✅ 標準の LAN ペアリング認証を維持しました (MULTIGRAVITY_TRUST_LAN=0)") -ForegroundColor Green
         }
 
         # 更新或追加到 .env
@@ -428,7 +703,10 @@ if (-not $lanPrefConfigured -or ($env:FORCE_CONFIG -eq "1")) {
         } else {
             [System.IO.File]::WriteAllText($envFile, "MULTIGRAVITY_TRUST_LAN=$trustVal`n", [System.Text.Encoding]::UTF8)
         }
-        Write-Host "💡 提示: 之后可随时在 $confDir\.env 中修改 MULTIGRAVITY_TRUST_LAN 的值" -ForegroundColor Gray
+        Write-Host (Get-Msg `
+            "💡 提示: 之后可随时在 $confDir\.env 中修改 MULTIGRAVITY_TRUST_LAN 的值" `
+            "💡 Tip: You can change MULTIGRAVITY_TRUST_LAN anytime in $confDir\.env" `
+            "💡 ヒント: MULTIGRAVITY_TRUST_LAN はいつでも $confDir\.env で変更できます") -ForegroundColor Gray
     } else {
         # 非交互环境追加默认值
         if (Test-Path $envFile) {
@@ -442,28 +720,44 @@ if (-not $lanPrefConfigured -or ($env:FORCE_CONFIG -eq "1")) {
 
 # 9. 验证与打印完成信息
 $installedVer = & "$installDir\mgy.exe" version 2>$null
-if (!$installedVer) { $installedVer = "Multigravity (mgy) 1.0.5" }
+if (!$installedVer) { $installedVer = "Multigravity (mgy)" }
 
 Write-Host ""
 Write-Host "==================================================" -ForegroundColor Cyan
-Write-Host "🎉 安装完成！$installedVer" -ForegroundColor Green
+Write-Host (Get-Msg `
+    "🎉 安装完成！$installedVer" `
+    "🎉 Installation complete! $installedVer" `
+    "🎉 インストールが完了しました！ $installedVer") -ForegroundColor Green
 Write-Host "==================================================" -ForegroundColor Cyan
-Write-Host "📍 二进制安装位置:   $installDir\mgy.exe"
-Write-Host "📁 全局配置与数据:   $confDir\"
-Write-Host "📄 配置文件路径:     $confDir\.env"
+Write-Host (Get-Msg `
+    "📍 二进制安装位置:   $installDir\mgy.exe" `
+    "📍 Binary path:      $installDir\mgy.exe" `
+    "📍 バイナリ配置先:   $installDir\mgy.exe")
+Write-Host (Get-Msg `
+    "📁 全局配置与数据:   $confDir\" `
+    "📁 Config & data:    $confDir\" `
+    "📁 設定・データ:     $confDir\")
+Write-Host (Get-Msg `
+    "📄 配置文件路径:     $confDir\.env" `
+    "📄 Config file:      $confDir\.env" `
+    "📄 設定ファイル:     $confDir\.env")
 Write-Host ""
-Write-Host "🚀 常用指令:" -ForegroundColor Yellow
-Write-Host "   • 启动网关主服务:   mgy" -ForegroundColor White
-Write-Host "   • 终端打印配对码:   mgy pair" -ForegroundColor White
-Write-Host "   • 配置座舱报表:     mgy cockpit" -ForegroundColor White
-Write-Host "   • 配置公网穿透:     mgy cloudflare" -ForegroundColor White
-Write-Host "   • 查看已连接设备:   mgy list" -ForegroundColor White
-Write-Host "   • 清空已配对设备:   mgy clear all" -ForegroundColor White
-Write-Host "   • 查看命令帮助:     mgy help" -ForegroundColor White
+Write-Host (Get-Msg "🚀 常用指令:" "🚀 Common commands:" "🚀 主なコマンド:") -ForegroundColor Yellow
+Write-Host (Get-Msg "   • 启动网关主服务:   mgy"            "   • Start gateway server:     mgy"            "   • ゲートウェイを起動:       mgy") -ForegroundColor White
+Write-Host (Get-Msg "   • 终端打印配对码:   mgy pair"       "   • Show pairing QR code:     mgy pair"       "   • ペアリング QR を表示:     mgy pair") -ForegroundColor White
+Write-Host (Get-Msg "   • 配置座舱报表:     mgy cockpit"    "   • Configure Cockpit sync:   mgy cockpit"    "   • Cockpit レポート設定:     mgy cockpit") -ForegroundColor White
+Write-Host (Get-Msg "   • 配置公网穿透:     mgy cloudflare" "   • Configure public tunnel:  mgy cloudflare" "   • パブリックトンネル設定:   mgy cloudflare") -ForegroundColor White
+Write-Host (Get-Msg "   • 查看已连接设备:   mgy list"       "   • List paired devices:      mgy list"       "   • ペアリング済み端末一覧:   mgy list") -ForegroundColor White
+Write-Host (Get-Msg "   • 清空已配对设备:   mgy clear all"  "   • Revoke all devices:       mgy clear all"  "   • 全ペアリング端末を解除:   mgy clear all") -ForegroundColor White
+Write-Host (Get-Msg "   • 查看命令帮助:     mgy help"       "   • Show CLI help:            mgy help"       "   • コマンドヘルプを表示:     mgy help") -ForegroundColor White
 Write-Host ""
-Write-Host "📱 手机端使用:" -ForegroundColor Yellow
-Write-Host "   请在 GitHub Releases 下载安装 Multigravity-*.apk，" -ForegroundColor White
-Write-Host "   打开 App 扫描终端打印的二维码即可完成配对！" -ForegroundColor White
+Write-Host (Get-Msg "📱 手机端使用:" "📱 Mobile app:" "📱 モバイルアプリ:") -ForegroundColor Yellow
+Write-Host "   • iOS (App Store): $appStoreUrl" -ForegroundColor White
+Write-Host "   • Android (APK):   https://github.com/$repo/releases/latest" -ForegroundColor White
+Write-Host (Get-Msg `
+    "   打开 App 扫描终端打印的二维码即可完成配对！" `
+    "   Open the app and scan the QR code printed in your terminal to pair!" `
+    "   アプリを開き、ターミナルに表示される QR コードを読み取ってペアリングしてください！") -ForegroundColor White
 Write-Host "==================================================" -ForegroundColor Cyan
 
 # 清理临时文件
