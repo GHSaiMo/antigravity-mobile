@@ -7,7 +7,6 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
-import android.os.Bundle
 import android.provider.MediaStore
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -152,21 +151,29 @@ private fun localizeBucketName(raw: String?): String {
     }
 }
 
+private data class PhotoMediaEntry(
+    val id: Long,
+    val sortTimestamp: Long,
+    val uri: Uri,
+    val bucketId: String?,
+    val bucketDisplayName: String?,
+    val isFavorite: Boolean
+)
+
 /**
  * Loads all image URIs and groups them into Recents, Favorites (Android 11+), and MediaStore albums
  * ordered by most recent photo descending. Image-only (MediaStore.Images.Media excludes videos).
  */
 private suspend fun loadPhotoLibrary(context: Context): PhotoLibrarySnapshot = withContext(Dispatchers.IO) {
-    val allUris = mutableListOf<Uri>()
-    val favoriteUris = mutableListOf<Uri>()
-    val bucketNames = LinkedHashMap<String, String>()
-    val bucketUris = LinkedHashMap<String, MutableList<Uri>>()
+    val entries = mutableListOf<PhotoMediaEntry>()
 
     try {
         val supportsFavorite = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
         val projection = if (supportsFavorite) {
             arrayOf(
                 MediaStore.Images.Media._ID,
+                MediaStore.Images.Media.DATE_ADDED,
+                MediaStore.Images.Media.DATE_MODIFIED,
                 MediaStore.Images.Media.BUCKET_ID,
                 MediaStore.Images.Media.BUCKET_DISPLAY_NAME,
                 MediaStore.Images.Media.IS_FAVORITE
@@ -174,54 +181,95 @@ private suspend fun loadPhotoLibrary(context: Context): PhotoLibrarySnapshot = w
         } else {
             arrayOf(
                 MediaStore.Images.Media._ID,
+                MediaStore.Images.Media.DATE_ADDED,
+                MediaStore.Images.Media.DATE_MODIFIED,
                 MediaStore.Images.Media.BUCKET_ID,
                 MediaStore.Images.Media.BUCKET_DISPLAY_NAME
             )
         }
 
-        val args = Bundle().apply {
-            putStringArray(
-                android.content.ContentResolver.QUERY_ARG_SORT_COLUMNS,
-                arrayOf(MediaStore.Images.Media.DATE_ADDED, MediaStore.Images.Media._ID)
-            )
-            putInt(
-                android.content.ContentResolver.QUERY_ARG_SORT_DIRECTION,
-                android.content.ContentResolver.QUERY_SORT_DIRECTION_DESCENDING
-            )
-        }
+        // Use explicit SQL sort order instead of QUERY_ARG_SORT_COLUMNS with 2+ columns:
+        // AOSP ContentResolver.createSqlSortClause joins columns with ", " and appends " DESC"
+        // only to the final column ("date_added, _id DESC" == "date_added ASC, _id DESC"),
+        // which reverses Recents into oldest-first!
+        val sortOrder = "${MediaStore.Images.Media.DATE_ADDED} DESC, ${MediaStore.Images.Media._ID} DESC"
 
         context.contentResolver.query(
             MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
             projection,
-            args,
-            null
+            null,
+            null,
+            sortOrder
         )?.use { c ->
             val idCol = c.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
+            val dateAddedCol = c.getColumnIndex(MediaStore.Images.Media.DATE_ADDED)
+            val dateModifiedCol = c.getColumnIndex(MediaStore.Images.Media.DATE_MODIFIED)
             val bucketIdCol = c.getColumnIndex(MediaStore.Images.Media.BUCKET_ID)
             val bucketNameCol = c.getColumnIndex(MediaStore.Images.Media.BUCKET_DISPLAY_NAME)
             val favoriteCol = if (supportsFavorite) c.getColumnIndex(MediaStore.Images.Media.IS_FAVORITE) else -1
 
             while (c.moveToNext()) {
-                val uri = ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, c.getLong(idCol))
-                allUris.add(uri)
+                val id = c.getLong(idCol)
+                val dateAdded = if (dateAddedCol >= 0) c.getLong(dateAddedCol) else 0L
+                val dateModified = if (dateModifiedCol >= 0) c.getLong(dateModifiedCol) else 0L
+                val sortTimestamp = if (dateAdded > 0L) dateAdded else dateModified
+                val uri = ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id)
+                val bucketId = if (bucketIdCol >= 0) c.getString(bucketIdCol)?.takeIf { it.isNotBlank() } else null
+                val bucketDisplayName = if (bucketNameCol >= 0) c.getString(bucketNameCol) else null
+                val isFavorite = favoriteCol >= 0 && c.getInt(favoriteCol) == 1
 
-                if (favoriteCol >= 0 && c.getInt(favoriteCol) == 1) {
-                    favoriteUris.add(uri)
-                }
-
-                if (bucketIdCol >= 0) {
-                    val bucketId = c.getString(bucketIdCol)?.takeIf { it.isNotBlank() } ?: continue
-                    val rawName = if (bucketNameCol >= 0) c.getString(bucketNameCol) else null
-                    val list = bucketUris.getOrPut(bucketId) {
-                        bucketNames[bucketId] = localizeBucketName(rawName)
-                        mutableListOf()
-                    }
-                    list.add(uri)
-                }
+                entries.add(
+                    PhotoMediaEntry(
+                        id = id,
+                        sortTimestamp = sortTimestamp,
+                        uri = uri,
+                        bucketId = bucketId,
+                        bucketDisplayName = bucketDisplayName,
+                        isFavorite = isFavorite
+                    )
+                )
             }
         }
     } catch (_: Exception) {
         // Permission revoked mid-flight or provider error: show an empty grid.
+    }
+
+    // Defensive check: guarantee newest-first ordering even if an OEM MediaProvider ignores sortOrder
+    // or a photo lacked DATE_ADDED and fell back to DATE_MODIFIED.
+    var needsSort = false
+    for (i in 1 until entries.size) {
+        val prev = entries[i - 1]
+        val curr = entries[i]
+        if (prev.sortTimestamp < curr.sortTimestamp ||
+            (prev.sortTimestamp == curr.sortTimestamp && prev.id < curr.id)
+        ) {
+            needsSort = true
+            break
+        }
+    }
+    if (needsSort) {
+        entries.sortWith(
+            compareByDescending<PhotoMediaEntry> { it.sortTimestamp }
+                .thenByDescending { it.id }
+        )
+    }
+
+    val allUris = ArrayList<Uri>(entries.size)
+    val favoriteUris = mutableListOf<Uri>()
+    val bucketNames = LinkedHashMap<String, String>()
+    val bucketUris = LinkedHashMap<String, MutableList<Uri>>()
+
+    for (entry in entries) {
+        allUris.add(entry.uri)
+        if (entry.isFavorite) {
+            favoriteUris.add(entry.uri)
+        }
+        val bucketId = entry.bucketId ?: continue
+        val list = bucketUris.getOrPut(bucketId) {
+            bucketNames[bucketId] = localizeBucketName(entry.bucketDisplayName)
+            mutableListOf()
+        }
+        list.add(entry.uri)
     }
 
     val albums = mutableListOf<PhotoAlbumItem>()

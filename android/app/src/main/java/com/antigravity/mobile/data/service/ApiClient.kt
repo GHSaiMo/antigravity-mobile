@@ -6,7 +6,10 @@ import android.os.Build
 import android.util.Base64
 import android.util.Log
 import com.antigravity.mobile.data.model.*
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.serialization.encodeToString
@@ -1189,35 +1192,73 @@ class ApiClient(
                 }
                 .build()
 
-            client.newCall(request).await().use { response ->
-                if (!response.isSuccessful) {
-                    return@withContext Result.failure(RuntimeException("下载文件失败: HTTP ${response.code}".loc))
+            val call = client.newCall(request)
+            val cancelHandle = coroutineContext[Job]?.invokeOnCompletion { cause ->
+                if (cause != null) {
+                    try {
+                        call.cancel()
+                    } catch (_: Throwable) {}
                 }
-                val body = response.body ?: return@withContext Result.failure(RuntimeException("空响应体".loc))
-                val totalLength = body.contentLength()
-
-                targetFile.parentFile?.mkdirs()
-                val tempFile = java.io.File(targetFile.parentFile, "${targetFile.name}.tmp")
-                tempFile.outputStream().use { output ->
-                    body.byteStream().use { input ->
-                        val buffer = ByteArray(8192)
-                        var bytesWritten = 0L
-                        var read: Int
-                        while (input.read(buffer).also { read = it } != -1) {
-                            output.write(buffer, 0, read)
-                            bytesWritten += read
-                            if (totalLength > 0 && onProgress != null) {
-                                val progress = (bytesWritten.toFloat() / totalLength.toFloat()).coerceIn(0f, 1f)
-                                onProgress(progress, bytesWritten, totalLength)
-                            }
-                        }
-                        output.flush()
-                    }
-                }
-                if (targetFile.exists()) targetFile.delete()
-                tempFile.renameTo(targetFile)
-                Result.success(targetFile)
             }
+            var tempFile: java.io.File? = null
+            try {
+                call.await().use { response ->
+                    if (!response.isSuccessful) {
+                        return@withContext Result.failure(RuntimeException("下载文件失败: HTTP ${response.code}".loc))
+                    }
+                    val body = response.body ?: return@withContext Result.failure(RuntimeException("空响应体".loc))
+                    val totalLength = body.contentLength()
+
+                    targetFile.parentFile?.mkdirs()
+                    val candidateTemp = java.io.File(targetFile.parentFile, "${targetFile.name}.${System.nanoTime()}.tmp")
+                    tempFile = candidateTemp
+                    candidateTemp.outputStream().use { output ->
+                        body.byteStream().use { input ->
+                            val buffer = ByteArray(8192)
+                            var bytesWritten = 0L
+                            var lastEmittedProgress = 0f
+                            var lastEmitMs = 0L
+                            var read: Int
+                            while (input.read(buffer).also { read = it } != -1) {
+                                coroutineContext.ensureActive()
+                                output.write(buffer, 0, read)
+                                bytesWritten += read
+                                if (totalLength > 0 && onProgress != null) {
+                                    val rawProgress = (bytesWritten.toFloat() / totalLength.toFloat()).coerceIn(0f, 1f)
+                                    val monotonicProgress = maxOf(lastEmittedProgress, rawProgress)
+                                    val now = android.os.SystemClock.elapsedRealtime()
+                                    val shouldEmit = monotonicProgress >= 1f ||
+                                        lastEmittedProgress == 0f ||
+                                        (now - lastEmitMs >= 50L && monotonicProgress - lastEmittedProgress >= 0.005f) ||
+                                        (monotonicProgress - lastEmittedProgress >= 0.05f)
+                                    if (shouldEmit) {
+                                        lastEmittedProgress = monotonicProgress
+                                        lastEmitMs = now
+                                        onProgress(monotonicProgress, bytesWritten, totalLength)
+                                    }
+                                }
+                            }
+                            output.flush()
+                        }
+                    }
+                    coroutineContext.ensureActive()
+                    if (targetFile.exists()) targetFile.delete()
+                    if (!candidateTemp.renameTo(targetFile)) {
+                        candidateTemp.copyTo(targetFile, overwrite = true)
+                        candidateTemp.delete()
+                    }
+                    tempFile = null
+                    Result.success(targetFile)
+                }
+            } catch (e: CancellationException) {
+                tempFile?.delete()
+                throw e
+            } finally {
+                cancelHandle?.dispose()
+                tempFile?.delete()
+            }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(e)
         }

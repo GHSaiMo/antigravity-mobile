@@ -1166,7 +1166,13 @@ fun ChatScreen(
         dismissKeyboard()
         val clean = uri.trim()
         val lower = clean.lowercase()
-        val rawName = title.ifEmpty { clean.substringAfterLast('/') }
+        val rawName = title.ifEmpty {
+            val uriParam = runCatching {
+                Uri.parse(clean).getQueryParameter("uri")
+            }.getOrNull()?.takeIf { it.isNotBlank() }
+            val pathForName = (uriParam ?: clean.substringBefore('?').substringBefore('#')).trimEnd('/')
+            pathForName.substringAfterLast('/')
+        }
         val decodedFileName = try {
             URLDecoder.decode(rawName, "UTF-8")
         } catch (_: Exception) {
@@ -2837,6 +2843,7 @@ fun ChatScreen(
 
     // Downloading Document Progress Dialog
     if (uiState.isDownloadingDocument) {
+        val downloadProgress by viewModel.documentDownloadProgress.collectAsState()
         androidx.compose.ui.window.Dialog(onDismissRequest = { viewModel.cancelDocumentDownload() }) {
             Surface(
                 shape = RoundedCornerShape(14.dp),
@@ -2849,16 +2856,21 @@ fun ChatScreen(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    if (uiState.downloadProgress > 0f) {
+                    if (downloadProgress > 0f) {
+                        val animatedProgress by animateFloatAsState(
+                            targetValue = downloadProgress.coerceIn(0f, 1f),
+                            animationSpec = tween(durationMillis = 120, easing = FastOutSlowInEasing),
+                            label = "documentDownloadProgress"
+                        )
                         LinearProgressIndicator(
-                            progress = { uiState.downloadProgress },
+                            progress = { animatedProgress },
                             color = colors.accentIndigo,
                             modifier = Modifier.fillMaxWidth()
                         )
                     } else {
-                        CircularProgressIndicator(
+                        LinearProgressIndicator(
                             color = colors.accentIndigo,
-                            modifier = Modifier.size(32.dp)
+                            modifier = Modifier.fillMaxWidth()
                         )
                     }
                     Text(

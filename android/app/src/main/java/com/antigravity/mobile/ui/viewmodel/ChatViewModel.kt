@@ -178,6 +178,17 @@ class ChatViewModel(
     internal val _scrollToBottomTrigger = MutableStateFlow(0)
     val scrollToBottomTrigger: StateFlow<Int> = _scrollToBottomTrigger.asStateFlow()
 
+    /**
+     * Dedicated monotonic flow for active document download progress (0f..1f).
+     * Kept separate from [_uiState] so concurrent Main/IO UI state updates can never
+     * clobber or roll back the progress bar.
+     */
+    internal val _documentDownloadProgress = MutableStateFlow(0f)
+    val documentDownloadProgress: StateFlow<Float> = _documentDownloadProgress.asStateFlow()
+
+    @Volatile
+    internal var documentDownloadSessionId: Long = 0L
+
     var isUnreadOnEntry: Boolean = false
         internal set
 
@@ -435,9 +446,11 @@ class ChatViewModel(
     }
 
     fun cancelDocumentDownload() {
+        documentDownloadSessionId++
         documentDownloadJob?.cancel()
         documentDownloadJob = null
-        _uiState.value = _uiState.value.copy(isDownloadingDocument = false)
+        _documentDownloadProgress.value = 0f
+        _uiState.value = _uiState.value.copy(isDownloadingDocument = false, downloadProgress = 0f)
     }
 
     // MARK: - Revert / Undo Operations

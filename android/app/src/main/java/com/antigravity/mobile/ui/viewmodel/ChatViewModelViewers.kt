@@ -6,7 +6,9 @@ import android.graphics.BitmapFactory
 import androidx.lifecycle.viewModelScope
 import com.antigravity.mobile.data.model.*
 import com.antigravity.mobile.ui.components.ImageViewerItem
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.net.URLDecoder
@@ -124,7 +126,9 @@ internal fun ChatViewModel.openAttachmentImageViewer(attachment: AttachmentImage
 }
 
 internal fun ChatViewModel.downloadAndPreviewDocument(uri: String, fileName: String) {
+    val sessionId = ++documentDownloadSessionId
     documentDownloadJob?.cancel()
+    _documentDownloadProgress.value = 0f
 
     val decodedFileName = try { URLDecoder.decode(fileName, "UTF-8") } catch (_: Exception) { fileName }
     val cascadeId = _uiState.value.cascadeId
@@ -137,6 +141,7 @@ internal fun ChatViewModel.downloadAndPreviewDocument(uri: String, fileName: Str
     }
     if (localCandidate != null && localCandidate.exists() && localCandidate.length() > 0) {
         _uiState.value = _uiState.value.copy(
+            isDownloadingDocument = false,
             previewDocumentFile = localCandidate,
             previewDocumentTitle = decodedFileName.ifEmpty { localCandidate.name }
         )
@@ -147,6 +152,7 @@ internal fun ChatViewModel.downloadAndPreviewDocument(uri: String, fileName: Str
     val cached = documentCacheManager?.getCachedFile(uri, decodedFileName, cascadeId)
     if (cached != null && cached.exists() && cached.length() > 0) {
         _uiState.value = _uiState.value.copy(
+            isDownloadingDocument = false,
             previewDocumentFile = cached,
             previewDocumentTitle = decodedFileName
         )
@@ -164,16 +170,26 @@ internal fun ChatViewModel.downloadAndPreviewDocument(uri: String, fileName: Str
     )
 
     documentDownloadJob = viewModelScope.launch {
-        val res = apiClient.downloadFile(
-            uri = uri,
-            targetFile = target,
-            cascadeId = cascadeId,
-            onProgress = { progress, _, _ ->
-                _uiState.value = _uiState.value.copy(downloadProgress = progress)
-            }
-        )
+        val res = try {
+            apiClient.downloadFile(
+                uri = uri,
+                targetFile = target,
+                cascadeId = cascadeId,
+                onProgress = { progress, _, _ ->
+                    if (documentDownloadSessionId == sessionId) {
+                        val clamped = progress.coerceIn(0f, 1f)
+                        _documentDownloadProgress.update { current -> maxOf(current, clamped) }
+                    }
+                }
+            )
+        } catch (e: CancellationException) {
+            throw e
+        }
 
-        _uiState.value = _uiState.value.copy(isDownloadingDocument = false)
+        if (documentDownloadSessionId != sessionId) return@launch
+
+        _documentDownloadProgress.value = 0f
+        _uiState.value = _uiState.value.copy(isDownloadingDocument = false, downloadProgress = 0f)
 
         res.onSuccess { downloadedFile ->
             _uiState.value = _uiState.value.copy(
