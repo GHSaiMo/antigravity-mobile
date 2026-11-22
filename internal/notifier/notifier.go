@@ -458,6 +458,7 @@ func (n *Notifier) NotifyQuotaAlert(key, title, body string, critical bool) erro
 		Body:     body,
 		Icon:     n.cfg.IconURL,
 		Group:    n.cfg.Group,
+		URL:      "antigravity://quota",
 		Level:    "active",
 		Category: "quota_alert",
 	}

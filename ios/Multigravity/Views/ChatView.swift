@@ -702,6 +702,44 @@ public struct ChatView: View {
             } message: {
                 Text("开启后 Agent 将自动执行终端命令并访问工作区外文件（同步作用于桌面端全部会话）。建议仅在可信或隔离环境中使用。")
             }
+            .onReceive(NotificationCenter.default.publisher(for: .dismissAllPresentedModals)) { _ in
+                dismissChatModals()
+            }
+    }
+
+    private func dismissChatModals() {
+        showAttachmentSheet = false
+        showNavigatorSheet = false
+        showMcpSkillsSheet = false
+        mcpSkillsInitialTabOverride = nil
+        showSwarmSheet = false
+        showContextAuditSheet = false
+        showWorkflowTemplateSheet = false
+        workflowSheetStartInEditMode = false
+        showCameraPicker = false
+        showDocumentScanner = false
+        showBtwSheet = false
+        btwInitialQuote = nil
+        selectedSubagentDetail = nil
+        selectedGitHubPRItem = nil
+        previewDraftGallery = nil
+        showCameraUnavailableAlert = false
+        showCameraPermissionAlert = false
+        showMicrophonePermissionAlert = false
+        showOtherSessionRecordingAlert = false
+        showSendQueuedNowConfirmAlert = false
+        queuedItemToSendNow = nil
+        showAutoPermissionConfirm = false
+
+        viewModel.closeMarkdownViewer()
+        viewModel.closeQuickLook()
+        viewModel.closeHTMLPreview()
+        viewModel.closeWeChatArchive()
+        viewModel.closeInAppBrowser()
+        viewModel.closeChangesSheet()
+        viewModel.closeGitSheet()
+        viewModel.cancelUndoSheet()
+        viewModel.exportedMarkdownFile = nil
     }
     
     private func checkPendingLiveRecording() {

@@ -77,7 +77,10 @@ fun ConversationListScreen(
     viewModel: ConversationListViewModel,
     onSelectConversation: (cascadeId: String, title: String, isNew: Boolean, isUnread: Boolean, status: com.antigravity.mobile.data.model.ConversationStatus, lastModifiedTime: String?) -> Unit,
     onNavigateToPair: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    dismissModalsTrigger: Int = 0,
+    openQuotaRequested: Boolean = false,
+    onConsumeOpenQuota: () -> Unit = {}
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
@@ -142,6 +145,37 @@ fun ConversationListScreen(
     var swipedConversationId by remember { mutableStateOf<String?>(null) }
     var editingAliasProject by remember { mutableStateOf<ProjectItem?>(null) }
     var aliasInputText by remember { mutableStateOf("") }
+
+    var lastSeenDismissTrigger by remember { mutableIntStateOf(dismissModalsTrigger) }
+    LaunchedEffect(dismissModalsTrigger) {
+        if (dismissModalsTrigger != lastSeenDismissTrigger) {
+            lastSeenDismissTrigger = dismissModalsTrigger
+            showQuotaSheet = false
+            showBackgroundTasksSheet = false
+            showNewConvSheet = false
+            showSettingsSheet = false
+            showEasterEgg = false
+            renamingItem = null
+            deletingItem = null
+            pinningItem = null
+            editingAliasProject = null
+        }
+    }
+    LaunchedEffect(openQuotaRequested) {
+        if (openQuotaRequested) {
+            onConsumeOpenQuota()
+            showBackgroundTasksSheet = false
+            showNewConvSheet = false
+            showSettingsSheet = false
+            showEasterEgg = false
+            renamingItem = null
+            deletingItem = null
+            pinningItem = null
+            editingAliasProject = null
+            showQuotaSheet = true
+            viewModel.refreshQuotas()
+        }
+    }
 
     val colors = AntigravityTheme.colors
     val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()

@@ -41,15 +41,23 @@ public final class MultigravityAppDelegate: NSObject, UIApplicationDelegate {
 public final class PushNotificationManager: NSObject {
     public static let shared = PushNotificationManager()
 
+    public enum NotificationRoute: Equatable, Sendable {
+        case cascade(String)
+        case quota
+        case deepLink(URL)
+    }
+
     public private(set) var authorizationStatus: UNAuthorizationStatus = .notDetermined
     public private(set) var deviceTokenHex: String?
     public private(set) var liveActivityStartTokenHex: String?
 
-    /// Cascade currently visible on screen; foreground notifications for this exact cascade are suppressed.
+    /// Cascade currently visible on screen; foreground notifications for this exact cascade are suppressed
+    /// unless a blocking modal sheet (e.g. Account Quota or Settings) is covering the screen.
     public var activeViewingCascadeId: String?
+    public var hasBlockingModalPresented: Bool = false
 
-    /// Buffers a tapped notification's cascadeId during cold launch until ConversationListView mounts.
-    private var pendingCascadeId: String?
+    /// Buffers a tapped notification's destination during cold launch until ConversationListView mounts.
+    private var pendingRoute: NotificationRoute?
     private var activeLiveActivityTokens: [String: String] = [:] // cascadeId -> tokenHex
     private var lastSyncedAlertSignature: String?
     private var lastSyncedStartSignature: String?
@@ -265,16 +273,32 @@ public final class PushNotificationManager: NSObject {
         await sendDeletePushToken(baseURL: baseURL, tokenType: nil, cascadeId: nil, authToken: authToken, deviceId: deviceId)
     }
 
+    public func consumePendingRoute() -> NotificationRoute? {
+        defer { pendingRoute = nil }
+        return pendingRoute
+    }
+
+    public func clearPendingRouteIfMatching(_ route: NotificationRoute) {
+        if pendingRoute == route {
+            pendingRoute = nil
+        }
+    }
+
     public func consumePendingCascadeId() -> String? {
-        defer { pendingCascadeId = nil }
-        return pendingCascadeId
+        guard case .cascade(let cid) = pendingRoute else { return nil }
+        pendingRoute = nil
+        return cid
+    }
+
+    public func route(_ route: NotificationRoute) {
+        pendingRoute = route
+        NotificationCenter.default.post(name: .openNotificationRoute, object: route)
     }
 
     public func routeToCascade(_ cascadeId: String) {
         let cid = cascadeId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cid.isEmpty else { return }
-        pendingCascadeId = cid
-        NotificationCenter.default.post(name: .openConversationById, object: cid)
+        route(.cascade(cid))
     }
 
     // MARK: - Networking Helpers
@@ -405,12 +429,42 @@ public final class PushNotificationManager: NSObject {
         }
         if let urlStr = userInfo["url"] as? String,
            let url = URL(string: urlStr),
-           url.host == "cascade" {
+           url.host?.lowercased() == "cascade" {
             let trimmed = url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
             if !trimmed.isEmpty { return trimmed }
         }
         return nil
     }
+
+    nonisolated private static func extractNotificationRoute(
+        from userInfo: [AnyHashable: Any],
+        categoryIdentifier: String
+    ) -> NotificationRoute? {
+        if let cid = extractCascadeId(from: userInfo) {
+            return .cascade(cid)
+        }
+        let rawCategory = !categoryIdentifier.isEmpty
+            ? categoryIdentifier
+            : ((userInfo["category"] as? String)
+                ?? ((userInfo["aps"] as? [AnyHashable: Any])?["category"] as? String)
+                ?? "")
+        if rawCategory.lowercased() == "quota_alert" {
+            return .quota
+        }
+        if let urlStr = userInfo["url"] as? String,
+           let url = URL(string: urlStr.trimmingCharacters(in: .whitespacesAndNewlines)) {
+            if url.host?.lowercased() == "quota" {
+                return .quota
+            }
+            return .deepLink(url)
+        }
+        return nil
+    }
+}
+
+extension Notification.Name {
+    public static let openNotificationRoute = Notification.Name("multigravity.openNotificationRoute")
+    public static let dismissAllPresentedModals = Notification.Name("multigravity.dismissAllPresentedModals")
 }
 
 extension PushNotificationManager: UNUserNotificationCenterDelegate {
@@ -423,7 +477,11 @@ extension PushNotificationManager: UNUserNotificationCenterDelegate {
         let cid = Self.extractCascadeId(from: userInfo)
 
         DispatchQueue.main.async {
-            let isViewingSame = (cid != nil && cid == PushNotificationManager.shared.activeViewingCascadeId)
+            let isViewingSame = (
+                cid != nil
+                && cid == PushNotificationManager.shared.activeViewingCascadeId
+                && !PushNotificationManager.shared.hasBlockingModalPresented
+            )
             if isViewingSame {
                 completionHandler([])
             } else {
@@ -437,12 +495,15 @@ extension PushNotificationManager: UNUserNotificationCenterDelegate {
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
-        let userInfo = response.notification.request.content.userInfo
-        let cid = Self.extractCascadeId(from: userInfo)
+        let content = response.notification.request.content
+        let route = Self.extractNotificationRoute(
+            from: content.userInfo,
+            categoryIdentifier: content.categoryIdentifier
+        )
 
         DispatchQueue.main.async {
-            if let cid {
-                PushNotificationManager.shared.routeToCascade(cid)
+            if let route {
+                PushNotificationManager.shared.route(route)
             }
             completionHandler()
         }

@@ -58,6 +58,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.unit.dp
 import android.net.Uri
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -78,6 +79,9 @@ class MainActivity : ComponentActivity() {
     private lateinit var notificationPermissionLauncher: ActivityResultLauncher<String>
     private var activeNavController: NavHostController? = null
     private var pendingCascadeId: String? = null
+    private var pendingOpenQuota: Boolean = false
+    private val dismissModalsTriggerFlow = MutableStateFlow(0)
+    private val openQuotaRequestedFlow = MutableStateFlow(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
@@ -210,11 +214,17 @@ class MainActivity : ComponentActivity() {
                 AntigravityTheme(themeMode = themeMode) {
                 val navController = rememberNavController()
                 activeNavController = navController
+                val dismissModalsTrigger by dismissModalsTriggerFlow.collectAsState()
+                val openQuotaRequested by openQuotaRequestedFlow.collectAsState()
 
                 LaunchedEffect(navController) {
                     pendingCascadeId?.let { cid ->
                         pendingCascadeId = null
                         navigateToCascade(cid)
+                    }
+                    if (pendingOpenQuota) {
+                        pendingOpenQuota = false
+                        navigateToQuota()
                     }
                 }
 
@@ -303,7 +313,10 @@ class MainActivity : ComponentActivity() {
                                         popUpTo(0) { inclusive = true }
                                     }
                                 }
-                            }
+                            },
+                            dismissModalsTrigger = dismissModalsTrigger,
+                            openQuotaRequested = openQuotaRequested,
+                            onConsumeOpenQuota = { openQuotaRequestedFlow.value = false }
                         )
                     }
 
@@ -373,7 +386,8 @@ class MainActivity : ComponentActivity() {
                                 navController.navigate("chat/${draft.id}/$encodedDraftTitle?isNew=true&isUnread=false&status=IDLE") {
                                     popUpTo("conversations")
                                 }
-                            }
+                            },
+                            dismissModalsTrigger = dismissModalsTrigger
                         )
                     }
                 }
@@ -592,6 +606,19 @@ class MainActivity : ComponentActivity() {
         }
 
         if (scheme == "antigravity" || scheme == "multigravity" || scheme == "agy") {
+            if (host == "quota") {
+                navigateToQuota()
+                return
+            }
+            if (host == "conversations" || host == "home") {
+                dismissAllModals()
+                val navController = activeNavController
+                if (navController?.currentDestination?.route?.startsWith("chat/") == true) {
+                    navController.popBackStack("conversations", false)
+                }
+                return
+            }
+
             val cascadeId = when (host) {
                 "cascade", "session" -> {
                     uri.pathSegments.firstOrNull() ?: uri.path?.trim('/')
@@ -611,11 +638,43 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun dismissAllModals() {
+        ShareInbox.hideSheet()
+        dismissModalsTriggerFlow.value = dismissModalsTriggerFlow.value + 1
+    }
+
+    private fun navigateToQuota() {
+        val navController = activeNavController
+        if (navController == null || !prefs.isPaired()) {
+            pendingOpenQuota = true
+            return
+        }
+        ShareInbox.hideSheet()
+        if (navController.currentDestination?.route?.startsWith("chat/") == true) {
+            dismissModalsTriggerFlow.value = dismissModalsTriggerFlow.value + 1
+            navController.popBackStack("conversations", false)
+        }
+        openQuotaRequestedFlow.value = true
+    }
+
     private fun navigateToCascade(cascadeId: String) {
         val navController = activeNavController
         if (navController == null || !prefs.isPaired()) {
             pendingCascadeId = cascadeId
             return
+        }
+
+        dismissAllModals()
+
+        val currentRoute = navController.currentDestination?.route
+        val currentCascadeId = navController.currentBackStackEntry?.arguments?.getString("cascadeId")
+        if (currentRoute?.startsWith("chat/") == true && currentCascadeId == cascadeId) {
+            conversationListViewModel.markConversationAsRead(cascadeId)
+            chatViewModel.refresh()
+            return
+        }
+        if (currentRoute?.startsWith("chat/") == true) {
+            navController.popBackStack("conversations", false)
         }
 
         val existing = conversationListViewModel.getConversation(cascadeId)

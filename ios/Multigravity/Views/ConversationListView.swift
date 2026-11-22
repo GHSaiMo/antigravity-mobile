@@ -243,12 +243,16 @@ public struct ConversationListView: View {
                 }
                 PushNotificationManager.shared.syncAllTokensIfPaired()
             }
-            if let pendingId = PushNotificationManager.shared.consumePendingCascadeId() {
-                openConversationById(pendingId)
+            if let pendingRoute = PushNotificationManager.shared.consumePendingRoute() {
+                handleNotificationRoute(pendingRoute)
             }
+            PushNotificationManager.shared.hasBlockingModalPresented = hasBlockingModalPresented
         }
         .onChange(of: navigationPath) { _, newPath in
             PushNotificationManager.shared.activeViewingCascadeId = newPath.last?.id
+        }
+        .onChange(of: hasBlockingModalPresented) { _, isBlocked in
+            PushNotificationManager.shared.hasBlockingModalPresented = isBlocked
         }
         .onDisappear {
             viewModel.stopAutoRefresh()
@@ -275,6 +279,11 @@ public struct ConversationListView: View {
             }
             viewModel.reloadFromCache()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .openNotificationRoute)) { notif in
+            if let route = notif.object as? PushNotificationManager.NotificationRoute {
+                handleNotificationRoute(route)
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .openConversationFromTaskCenter)) { notif in
             if let targetId = notif.object as? String {
                 openConversationById(targetId)
@@ -286,11 +295,12 @@ public struct ConversationListView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .startNewSessionForWorkspace)) { notif in
+            dismissAllModals()
             let wsName = (notif.object as? String) ?? ""
             let cachedProjects = ProjectCacheManager.shared.loadProjects()
             let project = cachedProjects.first(where: { !$0.isPureChat && ($0.name == wsName || $0.displayName == wsName) }) ?? ProjectItem.pureChat
             let session = CacheManager.shared.createLocalDraftSession(project: project)
-            openConversation(session.toConversationItem())
+            navigationPath = [session.toConversationItem()]
         }
         .onOpenURL { url in
             if url.isFileURL {
@@ -371,6 +381,117 @@ public struct ConversationListView: View {
         .padding(.vertical, 6)
     }
     
+    private var hasBlockingModalPresented: Bool {
+        showSettings
+            || showAccountQuota
+            || showBackgroundTasksSheet
+            || showNewConversation
+            || showQRScanner
+            || showManualInput
+            || shareInbox.showSheet
+            || showEasterEgg
+    }
+
+    private static func activeRootViewController() -> UIViewController? {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first(where: { $0.activationState == .foregroundActive })?
+            .windows.first(where: \.isKeyWindow)?.rootViewController
+        ?? UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows)
+            .first(where: \.isKeyWindow)?.rootViewController
+    }
+
+    private static func hasActivePresentedViewController() -> Bool {
+        guard let presented = activeRootViewController()?.presentedViewController else { return false }
+        return !presented.isBeingDismissed
+    }
+
+    private static func dismissRemainingPresentedViewControllerIfNeeded() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+            guard let root = activeRootViewController(),
+                  let presented = root.presentedViewController,
+                  !presented.isBeingDismissed else { return }
+            root.dismiss(animated: true)
+        }
+    }
+
+    @discardableResult
+    private func dismissAllModals(excludingQuota: Bool = false) -> Bool {
+        var hadModal = false
+        if showSettings { showSettings = false; hadModal = true }
+        if !excludingQuota && showAccountQuota { showAccountQuota = false; hadModal = true }
+        if showBackgroundTasksSheet { showBackgroundTasksSheet = false; hadModal = true }
+        if showNewConversation {
+            pendingCreatedConversation = nil
+            showNewConversation = false
+            hadModal = true
+        }
+        if showQRScanner { showQRScanner = false; hadModal = true }
+        if showManualInput { showManualInput = false; hadModal = true }
+        if shareInbox.showSheet {
+            pendingShareItem = nil
+            shareInbox.showSheet = false
+            hadModal = true
+        }
+        if showEasterEgg { showEasterEgg = false; hadModal = true }
+        showRenameAlert = false
+        showDeleteConfirm = false
+        showPinConfirm = false
+        showPairingConfirm = false
+        pendingPairing = nil
+
+        NotificationCenter.default.post(name: .dismissAllPresentedModals, object: nil)
+        if !excludingQuota {
+            if Self.hasActivePresentedViewController() {
+                hadModal = true
+            }
+            Self.dismissRemainingPresentedViewControllerIfNeeded()
+        } else if !showAccountQuota {
+            if Self.hasActivePresentedViewController() {
+                hadModal = true
+            }
+            Self.dismissRemainingPresentedViewControllerIfNeeded()
+        }
+        return hadModal
+    }
+
+    private func handleNotificationRoute(_ route: PushNotificationManager.NotificationRoute) {
+        PushNotificationManager.shared.clearPendingRouteIfMatching(route)
+        switch route {
+        case .cascade(let targetId):
+            openConversationById(targetId)
+        case .quota:
+            openAccountQuotaSheet()
+        case .deepLink(let url):
+            handleDeepLink(url)
+        }
+    }
+
+    private func openAccountQuotaSheet() {
+        guard settings.isPaired else { return }
+        PushNotificationManager.shared.clearPendingRouteIfMatching(.quota)
+        if showAccountQuota {
+            Task {
+                await viewModel.fetchQuotas(force: true)
+            }
+            return
+        }
+        let hadOtherModal = dismissAllModals(excludingQuota: true)
+        if hadOtherModal {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.38) {
+                guard settings.isPaired else { return }
+                showAccountQuota = true
+            }
+        } else {
+            showAccountQuota = true
+        }
+        Task {
+            await viewModel.fetchQuotas(force: true)
+        }
+    }
+
     private func openConversation(_ item: ConversationItem) {
         if usesSplitLayout {
             navigationPath = [item]
@@ -380,19 +501,34 @@ public struct ConversationListView: View {
     }
 
     private func openConversationById(_ targetId: String) {
-        if let found = viewModel.conversations.first(where: { $0.id == targetId }) {
-            navigationPath = [found]
+        let trimmedId = targetId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedId.isEmpty, settings.isPaired else { return }
+        PushNotificationManager.shared.clearPendingRouteIfMatching(.cascade(trimmedId))
+        dismissAllModals()
+
+        if navigationPath.last?.id == trimmedId {
             return
         }
-        let fallback = ConversationItem(
-            id: targetId,
-            title: viewModel.globalBackgroundTasks.first(where: { $0.conversationId == targetId })?.conversationTitle ?? String(localized: "会话详情"),
-            status: .running,
-            stepCount: 1,
-            workspaceName: viewModel.globalBackgroundTasks.first(where: { $0.conversationId == targetId })?.workspaceName ?? "",
-            lastModified: Date()
-        )
-        navigationPath = [fallback]
+
+        let targetItem: ConversationItem
+        if let found = viewModel.conversations.first(where: { $0.id == trimmedId }) {
+            targetItem = found
+        } else if let draft = CacheManager.shared.getLocalDraftSession(id: trimmedId)?.toConversationItem() {
+            targetItem = draft
+        } else if let cached = CacheManager.shared.loadConversations().first(where: { $0.id == trimmedId }) {
+            targetItem = cached
+        } else {
+            let taskMeta = viewModel.globalBackgroundTasks.first(where: { $0.conversationId == trimmedId })
+            targetItem = ConversationItem(
+                id: trimmedId,
+                title: taskMeta?.conversationTitle ?? String(localized: "会话详情"),
+                status: .running,
+                stepCount: 1,
+                workspaceName: taskMeta?.workspaceName ?? "",
+                lastModified: Date()
+            )
+        }
+        navigationPath = [targetItem]
     }
 
     private var globalBackgroundTasksCapsule: some View {
@@ -1059,6 +1195,9 @@ public struct ConversationListView: View {
                 await ProjectCacheManager.shared.fetchAndCacheProjects()
             }
         }
+        if let pendingRoute = PushNotificationManager.shared.consumePendingRoute() {
+            handleNotificationRoute(pendingRoute)
+        }
     }
     
     private func handleTokenRevoked() {
@@ -1138,20 +1277,16 @@ public struct ConversationListView: View {
             return
         }
 
-        // Handle antigravity://quota deep link (from Lock Screen / Home Screen / CarPlay Quota Widget)
+        // Handle antigravity://quota deep link (from Lock Screen / Home Screen / CarPlay Quota Widget / Quota Alert)
         if url.host == "quota" {
-            if settings.isPaired {
-                showAccountQuota = true
-                Task {
-                    await viewModel.fetchQuotas(force: true)
-                }
-            }
+            openAccountQuotaSheet()
             return
         }
         
         // Handle antigravity://conversations or antigravity://home deep link (from Agent Status Widget)
         if url.host == "conversations" || url.host == "home" {
-            showAccountQuota = false
+            dismissAllModals()
+            navigationPath = []
             return
         }
 
@@ -1168,12 +1303,10 @@ public struct ConversationListView: View {
                 targetCascadeId: cascadeId
             )
             
-            if !cascadeId.isEmpty && navigationPath.last?.id != cascadeId {
-                if let item = viewModel.conversations.first(where: { $0.id == cascadeId }) {
-                    navigationPath = [item]
-                } else if let draft = CacheManager.shared.getLocalDraftSession(id: cascadeId)?.toConversationItem() {
-                    navigationPath = [draft]
-                }
+            if !cascadeId.isEmpty {
+                openConversationById(cascadeId)
+            } else {
+                dismissAllModals()
             }
             return
         }
@@ -1188,40 +1321,7 @@ public struct ConversationListView: View {
         }
         
         guard CacheManager.isValidCascadeId(cascadeId) else { return }
-        
-        // Dismiss modal sheets that could cover the target conversation view
-        showSettings = false
-        showNewConversation = false
-        showAccountQuota = false
-        showQRScanner = false
-        showEasterEgg = false
-        
-        // If already looking at this exact conversation, avoid duplicate pushing
-        if navigationPath.last?.id == cascadeId {
-            return
-        }
-        
-        let targetItem: ConversationItem
-        if let existing = viewModel.conversations.first(where: { $0.id == cascadeId }) {
-            targetItem = existing
-        } else if let draft = CacheManager.shared.getLocalDraftSession(id: cascadeId)?.toConversationItem() {
-            targetItem = draft
-        } else if let cached = CacheManager.shared.loadConversations().first(where: { $0.id == cascadeId }) {
-            targetItem = cached
-        } else {
-            targetItem = ConversationItem(
-                id: cascadeId,
-                title: String(localized: "会话"),
-                status: .running,
-                stepCount: 0,
-                workspaceName: "Chat",
-                lastModified: Date(),
-                isSubagent: false,
-                isUnread: false
-            )
-        }
-        
-        navigationPath = [targetItem]
+        openConversationById(cascadeId)
     }
     
     private func conversationCard(for item: ConversationItem) -> some View {

@@ -183,7 +183,8 @@ fun ChatScreen(
     isUnreadOnEntry: Boolean = false,
     initialStatus: com.antigravity.mobile.data.model.ConversationStatus? = null,
     onOpenSubagent: (com.antigravity.mobile.data.model.SubagentItem) -> Unit = {},
-    onStartNewSession: () -> Unit = {}
+    onStartNewSession: () -> Unit = {},
+    dismissModalsTrigger: Int = 0
 ) {
     val context = LocalContext.current
     val haptic = rememberHaptic()
@@ -743,6 +744,36 @@ fun ChatScreen(
     var selectedGitHubPRUrl by remember { mutableStateOf<String?>(null) }
     var phase3Notice by remember { mutableStateOf<String?>(null) }
     var dictationBaseText by remember { mutableStateOf("") }
+
+    var lastSeenDismissTrigger by remember { mutableIntStateOf(dismissModalsTrigger) }
+    LaunchedEffect(dismissModalsTrigger) {
+        if (dismissModalsTrigger != lastSeenDismissTrigger) {
+            lastSeenDismissTrigger = dismissModalsTrigger
+            showNavigatorSheet = false
+            showMcpSkillsSheet = false
+            mcpSkillsInitialTabOverride = null
+            showSwarmSheet = false
+            showContextAuditSheet = false
+            showSendQueuedNowConfirmDialog = false
+            queuedItemToSendNow = null
+            showWorkflowTemplateSheet = false
+            workflowSheetStartEditing = false
+            showAttachmentSheet = false
+            showVoiceTroubleshootBubble = false
+            showPermissionMenu = false
+            showBtwSheet = false
+            btwInitialQuote = null
+            selectedWorkflowSubagent = null
+            selectedGitHubPRUrl = null
+            viewModel.closeMarkdownViewer()
+            viewModel.closeImageViewer()
+            viewModel.closeDocumentPreview()
+            viewModel.closeWeChatArchive()
+            viewModel.closeChangesSheet()
+            viewModel.closeGitSheet()
+            viewModel.dismissConfirmUndo()
+        }
+    }
 
     val startDictation: () -> Unit = {
         dictationManager.start(

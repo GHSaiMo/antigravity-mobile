@@ -43,9 +43,11 @@ class AntigravityMessagingService : FirebaseMessagingService() {
         val data = remoteMessage.data
         val title = remoteMessage.notification?.title ?: data["title"] ?: "Antigravity 任务通知"
         val body = remoteMessage.notification?.body ?: data["body"] ?: ""
-        val deeplink = data["deeplink"] ?: data["url"] ?: "antigravity://cascade/"
-        val level = data["level"] ?: "active"
         val category = data["category"] ?: ""
+        val deeplink = data["deeplink"]?.takeIf { it.isNotBlank() }
+            ?: data["url"]?.takeIf { it.isNotBlank() }
+            ?: if (category.equals("quota_alert", ignoreCase = true)) "antigravity://quota" else "antigravity://cascade/"
+        val level = data["level"] ?: "active"
 
         val isAction = level == "timeSensitive" || category.contains("action") || category.contains("proceed") || category.contains("error")
         val channelId = if (isAction) NotificationChannelManager.CHANNEL_ALERTS else NotificationChannelManager.CHANNEL_LIVE_ACTIVITY

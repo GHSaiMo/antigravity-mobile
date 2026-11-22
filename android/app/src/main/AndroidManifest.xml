@@ -108,6 +108,12 @@
                 <data
                     android:host="cascade"
                     android:scheme="antigravity" />
+                <data
+                    android:host="quota"
+                    android:scheme="multigravity" />
+                <data
+                    android:host="quota"
+                    android:scheme="antigravity" />
             </intent-filter>
         </activity>
 

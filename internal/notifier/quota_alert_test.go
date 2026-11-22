@@ -35,8 +35,8 @@ func TestNotifyQuotaAlertWarnIsQuiet(t *testing.T) {
 		t.Fatalf("sent %d", len(s.sent))
 	}
 	p := s.sent[0]
-	if p.Level != "active" || p.Sound != "" || p.Category != "quota_alert" || p.Group != "Antigravity" {
-		t.Errorf("warn payload should be a normal-priority, normal-priority push with the default tone: %+v", p)
+	if p.Level != "active" || p.Sound != "" || p.Category != "quota_alert" || p.Group != "Antigravity" || p.URL != "antigravity://quota" {
+		t.Errorf("warn payload should be a normal-priority push with quota deeplink and default tone: %+v", p)
 	}
 }
 
