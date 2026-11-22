@@ -81,3 +81,32 @@ func TestLocalizeMainJS_DisableOnboarding(t *testing.T) {
 	}
 }
 
+func TestLocalizeMainJS_GoogleFontsImportPreservesMermaidCSS(t *testing.T) {
+	input := []byte(
+		"function A7(a,b){return[\"<style>\",`  ${[`@import url('https://fonts.googleapis.com/css2?family=${encodeURIComponent(a)}:wght@400;500;600;700&amp;display=swap');`,...(b?[\"@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&amp;display=swap');\"]:[])].join(\"\\n  \")}`,`  text { font-family: '${a}', system-ui, sans-serif; }`,\"  svg {\\n    /* Derived from --bg and --fg */\\n    --_node-fill: var(--surface);\\n  }\\n\\x3c/style>\"].join(\"\\n\")}" +
+			` const dq = '@import url("https://fonts.googleapis.com/css2?family=Inter");';` +
+			` const unq = "@import url(https://fonts.googleapis.com/css2?family=Roboto);";`,
+	)
+	output := LocalizeMainJS(input)
+
+	if bytes.Contains(output, []byte(`fonts.googleapis.com`)) {
+		t.Fatalf("expected all Google Fonts @import URLs to be stripped, got: %s", string(output))
+	}
+	if bytes.Contains(output, []byte(`/* @import disabled */ /*`)) {
+		t.Fatalf("must not leave an unclosed CSS comment after disabling @import, got: %s", string(output))
+	}
+	if opens, closes := bytes.Count(output, []byte("/*")), bytes.Count(output, []byte("*/")); opens != closes {
+		t.Fatalf("unbalanced CSS comments (/*=%d, */=%d) in output: %s", opens, closes, string(output))
+	}
+	for _, want := range []string{
+		"`/* @import disabled */`",
+		`"/* @import disabled */"`,
+		`text { font-family: '${a}', system-ui, sans-serif; }`,
+		`svg {\n    /* Derived from --bg and --fg */\n    --_node-fill: var(--surface);`,
+	} {
+		if !bytes.Contains(output, []byte(want)) {
+			t.Errorf("expected output to preserve %q, got: %s", want, string(output))
+		}
+	}
+}
+

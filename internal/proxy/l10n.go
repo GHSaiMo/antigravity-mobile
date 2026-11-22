@@ -23,6 +23,7 @@ import (
 
 var reDisposeGC = regexp.MustCompile(`(this\._disposeEntry\([a-zA-Z0-9_$]+\)\s*\}\s*,\s*)(?:3E4|30000)(\s*\))`)
 var reOnboardingFeature = regexp.MustCompile(`onboarding:\{feature:\{enabled:!0,screens:\[[^\]]*\]\}`)
+var reGoogleFontsImport = regexp.MustCompile(`@import\s+url\(\s*(?:'https://fonts\.googleapis\.com/[^'\r\n]*'|"https://fonts\.googleapis\.com/[^"\r\n]*"|\\'https://fonts\.googleapis\.com/[^'\r\n]*\\'|\\"https://fonts\.googleapis\.com/[^"\r\n]*\\"|https://fonts\.googleapis\.com/[^)\s\r\n]*)\s*\)\s*;?`)
 
 // l10nMaxLiteral bounds how far we look for a literal's closing quote.
 const l10nMaxLiteral = 600
@@ -264,8 +265,10 @@ func translateStringLiterals(data []byte) []byte {
 
 // LocalizeMainJS performs zero-runtime-overhead static localization on main.js.
 func LocalizeMainJS(data []byte) []byte {
-	// Strip blocking Google Fonts stylesheet imports to eliminate 15-30s browser render lock
-	data = bytes.ReplaceAll(data, []byte("@import url('https://fonts.googleapis.com/"), []byte("/* @import disabled */ /* "))
+	// Strip blocking Google Fonts stylesheet imports to eliminate 15-30s browser render lock.
+	// Replace the entire @import statement with a self-contained closed CSS comment so it never
+	// leaves an unclosed `/*` that would swallow subsequent SVG <style> rules (e.g. Mermaid vars).
+	data = reGoogleFontsImport.ReplaceAll(data, []byte("/* @import disabled */"))
 
 	// Immediately abort old conversation StreamAgentStateUpdates streams upon session switch.
 	// Upstream TrajectoriesContextProvider sets a 30-second delay (3E4 ms) in _scheduleGc
