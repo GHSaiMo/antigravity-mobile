@@ -188,11 +188,73 @@ public final class PushNotificationManager: NSObject {
         super.init()
     }
 
+    public static let categoryAction = "antigravity_action"
+    public static let categoryActionHigh = "antigravity_action_high"
+    public static let categoryProceed = "antigravity_proceed"
+    public static let actionApproveId = "MULTIGRAVITY_APPROVE"
+    public static let actionDenyId = "MULTIGRAVITY_DENY"
+    public static let actionReviewId = "MULTIGRAVITY_REVIEW"
+
     public func configureDelegate() {
         UNUserNotificationCenter.current().delegate = self
+        registerNotificationCategories()
         Task {
             await refreshAuthorizationStatus()
         }
+    }
+
+    public func registerNotificationCategories() {
+        let approveAction = UNNotificationAction(
+            identifier: Self.actionApproveId,
+            title: String(localized: "允许"),
+            options: [.authenticationRequired]
+        )
+        let denyAction = UNNotificationAction(
+            identifier: Self.actionDenyId,
+            title: String(localized: "拒绝"),
+            options: [.destructive, .authenticationRequired]
+        )
+        let reviewAction = UNNotificationAction(
+            identifier: Self.actionReviewId,
+            title: String(localized: "打开核验"),
+            options: [.foreground]
+        )
+        let proceedAction = UNNotificationAction(
+            identifier: Self.actionApproveId,
+            title: String(localized: "继续执行"),
+            options: [.authenticationRequired]
+        )
+        let viewPlanAction = UNNotificationAction(
+            identifier: Self.actionReviewId,
+            title: String(localized: "查看方案"),
+            options: [.foreground]
+        )
+
+        let standardApprovalCategory = UNNotificationCategory(
+            identifier: Self.categoryAction,
+            actions: [approveAction, denyAction],
+            intentIdentifiers: [],
+            options: []
+        )
+        // High-risk approvals intentionally omit a blind background Allow action on the lock screen.
+        let highRiskApprovalCategory = UNNotificationCategory(
+            identifier: Self.categoryActionHigh,
+            actions: [reviewAction, denyAction],
+            intentIdentifiers: [],
+            options: []
+        )
+        let proceedCategory = UNNotificationCategory(
+            identifier: Self.categoryProceed,
+            actions: [proceedAction, viewPlanAction],
+            intentIdentifiers: [],
+            options: []
+        )
+
+        UNUserNotificationCenter.current().setNotificationCategories([
+            standardApprovalCategory,
+            highRiskApprovalCategory,
+            proceedCategory,
+        ])
     }
 
     public func refreshAuthorizationStatus() async {
@@ -439,7 +501,9 @@ public final class PushNotificationManager: NSObject {
                         ?? ((content.userInfo["aps"] as? [AnyHashable: Any])?["category"] as? String)
                         ?? "")
                 let lower = rawCat.lowercased()
-                guard lower == "antigravity_action" || lower == "antigravity_proceed" else {
+                guard lower == Self.categoryAction
+                    || lower == Self.categoryActionHigh
+                    || lower == Self.categoryProceed else {
                     return nil
                 }
             }
@@ -691,6 +755,137 @@ public final class PushNotificationManager: NSObject {
         }
         return nil
     }
+    @MainActor
+    fileprivate func handleQuickAction(actionIdentifier: String, cascadeId: String) async {
+        let cid = cascadeId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cid.isEmpty else { return }
+        guard !AppSettings.shared.isDemoMode, let baseURL = AppSettings.shared.serverURL else {
+            route(.cascade(cid))
+            return
+        }
+
+        let app = UIApplication.shared
+        var bgTaskId: UIBackgroundTaskIdentifier = .invalid
+        bgTaskId = app.beginBackgroundTask(withName: "multigravity.quickApproval") {
+            if bgTaskId != .invalid {
+                app.endBackgroundTask(bgTaskId)
+                bgTaskId = .invalid
+            }
+        }
+        defer {
+            if bgTaskId != .invalid {
+                app.endBackgroundTask(bgTaskId)
+                bgTaskId = .invalid
+            }
+        }
+
+        let api = APIClient()
+        do {
+            let snap = try await api.fetchMessages(cascadeId: cid, limit: 5, baseURL: baseURL)
+            if actionIdentifier == Self.actionApproveId {
+                if let interaction = snap.pendingInteraction {
+                    let kind = interaction.type.lowercased()
+                    let isHighRisk = interaction.approvalPreview?.riskLevel?.lowercased() == "high"
+                    let requiresInAppReview = isHighRisk
+                        || kind == "ask_question"
+                        || kind == "workflow_approval"
+                        || kind == "elicitation"
+                        || !(interaction.questions ?? []).isEmpty
+                    if requiresInAppReview {
+                        await postLocalQuickActionNotice(
+                            cascadeId: cid,
+                            title: isHighRisk ? String(localized: "🚨 高危操作审批") : String(localized: "⚠️ Antigravity 需要审批"),
+                            body: isHighRisk ? String(localized: "高危操作，请打开 App 核验后再允许") : String(localized: "请打开 App 查看完整详情并确认"),
+                            categoryIdentifier: isHighRisk ? Self.categoryActionHigh : Self.categoryAction
+                        )
+                        return
+                    }
+                    let approveOpt = interaction.options.first(where: {
+                        $0.isDeny != true && $0.id != "5" && $0.id != "__write_in__"
+                    }) ?? interaction.options.first
+                    let optId = approveOpt?.id ?? interaction.defaultOptionId ?? "1"
+                    let scopeVal = approveOpt?.scope ?? 1
+                    try await api.submitInteraction(
+                        cascadeId: cid,
+                        trajectoryId: interaction.trajectoryId,
+                        stepIndex: interaction.stepIndex,
+                        type: interaction.type,
+                        optionId: optId,
+                        scope: scopeVal,
+                        allow: true,
+                        writeInResponse: "",
+                        skipped: false,
+                        target: interaction.target,
+                        questionResponses: nil,
+                        baseURL: baseURL
+                    )
+                    await clearDeliveredNotificationsAsync(for: cid, approvalOnly: true)
+                } else if snap.canProceed {
+                    let uri = (snap.proceedArtifactUri?.isEmpty == false) ? snap.proceedArtifactUri! : "implementation_plan.md"
+                    try await api.proceedArtifact(
+                        cascadeId: cid,
+                        artifactUri: uri,
+                        model: snap.activeModel,
+                        baseURL: baseURL
+                    )
+                    await clearDeliveredNotificationsAsync(for: cid, approvalOnly: true)
+                } else {
+                    await clearDeliveredNotificationsAsync(for: cid, approvalOnly: true)
+                }
+            } else if actionIdentifier == Self.actionDenyId {
+                if let interaction = snap.pendingInteraction {
+                    let denyOpt = interaction.options.first(where: { $0.isDeny == true || $0.id == "5" })
+                    try await api.submitInteraction(
+                        cascadeId: cid,
+                        trajectoryId: interaction.trajectoryId,
+                        stepIndex: interaction.stepIndex,
+                        type: interaction.type,
+                        optionId: denyOpt?.id ?? "",
+                        scope: denyOpt?.scope ?? 1,
+                        allow: false,
+                        writeInResponse: "",
+                        skipped: denyOpt == nil,
+                        target: interaction.target,
+                        questionResponses: nil,
+                        baseURL: baseURL
+                    )
+                }
+                await clearDeliveredNotificationsAsync(for: cid, approvalOnly: true)
+            }
+        } catch {
+            print("[APNs] Quick approval action \(actionIdentifier) failed for \(cid): \(error.localizedDescription)")
+            await postLocalQuickActionNotice(
+                cascadeId: cid,
+                title: String(localized: "锁屏审批失败"),
+                body: String(localized: "请打开 App 确认当前操作"),
+                categoryIdentifier: Self.categoryActionHigh
+            )
+        }
+    }
+
+    private func postLocalQuickActionNotice(
+        cascadeId: String,
+        title: String,
+        body: String,
+        categoryIdentifier: String
+    ) async {
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = body
+        content.sound = .default
+        content.categoryIdentifier = categoryIdentifier
+        content.userInfo = [
+            "cascadeId": cascadeId,
+            "url": "antigravity://cascade/\(cascadeId)?action=review",
+            "category": categoryIdentifier,
+        ]
+        let req = UNNotificationRequest(
+            identifier: "mgy.quick.feedback.\(cascadeId)",
+            content: content,
+            trigger: nil
+        )
+        try? await UNUserNotificationCenter.current().add(req)
+    }
 }
 
 extension Notification.Name {
@@ -727,6 +922,21 @@ extension PushNotificationManager: UNUserNotificationCenterDelegate {
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
         let content = response.notification.request.content
+        let actionId = response.actionIdentifier
+        if (actionId == Self.actionApproveId || actionId == Self.actionDenyId),
+           let cid = Self.extractCascadeId(from: content.userInfo) {
+            DispatchQueue.main.async {
+                Task { @MainActor in
+                    await PushNotificationManager.shared.handleQuickAction(
+                        actionIdentifier: actionId,
+                        cascadeId: cid
+                    )
+                    completionHandler()
+                }
+            }
+            return
+        }
+
         let route = Self.extractNotificationRoute(
             from: content.userInfo,
             categoryIdentifier: content.categoryIdentifier

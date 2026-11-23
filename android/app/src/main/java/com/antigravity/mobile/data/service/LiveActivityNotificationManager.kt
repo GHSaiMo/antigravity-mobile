@@ -284,7 +284,8 @@ class LiveActivityNotificationManager(
         stepCount: Int,
         latestAction: String,
         runningTaskCount: Int,
-        hasPendingAction: Boolean
+        hasPendingAction: Boolean,
+        isHighRiskAction: Boolean = false
     ): Notification {
         val notifId = resolveNotificationId(cascadeId)
         val intent = Intent(context, MainActivity::class.java).apply {
@@ -309,7 +310,11 @@ class LiveActivityNotificationManager(
         }
 
         val redactedActionText = redactNotificationSecrets(actionText)
-        val subText = if (hasPendingAction) "需要用户审批".loc else "Antigravity Agent"
+        val subText = when {
+            hasPendingAction && isHighRiskAction -> "🚨 高危操作审批".loc
+            hasPendingAction -> "需要用户审批".loc
+            else -> "Antigravity Agent"
+        }
 
         val publicOngoing = NotificationCompat.Builder(context, NotificationChannelManager.CHANNEL_LIVE_ACTIVITY)
             .setContentTitle("Multigravity")
@@ -322,7 +327,7 @@ class LiveActivityNotificationManager(
             .setContentText(redactedActionText)
             .setSubText(subText)
             .setSmallIcon(R.drawable.ic_stat_antigravity)
-            .setColor(0xFF4F46E5.toInt())
+            .setColor(if (hasPendingAction && isHighRiskAction) 0xFFEF4444.toInt() else 0xFF4F46E5.toInt())
             .setContentIntent(pendingIntent)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
@@ -333,15 +338,19 @@ class LiveActivityNotificationManager(
             .setPriority(NotificationCompat.PRIORITY_LOW)
 
         if (hasPendingAction) {
-            builder.addAction(
-                0,
-                "允许".loc,
-                NotificationActionReceiver.buildPendingIntent(
-                    context,
-                    NotificationActionReceiver.ACTION_APPROVE,
-                    cascadeId
+            if (isHighRiskAction) {
+                builder.addAction(0, "打开核验".loc, pendingIntent)
+            } else {
+                builder.addAction(
+                    0,
+                    "允许".loc,
+                    NotificationActionReceiver.buildPendingIntent(
+                        context,
+                        NotificationActionReceiver.ACTION_APPROVE,
+                        cascadeId
+                    )
                 )
-            )
+            }
             builder.addAction(
                 0,
                 "拒绝".loc,
@@ -375,7 +384,8 @@ class LiveActivityNotificationManager(
         runningTaskCount: Int = 0,
         hasPendingAction: Boolean = false,
         isOptimisticStart: Boolean = false,
-        baselineStepCount: Int = -1
+        baselineStepCount: Int = -1,
+        isHighRiskAction: Boolean = false
     ) {
         if (cascadeId.isBlank() || cascadeId.startsWith("local_draft_") || cascadeId.startsWith("draft_")) {
             return
@@ -423,7 +433,8 @@ class LiveActivityNotificationManager(
             stepCount = stepCount,
             latestAction = latestAction,
             runningTaskCount = runningTaskCount,
-            hasPendingAction = hasPendingAction
+            hasPendingAction = hasPendingAction,
+            isHighRiskAction = isHighRiskAction
         )
         lastBuiltNotifications[cascadeId] = notification
 
@@ -461,11 +472,12 @@ class LiveActivityNotificationManager(
         if (hasPendingAction && lastActionNotifiedForCascade != cascadeId) {
             lastActionNotifiedForCascade = cascadeId
             notifyAlert(
-                title = "⚠️ Antigravity 需要审批".loc,
+                title = if (isHighRiskAction) "🚨 高危操作审批".loc else "⚠️ Antigravity 需要审批".loc,
                 body = "【$resolvedTitle】$actionText",
                 deeplink = "antigravity://cascade/$cascadeId?action=review",
                 isAction = true,
-                cascadeId = cascadeId
+                cascadeId = cascadeId,
+                isHighRisk = isHighRiskAction
             )
         } else if (!hasPendingAction && lastActionNotifiedForCascade == cascadeId) {
             lastActionNotifiedForCascade = null
@@ -647,7 +659,8 @@ class LiveActivityNotificationManager(
                             latestAction = latestAction,
                             runningTaskCount = runningTasks.blockingTasks.size,
                             hasPendingAction = payload.pendingInteraction != null,
-                            isOptimisticStart = false
+                            isOptimisticStart = false,
+                            isHighRiskAction = payload.pendingInteraction?.approvalPreview?.riskLevel.equals("high", ignoreCase = true)
                         )
                     } else {
                         val startedAt = activityStartedAtMs[cid] ?: 0L
@@ -729,7 +742,8 @@ class LiveActivityNotificationManager(
         body: String,
         deeplink: String,
         isAction: Boolean = false,
-        cascadeId: String? = null
+        cascadeId: String? = null,
+        isHighRisk: Boolean = false
     ) {
         if (prefs?.enableLiveNotifications == false) return
 
@@ -758,11 +772,17 @@ class LiveActivityNotificationManager(
             .setSmallIcon(R.drawable.ic_stat_antigravity)
             .build()
 
+        val alertColor = when {
+            isHighRisk -> 0xFFEF4444.toInt()
+            isAction -> 0xFFF59E0B.toInt()
+            else -> 0xFF4F46E5.toInt()
+        }
+
         val alertBuilder = NotificationCompat.Builder(context, NotificationChannelManager.CHANNEL_ALERTS)
             .setContentTitle(title)
             .setContentText(redactNotificationSecrets(body))
             .setSmallIcon(R.drawable.ic_stat_antigravity)
-            .setColor(if (isAction) 0xFFF59E0B.toInt() else 0xFF4F46E5.toInt())
+            .setColor(alertColor)
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
@@ -772,16 +792,20 @@ class LiveActivityNotificationManager(
             .setDefaults(NotificationCompat.DEFAULT_ALL)
 
         if (isAction && !cascadeId.isNullOrBlank()) {
-            alertBuilder.addAction(
-                0,
-                "允许".loc,
-                NotificationActionReceiver.buildPendingIntent(
-                    context,
-                    NotificationActionReceiver.ACTION_APPROVE,
-                    cascadeId,
-                    alertNotifId = alertNotifId
+            if (isHighRisk) {
+                alertBuilder.addAction(0, "打开核验".loc, pendingIntent)
+            } else {
+                alertBuilder.addAction(
+                    0,
+                    "允许".loc,
+                    NotificationActionReceiver.buildPendingIntent(
+                        context,
+                        NotificationActionReceiver.ACTION_APPROVE,
+                        cascadeId,
+                        alertNotifId = alertNotifId
+                    )
                 )
-            )
+            }
             alertBuilder.addAction(
                 0,
                 "拒绝".loc,

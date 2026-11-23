@@ -250,10 +250,11 @@ internal fun ChatViewModel.sendMessage(
         notifyConversationUpdated()
 
         val imagePayloads = attachments.map { Pair(it.byteArray, it.mimeType) }
+        val targetCascadeId = cascadeId
         viewModelScope.launch {
-            try {
+            suspend fun attemptSend(): Result<Unit> = runCatching {
                 apiClient.sendMessage(
-                    cascadeId = cascadeId,
+                    cascadeId = targetCascadeId,
                     text = text,
                     model = model,
                     images = imagePayloads,
@@ -263,8 +264,75 @@ internal fun ChatViewModel.sendMessage(
                     slashCommand = slashCommand,
                     contextItems = ctxItems
                 )
-            } catch (e: Exception) {
-                Log.w("ChatViewModel", "Failed to deliver queued message upstream", e)
+            }.fold(
+                onSuccess = { it },
+                onFailure = { Result.failure(it) }
+            )
+
+            fun isTimeoutOrDispatched(msg: String): Boolean {
+                val lower = msg.lowercase()
+                return msg.contains("超时") || lower.contains("timed out") || lower.contains("timeout") || msg.contains("送达服务器")
+            }
+
+            var result = attemptSend()
+            if (result.isFailure) {
+                val errMsg = result.exceptionOrNull()?.message.orEmpty()
+                if (!isTimeoutOrDispatched(errMsg)) {
+                    delay(800L)
+                    result = attemptSend()
+                }
+            }
+
+            result.onFailure { err ->
+                val errMsg = err.message.orEmpty()
+                Log.w("ChatViewModel", "Failed to deliver queued message upstream: $errMsg", err)
+                if (isTimeoutOrDispatched(errMsg)) {
+                    // Server may have received the queued message; reconcile after a short delay without duplicating draft.
+                    delay(2000L)
+                    if (_uiState.value.cascadeId == targetCascadeId) {
+                        apiClient.fetchMessages(targetCascadeId, limit = 15).onSuccess { payload ->
+                            if (_uiState.value.cascadeId == targetCascadeId) {
+                                val msgs = payload.messages?.let { mergeIncomingMessages(it) } ?: _uiState.value.messages
+                                _uiState.value = _uiState.value.copy(
+                                    queuedMessages = syncQueuedMessages(payload.queuedMessages, msgs)
+                                )
+                            }
+                        }
+                    }
+                    return@onFailure
+                }
+
+                // Hard delivery failure: remove unconfirmed optimistic card & restore unsent text into input/draft.
+                pendingOptimisticQueueItems.removeAll { it.id == queueItem.id }
+                if (_uiState.value.cascadeId == targetCascadeId) {
+                    val remainingQueue = _uiState.value.queuedMessages.filterNot { it.id == queueItem.id }
+                    val restoredText = if (text.isNotBlank()) {
+                        val existing = _inputText.value
+                        if (existing.isBlank()) text else "$existing\n$text"
+                    } else {
+                        _inputText.value
+                    }
+                    if (text.isNotBlank()) {
+                        _inputText.value = restoredText
+                        prefs?.setDraftText(targetCascadeId, restoredText)
+                    }
+                    val restoredCtx = if (_uiState.value.selectedContextItems.isEmpty() && ctxItems.isNotEmpty()) {
+                        ctxItems
+                    } else {
+                        _uiState.value.selectedContextItems
+                    }
+                    _uiState.value = _uiState.value.copy(
+                        queuedMessages = remainingQueue,
+                        selectedContextItems = restoredCtx,
+                        errorMessage = "排队消息发送失败，已恢复到输入框".loc
+                    )
+                    saveSessionToCache()
+                    notifyConversationUpdated()
+                } else if (text.isNotBlank()) {
+                    val saved = prefs?.getDraftText(targetCascadeId).orEmpty()
+                    val merged = if (saved.isBlank()) text else "$saved\n$text"
+                    prefs?.setDraftText(targetCascadeId, merged)
+                }
             }
         }
         return

@@ -28871,6 +28871,213 @@
           }
         }
       }
+    },
+    "排队消息发送失败，已恢复到输入框": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "排队消息发送失败，已恢复到输入框"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Queued message failed to send; restored to input"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キュー送信に失敗しました。入力欄に復元しました"
+          }
+        }
+      }
+    },
+    "打开核验": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开核验"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Review in App"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリで確認"
+          }
+        }
+      }
+    },
+    "高危操作，请打开 App 核验后再允许": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "高危操作，请打开 App 核验后再允许"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "High-risk action — open the app to review before allowing"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "高リスク操作です。アプリで内容を確認してから許可してください"
+          }
+        }
+      }
+    },
+    "🚨 高危操作审批": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "🚨 高危操作审批"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "🚨 High-Risk Approval"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "🚨 高リスク操作の承認"
+          }
+        }
+      }
+    },
+    "⚠️ Antigravity 需要审批": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⚠️ Antigravity 需要审批"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⚠️ Antigravity Approval Needed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⚠️ Antigravity 承認が必要です"
+          }
+        }
+      }
+    },
+    "继续执行": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "继续执行"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proceed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "続行する"
+          }
+        }
+      }
+    },
+    "查看方案": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "查看方案"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "View Plan"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プランを見る"
+          }
+        }
+      }
+    },
+    "锁屏审批失败": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "锁屏审批失败"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lock-Screen Action Failed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ロック画面からの承認に失敗"
+          }
+        }
+      }
+    },
+    "请打开 App 确认当前操作": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请打开 App 确认当前操作"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open the app to confirm this action"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリを開いて操作を確認してください"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

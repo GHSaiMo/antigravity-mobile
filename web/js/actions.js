@@ -187,12 +187,14 @@ async function sendMessage() {
 
   if (isRunning) {
     // Enqueue message while agent is running
+    const targetCascadeId = activeCascadeId;
+    const queueClientMsgId = "web-q-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8);
     const qLabel = displayText || (attachmentsToSend.length ? `[${attachmentsToSend.length} 个附件]` : (imagesToSend.length ? `[${imagesToSend.length} 张图片]` : ""));
-    LocalQueueManager.enqueue(qLabel);
+    const queuedLocalId = LocalQueueManager.enqueue(qLabel, queueClientMsgId);
     updateChatControls(true, null, false);
     try {
       const payload = {
-        cascadeId: activeCascadeId,
+        cascadeId: targetCascadeId,
         model: activeModel,
         items: items,
         deliveryStrategy: 2 // WHEN_IDLE
@@ -206,9 +208,45 @@ async function sendMessage() {
       if (attachmentsToSend.length > 0) {
         payload.attachments = attachmentsToSend.map(a => ({ id: a.id }));
       }
-      await rpc("SendUserCascadeMessage", payload);
+      const isTimeoutErr = (e) => {
+        const m = String(e?.message || e || "").toLowerCase();
+        return m.includes("超时") || m.includes("timeout") || m.includes("timed out") || m.includes("送达服务器");
+      };
+      const sendHeaders = { "X-Client-Message-Id": queueClientMsgId };
+      try {
+        await rpc("SendUserCascadeMessage", payload, sendHeaders);
+      } catch (firstErr) {
+        if (isTimeoutErr(firstErr)) throw firstErr;
+        await new Promise(resolve => setTimeout(resolve, 800));
+        await rpc("SendUserCascadeMessage", payload, sendHeaders);
+      }
     } catch (err) {
-      console.warn("[Queue] SendUserCascadeMessage with WHEN_IDLE notification:", err);
+      console.warn("[Queue] SendUserCascadeMessage with WHEN_IDLE failed:", err);
+      const msg = String(err?.message || err || "").toLowerCase();
+      const timedOut = msg.includes("超时") || msg.includes("timeout") || msg.includes("timed out") || msg.includes("送达服务器");
+      if (!timedOut) {
+        LocalQueueManager.discardOptimistic(queuedLocalId, targetCascadeId);
+        if (text && text.trim()) {
+          if (activeCascadeId === targetCascadeId) {
+            const curInput = document.getElementById("chat-input");
+            if (curInput) {
+              const existing = (curInput.value || "").trim();
+              curInput.value = existing ? `${curInput.value}\n${text}` : text;
+              curInput.dispatchEvent(new Event("input", { bubbles: true }));
+              DraftManager.set(targetCascadeId, curInput.value);
+            } else {
+              DraftManager.set(targetCascadeId, text);
+            }
+          } else {
+            const saved = DraftManager.get(targetCascadeId);
+            DraftManager.set(targetCascadeId, saved && saved.trim() ? `${saved}\n${text}` : text);
+          }
+        }
+        if (typeof showToast === "function") {
+          const tr = (typeof t === "function") ? t : (s) => s;
+          showToast(tr("排队消息发送失败，已恢复到输入框"));
+        }
+      }
     } finally {
       isSendingMessage = false;
     }

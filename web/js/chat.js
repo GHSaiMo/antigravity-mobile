@@ -3068,19 +3068,39 @@ const LocalQueueManager = {
     this.save();
   },
 
-  enqueue(text) {
+  enqueue(text, clientMessageId = null) {
     const t = (text || '').trim();
-    if (!t) return;
+    if (!t) return null;
     if (this.deletedTombstones) {
       this.deletedTombstones = this.deletedTombstones.filter(it => (it.text || '').trim() !== t);
     }
     const item = {
       id: `queue-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       text: t,
+      clientMessageId: clientMessageId || undefined,
       createdAt: new Date().toISOString()
     };
     this.queue.push(item);
     this.save();
+    return item.id;
+  },
+
+  discardOptimistic(id, cascadeId = null) {
+    if (!id) return;
+    const target = cascadeId || activeCascadeId;
+    if (!target || target === activeCascadeId) {
+      this.queue = this.queue.filter(it => it.id !== id);
+      this.save();
+      return;
+    }
+    try {
+      const key = `agy_queue_${target}`;
+      const raw = localStorage.getItem(key);
+      if (raw) {
+        const list = JSON.parse(raw).filter(it => it.id !== id);
+        localStorage.setItem(key, JSON.stringify(list));
+      }
+    } catch (_) {}
   },
 
   remove(id) {

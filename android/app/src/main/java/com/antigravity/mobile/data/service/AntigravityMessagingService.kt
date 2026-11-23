@@ -9,6 +9,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.antigravity.mobile.MainActivity
 import com.antigravity.mobile.R
+import com.antigravity.mobile.ui.util.loc
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import kotlinx.coroutines.CoroutineScope
@@ -83,17 +84,27 @@ class AntigravityMessagingService : FirebaseMessagingService() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
+        val lowerCat = category.lowercase()
+        val isHighRiskApproval = lowerCat == "antigravity_action_high"
+        val isStandardApproval = lowerCat == "antigravity_action" || lowerCat == "antigravity_proceed"
+
         val publicNotif = NotificationCompat.Builder(applicationContext, channelId)
             .setContentTitle("Multigravity")
-            .setContentText(if (isAction) "有任务等待确认" else "有新的任务进展通知")
+            .setContentText(if (isAction) "有任务等待确认".loc else "有新的任务进展通知".loc)
             .setSmallIcon(R.drawable.ic_stat_antigravity)
             .build()
+
+        val accentColor = when {
+            isHighRiskApproval -> 0xFFEF4444.toInt()
+            isAction -> 0xFFF59E0B.toInt()
+            else -> 0xFF4F46E5.toInt()
+        }
 
         val builder = NotificationCompat.Builder(applicationContext, channelId)
             .setContentTitle(title)
             .setContentText(LiveActivityNotificationManager.redactNotificationSecrets(body))
             .setSmallIcon(R.drawable.ic_stat_antigravity)
-            .setColor(if (isAction) 0xFFF59E0B.toInt() else 0xFF4F46E5.toInt())
+            .setColor(accentColor)
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
@@ -102,7 +113,6 @@ class AntigravityMessagingService : FirebaseMessagingService() {
             .setCategory(if (isAction) NotificationCompat.CATEGORY_ALARM else NotificationCompat.CATEGORY_EVENT)
             .setDefaults(NotificationCompat.DEFAULT_ALL)
 
-        val lowerCat = category.lowercase()
         val isTerminalPush = lowerCat.contains("complete") || lowerCat.contains("done") ||
             lowerCat.contains("finish") || lowerCat.contains("error") || lowerCat.contains("fail") ||
             lowerCat.contains("proceed")
@@ -110,28 +120,42 @@ class AntigravityMessagingService : FirebaseMessagingService() {
             // Clear any stale local "running" live notification / foreground service when a terminal push arrives
             LiveActivityNotificationManager.sharedInstanceOrNull()?.cancelActivity(cascadeId)
         }
-        val isApprovalPush = isAction && !category.contains("error")
-        if (isApprovalPush && !cascadeId.isNullOrBlank()) {
-            builder.addAction(
-                0,
-                "允许",
-                NotificationActionReceiver.buildPendingIntent(
-                    applicationContext,
-                    NotificationActionReceiver.ACTION_APPROVE,
-                    cascadeId,
-                    alertNotifId = notifId
+        if (!cascadeId.isNullOrBlank()) {
+            if (isStandardApproval) {
+                builder.addAction(
+                    0,
+                    "允许".loc,
+                    NotificationActionReceiver.buildPendingIntent(
+                        applicationContext,
+                        NotificationActionReceiver.ACTION_APPROVE,
+                        cascadeId,
+                        alertNotifId = notifId
+                    )
                 )
-            )
-            builder.addAction(
-                0,
-                "拒绝",
-                NotificationActionReceiver.buildPendingIntent(
-                    applicationContext,
-                    NotificationActionReceiver.ACTION_REJECT,
-                    cascadeId,
-                    alertNotifId = notifId
+                builder.addAction(
+                    0,
+                    "拒绝".loc,
+                    NotificationActionReceiver.buildPendingIntent(
+                        applicationContext,
+                        NotificationActionReceiver.ACTION_REJECT,
+                        cascadeId,
+                        alertNotifId = notifId
+                    )
                 )
-            )
+            } else if (isHighRiskApproval) {
+                // High-risk approvals never expose a blind lock-screen Allow button; open App to review first.
+                builder.addAction(0, "打开核验".loc, pendingIntent)
+                builder.addAction(
+                    0,
+                    "拒绝".loc,
+                    NotificationActionReceiver.buildPendingIntent(
+                        applicationContext,
+                        NotificationActionReceiver.ACTION_REJECT,
+                        cascadeId,
+                        alertNotifId = notifId
+                    )
+                )
+            }
         }
 
         try {

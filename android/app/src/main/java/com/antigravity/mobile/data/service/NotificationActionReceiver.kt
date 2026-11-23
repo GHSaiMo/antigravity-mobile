@@ -45,17 +45,34 @@ class NotificationActionReceiver : BroadcastReceiver() {
                         val interaction = snap.pendingInteraction
                         if (interaction != null) {
                             val kind = interaction.type.lowercase()
-                            if (kind == "ask_question" || kind == "workflow_approval" || kind == "elicitation" || !interaction.questions.isNullOrEmpty()) {
+                            val isHighRisk = interaction.approvalPreview?.riskLevel.equals("high", ignoreCase = true)
+                            if (isHighRisk || kind == "ask_question" || kind == "workflow_approval" || kind == "elicitation" || !interaction.questions.isNullOrEmpty()) {
+                                val promptMsg = if (isHighRisk) {
+                                    "高危操作，请打开 App 核验后再允许".loc
+                                } else {
+                                    "请打开 App 查看完整详情并确认".loc
+                                }
                                 liveMgr.startOrUpdateActivity(
                                     title = snap.title.orEmpty(),
                                     cascadeId = cascadeId,
                                     status = "WAITING_APPROVAL",
                                     stepCount = snap.totalSteps.coerceAtLeast(1),
-                                    latestAction = "请打开 App 查看完整详情并确认".loc,
+                                    latestAction = promptMsg,
                                     hasPendingAction = true,
                                     isOptimisticStart = false,
-                                    baselineStepCount = snap.totalSteps
+                                    baselineStepCount = snap.totalSteps,
+                                    isHighRiskAction = isHighRisk
                                 )
+                                if (isHighRisk) {
+                                    liveMgr.notifyAlert(
+                                        title = "🚨 高危操作审批".loc,
+                                        body = promptMsg,
+                                        deeplink = "antigravity://cascade/$cascadeId?action=review",
+                                        isAction = true,
+                                        cascadeId = cascadeId,
+                                        isHighRisk = true
+                                    )
+                                }
                                 return@launch
                             }
                             val approveOpt = interaction.options.firstOrNull {

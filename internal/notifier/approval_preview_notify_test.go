@@ -46,7 +46,18 @@ func TestNotifyAction_HighRiskApprovalTitle(t *testing.T) {
 			if sent[0].Title != tc.wantTitle {
 				t.Fatalf("Title = %q, want %q", sent[0].Title, tc.wantTitle)
 			}
+			if sent[0].Category != "antigravity_action_high" {
+				t.Fatalf("Category = %q, want antigravity_action_high", sent[0].Category)
+			}
 		})
+	}
+}
+
+func TestResolveAlertSound_HighRiskApprovalCategory(t *testing.T) {
+	target := APNsAlertTarget{SoundAction: "electronic", SoundComplete: "glass"}
+	got := resolveAlertSound(target, PushPayload{Category: "antigravity_action_high"})
+	if got != "electronic.caf" {
+		t.Fatalf("resolveAlertSound(antigravity_action_high) = %q, want electronic.caf", got)
 	}
 }
 

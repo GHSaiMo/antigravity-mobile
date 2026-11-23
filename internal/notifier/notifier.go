@@ -349,8 +349,10 @@ func (n *Notifier) NotifyAction(cascadeID, title string, pi *proxy.PendingIntera
 		notifBody = msgBodyWaiting(truncateString(SanitizePushText(pi.Title), 90))
 	}
 
+	category := "antigravity_action"
 	if pi.ApprovalPreview != nil && pi.ApprovalPreview.RiskLevel == "high" && pi.Type != "ask_question" {
 		notifTitle = msgTitleHighRiskApproval()
+		category = "antigravity_action_high"
 	}
 
 	cleanSessionTitle := SanitizePushText(title)
@@ -366,7 +368,7 @@ func (n *Notifier) NotifyAction(cascadeID, title string, pi *proxy.PendingIntera
 		URL:       fmt.Sprintf("antigravity://cascade/%s?action=review", cascadeID),
 		Level:     "timeSensitive",
 		Sound:     n.cfg.SoundAction,
-		Category:  "antigravity_action",
+		Category:  category,
 		CascadeID: cascadeID,
 	}
 

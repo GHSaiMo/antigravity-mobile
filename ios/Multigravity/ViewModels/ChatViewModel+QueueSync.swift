@@ -308,15 +308,18 @@ extension ChatViewModel {
         hasUserManuallySelectedModel = true
         updateCascadeConfigRawModel(activeModelEnum, modelName: activeModel)
         
-        // 发送时将当前选定的模型同步提交到网关（上游 Language Server）
+        // 发送时将当前选定的模型同步提交到网关（上游 Language Server）；排队分支会在发送成功后再同步，避免与排包竞态
         let cid = self.cascadeId
         let currentEnum = self.activeModelEnum
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                try await self.apiClient.switchModel(to: currentEnum, cascadeId: cid.isEmpty ? nil : cid, baseURL: url)
-            } catch {
-                print("⚠️ Failed to switch model upstream on send: \(error)")
+        let capturedConfigRaw = self.cascadeConfigRaw
+        let syncUpstreamModelSelection: () -> Void = { [weak self] in
+            Task { [weak self] in
+                guard let self else { return }
+                do {
+                    try await self.apiClient.switchModel(to: currentEnum, cascadeId: cid.isEmpty ? nil : cid, baseURL: url)
+                } catch {
+                    print("⚠️ Failed to switch model upstream on send: \(error)")
+                }
             }
         }
         
@@ -326,6 +329,8 @@ extension ChatViewModel {
         // If agent is currently running and session already exists, queue follow-up message!
         if (self.isRunning || self.isAwaitingResponse) && !self.cascadeId.isEmpty {
             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            let targetCascadeId = self.cascadeId
+            let targetDraftKey = self.draftKey
             if !displayText.isEmpty {
                 self.deletedQueueItemTombstones.removeAll(where: { $0.text == displayText })
             }
@@ -355,52 +360,117 @@ extension ChatViewModel {
             if customText == nil {
                 self.inputText = ""
                 self.selectedContextItems.removeAll()
-                cacheManager.clearDraft(key: draftKey)
+                cacheManager.clearDraft(key: targetDraftKey)
             }
             
             // Persist to local cache immediately
-            let toCache = self.messages.filter { $0.id != self.pendingOptimisticMessageId && !$0.id.hasPrefix("optimistic-") }
-            cacheManager.saveSession(CachedChatSession(
-                cascadeId: cascadeId,
-                status: isRunning ? "CASCADE_RUN_STATUS_RUNNING" : "CASCADE_RUN_STATUS_DONE",
-                duration: self.duration,
-                stepCount: self.stepCount,
-                totalTools: self.totalTools,
-                hasMore: self.hasMore,
-                nextOffset: self.nextOffset,
-                messages: toCache,
-                title: self.currentTitle,
-                cascadeConfigRaw: self.cascadeConfigRaw,
-                canProceed: self.canProceed,
-                proceedArtifactUri: self.proceedArtifactUri,
-                pendingInteraction: self.pendingInteraction,
-                queuedMessages: self.queuedMessages,
-                runningTasks: self.runningTasks
-            ))
+            let persistQueueCache: @MainActor () -> Void = { [weak self] in
+                guard let self, self.cascadeId == targetCascadeId else { return }
+                let toCache = self.messages.filter { $0.id != self.pendingOptimisticMessageId && !$0.id.hasPrefix("optimistic-") }
+                self.cacheManager.saveSession(CachedChatSession(
+                    cascadeId: targetCascadeId,
+                    status: self.isRunning ? "CASCADE_RUN_STATUS_RUNNING" : "CASCADE_RUN_STATUS_DONE",
+                    duration: self.duration,
+                    stepCount: self.stepCount,
+                    totalTools: self.totalTools,
+                    hasMore: self.hasMore,
+                    nextOffset: self.nextOffset,
+                    messages: toCache,
+                    title: self.currentTitle,
+                    cascadeConfigRaw: self.cascadeConfigRaw,
+                    canProceed: self.canProceed,
+                    proceedArtifactUri: self.proceedArtifactUri,
+                    pendingInteraction: self.pendingInteraction,
+                    queuedMessages: self.queuedMessages,
+                    runningTasks: self.runningTasks
+                ))
+            }
+            persistQueueCache()
             
-            // Dispatch to server with deliveryStrategy = 2 (WHEN_IDLE)
-            Task { [weak self] in
+            // Dispatch to server with deliveryStrategy = 2 (WHEN_IDLE).
+            // Retry once on transient network drop using the same clientMessageId (gateway deduplicates);
+            // if still rejected/offline, drop the optimistic card and restore unsent text into input/draft.
+            Task { @MainActor [weak self] in
                 guard let self else { return }
-                do {
+                let isTimeoutError: (Error) -> Bool = { err in
+                    let desc = err.localizedDescription
+                    return desc.contains("超时") || desc.contains("timed out") || desc.contains("送达服务器")
+                }
+                let attemptSend: () async throws -> Void = {
                     try await self.apiClient.sendMessage(
-                        cascadeId: self.cascadeId,
+                        cascadeId: targetCascadeId,
                         text: text,
-                        model: self.activeModelEnum,
+                        model: currentEnum,
                         images: images,
                         deliveryStrategy: 2,
-                        cascadeConfigRaw: self.cascadeConfigRaw,
+                        cascadeConfigRaw: capturedConfigRaw,
                         clientMessageId: queueClientMsgId,
                         attachmentIds: attachmentIds,
                         slashCommand: slashCommand,
                         contextItems: hasContextItems ? currentContextItems : nil,
                         baseURL: url
                     )
+                }
+
+                var finalError: Error? = nil
+                do {
+                    try await attemptSend()
                 } catch {
-                    print("⚠️ Failed to deliver queued message upstream: \(error)")
+                    if isTimeoutError(error) {
+                        finalError = error
+                    } else {
+                        try? await Task.sleep(nanoseconds: 800_000_000)
+                        do {
+                            try await attemptSend()
+                        } catch {
+                            finalError = error
+                        }
+                    }
+                }
+
+                guard let err = finalError else {
+                    syncUpstreamModelSelection()
+                    return
+                }
+
+                print("⚠️ Failed to deliver queued message upstream: \(err)")
+                if isTimeoutError(err) {
+                    // Server may have received the queued message; refresh after a short pause without duplicating input.
+                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                    if self.cascadeId == targetCascadeId {
+                        await self.loadMessages(isBackgroundPoll: true)
+                    }
+                    return
+                }
+
+                // Hard delivery failure: remove phantom optimistic queue item & restore unsent text safely.
+                self.pendingOptimisticQueueItems.removeAll(where: { $0.id == queueItem.id })
+                if self.cascadeId == targetCascadeId {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                        self.queuedMessages.removeAll(where: { $0.id == queueItem.id })
+                    }
+                    persistQueueCache()
+                    if customText == nil {
+                        if !text.isEmpty {
+                            let existing = self.inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+                            self.inputText = existing.isEmpty ? text : "\(self.inputText)\n\(text)"
+                            self.cacheManager.saveDraft(key: targetDraftKey, text: self.inputText)
+                        }
+                        if self.selectedContextItems.isEmpty && hasContextItems {
+                            self.selectedContextItems = currentContextItems
+                        }
+                    }
+                    self.errorMessage = String(localized: "排队消息发送失败，已恢复到输入框")
+                    UINotificationFeedbackGenerator().notificationOccurred(.error)
+                } else if customText == nil && !text.isEmpty {
+                    let saved = self.cacheManager.getDraft(for: targetDraftKey)
+                    let merged = saved.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? text : "\(saved)\n\(text)"
+                    self.cacheManager.saveDraft(key: targetDraftKey, text: merged)
                 }
             }
             return true
         }
+        syncUpstreamModelSelection()
         
         // Haptic feedback
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()

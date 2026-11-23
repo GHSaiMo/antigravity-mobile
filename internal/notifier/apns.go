@@ -460,7 +460,7 @@ func extractCascadeIDFromURL(rawURL string) string {
 func resolveAlertSound(target APNsAlertTarget, payload PushPayload) string {
 	var raw string
 	switch payload.Category {
-	case "antigravity_action", "antigravity_proceed":
+	case "antigravity_action", "antigravity_action_high", "antigravity_proceed":
 		raw = target.SoundAction
 		if raw == "" {
 			raw = payload.Sound

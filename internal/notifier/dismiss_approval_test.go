@@ -262,8 +262,8 @@ func TestWatcherDismissApprovalOnDesktopResolution(t *testing.T) {
 	watcher.scanOnce()
 
 	got := rec.snapshot()
-	if len(got) != 1 || got[0].Category != "antigravity_action" || got[0].Silent {
-		t.Fatalf("expected 1 approval alert, got %+v", got)
+	if len(got) != 1 || got[0].Category != "antigravity_action_high" || got[0].Silent {
+		t.Fatalf("expected 1 high-risk approval alert for rm -rf build, got %+v", got)
 	}
 
 	// Expire trajectory cache (250ms TTL)
