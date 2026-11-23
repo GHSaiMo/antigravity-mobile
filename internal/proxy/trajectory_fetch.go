@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"antigravity-mobile/internal/config"
 )
 
 // CancelCascadeStep invokes Antigravity LanguageServer's CancelCascadeSteps RPC to terminate a specific background step.
@@ -700,6 +702,25 @@ func withLastActivityAt(cm *ContextMeterItem, lastActivityAt string) *ContextMet
 	return &cp
 }
 
+// sanitizeContextMeterForClient strips miss_streak warning signals from client-facing payloads
+// while the cache-miss guard is in shadow observation or disabled mode, preserving passive
+// read-only metrics (token counts, cacheHitRate, stale lastActivityAt) without mutating cached entries.
+func sanitizeContextMeterForClient(cm *ContextMeterItem) *ContextMeterItem {
+	if cm == nil || config.IsCacheMissAlertLive() {
+		return cm
+	}
+	if cm.CacheMissStreak == 0 && cm.CacheMissTokens == 0 && cm.CacheStatus != "miss_streak" {
+		return cm
+	}
+	cp := *cm
+	cp.CacheMissStreak = 0
+	cp.CacheMissTokens = 0
+	if cp.CacheStatus == "miss_streak" {
+		cp.CacheStatus = "healthy"
+	}
+	return &cp
+}
+
 // fetchUpstreamGeneratorMetadata queries GetCascadeTrajectoryGeneratorMetadata from LanguageServer
 func (p *Proxy) fetchUpstreamGeneratorMetadata(cascadeID string, port int, token string) *ContextMeterItem {
 	if port <= 0 || cascadeID == "" {
@@ -1036,6 +1057,11 @@ func parseGeneratorMetadataDetailedWithOffset(r io.Reader, offset int) (*Context
 	}
 	errKind := ClassifyErrorKind(lastErr)
 
+	modelName := strings.TrimSpace(cm.ModelDisplayName)
+	if modelName == "" {
+		modelName = strings.TrimSpace(cm.Model)
+	}
+
 	return &ContextMeterItem{
 			UsedTokens:        usedTokens,
 			MaxTokens:         maxTokens,
@@ -1053,6 +1079,7 @@ func parseGeneratorMetadataDetailedWithOffset(r io.Reader, offset int) (*Context
 			CacheMissStreak:   cacheMissStreak,
 			CacheMissTokens:   cacheMissTokens,
 			CacheStatus:       cacheStatus,
+			ModelName:         modelName,
 		}, generatorMetaSummary{
 			count:       len(metaResp.GeneratorMetadata),
 			model:       cm.Model,

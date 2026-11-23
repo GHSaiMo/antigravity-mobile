@@ -372,6 +372,7 @@ function initApp() {
     task_completion: true,
     task_stall: true,
     cache_miss: true,
+    cache_miss_mode: "shadow",
     quota_low: true,
     quota_bonus_reset: true,
     quota_anomaly: true,
@@ -406,6 +407,21 @@ function initApp() {
           : lang === "ja"
             ? `${mins} 分間新しい出力や進行がない場合に通知`
             : `连续 ${mins} 分钟无新输出或步骤推进时提醒`;
+    }
+    const cacheMissDesc = document.getElementById("settings-alert-cache-miss-desc");
+    if (cacheMissDesc) {
+      const isLive = String(currentAlertPrefs.cache_miss_mode || "shadow").toLowerCase() === "live";
+      cacheMissDesc.textContent = isLive
+        ? (lang === "en"
+            ? "Notify after 3 consecutive large-context cache misses"
+            : lang === "ja"
+              ? "大コンテキストで3ステップ連続キャッシュ未命中時に通知"
+              : "长任务连续 3 步大上下文未命中缓存时提醒")
+        : (lang === "en"
+            ? "Shadow audit · background report only, no push alerts"
+            : lang === "ja"
+              ? "シャドウ監査 · バックグラウンド記録のみ（通知なし）"
+              : "影子审计模式 · 仅后台记录并生成报告，不推送提醒");
     }
     const footerEl = document.getElementById("settings-alerts-footer");
     if (footerEl) {

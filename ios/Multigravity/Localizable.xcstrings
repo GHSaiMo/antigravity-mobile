@@ -28182,6 +28182,29 @@
         }
       }
     },
+    "影子审计模式 · 仅后台记录并生成报告，不推送提醒": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "影子审计模式 · 仅后台记录并生成报告，不推送提醒"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shadow audit · background report only, no push alerts"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "シャドウ監査 · バックグラウンド記録のみ（通知なし）"
+          }
+        }
+      }
+    },
     "长任务连续 3 步大上下文未命中缓存时提醒": {
       "extractionState": "manual",
       "localizations": {

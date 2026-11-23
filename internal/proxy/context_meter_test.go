@@ -249,3 +249,50 @@ func TestExtractLastActivityAtAndImmutableCopy(t *testing.T) {
 		t.Fatalf("expected annotated copy with LastActivityAt=%q, got %+v", got, annotated)
 	}
 }
+
+func TestSanitizeContextMeterForClientShadowVsLive(t *testing.T) {
+	hr := 5.0
+	raw := &ContextMeterItem{
+		UsedTokens:      250000,
+		MaxTokens:       512000,
+		Percentage:      48.8,
+		InputTokens:     240000,
+		CacheReadTokens: 12000,
+		CacheHitRate:    &hr,
+		CacheMissStreak: 3,
+		CacheMissTokens: 720000,
+		CacheStatus:     "miss_streak",
+		LastActivityAt:  "2026-11-24T04:50:00Z",
+	}
+
+	// Default shadow mode silences client miss_streak warning without mutating raw or stripping read-only stats
+	t.Setenv("CACHE_MISS_ALERT_MODE", "")
+	t.Setenv("CACHE_MISS_ALERT_ENABLED", "")
+	silenced := sanitizeContextMeterForClient(raw)
+	if silenced == raw {
+		t.Fatalf("expected immutable shallow copy when sanitizing")
+	}
+	if silenced.CacheMissStreak != 0 || silenced.CacheMissTokens != 0 || silenced.CacheStatus != "healthy" {
+		t.Fatalf("expected miss_streak badge fields silenced in shadow mode, got %+v", silenced)
+	}
+	if silenced.UsedTokens != 250000 || silenced.CacheHitRate == nil || *silenced.CacheHitRate != 5.0 || silenced.LastActivityAt != raw.LastActivityAt {
+		t.Fatalf("expected passive read-only meter fields preserved, got %+v", silenced)
+	}
+	if raw.CacheMissStreak != 3 || raw.CacheStatus != "miss_streak" {
+		t.Fatalf("original cached ContextMeterItem must not be mutated: %+v", raw)
+	}
+
+	// Off mode also silences client badge
+	t.Setenv("CACHE_MISS_ALERT_MODE", "off")
+	offCopy := sanitizeContextMeterForClient(raw)
+	if offCopy.CacheMissStreak != 0 || offCopy.CacheStatus != "healthy" {
+		t.Fatalf("expected miss_streak badge silenced in off mode, got %+v", offCopy)
+	}
+
+	// Explicit live mode passes miss_streak through untouched
+	t.Setenv("CACHE_MISS_ALERT_MODE", "live")
+	live := sanitizeContextMeterForClient(raw)
+	if live.CacheMissStreak != 3 || live.CacheMissTokens != 720000 || live.CacheStatus != "miss_streak" {
+		t.Fatalf("expected miss_streak passed through in live mode, got %+v", live)
+	}
+}

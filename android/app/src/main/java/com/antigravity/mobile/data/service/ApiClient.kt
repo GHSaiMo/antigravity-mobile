@@ -1503,11 +1503,15 @@ class ApiClient(
         @kotlinx.serialization.SerialName("task_completion") val taskCompletion: Boolean = true,
         @kotlinx.serialization.SerialName("task_stall") val taskStall: Boolean = true,
         @kotlinx.serialization.SerialName("cache_miss") val cacheMiss: Boolean = true,
+        @kotlinx.serialization.SerialName("cache_miss_mode") val cacheMissMode: String = "shadow",
         @kotlinx.serialization.SerialName("quota_low") val quotaLow: Boolean = true,
         @kotlinx.serialization.SerialName("quota_bonus_reset") val quotaBonusReset: Boolean = true,
         @kotlinx.serialization.SerialName("quota_anomaly") val quotaAnomaly: Boolean = true,
         @kotlinx.serialization.SerialName("stall_minutes") val stallMinutes: Int = 8
     ) {
+        val isCacheMissShadow: Boolean
+            get() = !cacheMissMode.equals("live", ignoreCase = true)
+
         val enabledCount: Int
             get() = listOf(taskCompletion, taskStall, cacheMiss, quotaLow, quotaBonusReset, quotaAnomaly).count { it }
 

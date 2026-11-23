@@ -235,10 +235,18 @@ func (w *Watcher) Start(ctx context.Context) {
 	w.mu.RLock()
 	hasActivityHook := w.onActivity != nil
 	w.mu.RUnlock()
-	if !w.notifier.IsEnabled() && !w.notifier.HasLiveActivityTargets() && !w.notifier.CanActivateDynamically() && !hasActivityHook {
+	if !w.notifier.IsEnabled() && !w.notifier.HasLiveActivityTargets() && !w.notifier.CanActivateDynamically() && !w.hasPersistentCacheAudit() && !hasActivityHook {
 		return
 	}
 	go w.run(ctx)
+}
+
+func (w *Watcher) hasPersistentCacheAudit() bool {
+	if w == nil || w.notifier == nil || !w.notifier.IsCacheMissMonitoringActive() {
+		return false
+	}
+	aud := w.notifier.CacheMissAuditor()
+	return aud != nil && (aud.ReportPath() != "" || aud.StatePath() != "")
 }
 
 func (w *Watcher) run(ctx context.Context) {
@@ -294,6 +302,9 @@ func (w *Watcher) run(ctx context.Context) {
 			w.notifier.Dedup().Cleanup(4 * time.Hour)
 			if la := w.notifier.LiveActivity(); la != nil {
 				la.CleanupStaleTracks(4 * time.Hour)
+			}
+			if aud := w.notifier.CacheMissAuditor(); aud != nil {
+				aud.ExpireStale(cacheMissAuditStaleAge, w.now())
 			}
 			w.cleanupKnownSessions()
 		case <-sumWake:
@@ -444,6 +455,7 @@ func (w *Watcher) scanOnceWithMaxAge(summaryMaxAge time.Duration) int {
 	activitySeen := false
 	hasAlert := w.notifier.IsEnabled()
 	hasLive := w.notifier.HasLiveActivityTargets()
+	hasCacheAudit := w.notifier.IsCacheMissMonitoringActive() && (hasAlert || hasLive || w.hasPersistentCacheAudit())
 
 	var jobs []watcherDetailJob
 
@@ -486,7 +498,7 @@ func (w *Watcher) scanOnceWithMaxAge(summaryMaxAge time.Duration) int {
 		watchPendingApproval := prevPendingKey != "" &&
 			(prevPendingSince.IsZero() || now.Sub(prevPendingSince) <= pendingApprovalPollTTL || status != prevStatus || steps != prevSteps)
 
-		needsDetail := (hasAlert || hasLive) &&
+		needsDetail := (hasAlert || hasLive || hasCacheAudit) &&
 			(status == "CASCADE_RUN_STATUS_RUNNING" ||
 				(prevStatus == "CASCADE_RUN_STATUS_RUNNING" && status != "CASCADE_RUN_STATUS_RUNNING") ||
 				wasWaitingBg ||
@@ -631,24 +643,30 @@ func (w *Watcher) scanOnceWithMaxAge(summaryMaxAge time.Duration) int {
 						})
 					}
 				}
-				if hasAlert &&
+				if hasCacheAudit &&
 					strings.TrimSpace(details.ParentConversation) == "" &&
-					isCacheMissAlertEnabled() &&
-					w.notifier.AlertPreferences().CacheMiss &&
 					(job.lastCacheGuardCheckAt.IsZero() || now.Sub(job.lastCacheGuardCheckAt) >= w.effectiveCacheGuardInterval()) {
 					nextCacheGuardCheckAt = now
-					if meter := w.proxy.FetchContextMeter(id); meter != nil &&
-						meter.CacheMissStreak >= cacheMissAlertMinStreak &&
-						meter.CacheMissTokens >= cacheMissAlertMinTokens {
-						cid := id
+					if meter := w.proxy.FetchContextMeter(id); meter != nil {
 						dTitle := details.Title
 						if dTitle == "" || dTitle == MsgUntitledSession {
 							dTitle = title
 						}
-						streak := meter.CacheMissStreak
-						missTokens := meter.CacheMissTokens
+						totalSteps := details.TotalSteps
+						if totalSteps <= 0 {
+							totalSteps = steps
+						}
+						obs := buildCacheMissObservation(
+							id,
+							dTitle,
+							pickModelName(details, meter),
+							"watcher",
+							totalSteps,
+							meter,
+							now,
+						)
 						_ = w.dispatchAlert(func() {
-							_ = w.notifier.NotifyCacheMissAlert(cid, dTitle, streak, missTokens)
+							_ = w.notifier.ObserveCacheMiss(obs)
 						})
 					}
 				}
@@ -915,6 +933,25 @@ func (w *Watcher) scanOnceWithMaxAge(summaryMaxAge time.Duration) int {
 				}
 			}
 		}
+			if !nextWaitingBg && nextPendingKey == "" {
+				if aud := w.notifier.CacheMissAuditor(); aud != nil && aud.HasOngoingEpisode(id) {
+					cid := id
+					finalStatus := status
+					finalSteps := steps
+					if fetchErr == nil && details != nil {
+						if details.Status != "" {
+							finalStatus = details.Status
+						}
+						if details.TotalSteps > finalSteps {
+							finalSteps = details.TotalSteps
+						}
+					}
+					ts := now
+					_ = w.dispatchAlert(func() {
+						w.notifier.FinalizeCacheMissSession(cid, finalStatus, finalSteps, ts)
+					})
+				}
+			}
 		}
 
 		w.mu.Lock()

@@ -9,6 +9,7 @@ public struct GatewayAlertPreferences: Codable, Equatable, Sendable {
     public var taskCompletion: Bool
     public var taskStall: Bool
     public var cacheMiss: Bool
+    public var cacheMissMode: String
     public var quotaLow: Bool
     public var quotaBonusReset: Bool
     public var quotaAnomaly: Bool
@@ -20,11 +21,16 @@ public struct GatewayAlertPreferences: Codable, Equatable, Sendable {
         taskCompletion: true,
         taskStall: true,
         cacheMiss: true,
+        cacheMissMode: "shadow",
         quotaLow: true,
         quotaBonusReset: true,
         quotaAnomaly: true,
         stallMinutes: 8
     )
+
+    public var isCacheMissShadow: Bool {
+        cacheMissMode.lowercased() != "live"
+    }
 
     public var enabledCount: Int {
         [taskCompletion, taskStall, cacheMiss, quotaLow, quotaBonusReset, quotaAnomaly].filter { $0 }.count
@@ -46,6 +52,7 @@ public struct GatewayAlertPreferences: Codable, Equatable, Sendable {
         case taskCompletion = "task_completion"
         case taskStall = "task_stall"
         case cacheMiss = "cache_miss"
+        case cacheMissMode = "cache_miss_mode"
         case quotaLow = "quota_low"
         case quotaBonusReset = "quota_bonus_reset"
         case quotaAnomaly = "quota_anomaly"
@@ -56,6 +63,7 @@ public struct GatewayAlertPreferences: Codable, Equatable, Sendable {
         taskCompletion: Bool,
         taskStall: Bool,
         cacheMiss: Bool,
+        cacheMissMode: String = "shadow",
         quotaLow: Bool,
         quotaBonusReset: Bool,
         quotaAnomaly: Bool,
@@ -64,6 +72,7 @@ public struct GatewayAlertPreferences: Codable, Equatable, Sendable {
         self.taskCompletion = taskCompletion
         self.taskStall = taskStall
         self.cacheMiss = cacheMiss
+        self.cacheMissMode = cacheMissMode
         self.quotaLow = quotaLow
         self.quotaBonusReset = quotaBonusReset
         self.quotaAnomaly = quotaAnomaly
@@ -75,6 +84,7 @@ public struct GatewayAlertPreferences: Codable, Equatable, Sendable {
         self.taskCompletion = try c.decodeIfPresent(Bool.self, forKey: .taskCompletion) ?? true
         self.taskStall = try c.decodeIfPresent(Bool.self, forKey: .taskStall) ?? true
         self.cacheMiss = try c.decodeIfPresent(Bool.self, forKey: .cacheMiss) ?? true
+        self.cacheMissMode = try c.decodeIfPresent(String.self, forKey: .cacheMissMode) ?? "shadow"
         self.quotaLow = try c.decodeIfPresent(Bool.self, forKey: .quotaLow) ?? true
         self.quotaBonusReset = try c.decodeIfPresent(Bool.self, forKey: .quotaBonusReset) ?? true
         self.quotaAnomaly = try c.decodeIfPresent(Bool.self, forKey: .quotaAnomaly) ?? true

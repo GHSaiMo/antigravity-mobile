@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"os"
 	"strings"
 	"sync"
 	"time"
@@ -18,16 +17,6 @@ const (
 	cacheMissAlertMinTokens int64 = 120000
 	cacheMissAlertCooldown        = 1 * time.Hour
 )
-
-func isCacheMissAlertEnabled() bool {
-	v := strings.ToLower(strings.TrimSpace(os.Getenv("CACHE_MISS_ALERT_ENABLED")))
-	switch v {
-	case "0", "false", "off", "no":
-		return false
-	default:
-		return true
-	}
-}
 
 // PushPayload is the unified notification envelope dispatched across APNs and FCM channels.
 type PushPayload struct {
@@ -52,22 +41,24 @@ type NotificationSender interface {
 
 // Notifier dispatches alerts to push notification channels (APNs, FCM, etc.).
 type Notifier struct {
-	mu           sync.RWMutex
-	cfg          config.NotificationConfig
-	senders      []NotificationSender
-	apns         *APNsRelayClient
-	liveActivity *LiveActivityDispatcher
-	dedup        *DedupCache
-	alertPrefs   *AlertPreferencesStore
+	mu               sync.RWMutex
+	cfg              config.NotificationConfig
+	senders          []NotificationSender
+	apns             *APNsRelayClient
+	liveActivity     *LiveActivityDispatcher
+	dedup            *DedupCache
+	alertPrefs       *AlertPreferencesStore
+	cacheMissAuditor *CacheMissShadowAuditor
 }
 
 // NewNotifier creates an initialized Notifier instance with configured push senders (e.g. FCM).
 // Native iOS APNs is attached via AttachAPNsClient.
 func NewNotifier(cfg config.NotificationConfig) *Notifier {
 	n := &Notifier{
-		cfg:        cfg,
-		dedup:      NewDedupCache(),
-		alertPrefs: NewAlertPreferencesStore(""),
+		cfg:              cfg,
+		dedup:            NewDedupCache(),
+		alertPrefs:       NewAlertPreferencesStore(""),
+		cacheMissAuditor: NewCacheMissShadowAuditor("", ""),
 	}
 	if cfg.FCMEnabled || (cfg.FCMServerKey != "" && cfg.FCMDeviceToken != "") {
 		n.senders = append(n.senders, NewFCMClient(cfg))
@@ -78,11 +69,40 @@ func NewNotifier(cfg config.NotificationConfig) *Notifier {
 // NewNotifierWithSender creates an initialized Notifier instance with a custom sender.
 func NewNotifierWithSender(cfg config.NotificationConfig, sender NotificationSender) *Notifier {
 	return &Notifier{
-		cfg:        cfg,
-		senders:    []NotificationSender{sender},
-		dedup:      NewDedupCache(),
-		alertPrefs: NewAlertPreferencesStore(""),
+		cfg:              cfg,
+		senders:          []NotificationSender{sender},
+		dedup:            NewDedupCache(),
+		alertPrefs:       NewAlertPreferencesStore(""),
+		cacheMissAuditor: NewCacheMissShadowAuditor("", ""),
 	}
+}
+
+// SetCacheMissAuditor attaches a persistent background shadow auditor for prompt cache miss monitoring.
+func (n *Notifier) SetCacheMissAuditor(auditor *CacheMissShadowAuditor) {
+	if n == nil || auditor == nil {
+		return
+	}
+	n.mu.Lock()
+	n.cacheMissAuditor = auditor
+	n.mu.Unlock()
+}
+
+// CacheMissAuditor returns the active cache-miss shadow auditor, if any.
+func (n *Notifier) CacheMissAuditor() *CacheMissShadowAuditor {
+	if n == nil {
+		return nil
+	}
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+	return n.cacheMissAuditor
+}
+
+// IsCacheMissMonitoringActive reports whether prompt cache miss monitoring (shadow audit or live alert) is active.
+func (n *Notifier) IsCacheMissMonitoringActive() bool {
+	if n == nil {
+		return false
+	}
+	return CacheMissAlertMode() != CacheMissModeOff && n.AlertPreferences().CacheMiss
 }
 
 // SetAlertPreferencesStore attaches a persistent preference store to the notifier.
@@ -591,14 +611,125 @@ func (n *Notifier) NotifyQuotaAlertWithLevel(level, key, title, body string) err
 	return n.NotifyQuotaAlert(key, title, body, strings.EqualFold(level, "critical"))
 }
 
-// NotifyCacheMissAlert sends a deduplicated alert when an active long-running session suffers
-// repeated large-context prompt cache misses that risk draining weekly quota rapidly.
+func pickModelName(details *proxy.TrajectoryDetails, meter *proxy.ContextMeterItem) string {
+	if meter != nil && strings.TrimSpace(meter.ModelName) != "" {
+		return strings.TrimSpace(meter.ModelName)
+	}
+	if details != nil {
+		for _, candidate := range []string{details.ActiveModelName, details.ModelDisplayName, details.ActiveModel} {
+			if s := strings.TrimSpace(candidate); s != "" {
+				return s
+			}
+		}
+	}
+	return ""
+}
+
+func buildCacheMissObservation(
+	cascadeID, title, model, source string,
+	stepCount int,
+	meter *proxy.ContextMeterItem,
+	now time.Time,
+) CacheMissObservation {
+	obs := CacheMissObservation{
+		CascadeID:    strings.TrimSpace(cascadeID),
+		SessionTitle: title,
+		Model:        model,
+		Source:       source,
+		StepCount:    stepCount,
+		Now:          now,
+	}
+	if meter != nil {
+		obs.Streak = meter.CacheMissStreak
+		obs.MissTokens = meter.CacheMissTokens
+		obs.UsedTokens = meter.UsedTokens
+		obs.MaxTokens = meter.MaxTokens
+		obs.ContextPct = meter.Percentage
+		obs.InputTokens = meter.InputTokens
+		obs.CacheReadTokens = meter.CacheReadTokens
+		obs.TTFTSeconds = meter.TimeToFirstToken
+		if meter.CacheHitRate != nil {
+			hr := *meter.CacheHitRate
+			obs.CacheHitRate = &hr
+		}
+	}
+	return obs
+}
+
+// ObserveCacheMiss feeds a real-time prompt-cache telemetry sample into the shadow auditor.
+// In default "shadow" mode, it records triggers, peak miss metrics, and self-recovery outcomes
+// to background storage & the Private Docs report without sending any user-facing push notification.
+// In explicit "live" mode (CACHE_MISS_ALERT_MODE=live), it also dispatches deduplicated push alerts.
+func (n *Notifier) ObserveCacheMiss(obs CacheMissObservation) error {
+	if n == nil {
+		return nil
+	}
+	obs.CascadeID = strings.TrimSpace(obs.CascadeID)
+	mode := CacheMissAlertMode()
+	if mode == CacheMissModeOff || !n.AlertPreferences().CacheMiss || obs.CascadeID == "" {
+		return nil
+	}
+	obs.Mode = mode
+
+	if aud := n.CacheMissAuditor(); aud != nil {
+		isNew, wouldNotify := aud.Observe(obs)
+		if isNew && mode == CacheMissModeShadow {
+			slog.Info("[CacheMissShadow] 🕵️ 影子审计命中（仅后台记录，不向用户推送）",
+				"cascade", shortID(obs.CascadeID),
+				"title", truncateString(SanitizePushText(obs.SessionTitle), 40),
+				"model", normalizeAuditModel(obs.Model),
+				"streak", obs.Streak,
+				"miss_tokens", formatCompactTokens(obs.MissTokens),
+				"would_have_notified", wouldNotify,
+				"report", aud.ReportPath(),
+			)
+		}
+	}
+
+	if mode != CacheMissModeLive {
+		return nil
+	}
+	if obs.Streak < cacheMissAlertMinStreak || obs.MissTokens < cacheMissAlertMinTokens {
+		return nil
+	}
+	return n.sendCacheMissPush(obs.CascadeID, obs.SessionTitle, obs.Streak, obs.MissTokens)
+}
+
+// FinalizeCacheMissSession closes any active shadow audit episode when a session leaves RUNNING.
+func (n *Notifier) FinalizeCacheMissSession(cascadeID, terminalStatus string, totalSteps int, now time.Time) {
+	if n == nil {
+		return
+	}
+	if aud := n.CacheMissAuditor(); aud != nil {
+		aud.FinalizeSession(cascadeID, terminalStatus, totalSteps, now)
+	}
+}
+
+// NotifyCacheMissAlert handles a cache-miss alert trigger.
+// Under the default "shadow" mode, it records the trigger in the background shadow auditor
+// and suppresses all user-facing push notifications. Real pushes only fire in explicit "live" mode.
 func (n *Notifier) NotifyCacheMissAlert(cascadeID, title string, streak int, missTokens int64) error {
 	cascadeID = strings.TrimSpace(cascadeID)
-	if !n.IsEnabled() || !isCacheMissAlertEnabled() || !n.AlertPreferences().CacheMiss || cascadeID == "" {
+	mode := CacheMissAlertMode()
+	if mode == CacheMissModeOff || !n.AlertPreferences().CacheMiss || cascadeID == "" {
 		return nil
 	}
 	if streak < cacheMissAlertMinStreak || missTokens < cacheMissAlertMinTokens {
+		return nil
+	}
+
+	return n.ObserveCacheMiss(CacheMissObservation{
+		CascadeID:    cascadeID,
+		SessionTitle: title,
+		Source:       "direct",
+		Mode:         mode,
+		Streak:       streak,
+		MissTokens:   missTokens,
+	})
+}
+
+func (n *Notifier) sendCacheMissPush(cascadeID, title string, streak int, missTokens int64) error {
+	if !n.IsEnabled() {
 		return nil
 	}
 
@@ -684,6 +815,34 @@ func (n *Notifier) OnTrajectoryUpdate(details *proxy.TrajectoryDetails) {
 		}
 	}
 
+	// 2. Shadow-audit (or live-alert when explicitly opted in) repeated large-context prompt cache misses.
+	// Runs even when push delivery is inactive so background shadow reports remain complete.
+	if details.Status == "CASCADE_RUN_STATUS_RUNNING" &&
+		strings.TrimSpace(details.ParentConversation) == "" &&
+		details.ContextMeter != nil &&
+		n.IsCacheMissMonitoringActive() {
+		meetsTrigger := details.ContextMeter.CacheMissStreak >= cacheMissAlertMinStreak &&
+			details.ContextMeter.CacheMissTokens >= cacheMissAlertMinTokens
+		aud := n.CacheMissAuditor()
+		hasOngoing := aud != nil && aud.HasOngoingEpisode(details.CascadeID)
+		if meetsTrigger || hasOngoing {
+			obs := buildCacheMissObservation(
+				details.CascadeID,
+				details.Title,
+				pickModelName(details, details.ContextMeter),
+				"trajectory_update",
+				details.TotalSteps,
+				details.ContextMeter,
+				time.Now(),
+			)
+			go func() {
+				if err := n.ObserveCacheMiss(obs); err != nil {
+					slog.Warn(fmt.Sprintf("[Notifier] Async ObserveCacheMiss error for cascade %s", obs.CascadeID), "err", err)
+				}
+			}()
+		}
+	}
+
 	if !n.IsEnabled() {
 		return
 	}
@@ -698,28 +857,6 @@ func (n *Notifier) OnTrajectoryUpdate(details *proxy.TrajectoryDetails) {
 			go func() {
 				if err := n.NotifyAction(cascadeID, title, &pi); err != nil {
 					slog.Warn(fmt.Sprintf("[Notifier] Async NotifyAction error for cascade %s", cascadeID), "err", err)
-				}
-			}()
-		}
-	}
-
-	// 2. Check for repeated large-context prompt cache misses on running non-subagent sessions
-	if details.Status == "CASCADE_RUN_STATUS_RUNNING" &&
-		strings.TrimSpace(details.ParentConversation) == "" &&
-		details.ContextMeter != nil &&
-		details.ContextMeter.CacheMissStreak >= cacheMissAlertMinStreak &&
-		details.ContextMeter.CacheMissTokens >= cacheMissAlertMinTokens &&
-		isCacheMissAlertEnabled() &&
-		n.AlertPreferences().CacheMiss {
-		dedupKey := fmt.Sprintf("cache_miss:%s", details.CascadeID)
-		if !n.dedup.IsNotified(dedupKey, cacheMissAlertCooldown) {
-			cascadeID := details.CascadeID
-			title := details.Title
-			streak := details.ContextMeter.CacheMissStreak
-			missTokens := details.ContextMeter.CacheMissTokens
-			go func() {
-				if err := n.NotifyCacheMissAlert(cascadeID, title, streak, missTokens); err != nil {
-					slog.Warn(fmt.Sprintf("[Notifier] Async NotifyCacheMissAlert error for cascade %s", cascadeID), "err", err)
 				}
 			}()
 		}

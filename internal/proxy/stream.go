@@ -524,7 +524,7 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 			DesktopActiveModelName: desktopModelName,
 			StartedAt:              details.StartedAt,
 			Swarm:              GetSwarmBrief(cascadeID),
-			ContextMeter:       details.ContextMeter,
+			ContextMeter:       sanitizeContextMeterForClient(details.ContextMeter),
 			SuggestedResponses: details.SuggestedResponses,
 			TaskProgress:       details.TaskProgress,
 			ActiveFocus:        details.ActiveFocus,

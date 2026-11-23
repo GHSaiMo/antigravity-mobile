@@ -267,6 +267,7 @@ type ContextMeterItem struct {
 	CacheMissStreak   int      `json:"cacheMissStreak,omitempty"`
 	CacheMissTokens   int64    `json:"cacheMissTokens,omitempty"`
 	CacheStatus       string   `json:"cacheStatus,omitempty"`
+	ModelName         string   `json:"modelName,omitempty"`
 	LastActivityAt    string   `json:"lastActivityAt,omitempty"`
 }
 

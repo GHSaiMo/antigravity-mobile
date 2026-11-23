@@ -2044,11 +2044,19 @@ private fun NotificationAlertsSubpageContent(
                 )
                 CompactSubpageToggleRow(
                     title = t("缓存连续未命中", "Repeated Cache Misses", "キャッシュ連続ミス"),
-                    subtitle = t(
-                        "长任务连续 3 步大上下文未命中缓存时提醒",
-                        "Notify after 3 consecutive large-context cache misses",
-                        "大コンテキストで3ステップ連続キャッシュ未命中時に通知"
-                    ),
+                    subtitle = if (alertPrefs.isCacheMissShadow) {
+                        t(
+                            "影子审计模式 · 仅后台记录并生成报告，不推送提醒",
+                            "Shadow audit · background report only, no push alerts",
+                            "シャドウ監査 · バックグラウンド記録のみ（通知なし）"
+                        )
+                    } else {
+                        t(
+                            "长任务连续 3 步大上下文未命中缓存时提醒",
+                            "Notify after 3 consecutive large-context cache misses",
+                            "大コンテキストで3ステップ連続キャッシュ未命中時に通知"
+                        )
+                    },
                     checked = alertPrefs.cacheMiss,
                     enabled = true,
                     onCheckedChange = {

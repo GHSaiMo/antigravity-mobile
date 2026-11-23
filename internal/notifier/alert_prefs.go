@@ -20,13 +20,14 @@ const (
 // AlertPreferences controls which optional push notification categories are enabled on the gateway.
 // Interactive approval requests and agent questions always follow the master push switch.
 type AlertPreferences struct {
-	TaskCompletion  bool `json:"task_completion"`
-	TaskStall       bool `json:"task_stall"`
-	CacheMiss       bool `json:"cache_miss"`
-	QuotaLow        bool `json:"quota_low"`
-	QuotaBonusReset bool `json:"quota_bonus_reset"`
-	QuotaAnomaly    bool `json:"quota_anomaly"`
-	StallMinutes    int  `json:"stall_minutes,omitempty"`
+	TaskCompletion  bool   `json:"task_completion"`
+	TaskStall       bool   `json:"task_stall"`
+	CacheMiss       bool   `json:"cache_miss"`
+	CacheMissMode   string `json:"cache_miss_mode,omitempty"` // "shadow" | "live" | "off"
+	QuotaLow        bool   `json:"quota_low"`
+	QuotaBonusReset bool   `json:"quota_bonus_reset"`
+	QuotaAnomaly    bool   `json:"quota_anomaly"`
+	StallMinutes    int    `json:"stall_minutes,omitempty"`
 }
 
 // AlertPreferencesPatch supports partial updates from mobile/web settings clients.
@@ -80,10 +81,12 @@ func envBoolDefaultTrue(key string) bool {
 // DefaultAlertPreferences returns the baseline preferences honoring legacy env toggles.
 func DefaultAlertPreferences() AlertPreferences {
 	stallMins := DefaultStallAlertMinutes()
+	cacheMissMode := CacheMissAlertMode()
 	return AlertPreferences{
 		TaskCompletion:  true,
 		TaskStall:       stallMins > 0,
-		CacheMiss:       envBoolDefaultTrue("CACHE_MISS_ALERT_ENABLED"),
+		CacheMiss:       cacheMissMode != CacheMissModeOff,
+		CacheMissMode:   cacheMissMode,
 		QuotaLow:        envBoolDefaultTrue("QUOTA_ALERT_ENABLED"),
 		QuotaBonusReset: envBoolDefaultTrue("QUOTA_ALERT_ENABLED") && envBoolDefaultTrue("QUOTA_ALERT_BONUS_RESET_ENABLED"),
 		QuotaAnomaly:    envBoolDefaultTrue("QUOTA_ALERT_ENABLED") && envBoolDefaultTrue("QUOTA_ALERT_ANOMALY_ENABLED"),
@@ -154,6 +157,7 @@ func (s *AlertPreferencesStore) Get() AlertPreferences {
 	out := s.prefs
 	s.mu.RUnlock()
 	out.StallMinutes = DefaultStallAlertMinutes()
+	out.CacheMissMode = CacheMissAlertMode()
 	return out
 }
 
@@ -164,6 +168,7 @@ func (s *AlertPreferencesStore) Update(patch AlertPreferencesPatch) (AlertPrefer
 	applyAlertPreferencesPatch(&s.prefs, patch)
 	out := s.prefs
 	out.StallMinutes = DefaultStallAlertMinutes()
+	out.CacheMissMode = CacheMissAlertMode()
 	if s.path == "" {
 		return out, nil
 	}

@@ -268,7 +268,7 @@ func (p *Proxy) handleCascadeMessages(w http.ResponseWriter, r *http.Request) {
 		ProceedArtifactURI: details.ProceedArtifactURI,
 		PendingInteraction: details.PendingInteraction,
 		Swarm:              GetSwarmBrief(cascadeID),
-		ContextMeter:       details.ContextMeter,
+		ContextMeter:       sanitizeContextMeterForClient(details.ContextMeter),
 		SuggestedResponses: details.SuggestedResponses,
 		TaskProgress:       details.TaskProgress,
 		ActiveFocus:        details.ActiveFocus,

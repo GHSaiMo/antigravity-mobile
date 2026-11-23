@@ -337,6 +337,25 @@ func runGatewayServer(args []string) {
 	notif := notifier.NewNotifier(notifCfg)
 	alertPrefsStore := notifier.NewAlertPreferencesStore(filepath.Join(config.GetDataDir(), "notification_prefs.json"))
 	notif.SetAlertPreferencesStore(alertPrefsStore)
+	cacheAuditStatePath := notifier.ResolveCacheMissAuditStatePath(config.GetDataDir())
+	cacheAuditReportPath := notifier.ResolveCacheMissAuditReportPath(config.GetDataDir())
+	cacheAuditor := notifier.NewCacheMissShadowAuditor(cacheAuditStatePath, cacheAuditReportPath)
+	notif.SetCacheMissAuditor(cacheAuditor)
+	if cacheMode := notifier.CacheMissAlertMode(); cacheMode != notifier.CacheMissModeOff {
+		if err := cacheAuditor.EnsureReport(); err != nil {
+			slog.Warn("[CacheMissShadow] Failed to initialize observation report", "path", cacheAuditReportPath, "err", err)
+		} else if cacheMode == notifier.CacheMissModeShadow {
+			slog.Info("[CacheMissShadow] 🕵️ 缓存连续未命中提醒已切入影子审计模式（仅后台审计并输出报告，不向用户推送）",
+				"mode", cacheMode,
+				"report", cacheAuditReportPath,
+			)
+		} else {
+			slog.Info("[CacheMissShadow] 缓存连续未命中提醒已启用实推模式并同步审计",
+				"mode", cacheMode,
+				"report", cacheAuditReportPath,
+			)
+		}
+	}
 	if notifCfg.APNSEnabled {
 		pushStore, storeErr := notifier.NewPushDeviceStore(notifCfg.PushStorePath)
 		if storeErr != nil {
@@ -389,10 +408,13 @@ func runGatewayServer(args []string) {
 		if len(pushes) > 0 {
 			pushSummary = strings.Join(pushes, " + ")
 		}
-	} else if powerGuard != nil {
-		// Notifications disabled, still run lightweight watcher to drive dynamic task-time sleep guard.
+	} else if powerGuard != nil || notif.IsCacheMissMonitoringActive() {
+		// Notifications disabled, still run lightweight watcher to drive sleep guard and/or shadow cache-miss audit.
+		p.SetNotificationSink(notif)
 		watcher = notifier.NewWatcher(p, notif)
-		watcher.SetOnActivityChange(powerGuard.SetActive)
+		if powerGuard != nil {
+			watcher.SetOnActivityChange(powerGuard.SetActive)
+		}
 		watcher.Start(watcherCtx)
 	}
 	if pushSummary == "" {
@@ -1430,11 +1452,23 @@ func buildRouterWithWSAddr(
 			"task_completion", updated.TaskCompletion,
 			"task_stall", updated.TaskStall,
 			"cache_miss", updated.CacheMiss,
+			"cache_miss_mode", updated.CacheMissMode,
 			"quota_low", updated.QuotaLow,
 			"quota_bonus_reset", updated.QuotaBonusReset,
 			"quota_anomaly", updated.QuotaAnomaly,
 		)
 		writeJSON(w, http.StatusOK, updated)
+	})
+
+	// Read-only background shadow audit summary for prompt cache miss monitoring
+	rootMux.HandleFunc("GET /api/v1/audit/cache-miss", func(w http.ResponseWriter, r *http.Request) {
+		if sink, ok := p.NotificationSink().(*notifier.Notifier); ok && sink != nil {
+			if aud := sink.CacheMissAuditor(); aud != nil {
+				writeJSON(w, http.StatusOK, aud.Summary())
+				return
+			}
+		}
+		writeJSON(w, http.StatusOK, notifier.CacheMissAuditSummary{Mode: notifier.CacheMissAlertMode()})
 	})
 
 	// Mobile push token removal endpoint (called when unpairing or disabling notifications/Live Activities)
