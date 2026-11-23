@@ -41,15 +41,29 @@ class NotificationActionReceiver : BroadcastReceiver() {
 
                 when (action) {
                     ACTION_APPROVE -> {
-                        val snap = apiClient.fetchMessages(cascadeId, limit = 5).getOrNull()
-                        val interaction = snap?.pendingInteraction
+                        val snap = apiClient.fetchMessages(cascadeId, limit = 5).getOrNull() ?: return@launch
+                        val interaction = snap.pendingInteraction
                         if (interaction != null) {
+                            val kind = interaction.type.lowercase()
+                            if (kind == "ask_question" || kind == "workflow_approval" || kind == "elicitation" || !interaction.questions.isNullOrEmpty()) {
+                                liveMgr.startOrUpdateActivity(
+                                    title = snap.title.orEmpty(),
+                                    cascadeId = cascadeId,
+                                    status = "WAITING_APPROVAL",
+                                    stepCount = snap.totalSteps.coerceAtLeast(1),
+                                    latestAction = "请打开 App 查看完整详情并确认".loc,
+                                    hasPendingAction = true,
+                                    isOptimisticStart = false,
+                                    baselineStepCount = snap.totalSteps
+                                )
+                                return@launch
+                            }
                             val approveOpt = interaction.options.firstOrNull {
                                 it.isDeny != true && it.id != "5" && it.id != "__write_in__"
                             } ?: interaction.options.firstOrNull()
                             val optId = approveOpt?.id ?: interaction.defaultOptionId ?: "1"
                             val scopeVal = approveOpt?.scope ?: 1
-                            apiClient.submitInteraction(
+                            val submitRes = apiClient.submitInteraction(
                                 cascadeId = cascadeId,
                                 trajectoryId = interaction.trajectoryId,
                                 stepIndex = interaction.stepIndex,
@@ -62,28 +76,68 @@ class NotificationActionReceiver : BroadcastReceiver() {
                                 target = interaction.target,
                                 questionResponses = null
                             )
-                        } else if (snap?.canProceed == true) {
+                            if (submitRes.isSuccess) {
+                                AntigravityMessagingService.dismissAlertNotification(appContext, cascadeId)
+                                liveMgr.startOrUpdateActivity(
+                                    title = snap.title.orEmpty(),
+                                    cascadeId = cascadeId,
+                                    status = "RUNNING",
+                                    stepCount = snap.totalSteps.coerceAtLeast(1),
+                                    latestAction = "已允许，继续执行中...".loc,
+                                    hasPendingAction = false,
+                                    isOptimisticStart = true,
+                                    baselineStepCount = snap.totalSteps
+                                )
+                            } else {
+                                liveMgr.startOrUpdateActivity(
+                                    title = snap.title.orEmpty(),
+                                    cascadeId = cascadeId,
+                                    status = "WAITING_APPROVAL",
+                                    stepCount = snap.totalSteps.coerceAtLeast(1),
+                                    latestAction = "操作失败，请重试".loc,
+                                    hasPendingAction = true,
+                                    isOptimisticStart = false,
+                                    baselineStepCount = snap.totalSteps
+                                )
+                            }
+                        } else if (snap.canProceed) {
                             val uri = snap.proceedArtifactUri?.takeIf { it.isNotBlank() } ?: "implementation_plan.md"
-                            apiClient.proceedArtifact(cascadeId, uri, snap.activeModel)
+                            val procRes = apiClient.proceedArtifact(cascadeId, uri, snap.activeModel)
+                            if (procRes.isSuccess) {
+                                AntigravityMessagingService.dismissAlertNotification(appContext, cascadeId)
+                                liveMgr.startOrUpdateActivity(
+                                    title = snap.title.orEmpty(),
+                                    cascadeId = cascadeId,
+                                    status = "RUNNING",
+                                    stepCount = snap.totalSteps.coerceAtLeast(1),
+                                    latestAction = "已允许，继续执行中...".loc,
+                                    hasPendingAction = false,
+                                    isOptimisticStart = true,
+                                    baselineStepCount = snap.totalSteps
+                                )
+                            } else {
+                                liveMgr.startOrUpdateActivity(
+                                    title = snap.title.orEmpty(),
+                                    cascadeId = cascadeId,
+                                    status = "WAITING_APPROVAL",
+                                    stepCount = snap.totalSteps.coerceAtLeast(1),
+                                    latestAction = "操作失败，请重试".loc,
+                                    hasPendingAction = true,
+                                    isOptimisticStart = false,
+                                    baselineStepCount = snap.totalSteps
+                                )
+                            }
+                        } else {
+                            reconcileStaleActivity(appContext, liveMgr, cascadeId, snap)
                         }
-                        liveMgr.startOrUpdateActivity(
-                            title = snap?.title.orEmpty(),
-                            cascadeId = cascadeId,
-                            status = "RUNNING",
-                            stepCount = (snap?.totalSteps ?: 1).coerceAtLeast(1),
-                            latestAction = "已允许，继续执行中...".loc,
-                            hasPendingAction = false,
-                            isOptimisticStart = true,
-                            baselineStepCount = snap?.totalSteps ?: -1
-                        )
                     }
 
                     ACTION_REJECT -> {
-                        val snap = apiClient.fetchMessages(cascadeId, limit = 5).getOrNull()
-                        val interaction = snap?.pendingInteraction
+                        val snap = apiClient.fetchMessages(cascadeId, limit = 5).getOrNull() ?: return@launch
+                        val interaction = snap.pendingInteraction
                         if (interaction != null) {
                             val denyOpt = interaction.options.firstOrNull { it.isDeny == true || it.id == "5" }
-                            apiClient.submitInteraction(
+                            val submitRes = apiClient.submitInteraction(
                                 cascadeId = cascadeId,
                                 trajectoryId = interaction.trajectoryId,
                                 stepIndex = interaction.stepIndex,
@@ -96,21 +150,38 @@ class NotificationActionReceiver : BroadcastReceiver() {
                                 target = interaction.target,
                                 questionResponses = null
                             )
+                            if (submitRes.isSuccess) {
+                                AntigravityMessagingService.dismissAlertNotification(appContext, cascadeId)
+                                liveMgr.startOrUpdateActivity(
+                                    title = snap.title.orEmpty(),
+                                    cascadeId = cascadeId,
+                                    status = "RUNNING",
+                                    stepCount = snap.totalSteps.coerceAtLeast(1),
+                                    latestAction = "已拒绝该操作".loc,
+                                    hasPendingAction = false,
+                                    isOptimisticStart = true,
+                                    baselineStepCount = snap.totalSteps
+                                )
+                            } else {
+                                liveMgr.startOrUpdateActivity(
+                                    title = snap.title.orEmpty(),
+                                    cascadeId = cascadeId,
+                                    status = "WAITING_APPROVAL",
+                                    stepCount = snap.totalSteps.coerceAtLeast(1),
+                                    latestAction = "操作失败，请重试".loc,
+                                    hasPendingAction = true,
+                                    isOptimisticStart = false,
+                                    baselineStepCount = snap.totalSteps
+                                )
+                            }
+                        } else {
+                            reconcileStaleActivity(appContext, liveMgr, cascadeId, snap)
                         }
-                        liveMgr.startOrUpdateActivity(
-                            title = snap?.title.orEmpty(),
-                            cascadeId = cascadeId,
-                            status = "RUNNING",
-                            stepCount = (snap?.totalSteps ?: 1).coerceAtLeast(1),
-                            latestAction = "已拒绝该操作".loc,
-                            hasPendingAction = false,
-                            isOptimisticStart = true,
-                            baselineStepCount = snap?.totalSteps ?: -1
-                        )
                     }
 
                     ACTION_STOP -> {
                         apiClient.cancelInvocation(cascadeId, killBackgroundTasks = true)
+                        AntigravityMessagingService.dismissAlertNotification(appContext, cascadeId)
                         liveMgr.endActivity(cascadeId = cascadeId, finalStatus = "CANCELLED")
                     }
                 }
@@ -119,6 +190,36 @@ class NotificationActionReceiver : BroadcastReceiver() {
             } finally {
                 pendingResult.finish()
             }
+        }
+    }
+
+    private fun reconcileStaleActivity(
+        appContext: Context,
+        liveMgr: LiveActivityNotificationManager,
+        cascadeId: String,
+        snap: com.antigravity.mobile.data.model.StreamUpdatePayload
+    ) {
+        AntigravityMessagingService.dismissAlertNotification(appContext, cascadeId)
+        val isStillRunning = LiveActivityStatusHelper.isStatusRunning(snap.status) || !snap.runningTasks.isNullOrEmpty()
+        if (isStillRunning) {
+            liveMgr.startOrUpdateActivity(
+                title = snap.title.orEmpty(),
+                cascadeId = cascadeId,
+                status = "RUNNING",
+                stepCount = snap.totalSteps.coerceAtLeast(1),
+                latestAction = "已在其他设备处理，继续执行中".loc,
+                hasPendingAction = false,
+                isOptimisticStart = false,
+                baselineStepCount = snap.totalSteps
+            )
+        } else {
+            val upper = snap.status.uppercase()
+            val finalStatus = when {
+                snap.hasError || LiveActivityStatusHelper.isStatusError(snap.status) -> "FAILED"
+                upper.contains("CANCEL") -> "CANCELLED"
+                else -> "COMPLETED"
+            }
+            liveMgr.endActivity(cascadeId = cascadeId, finalStatus = finalStatus, title = snap.title)
         }
     }
 

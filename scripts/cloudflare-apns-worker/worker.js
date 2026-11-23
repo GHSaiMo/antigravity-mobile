@@ -16,6 +16,7 @@ const MAX_REQUEST_BYTES = 8 * 1024;      // 8 KB request guard
 const MAX_APNS_PAYLOAD_BYTES = 4096;     // Apple APNs hard limit (4 KB)
 const HEX_TOKEN_RE = /^[0-9a-fA-F]{64,256}$/;
 const SAFE_APP_SCHEME_RE = /^(?:agy|antigravity):\/\/[A-Za-z0-9._~:/?#\[\]@!$&'()*+,;=%-]+$/;
+const SAFE_BG_ACTION_RE = /^[a-z0-9][a-z0-9_.-]{0,63}$/i;
 
 // Isolate-level in-memory cache (zero persistence, zero PII)
 let cachedSigningKey = null;
@@ -68,7 +69,7 @@ function checkIPThrottle(clientIP) {
 
 function checkTokenThrottle(rawToken, event, priority) {
   const now = Date.now();
-  const kind = event === "alert" ? "a" : "la";
+  const kind = event === "alert" ? "a" : event === "background" ? "bg" : "la";
   const key = `${kind}:${rawToken.slice(0, 16)}:${rawToken.slice(-8)}`;
   if (!tokenThrottleMap.has(key)) {
     evictMapFIFO(tokenThrottleMap, TOKEN_THROTTLE_MAX_ENTRIES, 60_000, now);
@@ -92,7 +93,7 @@ function checkTokenThrottle(rawToken, event, priority) {
   tokenThrottleMap.delete(key);
   tokenThrottleMap.set(key, entry);
 
-  const maxBurst = event === "alert" ? ALERT_MAX_BURST_PER_WINDOW : TOKEN_MAX_BURST_PER_WINDOW;
+  const maxBurst = (event === "alert" || event === "background") ? ALERT_MAX_BURST_PER_WINDOW : TOKEN_MAX_BURST_PER_WINDOW;
   if (entry.count > maxBurst) {
     return { action: "ratelimit" };
   }
@@ -154,7 +155,7 @@ export default {
       return jsonResponse({
         status: configured ? "ok" : "unconfigured",
         service: "Multigravity APNs Stateless Push Relay",
-        version: "1.1.0",
+        version: "1.2.0",
         configured,
       });
     }
@@ -205,6 +206,10 @@ export default {
 
     if (url.pathname === "/v1/push/alert") {
       return handleAlertPush(body, env);
+    }
+
+    if (url.pathname === "/v1/push/background") {
+      return handleBackgroundPush(body, env);
     }
 
     if (url.pathname === "/v1/push/live-activity") {
@@ -298,6 +303,66 @@ async function handleAlertPush(body, env) {
     "apns-push-type": "alert",
     "apns-topic": cfg.bundleId,
     "apns-priority": "10",
+  };
+  if (body.collapse_id && String(body.collapse_id).trim()) {
+    extraHeaders["apns-collapse-id"] = String(body.collapse_id).trim().slice(0, 64);
+  }
+
+  return dispatchToAPNs(cfg, body.env, deviceToken, extraHeaders, payloadStr);
+}
+
+async function handleBackgroundPush(body, env) {
+  const cfg = readAPNsConfig(env);
+  if (!cfg) {
+    return jsonResponse({ ok: false, error: "relay not configured" }, 500);
+  }
+
+  const deviceToken = String(body.device_token || "").trim();
+  if (!HEX_TOKEN_RE.test(deviceToken)) {
+    return jsonResponse({ ok: false, error: "invalid device_token" }, 400);
+  }
+
+  const action = String(body.action || "").trim();
+  if (!SAFE_BG_ACTION_RE.test(action)) {
+    return jsonResponse({ ok: false, error: "invalid or missing action" }, 400);
+  }
+
+  const throttle = checkTokenThrottle(deviceToken, "background", "5");
+  if (throttle.action === "ratelimit") {
+    return jsonResponse(
+      {
+        ok: false,
+        status: 429,
+        reason: "TooManyRequests",
+        unregistered: false,
+      },
+      429
+    );
+  }
+
+  const apnsPayload = {
+    aps: {
+      "content-available": 1,
+    },
+    action,
+    category: action,
+  };
+  if (body.cascade_id && String(body.cascade_id).trim()) {
+    apnsPayload.cascadeId = String(body.cascade_id).trim().slice(0, 128);
+  }
+  if (body.collapse_id && String(body.collapse_id).trim()) {
+    apnsPayload.collapseId = String(body.collapse_id).trim().slice(0, 64);
+  }
+
+  const payloadStr = JSON.stringify(apnsPayload);
+  if (new TextEncoder().encode(payloadStr).byteLength > MAX_APNS_PAYLOAD_BYTES) {
+    return jsonResponse({ ok: false, error: "apns payload exceeds 4KB limit" }, 400);
+  }
+
+  const extraHeaders = {
+    "apns-push-type": "background",
+    "apns-topic": cfg.bundleId,
+    "apns-priority": "5",
   };
   if (body.collapse_id && String(body.collapse_id).trim()) {
     extraHeaders["apns-collapse-id"] = String(body.collapse_id).trim().slice(0, 64);

@@ -332,6 +332,9 @@ internal fun ChatViewModel.initSession(
         this.isUnreadOnEntry = true
     }
     val isDraft = cascadeId.isBlank() || cascadeId.startsWith("local_draft_") || cascadeId.startsWith("draft_")
+    if (!isDraft) {
+        liveActivityManager?.dismissAlert(cascadeId)
+    }
     val resolvedDraftProject = draftProject ?: this.currentDraftProject ?: (if (isDraft) prefs?.getLocalDraftSession(cascadeId)?.project else null)
     this.currentDraftProject = resolvedDraftProject
 
@@ -682,6 +685,7 @@ internal fun ChatViewModel.handleAppForegrounded() {
     backgroundDisconnectJob = null
     val activeCid = _uiState.value.cascadeId
     if (activeCid.isNotBlank() && !activeCid.startsWith("local_draft_") && !activeCid.startsWith("draft_")) {
+        liveActivityManager?.dismissAlert(activeCid)
         reconnectWebSocketIfDisconnected()
         ensureRunningFallbackPolling()
         refresh()

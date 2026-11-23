@@ -13,6 +13,7 @@ import (
 
 const (
 	actionNotifyCooldown          = 20 * time.Second
+	pendingApprovalPollTTL        = 2 * time.Hour
 	watcherAlertQueueSize         = 64
 	watcherAlertWorkers           = 4
 	watcherDetailFetchConcurrency = 4
@@ -23,6 +24,8 @@ type sessionTrackingState struct {
 	lastSteps            int
 	title                string
 	waitingForBackground bool
+	pendingApprovalKey   string
+	pendingApprovalSince time.Time
 	fetchRetryCount      int
 	actionRetryAfter     time.Time
 	lastUpdated          time.Time
@@ -203,18 +206,33 @@ func (w *Watcher) scanOnce() int {
 }
 
 type watcherDetailJob struct {
-	id            string
-	status        string
-	steps         int
-	title         string
-	hasSubagent   bool
-	prev          *sessionTrackingState
-	existed       bool
-	prevStatus    string
-	prevSteps     int
-	wasWaitingBg  bool
-	prevRetries   int
-	cooldownUntil time.Time
+	id                       string
+	status                   string
+	steps                    int
+	title                    string
+	hasSubagent              bool
+	prev                     *sessionTrackingState
+	existed                  bool
+	prevStatus               string
+	prevSteps                int
+	wasWaitingBg             bool
+	prevPendingApprovalKey   string
+	prevPendingApprovalSince time.Time
+	prevRetries              int
+	cooldownUntil            time.Time
+}
+
+func approvalKeyForDetails(details *proxy.TrajectoryDetails) string {
+	if details == nil {
+		return ""
+	}
+	if details.PendingInteraction != nil {
+		return fmt.Sprintf("pi:%d:%s", details.PendingInteraction.StepIndex, details.PendingInteraction.Type)
+	}
+	if details.CanProceed {
+		return fmt.Sprintf("proceed:%d", details.TotalSteps)
+	}
+	return ""
 }
 
 type watcherDetailResult struct {
@@ -327,6 +345,8 @@ func (w *Watcher) scanOnceWithMaxAge(summaryMaxAge time.Duration) int {
 		prevStatus := prev.lastStatus
 		prevSteps := prev.lastSteps
 		wasWaitingBg := prev.waitingForBackground
+		prevPendingKey := prev.pendingApprovalKey
+		prevPendingSince := prev.pendingApprovalSince
 		prevRetries := prev.fetchRetryCount
 		cooldownUntil := prev.actionRetryAfter
 
@@ -337,10 +357,14 @@ func (w *Watcher) scanOnceWithMaxAge(summaryMaxAge time.Duration) int {
 			activitySeen = true
 		}
 
+		watchPendingApproval := prevPendingKey != "" &&
+			(prevPendingSince.IsZero() || now.Sub(prevPendingSince) <= pendingApprovalPollTTL || status != prevStatus || steps != prevSteps)
+
 		needsDetail := (hasAlert || hasLive) &&
 			(status == "CASCADE_RUN_STATUS_RUNNING" ||
 				(prevStatus == "CASCADE_RUN_STATUS_RUNNING" && status != "CASCADE_RUN_STATUS_RUNNING") ||
-				wasWaitingBg)
+				wasWaitingBg ||
+				watchPendingApproval)
 
 		if !needsDetail {
 			if status == "CASCADE_RUN_STATUS_RUNNING" {
@@ -360,18 +384,20 @@ func (w *Watcher) scanOnceWithMaxAge(summaryMaxAge time.Duration) int {
 		w.mu.Unlock()
 
 		jobs = append(jobs, watcherDetailJob{
-			id:            id,
-			status:        status,
-			steps:         steps,
-			title:         title,
-			hasSubagent:   hasSubagent,
-			prev:          prev,
-			existed:       exists,
-			prevStatus:    prevStatus,
-			prevSteps:     prevSteps,
-			wasWaitingBg:  wasWaitingBg,
-			prevRetries:   prevRetries,
-			cooldownUntil: cooldownUntil,
+			id:                       id,
+			status:                   status,
+			steps:                    steps,
+			title:                    title,
+			hasSubagent:              hasSubagent,
+			prev:                     prev,
+			existed:                  exists,
+			prevStatus:               prevStatus,
+			prevSteps:                prevSteps,
+			wasWaitingBg:             wasWaitingBg,
+			prevPendingApprovalKey:   prevPendingKey,
+			prevPendingApprovalSince: prevPendingSince,
+			prevRetries:              prevRetries,
+			cooldownUntil:            cooldownUntil,
 		})
 	}
 
@@ -419,12 +445,32 @@ func (w *Watcher) scanOnceWithMaxAge(summaryMaxAge time.Duration) int {
 
 		nextWaitingBg := job.wasWaitingBg
 		nextRetries := job.prevRetries
+		nextPendingKey := job.prevPendingApprovalKey
+		nextPendingSince := job.prevPendingApprovalSince
+		setPending := func(key string) {
+			nextPendingKey = key
+			if key == "" {
+				nextPendingSince = time.Time{}
+			} else if key != job.prevPendingApprovalKey || nextPendingSince.IsZero() {
+				nextPendingSince = now
+			}
+		}
 
 		if status == "CASCADE_RUN_STATUS_RUNNING" {
 			runningCount++
 			nextWaitingBg = false
 			nextRetries = 0
 			if fetchErr == nil && details != nil {
+				curPendingKey := approvalKeyForDetails(details)
+				if curPendingKey == "" && job.prevPendingApprovalKey != "" {
+					if hasAlert {
+						cid, dismissKey := id, job.prevPendingApprovalKey
+						_ = w.dispatchAlert(func() {
+							_ = w.notifier.NotifyDismissApproval(cid, dismissKey)
+						})
+					}
+				}
+				setPending(curPendingKey)
 				if hasLive {
 					w.dispatchLiveUpdate(details)
 				}
@@ -488,11 +534,13 @@ func (w *Watcher) scanOnceWithMaxAge(summaryMaxAge time.Duration) int {
 						continue
 					}
 				}
+				setPending("")
 				nextRetries = 0
 			} else {
 				nextRetries = 0
 				enqueued := true
 				if details.PendingInteraction != nil {
+					setPending(approvalKeyForDetails(details))
 					cid, dTitle, pi := id, details.Title, details.PendingInteraction
 					if hasAlert && !w.dispatchAlert(func() { _ = w.notifier.NotifyAction(cid, dTitle, pi) }) {
 						enqueued = false
@@ -501,6 +549,7 @@ func (w *Watcher) scanOnceWithMaxAge(summaryMaxAge time.Duration) int {
 						w.dispatchLiveUpdate(details)
 					}
 				} else if details.CanProceed {
+					setPending(approvalKeyForDetails(details))
 					cid, dTitle, totalSteps := id, details.Title, details.TotalSteps
 					if hasAlert && !w.dispatchAlert(func() { _ = w.notifier.NotifyProceed(cid, dTitle, totalSteps) }) {
 						enqueued = false
@@ -509,6 +558,7 @@ func (w *Watcher) scanOnceWithMaxAge(summaryMaxAge time.Duration) int {
 						w.dispatchLiveUpdate(details)
 					}
 				} else if (details.Status == "CASCADE_RUN_STATUS_FAILED" || details.Status == "CASCADE_RUN_STATUS_ERROR" || details.HasError) && details.TotalSteps > 0 {
+					setPending("")
 					cid, dTitle, totalSteps := id, details.Title, details.TotalSteps
 					if hasAlert && !w.dispatchAlert(func() { _ = w.notifier.NotifyFailed(cid, dTitle, totalSteps) }) {
 						enqueued = false
@@ -523,12 +573,20 @@ func (w *Watcher) scanOnceWithMaxAge(summaryMaxAge time.Duration) int {
 				} else if (details.Status == "CASCADE_RUN_STATUS_COMPLETED" || details.Status == "CASCADE_RUN_STATUS_IDLE") && details.TotalSteps > 0 {
 					inProgress, _ := IsCascadeInProgress(details, job.hasSubagent)
 					if inProgress {
+						if job.prevPendingApprovalKey != "" {
+							if hasAlert {
+								cid, dismissKey := id, job.prevPendingApprovalKey
+								_ = w.dispatchAlert(func() { _ = w.notifier.NotifyDismissApproval(cid, dismissKey) })
+							}
+							setPending("")
+						}
 						nextWaitingBg = true
 						runningCount++
 						if hasLive {
 							w.dispatchLiveUpdate(details)
 						}
 					} else {
+						setPending("")
 						nextWaitingBg = false
 						cid, dTitle, totalSteps := id, details.Title, details.TotalSteps
 						if hasAlert && !w.dispatchAlert(func() { _ = w.notifier.NotifyCompleted(cid, dTitle, totalSteps) }) {
@@ -542,6 +600,12 @@ func (w *Watcher) scanOnceWithMaxAge(summaryMaxAge time.Duration) int {
 							}
 						}
 					}
+				} else if job.prevPendingApprovalKey != "" {
+					if hasAlert {
+						cid, dismissKey := id, job.prevPendingApprovalKey
+						_ = w.dispatchAlert(func() { _ = w.notifier.NotifyDismissApproval(cid, dismissKey) })
+					}
+					setPending("")
 				}
 				if !enqueued {
 					// Queue full: retain RUNNING state so next tick retries instead of dropping terminal alert.
@@ -557,6 +621,7 @@ func (w *Watcher) scanOnceWithMaxAge(summaryMaxAge time.Duration) int {
 					enqueued := true
 					slog.Info(fmt.Sprintf("[Watcher] ✅ 会话 %s 后台任务已完成", shortID(id)))
 					if details.PendingInteraction != nil {
+						setPending(approvalKeyForDetails(details))
 						cid, dTitle, pi := id, details.Title, details.PendingInteraction
 						if hasAlert && !w.dispatchAlert(func() { _ = w.notifier.NotifyAction(cid, dTitle, pi) }) {
 							enqueued = false
@@ -565,6 +630,7 @@ func (w *Watcher) scanOnceWithMaxAge(summaryMaxAge time.Duration) int {
 							w.dispatchLiveUpdate(details)
 						}
 					} else if details.CanProceed {
+						setPending(approvalKeyForDetails(details))
 						cid, dTitle, totalSteps := id, details.Title, details.TotalSteps
 						if hasAlert && !w.dispatchAlert(func() { _ = w.notifier.NotifyProceed(cid, dTitle, totalSteps) }) {
 							enqueued = false
@@ -573,6 +639,7 @@ func (w *Watcher) scanOnceWithMaxAge(summaryMaxAge time.Duration) int {
 							w.dispatchLiveUpdate(details)
 						}
 					} else if (details.Status == "CASCADE_RUN_STATUS_FAILED" || details.Status == "CASCADE_RUN_STATUS_ERROR" || details.HasError) && details.TotalSteps > 0 {
+						setPending("")
 						cid, dTitle, totalSteps := id, details.Title, details.TotalSteps
 						if hasAlert && !w.dispatchAlert(func() { _ = w.notifier.NotifyFailed(cid, dTitle, totalSteps) }) {
 							enqueued = false
@@ -585,6 +652,7 @@ func (w *Watcher) scanOnceWithMaxAge(summaryMaxAge time.Duration) int {
 							}
 						}
 					} else if details.TotalSteps > 0 {
+						setPending("")
 						cid, dTitle, totalSteps := id, details.Title, details.TotalSteps
 						if hasAlert && !w.dispatchAlert(func() { _ = w.notifier.NotifyCompleted(cid, dTitle, totalSteps) }) {
 							enqueued = false
@@ -603,9 +671,54 @@ func (w *Watcher) scanOnceWithMaxAge(summaryMaxAge time.Duration) int {
 					}
 					nextWaitingBg = false
 				} else {
+					if job.prevPendingApprovalKey != "" && approvalKeyForDetails(details) == "" {
+						if hasAlert {
+							cid, dismissKey := id, job.prevPendingApprovalKey
+							_ = w.dispatchAlert(func() { _ = w.notifier.NotifyDismissApproval(cid, dismissKey) })
+						}
+						setPending("")
+					}
 					runningCount++ // Still waiting, keep scan frequency fast (1500ms)
 					if hasLive {
 						w.dispatchLiveUpdate(details)
+					}
+				}
+			}
+		} else if job.prevPendingApprovalKey != "" {
+			// Session was idle/waiting with a tracked approval; detect external resolution (e.g., rejected/cancelled on desktop).
+			if fetchErr == nil && details != nil {
+				curPendingKey := approvalKeyForDetails(details)
+				if curPendingKey == "" {
+					if hasAlert {
+						cid, dismissKey := id, job.prevPendingApprovalKey
+						_ = w.dispatchAlert(func() { _ = w.notifier.NotifyDismissApproval(cid, dismissKey) })
+					}
+					if hasLive {
+						if inProg, _ := IsCascadeInProgress(details, job.hasSubagent); inProg {
+							w.dispatchLiveUpdate(details)
+						} else if la := w.notifier.LiveActivity(); la != nil && la.HasStateForCascade(id) {
+							finalStatus := "COMPLETED"
+							if details.Status == "CASCADE_RUN_STATUS_FAILED" || details.Status == "CASCADE_RUN_STATUS_ERROR" || details.HasError {
+								finalStatus = "FAILED"
+							}
+							cid, dTitle, st := id, details.Title, details.TotalSteps
+							_ = w.dispatchAlert(func() { la.EndSession(context.Background(), cid, dTitle, finalStatus, st) })
+						}
+					}
+					setPending("")
+				} else if curPendingKey != job.prevPendingApprovalKey {
+					setPending(curPendingKey)
+					if hasLive {
+						w.dispatchLiveUpdate(details)
+					}
+					if hasAlert && now.After(job.cooldownUntil) {
+						if details.PendingInteraction != nil {
+							cid, dTitle, pi := id, details.Title, details.PendingInteraction
+							_ = w.dispatchAlert(func() { _ = w.notifier.NotifyAction(cid, dTitle, pi) })
+						} else if details.CanProceed {
+							cid, dTitle, st := id, details.Title, details.TotalSteps
+							_ = w.dispatchAlert(func() { _ = w.notifier.NotifyProceed(cid, dTitle, st) })
+						}
 					}
 				}
 			}
@@ -616,6 +729,8 @@ func (w *Watcher) scanOnceWithMaxAge(summaryMaxAge time.Duration) int {
 			prev.lastUpdated = now
 		}
 		prev.waitingForBackground = nextWaitingBg
+		prev.pendingApprovalKey = nextPendingKey
+		prev.pendingApprovalSince = nextPendingSince
 		prev.fetchRetryCount = nextRetries
 		prev.lastStatus = status
 		prev.lastSteps = steps

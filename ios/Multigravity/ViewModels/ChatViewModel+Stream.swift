@@ -407,6 +407,7 @@ extension ChatViewModel {
                 self.pendingInteraction = nil
             }
             self.isSubmittingInteraction = false
+            PushNotificationManager.shared.clearDeliveredNotifications(for: cascadeId, approvalOnly: true)
             
             try? await Task.sleep(nanoseconds: 250_000_000)
             await self.loadMessages(isBackgroundPoll: true)
@@ -445,6 +446,7 @@ extension ChatViewModel {
                 self.pendingInteraction = nil
             }
             self.isSubmittingInteraction = false
+            PushNotificationManager.shared.clearDeliveredNotifications(for: cascadeId, approvalOnly: true)
             
             try? await Task.sleep(nanoseconds: 250_000_000)
             await self.loadMessages(isBackgroundPoll: true)

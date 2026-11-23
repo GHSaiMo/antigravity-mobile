@@ -32,6 +32,17 @@ public final class MultigravityAppDelegate: NSObject, UIApplicationDelegate {
     ) {
         print("[APNs] Failed to register for remote notifications: \(error.localizedDescription)")
     }
+
+    public func application(
+        _ application: UIApplication,
+        didReceiveRemoteNotification userInfo: [AnyHashable: Any],
+        fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
+    ) {
+        Task { @MainActor in
+            let result = await PushNotificationManager.shared.handleSilentRemoteNotification(userInfo)
+            completionHandler(result)
+        }
+    }
 }
 
 /// Manages native iOS APNs notification authorization, token synchronization with the paired gateway,
@@ -299,6 +310,60 @@ public final class PushNotificationManager: NSObject {
         let cid = cascadeId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cid.isEmpty else { return }
         route(.cascade(cid))
+    }
+
+    /// Removes delivered notifications for a given cascade from iOS Notification Center.
+    /// When `approvalOnly` is true, only stale approval/proceed banners are cleared.
+    public func clearDeliveredNotifications(for cascadeId: String, approvalOnly: Bool = false) {
+        let cid = cascadeId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cid.isEmpty else { return }
+        Task {
+            await clearDeliveredNotificationsAsync(for: cid, approvalOnly: approvalOnly)
+        }
+    }
+
+    @discardableResult
+    public func clearDeliveredNotificationsAsync(for cascadeId: String, approvalOnly: Bool = false) async -> Int {
+        let cid = cascadeId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cid.isEmpty else { return 0 }
+        let center = UNUserNotificationCenter.current()
+        let delivered = await center.deliveredNotifications()
+        let matchingIDs = delivered.compactMap { notif -> String? in
+            let content = notif.request.content
+            guard Self.extractCascadeId(from: content.userInfo) == cid else { return nil }
+            if approvalOnly {
+                let rawCat = !content.categoryIdentifier.isEmpty
+                    ? content.categoryIdentifier
+                    : ((content.userInfo["category"] as? String)
+                        ?? ((content.userInfo["aps"] as? [AnyHashable: Any])?["category"] as? String)
+                        ?? "")
+                let lower = rawCat.lowercased()
+                guard lower == "antigravity_action" || lower == "antigravity_proceed" else {
+                    return nil
+                }
+            }
+            return notif.request.identifier
+        }
+        if !matchingIDs.isEmpty {
+            center.removeDeliveredNotifications(withIdentifiers: matchingIDs)
+        }
+        return matchingIDs.count
+    }
+
+    /// Handles APNs silent background pushes (`content-available: 1`), e.g. clearing stale approval
+    /// banners after an approval was resolved on desktop or another device.
+    public func handleSilentRemoteNotification(_ userInfo: [AnyHashable: Any]) async -> UIBackgroundFetchResult {
+        let action = ((userInfo["action"] as? String)
+            ?? (userInfo["category"] as? String)
+            ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard action == "dismiss_approval" else {
+            return .noData
+        }
+        guard let cid = Self.extractCascadeId(from: userInfo), !cid.isEmpty else {
+            return .noData
+        }
+        let removed = await clearDeliveredNotificationsAsync(for: cid, approvalOnly: true)
+        return removed > 0 ? .newData : .noData
     }
 
     // MARK: - Networking Helpers

@@ -771,6 +771,9 @@ public struct ChatView: View {
     }
 
     private func handleAppDidBecomeActive() {
+        if !viewModel.cascadeId.isEmpty {
+            PushNotificationManager.shared.clearDeliveredNotifications(for: viewModel.cascadeId, approvalOnly: true)
+        }
         viewModel.restoreDraftsIfNeeded()
         Task {
             await viewModel.resumeActiveSession()
@@ -837,6 +840,9 @@ public struct ChatView: View {
 
     private func handleViewAppear() {
         isViewAppeared = true
+        if !viewModel.cascadeId.isEmpty {
+            PushNotificationManager.shared.clearDeliveredNotifications(for: viewModel.cascadeId)
+        }
         if preserveScrollOnReturn {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { preserveScrollOnReturn = false }
         }

@@ -104,42 +104,67 @@ func (f *FCMClient) Send(ctx context.Context, payload PushPayload) error {
 		return err
 	}
 
-	priority := "normal"
-	channelID := "antigravity_alerts"
-	if payload.Level == "timeSensitive" || strings.Contains(payload.Category, "action") || strings.Contains(payload.Category, "proceed") || strings.Contains(payload.Category, "error") {
-		priority = "high"
-	}
+	var fcmMsg FCMPayload
+	var logLabel string
 
-	icon := payload.Icon
-	if icon == "" {
-		icon = iconURL
-	}
+	if payload.Silent {
+		action := strings.TrimSpace(payload.Action)
+		if action == "" {
+			action = strings.TrimSpace(payload.Category)
+		}
+		fcmMsg = FCMPayload{
+			To:       deviceToken,
+			Priority: "high",
+			Data: map[string]string{
+				"action":    action,
+				"category":  payload.Category,
+				"cascadeId": payload.CascadeID,
+				"url":       payload.URL,
+				"deeplink":  payload.URL,
+				"silent":    "true",
+			},
+		}
+		logLabel = "silent:" + action
+	} else {
+		priority := "normal"
+		channelID := "antigravity_alerts"
+		if payload.Level == "timeSensitive" || strings.Contains(payload.Category, "action") || strings.Contains(payload.Category, "proceed") || strings.Contains(payload.Category, "error") {
+			priority = "high"
+		}
 
-	cleanTitle := truncateString(SanitizePushText(payload.Title), 120)
-	cleanBody := truncateString(SanitizePushText(payload.Body), 240)
+		icon := payload.Icon
+		if icon == "" {
+			icon = iconURL
+		}
 
-	fcmMsg := FCMPayload{
-		To:       deviceToken,
-		Priority: priority,
-		Notification: &FCMNotification{
-			Title:       cleanTitle,
-			Body:        cleanBody,
-			Sound:       "default",
-			Icon:        "ic_stat_antigravity",
-			ChannelID:   channelID,
-			ClickAction: "FLUTTER_NOTIFICATION_CLICK", // standard Android notification intent flag
-		},
-		Data: map[string]string{
-			"title":    cleanTitle,
-			"body":     cleanBody,
-			"url":      payload.URL,
-			"deeplink": payload.URL,
-			"level":    payload.Level,
-			"sound":    payload.Sound,
-			"group":    payload.Group,
-			"category": payload.Category,
-			"icon":     icon,
-		},
+		cleanTitle := truncateString(SanitizePushText(payload.Title), 120)
+		cleanBody := truncateString(SanitizePushText(payload.Body), 240)
+		logLabel = cleanTitle
+
+		fcmMsg = FCMPayload{
+			To:       deviceToken,
+			Priority: priority,
+			Notification: &FCMNotification{
+				Title:       cleanTitle,
+				Body:        cleanBody,
+				Sound:       "default",
+				Icon:        "ic_stat_antigravity",
+				ChannelID:   channelID,
+				ClickAction: "FLUTTER_NOTIFICATION_CLICK", // standard Android notification intent flag
+			},
+			Data: map[string]string{
+				"title":     cleanTitle,
+				"body":      cleanBody,
+				"url":       payload.URL,
+				"deeplink":  payload.URL,
+				"level":     payload.Level,
+				"sound":     payload.Sound,
+				"group":     payload.Group,
+				"category":  payload.Category,
+				"cascadeId": payload.CascadeID,
+				"icon":      icon,
+			},
+		}
 	}
 
 	bodyBytes, err := json.Marshal(fcmMsg)
@@ -184,7 +209,7 @@ func (f *FCMClient) Send(ctx context.Context, payload PushPayload) error {
 			continue
 		}
 
-		slog.Info(fmt.Sprintf("[FCM] 🚀 推送成功: %s", cleanTitle))
+		slog.Info(fmt.Sprintf("[FCM] 🚀 推送成功: %s", logLabel))
 		return nil
 	}
 

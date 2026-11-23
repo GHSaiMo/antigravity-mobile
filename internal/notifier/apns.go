@@ -31,6 +31,15 @@ type APNsRelayAlertRequest struct {
 	URL               string `json:"url,omitempty"`
 }
 
+// APNsRelayBackgroundRequest is the JSON contract accepted by /v1/push/background on the Cloudflare APNs relay.
+type APNsRelayBackgroundRequest struct {
+	DeviceToken string `json:"device_token"`
+	Env         string `json:"env"` // "production" | "sandbox"
+	Action      string `json:"action"`
+	CascadeID   string `json:"cascade_id,omitempty"`
+	CollapseID  string `json:"collapse_id,omitempty"`
+}
+
 // APNsLiveActivityAlert carries the alert dictionary required by iOS for Push-to-Start ("start") events.
 type APNsLiveActivityAlert struct {
 	Title string `json:"title"`
@@ -118,7 +127,7 @@ func (c *APNsRelayClient) HasLiveActivityTargets() bool {
 	return c != nil && c.store != nil && c.store.HasLiveActivityTargets()
 }
 
-// Send implements NotificationSender, broadcasting an alert notification to all registered iOS devices.
+// Send implements NotificationSender, broadcasting an alert or silent background notification to all registered iOS devices.
 func (c *APNsRelayClient) Send(ctx context.Context, payload PushPayload) error {
 	if c == nil || c.store == nil {
 		return nil
@@ -131,6 +140,10 @@ func (c *APNsRelayClient) Send(ctx context.Context, payload PushPayload) error {
 	cascadeID := strings.TrimSpace(payload.CascadeID)
 	if cascadeID == "" {
 		cascadeID = extractCascadeIDFromURL(payload.URL)
+	}
+
+	if payload.Silent {
+		return c.sendBackground(ctx, targets, payload, cascadeID)
 	}
 
 	interruption := "active"
@@ -200,6 +213,89 @@ func (c *APNsRelayClient) Send(ctx context.Context, payload PushPayload) error {
 				return
 			}
 			slog.Info(fmt.Sprintf("[APNs] 🚀 推送成功: %s", cleanTitle), "device_id", t.DeviceID, "env", t.Env)
+		}(target)
+	}
+
+	wg.Wait()
+	close(errCh)
+
+	var errs []error
+	for err := range errCh {
+		errs = append(errs, err)
+	}
+	if len(errs) > 0 && len(errs) == len(targets) {
+		return errs[0]
+	}
+	return nil
+}
+
+func (c *APNsRelayClient) sendBackground(ctx context.Context, targets []APNsAlertTarget, payload PushPayload, cascadeID string) error {
+	if c.isRateLimited() {
+		return nil
+	}
+	action := strings.TrimSpace(payload.Action)
+	if action == "" {
+		action = strings.TrimSpace(payload.Category)
+	}
+	if action == "" {
+		return nil
+	}
+
+	collapseID := ""
+	if cascadeID != "" {
+		collapseID = "dismiss-" + cascadeID
+		if len(collapseID) > 64 {
+			collapseID = collapseID[:64]
+		}
+	}
+
+	var (
+		wg    sync.WaitGroup
+		errCh = make(chan error, len(targets))
+	)
+	sem := c.alertSem
+	if sem == nil {
+		sem = make(chan struct{}, 8)
+	}
+
+	for _, target := range targets {
+		wg.Add(1)
+		go func(t APNsAlertTarget) {
+			defer wg.Done()
+			select {
+			case sem <- struct{}{}:
+				defer func() { <-sem }()
+			case <-ctx.Done():
+				errCh <- ctx.Err()
+				return
+			}
+			req := APNsRelayBackgroundRequest{
+				DeviceToken: t.Token,
+				Env:         t.Env,
+				Action:      action,
+				CascadeID:   cascadeID,
+				CollapseID:  collapseID,
+			}
+			resp, err := c.postRelay(ctx, "/v1/push/background", req)
+			if err != nil {
+				errCh <- err
+				return
+			}
+			if resp.Unregistered {
+				slog.Info("[APNs] 🧹 Clearing unregistered alert device token", "device_id", t.DeviceID, "reason", resp.Reason)
+				c.store.ClearAlertToken(t.DeviceID, t.Token)
+				return
+			}
+			if resp.Status == http.StatusNotFound {
+				// Graceful degradation if pointed at an older self-hosted APNs relay without /v1/push/background.
+				slog.Debug("[APNs] relay does not support /v1/push/background yet", "device_id", t.DeviceID)
+				return
+			}
+			if !resp.OK {
+				errCh <- fmt.Errorf("apns background %s rejected (%d %s)", action, resp.Status, resp.Reason)
+				return
+			}
+			slog.Info("[APNs] 🧹 静默推送成功", "action", action, "cascade_id", shortID(cascadeID), "device_id", t.DeviceID, "env", t.Env)
 		}(target)
 	}
 

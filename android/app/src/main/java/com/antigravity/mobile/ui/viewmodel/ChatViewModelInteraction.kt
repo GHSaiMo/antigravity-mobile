@@ -35,6 +35,7 @@ internal fun ChatViewModel.submitInteraction(
             questionResponses = questionResponses
         )
         _uiState.value = _uiState.value.copy(pendingInteraction = null)
+        liveActivityManager?.dismissAlert(cascadeId)
         saveSessionToCache()
         refreshMessages()
     }
@@ -58,6 +59,7 @@ internal fun ChatViewModel.skipInteraction(questionResponses: List<QuestionRespo
             questionResponses = questionResponses
         )
         _uiState.value = _uiState.value.copy(pendingInteraction = null)
+        liveActivityManager?.dismissAlert(cascadeId)
         saveSessionToCache()
         refreshMessages()
     }
@@ -108,6 +110,7 @@ internal fun ChatViewModel.proceedArtifact() {
             saveSessionToCache()
             notifyConversationUpdated()
         } else {
+            liveActivityManager?.dismissAlert(cascadeId)
             delay(250)
             refresh()
         }

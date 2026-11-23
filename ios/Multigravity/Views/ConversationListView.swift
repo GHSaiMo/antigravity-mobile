@@ -249,7 +249,11 @@ public struct ConversationListView: View {
             PushNotificationManager.shared.hasBlockingModalPresented = hasBlockingModalPresented
         }
         .onChange(of: navigationPath) { _, newPath in
-            PushNotificationManager.shared.activeViewingCascadeId = newPath.last?.id
+            let viewingId = newPath.last?.id
+            PushNotificationManager.shared.activeViewingCascadeId = viewingId
+            if let viewingId, !viewingId.isEmpty {
+                PushNotificationManager.shared.clearDeliveredNotifications(for: viewingId)
+            }
         }
         .onChange(of: hasBlockingModalPresented) { _, isBlocked in
             PushNotificationManager.shared.hasBlockingModalPresented = isBlocked

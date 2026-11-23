@@ -1,6 +1,7 @@
 package com.antigravity.mobile.data.service
 
 import android.app.PendingIntent
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.util.Log
@@ -35,18 +36,30 @@ class AntigravityMessagingService : FirebaseMessagingService() {
     override fun onMessageReceived(remoteMessage: RemoteMessage) {
         super.onMessageReceived(remoteMessage)
 
+        val data = remoteMessage.data
+        val pushAction = data["action"] ?: ""
+        val category = data["category"] ?: ""
+        val deeplink = data["deeplink"]?.takeIf { it.isNotBlank() }
+            ?: data["url"]?.takeIf { it.isNotBlank() }
+            ?: if (category.equals("quota_alert", ignoreCase = true)) "antigravity://quota" else "antigravity://cascade/"
+        val cascadeId = extractCascadeId(data, deeplink)
+
+        if (pushAction.equals("dismiss_approval", ignoreCase = true) ||
+            category.equals("dismiss_approval", ignoreCase = true)
+        ) {
+            if (!cascadeId.isNullOrBlank()) {
+                dismissAlertNotification(applicationContext, cascadeId)
+            }
+            return
+        }
+
         val prefs = PreferencesManager(applicationContext)
         if (!prefs.enableLiveNotifications) return
 
         NotificationChannelManager.createNotificationChannels(applicationContext)
 
-        val data = remoteMessage.data
         val title = remoteMessage.notification?.title ?: data["title"] ?: "Antigravity 任务通知"
         val body = remoteMessage.notification?.body ?: data["body"] ?: ""
-        val category = data["category"] ?: ""
-        val deeplink = data["deeplink"]?.takeIf { it.isNotBlank() }
-            ?: data["url"]?.takeIf { it.isNotBlank() }
-            ?: if (category.equals("quota_alert", ignoreCase = true)) "antigravity://quota" else "antigravity://cascade/"
         val level = data["level"] ?: "active"
 
         val isAction = level == "timeSensitive" || category.contains("action") || category.contains("proceed") || category.contains("error")
@@ -58,7 +71,11 @@ class AntigravityMessagingService : FirebaseMessagingService() {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
 
-        val notifId = (deeplink.hashCode() and 0x7FFFFFFF)
+        val notifId = if (!cascadeId.isNullOrBlank()) {
+            alertNotificationIdForCascade(cascadeId)
+        } else {
+            (deeplink.hashCode() and 0x7FFFFFFF)
+        }
         val pendingIntent = PendingIntent.getActivity(
             applicationContext,
             notifId,
@@ -85,8 +102,6 @@ class AntigravityMessagingService : FirebaseMessagingService() {
             .setCategory(if (isAction) NotificationCompat.CATEGORY_ALARM else NotificationCompat.CATEGORY_EVENT)
             .setDefaults(NotificationCompat.DEFAULT_ALL)
 
-        val cascadeId = data["cascadeId"]?.takeIf { it.isNotBlank() }
-            ?: runCatching { Uri.parse(deeplink).lastPathSegment }.getOrNull()?.takeIf { it.isNotBlank() && it != "cascade" }
         val lowerCat = category.lowercase()
         val isTerminalPush = lowerCat.contains("complete") || lowerCat.contains("done") ||
             lowerCat.contains("finish") || lowerCat.contains("error") || lowerCat.contains("fail") ||
@@ -123,6 +138,37 @@ class AntigravityMessagingService : FirebaseMessagingService() {
             NotificationManagerCompat.from(applicationContext).notify(notifId, builder.build())
         } catch (e: SecurityException) {
             Log.w("FCM", "Cannot post notification: permission not granted: ${e.message}")
+        }
+    }
+
+    companion object {
+        fun alertNotificationIdForCascade(cascadeId: String): Int {
+            return ("cascade_alert:${cascadeId.trim()}".hashCode() and 0x7FFFFFFF)
+        }
+
+        fun extractCascadeId(data: Map<String, String>, deeplink: String): String? {
+            return data["cascadeId"]?.trim()?.takeIf { it.isNotBlank() }
+                ?: data["cascade_id"]?.trim()?.takeIf { it.isNotBlank() }
+                ?: runCatching { Uri.parse(deeplink).lastPathSegment }
+                    .getOrNull()
+                    ?.trim()
+                    ?.takeIf { it.isNotBlank() && it != "cascade" }
+        }
+
+        fun dismissAlertNotification(context: Context, cascadeId: String) {
+            val cid = cascadeId.trim()
+            if (cid.isEmpty()) return
+            val nm = NotificationManagerCompat.from(context.applicationContext)
+            val ids = setOf(
+                alertNotificationIdForCascade(cid),
+                ("antigravity://cascade/$cid?action=review".hashCode() and 0x7FFFFFFF),
+                ("antigravity://cascade/$cid".hashCode() and 0x7FFFFFFF)
+            )
+            ids.forEach { id ->
+                try {
+                    nm.cancel(id)
+                } catch (_: Exception) {}
+            }
         }
     }
 }

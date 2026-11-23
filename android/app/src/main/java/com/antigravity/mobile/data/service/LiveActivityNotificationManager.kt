@@ -469,7 +469,13 @@ class LiveActivityNotificationManager(
             )
         } else if (!hasPendingAction && lastActionNotifiedForCascade == cascadeId) {
             lastActionNotifiedForCascade = null
+            dismissAlert(cascadeId)
         }
+    }
+
+    fun dismissAlert(cascadeId: String) {
+        if (cascadeId.isBlank()) return
+        AntigravityMessagingService.dismissAlertNotification(context, cascadeId)
     }
 
     fun endActivity(
@@ -733,7 +739,11 @@ class LiveActivityNotificationManager(
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
 
-        val alertNotifId = (deeplink.hashCode() and 0x7FFFFFFF)
+        val alertNotifId = if (!cascadeId.isNullOrBlank()) {
+            AntigravityMessagingService.alertNotificationIdForCascade(cascadeId)
+        } else {
+            (deeplink.hashCode() and 0x7FFFFFFF)
+        }
 
         val pendingIntent = PendingIntent.getActivity(
             context,

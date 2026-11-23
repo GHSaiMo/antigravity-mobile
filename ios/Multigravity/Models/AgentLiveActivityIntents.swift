@@ -31,16 +31,18 @@ nonisolated public struct ApproveAgentActionIntent: LiveActivityIntent {
         guard !cascadeId.isEmpty, let baseURL = AppSettings.shared.serverURL else {
             return .result()
         }
-        let snap = try? await APIClient.shared.fetchMessages(cascadeId: cascadeId, limit: 5, baseURL: baseURL)
-        if let interaction = snap?.pendingInteraction {
+        guard let snap = try? await APIClient.shared.fetchMessages(cascadeId: cascadeId, limit: 5, baseURL: baseURL) else {
+            return .result()
+        }
+        if let interaction = snap.pendingInteraction {
             // 1. 校验步骤序号，防止在解锁/等待期间审批内容发生切换导致盲批
             if expectedStepIndex >= 0 && interaction.stepIndex != expectedStepIndex {
                 if ActivityManager.shared.findActiveActivity(for: cascadeId) != nil {
                     ActivityManager.shared.updateActivity(
                         cascadeId: cascadeId,
-                        title: snap?.title,
+                        title: snap.title,
                         status: "WAITING_APPROVAL",
-                        stepCount: max(1, snap?.totalSteps ?? 1),
+                        stepCount: max(1, snap.totalSteps),
                         latestAction: String(localized: "审批内容已更新，请重新确认"),
                         hasPendingAction: true,
                         pendingStepIndex: interaction.stepIndex,
@@ -55,9 +57,9 @@ nonisolated public struct ApproveAgentActionIntent: LiveActivityIntent {
                 if ActivityManager.shared.findActiveActivity(for: cascadeId) != nil {
                     ActivityManager.shared.updateActivity(
                         cascadeId: cascadeId,
-                        title: snap?.title,
+                        title: snap.title,
                         status: "WAITING_APPROVAL",
-                        stepCount: max(1, snap?.totalSteps ?? 1),
+                        stepCount: max(1, snap.totalSteps),
                         latestAction: String(localized: "请打开 App 查看完整详情并确认"),
                         hasPendingAction: true,
                         pendingStepIndex: interaction.stepIndex,
@@ -71,40 +73,86 @@ nonisolated public struct ApproveAgentActionIntent: LiveActivityIntent {
             }) ?? interaction.options.first
             let optId = approveOpt?.id ?? interaction.defaultOptionId ?? "1"
             let scope = approveOpt?.scope ?? 1
-            try? await APIClient.shared.submitInteraction(
-                cascadeId: cascadeId,
-                trajectoryId: interaction.trajectoryId,
-                stepIndex: interaction.stepIndex,
-                type: interaction.type,
-                optionId: optId,
-                scope: scope,
-                allow: true,
-                writeInResponse: "",
-                skipped: false,
-                target: interaction.target,
-                questionResponses: nil,
-                baseURL: baseURL
-            )
-        } else if snap?.canProceed == true, let uri = snap?.proceedArtifactUri, !uri.isEmpty {
-            try? await APIClient.shared.proceedArtifact(
-                cascadeId: cascadeId,
-                artifactUri: uri,
-                model: snap?.activeModel,
-                cascadeConfigRaw: snap?.cascadeConfigRaw,
-                baseURL: baseURL
-            )
-        }
-        if ActivityManager.shared.findActiveActivity(for: cascadeId) != nil {
-            ActivityManager.shared.updateActivity(
-                cascadeId: cascadeId,
-                title: snap?.title,
-                status: "RUNNING",
-                stepCount: max(1, snap?.totalSteps ?? 1),
-                latestAction: String(localized: "已允许，继续执行中..."),
-                hasPendingAction: false,
-                pendingStepIndex: nil,
-                pendingActionKind: nil
-            )
+            do {
+                try await APIClient.shared.submitInteraction(
+                    cascadeId: cascadeId,
+                    trajectoryId: interaction.trajectoryId,
+                    stepIndex: interaction.stepIndex,
+                    type: interaction.type,
+                    optionId: optId,
+                    scope: scope,
+                    allow: true,
+                    writeInResponse: "",
+                    skipped: false,
+                    target: interaction.target,
+                    questionResponses: nil,
+                    baseURL: baseURL
+                )
+                PushNotificationManager.shared.clearDeliveredNotifications(for: cascadeId, approvalOnly: true)
+                if ActivityManager.shared.findActiveActivity(for: cascadeId) != nil {
+                    ActivityManager.shared.updateActivity(
+                        cascadeId: cascadeId,
+                        title: snap.title,
+                        status: "RUNNING",
+                        stepCount: max(1, snap.totalSteps),
+                        latestAction: String(localized: "已允许，继续执行中..."),
+                        hasPendingAction: false,
+                        pendingStepIndex: nil,
+                        pendingActionKind: nil
+                    )
+                }
+            } catch {
+                if ActivityManager.shared.findActiveActivity(for: cascadeId) != nil {
+                    ActivityManager.shared.updateActivity(
+                        cascadeId: cascadeId,
+                        title: snap.title,
+                        status: "WAITING_APPROVAL",
+                        stepCount: max(1, snap.totalSteps),
+                        latestAction: String(localized: "操作失败，请重试"),
+                        hasPendingAction: true,
+                        pendingStepIndex: interaction.stepIndex,
+                        pendingActionKind: interaction.type
+                    )
+                }
+            }
+        } else if snap.canProceed, let uri = snap.proceedArtifactUri, !uri.isEmpty {
+            do {
+                try await APIClient.shared.proceedArtifact(
+                    cascadeId: cascadeId,
+                    artifactUri: uri,
+                    model: snap.activeModel,
+                    cascadeConfigRaw: snap.cascadeConfigRaw,
+                    baseURL: baseURL
+                )
+                PushNotificationManager.shared.clearDeliveredNotifications(for: cascadeId, approvalOnly: true)
+                if ActivityManager.shared.findActiveActivity(for: cascadeId) != nil {
+                    ActivityManager.shared.updateActivity(
+                        cascadeId: cascadeId,
+                        title: snap.title,
+                        status: "RUNNING",
+                        stepCount: max(1, snap.totalSteps),
+                        latestAction: String(localized: "已允许，继续执行中..."),
+                        hasPendingAction: false,
+                        pendingStepIndex: nil,
+                        pendingActionKind: nil
+                    )
+                }
+            } catch {
+                if ActivityManager.shared.findActiveActivity(for: cascadeId) != nil {
+                    ActivityManager.shared.updateActivity(
+                        cascadeId: cascadeId,
+                        title: snap.title,
+                        status: "WAITING_APPROVAL",
+                        stepCount: max(1, snap.totalSteps),
+                        latestAction: String(localized: "操作失败，请重试"),
+                        hasPendingAction: true,
+                        pendingStepIndex: nil,
+                        pendingActionKind: "proceed"
+                    )
+                }
+            }
+        } else {
+            reconcileStaleLiveActivity(cascadeId: cascadeId, snap: snap)
         }
         #endif
         return .result()
@@ -138,15 +186,17 @@ nonisolated public struct RejectAgentActionIntent: LiveActivityIntent {
         guard !cascadeId.isEmpty, let baseURL = AppSettings.shared.serverURL else {
             return .result()
         }
-        let snap = try? await APIClient.shared.fetchMessages(cascadeId: cascadeId, limit: 5, baseURL: baseURL)
-        if let interaction = snap?.pendingInteraction {
+        guard let snap = try? await APIClient.shared.fetchMessages(cascadeId: cascadeId, limit: 5, baseURL: baseURL) else {
+            return .result()
+        }
+        if let interaction = snap.pendingInteraction {
             if expectedStepIndex >= 0 && interaction.stepIndex != expectedStepIndex {
                 if ActivityManager.shared.findActiveActivity(for: cascadeId) != nil {
                     ActivityManager.shared.updateActivity(
                         cascadeId: cascadeId,
-                        title: snap?.title,
+                        title: snap.title,
                         status: "WAITING_APPROVAL",
-                        stepCount: max(1, snap?.totalSteps ?? 1),
+                        stepCount: max(1, snap.totalSteps),
                         latestAction: String(localized: "审批内容已更新，请重新确认"),
                         hasPendingAction: true,
                         pendingStepIndex: interaction.stepIndex,
@@ -156,37 +206,83 @@ nonisolated public struct RejectAgentActionIntent: LiveActivityIntent {
                 return .result()
             }
             let denyOpt = interaction.options.first(where: { $0.isDeny == true || $0.id == "5" })
-            try? await APIClient.shared.submitInteraction(
-                cascadeId: cascadeId,
-                trajectoryId: interaction.trajectoryId,
-                stepIndex: interaction.stepIndex,
-                type: interaction.type,
-                optionId: denyOpt?.id ?? "",
-                scope: denyOpt?.scope ?? 1,
-                allow: false,
-                writeInResponse: "",
-                skipped: denyOpt == nil,
-                target: interaction.target,
-                questionResponses: nil,
-                baseURL: baseURL
-            )
-        }
-        if ActivityManager.shared.findActiveActivity(for: cascadeId) != nil {
-            ActivityManager.shared.updateActivity(
-                cascadeId: cascadeId,
-                title: snap?.title,
-                status: "RUNNING",
-                stepCount: max(1, snap?.totalSteps ?? 1),
-                latestAction: String(localized: "已拒绝该操作"),
-                hasPendingAction: false,
-                pendingStepIndex: nil,
-                pendingActionKind: nil
-            )
+            do {
+                try await APIClient.shared.submitInteraction(
+                    cascadeId: cascadeId,
+                    trajectoryId: interaction.trajectoryId,
+                    stepIndex: interaction.stepIndex,
+                    type: interaction.type,
+                    optionId: denyOpt?.id ?? "",
+                    scope: denyOpt?.scope ?? 1,
+                    allow: false,
+                    writeInResponse: "",
+                    skipped: denyOpt == nil,
+                    target: interaction.target,
+                    questionResponses: nil,
+                    baseURL: baseURL
+                )
+                PushNotificationManager.shared.clearDeliveredNotifications(for: cascadeId, approvalOnly: true)
+                if ActivityManager.shared.findActiveActivity(for: cascadeId) != nil {
+                    ActivityManager.shared.updateActivity(
+                        cascadeId: cascadeId,
+                        title: snap.title,
+                        status: "RUNNING",
+                        stepCount: max(1, snap.totalSteps),
+                        latestAction: String(localized: "已拒绝该操作"),
+                        hasPendingAction: false,
+                        pendingStepIndex: nil,
+                        pendingActionKind: nil
+                    )
+                }
+            } catch {
+                if ActivityManager.shared.findActiveActivity(for: cascadeId) != nil {
+                    ActivityManager.shared.updateActivity(
+                        cascadeId: cascadeId,
+                        title: snap.title,
+                        status: "WAITING_APPROVAL",
+                        stepCount: max(1, snap.totalSteps),
+                        latestAction: String(localized: "操作失败，请重试"),
+                        hasPendingAction: true,
+                        pendingStepIndex: interaction.stepIndex,
+                        pendingActionKind: interaction.type
+                    )
+                }
+            }
+        } else {
+            reconcileStaleLiveActivity(cascadeId: cascadeId, snap: snap)
         }
         #endif
         return .result()
     }
 }
+
+#if !ACTIVITY_EXTENSION
+@MainActor
+private func reconcileStaleLiveActivity(cascadeId: String, snap: FetchMessagesResult) {
+    PushNotificationManager.shared.clearDeliveredNotifications(for: cascadeId, approvalOnly: true)
+    guard ActivityManager.shared.findActiveActivity(for: cascadeId) != nil else { return }
+
+    let upperStatus = snap.status.uppercased()
+    let isStillRunning = upperStatus == "CASCADE_RUN_STATUS_RUNNING" || upperStatus == "RUNNING" || !snap.runningTasks.isEmpty
+    if isStillRunning {
+        ActivityManager.shared.updateActivity(
+            cascadeId: cascadeId,
+            title: snap.title,
+            status: "RUNNING",
+            stepCount: max(1, snap.totalSteps),
+            latestAction: String(localized: "已在其他设备处理，继续执行中"),
+            hasPendingAction: false,
+            pendingStepIndex: nil,
+            pendingActionKind: nil
+        )
+    } else {
+        let isFailed = snap.hasError || upperStatus.contains("FAIL") || upperStatus.contains("ERROR")
+        let isCancelled = upperStatus.contains("CANCEL")
+        let finalStatus = isFailed ? "FAILED" : (isCancelled ? "CANCELLED" : "COMPLETED")
+        ActivityManager.shared.endActivity(for: cascadeId, finalStatus: finalStatus)
+    }
+}
+#endif
 
 nonisolated public struct StopAgentRunIntent: LiveActivityIntent {
     public static let title: LocalizedStringResource = "停止任务"

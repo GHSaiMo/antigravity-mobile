@@ -24,6 +24,8 @@ type PushPayload struct {
 	Badge     int    `json:"badge,omitempty"`
 	Category  string `json:"category,omitempty"`
 	CascadeID string `json:"cascade_id,omitempty"`
+	Silent    bool   `json:"silent,omitempty"`
+	Action    string `json:"action,omitempty"`
 }
 
 // NotificationSender defines the interface for dispatching notification payloads.
@@ -321,6 +323,38 @@ func (n *Notifier) NotifyProceed(cascadeID, title string, totalSteps int) error 
 		Sound:     n.cfg.SoundAction,
 		Category:  "antigravity_proceed",
 		CascadeID: cascadeID,
+	}
+
+	if err := n.sendToAll(context.Background(), payload); err != nil {
+		n.dedup.Remove(dedupKey)
+		return err
+	}
+	return nil
+}
+
+// NotifyDismissApproval sends a silent background push instructing paired mobile clients
+// to clear already-delivered approval/proceed banners for cascadeID after resolution on desktop or another device.
+func (n *Notifier) NotifyDismissApproval(cascadeID, dismissKey string) error {
+	cascadeID = strings.TrimSpace(cascadeID)
+	if !n.IsEnabled() || cascadeID == "" {
+		return nil
+	}
+
+	keySuffix := strings.TrimSpace(dismissKey)
+	if keySuffix == "" {
+		keySuffix = "latest"
+	}
+	dedupKey := fmt.Sprintf("dismiss:%s:%s", cascadeID, keySuffix)
+	if !n.dedup.TryNotify(dedupKey, 2*time.Hour) {
+		return nil
+	}
+
+	payload := PushPayload{
+		URL:       fmt.Sprintf("antigravity://cascade/%s", cascadeID),
+		Category:  "dismiss_approval",
+		CascadeID: cascadeID,
+		Silent:    true,
+		Action:    "dismiss_approval",
 	}
 
 	if err := n.sendToAll(context.Background(), payload); err != nil {
