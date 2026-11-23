@@ -27859,6 +27859,604 @@
           }
         }
       }
+    },
+    "其他工作区有 1 个待审批": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "其他工作区有 1 个待审批"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 approval waiting in other workspaces"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "他ワークスペースに承認待ち 1 件"
+          }
+        }
+      }
+    },
+    "其他工作区有 %lld 个待审批": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "其他工作区有 %lld 个待审批"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld approvals waiting in other workspaces"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "他ワークスペースに承認待ち %lld 件"
+          }
+        }
+      }
+    },
+    "查看": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "查看"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "表示"
+          }
+        }
+      }
+    },
+    "提醒内容": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提醒内容"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alert Types"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知項目"
+          }
+        }
+      }
+    },
+    "全部开启": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全部开启"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All On"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてオン"
+          }
+        }
+      }
+    },
+    "全部关闭": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全部关闭"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All Off"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてオフ"
+          }
+        }
+      }
+    },
+    "已开 %lld/%lld": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已开 %lld/%lld"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld/%lld On"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld/%lld オン"
+          }
+        }
+      }
+    },
+    "任务与会话提醒": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "任务与会话提醒"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tasks & Sessions"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タスクとセッション"
+          }
+        }
+      }
+    },
+    "审批请求与 Agent 提问在推送开启时始终提醒，确保离席不漏批。": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "审批请求与 Agent 提问在推送开启时始终提醒，确保离席不漏批。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Approval requests and agent questions always notify while push notifications are enabled."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "承認リクエストと Agent からの質問は、通知がオンの間は常に通知されます。"
+          }
+        }
+      }
+    },
+    "任务完成与失败": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "任务完成与失败"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Task Completed & Failed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タスク完了・失敗"
+          }
+        }
+      }
+    },
+    "任务执行完毕或异常终止时提醒": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "任务执行完毕或异常终止时提醒"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notify when a run finishes or stops with an error"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タスク完了またはエラー停止時に通知"
+          }
+        }
+      }
+    },
+    "长任务疑似卡死": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "长任务疑似卡死"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stalled Long Task"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "長時間タスクの停止検知"
+          }
+        }
+      }
+    },
+    "连续 %lld 分钟无新输出或步骤推进时提醒": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连续 %lld 分钟无新输出或步骤推进时提醒"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notify after %lld min with no new output or step progress"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 分間新しい出力や進行がない場合に通知"
+          }
+        }
+      }
+    },
+    "缓存连续未命中": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "缓存连续未命中"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repeated Cache Misses"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キャッシュ連続ミス"
+          }
+        }
+      }
+    },
+    "长任务连续 3 步大上下文未命中缓存时提醒": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "长任务连续 3 步大上下文未命中缓存时提醒"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notify after 3 consecutive large-context cache misses"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "大コンテキストで3ステップ連続キャッシュ未命中時に通知"
+          }
+        }
+      }
+    },
+    "额度与配额提醒": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "额度与配额提醒"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quota & Usage Alerts"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クォータと使用量"
+          }
+        }
+      }
+    },
+    "低额度预警": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "低额度预警"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Low Quota Warning"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "残量低下アラート"
+          }
+        }
+      }
+    },
+    "任一额度池降至 20% 或 5% 以下时提醒": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "任一额度池降至 20% 或 5% 以下时提醒"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notify when any quota bucket drops below 20% or 5%"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "いずれかのクォータ残量が 20% または 5% 未満で通知"
+          }
+        }
+      }
+    },
+    "额度提前重置提醒": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "额度提前重置提醒"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bonus Quota Reset"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クォータ早期リセット通知"
+          }
+        }
+      }
+    },
+    "检测到官方非周期提前回满额度时提醒": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "检测到官方非周期提前回满额度时提醒"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notify when an unexpected early quota refill is detected"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "周期外の公式クォータ回復を検知した際に通知"
+          }
+        }
+      }
+    },
+    "异常骤降与静默扣额": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "异常骤降与静默扣额"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rapid Drop & Idle Drain"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "急激な減少・アイドル消費"
+          }
+        }
+      }
+    },
+    "短时骤降或无活跃会话却发生扣额时提醒": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "短时骤降或无活跃会话却发生扣额时提醒"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notify on sudden quota drops or drain while idle"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "短時間の急減やアイドル中の消費を検知した際に通知"
+          }
+        }
+      }
+    },
+    "开关实时同步至本机网关并跨设备生效。": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "开关实时同步至本机网关并跨设备生效。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toggles sync live to your local gateway across paired devices."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定はローカルゲートウェイへ即時同期され、全端末に反映されます。"
+          }
+        }
+      }
+    },
+    "演示模式下仅预览开关状态，配对网关后实时生效。": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "演示模式下仅预览开关状态，配对网关后实时生效。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preview only in Demo Mode. Pair with a gateway to apply live."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デモモードではプレビューのみです。ペアリング後に反映されます。"
+          }
+        }
+      }
+    },
+    "同步失败，请稍后重试": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同步失败，请稍后重试"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sync failed. Please try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同期に失敗しました。再試行してください。"
+          }
+        }
+      }
+    },
+    "同步失败，请检查网关连接": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同步失败，请检查网关连接"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sync failed. Check gateway connection."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同期に失敗しました。接続を確認してください。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

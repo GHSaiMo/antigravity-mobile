@@ -580,6 +580,46 @@ public struct ConversationListView: View {
         }
         .buttonStyle(.plain)
     }
+
+    private func hiddenPendingApprovalCapsule(count: Int) -> some View {
+        Button {
+            clearWorkspaceFilter()
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "exclamationmark.circle.fill")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(.orange)
+
+                Text(count == 1
+                     ? String(localized: "其他工作区有 1 个待审批")
+                     : String(localized: "其他工作区有 \(count) 个待审批"))
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                    .contentTransition(.numericText())
+
+                Spacer(minLength: 4)
+
+                HStack(spacing: 2) {
+                    Text("查看")
+                        .font(.system(size: 11.5, weight: .semibold))
+                        .foregroundColor(.orange)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 9.5, weight: .bold))
+                        .foregroundColor(.orange.opacity(0.85))
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(Color.orange.opacity(0.10))
+            .clipShape(Capsule())
+            .overlay(
+                Capsule()
+                    .stroke(Color.orange.opacity(0.32), lineWidth: 0.8)
+            )
+        }
+        .buttonStyle(.plain)
+    }
     
     private func toggleWorkspaceFilter(for item: ConversationItem) {
         let target: ConversationListViewModel.WorkspaceFilter = item.isPureChat ? .chat : .workspace(item.workspaceName)
@@ -967,6 +1007,14 @@ public struct ConversationListView: View {
                     .listRowSeparator(.hidden)
                     .listRowBackground(Color.clear)
                     .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .top)).combined(with: .move(edge: .top)))
+
+                if viewModel.hiddenPendingApprovalCount > 0 {
+                    hiddenPendingApprovalCapsule(count: viewModel.hiddenPendingApprovalCount)
+                        .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 6, trailing: 16))
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
+                        .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .top)).combined(with: .move(edge: .top)))
+                }
             }
 
             if let activeFilter = viewModel.selectedWorkspaceFilter,

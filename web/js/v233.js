@@ -72,20 +72,23 @@
   }
 
   function openSettingsSubpage(kind) {
-    activeSettingsSubpage = kind === "compact" ? "compact" : null;
+    activeSettingsSubpage = kind === "compact" || kind === "alerts" ? kind : null;
     const headerMain = document.getElementById("settings-header-main");
     const headerSub = document.getElementById("settings-header-sub");
     const mainBody = document.getElementById("settings-main-body");
     const subBody = document.getElementById("settings-sub-body");
     const subCompact = document.getElementById("settings-sub-compact");
+    const subAlerts = document.getElementById("settings-sub-alerts");
     const subTitle = document.getElementById("settings-sub-title");
+
+    subCompact?.classList.add("hidden");
+    subAlerts?.classList.add("hidden");
 
     if (!activeSettingsSubpage) {
       headerMain?.classList.remove("hidden");
       headerSub?.classList.add("hidden");
       mainBody?.classList.remove("hidden");
       subBody?.classList.add("hidden");
-      subCompact?.classList.add("hidden");
       return;
     }
 
@@ -94,8 +97,15 @@
     mainBody?.classList.add("hidden");
     subBody?.classList.remove("hidden");
     if (subBody) subBody.scrollTop = 0;
-    if (subTitle) subTitle.textContent = typeof t === "function" ? t("精简模式") : "精简模式";
-    subCompact?.classList.remove("hidden");
+
+    if (activeSettingsSubpage === "alerts") {
+      if (subTitle) subTitle.textContent = typeof t === "function" ? t("提醒内容") : "提醒内容";
+      subAlerts?.classList.remove("hidden");
+      if (window.PushAlertPrefs?.refresh) window.PushAlertPrefs.refresh();
+    } else {
+      if (subTitle) subTitle.textContent = typeof t === "function" ? t("精简模式") : "精简模式";
+      subCompact?.classList.remove("hidden");
+    }
   }
 
   function applyTheme(mode) {
@@ -134,6 +144,7 @@
       });
     });
     document.getElementById("btn-open-compact-settings")?.addEventListener("click", () => openSettingsSubpage("compact"));
+    document.getElementById("btn-open-alerts-settings")?.addEventListener("click", () => openSettingsSubpage("alerts"));
     document.getElementById("btn-settings-sub-back")?.addEventListener("click", () => openSettingsSubpage(null));
     document.getElementById("btn-sheet-settings-close-sub")?.addEventListener("click", () => {
       openSettingsSubpage(null);

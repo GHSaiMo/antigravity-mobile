@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.screen
 
+import com.antigravity.mobile.ui.util.L10n
 import com.antigravity.mobile.ui.util.loc
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
@@ -90,6 +91,7 @@ fun ConversationListScreen(
     val workspaceFilterOptions by viewModel.workspaceFilterOptions.collectAsStateWithLifecycle()
     val totalVisibleCount by viewModel.totalVisibleCount.collectAsStateWithLifecycle()
     val workspaceTotalCount by viewModel.workspaceTotalCount.collectAsStateWithLifecycle()
+    val hiddenPendingApprovalCount by viewModel.hiddenPendingApprovalCount.collectAsStateWithLifecycle()
     val contentResults by viewModel.contentResults.collectAsStateWithLifecycle()
     val compat by com.antigravity.mobile.data.model.GatewayCompatStore.state.collectAsStateWithLifecycle()
     val linkSnapshot by viewModel.linkSnapshot.collectAsStateWithLifecycle()
@@ -388,6 +390,7 @@ fun ConversationListScreen(
                             workspaceFilterOptions = workspaceFilterOptions,
                             totalVisibleCount = totalVisibleCount,
                             workspaceTotalCount = workspaceTotalCount,
+                            hiddenPendingApprovalCount = hiddenPendingApprovalCount,
                             onWorkspaceTagTap = { item ->
                                 swipedConversationId = null
                                 haptic.light()
@@ -993,6 +996,7 @@ private fun ConversationListContent(
     workspaceFilterOptions: List<WorkspaceFilterOption>,
     totalVisibleCount: Int,
     workspaceTotalCount: Int,
+    hiddenPendingApprovalCount: Int = 0,
     onWorkspaceTagTap: (ConversationItem) -> Unit,
     onSelectWorkspaceFilter: (WorkspaceFilter) -> Unit,
     onClearWorkspaceFilter: () -> Unit,
@@ -1213,6 +1217,57 @@ private fun ConversationListContent(
                         )
                     )
                 )
+            }
+            if (hiddenPendingApprovalCount > 0) {
+                item(key = "header_hidden_pending_approvals") {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .animateItem(
+                                placementSpec = spring(
+                                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                                    stiffness = Spring.StiffnessLow
+                                )
+                            )
+                            .clip(CircleShape)
+                            .background(colors.accentOrange.copy(alpha = if (colors.isDark) 0.14f else 0.10f))
+                            .border(0.8.dp, colors.accentOrange.copy(alpha = 0.34f), CircleShape)
+                            .clickable { onClearWorkspaceFilter() }
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Warning,
+                            contentDescription = null,
+                            tint = colors.accentOrange,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Text(
+                            text = when (L10n.currentLang) {
+                                L10n.AppLang.EN -> if (hiddenPendingApprovalCount == 1) "1 approval waiting in other workspaces" else "$hiddenPendingApprovalCount approvals waiting in other workspaces"
+                                L10n.AppLang.JA -> "他ワークスペースに承認待ち ${hiddenPendingApprovalCount} 件"
+                                L10n.AppLang.ZH -> "其他工作区有 $hiddenPendingApprovalCount 个待审批"
+                            },
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = colors.textPrimary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Text(
+                            text = when (L10n.currentLang) {
+                                L10n.AppLang.EN -> "Show ›"
+                                L10n.AppLang.JA -> "表示 ›"
+                                L10n.AppLang.ZH -> "查看 ›"
+                            },
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = colors.accentOrange
+                        )
+                    }
+                }
             }
         }
 
@@ -1447,6 +1502,7 @@ private fun WorkspaceFilterCapsule(
     options: List<WorkspaceFilterOption>,
     totalVisibleCount: Int,
     workspaceTotalCount: Int,
+    hiddenPendingApprovalCount: Int = 0,
     onSelectFilter: (WorkspaceFilter) -> Unit,
     onClear: () -> Unit,
     modifier: Modifier = Modifier

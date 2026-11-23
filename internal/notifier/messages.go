@@ -166,6 +166,23 @@ func msgBodyCacheMissAlert(streak int, tokensText string) string {
 	)
 }
 
+func msgTitleStallAlert() string {
+	return i18n.T3(
+		"⏳ 任务长时间无进展",
+		"⏳ Task Appears Stalled",
+		"⏳ タスクが停止している可能性",
+	)
+}
+
+func msgBodyStallAlert(stalledMinutes int) string {
+	return i18n.Sprintf3(
+		"已连续 %d 分钟无新输出或步骤推进，可能已卡住，点击查看或中止。",
+		"No new output or step progress for %d min — it may be stuck. Tap to inspect or stop.",
+		"%d 分間新しい出力やステップの進行がありません。確認または停止してください。",
+		stalledMinutes,
+	)
+}
+
 func formatCompactTokens(n int64) string {
 	switch {
 	case n >= 1_000_000:

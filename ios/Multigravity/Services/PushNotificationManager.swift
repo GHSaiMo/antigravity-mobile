@@ -5,6 +5,83 @@ import Observation
 import UIKit
 import UserNotifications
 
+public struct GatewayAlertPreferences: Codable, Equatable, Sendable {
+    public var taskCompletion: Bool
+    public var taskStall: Bool
+    public var cacheMiss: Bool
+    public var quotaLow: Bool
+    public var quotaBonusReset: Bool
+    public var quotaAnomaly: Bool
+    public var stallMinutes: Int
+
+    public static let totalCount = 6
+
+    public static let defaultValue = GatewayAlertPreferences(
+        taskCompletion: true,
+        taskStall: true,
+        cacheMiss: true,
+        quotaLow: true,
+        quotaBonusReset: true,
+        quotaAnomaly: true,
+        stallMinutes: 8
+    )
+
+    public var enabledCount: Int {
+        [taskCompletion, taskStall, cacheMiss, quotaLow, quotaBonusReset, quotaAnomaly].filter { $0 }.count
+    }
+
+    public mutating func apply(key: String, value: Bool) {
+        switch key {
+        case "task_completion": taskCompletion = value
+        case "task_stall": taskStall = value
+        case "cache_miss": cacheMiss = value
+        case "quota_low": quotaLow = value
+        case "quota_bonus_reset": quotaBonusReset = value
+        case "quota_anomaly": quotaAnomaly = value
+        default: break
+        }
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case taskCompletion = "task_completion"
+        case taskStall = "task_stall"
+        case cacheMiss = "cache_miss"
+        case quotaLow = "quota_low"
+        case quotaBonusReset = "quota_bonus_reset"
+        case quotaAnomaly = "quota_anomaly"
+        case stallMinutes = "stall_minutes"
+    }
+
+    public init(
+        taskCompletion: Bool,
+        taskStall: Bool,
+        cacheMiss: Bool,
+        quotaLow: Bool,
+        quotaBonusReset: Bool,
+        quotaAnomaly: Bool,
+        stallMinutes: Int = 8
+    ) {
+        self.taskCompletion = taskCompletion
+        self.taskStall = taskStall
+        self.cacheMiss = cacheMiss
+        self.quotaLow = quotaLow
+        self.quotaBonusReset = quotaBonusReset
+        self.quotaAnomaly = quotaAnomaly
+        self.stallMinutes = stallMinutes
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.taskCompletion = try c.decodeIfPresent(Bool.self, forKey: .taskCompletion) ?? true
+        self.taskStall = try c.decodeIfPresent(Bool.self, forKey: .taskStall) ?? true
+        self.cacheMiss = try c.decodeIfPresent(Bool.self, forKey: .cacheMiss) ?? true
+        self.quotaLow = try c.decodeIfPresent(Bool.self, forKey: .quotaLow) ?? true
+        self.quotaBonusReset = try c.decodeIfPresent(Bool.self, forKey: .quotaBonusReset) ?? true
+        self.quotaAnomaly = try c.decodeIfPresent(Bool.self, forKey: .quotaAnomaly) ?? true
+        self.stallMinutes = try c.decodeIfPresent(Int.self, forKey: .stallMinutes) ?? 8
+    }
+}
+
 /// UIApplicationDelegate bridge for receiving APNs device token callbacks in SwiftUI.
 public final class MultigravityAppDelegate: NSObject, UIApplicationDelegate {
     public func application(
@@ -61,6 +138,20 @@ public final class PushNotificationManager: NSObject {
     public private(set) var authorizationStatus: UNAuthorizationStatus = .notDetermined
     public private(set) var deviceTokenHex: String?
     public private(set) var liveActivityStartTokenHex: String?
+    public private(set) var alertPreferences: GatewayAlertPreferences = .defaultValue
+    public private(set) var isLoadingAlertPreferences: Bool = false
+    public private(set) var alertPreferencesSyncError: String? = nil
+
+    public var alertPreferencesSummary: String {
+        let count = alertPreferences.enabledCount
+        if count == GatewayAlertPreferences.totalCount {
+            return String(localized: "全部开启")
+        }
+        if count == 0 {
+            return String(localized: "全部关闭")
+        }
+        return String(localized: "已开 \(count)/\(GatewayAlertPreferences.totalCount)")
+    }
 
     /// Cascade currently visible on screen; foreground notifications for this exact cascade are suppressed
     /// unless a blocking modal sheet (e.g. Account Quota or Settings) is covering the screen.
@@ -450,6 +541,71 @@ public final class PushNotificationManager: NSObject {
             // Silent retry on next foreground / reconnect
         }
         return false
+    }
+
+    // MARK: - Gateway Alert Category Preferences
+
+    public func fetchAlertPreferences() async {
+        let settings = AppSettings.shared
+        guard settings.isPaired, !settings.isDemoMode, let baseURL = settings.serverURL else { return }
+        isLoadingAlertPreferences = true
+        alertPreferencesSyncError = nil
+        defer { isLoadingAlertPreferences = false }
+
+        var request = URLRequest(url: baseURL.appendingPathComponent("api/v1/push/preferences"))
+        request.httpMethod = "GET"
+        request.timeoutInterval = 8.0
+        if let authTok = KeychainHelper.shared.read(key: .deviceToken) ?? settings.deviceToken, !authTok.isEmpty {
+            request.setValue("Bearer \(authTok)", forHTTPHeaderField: "Authorization")
+            request.setValue(authTok, forHTTPHeaderField: "x-device-token")
+        }
+
+        do {
+            let (data, response) = try await NetworkTransport.shared.send(request: request)
+            if let httpResp = response as? HTTPURLResponse, (200...299).contains(httpResp.statusCode) {
+                let decoded = try JSONDecoder().decode(GatewayAlertPreferences.self, from: data)
+                self.alertPreferences = decoded
+            }
+        } catch {
+            // Older gateways without /api/v1/push/preferences keep local defaults silently.
+        }
+    }
+
+    public func updateAlertPreference(key: String, value: Bool) async {
+        let previous = self.alertPreferences
+        var optimistic = previous
+        optimistic.apply(key: key, value: value)
+        self.alertPreferences = optimistic
+        self.alertPreferencesSyncError = nil
+
+        let settings = AppSettings.shared
+        guard settings.isPaired, !settings.isDemoMode, let baseURL = settings.serverURL else { return }
+
+        guard let data = try? JSONSerialization.data(withJSONObject: [key: value]) else { return }
+        var request = URLRequest(url: baseURL.appendingPathComponent("api/v1/push/preferences"))
+        request.httpMethod = "POST"
+        request.timeoutInterval = 8.0
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if let authTok = KeychainHelper.shared.read(key: .deviceToken) ?? settings.deviceToken, !authTok.isEmpty {
+            request.setValue("Bearer \(authTok)", forHTTPHeaderField: "Authorization")
+            request.setValue(authTok, forHTTPHeaderField: "x-device-token")
+        }
+        request.httpBody = data
+
+        do {
+            let (respData, response) = try await NetworkTransport.shared.send(request: request)
+            if let httpResp = response as? HTTPURLResponse, (200...299).contains(httpResp.statusCode) {
+                if let decoded = try? JSONDecoder().decode(GatewayAlertPreferences.self, from: respData) {
+                    self.alertPreferences = decoded
+                }
+            } else {
+                self.alertPreferences = previous
+                self.alertPreferencesSyncError = String(localized: "同步失败，请稍后重试")
+            }
+        } catch {
+            self.alertPreferences = previous
+            self.alertPreferencesSyncError = String(localized: "同步失败，请检查网关连接")
+        }
     }
 
     private func sendDeletePushToken(

@@ -359,6 +359,121 @@ function initApp() {
     applyCompactLiveEffects();
   });
 
+  // Gateway Smart Alert Preferences (二级页「提醒内容」实时同步)
+  const alertKeys = [
+    "task_completion",
+    "task_stall",
+    "cache_miss",
+    "quota_low",
+    "quota_bonus_reset",
+    "quota_anomaly",
+  ];
+  let currentAlertPrefs = {
+    task_completion: true,
+    task_stall: true,
+    cache_miss: true,
+    quota_low: true,
+    quota_bonus_reset: true,
+    quota_anomaly: true,
+    stall_minutes: 8,
+  };
+
+  const syncAlertPrefsUI = (errorText = "") => {
+    const rawLang = (document.documentElement.getAttribute("data-lang") || navigator.language || "zh").toLowerCase();
+    const lang = rawLang.startsWith("ja") ? "ja" : rawLang.startsWith("en") ? "en" : "zh";
+    let enabled = 0;
+    for (const k of alertKeys) {
+      if (currentAlertPrefs[k] !== false) enabled++;
+      const el = document.querySelector(`#settings-sub-alerts input[data-alert-key="${k}"]`);
+      if (el) el.checked = currentAlertPrefs[k] !== false;
+    }
+    const summaryEl = document.getElementById("settings-alerts-summary");
+    if (summaryEl) {
+      if (enabled === alertKeys.length) {
+        summaryEl.textContent = lang === "en" ? "All On" : lang === "ja" ? "すべてオン" : "全部开启";
+      } else if (enabled === 0) {
+        summaryEl.textContent = lang === "en" ? "All Off" : lang === "ja" ? "すべてオフ" : "全部关闭";
+      } else {
+        summaryEl.textContent = lang === "en" ? `${enabled}/${alertKeys.length} On` : lang === "ja" ? `${enabled}/${alertKeys.length} オン` : `已开 ${enabled}/${alertKeys.length}`;
+      }
+    }
+    const stallDesc = document.getElementById("settings-alert-stall-desc");
+    if (stallDesc) {
+      const mins = Number(currentAlertPrefs.stall_minutes) > 0 ? Number(currentAlertPrefs.stall_minutes) : 8;
+      stallDesc.textContent =
+        lang === "en"
+          ? `Notify after ${mins} min with no new output or step progress`
+          : lang === "ja"
+            ? `${mins} 分間新しい出力や進行がない場合に通知`
+            : `连续 ${mins} 分钟无新输出或步骤推进时提醒`;
+    }
+    const footerEl = document.getElementById("settings-alerts-footer");
+    if (footerEl) {
+      footerEl.textContent =
+        errorText ||
+        (lang === "en"
+          ? "Toggles sync live to your local gateway across paired devices."
+          : lang === "ja"
+            ? "設定はローカルゲートウェイへ即時同期され、全端末に反映されます。"
+            : "开关实时同步至本机网关并跨设备生效。");
+    }
+  };
+
+  window.PushAlertPrefs = {
+    async refresh() {
+      try {
+        const resp = await fetch("/api/v1/push/preferences");
+        if (resp && resp.ok) {
+          const data = await resp.json();
+          if (data && typeof data === "object") {
+            currentAlertPrefs = { ...currentAlertPrefs, ...data };
+          }
+        }
+      } catch (_) {}
+      syncAlertPrefsUI();
+    },
+    async update(key, value) {
+      const prev = { ...currentAlertPrefs };
+      currentAlertPrefs[key] = Boolean(value);
+      syncAlertPrefsUI();
+      try {
+        const resp = await fetch("/api/v1/push/preferences", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ [key]: Boolean(value) }),
+        });
+        if (!resp || !resp.ok) {
+          currentAlertPrefs = prev;
+          const rawLang = (document.documentElement.getAttribute("data-lang") || navigator.language || "zh").toLowerCase();
+          const errMsg = rawLang.startsWith("ja")
+            ? "同期に失敗しました。接続を確認してください。"
+            : rawLang.startsWith("en")
+              ? "Sync failed. Check gateway connection."
+              : "同步失败，请检查网关连接";
+          syncAlertPrefsUI(errMsg);
+          return;
+        }
+        const data = await resp.json();
+        if (data && typeof data === "object") {
+          currentAlertPrefs = { ...currentAlertPrefs, ...data };
+        }
+        syncAlertPrefsUI();
+      } catch (_) {
+        currentAlertPrefs = prev;
+        syncAlertPrefsUI("同步失败，请检查网关连接");
+      }
+    },
+  };
+
+  document.querySelectorAll("#settings-sub-alerts input[data-alert-key]").forEach((input) => {
+    input.addEventListener("change", (e) => {
+      const key = e.target.getAttribute("data-alert-key");
+      if (key) window.PushAlertPrefs.update(key, e.target.checked);
+    });
+  });
+  syncAlertPrefsUI();
+  window.PushAlertPrefs.refresh();
+
   // Expand / Collapse Running Tasks Card
   document.getElementById("btn-tasks-expand")?.addEventListener("click", () => {
     RunningTasksManager.toggleExpand();

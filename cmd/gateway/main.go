@@ -335,6 +335,8 @@ func runGatewayServer(args []string) {
 	}()
 
 	notif := notifier.NewNotifier(notifCfg)
+	alertPrefsStore := notifier.NewAlertPreferencesStore(filepath.Join(config.GetDataDir(), "notification_prefs.json"))
+	notif.SetAlertPreferencesStore(alertPrefsStore)
 	if notifCfg.APNSEnabled {
 		pushStore, storeErr := notifier.NewPushDeviceStore(notifCfg.PushStorePath)
 		if storeErr != nil {
@@ -455,7 +457,7 @@ func runGatewayServer(args []string) {
 			alertCfg.HostIdleSince = watcher.IdleSince
 		}
 		alertCfg.Notify = func(a cockpit.QuotaAlert) {
-			if err := notif.NotifyQuotaAlert(a.StateKey, a.Title, a.Body, a.Level == "critical"); err != nil {
+			if err := notif.NotifyQuotaAlertWithLevel(a.Level, a.StateKey, a.Title, a.Body); err != nil {
 				slog.Warn("[QuotaAlert] push failed", "err", err)
 			}
 		}
@@ -1391,6 +1393,48 @@ func buildRouterWithWSAddr(
 			"platform": req.Platform,
 			"message":  "push token registered successfully",
 		})
+	})
+
+	// Smart notification alert preferences (task completion, stall, cache miss, quota alerts)
+	rootMux.HandleFunc("GET /api/v1/push/preferences", func(w http.ResponseWriter, r *http.Request) {
+		if sink, ok := p.NotificationSink().(*notifier.Notifier); ok && sink != nil {
+			writeJSON(w, http.StatusOK, sink.AlertPreferences())
+			return
+		}
+		writeJSON(w, http.StatusOK, notifier.DefaultAlertPreferences())
+	})
+
+	rootMux.HandleFunc("POST /api/v1/push/preferences", func(w http.ResponseWriter, r *http.Request) {
+		setJSONDeadline(w)
+		authedDev, _ := auth.DeviceFromContext(r.Context())
+		if authedDev != nil && strings.HasPrefix(authedDev.DeviceID, "lan-") {
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden: pairing required to modify notification preferences"})
+			return
+		}
+		var patch notifier.AlertPreferencesPatch
+		if err := json.NewDecoder(r.Body).Decode(&patch); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+			return
+		}
+		sink, ok := p.NotificationSink().(*notifier.Notifier)
+		if !ok || sink == nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "notifier unavailable"})
+			return
+		}
+		updated, err := sink.UpdateAlertPreferences(patch)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		slog.Info("[PushPrefs] Updated notification alert preferences",
+			"task_completion", updated.TaskCompletion,
+			"task_stall", updated.TaskStall,
+			"cache_miss", updated.CacheMiss,
+			"quota_low", updated.QuotaLow,
+			"quota_bonus_reset", updated.QuotaBonusReset,
+			"quota_anomaly", updated.QuotaAnomaly,
+		)
+		writeJSON(w, http.StatusOK, updated)
 	})
 
 	// Mobile push token removal endpoint (called when unpairing or disabling notifications/Live Activities)

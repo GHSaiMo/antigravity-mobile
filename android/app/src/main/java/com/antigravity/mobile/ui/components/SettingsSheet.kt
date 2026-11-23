@@ -73,12 +73,18 @@ import kotlinx.coroutines.launch
 private enum class SettingsSubpage {
     MAIN,
     COMPACT,
+    NOTIFICATION_ALERTS,
     TIPS;
 
     val title: String
         get() = when (this) {
             MAIN -> "设置".loc
             COMPACT -> "精简模式".loc
+            NOTIFICATION_ALERTS -> when (L10n.currentLang) {
+                L10n.AppLang.EN -> "Alert Types"
+                L10n.AppLang.JA -> "通知項目"
+                L10n.AppLang.ZH -> "提醒内容"
+            }
             TIPS -> "手势与使用技巧".loc
         }
 }
@@ -96,7 +102,18 @@ fun SettingsSheet(
     var showUnpairAlert by remember { mutableStateOf(false) }
     var showClearCacheAlert by remember { mutableStateOf(false) }
     var showMcpSkillsSheet by remember { mutableStateOf(false) }
+    var alertPrefs by remember { mutableStateOf(ApiClient.AlertPreferencesPayload()) }
+    var alertPrefsError by remember { mutableStateOf<String?>(null) }
     var activeSubpage by remember { mutableStateOf(SettingsSubpage.MAIN) }
+    val sheetScope = rememberCoroutineScope()
+
+    LaunchedEffect(Unit) {
+        if (prefs.isPaired()) {
+            ApiClient.defaultInstance?.fetchAlertPreferences()?.onSuccess {
+                alertPrefs = it
+            }
+        }
+    }
     var renderedSubpage by remember { mutableStateOf<SettingsSubpage?>(null) }
     val subpageProgress by animateFloatAsState(
         targetValue = if (activeSubpage != SettingsSubpage.MAIN) 1f else 0f,
@@ -189,8 +206,20 @@ fun SettingsSheet(
                                 prefs = prefs,
                                 connectionManager = connectionManager,
                                 currentThemeMode = currentThemeMode,
+                                alertPrefs = alertPrefs,
                                 onThemeModeChange = onThemeModeChange,
                                 onOpenCompactSettings = { openSubpage(SettingsSubpage.COMPACT) },
+                                onOpenNotificationAlerts = {
+                                    openSubpage(SettingsSubpage.NOTIFICATION_ALERTS)
+                                    if (prefs.isPaired()) {
+                                        sheetScope.launch {
+                                            ApiClient.defaultInstance?.fetchAlertPreferences()?.onSuccess {
+                                                alertPrefs = it
+                                                alertPrefsError = null
+                                            }
+                                        }
+                                    }
+                                },
                                 onOpenTipsGuide = { openSubpage(SettingsSubpage.TIPS) },
                                 onPromptUnpair = { showUnpairAlert = true },
                                 onPromptClearCache = { showClearCacheAlert = true },
@@ -228,6 +257,31 @@ fun SettingsSheet(
                             ) {
                                 when (currentSubpage) {
                                     SettingsSubpage.COMPACT -> CompactModeSubpageContent(prefs = prefs)
+                                    SettingsSubpage.NOTIFICATION_ALERTS -> NotificationAlertsSubpageContent(
+                                        alertPrefs = alertPrefs,
+                                        syncError = alertPrefsError,
+                                        isPaired = prefs.isPaired(),
+                                        onToggle = { key, value ->
+                                            val prev = alertPrefs
+                                            alertPrefs = prev.withUpdated(key, value)
+                                            alertPrefsError = null
+                                            if (prefs.isPaired()) {
+                                                sheetScope.launch {
+                                                    val res = ApiClient.defaultInstance?.updateAlertPreference(key, value)
+                                                    if (res != null && res.isSuccess) {
+                                                        alertPrefs = res.getOrThrow()
+                                                    } else {
+                                                        alertPrefs = prev
+                                                        alertPrefsError = when (L10n.currentLang) {
+                                                            L10n.AppLang.EN -> "Sync failed. Check gateway connection."
+                                                            L10n.AppLang.JA -> "同期に失敗しました。接続を確認してください。"
+                                                            L10n.AppLang.ZH -> "同步失败，请检查网关连接"
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    )
                                     SettingsSubpage.TIPS -> TipsAndGesturesSubpageContent()
                                     SettingsSubpage.MAIN -> Unit
                                 }
@@ -377,8 +431,10 @@ private fun MainSettingsContent(
     prefs: PreferencesManager,
     connectionManager: ConnectionManager,
     currentThemeMode: String,
+    alertPrefs: ApiClient.AlertPreferencesPayload,
     onThemeModeChange: (String) -> Unit,
     onOpenCompactSettings: () -> Unit,
+    onOpenNotificationAlerts: () -> Unit,
     onOpenTipsGuide: () -> Unit,
     onPromptUnpair: () -> Unit,
     onPromptClearCache: () -> Unit,
@@ -908,6 +964,62 @@ private fun MainSettingsContent(
                             checkedTrackColor = colors.accentIndigo
                         )
                     )
+                }
+
+                HorizontalDivider(color = colors.border.copy(alpha = 0.5f))
+                val alertSummary = remember(alertPrefs, L10n.currentLang) {
+                    val count = alertPrefs.enabledCount
+                    when {
+                        count == 6 -> when (L10n.currentLang) {
+                            L10n.AppLang.EN -> "All On"
+                            L10n.AppLang.JA -> "すべてオン"
+                            L10n.AppLang.ZH -> "全部开启"
+                        }
+                        count == 0 -> when (L10n.currentLang) {
+                            L10n.AppLang.EN -> "All Off"
+                            L10n.AppLang.JA -> "すべてオフ"
+                            L10n.AppLang.ZH -> "全部关闭"
+                        }
+                        else -> when (L10n.currentLang) {
+                            L10n.AppLang.EN -> "$count/6 On"
+                            L10n.AppLang.JA -> "$count/6 オン"
+                            L10n.AppLang.ZH -> "已开 $count/6"
+                        }
+                    }
+                }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onOpenNotificationAlerts() }
+                        .padding(horizontal = 16.dp, vertical = 13.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = when (L10n.currentLang) {
+                            L10n.AppLang.EN -> "Alert Types"
+                            L10n.AppLang.JA -> "通知項目"
+                            L10n.AppLang.ZH -> "提醒内容"
+                        },
+                        color = colors.textPrimary,
+                        fontSize = 15.sp
+                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(
+                            text = alertSummary,
+                            color = colors.textSecondary,
+                            fontSize = 13.sp
+                        )
+                        Icon(
+                            imageVector = Icons.Default.ChevronRight,
+                            contentDescription = null,
+                            tint = colors.textMuted,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
                 }
 
                 if (!isNotificationPermissionGranted) {
@@ -1847,6 +1959,181 @@ private fun ThemeModeSegmentedRow(
                         fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium
                     )
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun NotificationAlertsSubpageContent(
+    alertPrefs: ApiClient.AlertPreferencesPayload,
+    syncError: String?,
+    isPaired: Boolean,
+    onToggle: (String, Boolean) -> Unit
+) {
+    val colors = AntigravityTheme.colors
+    val haptic = rememberHaptic()
+    val stallMins = if (alertPrefs.stallMinutes > 0) alertPrefs.stallMinutes else 8
+
+    fun t(zh: String, en: String, ja: String): String = when (L10n.currentLang) {
+        L10n.AppLang.EN -> en
+        L10n.AppLang.JA -> ja
+        L10n.AppLang.ZH -> zh
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp, vertical = 14.dp)
+            .navigationBarsPadding(),
+        verticalArrangement = Arrangement.spacedBy(20.dp)
+    ) {
+        SettingsSection(
+            title = t("任务与会话提醒", "Tasks & Sessions", "タスクとセッション"),
+            footer = t(
+                "审批请求与 Agent 提问在通知开启时始终提醒，确保离席不漏批。",
+                "Approval requests and agent questions always notify while notifications are enabled.",
+                "承認リクエストと Agent からの質問は、通知がオンの間は常に通知されます。"
+            )
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(colors.surface)
+                    .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
+            ) {
+                CompactSubpageToggleRow(
+                    title = t("任务完成与失败", "Task Completed & Failed", "タスク完了・失敗"),
+                    subtitle = t(
+                        "任务执行完毕或异常终止时提醒",
+                        "Notify when a run finishes or stops with an error",
+                        "タスク完了またはエラー停止時に通知"
+                    ),
+                    checked = alertPrefs.taskCompletion,
+                    enabled = true,
+                    onCheckedChange = {
+                        haptic.light()
+                        onToggle("task_completion", it)
+                    }
+                )
+                HorizontalDivider(
+                    color = colors.separator.copy(alpha = 0.35f),
+                    thickness = 0.5.dp,
+                    modifier = Modifier.padding(start = 16.dp)
+                )
+                CompactSubpageToggleRow(
+                    title = t("长任务疑似卡死", "Stalled Long Task", "長時間タスクの停止検知"),
+                    subtitle = t(
+                        "连续 $stallMins 分钟无新输出或步骤推进时提醒",
+                        "Notify after $stallMins min with no new output or step progress",
+                        "$stallMins 分間新しい出力や進行がない場合に通知"
+                    ),
+                    checked = alertPrefs.taskStall,
+                    enabled = true,
+                    onCheckedChange = {
+                        haptic.light()
+                        onToggle("task_stall", it)
+                    }
+                )
+                HorizontalDivider(
+                    color = colors.separator.copy(alpha = 0.35f),
+                    thickness = 0.5.dp,
+                    modifier = Modifier.padding(start = 16.dp)
+                )
+                CompactSubpageToggleRow(
+                    title = t("缓存连续未命中", "Repeated Cache Misses", "キャッシュ連続ミス"),
+                    subtitle = t(
+                        "长任务连续 3 步大上下文未命中缓存时提醒",
+                        "Notify after 3 consecutive large-context cache misses",
+                        "大コンテキストで3ステップ連続キャッシュ未命中時に通知"
+                    ),
+                    checked = alertPrefs.cacheMiss,
+                    enabled = true,
+                    onCheckedChange = {
+                        haptic.light()
+                        onToggle("cache_miss", it)
+                    }
+                )
+            }
+        }
+
+        SettingsSection(
+            title = t("额度与配额提醒", "Quota & Usage Alerts", "クォータと使用量"),
+            footer = syncError ?: if (!isPaired) {
+                t(
+                    "配对网关后修改的开关将实时同步并生效。",
+                    "Pair with a gateway to sync alert settings live.",
+                    "ペアリング後に設定がゲートウェイへ即時同期されます。"
+                )
+            } else {
+                t(
+                    "开关实时同步至本机网关并跨设备生效。",
+                    "Toggles sync live to your local gateway across paired devices.",
+                    "設定はローカルゲートウェイへ即時同期され、全端末に反映されます。"
+                )
+            }
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(colors.surface)
+                    .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
+            ) {
+                CompactSubpageToggleRow(
+                    title = t("低额度预警", "Low Quota Warning", "残量低下アラート"),
+                    subtitle = t(
+                        "任一额度池降至 20% 或 5% 以下时提醒",
+                        "Notify when any quota bucket drops below 20% or 5%",
+                        "いずれかのクォータ残量が 20% または 5% 未満で通知"
+                    ),
+                    checked = alertPrefs.quotaLow,
+                    enabled = true,
+                    onCheckedChange = {
+                        haptic.light()
+                        onToggle("quota_low", it)
+                    }
+                )
+                HorizontalDivider(
+                    color = colors.separator.copy(alpha = 0.35f),
+                    thickness = 0.5.dp,
+                    modifier = Modifier.padding(start = 16.dp)
+                )
+                CompactSubpageToggleRow(
+                    title = t("额度提前重置提醒", "Bonus Quota Reset", "クォータ早期リセット通知"),
+                    subtitle = t(
+                        "检测到官方非周期提前回满额度时提醒",
+                        "Notify when an unexpected early quota refill is detected",
+                        "周期外の公式クォータ回復を検知した際に通知"
+                    ),
+                    checked = alertPrefs.quotaBonusReset,
+                    enabled = true,
+                    onCheckedChange = {
+                        haptic.light()
+                        onToggle("quota_bonus_reset", it)
+                    }
+                )
+                HorizontalDivider(
+                    color = colors.separator.copy(alpha = 0.35f),
+                    thickness = 0.5.dp,
+                    modifier = Modifier.padding(start = 16.dp)
+                )
+                CompactSubpageToggleRow(
+                    title = t("异常骤降与静默扣额", "Rapid Drop & Idle Drain", "急激な減少・アイドル消費"),
+                    subtitle = t(
+                        "短时骤降或无活跃会话却发生扣额时提醒",
+                        "Notify on sudden quota drops or drain while idle",
+                        "短時間の急減やアイドル中の消費を検知した際に通知"
+                    ),
+                    checked = alertPrefs.quotaAnomaly,
+                    enabled = true,
+                    onCheckedChange = {
+                        haptic.light()
+                        onToggle("quota_anomaly", it)
+                    }
+                )
             }
         }
     }

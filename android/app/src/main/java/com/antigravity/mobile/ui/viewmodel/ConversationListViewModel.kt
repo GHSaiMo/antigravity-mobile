@@ -94,6 +94,9 @@ class ConversationListViewModel(
     private val _workspaceTotalCount = MutableStateFlow(0)
     val workspaceTotalCount: StateFlow<Int> = _workspaceTotalCount.asStateFlow()
 
+    private val _hiddenPendingApprovalCount = MutableStateFlow(0)
+    val hiddenPendingApprovalCount: StateFlow<Int> = _hiddenPendingApprovalCount.asStateFlow()
+
     /** 会话「内容」命中（language_server SearchConversations），与按标题过滤并行存在。 */
     private val _contentResults = MutableStateFlow<List<ConversationSearchResult>>(emptyList())
     val contentResults: StateFlow<List<ConversationSearchResult>> = _contentResults.asStateFlow()
@@ -190,7 +193,8 @@ class ConversationListViewModel(
 
     private fun sortConversations(items: List<ConversationItem>): List<ConversationItem> {
         return items.sortedWith(
-            compareByDescending<ConversationItem> { it.isPinned }
+            compareByDescending<ConversationItem> { it.status == ConversationStatus.ACTION }
+                .thenByDescending { it.isPinned }
                 .thenByDescending { it.lastModifiedEpochMs }
         )
     }
@@ -206,7 +210,9 @@ class ConversationListViewModel(
         forceReorder: Boolean
     ): List<ConversationItem> {
         val now = android.os.SystemClock.elapsedRealtime()
-        if (forceReorder || rawConversations.isEmpty() || lastReorderAtMs == 0L || (now - lastReorderAtMs) >= REORDER_COOLDOWN_MS) {
+        val prevActionIds = rawConversations.filter { it.status == ConversationStatus.ACTION }.mapTo(HashSet()) { it.id }
+        val hasNewPendingAction = sorted.any { it.status == ConversationStatus.ACTION && !prevActionIds.contains(it.id) }
+        if (forceReorder || hasNewPendingAction || rawConversations.isEmpty() || lastReorderAtMs == 0L || (now - lastReorderAtMs) >= REORDER_COOLDOWN_MS) {
             markReorderedNow()
             return sorted
         }
@@ -217,8 +223,9 @@ class ConversationListViewModel(
         val preserved = prevIds.mapNotNull { newById[it] }
         val added = sorted.filter { !prevIdSet.contains(it.id) }
 
-        val buffered = (added.filter { it.isPinned } + preserved.filter { it.isPinned }) +
-            (added.filter { !it.isPinned } + preserved.filter { !it.isPinned })
+        val buffered = (added.filter { it.status == ConversationStatus.ACTION } + preserved.filter { it.status == ConversationStatus.ACTION }) +
+            (added.filter { it.status != ConversationStatus.ACTION && it.isPinned } + preserved.filter { it.status != ConversationStatus.ACTION && it.isPinned }) +
+            (added.filter { it.status != ConversationStatus.ACTION && !it.isPinned } + preserved.filter { it.status != ConversationStatus.ACTION && !it.isPinned })
 
         val orderChanged = buffered.size == sorted.size &&
             buffered.indices.any { buffered[it].id != sorted[it].id }
@@ -923,6 +930,11 @@ class ConversationListViewModel(
             visible.size
         } else {
             visible.count { activeFilter.matches(it) }
+        }
+        _hiddenPendingApprovalCount.value = if (activeFilter == null) {
+            0
+        } else {
+            visible.count { it.status == ConversationStatus.ACTION && !activeFilter.matches(it) }
         }
     }
 

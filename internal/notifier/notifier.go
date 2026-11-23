@@ -58,14 +58,16 @@ type Notifier struct {
 	apns         *APNsRelayClient
 	liveActivity *LiveActivityDispatcher
 	dedup        *DedupCache
+	alertPrefs   *AlertPreferencesStore
 }
 
 // NewNotifier creates an initialized Notifier instance with configured push senders (e.g. FCM).
 // Native iOS APNs is attached via AttachAPNsClient.
 func NewNotifier(cfg config.NotificationConfig) *Notifier {
 	n := &Notifier{
-		cfg:   cfg,
-		dedup: NewDedupCache(),
+		cfg:        cfg,
+		dedup:      NewDedupCache(),
+		alertPrefs: NewAlertPreferencesStore(""),
 	}
 	if cfg.FCMEnabled || (cfg.FCMServerKey != "" && cfg.FCMDeviceToken != "") {
 		n.senders = append(n.senders, NewFCMClient(cfg))
@@ -76,10 +78,49 @@ func NewNotifier(cfg config.NotificationConfig) *Notifier {
 // NewNotifierWithSender creates an initialized Notifier instance with a custom sender.
 func NewNotifierWithSender(cfg config.NotificationConfig, sender NotificationSender) *Notifier {
 	return &Notifier{
-		cfg:     cfg,
-		senders: []NotificationSender{sender},
-		dedup:   NewDedupCache(),
+		cfg:        cfg,
+		senders:    []NotificationSender{sender},
+		dedup:      NewDedupCache(),
+		alertPrefs: NewAlertPreferencesStore(""),
 	}
+}
+
+// SetAlertPreferencesStore attaches a persistent preference store to the notifier.
+func (n *Notifier) SetAlertPreferencesStore(store *AlertPreferencesStore) {
+	if n == nil || store == nil {
+		return
+	}
+	n.mu.Lock()
+	n.alertPrefs = store
+	n.mu.Unlock()
+}
+
+// AlertPreferences returns the active push alert category switches.
+func (n *Notifier) AlertPreferences() AlertPreferences {
+	if n == nil {
+		return DefaultAlertPreferences()
+	}
+	n.mu.RLock()
+	store := n.alertPrefs
+	n.mu.RUnlock()
+	if store == nil {
+		return DefaultAlertPreferences()
+	}
+	return store.Get()
+}
+
+// UpdateAlertPreferences applies a partial preference update and persists it.
+func (n *Notifier) UpdateAlertPreferences(patch AlertPreferencesPatch) (AlertPreferences, error) {
+	if n == nil {
+		return DefaultAlertPreferences(), nil
+	}
+	n.mu.Lock()
+	if n.alertPrefs == nil {
+		n.alertPrefs = NewAlertPreferencesStore("")
+	}
+	store := n.alertPrefs
+	n.mu.Unlock()
+	return store.Update(patch)
 }
 
 // SetSender updates the notification sender (e.g. for testing or alternative channels).
@@ -383,7 +424,7 @@ func (n *Notifier) NotifyDismissApproval(cascadeID, dismissKey string) error {
 
 // NotifyCompleted sends a notification when a cascade completes all steps successfully.
 func (n *Notifier) NotifyCompleted(cascadeID, title string, totalSteps int) error {
-	if !n.IsEnabled() {
+	if !n.IsEnabled() || !n.AlertPreferences().TaskCompletion {
 		return nil
 	}
 
@@ -420,7 +461,7 @@ func (n *Notifier) NotifyCompleted(cascadeID, title string, totalSteps int) erro
 
 // NotifyFailed sends a notification when a cascade fails or terminates abnormally.
 func (n *Notifier) NotifyFailed(cascadeID, title string, totalSteps int) error {
-	if !n.IsEnabled() {
+	if !n.IsEnabled() || !n.AlertPreferences().TaskCompletion {
 		return nil
 	}
 
@@ -525,11 +566,32 @@ func (n *Notifier) NotifyQuotaAlert(key, title, body string, critical bool) erro
 	return nil
 }
 
+// NotifyQuotaAlertWithLevel filters a quota alert against user-configured category preferences
+// ("warn"/"critical" -> quota_low, "bonus_reset" -> quota_bonus_reset, "anomaly" -> quota_anomaly).
+func (n *Notifier) NotifyQuotaAlertWithLevel(level, key, title, body string) error {
+	prefs := n.AlertPreferences()
+	switch strings.ToLower(strings.TrimSpace(level)) {
+	case "bonus_reset":
+		if !prefs.QuotaBonusReset {
+			return nil
+		}
+	case "anomaly":
+		if !prefs.QuotaAnomaly {
+			return nil
+		}
+	default:
+		if !prefs.QuotaLow {
+			return nil
+		}
+	}
+	return n.NotifyQuotaAlert(key, title, body, strings.EqualFold(level, "critical"))
+}
+
 // NotifyCacheMissAlert sends a deduplicated alert when an active long-running session suffers
 // repeated large-context prompt cache misses that risk draining weekly quota rapidly.
 func (n *Notifier) NotifyCacheMissAlert(cascadeID, title string, streak int, missTokens int64) error {
 	cascadeID = strings.TrimSpace(cascadeID)
-	if !n.IsEnabled() || !isCacheMissAlertEnabled() || cascadeID == "" {
+	if !n.IsEnabled() || !isCacheMissAlertEnabled() || !n.AlertPreferences().CacheMiss || cascadeID == "" {
 		return nil
 	}
 	if streak < cacheMissAlertMinStreak || missTokens < cacheMissAlertMinTokens {
@@ -556,6 +618,44 @@ func (n *Notifier) NotifyCacheMissAlert(cascadeID, title string, streak int, mis
 		Level:     "timeSensitive",
 		Sound:     n.cfg.SoundAction,
 		Category:  "cache_miss_alert",
+		CascadeID: cascadeID,
+	}
+
+	if err := n.sendToAll(context.Background(), payload); err != nil {
+		n.dedup.Remove(dedupKey)
+		return err
+	}
+	return nil
+}
+
+// NotifyStallAlert sends a deduplicated alert when a running session has produced no step,
+// text, thinking, or plan progress for an extended period.
+func (n *Notifier) NotifyStallAlert(cascadeID, title string, stalledMinutes, totalSteps int) error {
+	cascadeID = strings.TrimSpace(cascadeID)
+	if !n.IsEnabled() || !n.AlertPreferences().TaskStall || cascadeID == "" || stalledMinutes <= 0 {
+		return nil
+	}
+
+	dedupKey := fmt.Sprintf("stall:%s:%d", cascadeID, totalSteps)
+	if !n.dedup.TryNotify(dedupKey, stallAlertCooldown) {
+		return nil
+	}
+
+	notifBody := msgBodyStallAlert(stalledMinutes)
+	cleanSessionTitle := SanitizePushText(title)
+	if cleanSessionTitle != "" && cleanSessionTitle != MsgUntitledSession {
+		notifBody = formatSessionPrefix(truncateString(cleanSessionTitle, 60), notifBody)
+	}
+
+	payload := PushPayload{
+		Title:     msgTitleStallAlert(),
+		Body:      notifBody,
+		Icon:      n.cfg.IconURL,
+		Group:     n.cfg.Group,
+		URL:       fmt.Sprintf("antigravity://cascade/%s", cascadeID),
+		Level:     "timeSensitive",
+		Sound:     n.cfg.SoundAction,
+		Category:  "task_stall_alert",
 		CascadeID: cascadeID,
 	}
 
@@ -605,7 +705,8 @@ func (n *Notifier) OnTrajectoryUpdate(details *proxy.TrajectoryDetails) {
 		details.ContextMeter != nil &&
 		details.ContextMeter.CacheMissStreak >= cacheMissAlertMinStreak &&
 		details.ContextMeter.CacheMissTokens >= cacheMissAlertMinTokens &&
-		isCacheMissAlertEnabled() {
+		isCacheMissAlertEnabled() &&
+		n.AlertPreferences().CacheMiss {
 		dedupKey := fmt.Sprintf("cache_miss:%s", details.CascadeID)
 		if !n.dedup.IsNotified(dedupKey, cacheMissAlertCooldown) {
 			cascadeID := details.CascadeID

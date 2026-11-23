@@ -182,6 +182,16 @@ public final class ConversationListViewModel {
         workspaceFilteredConversations.count
     }
 
+    /// 当开启工作区筛选时，其他工作区中被隐藏的待审批/等输入会话数量（方案 B 盲区兜底）。
+    public var hiddenPendingApprovalCount: Int {
+        guard let filter = selectedWorkspaceFilter else { return 0 }
+        return visibleConversations.reduce(into: 0) { count, item in
+            if item.status.needsAction && !filter.matches(item) {
+                count += 1
+            }
+        }
+    }
+
     /// 供筛选条下拉菜单使用的工作区列表（含 Chat 与各项目，按最近活跃倒序排列）。
     public var availableWorkspaceFilters: [WorkspaceFilterOption] {
         var chatCount = 0
@@ -266,6 +276,9 @@ public final class ConversationListViewModel {
 
     public static func sortItems(_ items: [ConversationItem]) -> [ConversationItem] {
         items.sorted { a, b in
+            if a.status.needsAction != b.status.needsAction {
+                return a.status.needsAction && !b.status.needsAction
+            }
             if a.isPinned != b.isPinned {
                 return a.isPinned && !b.isPinned
             }
@@ -601,7 +614,9 @@ public final class ConversationListViewModel {
 
     private func applyReorderBuffer(sorted: [ConversationItem], forceReorder: Bool) -> [ConversationItem] {
         let now = ProcessInfo.processInfo.systemUptime
-        if forceReorder || conversations.isEmpty || lastReorderUptime == 0 || (now - lastReorderUptime) >= Self.reorderCooldownSeconds {
+        let prevActionIDs = Set(conversations.filter { $0.status.needsAction }.map(\.id))
+        let hasNewPendingAction = sorted.contains { $0.status.needsAction && !prevActionIDs.contains($0.id) }
+        if forceReorder || hasNewPendingAction || conversations.isEmpty || lastReorderUptime == 0 || (now - lastReorderUptime) >= Self.reorderCooldownSeconds {
             markReorderedNow()
             return sorted
         }
@@ -612,8 +627,9 @@ public final class ConversationListViewModel {
         let preserved = prevIDs.compactMap { newById[$0] }
         let added = sorted.filter { !prevIDSet.contains($0.id) }
 
-        let buffered = (added.filter { $0.isPinned } + preserved.filter { $0.isPinned }) +
-            (added.filter { !$0.isPinned } + preserved.filter { !$0.isPinned })
+        let buffered = (added.filter { $0.status.needsAction } + preserved.filter { $0.status.needsAction }) +
+            (added.filter { !$0.status.needsAction && $0.isPinned } + preserved.filter { !$0.status.needsAction && $0.isPinned }) +
+            (added.filter { !$0.status.needsAction && !$0.isPinned } + preserved.filter { !$0.status.needsAction && !$0.isPinned })
 
         let orderChanged = buffered.map(\.id) != sorted.map(\.id)
         if orderChanged {

@@ -1498,6 +1498,69 @@ class ApiClient(
 
     // endregion
 
+    @kotlinx.serialization.Serializable
+    data class AlertPreferencesPayload(
+        @kotlinx.serialization.SerialName("task_completion") val taskCompletion: Boolean = true,
+        @kotlinx.serialization.SerialName("task_stall") val taskStall: Boolean = true,
+        @kotlinx.serialization.SerialName("cache_miss") val cacheMiss: Boolean = true,
+        @kotlinx.serialization.SerialName("quota_low") val quotaLow: Boolean = true,
+        @kotlinx.serialization.SerialName("quota_bonus_reset") val quotaBonusReset: Boolean = true,
+        @kotlinx.serialization.SerialName("quota_anomaly") val quotaAnomaly: Boolean = true,
+        @kotlinx.serialization.SerialName("stall_minutes") val stallMinutes: Int = 8
+    ) {
+        val enabledCount: Int
+            get() = listOf(taskCompletion, taskStall, cacheMiss, quotaLow, quotaBonusReset, quotaAnomaly).count { it }
+
+        fun withUpdated(key: String, value: Boolean): AlertPreferencesPayload = when (key) {
+            "task_completion" -> copy(taskCompletion = value)
+            "task_stall" -> copy(taskStall = value)
+            "cache_miss" -> copy(cacheMiss = value)
+            "quota_low" -> copy(quotaLow = value)
+            "quota_bonus_reset" -> copy(quotaBonusReset = value)
+            "quota_anomaly" -> copy(quotaAnomaly = value)
+            else -> this
+        }
+    }
+
+    suspend fun fetchAlertPreferences(): Result<AlertPreferencesPayload> = withContext(Dispatchers.IO) {
+        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址".loc))
+        val url = "$baseUrl/api/v1/push/preferences"
+        try {
+            val req = buildAuthorizedRequest(url).get().build()
+            client.newCall(req).await().use { response ->
+                val bodyStr = response.body?.string().orEmpty()
+                if (!response.isSuccessful) {
+                    return@withContext Result.failure(RuntimeException("获取提醒设置失败 (${response.code})"))
+                }
+                Result.success(json.decodeFromString<AlertPreferencesPayload>(bodyStr))
+            }
+        } catch (e: Exception) {
+            Log.w("ApiClient", "fetchAlertPreferences error: ${e.message}")
+            Result.failure(e)
+        }
+    }
+
+    suspend fun updateAlertPreference(key: String, value: Boolean): Result<AlertPreferencesPayload> = withContext(Dispatchers.IO) {
+        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址".loc))
+        val url = "$baseUrl/api/v1/push/preferences"
+        val payload = buildJsonObject { put(key, value) }
+        try {
+            val req = buildAuthorizedRequest(url)
+                .post(payload.toString().toRequestBody(jsonMediaType))
+                .build()
+            client.newCall(req).await().use { response ->
+                val bodyStr = response.body?.string().orEmpty()
+                if (!response.isSuccessful) {
+                    return@withContext Result.failure(RuntimeException("保存提醒设置失败 (${response.code})"))
+                }
+                Result.success(json.decodeFromString<AlertPreferencesPayload>(bodyStr))
+            }
+        } catch (e: Exception) {
+            Log.w("ApiClient", "updateAlertPreference error: ${e.message}")
+            Result.failure(e)
+        }
+    }
+
     /**
      * Registers the device push token (FCM / remote push) with the gateway.
      */

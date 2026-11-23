@@ -286,6 +286,19 @@ public struct SettingsSheet: View {
                         }
 
                     NavigationLink {
+                        NotificationAlertsSettingsView()
+                    } label: {
+                        HStack {
+                            Text("提醒内容")
+                            Spacer()
+                            Text(pushManager.alertPreferencesSummary)
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                        }
+                    }
+
+                    NavigationLink {
                         NotificationSoundSettingsView()
                     } label: {
                         HStack {
@@ -297,6 +310,9 @@ public struct SettingsSheet: View {
                                 .lineLimit(1)
                         }
                     }
+                }
+                .task {
+                    await pushManager.fetchAlertPreferences()
                 }
                 
                 // MARK: - 5. 外观与主题
@@ -638,6 +654,99 @@ public struct SettingsSheet: View {
             in: NotificationSoundOption.actionOptions
         )
         return "\(completeName) · \(actionName)"
+    }
+}
+
+// MARK: - 提醒内容二级页
+
+private struct NotificationAlertsSettingsView: View {
+    @State private var pushManager = PushNotificationManager.shared
+    @State private var settings = AppSettings.shared
+
+    private var stallThresholdMinutes: Int {
+        let m = pushManager.alertPreferences.stallMinutes
+        return m > 0 ? m : 8
+    }
+
+    var body: some View {
+        Form {
+            Section(
+                header: Text("任务与会话提醒"),
+                footer: Text("审批请求与 Agent 提问在推送开启时始终提醒，确保离席不漏批。")
+            ) {
+                alertToggleRow(
+                    title: String(localized: "任务完成与失败"),
+                    subtitle: String(localized: "任务执行完毕或异常终止时提醒"),
+                    key: "task_completion",
+                    isOn: pushManager.alertPreferences.taskCompletion
+                )
+                alertToggleRow(
+                    title: String(localized: "长任务疑似卡死"),
+                    subtitle: String(localized: "连续 \(stallThresholdMinutes) 分钟无新输出或步骤推进时提醒"),
+                    key: "task_stall",
+                    isOn: pushManager.alertPreferences.taskStall
+                )
+                alertToggleRow(
+                    title: String(localized: "缓存连续未命中"),
+                    subtitle: String(localized: "长任务连续 3 步大上下文未命中缓存时提醒"),
+                    key: "cache_miss",
+                    isOn: pushManager.alertPreferences.cacheMiss
+                )
+            }
+
+            Section(
+                header: Text("额度与配额提醒"),
+                footer: Text(
+                    pushManager.alertPreferencesSyncError
+                        ?? (settings.isDemoMode
+                            ? String(localized: "演示模式下仅预览开关状态，配对网关后实时生效。")
+                            : String(localized: "开关实时同步至本机网关并跨设备生效。"))
+                )
+            ) {
+                alertToggleRow(
+                    title: String(localized: "低额度预警"),
+                    subtitle: String(localized: "任一额度池降至 20% 或 5% 以下时提醒"),
+                    key: "quota_low",
+                    isOn: pushManager.alertPreferences.quotaLow
+                )
+                alertToggleRow(
+                    title: String(localized: "额度提前重置提醒"),
+                    subtitle: String(localized: "检测到官方非周期提前回满额度时提醒"),
+                    key: "quota_bonus_reset",
+                    isOn: pushManager.alertPreferences.quotaBonusReset
+                )
+                alertToggleRow(
+                    title: String(localized: "异常骤降与静默扣额"),
+                    subtitle: String(localized: "短时骤降或无活跃会话却发生扣额时提醒"),
+                    key: "quota_anomaly",
+                    isOn: pushManager.alertPreferences.quotaAnomaly
+                )
+            }
+        }
+        .navigationTitle("提醒内容")
+        .navigationBarTitleDisplayMode(.inline)
+        .task {
+            await pushManager.fetchAlertPreferences()
+        }
+    }
+
+    private func alertToggleRow(title: String, subtitle: String, key: String, isOn: Bool) -> some View {
+        Toggle(isOn: Binding(
+            get: { isOn },
+            set: { newValue in
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                Task {
+                    await pushManager.updateAlertPreference(key: key, value: newValue)
+                }
+            }
+        )) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        }
     }
 }
 

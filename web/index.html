@@ -556,6 +556,19 @@
             <div class="settings-note">开启后，输入框为空且空闲时右侧按钮支持单击实时双工语音通话、长按原生流式语音听写。</div>
           </div>
 
+          <!-- 推送提醒 -->
+          <div class="quota-section-header" style="margin: 14px 4px 6px;">推送提醒</div>
+          <div class="ios-grouped-section">
+            <button id="btn-open-alerts-settings" class="ios-cell-button between settings-nav-row" type="button">
+              <span class="cell-label">提醒内容</span>
+              <span class="settings-nav-trailing">
+                <span id="settings-alerts-summary" class="cell-value">全部开启</span>
+                <svg class="settings-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+              </span>
+            </button>
+          </div>
+          <div class="settings-note" style="margin: 6px 4px 12px;">自定义网关推送提醒类别（任务卡死、缓存未命中、额度重置与异常骤降等），跨设备实时生效。</div>
+
           <!-- 外观与主题 -->
           <div class="quota-section-header" style="margin: 14px 4px 6px;">外观与主题</div>
           <div class="ios-grouped-section">
@@ -641,6 +654,58 @@
                 <input type="checkbox" id="settings-compact-hide-healthy-ctx" class="ios-switch-input" />
               </label>
             </div>
+          </div>
+          <div id="settings-sub-alerts" class="hidden">
+            <div class="quota-section-header" style="margin: 6px 4px 6px;">任务与会话提醒</div>
+            <div class="ios-grouped-section compact-subpanel">
+              <label class="ios-cell between compact-subcell-page" for="settings-alert-task-completion" style="cursor: pointer;">
+                <div class="compact-subtext">
+                  <span class="cell-label">任务完成与失败</span>
+                  <span class="compact-subdesc">任务执行完毕或异常终止时提醒</span>
+                </div>
+                <input type="checkbox" id="settings-alert-task-completion" data-alert-key="task_completion" class="ios-switch-input" checked />
+              </label>
+              <label class="ios-cell between compact-subcell-page" for="settings-alert-task-stall" style="cursor: pointer;">
+                <div class="compact-subtext">
+                  <span class="cell-label">长任务疑似卡死</span>
+                  <span id="settings-alert-stall-desc" class="compact-subdesc">连续 8 分钟无新输出或步骤推进时提醒</span>
+                </div>
+                <input type="checkbox" id="settings-alert-task-stall" data-alert-key="task_stall" class="ios-switch-input" checked />
+              </label>
+              <label class="ios-cell between compact-subcell-page" for="settings-alert-cache-miss" style="cursor: pointer;">
+                <div class="compact-subtext">
+                  <span class="cell-label">缓存连续未命中</span>
+                  <span class="compact-subdesc">长任务连续 3 步大上下文未命中缓存时提醒</span>
+                </div>
+                <input type="checkbox" id="settings-alert-cache-miss" data-alert-key="cache_miss" class="ios-switch-input" checked />
+              </label>
+            </div>
+            <div class="settings-note" style="margin: 6px 4px 14px;">审批请求与 Agent 提问在推送开启时始终提醒，确保离席不漏批。</div>
+            <div class="quota-section-header" style="margin: 6px 4px 6px;">额度与配额提醒</div>
+            <div class="ios-grouped-section compact-subpanel">
+              <label class="ios-cell between compact-subcell-page" for="settings-alert-quota-low" style="cursor: pointer;">
+                <div class="compact-subtext">
+                  <span class="cell-label">低额度预警</span>
+                  <span class="compact-subdesc">任一额度池降至 20% 或 5% 以下时提醒</span>
+                </div>
+                <input type="checkbox" id="settings-alert-quota-low" data-alert-key="quota_low" class="ios-switch-input" checked />
+              </label>
+              <label class="ios-cell between compact-subcell-page" for="settings-alert-quota-bonus-reset" style="cursor: pointer;">
+                <div class="compact-subtext">
+                  <span class="cell-label">额度提前重置提醒</span>
+                  <span class="compact-subdesc">检测到官方非周期提前回满额度时提醒</span>
+                </div>
+                <input type="checkbox" id="settings-alert-quota-bonus-reset" data-alert-key="quota_bonus_reset" class="ios-switch-input" checked />
+              </label>
+              <label class="ios-cell between compact-subcell-page" for="settings-alert-quota-anomaly" style="cursor: pointer;">
+                <div class="compact-subtext">
+                  <span class="cell-label">异常骤降与静默扣额</span>
+                  <span class="compact-subdesc">短时骤降或无活跃会话却发生扣额时提醒</span>
+                </div>
+                <input type="checkbox" id="settings-alert-quota-anomaly" data-alert-key="quota_anomaly" class="ios-switch-input" checked />
+              </label>
+            </div>
+            <div id="settings-alerts-footer" class="settings-note" style="margin: 6px 4px 14px;">开关实时同步至本机网关并跨设备生效。</div>
           </div>
         </div>
       </div>

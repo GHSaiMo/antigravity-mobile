@@ -471,18 +471,36 @@ document.addEventListener("visibilitychange", () => {
 const REORDER_COOLDOWN_MS = 8000;
 let lastConvReorderAt = 0;
 let lastConvOrderIds = [];
+let lastConvActionIds = new Set();
 let pendingConvReorderTimer = null;
+
+function isConversationNeedsAction(item) {
+  if (!item) return false;
+  if (item.needsInput) return true;
+  const st = String(item.status || "").toUpperCase();
+  return st.includes("WAITING");
+}
 
 function applyConversationReorderBuffer(sortedItems, forceReorder = false) {
   const now = Date.now();
+  const currentActionIds = new Set(sortedItems.filter(isConversationNeedsAction).map((item) => item.id));
+  let hasNewPendingAction = false;
+  for (const id of currentActionIds) {
+    if (!lastConvActionIds.has(id)) {
+      hasNewPendingAction = true;
+      break;
+    }
+  }
   if (
     forceReorder ||
+    hasNewPendingAction ||
     lastConvOrderIds.length === 0 ||
     lastConvReorderAt === 0 ||
     now - lastConvReorderAt >= REORDER_COOLDOWN_MS
   ) {
     lastConvReorderAt = now;
     lastConvOrderIds = sortedItems.map((item) => item.id);
+    lastConvActionIds = currentActionIds;
     if (pendingConvReorderTimer) {
       clearTimeout(pendingConvReorderTimer);
       pendingConvReorderTimer = null;
@@ -500,13 +518,16 @@ function applyConversationReorderBuffer(sortedItems, forceReorder = false) {
   const added = sortedItems.filter((item) => !prevIdSet.has(item.id));
   const isPinned = (item) => Boolean(item.annotations?.pinned);
   const buffered = [
-    ...added.filter(isPinned),
-    ...preserved.filter(isPinned),
-    ...added.filter((item) => !isPinned(item)),
-    ...preserved.filter((item) => !isPinned(item)),
+    ...added.filter(isConversationNeedsAction),
+    ...preserved.filter(isConversationNeedsAction),
+    ...added.filter((item) => !isConversationNeedsAction(item) && isPinned(item)),
+    ...preserved.filter((item) => !isConversationNeedsAction(item) && isPinned(item)),
+    ...added.filter((item) => !isConversationNeedsAction(item) && !isPinned(item)),
+    ...preserved.filter((item) => !isConversationNeedsAction(item) && !isPinned(item)),
   ];
 
   lastConvOrderIds = buffered.map((item) => item.id);
+  lastConvActionIds = currentActionIds;
 
   const orderChanged =
     buffered.length === sortedItems.length &&
@@ -668,6 +689,9 @@ function renderConversationList(summaries, { forceReorder = false } = {}) {
     .filter(([, info]) => !isSubagentSummary(info))
     .map(([id, info]) => ({ id, ...info }))
     .sort((a, b) => {
+      const aAction = isConversationNeedsAction(a);
+      const bAction = isConversationNeedsAction(b);
+      if (aAction !== bAction) return aAction ? -1 : 1;
       const aPinned = Boolean(a.annotations?.pinned);
       const bPinned = Boolean(b.annotations?.pinned);
       if (aPinned !== bPinned) return aPinned ? -1 : 1;

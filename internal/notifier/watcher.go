@@ -30,6 +30,8 @@ type sessionTrackingState struct {
 	fetchRetryCount       int
 	actionRetryAfter      time.Time
 	lastCacheGuardCheckAt time.Time
+	lastProgressAt        time.Time
+	lastProgressSig       string
 	lastUpdated           time.Time
 }
 
@@ -46,6 +48,16 @@ type Watcher struct {
 	onActivity         func(active bool)
 	alertCh            chan func()
 	cacheGuardInterval time.Duration
+	stallThreshold     time.Duration
+	stallBgThreshold   time.Duration
+	nowFunc            func() time.Time
+}
+
+func (w *Watcher) now() time.Time {
+	if w != nil && w.nowFunc != nil {
+		return w.nowFunc()
+	}
+	return time.Now()
 }
 
 func (w *Watcher) effectiveCacheGuardInterval() time.Duration {
@@ -53,6 +65,72 @@ func (w *Watcher) effectiveCacheGuardInterval() time.Duration {
 		return w.cacheGuardInterval
 	}
 	return defaultCacheGuardInterval
+}
+
+func (w *Watcher) effectiveStallThreshold() time.Duration {
+	if w.stallThreshold > 0 {
+		return w.stallThreshold
+	}
+	mins := DefaultStallAlertMinutes()
+	if mins <= 0 {
+		return 0
+	}
+	return time.Duration(mins) * time.Minute
+}
+
+func (w *Watcher) effectiveStallBgThreshold() time.Duration {
+	if w.stallBgThreshold > 0 {
+		return w.stallBgThreshold
+	}
+	mins := DefaultStallBgAlertMinutes()
+	if mins <= 0 {
+		return 0
+	}
+	return time.Duration(mins) * time.Minute
+}
+
+func hasActiveBackgroundCommand(tasks []proxy.RunningTaskItem) bool {
+	for _, t := range tasks {
+		if t.IsDaemon {
+			continue
+		}
+		if strings.TrimSpace(t.CommandLine) != "" ||
+			strings.TrimSpace(t.LogURI) != "" ||
+			strings.TrimSpace(t.ToolSummary) != "" ||
+			strings.TrimSpace(t.ToolAction) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func progressSignatureForDetails(steps int, details *proxy.TrajectoryDetails) string {
+	if details == nil {
+		return fmt.Sprintf("s:%d", steps)
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "s:%d/%d/t:%d|f:%s@%s", steps, details.TotalSteps, details.TotalTools, details.ActiveFocus, details.ActiveFocusStarted)
+	if details.ActivePlan != nil {
+		fmt.Fprintf(&b, "|p:%d/%d/%d", details.ActivePlan.DoneCount, details.ActivePlan.TotalCount, len(details.ActivePlan.Items))
+		for _, ps := range details.ActivePlan.Items {
+			b.WriteByte(',')
+			b.WriteString(ps.Status)
+		}
+	}
+	fmt.Fprintf(&b, "|m:%d", len(details.AllMessages))
+	if n := len(details.AllMessages); n > 0 {
+		last := details.AllMessages[n-1]
+		fmt.Fprintf(&b, "(%s:%d:%d:%d)", last.ID, len(last.Text), len(last.Thinking), len(last.ToolDetails))
+	}
+	if len(details.RunningTasks) > 0 {
+		fmt.Fprintf(&b, "|rt:%d", len(details.RunningTasks))
+		for _, rt := range details.RunningTasks {
+			b.WriteByte(',')
+			b.WriteString(rt.ID)
+			fmt.Fprintf(&b, ":%d", rt.StepIndex)
+		}
+	}
+	return b.String()
 }
 
 // NewWatcher creates a new background Watcher instance.
@@ -255,6 +333,8 @@ type watcherDetailJob struct {
 	prevRetries              int
 	cooldownUntil            time.Time
 	lastCacheGuardCheckAt    time.Time
+	lastProgressAt           time.Time
+	lastProgressSig          string
 }
 
 func approvalKeyForDetails(details *proxy.TrajectoryDetails) string {
@@ -291,7 +371,7 @@ func (w *Watcher) scanOnceWithMaxAge(summaryMaxAge time.Duration) int {
 		return 0
 	}
 
-	now := time.Now()
+	now := w.now()
 
 	// 1. Initial baseline synchronization:
 	// Record already-completed historical sessions so we don't spam notifications on startup.
@@ -393,6 +473,8 @@ func (w *Watcher) scanOnceWithMaxAge(summaryMaxAge time.Duration) int {
 		prevRetries := prev.fetchRetryCount
 		cooldownUntil := prev.actionRetryAfter
 		lastCacheGuardCheckAt := prev.lastCacheGuardCheckAt
+		lastProgressAt := prev.lastProgressAt
+		lastProgressSig := prev.lastProgressSig
 
 		if status == "CASCADE_RUN_STATUS_RUNNING" ||
 			(exists && steps > prevSteps) ||
@@ -443,6 +525,8 @@ func (w *Watcher) scanOnceWithMaxAge(summaryMaxAge time.Duration) int {
 			prevRetries:              prevRetries,
 			cooldownUntil:            cooldownUntil,
 			lastCacheGuardCheckAt:    lastCacheGuardCheckAt,
+			lastProgressAt:           lastProgressAt,
+			lastProgressSig:          lastProgressSig,
 		})
 	}
 
@@ -494,6 +578,8 @@ func (w *Watcher) scanOnceWithMaxAge(summaryMaxAge time.Duration) int {
 		nextPendingKey := job.prevPendingApprovalKey
 		nextPendingSince := job.prevPendingApprovalSince
 		nextCacheGuardCheckAt := job.lastCacheGuardCheckAt
+		nextProgressAt := job.lastProgressAt
+		nextProgressSig := job.lastProgressSig
 		setPending := func(key string) {
 			nextPendingKey = key
 			if key == "" {
@@ -548,6 +634,7 @@ func (w *Watcher) scanOnceWithMaxAge(summaryMaxAge time.Duration) int {
 				if hasAlert &&
 					strings.TrimSpace(details.ParentConversation) == "" &&
 					isCacheMissAlertEnabled() &&
+					w.notifier.AlertPreferences().CacheMiss &&
 					(job.lastCacheGuardCheckAt.IsZero() || now.Sub(job.lastCacheGuardCheckAt) >= w.effectiveCacheGuardInterval()) {
 					nextCacheGuardCheckAt = now
 					if meter := w.proxy.FetchContextMeter(id); meter != nil &&
@@ -565,8 +652,46 @@ func (w *Watcher) scanOnceWithMaxAge(summaryMaxAge time.Duration) int {
 						})
 					}
 				}
+				// Long-running stall detection (exempts subagents & approval waits; relaxes threshold during active background commands)
+				if strings.TrimSpace(details.ParentConversation) == "" {
+					curSig := progressSignatureForDetails(steps, details)
+					resumedFromApproval := curPendingKey == "" && job.prevPendingApprovalKey != ""
+					if details.PendingInteraction != nil || details.CanProceed || resumedFromApproval || nextProgressAt.IsZero() || curSig != nextProgressSig {
+						nextProgressAt = now
+						nextProgressSig = curSig
+					} else if hasAlert && w.notifier.AlertPreferences().TaskStall {
+						threshold := w.effectiveStallThreshold()
+						if hasActiveBackgroundCommand(details.RunningTasks) || job.hasSubagent {
+							threshold = w.effectiveStallBgThreshold()
+						}
+						if threshold > 0 {
+							stalled := now.Sub(nextProgressAt)
+							if stalled >= threshold {
+								stalledMins := int(stalled.Minutes())
+								if stalledMins < 1 {
+									stalledMins = 1
+								}
+								cid := id
+								dTitle := details.Title
+								if dTitle == "" || dTitle == MsgUntitledSession {
+									dTitle = title
+								}
+								totalSteps := details.TotalSteps
+								if totalSteps <= 0 {
+									totalSteps = steps
+								}
+								_ = w.dispatchAlert(func() {
+									_ = w.notifier.NotifyStallAlert(cid, dTitle, stalledMins, totalSteps)
+								})
+							}
+						}
+					}
+				}
 			}
-		} else if job.prevStatus == "CASCADE_RUN_STATUS_RUNNING" && status != "CASCADE_RUN_STATUS_RUNNING" {
+		} else {
+			nextProgressAt = time.Time{}
+			nextProgressSig = ""
+			if job.prevStatus == "CASCADE_RUN_STATUS_RUNNING" && status != "CASCADE_RUN_STATUS_RUNNING" {
 			// Transition: Running -> Finished / Waiting / Idle
 			if fetchErr != nil || details == nil {
 				nextRetries++
@@ -790,6 +915,7 @@ func (w *Watcher) scanOnceWithMaxAge(summaryMaxAge time.Duration) int {
 				}
 			}
 		}
+		}
 
 		w.mu.Lock()
 		if !job.existed || prev.lastStatus != status || prev.lastSteps != steps || status == "CASCADE_RUN_STATUS_RUNNING" || nextWaitingBg || prev.waitingForBackground != nextWaitingBg {
@@ -800,6 +926,8 @@ func (w *Watcher) scanOnceWithMaxAge(summaryMaxAge time.Duration) int {
 		prev.pendingApprovalSince = nextPendingSince
 		prev.fetchRetryCount = nextRetries
 		prev.lastCacheGuardCheckAt = nextCacheGuardCheckAt
+		prev.lastProgressAt = nextProgressAt
+		prev.lastProgressSig = nextProgressSig
 		prev.lastStatus = status
 		prev.lastSteps = steps
 		if title != "" && title != MsgUntitledSession {
@@ -864,7 +992,7 @@ func (w *Watcher) cleanupKnownSessions() {
 	}
 
 	const staleAge = 24 * time.Hour
-	now := time.Now()
+	now := w.now()
 
 	// Evict completed/non-running sessions that have been stale for over 24 hours
 	for id, s := range w.knownSessions {
