@@ -1,9 +1,33 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.serialization")
     id("org.jetbrains.kotlin.plugin.compose")
 }
+
+val localProps = Properties().apply {
+    val f = rootProject.file("local.properties")
+    if (f.exists()) {
+        f.inputStream().use { load(it) }
+    }
+}
+
+fun resolveSigningValue(envKey: String, propKey: String): String? {
+    return System.getenv(envKey)?.takeIf { it.isNotBlank() }
+        ?: localProps.getProperty(propKey)?.takeIf { it.isNotBlank() }
+}
+
+val releaseKeystorePath = resolveSigningValue("MGY_KEYSTORE_PATH", "mgy.keystore.path")
+val releaseKeystorePassword = resolveSigningValue("MGY_KEYSTORE_PASSWORD", "mgy.keystore.password")
+val releaseKeyAlias = resolveSigningValue("MGY_KEY_ALIAS", "mgy.key.alias")
+val releaseKeyPassword = resolveSigningValue("MGY_KEY_PASSWORD", "mgy.key.password")
+val releaseKeystoreFile = releaseKeystorePath?.let { file(it) }?.takeIf { it.exists() }
+val hasReleaseSigning = releaseKeystoreFile != null &&
+    !releaseKeystorePassword.isNullOrBlank() &&
+    !releaseKeyAlias.isNullOrBlank() &&
+    !releaseKeyPassword.isNullOrBlank()
 
 android {
     namespace = "com.antigravity.mobile"
@@ -22,23 +46,43 @@ android {
         }
     }
 
+    flavorDimensions += "distribution"
+    productFlavors {
+        create("direct") {
+            dimension = "distribution"
+            isDefault = true
+            // GitHub Releases / Official Website / Obtainium build:
+            // Keeps legacy applicationId and enables restrained in-app self-update.
+            buildConfigField("boolean", "ENABLE_SELF_UPDATE", "true")
+            buildConfigField("String", "DISTRIBUTION_CHANNEL", "\"direct\"")
+        }
+        create("play") {
+            dimension = "distribution"
+            // Reserved for future Google Play Store publishing:
+            // - Distinct applicationId to avoid trademark collision & separate Play App Signing.
+            // - Zero REQUEST_INSTALL_PACKAGES permission and zero self-update APK installer code.
+            applicationId = "com.ghsaimo.multigravity"
+            buildConfigField("boolean", "ENABLE_SELF_UPDATE", "false")
+            buildConfigField("String", "DISTRIBUTION_CHANNEL", "\"play\"")
+        }
+    }
+
     signingConfigs {
         create("release") {
-            val customPath = System.getenv("MGY_KEYSTORE_PATH")
-            val keystoreFile = if (!customPath.isNullOrBlank()) file(customPath) else file("release.jks")
-            if (!keystoreFile.exists()) {
-                throw GradleException("❌ 致命错误: 未找到 Release 签名密钥库文件 [${keystoreFile.absolutePath}]，禁止静默使用 debug 签名打包发布！")
+            if (hasReleaseSigning) {
+                storeFile = releaseKeystoreFile
+                storePassword = releaseKeystorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
             }
-            storeFile = keystoreFile
-            storePassword = System.getenv("MGY_KEYSTORE_PASSWORD") ?: "antigravity"
-            keyAlias = System.getenv("MGY_KEY_ALIAS") ?: "multigravity"
-            keyPassword = System.getenv("MGY_KEY_PASSWORD") ?: "antigravity"
         }
     }
 
     buildTypes {
         release {
-            signingConfig = signingConfigs.getByName("release")
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
@@ -56,6 +100,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     packaging {
         resources {
@@ -128,4 +173,30 @@ dependencies {
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
+}
+
+// Fail fast if packaging a release APK/AAB without the private signing keystore configured,
+// while still allowing open-source contributors and CI PR checks to run compileReleaseKotlin / unit tests.
+gradle.taskGraph.whenReady {
+    val requiresReleaseSigning = allTasks.any { task ->
+        val name = task.name
+        (name.startsWith("assemble") || name.startsWith("bundle") || name.startsWith("package")) &&
+            name.contains("Release") &&
+            !name.contains("UnitTest") &&
+            !name.contains("AndroidTest")
+    }
+    if (requiresReleaseSigning && !hasReleaseSigning) {
+        throw GradleException(
+            "❌ 致命错误: 未配置私有 Release 签名密钥库！禁止静默产出未签名或 debug 签名发包。\n" +
+                "请通过环境变量 (MGY_KEYSTORE_PATH / MGY_KEYSTORE_PASSWORD / MGY_KEY_ALIAS / MGY_KEY_PASSWORD) " +
+                "或本地 android/local.properties (mgy.keystore.path / mgy.keystore.password / mgy.key.alias / mgy.key.password) 提供私有 keystore。"
+        )
+    }
+}
+
+// Preserve the standard `./gradlew compileReleaseKotlin` verification gate across both flavors.
+tasks.register("compileReleaseKotlin") {
+    group = "verification"
+    description = "Compiles Release Kotlin sources for both direct and play distribution flavors."
+    dependsOn("compileDirectReleaseKotlin", "compilePlayReleaseKotlin")
 }

@@ -68,7 +68,7 @@ irm https://ghfast.top/https://raw.githubusercontent.com/GHSaiMo/antigravity-mob
 
 ### 2. モバイルクライアントのインストール・起動
 - **iOS**：🎉 Apple App Store にて正式配信中。**[App Store](https://apps.apple.com/app/id6835508934)** からワンタップでインストールできるほか、**[TestFlight パブリックベータ](https://testflight.apple.com/join/YM7f4aSK)** で最新ビルドを先行体験できます（ソースコードからのビルドや実機デバッグを行う場合は [iOS ローカルビルド＆実機デバッグガイド](docs/ios_build_guide.md) を参照してください）。
-- **Android**：[GitHub Releases](https://github.com/GHSaiMo/antigravity-mobile/releases/latest) から `Multigravity-v1.2.6.apk` を直接ダウンロードしてインストールしてください（上書きアップデート対応。必ず公式 Releases から入手してください）。
+- **Android**：[GitHub Releases](https://github.com/GHSaiMo/antigravity-mobile/releases/latest) から `Multigravity-v1.2.6.apk` を直接ダウンロードしてインストールしてください（アプリ内の「設定 → バージョン情報」から SHA-256 検証付きアップデートが可能。[Obtainium](https://github.com/ImranR98/Obtainium) で `https://github.com/GHSaiMo/antigravity-mobile` を登録して自動追従することもできます）。
 - **PWA / Web**：アプリをインストールせず、モバイルブラウザからゲートウェイ URL（または `/?view=pwa`）を開いてホーム画面に追加するだけで利用できます。
 
 ### 3. 起動して QR コードでペアリング

@@ -18,6 +18,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.ui.res.painterResource
 import com.antigravity.mobile.R
 import com.antigravity.mobile.data.service.ApiClient
+import com.antigravity.mobile.data.service.AppUpdateInstaller
+import com.antigravity.mobile.data.service.AppUpdateState
 import com.antigravity.mobile.data.service.cloneGitHubRepo
 import com.antigravity.mobile.data.service.createProjectWorkspace
 import com.antigravity.mobile.data.service.createWorktreeSession
@@ -46,6 +48,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalTextToolbar
 import androidx.compose.ui.text.TextStyle
@@ -103,8 +106,18 @@ fun ConversationListScreen(
     val selectedQuotaBucket by viewModel.prefs.selectedQuotaBucketFlow.collectAsStateWithLifecycle()
     val isEmailMasked by viewModel.prefs.cockpitEmailMaskedFlow.collectAsStateWithLifecycle()
     val textToolbar = LocalTextToolbar.current
+    val screenContext = LocalContext.current
+    val appUpdateState by AppUpdateInstaller.state.collectAsStateWithLifecycle()
+    val hasPendingAppUpdate = AppUpdateInstaller.isSupported && (
+        appUpdateState is AppUpdateState.Available ||
+            appUpdateState is AppUpdateState.ReadyToInstall ||
+            appUpdateState is AppUpdateState.NeedsInstallPermission
+        )
     LaunchedEffect(Unit) {
         textToolbar.hide()
+        if (AppUpdateInstaller.isSupported) {
+            AppUpdateInstaller.checkInBackgroundIfNeeded(screenContext)
+        }
     }
 
     var showQuotaSheet by remember { mutableStateOf(false) }
@@ -555,6 +568,17 @@ fun ConversationListScreen(
                         contentDescription = "Settings",
                         tint = colors.accentIndigo,
                         modifier = Modifier.size(20.dp)
+                    )
+                }
+                if (hasPendingAppUpdate) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(top = 4.dp, end = 4.dp)
+                            .size(8.dp)
+                            .clip(CircleShape)
+                            .background(colors.accentIndigo)
+                            .border(1.5.dp, colors.background, CircleShape)
                     )
                 }
             }

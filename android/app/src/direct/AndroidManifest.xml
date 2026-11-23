@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Direct-distribution builds (GitHub Releases / Website / Obtainium) support in-app APK updates.
+         Strictly excluded from the `play` flavor to stay compliant with Google Play policies. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+</manifest>

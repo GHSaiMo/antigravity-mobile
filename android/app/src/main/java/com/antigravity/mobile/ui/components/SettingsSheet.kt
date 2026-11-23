@@ -55,12 +55,17 @@ import com.antigravity.mobile.data.model.ModelDefaults
 import com.antigravity.mobile.data.model.ModelOption
 import com.antigravity.mobile.data.model.ModelsResponse
 import com.antigravity.mobile.data.service.ApiClient
+import com.antigravity.mobile.data.service.AppReleaseInfo
+import com.antigravity.mobile.data.service.AppUpdateInstaller
+import com.antigravity.mobile.data.service.AppUpdateParser
+import com.antigravity.mobile.data.service.AppUpdateState
 import com.antigravity.mobile.data.service.ConnectionManager
 import com.antigravity.mobile.data.service.PreferencesManager
 import com.antigravity.mobile.data.service.fetchPermissionSettings
 import com.antigravity.mobile.data.service.updatePermissionPreset
 import com.antigravity.mobile.ui.theme.AntigravityTheme
 import com.antigravity.mobile.ui.theme.modelProviderAccent
+import com.antigravity.mobile.ui.util.L10n
 import com.antigravity.mobile.ui.util.loc
 import com.antigravity.mobile.ui.util.rememberHaptic
 import kotlinx.coroutines.launch
@@ -1139,7 +1144,7 @@ private fun MainSettingsContent(
             }
         }
 
-        // MARK: - 8. 关于 (1:1 iOS 对齐)
+        // MARK: - 8. 关于 (1:1 iOS 对齐；直装版轻点版本行可检查更新，Play 版保持纯静态)
         val appVersion = remember(localContext) {
             try {
                 val packageInfo = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -1151,11 +1156,14 @@ private fun MainSettingsContent(
                     @Suppress("DEPRECATION")
                     localContext.packageManager.getPackageInfo(localContext.packageName, 0)
                 }
-                packageInfo.versionName ?: "1.1.4"
+                packageInfo.versionName ?: "1.2.6"
             } catch (e: Exception) {
-                "1.1.4"
+                "1.2.6"
             }
         }
+        val appUpdateState by AppUpdateInstaller.state.collectAsState()
+        val updateHaptic = rememberHaptic()
+        var showAppUpdateDialog by remember { mutableStateOf(false) }
 
         SettingsSection(title = "关于".loc) {
             Column(
@@ -1176,21 +1184,387 @@ private fun MainSettingsContent(
                     Text(text = "Multigravity", color = colors.textSecondary, fontSize = 14.sp)
                 }
                 HorizontalDivider(color = colors.separator.copy(alpha = 0.4f), thickness = 0.5.dp)
-                Row(
-                    modifier = Modifier
+                val versionRowModifier = if (AppUpdateInstaller.isSupported) {
+                    Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                        .clickable {
+                            updateHaptic.light()
+                            when (appUpdateState) {
+                                is AppUpdateState.Checking -> Unit
+                                is AppUpdateState.Available,
+                                is AppUpdateState.Downloading,
+                                is AppUpdateState.ReadyToInstall,
+                                is AppUpdateState.NeedsInstallPermission -> {
+                                    showAppUpdateDialog = true
+                                }
+                                else -> {
+                                    AppUpdateInstaller.checkNow(localContext, silent = false) { result ->
+                                        when (result) {
+                                            is AppUpdateState.Available,
+                                            is AppUpdateState.ReadyToInstall,
+                                            is AppUpdateState.NeedsInstallPermission -> {
+                                                showAppUpdateDialog = true
+                                            }
+                                            is AppUpdateState.UpToDate -> {
+                                                Toast.makeText(
+                                                    localContext,
+                                                    "已是最新版本".loc,
+                                                    Toast.LENGTH_SHORT
+                                                ).show()
+                                            }
+                                            is AppUpdateState.Error -> {
+                                                Toast.makeText(
+                                                    localContext,
+                                                    result.message,
+                                                    Toast.LENGTH_SHORT
+                                                ).show()
+                                            }
+                                            else -> Unit
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        .padding(horizontal = 16.dp, vertical = 14.dp)
+                } else {
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 14.dp)
+                }
+                Row(
+                    modifier = versionRowModifier,
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(text = "版本".loc, color = colors.textPrimary, fontSize = 15.sp)
-                    Text(text = appVersion, color = colors.textSecondary, fontSize = 14.sp)
+                    if (!AppUpdateInstaller.isSupported) {
+                        Text(text = appVersion, color = colors.textSecondary, fontSize = 14.sp)
+                    } else {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            when (val st = appUpdateState) {
+                                is AppUpdateState.Checking -> {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(13.dp),
+                                        strokeWidth = 1.6.dp,
+                                        color = colors.accentIndigo
+                                    )
+                                    Text(
+                                        text = "检查中…".loc,
+                                        color = colors.textSecondary,
+                                        fontSize = 13.sp
+                                    )
+                                }
+                                is AppUpdateState.Available -> {
+                                    Text(
+                                        text = appVersion,
+                                        color = colors.textSecondary,
+                                        fontSize = 14.sp
+                                    )
+                                    Text(
+                                        text = "v${st.release.versionName} ${"可更新".loc}",
+                                        color = colors.accentIndigo,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(999.dp))
+                                            .background(colors.accentIndigo.copy(alpha = 0.12f))
+                                            .padding(horizontal = 8.dp, vertical = 2.dp)
+                                    )
+                                }
+                                is AppUpdateState.Downloading -> {
+                                    val pct = if (st.totalBytes > 0L) {
+                                        ((st.downloadedBytes * 100L) / st.totalBytes).coerceIn(0L, 100L)
+                                    } else {
+                                        -1L
+                                    }
+                                    Text(
+                                        text = if (pct >= 0L) "${"下载中".loc} $pct%" else "下载中…".loc,
+                                        color = colors.accentIndigo,
+                                        fontSize = 12.5.sp,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
+                                is AppUpdateState.ReadyToInstall,
+                                is AppUpdateState.NeedsInstallPermission -> {
+                                    Text(
+                                        text = appVersion,
+                                        color = colors.textSecondary,
+                                        fontSize = 14.sp
+                                    )
+                                    Text(
+                                        text = "点击安装".loc,
+                                        color = colors.accentIndigo,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(999.dp))
+                                            .background(colors.accentIndigo.copy(alpha = 0.12f))
+                                            .padding(horizontal = 8.dp, vertical = 2.dp)
+                                    )
+                                }
+                                else -> {
+                                    Text(
+                                        text = appVersion,
+                                        color = colors.textSecondary,
+                                        fontSize = 14.sp
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
 
+        if (AppUpdateInstaller.isSupported && showAppUpdateDialog) {
+            AppUpdateDialog(
+                currentVersion = appVersion,
+                state = appUpdateState,
+                onDismiss = {
+                    if (appUpdateState !is AppUpdateState.Downloading) {
+                        AppUpdateInstaller.dismissError()
+                    }
+                    showAppUpdateDialog = false
+                },
+                onStartDownload = { release ->
+                    AppUpdateInstaller.downloadAndInstall(localContext, release)
+                },
+                onCancelDownload = {
+                    AppUpdateInstaller.cancelDownload()
+                },
+                onOpenInstallPermission = {
+                    AppUpdateInstaller.openInstallPermissionSettings(localContext)
+                },
+                onTriggerInstall = {
+                    AppUpdateInstaller.resumePendingInstall(localContext)
+                },
+                onOpenInBrowser = { url ->
+                    runCatching {
+                        localContext.startActivity(
+                            Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            }
+                        )
+                    }
+                }
+            )
+        }
+
         Spacer(modifier = Modifier.height(24.dp))
     }
+}
+
+@Composable
+private fun AppUpdateDialog(
+    currentVersion: String,
+    state: AppUpdateState,
+    onDismiss: () -> Unit,
+    onStartDownload: (AppReleaseInfo) -> Unit,
+    onCancelDownload: () -> Unit,
+    onOpenInstallPermission: () -> Unit,
+    onTriggerInstall: () -> Unit,
+    onOpenInBrowser: (String) -> Unit
+) {
+    val colors = AntigravityTheme.colors
+    val release = when (state) {
+        is AppUpdateState.Available -> state.release
+        is AppUpdateState.Downloading -> state.release
+        is AppUpdateState.ReadyToInstall -> state.release
+        is AppUpdateState.NeedsInstallPermission -> state.release
+        is AppUpdateState.Error -> state.release
+        else -> null
+    } ?: return
+
+    val formattedNotes = remember(release.releaseNotes, L10n.isChinese) {
+        AppUpdateParser.formatReleaseNotes(release.releaseNotes, preferChinese = L10n.isChinese)
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = colors.surface,
+        title = {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    text = "${"发现新版本".loc} v${release.versionName}",
+                    color = colors.textPrimary,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 17.sp
+                )
+                Text(
+                    text = "v${AppUpdateParser.normalizeVersion(currentVersion)} → v${release.versionName}",
+                    color = colors.textSecondary,
+                    fontSize = 12.5.sp,
+                    fontFamily = FontFamily.Monospace
+                )
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 280.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                if (formattedNotes.isNotBlank()) {
+                    Text(
+                        text = formattedNotes,
+                        color = colors.textSecondary,
+                        fontSize = 13.sp,
+                        lineHeight = 19.sp
+                    )
+                }
+
+                when (state) {
+                    is AppUpdateState.Downloading -> {
+                        val progress = if (state.totalBytes > 0L) {
+                            (state.downloadedBytes.toFloat() / state.totalBytes.toFloat()).coerceIn(0f, 1f)
+                        } else {
+                            null
+                        }
+                        if (progress != null) {
+                            LinearProgressIndicator(
+                                progress = { progress },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(4.dp)),
+                                color = colors.accentIndigo,
+                                trackColor = colors.border
+                            )
+                        } else {
+                            LinearProgressIndicator(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(4.dp)),
+                                color = colors.accentIndigo,
+                                trackColor = colors.border
+                            )
+                        }
+                        val dlMb = String.format("%.1f MB", state.downloadedBytes / (1024.0 * 1024.0))
+                        val totalMb = if (state.totalBytes > 0L) {
+                            " / " + String.format("%.1f MB", state.totalBytes / (1024.0 * 1024.0))
+                        } else {
+                            ""
+                        }
+                        val channelLabel = if (state.usingMirror) "国内镜像".loc else "GitHub"
+                        Text(
+                            text = "${"正在下载".loc} ($channelLabel) · $dlMb$totalMb",
+                            color = colors.textMuted,
+                            fontSize = 12.sp
+                        )
+                    }
+                    is AppUpdateState.NeedsInstallPermission -> {
+                        Text(
+                            text = "安装包已校验完成。请先在系统设置中开启「允许来自此来源的应用」，返回后点击继续安装。".loc,
+                            color = colors.accentIndigo,
+                            fontSize = 12.5.sp,
+                            lineHeight = 18.sp
+                        )
+                        if (state.signatureDiffers) {
+                            Text(
+                                text = "提示：新版已启用独立安全签名。若系统提示安装冲突，请先卸载旧版再安装，扫码即可重新配对。".loc,
+                                color = colors.textMuted,
+                                fontSize = 12.sp,
+                                lineHeight = 17.sp
+                            )
+                        }
+                    }
+                    is AppUpdateState.ReadyToInstall -> {
+                        Text(
+                            text = "安装包已下载并完成完整性校验，点击下方按钮拉起系统安装。".loc,
+                            color = colors.accentIndigo,
+                            fontSize = 12.5.sp,
+                            lineHeight = 18.sp
+                        )
+                        if (state.signatureDiffers) {
+                            Text(
+                                text = "提示：新版已启用独立安全签名。若系统提示安装冲突，请先卸载旧版再安装，扫码即可重新配对。".loc,
+                                color = colors.textMuted,
+                                fontSize = 12.sp,
+                                lineHeight = 17.sp
+                            )
+                        }
+                    }
+                    is AppUpdateState.Error -> {
+                        Text(
+                            text = state.message,
+                            color = colors.accentRed,
+                            fontSize = 12.5.sp,
+                            lineHeight = 18.sp
+                        )
+                        if (release.releasePageUrl.isNotBlank()) {
+                            Text(
+                                text = "在浏览器打开 GitHub Releases ›".loc,
+                                color = colors.accentIndigo,
+                                fontSize = 12.5.sp,
+                                fontWeight = FontWeight.Medium,
+                                modifier = Modifier.clickable { onOpenInBrowser(release.releasePageUrl) }
+                            )
+                        }
+                    }
+                    else -> Unit
+                }
+            }
+        },
+        confirmButton = {
+            when (state) {
+                is AppUpdateState.Downloading -> {
+                    TextButton(onClick = onCancelDownload) {
+                        Text(text = "取消下载".loc, color = colors.accentRed)
+                    }
+                }
+                is AppUpdateState.NeedsInstallPermission -> {
+                    TextButton(onClick = onOpenInstallPermission) {
+                        Text(
+                            text = "前往授权".loc,
+                            color = colors.accentIndigo,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+                is AppUpdateState.ReadyToInstall -> {
+                    TextButton(onClick = onTriggerInstall) {
+                        Text(
+                            text = "立即安装".loc,
+                            color = colors.accentIndigo,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+                else -> {
+                    TextButton(onClick = { onStartDownload(release) }) {
+                        Text(
+                            text = "立即更新".loc,
+                            color = colors.accentIndigo,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+            }
+        },
+        dismissButton = {
+            when (state) {
+                is AppUpdateState.NeedsInstallPermission -> {
+                    TextButton(onClick = onTriggerInstall) {
+                        Text(text = "继续安装".loc, color = colors.textSecondary)
+                    }
+                }
+                is AppUpdateState.Downloading -> {
+                    TextButton(onClick = onDismiss) {
+                        Text(text = "后台下载".loc, color = colors.textSecondary)
+                    }
+                }
+                else -> {
+                    TextButton(onClick = onDismiss) {
+                        Text(text = "稍后".loc, color = colors.textSecondary)
+                    }
+                }
+            }
+        }
+    )
 }
 
 @Composable

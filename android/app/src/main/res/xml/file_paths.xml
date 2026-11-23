@@ -3,6 +3,7 @@
     <cache-path name="shared_images" path="images/"/>
     <cache-path name="camera_photos" path="camera/"/>
     <cache-path name="documents" path="antigravity_documents/"/>
+    <cache-path name="app_updates" path="updates/"/>
     <cache-path name="all_cache" path="."/>
     <external-files-path name="external_files" path="."/>
 </paths>

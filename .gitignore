@@ -59,6 +59,8 @@ fastlane/test_output
 *.p8
 *.cer
 *.crt
+*.jks
+*.keystore
 certs/
 credentials.json
 client_secret*.json

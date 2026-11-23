@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   # ============================================================================
-  # 1. 构建 Android APK (已配置 release 专用统一签名，支持直接覆盖更新)
+  # 1. 构建 Android Direct Release APK (私有密钥库由 GitHub Secrets 注入，支持覆盖升级与应用内自更新)
   # ============================================================================
   build-android:
     name: Build Android APK
@@ -37,7 +37,23 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@0723195856401067f7a2779048b490ace7a47d7c # v5
 
-      - name: Build Android Release APK
+      - name: Decode Private Release Keystore
+        env:
+          MGY_ANDROID_KEYSTORE_BASE64: ${{ secrets.MGY_ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$MGY_ANDROID_KEYSTORE_BASE64" ]; then
+            echo "❌ 未配置 GitHub Actions Secret: MGY_ANDROID_KEYSTORE_BASE64"
+            exit 1
+          fi
+          printf '%s' "$MGY_ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/mgy-release.jks"
+          chmod 600 "$RUNNER_TEMP/mgy-release.jks"
+
+      - name: Build Android Direct Release APK
+        env:
+          MGY_KEYSTORE_PATH: ${{ runner.temp }}/mgy-release.jks
+          MGY_KEYSTORE_PASSWORD: ${{ secrets.MGY_ANDROID_KEYSTORE_PASSWORD }}
+          MGY_KEY_ALIAS: ${{ secrets.MGY_ANDROID_KEY_ALIAS }}
+          MGY_KEY_PASSWORD: ${{ secrets.MGY_ANDROID_KEY_PASSWORD }}
         run: |
           cd android
           echo "android.useAndroidX=true" >> gradle.properties
@@ -45,17 +61,21 @@ jobs:
             gradle wrapper
           fi
           chmod +x gradlew
-          ./gradlew assembleRelease --no-daemon
+          ./gradlew assembleDirectRelease --no-daemon
+
+      - name: Cleanup Temporary Keystore
+        if: always()
+        run: rm -f "$RUNNER_TEMP/mgy-release.jks"
 
       - name: Verify APK Release Signature
         run: |
-          APK_PATH=$(find android/app/build/outputs/apk/release -name "*.apk" | head -n 1)
+          APK_PATH=$(find android/app/build/outputs/apk/direct/release -name "*.apk" | head -n 1)
           if [ -z "$APK_PATH" ]; then
             echo "❌ 未找到构建好的 APK 文件"
             exit 1
           fi
           echo "🔍 正在校验 APK Release 签名证书指纹..."
-          EXPECTED_SHA256="a1b017a41f611dbeb83c9765b2d3bc3d3470ef74d76b587fd681e97cecd42900"
+          EXPECTED_SHA256="79d815b505c18144ae72e730380243a65bfdc63d5e134e7770eb3d902d355ca9"
           APKSIGNER=$(find $ANDROID_HOME/build-tools -name "apksigner" | sort -V | tail -n 1)
           if [ -z "$APKSIGNER" ] || [ ! -x "$APKSIGNER" ]; then
             echo "❌ 未找到 apksigner 工具"
@@ -80,7 +100,7 @@ jobs:
           if [ -z "$TAG_NAME" ] || [ "$TAG_NAME" = "main" ]; then
             TAG_NAME="${INPUT_TAG:-v1.2.6}"
           fi
-          APK_PATH=$(find android/app/build/outputs/apk/release -name "*.apk" | head -n 1)
+          APK_PATH=$(find android/app/build/outputs/apk/direct/release -name "*.apk" | head -n 1)
           if [ -z "$APK_PATH" ]; then
             echo "❌ 未找到构建好的 APK 文件"
             exit 1
