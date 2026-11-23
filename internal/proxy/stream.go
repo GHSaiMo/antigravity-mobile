@@ -120,7 +120,15 @@ func (p *StreamUpdatePayload) Fingerprint() string {
 	}
 	cmKey := "none"
 	if p.ContextMeter != nil {
-		cmKey = fmt.Sprintf("%d:%d:%.1f", p.ContextMeter.UsedTokens, p.ContextMeter.OutputTokens, p.ContextMeter.TokensPerSecond)
+		cmKey = fmt.Sprintf("%d:%d:%d:%.1f:%d:%s:%s",
+			p.ContextMeter.UsedTokens,
+			p.ContextMeter.OutputTokens,
+			p.ContextMeter.CacheReadTokens,
+			p.ContextMeter.TokensPerSecond,
+			p.ContextMeter.CacheMissStreak,
+			p.ContextMeter.CacheStatus,
+			p.ContextMeter.LastActivityAt,
+		)
 	}
 	sugKey := fmt.Sprintf("%d:%s", len(p.SuggestedResponses), strings.Join(p.SuggestedResponses, "|"))
 	tpKey := ""
@@ -464,7 +472,10 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 		} else if fetchedLivePending && len(details.QueuedMessages) > 0 {
 			details.QueuedMessages = p.FilterQueuedMessagesAgainstTrajectory(cascadeID, details.QueuedMessages, rawResp.Trajectory.Steps, details.AllMessages)
 		}
-		details.ContextMeter = p.fetchUpstreamGeneratorMetadata(cascadeID, port, token)
+		details.ContextMeter = withLastActivityAt(
+			p.fetchUpstreamGeneratorMetadata(cascadeID, port, token),
+			extractLastActivityAt(rawResp.Trajectory.Steps),
+		)
 		lastDetails = details
 
 		if sink := p.NotificationSink(); sink != nil {

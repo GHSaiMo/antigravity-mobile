@@ -1089,9 +1089,10 @@ async function connectStreamWs(cascadeId) {
         }
 
         const isRunning = data.status === "CASCADE_RUN_STATUS_RUNNING" || hasActiveRunningTasks(data.runningTasks);
+        const hasPending = Boolean(data.pendingInteraction || (data.canProceed && !isRunning));
 
         if (data.contextMeter && typeof updateContextMeterUI === "function") {
-          updateContextMeterUI(data.contextMeter, isRunning);
+          updateContextMeterUI(data.contextMeter, isRunning, hasPending);
         }
 
         if (typeof data.canProceed === "boolean") {
@@ -1250,8 +1251,9 @@ async function loadChat(cascadeId, isBackgroundPoll = false) {
               currentTrajectories[cascadeId].runningTasks = Array.isArray(info.runningTasks) ? info.runningTasks : [];
             }
             const liveRunning = isCascadeRunning(cascadeId);
+            const liveHasPending = Boolean(info.pendingInteraction || (info.canProceed && !liveRunning));
             if (info.contextMeter && typeof updateContextMeterUI === "function") {
-              updateContextMeterUI(info.contextMeter, liveRunning);
+              updateContextMeterUI(info.contextMeter, liveRunning, liveHasPending);
             }
             currentCanProceed = !!info.canProceed && !liveRunning;
             currentProceedArtifactUri = info.proceedArtifactUri || null;
@@ -3748,12 +3750,93 @@ const WebVoiceCallManager = {
 // ==========================================================================
 
 let currentContextMeter = null;
+let currentContextIsRunning = false;
+let currentContextHasPending = false;
 
-function updateContextMeterUI(meter, isRunning = false) {
+function formatCompactTokensWeb(n) {
+  const num = Number(n) || 0;
+  if (num >= 1_000_000) return `${(num / 1_000_000).toFixed(1)}M`;
+  if (num >= 1_000) return `${Math.round(num / 1_000)}K`;
+  return String(num);
+}
+
+function getContextCacheDiagnostics(meter, isRunning = false, hasPendingInteraction = false) {
+  if (!meter) {
+    return { hitRate: null, isMissStreak: false, staleIdleMinutes: null, hasWarning: false };
+  }
+  let hitRate = null;
+  if (typeof meter.cacheHitRate === "number" && !Number.isNaN(meter.cacheHitRate)) {
+    hitRate = Math.min(Math.max(meter.cacheHitRate, 0), 100);
+  } else {
+    const inp = Math.max(Number(meter.inputTokens) || 0, 0);
+    const cr = Math.max(Number(meter.cacheReadTokens) || 0, 0);
+    if (inp + cr > 0) {
+      hitRate = (cr / (inp + cr)) * 100;
+    }
+  }
+  const isMissStreak = meter.cacheStatus === "miss_streak" || (Number(meter.cacheMissStreak) || 0) >= 2;
+  let staleIdleMinutes = null;
+  if (!isRunning && !hasPendingInteraction && (Number(meter.usedTokens) || 0) >= 40000 && meter.lastActivityAt) {
+    const ts = Date.parse(meter.lastActivityAt);
+    if (!Number.isNaN(ts)) {
+      const mins = Math.floor((Date.now() - ts) / 60000);
+      if (mins >= 15) staleIdleMinutes = mins;
+    }
+  }
+  return {
+    hitRate,
+    isMissStreak,
+    staleIdleMinutes,
+    hasWarning: isMissStreak || staleIdleMinutes !== null,
+  };
+}
+
+function formatCacheNoticeWeb(diag, meter) {
+  const rawLang = (document.documentElement.getAttribute("data-lang") || navigator.language || "zh").toLowerCase();
+  const lang = rawLang.startsWith("ja") ? "ja" : rawLang.startsWith("en") ? "en" : "zh";
+
+  if (diag.isMissStreak) {
+    const streak = Math.max(Number(meter.cacheMissStreak) || 2, 2);
+    const uncached = formatCompactTokensWeb(Number(meter.cacheMissTokens) > 0 ? meter.cacheMissTokens : meter.inputTokens);
+    if (lang === "en") {
+      return `⚠ ${streak} consecutive cache misses (${uncached} uncached input) may drain weekly quota faster. Consider compacting or starting a new session.`;
+    }
+    if (lang === "ja") {
+      return `⚠ 直近 ${streak} ステップ連続でキャッシュ未命中（再計算 ${uncached}）。週間クォータを急消費する恐れがあります。圧縮または新規チャットをおすすめします。`;
+    }
+    return `⚠ 近 ${streak} 步均未命中缓存（累计重算 ${uncached}），可能正在加速消耗周额度，建议压缩或开启新会话。`;
+  }
+
+  if (diag.staleIdleMinutes !== null) {
+    const mins = diag.staleIdleMinutes;
+    const h = Math.floor(mins / 60);
+    const rem = mins % 60;
+    const idleText =
+      lang === "en"
+        ? mins < 60 ? `${mins} min` : rem === 0 ? `${h}h` : `${h}h ${rem}m`
+        : lang === "ja"
+          ? mins < 60 ? `${mins} 分` : rem === 0 ? `${h} 時間` : `${h} 時間 ${rem} 分`
+          : mins < 60 ? `${mins} 分钟` : rem === 0 ? `${h} 小时` : `${h} 小时 ${rem} 分钟`;
+    const usedText = formatCompactTokensWeb(meter.usedTokens);
+    if (lang === "en") {
+      return `❄ Idle for ${idleText} — prompt cache for ~${usedText} context may have expired. Continuing may recompute full input; consider compacting or starting a new session.`;
+    }
+    if (lang === "ja") {
+      return `❄ ${idleText} 間アイドル状態です。約 ${usedText} のキャッシュが失効している可能性があります。このまま続行すると入力を再計算するため、圧縮または新規チャットをおすすめします。`;
+    }
+    return `❄ 已闲置 ${idleText}，约 ${usedText} 上下文缓存可能已失效；直接续聊将重算输入额度，建议先压缩或开启新会话。`;
+  }
+  return "";
+}
+
+function updateContextMeterUI(meter, isRunning, hasPendingInteraction) {
   currentContextMeter = meter;
+  if (typeof isRunning === "boolean") currentContextIsRunning = isRunning;
+  if (typeof hasPendingInteraction === "boolean") currentContextHasPending = hasPendingInteraction;
   const ringBtn = document.getElementById("chat-context-ring-btn");
   const ringCircle = document.getElementById("context-ring-circle");
   const ringText = document.getElementById("context-ring-text");
+  const cacheBadge = document.getElementById("context-cache-badge");
   const speedBadge = document.getElementById("context-speed-badge");
 
   if (!ringBtn || !meter) {
@@ -3761,7 +3844,10 @@ function updateContextMeterUI(meter, isRunning = false) {
     return;
   }
 
-  const shouldShow = window.CompactModePrefs ? window.CompactModePrefs.shouldShowContextMeter(meter) : true;
+  const diag = getContextCacheDiagnostics(meter, currentContextIsRunning, currentContextHasPending);
+  const shouldShow = window.CompactModePrefs
+    ? window.CompactModePrefs.shouldShowContextMeter(meter, currentContextIsRunning, currentContextHasPending)
+    : true;
   if (!shouldShow) {
     ringBtn.classList.add("hidden");
   } else {
@@ -3773,15 +3859,27 @@ function updateContextMeterUI(meter, isRunning = false) {
     ringCircle.classList.remove("warn", "danger");
     if (pct >= 90 || meter.isOverflow) {
       ringCircle.classList.add("danger");
-    } else if (pct >= 70) {
+    } else if (pct >= 70 || diag.hasWarning) {
       ringCircle.classList.add("warn");
     }
   }
   if (ringText) {
     ringText.textContent = `${Math.round(pct)}%`;
   }
+  if (cacheBadge) {
+    if (diag.isMissStreak) {
+      cacheBadge.textContent = "⚠";
+      cacheBadge.classList.remove("hidden");
+    } else if (diag.staleIdleMinutes !== null) {
+      cacheBadge.textContent = "❄";
+      cacheBadge.classList.remove("hidden");
+    } else {
+      cacheBadge.textContent = "";
+      cacheBadge.classList.add("hidden");
+    }
+  }
   if (speedBadge) {
-    if ((isRunning || meter.tokensPerSecond > 0) && meter.tokensPerSecond > 0) {
+    if ((currentContextIsRunning || meter.tokensPerSecond > 0) && meter.tokensPerSecond > 0) {
       speedBadge.textContent = `⚡ ${meter.tokensPerSecond.toFixed(1)} t/s`;
       speedBadge.classList.remove("hidden");
     } else {
@@ -3808,22 +3906,45 @@ function renderAuditSheetContent(meter) {
   const capEl = document.getElementById("audit-cache-tokens");
   const outEl = document.getElementById("audit-output-tokens");
   const thinkEl = document.getElementById("audit-thinking-tokens");
+  const noticeEl = document.getElementById("audit-cache-notice");
 
+  const diag = getContextCacheDiagnostics(meter, currentContextIsRunning, currentContextHasPending);
   const pct = Math.min(Math.max(meter.percentage || 0, 0), 100);
   if (usedEl) usedEl.textContent = (meter.usedTokens || 0).toLocaleString();
   if (maxEl) maxEl.textContent = meter.maxTokens >= 1000 ? `${Math.round(meter.maxTokens / 1000)}k` : String(meter.maxTokens || 200000);
   if (fillEl) {
     fillEl.style.width = `${pct}%`;
-    fillEl.style.background = pct >= 90 ? "var(--ios-red, #ff3b30)" : pct >= 70 ? "var(--ios-orange, #ff9500)" : "var(--ios-green, #34c759)";
+    fillEl.style.background =
+      pct >= 90 || meter.isOverflow
+        ? "var(--ios-red, #ff3b30)"
+        : pct >= 70 || diag.hasWarning
+          ? "var(--ios-orange, #ff9500)"
+          : "var(--ios-green, #34c759)";
   }
   if (ttftEl) ttftEl.textContent = meter.timeToFirstTokenSec > 0 ? meter.timeToFirstTokenSec.toFixed(2) : "--";
   if (tpsEl) tpsEl.textContent = meter.tokensPerSecond > 0 ? meter.tokensPerSecond.toFixed(1) : "--";
   if (durEl) durEl.textContent = meter.streamingDurationSec > 0 ? meter.streamingDurationSec.toFixed(2) : "--";
 
   if (inpEl) inpEl.textContent = (meter.inputTokens || 0).toLocaleString();
-  if (capEl) capEl.textContent = (meter.cacheReadTokens || 0).toLocaleString();
+  if (capEl) {
+    const baseText = (meter.cacheReadTokens || 0).toLocaleString();
+    capEl.textContent = diag.hitRate !== null ? `${baseText} (${Math.round(diag.hitRate)}%)` : baseText;
+    const lowHit = diag.isMissStreak || (diag.hitRate !== null && (Number(meter.usedTokens) || 0) >= 24000 && diag.hitRate < 20);
+    capEl.classList.toggle("audit-val-warn", lowHit);
+  }
   if (outEl) outEl.textContent = (meter.outputTokens || 0).toLocaleString();
   if (thinkEl) thinkEl.textContent = (meter.thinkingTokens || 0).toLocaleString();
+
+  if (noticeEl) {
+    const noticeText = formatCacheNoticeWeb(diag, meter);
+    if (noticeText) {
+      noticeEl.textContent = noticeText;
+      noticeEl.classList.remove("hidden");
+    } else {
+      noticeEl.textContent = "";
+      noticeEl.classList.add("hidden");
+    }
+  }
 }
 
 function openAuditSheet() {

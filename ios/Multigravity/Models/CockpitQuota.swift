@@ -375,4 +375,97 @@ public struct ContextMeterItem: Codable, Sendable, Equatable {
     public let tokensPerSecond: Double?
     public let isOverflow: Bool?
     public let errorKind: String?
+    public let cacheHitRate: Double?
+    public let cacheMissStreak: Int?
+    public let cacheMissTokens: Int64?
+    public let cacheStatus: String?
+    public let lastActivityAt: String?
+
+    public init(
+        usedTokens: Int64,
+        maxTokens: Int64,
+        percentage: Double,
+        inputTokens: Int64? = nil,
+        outputTokens: Int64? = nil,
+        cacheReadTokens: Int64? = nil,
+        thinkingTokens: Int64? = nil,
+        timeToFirstTokenSec: Double? = nil,
+        streamingDurationSec: Double? = nil,
+        tokensPerSecond: Double? = nil,
+        isOverflow: Bool? = nil,
+        errorKind: String? = nil,
+        cacheHitRate: Double? = nil,
+        cacheMissStreak: Int? = nil,
+        cacheMissTokens: Int64? = nil,
+        cacheStatus: String? = nil,
+        lastActivityAt: String? = nil
+    ) {
+        self.usedTokens = usedTokens
+        self.maxTokens = maxTokens
+        self.percentage = percentage
+        self.inputTokens = inputTokens
+        self.outputTokens = outputTokens
+        self.cacheReadTokens = cacheReadTokens
+        self.thinkingTokens = thinkingTokens
+        self.timeToFirstTokenSec = timeToFirstTokenSec
+        self.streamingDurationSec = streamingDurationSec
+        self.tokensPerSecond = tokensPerSecond
+        self.isOverflow = isOverflow
+        self.errorKind = errorKind
+        self.cacheHitRate = cacheHitRate
+        self.cacheMissStreak = cacheMissStreak
+        self.cacheMissTokens = cacheMissTokens
+        self.cacheStatus = cacheStatus
+        self.lastActivityAt = lastActivityAt
+    }
+
+    /// 兼容新旧网关：优先采用网关回传命中率，缺失时基于最近一步 input + cacheRead 本地计算。
+    public var effectiveCacheHitRate: Double? {
+        if let rate = cacheHitRate {
+            return min(max(rate, 0), 100)
+        }
+        let inp = max(inputTokens ?? 0, 0)
+        let cr = max(cacheReadTokens ?? 0, 0)
+        let total = inp + cr
+        guard total > 0 else { return nil }
+        return (Double(cr) / Double(total)) * 100.0
+    }
+
+    public var isCacheMissStreak: Bool {
+        cacheStatus == "miss_streak" || (cacheMissStreak ?? 0) >= 2
+    }
+
+    /// 仅当重上下文（>= 40K）、非运行中且无待审批、距最后活动已闲置 >= 15 分钟时返回闲置分钟数。
+    public func staleIdleMinutes(
+        isRunning: Bool,
+        hasPendingInteraction: Bool,
+        now: Date = Date()
+    ) -> Int? {
+        guard !isRunning, !hasPendingInteraction, usedTokens >= 40_000 else { return nil }
+        guard let raw = lastActivityAt, !raw.isEmpty,
+              let lastDate = Self.parseISO8601Date(raw) else { return nil }
+        let minutes = Int(now.timeIntervalSince(lastDate) / 60.0)
+        return minutes >= 15 ? minutes : nil
+    }
+
+    public func hasCacheWarning(
+        isRunning: Bool,
+        hasPendingInteraction: Bool,
+        now: Date = Date()
+    ) -> Bool {
+        isCacheMissStreak || staleIdleMinutes(
+            isRunning: isRunning,
+            hasPendingInteraction: hasPendingInteraction,
+            now: now
+        ) != nil
+    }
+
+    private static func parseISO8601Date(_ raw: String) -> Date? {
+        let withFrac = ISO8601DateFormatter()
+        withFrac.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let d = withFrac.date(from: raw) { return d }
+        let plain = ISO8601DateFormatter()
+        plain.formatOptions = [.withInternetDateTime]
+        return plain.date(from: raw)
+    }
 }

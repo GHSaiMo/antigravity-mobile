@@ -725,10 +725,13 @@ fun ChatScreen(
 
     val shouldCollapseTools = isKnowledgeModeEnabled && compactCollapseTools
     val shouldCollapseTasks = isKnowledgeModeEnabled && compactCollapseTasks
+    val isSessionRunning = uiState.isRunning || uiState.isAwaitingResponse
+    val hasPendingApproval = uiState.pendingInteraction != null || uiState.canProceed
     val shouldShowRealtimeContext = uiState.contextMeter?.let { meter ->
         !(isKnowledgeModeEnabled && compactHideHealthyContext) ||
             meter.isOverflow == true ||
-            meter.percentage >= 70.0
+            meter.percentage >= 70.0 ||
+            meter.hasCacheWarning(isRunning = isSessionRunning, hasPendingInteraction = hasPendingApproval)
     } ?: false
 
     LaunchedEffect(enableVoiceMode) {
@@ -1343,7 +1346,8 @@ fun ChatScreen(
                                 if (shouldShowRealtimeContext) {
                                     ContextRingCapsule(
                                         meter = uiState.contextMeter,
-                                        isRunning = uiState.isRunning || uiState.isAwaitingResponse,
+                                        isRunning = isSessionRunning,
+                                        hasPendingInteraction = hasPendingApproval,
                                         onClick = {
                                             haptic.light()
                                             showContextAuditSheet = true
@@ -1366,7 +1370,8 @@ fun ChatScreen(
                                 Spacer(modifier = Modifier.height(2.dp))
                                 ContextRingCapsule(
                                     meter = uiState.contextMeter,
-                                    isRunning = uiState.isRunning || uiState.isAwaitingResponse,
+                                    isRunning = isSessionRunning,
+                                    hasPendingInteraction = hasPendingApproval,
                                     onClick = {
                                         haptic.light()
                                         showContextAuditSheet = true
@@ -2700,6 +2705,8 @@ fun ChatScreen(
         uiState.contextMeter?.let { meter ->
             ContextAuditSheet(
                 meter = meter,
+                isRunning = isSessionRunning,
+                hasPendingInteraction = hasPendingApproval,
                 canCompact = !uiState.cascadeId.startsWith("local_draft_") && uiState.parentConversationId.isNullOrBlank(),
                 onCompact = { viewModel.sendCompactCommand() },
                 onStartNewSession = onStartNewSession,

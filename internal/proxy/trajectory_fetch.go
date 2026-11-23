@@ -653,6 +653,53 @@ var (
 	contextMeterCache   = make(map[string]contextMeterCacheEntry)
 )
 
+const (
+	// Prompt Cache miss streak guard thresholds (suppresses cold-start and tiny-context false positives).
+	cacheMissMinPromptTokens int64   = 24000
+	cacheMissHitRateCeiling  float64 = 20.0
+	cacheMissStreakThreshold int     = 2
+)
+
+// FetchContextMeter returns the latest ContextMeterItem for cascadeID using active upstream credentials.
+// Reuses the short in-memory cache so background watchers incur minimal RPC overhead.
+func (p *Proxy) FetchContextMeter(cascadeID string) *ContextMeterItem {
+	port, token := p.ActiveUpstream()
+	if port <= 0 || strings.TrimSpace(cascadeID) == "" {
+		return nil
+	}
+	return p.fetchUpstreamGeneratorMetadata(cascadeID, port, token)
+}
+
+// extractLastActivityAt finds the most recent valid RFC3339 timestamp across trajectory steps.
+func extractLastActivityAt(steps []TrajectoryStep) string {
+	for i := len(steps) - 1; i >= 0; i-- {
+		m := steps[i].Metadata
+		for _, raw := range []string{m.CompletedAt, m.StartedAt, m.CreatedAt} {
+			s := strings.TrimSpace(raw)
+			if s == "" {
+				continue
+			}
+			if ts, err := time.Parse(time.RFC3339Nano, s); err == nil {
+				return ts.UTC().Format(time.RFC3339)
+			}
+			if ts, err := time.Parse(time.RFC3339, s); err == nil {
+				return ts.UTC().Format(time.RFC3339)
+			}
+		}
+	}
+	return ""
+}
+
+// withLastActivityAt returns a shallow copy of cm annotated with lastActivityAt so cached entries stay race-free.
+func withLastActivityAt(cm *ContextMeterItem, lastActivityAt string) *ContextMeterItem {
+	if cm == nil || lastActivityAt == "" {
+		return cm
+	}
+	cp := *cm
+	cp.LastActivityAt = lastActivityAt
+	return &cp
+}
+
 // fetchUpstreamGeneratorMetadata queries GetCascadeTrajectoryGeneratorMetadata from LanguageServer
 func (p *Proxy) fetchUpstreamGeneratorMetadata(cascadeID string, port int, token string) *ContextMeterItem {
 	if port <= 0 || cascadeID == "" {
@@ -702,7 +749,7 @@ func (p *Proxy) fetchUpstreamGeneratorMetadata(cascadeID string, port int, token
 		if resp.StatusCode != http.StatusOK {
 			return nil, generatorMetaSummary{}, false
 		}
-		item, sum := parseGeneratorMetadataDetailed(resp.Body)
+		item, sum := parseGeneratorMetadataDetailedWithOffset(resp.Body, offset)
 		return item, sum, true
 	}
 
@@ -818,11 +865,15 @@ type generatorMetaSummary struct {
 }
 
 func parseGeneratorMetadata(r io.Reader) *ContextMeterItem {
-	item, _ := parseGeneratorMetadataDetailed(r)
+	item, _ := parseGeneratorMetadataDetailedWithOffset(r, 0)
 	return item
 }
 
 func parseGeneratorMetadataDetailed(r io.Reader) (*ContextMeterItem, generatorMetaSummary) {
+	return parseGeneratorMetadataDetailedWithOffset(r, 0)
+}
+
+func parseGeneratorMetadataDetailedWithOffset(r io.Reader, offset int) (*ContextMeterItem, generatorMetaSummary) {
 	var metaResp struct {
 		GeneratorMetadata []struct {
 			ChatModel struct {
@@ -853,6 +904,40 @@ func parseGeneratorMetadataDetailed(r io.Reader) (*ContextMeterItem, generatorMe
 
 	if err := json.NewDecoder(r).Decode(&metaResp); err != nil || len(metaResp.GeneratorMetadata) == 0 {
 		return nil, generatorMetaSummary{}
+	}
+
+	type usageStepSample struct {
+		uncachedInput int64
+		cacheRead     int64
+		promptInput   int64
+		hitRate       float64
+	}
+	usageSamples := make([]usageStepSample, 0, len(metaResp.GeneratorMetadata))
+	for _, entry := range metaResp.GeneratorMetadata {
+		u := entry.ChatModel.Usage
+		if u == nil {
+			continue
+		}
+		stepInp := int64(u.InputTokens)
+		stepCacheCreate := int64(u.CacheCreationTokens)
+		if stepCacheCreate == 0 {
+			stepCacheCreate = int64(u.CacheCreationInputTokens)
+		}
+		if stepCacheCreate > 0 {
+			stepInp += stepCacheCreate
+		}
+		stepCacheRead := int64(u.CacheReadTokens)
+		promptInp := stepInp + stepCacheRead
+		if promptInp <= 0 {
+			continue
+		}
+		hitRate := float64(stepCacheRead) / float64(promptInp) * 100.0
+		usageSamples = append(usageSamples, usageStepSample{
+			uncachedInput: stepInp,
+			cacheRead:     stepCacheRead,
+			promptInput:   promptInp,
+			hitRate:       hitRate,
+		})
 	}
 
 	selected := metaResp.GeneratorMetadata[len(metaResp.GeneratorMetadata)-1]
@@ -889,6 +974,40 @@ func parseGeneratorMetadataDetailed(r io.Reader) (*ContextMeterItem, generatorMe
 		thinking = int64(cm.Usage.ThinkingOutputTokens)
 		if usedTokens == 0 {
 			usedTokens = inp + capTokens + outp
+		}
+	}
+
+	var cacheHitRate *float64
+	cacheMissStreak := 0
+	var cacheMissTokens int64
+	cacheStatus := ""
+
+	if len(usageSamples) > 0 {
+		latest := usageSamples[len(usageSamples)-1]
+		rounded := float64(int(latest.hitRate*10+0.5)) / 10
+		cacheHitRate = &rounded
+
+		for i := len(usageSamples) - 1; i >= 0; i-- {
+			// Skip the very first prompt in a brand-new session (normal cold cache write).
+			if offset == 0 && i == 0 {
+				break
+			}
+			s := usageSamples[i]
+			if s.promptInput >= cacheMissMinPromptTokens && s.hitRate < cacheMissHitRateCeiling {
+				cacheMissStreak++
+				cacheMissTokens += s.uncachedInput
+			} else {
+				break
+			}
+		}
+
+		switch {
+		case cacheMissStreak >= cacheMissStreakThreshold:
+			cacheStatus = "miss_streak"
+		case offset == 0 && len(usageSamples) == 1 && latest.cacheRead == 0:
+			cacheStatus = "cold"
+		default:
+			cacheStatus = "healthy"
 		}
 	}
 
@@ -930,6 +1049,10 @@ func parseGeneratorMetadataDetailed(r io.Reader) (*ContextMeterItem, generatorMe
 			TokensPerSecond:   float64(int(tps*10+0.5)) / 10,
 			IsOverflow:        errKind == "context_overflow",
 			ErrorKind:         errKind,
+			CacheHitRate:      cacheHitRate,
+			CacheMissStreak:   cacheMissStreak,
+			CacheMissTokens:   cacheMissTokens,
+			CacheStatus:       cacheStatus,
 		}, generatorMetaSummary{
 			count:       len(metaResp.GeneratorMetadata),
 			model:       cm.Model,

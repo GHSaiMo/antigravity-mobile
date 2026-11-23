@@ -363,10 +363,16 @@ public final class AppSettings {
         isKnowledgeModeEnabled && compactCollapseTasks
     }
 
-    public func shouldShowContextMeter(_ meter: ContextMeterItem?) -> Bool {
+    public func shouldShowContextMeter(
+        _ meter: ContextMeterItem?,
+        isRunning: Bool = false,
+        hasPendingInteraction: Bool = false
+    ) -> Bool {
         guard let meter else { return false }
         guard isKnowledgeModeEnabled && compactHideHealthyContext else { return true }
-        return meter.isOverflow == true || meter.percentage >= 70
+        return meter.isOverflow == true
+            || meter.percentage >= 70
+            || meter.hasCacheWarning(isRunning: isRunning, hasPendingInteraction: hasPendingInteraction)
     }
 
     public func resolvedShareCardSkin(for systemScheme: ColorScheme) -> ThemePreset {

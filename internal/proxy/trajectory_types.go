@@ -236,18 +236,23 @@ type PendingInteraction struct {
 
 // ContextMeterItem represents the real-time context window usage and generation speed for the session.
 type ContextMeterItem struct {
-	UsedTokens        int64   `json:"usedTokens"`
-	MaxTokens         int64   `json:"maxTokens"`
-	Percentage        float64 `json:"percentage"`
-	InputTokens       int64   `json:"inputTokens"`
-	OutputTokens      int64   `json:"outputTokens"`
-	CacheReadTokens   int64   `json:"cacheReadTokens"`
-	ThinkingTokens    int64   `json:"thinkingTokens"`
-	TimeToFirstToken  float64 `json:"timeToFirstTokenSec,omitempty"`
-	StreamingDuration float64 `json:"streamingDurationSec,omitempty"`
-	TokensPerSecond   float64 `json:"tokensPerSecond,omitempty"`
-	IsOverflow        bool    `json:"isOverflow"`
-	ErrorKind         string  `json:"errorKind,omitempty"`
+	UsedTokens        int64    `json:"usedTokens"`
+	MaxTokens         int64    `json:"maxTokens"`
+	Percentage        float64  `json:"percentage"`
+	InputTokens       int64    `json:"inputTokens"`
+	OutputTokens      int64    `json:"outputTokens"`
+	CacheReadTokens   int64    `json:"cacheReadTokens"`
+	ThinkingTokens    int64    `json:"thinkingTokens"`
+	TimeToFirstToken  float64  `json:"timeToFirstTokenSec,omitempty"`
+	StreamingDuration float64  `json:"streamingDurationSec,omitempty"`
+	TokensPerSecond   float64  `json:"tokensPerSecond,omitempty"`
+	IsOverflow        bool     `json:"isOverflow"`
+	ErrorKind         string   `json:"errorKind,omitempty"`
+	CacheHitRate      *float64 `json:"cacheHitRate,omitempty"`
+	CacheMissStreak   int      `json:"cacheMissStreak,omitempty"`
+	CacheMissTokens   int64    `json:"cacheMissTokens,omitempty"`
+	CacheStatus       string   `json:"cacheStatus,omitempty"`
+	LastActivityAt    string   `json:"lastActivityAt,omitempty"`
 }
 
 // TurnOutlineItem is a lightweight, full-session index entry for a single conversation turn.

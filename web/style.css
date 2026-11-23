@@ -7359,6 +7359,25 @@ body.font-comfortable pre, body.font-comfortable code {
   justify-content: space-between;
   font-size: 13px;
 }
+.context-cache-badge {
+  font-size: 10px;
+  line-height: 1;
+  color: var(--ios-orange, #ff9500);
+  margin-left: 2px;
+}
+.audit-val-warn {
+  color: var(--ios-orange, #ff9500);
+}
+.audit-cache-notice {
+  background: rgba(255, 149, 0, 0.11);
+  border: 1px solid rgba(255, 149, 0, 0.28);
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-bottom: 16px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--ios-label, #000);
+}
 .audit-actions-bar {
   display: flex;
   gap: 10px;

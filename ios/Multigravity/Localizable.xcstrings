@@ -27744,6 +27744,121 @@
           }
         }
       }
+    },
+    "%lld 分钟": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 分钟"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld min"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 分"
+          }
+        }
+      }
+    },
+    "%lld 小时": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 小时"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lldh"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 時間"
+          }
+        }
+      }
+    },
+    "%lld 小时 %lld 分钟": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 小时 %lld 分钟"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lldh %lldm"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 時間 %lld 分"
+          }
+        }
+      }
+    },
+    "近 %lld 步均未命中缓存（累计重算 %@），可能正在加速消耗周额度，建议压缩或开启新会话。": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "近 %lld 步均未命中缓存（累计重算 %@），可能正在加速消耗周额度，建议压缩或开启新会话。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld consecutive cache misses (%@ uncached input) may drain weekly quota faster. Consider compacting or starting a new session."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "直近 %lld ステップ連続でキャッシュ未命中（再計算 %@）。週間クォータを急消費する恐れがあります。圧縮または新規チャットをおすすめします。"
+          }
+        }
+      }
+    },
+    "已闲置 %@，约 %@ 上下文缓存可能已失效；直接续聊将重算输入额度，建议先压缩或开启新会话。": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已闲置 %@，约 %@ 上下文缓存可能已失效；直接续聊将重算输入额度，建议先压缩或开启新会话。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Idle for %@ — prompt cache for ~%@ context may have expired. Continuing may recompute full input; consider compacting or starting a new session."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 間アイドル状態です。約 %@ のキャッシュが失効している可能性があります。このまま続行すると入力を再計算するため、圧縮または新規チャットをおすすめします。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

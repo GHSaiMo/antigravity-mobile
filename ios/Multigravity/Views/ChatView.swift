@@ -603,8 +603,13 @@ public struct ChatView: View {
             }
             .sheet(isPresented: $showContextAuditSheet) {
                 if let meter = viewModel.contextMeter {
+                    let isRunning = viewModel.isRunning || viewModel.isAwaitingResponse
+                    let hasPending = viewModel.pendingInteraction != nil || viewModel.canProceed
+                    let hasNotice = meter.hasCacheWarning(isRunning: isRunning, hasPendingInteraction: hasPending)
                     ContextAuditSheetView(
                         meter: meter,
+                        isRunning: isRunning,
+                        hasPendingInteraction: hasPending,
                         canCompact: !viewModel.cascadeId.hasPrefix("local_draft_") && !viewModel.isSubagentSession,
                         onCompact: {
                             Task { _ = await viewModel.sendMessage(text: "/compact") }
@@ -616,7 +621,7 @@ public struct ChatView: View {
                             )
                         }
                     )
-                    .presentationDetents([.fraction(0.42), .medium])
+                    .presentationDetents(hasNotice ? [.fraction(0.52), .medium] : [.fraction(0.42), .medium])
                     .presentationDragIndicator(.visible)
                 }
             }
@@ -976,6 +981,7 @@ extension View {
 struct ContextRingCapsuleView: View {
     let meter: ContextMeterItem
     let isRunning: Bool
+    var hasPendingInteraction: Bool = false
     let onTap: () -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isPulsing = false
@@ -984,13 +990,21 @@ struct ContextRingCapsuleView: View {
         min(max(meter.percentage, 0), 100)
     }
 
+    private var staleIdleMinutes: Int? {
+        meter.staleIdleMinutes(isRunning: isRunning, hasPendingInteraction: hasPendingInteraction)
+    }
+
+    private var hasCacheWarning: Bool {
+        meter.isCacheMissStreak || staleIdleMinutes != nil
+    }
+
     private var shouldPulse: Bool {
         !reduceMotion && isRunning && (meter.isOverflow == true || clampedPct >= 90)
     }
 
     private var ringColor: Color {
         if meter.isOverflow == true || clampedPct >= 90 { return .red }
-        if clampedPct >= 70 { return .orange }
+        if clampedPct >= 70 || hasCacheWarning { return .orange }
         return .green
     }
 
@@ -1022,6 +1036,16 @@ struct ContextRingCapsuleView: View {
                 Text("\(Int(clampedPct))%")
                     .font(.system(size: 10, weight: .bold, design: .monospaced))
                     .foregroundColor(ringColor)
+
+                if meter.isCacheMissStreak {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 8.5, weight: .semibold))
+                        .foregroundColor(.orange)
+                } else if staleIdleMinutes != nil {
+                    Image(systemName: "snowflake")
+                        .font(.system(size: 8.5, weight: .semibold))
+                        .foregroundColor(.orange)
+                }
 
                 if let tps = meter.tokensPerSecond, tps > 0.1,
                    (isRunning || (meter.streamingDurationSec ?? 0) > 0) {
@@ -1074,6 +1098,8 @@ public struct CompactChevronsIcon: View {
 struct ContextAuditSheetView: View {
     @Environment(\.dismiss) private var dismiss
     let meter: ContextMeterItem
+    var isRunning: Bool = false
+    var hasPendingInteraction: Bool = false
     let canCompact: Bool
     let onCompact: () -> Void
     let onStartNewSession: () -> Void
@@ -1082,10 +1108,46 @@ struct ContextAuditSheetView: View {
         min(max(meter.percentage, 0), 100)
     }
 
+    private var staleIdleMinutes: Int? {
+        meter.staleIdleMinutes(isRunning: isRunning, hasPendingInteraction: hasPendingInteraction)
+    }
+
+    private var hasCacheWarning: Bool {
+        meter.isCacheMissStreak || staleIdleMinutes != nil
+    }
+
     private var accentColor: Color {
         if meter.isOverflow == true || clampedPct >= 90 { return .red }
-        if clampedPct >= 70 { return .orange }
+        if clampedPct >= 70 || hasCacheWarning { return .orange }
         return .green
+    }
+
+    private var cacheHitDisplay: String {
+        let base = AccountQuotaSheet.formatTokensCompact(meter.cacheReadTokens ?? 0)
+        guard let rate = meter.effectiveCacheHitRate else { return base }
+        return "\(base) (\(Int(rate.rounded()))%)"
+    }
+
+    private var cacheHitValueColor: Color {
+        if meter.isCacheMissStreak {
+            return .orange
+        }
+        if let rate = meter.effectiveCacheHitRate, meter.usedTokens >= 24_000, rate < 20 {
+            return .orange
+        }
+        return .primary
+    }
+
+    private static func formatIdleDuration(_ minutes: Int) -> String {
+        if minutes < 60 {
+            return String(localized: "\(minutes) 分钟")
+        }
+        let hours = minutes / 60
+        let rem = minutes % 60
+        if rem == 0 {
+            return String(localized: "\(hours) 小时")
+        }
+        return String(localized: "\(hours) 小时 \(rem) 分钟")
     }
 
     var body: some View {
@@ -1124,7 +1186,7 @@ struct ContextAuditSheetView: View {
                 HStack {
                     auditCell("Input", AccountQuotaSheet.formatTokensCompact(meter.inputTokens ?? 0))
                     Spacer()
-                    auditCell("Cache Hit", AccountQuotaSheet.formatTokensCompact(meter.cacheReadTokens ?? 0))
+                    auditCell("Cache Hit", cacheHitDisplay, valueColor: cacheHitValueColor)
                     Spacer()
                     auditCell("Output", AccountQuotaSheet.formatTokensCompact(meter.outputTokens ?? 0))
                     Spacer()
@@ -1134,6 +1196,22 @@ struct ContextAuditSheetView: View {
             .padding(14)
             .background(Color(uiColor: .secondarySystemGroupedBackground))
             .clipShape(RoundedRectangle(cornerRadius: 12))
+
+            if meter.isCacheMissStreak {
+                let streak = max(meter.cacheMissStreak ?? 2, 2)
+                let uncached = AccountQuotaSheet.formatTokensCompact(meter.cacheMissTokens ?? (meter.inputTokens ?? 0))
+                cacheNoticeBanner(
+                    icon: "exclamationmark.triangle.fill",
+                    text: String(localized: "近 \(streak) 步均未命中缓存（累计重算 \(uncached)），可能正在加速消耗周额度，建议压缩或开启新会话。")
+                )
+            } else if let idleMins = staleIdleMinutes {
+                let idleText = Self.formatIdleDuration(idleMins)
+                let usedText = AccountQuotaSheet.formatTokensCompact(meter.usedTokens)
+                cacheNoticeBanner(
+                    icon: "snowflake",
+                    text: String(localized: "已闲置 \(idleText)，约 \(usedText) 上下文缓存可能已失效；直接续聊将重算输入额度，建议先压缩或开启新会话。")
+                )
+            }
 
             HStack(spacing: 10) {
                 if canCompact {
@@ -1171,6 +1249,28 @@ struct ContextAuditSheetView: View {
         .background(Color(uiColor: .systemGroupedBackground))
     }
 
+    private func cacheNoticeBanner(icon: String, text: String) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: icon)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(.orange)
+                .padding(.top, 1)
+            Text(text)
+                .font(.system(size: 12))
+                .foregroundColor(.primary.opacity(0.88))
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(Color.orange.opacity(0.11))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(Color.orange.opacity(0.28), lineWidth: 0.7)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+
     private func auditTile(title: String, value: String) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             Text(title).font(.system(size: 10)).foregroundColor(.secondary).lineLimit(1)
@@ -1183,10 +1283,14 @@ struct ContextAuditSheetView: View {
         .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 
-    private func auditCell(_ label: String, _ value: String) -> some View {
+    private func auditCell(_ label: String, _ value: String, valueColor: Color = .primary) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(label).font(.system(size: 10)).foregroundColor(.secondary)
-            Text(value).font(.system(size: 13, weight: .semibold, design: .monospaced))
+            Text(value)
+                .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                .foregroundColor(valueColor)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
         }
     }
 }
@@ -1201,6 +1305,8 @@ private struct ChatToolbarPrincipalView: View {
     @State private var settings = AppSettings.shared
 
     var body: some View {
+        let isRunning = viewModel.isRunning || viewModel.isAwaitingResponse
+        let hasPending = viewModel.pendingInteraction != nil || viewModel.canProceed
         if viewModel.turns.count >= 2 {
             VStack(spacing: 2) {
                 Button(action: onOpenNavigator) {
@@ -1229,10 +1335,12 @@ private struct ChatToolbarPrincipalView: View {
                     .buttonStyle(.plain)
                     .accessibilityLabel("当前第 \(scrollHUD.currentVisibleTurnIndex) 轮，共 \(viewModel.turns.count) 轮，点击打开步骤大纲")
 
-                    if let meter = viewModel.contextMeter, settings.shouldShowContextMeter(meter) {
+                    if let meter = viewModel.contextMeter,
+                       settings.shouldShowContextMeter(meter, isRunning: isRunning, hasPendingInteraction: hasPending) {
                         ContextRingCapsuleView(
                             meter: meter,
-                            isRunning: viewModel.isRunning || viewModel.isAwaitingResponse
+                            isRunning: isRunning,
+                            hasPendingInteraction: hasPending
                         ) {
                             onOpenContextAudit()
                         }
@@ -1244,10 +1352,12 @@ private struct ChatToolbarPrincipalView: View {
                 Text(viewModel.currentTitle)
                     .font(.system(size: 15.5, weight: .semibold))
                     .lineLimit(1)
-                if let meter = viewModel.contextMeter, settings.shouldShowContextMeter(meter) {
+                if let meter = viewModel.contextMeter,
+                   settings.shouldShowContextMeter(meter, isRunning: isRunning, hasPendingInteraction: hasPending) {
                     ContextRingCapsuleView(
                         meter: meter,
-                        isRunning: viewModel.isRunning || viewModel.isAwaitingResponse
+                        isRunning: isRunning,
+                        hasPendingInteraction: hasPending
                     ) {
                         onOpenContextAudit()
                     }

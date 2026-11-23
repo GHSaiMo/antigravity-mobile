@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.components
 
+import com.antigravity.mobile.ui.util.L10n
 import com.antigravity.mobile.ui.util.loc
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
@@ -12,6 +13,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AcUnit
 import androidx.compose.material.icons.filled.AddCircleOutline
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Compress
@@ -41,15 +43,22 @@ import java.util.Locale
 fun ContextRingCapsule(
     meter: ContextMeterItem?,
     isRunning: Boolean,
+    hasPendingInteraction: Boolean = false,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     if (meter == null) return
     val colors = AntigravityTheme.colors
     val pct = meter.percentage.coerceIn(0.0, 100.0)
+    val isMissStreak = meter.isCacheMissStreak()
+    val staleIdleMins = meter.staleIdleMinutes(
+        isRunning = isRunning,
+        hasPendingInteraction = hasPendingInteraction
+    )
+    val hasCacheWarning = isMissStreak || staleIdleMins != null
     val ringColor = when {
         meter.isOverflow || pct >= 90.0 -> colors.accentRed
-        pct >= 70.0 -> colors.accentOrange
+        pct >= 70.0 || hasCacheWarning -> colors.accentOrange
         else -> colors.accentGreen
     }
     val shouldPulse = isRunning && (meter.isOverflow || pct >= 90.0)
@@ -104,6 +113,21 @@ fun ContextRingCapsule(
             fontFamily = FontFamily.Monospace,
             color = ringColor
         )
+        if (isMissStreak) {
+            Icon(
+                imageVector = Icons.Default.Warning,
+                contentDescription = "Cache Miss",
+                tint = colors.accentOrange,
+                modifier = Modifier.size(10.dp)
+            )
+        } else if (staleIdleMins != null) {
+            Icon(
+                imageVector = Icons.Default.AcUnit,
+                contentDescription = "Cold Cache",
+                tint = colors.accentOrange,
+                modifier = Modifier.size(10.dp)
+            )
+        }
         if (meter.tokensPerSecond > 0.1 && (isRunning || meter.streamingDurationSec > 0.0)) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -131,6 +155,8 @@ fun ContextRingCapsule(
 @Composable
 fun ContextAuditSheet(
     meter: ContextMeterItem,
+    isRunning: Boolean = false,
+    hasPendingInteraction: Boolean = false,
     canCompact: Boolean,
     onCompact: () -> Unit,
     onStartNewSession: () -> Unit,
@@ -138,10 +164,28 @@ fun ContextAuditSheet(
 ) {
     val colors = AntigravityTheme.colors
     val pct = meter.percentage.coerceIn(0.0, 100.0)
+    val isMissStreak = meter.isCacheMissStreak()
+    val staleIdleMins = meter.staleIdleMinutes(
+        isRunning = isRunning,
+        hasPendingInteraction = hasPendingInteraction
+    )
+    val hasCacheWarning = isMissStreak || staleIdleMins != null
     val accent = when {
         meter.isOverflow || pct >= 90.0 -> colors.accentRed
-        pct >= 70.0 -> colors.accentOrange
+        pct >= 70.0 || hasCacheWarning -> colors.accentOrange
         else -> colors.accentGreen
+    }
+    val hitRate = meter.effectiveCacheHitRate()
+    val cacheHitDisplay = buildString {
+        append(formatTokensCompact(meter.cacheReadTokens))
+        if (hitRate != null) {
+            append(" (${Math.round(hitRate)}%)")
+        }
+    }
+    val cacheHitColor = if (isMissStreak || (hitRate != null && meter.usedTokens >= 24_000L && hitRate < 20.0)) {
+        colors.accentOrange
+    } else {
+        colors.textPrimary
     }
 
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -263,10 +307,24 @@ fun ContextAuditSheet(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     AuditBreakdownCell("Input", formatTokensCompact(meter.inputTokens))
-                    AuditBreakdownCell("Cache Hit", formatTokensCompact(meter.cacheReadTokens))
+                    AuditBreakdownCell("Cache Hit", cacheHitDisplay, valueColor = cacheHitColor)
                     AuditBreakdownCell("Output", formatTokensCompact(meter.outputTokens))
                     AuditBreakdownCell("Thinking", formatTokensCompact(meter.thinkingTokens))
                 }
+            }
+
+            if (isMissStreak) {
+                val streak = maxOf(meter.cacheMissStreak, 2)
+                val uncached = formatTokensCompact(if (meter.cacheMissTokens > 0L) meter.cacheMissTokens else meter.inputTokens)
+                AuditCacheNoticeBanner(
+                    icon = Icons.Default.Warning,
+                    text = formatCacheMissNotice(streak, uncached)
+                )
+            } else if (staleIdleMins != null) {
+                AuditCacheNoticeBanner(
+                    icon = Icons.Default.AcUnit,
+                    text = formatStaleCacheNotice(staleIdleMins, formatTokensCompact(meter.usedTokens))
+                )
             }
 
             // Action buttons
@@ -355,17 +413,93 @@ private fun AuditMetricTile(
 }
 
 @Composable
-private fun AuditBreakdownCell(label: String, value: String) {
+private fun AuditBreakdownCell(
+    label: String,
+    value: String,
+    valueColor: Color? = null
+) {
     val colors = AntigravityTheme.colors
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Text(text = label, fontSize = 10.sp, color = colors.textMuted)
         Text(
             text = value,
-            fontSize = 13.sp,
+            fontSize = 12.sp,
             fontWeight = FontWeight.SemiBold,
             fontFamily = FontFamily.Monospace,
-            color = colors.textPrimary
+            color = valueColor ?: colors.textPrimary,
+            maxLines = 1,
+            softWrap = false
         )
+    }
+}
+
+@Composable
+private fun AuditCacheNoticeBanner(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    text: String
+) {
+    val colors = AntigravityTheme.colors
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(colors.accentOrange.copy(alpha = if (colors.isDark) 0.14f else 0.10f))
+            .border(0.7.dp, colors.accentOrange.copy(alpha = 0.30f), RoundedCornerShape(10.dp))
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.Top
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = colors.accentOrange,
+            modifier = Modifier
+                .padding(top = 1.dp)
+                .size(14.dp)
+        )
+        Text(
+            text = text,
+            fontSize = 12.sp,
+            lineHeight = 17.sp,
+            color = colors.textPrimary.copy(alpha = 0.88f)
+        )
+    }
+}
+
+private fun formatIdleDurationText(minutes: Int): String {
+    val hours = minutes / 60
+    val rem = minutes % 60
+    return when (L10n.currentLang) {
+        L10n.AppLang.EN -> when {
+            minutes < 60 -> "$minutes min"
+            rem == 0 -> "${hours}h"
+            else -> "${hours}h ${rem}m"
+        }
+        L10n.AppLang.JA -> when {
+            minutes < 60 -> "$minutes 分"
+            rem == 0 -> "$hours 時間"
+            else -> "$hours 時間 $rem 分"
+        }
+        L10n.AppLang.ZH -> when {
+            minutes < 60 -> "$minutes 分钟"
+            rem == 0 -> "$hours 小时"
+            else -> "$hours 小时 $rem 分钟"
+        }
+    }
+}
+
+private fun formatCacheMissNotice(streak: Int, uncached: String): String = when (L10n.currentLang) {
+    L10n.AppLang.EN -> "$streak consecutive cache misses ($uncached uncached input) may drain weekly quota faster. Consider compacting or starting a new session."
+    L10n.AppLang.JA -> "直近 $streak ステップ連続でキャッシュ未命中（再計算 $uncached）。週間クォータを急消費する恐れがあります。圧縮または新規チャットをおすすめします。"
+    L10n.AppLang.ZH -> "近 $streak 步均未命中缓存（累计重算 $uncached），可能正在加速消耗周额度，建议压缩或开启新会话。"
+}
+
+private fun formatStaleCacheNotice(minutes: Int, usedText: String): String {
+    val idleText = formatIdleDurationText(minutes)
+    return when (L10n.currentLang) {
+        L10n.AppLang.EN -> "Idle for $idleText — prompt cache for ~$usedText context may have expired. Continuing may recompute full input; consider compacting or starting a new session."
+        L10n.AppLang.JA -> "$idleText 間アイドル状態です。約 $usedText のキャッシュが失効している可能性があります。このまま続行すると入力を再計算するため、圧縮または新規チャットをおすすめします。"
+        L10n.AppLang.ZH -> "已闲置 $idleText，约 $usedText 上下文缓存可能已失效；直接续聊将重算输入额度，建议先压缩或开启新会话。"
     }
 }
 

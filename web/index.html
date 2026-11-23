@@ -81,6 +81,7 @@
                 <path id="context-ring-circle" class="context-ring-val" stroke-dasharray="0, 100" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="currentColor" stroke-width="3.5"/>
               </svg>
               <span id="context-ring-text" class="context-ring-text">0%</span>
+              <span id="context-cache-badge" class="context-cache-badge hidden" aria-hidden="true"></span>
               <span id="context-speed-badge" class="context-speed-badge hidden">⚡ 0 t/s</span>
             </div>
           </div>
@@ -864,6 +865,7 @@
             <div class="audit-breakdown-row"><span>模型输出 (Output)</span><strong id="audit-output-tokens">0</strong></div>
             <div class="audit-breakdown-row"><span>深度思考 (Thinking)</span><strong id="audit-thinking-tokens">0</strong></div>
           </div>
+          <div id="audit-cache-notice" class="audit-cache-notice hidden"></div>
           <div class="audit-actions-bar">
             <button id="btn-audit-compact" class="audit-action-btn primary" type="button">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M7 5l5 5 5-5"/><path d="M7 19l5-5 5 5"/></svg>

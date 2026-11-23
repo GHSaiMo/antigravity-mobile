@@ -181,7 +181,10 @@ func (p *Proxy) handleCascadeMessages(w http.ResponseWriter, r *http.Request) {
 		details.QueuedMessages = []QueuedMessageItem{}
 	}
 	details.QueuedMessages = p.FilterQueuedMessagesAgainstTrajectory(cascadeID, details.QueuedMessages, rawResp.Trajectory.Steps, details.AllMessages)
-	details.ContextMeter = p.fetchUpstreamGeneratorMetadata(cascadeID, port, token)
+	details.ContextMeter = withLastActivityAt(
+		p.fetchUpstreamGeneratorMetadata(cascadeID, port, token),
+		extractLastActivityAt(rawResp.Trajectory.Steps),
+	)
 
 	totalMsgs := len(details.AllMessages)
 	sliced := make([]CascadeMessageItem, 0)

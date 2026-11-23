@@ -17,32 +17,42 @@ const (
 	watcherAlertQueueSize         = 64
 	watcherAlertWorkers           = 4
 	watcherDetailFetchConcurrency = 4
+	defaultCacheGuardInterval     = 15 * time.Second
 )
 
 type sessionTrackingState struct {
-	lastStatus           string
-	lastSteps            int
-	title                string
-	waitingForBackground bool
-	pendingApprovalKey   string
-	pendingApprovalSince time.Time
-	fetchRetryCount      int
-	actionRetryAfter     time.Time
-	lastUpdated          time.Time
+	lastStatus            string
+	lastSteps             int
+	title                 string
+	waitingForBackground  bool
+	pendingApprovalKey    string
+	pendingApprovalSince  time.Time
+	fetchRetryCount       int
+	actionRetryAfter      time.Time
+	lastCacheGuardCheckAt time.Time
+	lastUpdated           time.Time
 }
 
 // Watcher continuously monitors Antigravity sessions in the background
 // to detect when tasks complete or require user approvals.
 type Watcher struct {
-	mu             sync.RWMutex
-	proxy          *proxy.Proxy
-	notifier       *Notifier
-	knownSessions  map[string]*sessionTrackingState
-	hasInitialSync bool
-	initialSyncAt  time.Time
-	lastActivityAt time.Time
-	onActivity     func(active bool)
-	alertCh        chan func()
+	mu                 sync.RWMutex
+	proxy              *proxy.Proxy
+	notifier           *Notifier
+	knownSessions      map[string]*sessionTrackingState
+	hasInitialSync     bool
+	initialSyncAt      time.Time
+	lastActivityAt     time.Time
+	onActivity         func(active bool)
+	alertCh            chan func()
+	cacheGuardInterval time.Duration
+}
+
+func (w *Watcher) effectiveCacheGuardInterval() time.Duration {
+	if w.cacheGuardInterval > 0 {
+		return w.cacheGuardInterval
+	}
+	return defaultCacheGuardInterval
 }
 
 // NewWatcher creates a new background Watcher instance.
@@ -244,6 +254,7 @@ type watcherDetailJob struct {
 	prevPendingApprovalSince time.Time
 	prevRetries              int
 	cooldownUntil            time.Time
+	lastCacheGuardCheckAt    time.Time
 }
 
 func approvalKeyForDetails(details *proxy.TrajectoryDetails) string {
@@ -381,6 +392,7 @@ func (w *Watcher) scanOnceWithMaxAge(summaryMaxAge time.Duration) int {
 		prevPendingSince := prev.pendingApprovalSince
 		prevRetries := prev.fetchRetryCount
 		cooldownUntil := prev.actionRetryAfter
+		lastCacheGuardCheckAt := prev.lastCacheGuardCheckAt
 
 		if status == "CASCADE_RUN_STATUS_RUNNING" ||
 			(exists && steps > prevSteps) ||
@@ -430,6 +442,7 @@ func (w *Watcher) scanOnceWithMaxAge(summaryMaxAge time.Duration) int {
 			prevPendingApprovalSince: prevPendingSince,
 			prevRetries:              prevRetries,
 			cooldownUntil:            cooldownUntil,
+			lastCacheGuardCheckAt:    lastCacheGuardCheckAt,
 		})
 	}
 
@@ -480,6 +493,7 @@ func (w *Watcher) scanOnceWithMaxAge(summaryMaxAge time.Duration) int {
 		nextRetries := job.prevRetries
 		nextPendingKey := job.prevPendingApprovalKey
 		nextPendingSince := job.prevPendingApprovalSince
+		nextCacheGuardCheckAt := job.lastCacheGuardCheckAt
 		setPending := func(key string) {
 			nextPendingKey = key
 			if key == "" {
@@ -528,6 +542,26 @@ func (w *Watcher) scanOnceWithMaxAge(summaryMaxAge time.Duration) int {
 								pState.actionRetryAfter = time.Now().Add(actionNotifyCooldown)
 								w.mu.Unlock()
 							}
+						})
+					}
+				}
+				if hasAlert &&
+					strings.TrimSpace(details.ParentConversation) == "" &&
+					isCacheMissAlertEnabled() &&
+					(job.lastCacheGuardCheckAt.IsZero() || now.Sub(job.lastCacheGuardCheckAt) >= w.effectiveCacheGuardInterval()) {
+					nextCacheGuardCheckAt = now
+					if meter := w.proxy.FetchContextMeter(id); meter != nil &&
+						meter.CacheMissStreak >= cacheMissAlertMinStreak &&
+						meter.CacheMissTokens >= cacheMissAlertMinTokens {
+						cid := id
+						dTitle := details.Title
+						if dTitle == "" || dTitle == MsgUntitledSession {
+							dTitle = title
+						}
+						streak := meter.CacheMissStreak
+						missTokens := meter.CacheMissTokens
+						_ = w.dispatchAlert(func() {
+							_ = w.notifier.NotifyCacheMissAlert(cid, dTitle, streak, missTokens)
 						})
 					}
 				}
@@ -765,6 +799,7 @@ func (w *Watcher) scanOnceWithMaxAge(summaryMaxAge time.Duration) int {
 		prev.pendingApprovalKey = nextPendingKey
 		prev.pendingApprovalSince = nextPendingSince
 		prev.fetchRetryCount = nextRetries
+		prev.lastCacheGuardCheckAt = nextCacheGuardCheckAt
 		prev.lastStatus = status
 		prev.lastSteps = steps
 		if title != "" && title != MsgUntitledSession {

@@ -1,6 +1,10 @@
 package notifier
 
-import "antigravity-mobile/internal/i18n"
+import (
+	"fmt"
+
+	"antigravity-mobile/internal/i18n"
+)
 
 // Notification message templates — centralized for i18n readiness.
 // Exported constants remain in Chinese for backward compatibility with existing callers and tests;
@@ -142,4 +146,33 @@ func msgDefaultTask() string {
 
 func formatSessionPrefix(sessionTitle, body string) string {
 	return i18n.Sprintf3("【%s】%s", "[%s] %s", "【%s】%s", sessionTitle, body)
+}
+
+func msgTitleCacheMissAlert() string {
+	return i18n.T3(
+		"⚠️ 缓存连续未命中预警",
+		"⚠️ Prompt Cache Miss Alert",
+		"⚠️ キャッシュ連続ミス警告",
+	)
+}
+
+func msgBodyCacheMissAlert(streak int, tokensText string) string {
+	return i18n.Sprintf3(
+		"连续 %d 步未命中缓存（累计重算 %s 输入），可能正在加速消耗周额度，建议查看或及时中断。",
+		"%d consecutive cache misses (%s uncached input) — weekly quota may drain faster. Check or interrupt if needed.",
+		"%d ステップ連続でキャッシュ未命中（再計算入力 %s）。週間クォータを急消費している可能性があります。",
+		streak,
+		tokensText,
+	)
+}
+
+func formatCompactTokens(n int64) string {
+	switch {
+	case n >= 1_000_000:
+		return fmt.Sprintf("%.1fM", float64(n)/1_000_000.0)
+	case n >= 1_000:
+		return fmt.Sprintf("%.0fK", float64(n)/1_000.0)
+	default:
+		return fmt.Sprintf("%d", n)
+	}
 }

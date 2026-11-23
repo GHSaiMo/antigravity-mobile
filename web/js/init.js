@@ -271,10 +271,16 @@ function initApp() {
     shouldCollapseTasks() {
       return this.isEnabled() && this.collapseTasks();
     },
-    shouldShowContextMeter(meter) {
+    shouldShowContextMeter(meter, isRunning = false, hasPendingInteraction = false) {
       if (!meter) return false;
       if (!(this.isEnabled() && this.hideHealthyContext())) return true;
-      return Boolean(meter.isOverflow) || (Number(meter.percentage) || 0) >= 70;
+      if (Boolean(meter.isOverflow) || (Number(meter.percentage) || 0) >= 70) return true;
+      if (meter.cacheStatus === "miss_streak" || (Number(meter.cacheMissStreak) || 0) >= 2) return true;
+      if (!isRunning && !hasPendingInteraction && (Number(meter.usedTokens) || 0) >= 40000 && meter.lastActivityAt) {
+        const ts = Date.parse(meter.lastActivityAt);
+        if (!Number.isNaN(ts) && (Date.now() - ts) / 60000 >= 15) return true;
+      }
+      return false;
     }
   };
 

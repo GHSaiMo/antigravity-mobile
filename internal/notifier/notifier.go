@@ -1,9 +1,10 @@
 package notifier
 
 import (
-	"log/slog"
 	"context"
 	"fmt"
+	"log/slog"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -11,6 +12,22 @@ import (
 	"antigravity-mobile/internal/config"
 	"antigravity-mobile/internal/proxy"
 )
+
+const (
+	cacheMissAlertMinStreak       = 3
+	cacheMissAlertMinTokens int64 = 120000
+	cacheMissAlertCooldown        = 1 * time.Hour
+)
+
+func isCacheMissAlertEnabled() bool {
+	v := strings.ToLower(strings.TrimSpace(os.Getenv("CACHE_MISS_ALERT_ENABLED")))
+	switch v {
+	case "0", "false", "off", "no":
+		return false
+	default:
+		return true
+	}
+}
 
 // PushPayload is the unified notification envelope dispatched across APNs and FCM channels.
 type PushPayload struct {
@@ -508,6 +525,47 @@ func (n *Notifier) NotifyQuotaAlert(key, title, body string, critical bool) erro
 	return nil
 }
 
+// NotifyCacheMissAlert sends a deduplicated alert when an active long-running session suffers
+// repeated large-context prompt cache misses that risk draining weekly quota rapidly.
+func (n *Notifier) NotifyCacheMissAlert(cascadeID, title string, streak int, missTokens int64) error {
+	cascadeID = strings.TrimSpace(cascadeID)
+	if !n.IsEnabled() || !isCacheMissAlertEnabled() || cascadeID == "" {
+		return nil
+	}
+	if streak < cacheMissAlertMinStreak || missTokens < cacheMissAlertMinTokens {
+		return nil
+	}
+
+	dedupKey := fmt.Sprintf("cache_miss:%s", cascadeID)
+	if !n.dedup.TryNotify(dedupKey, cacheMissAlertCooldown) {
+		return nil
+	}
+
+	notifBody := msgBodyCacheMissAlert(streak, formatCompactTokens(missTokens))
+	cleanSessionTitle := SanitizePushText(title)
+	if cleanSessionTitle != "" && cleanSessionTitle != MsgUntitledSession {
+		notifBody = formatSessionPrefix(truncateString(cleanSessionTitle, 60), notifBody)
+	}
+
+	payload := PushPayload{
+		Title:     msgTitleCacheMissAlert(),
+		Body:      notifBody,
+		Icon:      n.cfg.IconURL,
+		Group:     n.cfg.Group,
+		URL:       fmt.Sprintf("antigravity://cascade/%s", cascadeID),
+		Level:     "timeSensitive",
+		Sound:     n.cfg.SoundAction,
+		Category:  "cache_miss_alert",
+		CascadeID: cascadeID,
+	}
+
+	if err := n.sendToAll(context.Background(), payload); err != nil {
+		n.dedup.Remove(dedupKey)
+		return err
+	}
+	return nil
+}
+
 // OnTrajectoryUpdate handles a real-time trajectory snapshot from WebSocket or polling asynchronously
 // to prevent blocking streaming connections if the push server experiences latency.
 func (n *Notifier) OnTrajectoryUpdate(details *proxy.TrajectoryDetails) {
@@ -529,18 +587,37 @@ func (n *Notifier) OnTrajectoryUpdate(details *proxy.TrajectoryDetails) {
 	// 1. Check for Pending Interaction (only while the cascade is actively RUNNING)
 	if details.Status == "CASCADE_RUN_STATUS_RUNNING" && details.PendingInteraction != nil {
 		dedupKey := fmt.Sprintf("action:%s:%d:%s", details.CascadeID, details.PendingInteraction.StepIndex, details.PendingInteraction.Type)
-		if n.dedup.IsNotified(dedupKey, 2*time.Hour) {
-			return
+		if !n.dedup.IsNotified(dedupKey, 2*time.Hour) {
+			cascadeID := details.CascadeID
+			title := details.Title
+			pi := *details.PendingInteraction
+			go func() {
+				if err := n.NotifyAction(cascadeID, title, &pi); err != nil {
+					slog.Warn(fmt.Sprintf("[Notifier] Async NotifyAction error for cascade %s", cascadeID), "err", err)
+				}
+			}()
 		}
-		cascadeID := details.CascadeID
-		title := details.Title
-		pi := *details.PendingInteraction
-		go func() {
-			if err := n.NotifyAction(cascadeID, title, &pi); err != nil {
-				slog.Warn(fmt.Sprintf("[Notifier] Async NotifyAction error for cascade %s", cascadeID), "err", err)
-			}
-		}()
-		return
+	}
+
+	// 2. Check for repeated large-context prompt cache misses on running non-subagent sessions
+	if details.Status == "CASCADE_RUN_STATUS_RUNNING" &&
+		strings.TrimSpace(details.ParentConversation) == "" &&
+		details.ContextMeter != nil &&
+		details.ContextMeter.CacheMissStreak >= cacheMissAlertMinStreak &&
+		details.ContextMeter.CacheMissTokens >= cacheMissAlertMinTokens &&
+		isCacheMissAlertEnabled() {
+		dedupKey := fmt.Sprintf("cache_miss:%s", details.CascadeID)
+		if !n.dedup.IsNotified(dedupKey, cacheMissAlertCooldown) {
+			cascadeID := details.CascadeID
+			title := details.Title
+			streak := details.ContextMeter.CacheMissStreak
+			missTokens := details.ContextMeter.CacheMissTokens
+			go func() {
+				if err := n.NotifyCacheMissAlert(cascadeID, title, streak, missTokens); err != nil {
+					slog.Warn(fmt.Sprintf("[Notifier] Async NotifyCacheMissAlert error for cascade %s", cascadeID), "err", err)
+				}
+			}()
+		}
 	}
 
 	// Terminal completion (Completed/Failed) and Plan Proceed notifications are handled
