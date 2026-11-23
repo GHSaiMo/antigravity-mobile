@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 	"sync"
@@ -190,7 +191,7 @@ func (p *PoolProvider) selectFastestNode(ctx context.Context, nodes []NodeConfig
 		return nodes[0], 0
 	}
 
-	probeCtx, cancel := context.WithTimeout(ctx, 3500*time.Millisecond)
+	probeCtx, cancel := context.WithTimeout(ctx, 4500*time.Millisecond)
 	defer cancel()
 
 	resCh := make(chan nodeProbeResult, len(nodes))
@@ -236,9 +237,64 @@ func (p *PoolProvider) probeSingle(ctx context.Context, node NodeConfig) (time.D
 	if healthURL == "" {
 		return 0, false
 	}
+
+	const (
+		attemptTimeout   = 2000 * time.Millisecond
+		fastAcceptCutoff = 800 * time.Millisecond
+	)
+
+	var bestRTT time.Duration
+	var gotOK bool
+
+	// Prefer direct (Proxy: nil) probes so a developer's local Clash/VPN proxy
+	// (often routed via US/EU nodes) does not distort physical RTT selection.
+	for attempt := 0; attempt < 2; attempt++ {
+		if ctx.Err() != nil {
+			break
+		}
+		attemptCtx, cancel := context.WithTimeout(ctx, attemptTimeout)
+		rtt, ok := p.probeOnce(attemptCtx, healthURL, false)
+		cancel()
+		if ok {
+			if !gotOK || rtt < bestRTT {
+				bestRTT = rtt
+				gotOK = true
+			}
+			// Fast healthy response needs no second attempt; only retry on failure or
+			// high-RTT spike (e.g., single-packet TCP SYN drop/retransmit on cold start).
+			if bestRTT <= fastAcceptCutoff {
+				break
+			}
+		}
+	}
+	if gotOK || p.cfg.ProbeClient != nil || ctx.Err() != nil {
+		return bestRTT, gotOK
+	}
+
+	// Corporate-proxy fallback: if direct outbound 443 is blocked and env proxy is set, try proxy once.
+	if hasEnvProxyForURL(healthURL) {
+		attemptCtx, cancel := context.WithTimeout(ctx, attemptTimeout)
+		rtt, ok := p.probeOnce(attemptCtx, healthURL, true)
+		cancel()
+		if ok {
+			return rtt, true
+		}
+	}
+	return 0, false
+}
+
+func (p *PoolProvider) probeOnce(ctx context.Context, healthURL string, useProxy bool) (time.Duration, bool) {
 	client := p.cfg.ProbeClient
 	if client == nil {
-		client = &http.Client{Timeout: 3 * time.Second}
+		tr := http.DefaultTransport.(*http.Transport).Clone()
+		tr.DisableKeepAlives = true
+		if useProxy {
+			tr.Proxy = http.ProxyFromEnvironment
+		} else {
+			tr.Proxy = nil
+		}
+		client = &http.Client{Transport: tr}
+		defer tr.CloseIdleConnections()
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, healthURL, nil)
 	if err != nil {
@@ -255,6 +311,22 @@ func (p *PoolProvider) probeSingle(ctx context.Context, node NodeConfig) (time.D
 		return 0, false
 	}
 	return time.Since(start), true
+}
+
+func hasEnvProxyForURL(rawURL string) bool {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return false
+	}
+	// http.ProxyFromEnvironment checks http/https schemes; normalize wss/ws for lookup.
+	switch strings.ToLower(u.Scheme) {
+	case "wss":
+		u.Scheme = "https"
+	case "ws":
+		u.Scheme = "http"
+	}
+	proxyURL, err := http.ProxyFromEnvironment(&http.Request{URL: u})
+	return err == nil && proxyURL != nil
 }
 
 func (p *PoolProvider) supervise(ctx context.Context) {
@@ -385,18 +457,34 @@ func (p *PoolProvider) refreshLoop(ctx context.Context) {
 }
 
 func (p *PoolProvider) connectAndServe(ctx context.Context, node NodeConfig) error {
-	dialer := websocket.Dialer{
-		Proxy:             http.ProxyFromEnvironment,
-		HandshakeTimeout:  15 * time.Second,
-		ReadBufferSize:    32 << 10,
-		WriteBufferSize:   32 << 10,
-		EnableCompression: false,
-	}
 	hdr := http.Header{}
 	hdr.Set("Authorization", "Bearer "+node.Token)
 	hdr.Set("User-Agent", "Multigravity-RelayPool/1.0")
 
-	ws, resp, err := dialer.DialContext(ctx, node.Endpoint, hdr)
+	// Try direct connection first (bypassing local dev proxies like Clash/V2Ray so the
+	// tunnel follows the physical low-latency route and survives proxy restarts), falling
+	// back to ProxyFromEnvironment only when direct dial fails and an env proxy is set.
+	directDialer := websocket.Dialer{
+		Proxy:             nil,
+		HandshakeTimeout:  10 * time.Second,
+		ReadBufferSize:    32 << 10,
+		WriteBufferSize:   32 << 10,
+		EnableCompression: false,
+	}
+	ws, resp, err := directDialer.DialContext(ctx, node.Endpoint, hdr)
+	if err != nil && ctx.Err() == nil && hasEnvProxyForURL(node.Endpoint) {
+		if resp != nil {
+			_ = resp.Body.Close()
+		}
+		proxyDialer := websocket.Dialer{
+			Proxy:             http.ProxyFromEnvironment,
+			HandshakeTimeout:  15 * time.Second,
+			ReadBufferSize:    32 << 10,
+			WriteBufferSize:   32 << 10,
+			EnableCompression: false,
+		}
+		ws, resp, err = proxyDialer.DialContext(ctx, node.Endpoint, hdr)
+	}
 	if err != nil {
 		if resp != nil {
 			defer resp.Body.Close()

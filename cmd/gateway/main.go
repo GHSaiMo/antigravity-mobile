@@ -776,15 +776,33 @@ func runGatewayServer(args []string) {
 			// Dual-Track Step 2: While legacy Cloudflare Tunnel serves older Apps, attempt to launch parallel
 			// E2EE relay_v1 pool so upgraded Apps silently switch over without re-scanning QR codes.
 			if hasLegacy && prov.Mode() == tunnel.ModeCloudflare && cfgCopy.Token == "" && cfgCopy.WorkerURL != "" && authHandler.E2EEIdentity() != nil {
-				relayRes, rErr := tunnel.RegisterOrFetchTunnelWithOptions(watcherCtx, cfgCopy.WorkerURL, cfgCopy.InviteCode, tunnel.RegisterOptions{
-					ClientVersion: Version,
-					Capabilities:  []string{tunnel.ModeRelayV1},
-					SkipCache:     true,
-				})
-				if rErr == nil && relayRes != nil && relayRes.EffectiveMode() == tunnel.ModeRelayV1 && watcherCtx.Err() == nil {
+				var relayRes *tunnel.CFTunnelResult
+				var rErr error
+				for attempt := 0; attempt < 3 && watcherCtx.Err() == nil; attempt++ {
+					relayRes, rErr = tunnel.RegisterOrFetchTunnelWithOptions(watcherCtx, cfgCopy.WorkerURL, cfgCopy.InviteCode, tunnel.RegisterOptions{
+						ClientVersion: Version,
+						Capabilities:  []string{tunnel.ModeRelayV1},
+						SkipCache:     true,
+					})
+					if rErr == nil && relayRes != nil && relayRes.EffectiveMode() == tunnel.ModeRelayV1 {
+						break
+					}
+					if attempt < 2 {
+						select {
+						case <-watcherCtx.Done():
+						case <-time.After(2 * time.Second):
+						}
+					}
+				}
+				if rErr != nil {
+					slog.Warn("⚠️  [DualTrack] 获取并行 E2EE 中继节点池失败，暂保持 Cloudflare 隧道", "err", rErr)
+				} else if relayRes != nil && relayRes.EffectiveMode() == tunnel.ModeRelayV1 && watcherCtx.Err() == nil {
 					relayProv, pErr := tunnel.NewProviderWithOptions(watcherCtx, relayRes, &cfgCopy, makeRelayOpts(true))
-					if pErr == nil {
-						if sErr := relayProv.Start(watcherCtx); sErr == nil {
+					if pErr != nil {
+						slog.Warn("⚠️  [DualTrack] 初始化并行 E2EE 中继引擎失败", "err", pErr)
+					} else if sErr := relayProv.Start(watcherCtx); sErr != nil {
+						slog.Warn("⚠️  [DualTrack] 启动并行 E2EE 中继隧道失败", "err", sErr)
+					} else {
 							cfMu.Lock()
 							if watcherCtx.Err() != nil {
 								cfMu.Unlock()
@@ -835,7 +853,6 @@ func runGatewayServer(args []string) {
 									}()
 								})
 							})
-						}
 					}
 				}
 			}

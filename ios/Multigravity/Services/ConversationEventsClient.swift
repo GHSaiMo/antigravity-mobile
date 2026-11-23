@@ -1,21 +1,17 @@
 import Foundation
-import Network
 import Observation
-import os
 
 /// Listens for conversation-list change hints and gateway heartbeats from `/gateway/events`.
 /// Every `hello` (connect/reconnect) and `changed` frame calls `onChange`; the owner then
 /// refetches the list through the normal list API. `isConnected` tells the owner when
 /// it may relax its own polling and flips back to false as soon as the socket is lost.
 ///
-/// Adaptive Transport Design:
-/// 1. Default & Primary Transport: `URLSessionWebSocketTask`
-///    - Automatically honors system Wi-Fi, HTTP, and SOCKS proxy configurations.
-///    - Fully exempted by `NSAllowsLocalNetworking: true` for cleartext RFC1918 LAN hosts.
-///    - Seamlessly supports Cloudflare Tunnel and WAN HTTPS connections.
-/// 2. ATS Bypass Fallback: `NWConnection`
-///    - Reserved for Tailscale private nodes (100.64.0.0/10, *.ts.net) using cleartext HTTP
-///      where ATS blocks cleartext URLSession requests.
+/// Transport:
+/// Routes through `GatewayWebSocketTask`, which transparently:
+/// 1. Wraps public relay traffic inside E2EE (`/api/v1/e2ee/ws`, AES-256-GCM) so relay hosts
+///    enforcing `HTTP 426 e2ee_required` stay permanently connected.
+/// 2. Preserves system Wi-Fi / proxy support via `URLSessionWebSocketTask` for LAN & HTTPS.
+/// 3. Switches to `NWConnection` for Tailscale cleartext `ws://` hosts blocked by iOS ATS.
 @Observable
 @MainActor
 public final class ConversationEventsClient {
@@ -49,13 +45,7 @@ public final class ConversationEventsClient {
     private var lastRevHost: String?
     /// Resolves the in-flight `connectOnce` continuation; lets `stop()` end it without polling.
     private var finishCurrent: (@MainActor () -> Void)?
-
-    // URLSession Engine State
-    private var currentSession: URLSession?
-    private var currentTask: URLSessionWebSocketTask?
-
-    // NWConnection Fallback Engine State
-    private var connection: NWConnection?
+    private var currentTask: GatewayWebSocketTask?
 
     public init() {}
 
@@ -155,17 +145,8 @@ public final class ConversationEventsClient {
         pingTask = nil
 
         if let task = currentTask {
-            task.cancel(with: .normalClosure, reason: nil)
             currentTask = nil
-        }
-        if let session = currentSession {
-            session.invalidateAndCancel()
-            currentSession = nil
-        }
-        if let conn = connection {
-            conn.stateUpdateHandler = nil
-            conn.cancel()
-            connection = nil
+            task.cancel()
         }
     }
 
@@ -196,18 +177,90 @@ public final class ConversationEventsClient {
         } else {
             components.queryItems = nil
         }
-        guard let targetURL = components.url else { return false }
 
-        let scheme = targetURL.scheme?.lowercased() ?? "http"
+        let isSecure = components.scheme?.lowercased() == "https" || components.scheme?.lowercased() == "wss"
+        components.scheme = isSecure ? "wss" : "ws"
+        guard let wsURL = components.url else { return false }
 
-        // Tailscale cleartext HTTP cannot pass URLSession ATS; use NWConnection fallback for it.
-        let isTailscaleCleartext = (scheme == "http" || scheme == "ws") && NetworkTransport.isTailscaleHost(hostStr)
+        var request = URLRequest(url: wsURL)
+        request.timeoutInterval = 15
+        if CloudflareAnycastAccelerator.isCloudflareTunnelHost(hostStr) {
+            request.setValue(hostStr, forHTTPHeaderField: "Host")
+        }
+        request.setValue("Multigravity/1.2.5 (iPhone; iOS)", forHTTPHeaderField: "User-Agent")
+        if let token = KeychainHelper.shared.read(key: .deviceToken) ?? AppSettings.shared.deviceToken, !token.isEmpty {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
 
-        if isTailscaleCleartext {
-            print("[EventsWS] Target is Tailscale cleartext (\(hostStr)), routing via NWConnection fallback")
-            return await connectWithNWConnection(targetURL: targetURL, useAnycastEdge: false, generation: gen)
-        } else {
-            return await connectWithURLSession(targetURL: targetURL, generation: gen)
+        print("[EventsWS] Connecting via GatewayWebSocketTask to \(wsURL.absoluteString)")
+
+        return await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+            var opened = false
+            var finished = false
+
+            let finish: @MainActor () -> Void = { [weak self] in
+                guard !finished else { return }
+                finished = true
+                if let self, self.generation == gen {
+                    self.finishCurrent = nil
+                    self.tearDown()
+                    self.setConnected(false)
+                }
+                continuation.resume(returning: opened)
+            }
+            self.finishCurrent = finish
+
+            let markOpened: @MainActor () -> Void = { [weak self] in
+                guard let self, self.generation == gen, !finished else { return }
+                if !opened {
+                    print("[EventsWS] WebSocket handshake established")
+                    opened = true
+                    self.hasEverConnected = true
+                    self.connectionWatchdogTask?.cancel()
+                    self.connectionWatchdogTask = nil
+                    self.setConnected(true)
+                    self.startKeepAlivePing(generation: gen)
+                }
+            }
+
+            let wsTask = GatewayWebSocketTask(
+                request: request,
+                requestTimeout: 20,
+                resourceTimeout: 86_400,
+                waitsForConnectivity: false,
+                onOpen: {
+                    Task { @MainActor in
+                        markOpened()
+                    }
+                },
+                onClose: {
+                    Task { @MainActor in
+                        print("[EventsWS] WebSocket closed normally")
+                        finish()
+                    }
+                },
+                onFail: { error in
+                    Task { @MainActor in
+                        print("[EventsWS] WebSocket disconnected with error: \(error.localizedDescription)")
+                        finish()
+                    }
+                },
+                onAuthRejected: { [weak self] in
+                    Task { @MainActor [weak self] in
+                        self?.currentAuthRejected = true
+                    }
+                }
+            )
+            self.currentTask = wsTask
+            wsTask.resume()
+            self.receiveLoop(task: wsTask, generation: gen, finish: finish, onOpened: markOpened)
+
+            connectionWatchdogTask = Task { [weak self] in
+                try? await Task.sleep(nanoseconds: 10_000_000_000)
+                guard let self, !Task.isCancelled, self.generation == gen, !opened else { return }
+                print("[EventsWS] Handshake watchdog timed out (10s), finishing attempt")
+                finish()
+            }
         }
     }
 
@@ -236,116 +289,14 @@ public final class ConversationEventsClient {
         return true
     }
 
-    // MARK: - Primary Transport: URLSessionWebSocketTask (Supports System / Wi-Fi Proxies)
-
-    private func connectWithURLSession(targetURL: URL, generation gen: Int) async -> Bool {
-        var wsComponents = URLComponents(url: targetURL, resolvingAgainstBaseURL: true)
-        let isSecure = wsComponents?.scheme?.lowercased() == "https" || wsComponents?.scheme?.lowercased() == "wss"
-        wsComponents?.scheme = isSecure ? "wss" : "ws"
-        guard let wsURL = wsComponents?.url ?? targetURL as URL? else { return false }
-
-        var request = URLRequest(url: wsURL)
-        request.timeoutInterval = 15
-
-        let hostStr = (wsURL.host ?? "").lowercased()
-        let isCloudflare = CloudflareAnycastAccelerator.isCloudflareTunnelHost(hostStr)
-        if isCloudflare {
-            request.setValue(hostStr, forHTTPHeaderField: "Host")
-        }
-        request.setValue("Multigravity/1.2.5 (iPhone; iOS)", forHTTPHeaderField: "User-Agent")
-
-        if let token = KeychainHelper.shared.read(key: .deviceToken) ?? AppSettings.shared.deviceToken, !token.isEmpty {
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        }
-
-        let isLoopback = hostStr == "127.0.0.1" || hostStr == "::1" || hostStr == "localhost"
-
-        print("[EventsWS] Connecting via URLSessionWebSocketTask to \(wsURL.absoluteString)")
-
-        return await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
-            var opened = false
-            var finished = false
-
-            let finish: @MainActor () -> Void = { [weak self] in
-                guard !finished else { return }
-                finished = true
-                if let self, self.generation == gen {
-                    self.finishCurrent = nil
-                    self.tearDown()
-                    self.setConnected(false)
-                }
-                continuation.resume(returning: opened)
-            }
-            self.finishCurrent = finish
-
-            let delegate = EventsSessionDelegate(isLoopback: isLoopback) {
-                Task { @MainActor [weak self] in
-                    guard let self, self.generation == gen, !finished else { return }
-                    if !opened {
-                        print("[EventsWS] WebSocket handshake established (didOpenWithProtocol)")
-                        opened = true
-                        self.hasEverConnected = true
-                        self.connectionWatchdogTask?.cancel()
-                        self.connectionWatchdogTask = nil
-                        self.setConnected(true)
-                        self.startKeepAlivePing(generation: gen)
-                    }
-                }
-            } onClose: { [weak self] error, authRejected in
-                Task { @MainActor in
-                    if authRejected {
-                        self?.currentAuthRejected = true
-                    }
-                    if let error {
-                        print("[EventsWS] WebSocket disconnected with error: \(error.localizedDescription)")
-                    } else {
-                        print("[EventsWS] WebSocket closed normally")
-                    }
-                    finish()
-                }
-            }
-
-            let config = URLSessionConfiguration.default
-            config.requestCachePolicy = .reloadIgnoringLocalCacheData
-            config.timeoutIntervalForRequest = 20
-            config.timeoutIntervalForResource = 60
-            let session = URLSession(configuration: config, delegate: delegate, delegateQueue: nil)
-            let task = session.webSocketTask(with: request)
-            self.currentSession = session
-            self.currentTask = task
-
-            task.resume()
-
-            self.receiveURLSessionLoop(task: task, generation: gen, finish: finish, onOpened: { [weak self] in
-                guard let self, self.generation == gen, !finished else { return }
-                if !opened {
-                    print("[EventsWS] First frame received, marking connection active")
-                    opened = true
-                    self.hasEverConnected = true
-                    self.connectionWatchdogTask?.cancel()
-                    self.connectionWatchdogTask = nil
-                    self.setConnected(true)
-                    self.startKeepAlivePing(generation: gen)
-                }
-            })
-
-            connectionWatchdogTask = Task { [weak self] in
-                try? await Task.sleep(nanoseconds: 10_000_000_000)
-                guard let self, !Task.isCancelled, self.generation == gen, !opened else { return }
-                print("[EventsWS] Handshake watchdog timed out (10s), finishing attempt")
-                finish()
-            }
-        }
-    }
-
-    private func receiveURLSessionLoop(
-        task: URLSessionWebSocketTask,
+    private func receiveLoop(
+        task: GatewayWebSocketTask,
         generation gen: Int,
         finish: @escaping @MainActor () -> Void,
         onOpened: @escaping @MainActor () -> Void
     ) {
         task.receive { [weak self, weak task] result in
-            Task { @MainActor in
+            Task { @MainActor [weak self, weak task] in
                 guard let self, let task, self.generation == gen, self.currentTask === task else { return }
                 switch result {
                 case .success(let message):
@@ -356,8 +307,6 @@ public final class ConversationEventsClient {
                         data = text.data(using: .utf8)
                     case .data(let d):
                         data = d
-                    @unknown default:
-                        data = nil
                     }
                     if let data, !data.isEmpty, let frame = ConversationEventFrame.parse(data) {
                         self.noteFrame(frame)
@@ -365,7 +314,7 @@ public final class ConversationEventsClient {
                             self.onChange?()
                         }
                     }
-                    self.receiveURLSessionLoop(task: task, generation: gen, finish: finish, onOpened: onOpened)
+                    self.receiveLoop(task: task, generation: gen, finish: finish, onOpened: onOpened)
                 case .failure(let error):
                     print("[EventsWS] Receive error: \(error.localizedDescription)")
                     finish()
@@ -389,132 +338,6 @@ public final class ConversationEventsClient {
         }
     }
 
-    // MARK: - Direct Socket Transport: NWConnection (Tailscale Cleartext & Cloudflare Anycast Edge)
-
-    private func connectWithNWConnection(targetURL: URL, useAnycastEdge: Bool = false, generation gen: Int) async -> Bool {
-        var components = URLComponents(url: targetURL, resolvingAgainstBaseURL: true)
-        components?.scheme = (targetURL.scheme?.lowercased() == "https" || targetURL.scheme?.lowercased() == "wss") ? "wss" : "ws"
-        guard let wsURL = components?.url else { return false }
-
-        let hostStr = (wsURL.host ?? "").lowercased()
-        let isCloudflare = CloudflareAnycastAccelerator.isCloudflareTunnelHost(hostStr)
-        let connectURL: URL
-        if useAnycastEdge && isCloudflare && wsURL.scheme?.lowercased() == "wss",
-           let edgeIP = CloudflareAnycastAccelerator.verifiedPrimaryIP {
-            var edgeComps = components
-            edgeComps?.host = edgeIP
-            if edgeComps?.port == nil {
-                edgeComps?.port = 443
-            }
-            connectURL = edgeComps?.url ?? wsURL
-        } else {
-            connectURL = wsURL
-        }
-        let endpoint = NWEndpoint.url(connectURL)
-
-        let wsOptions = NWProtocolWebSocket.Options()
-        wsOptions.autoReplyPing = true
-        wsOptions.maximumMessageSize = 16 * 1024 * 1024
-        var extraHeaders: [(String, String)] = []
-        if isCloudflare { extraHeaders.append(("Host", hostStr)) }
-        if let token = KeychainHelper.shared.read(key: .deviceToken) ?? AppSettings.shared.deviceToken, !token.isEmpty {
-            extraHeaders.append(("Authorization", "Bearer \(token)"))
-        }
-        if !extraHeaders.isEmpty { wsOptions.setAdditionalHeaders(extraHeaders) }
-
-        let parameters: NWParameters
-        if wsURL.scheme?.lowercased() == "wss" {
-            let tlsOptions = NWProtocolTLS.Options()
-            let isLoopback = hostStr == "127.0.0.1" || hostStr == "::1" || hostStr == "localhost"
-            if isLoopback {
-                sec_protocol_options_set_verify_block(tlsOptions.securityProtocolOptions, { _, _, completion in
-                    completion(true)
-                }, .global())
-            }
-            if isCloudflare {
-                sec_protocol_options_set_tls_server_name(tlsOptions.securityProtocolOptions, hostStr)
-            }
-            parameters = NWParameters(tls: tlsOptions)
-        } else {
-            parameters = NWParameters.tcp
-        }
-        parameters.defaultProtocolStack.applicationProtocols.insert(wsOptions, at: 0)
-
-        let conn = NWConnection(to: endpoint, using: parameters)
-        tearDown()
-        connection = conn
-
-        return await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
-            var opened = false
-            var finished = false
-            let finish: @MainActor () -> Void = { [weak self] in
-                guard !finished else { return }
-                finished = true
-                if let self, self.generation == gen {
-                    self.finishCurrent = nil
-                    self.tearDown()
-                    self.setConnected(false)
-                }
-                continuation.resume(returning: opened)
-            }
-            self.finishCurrent = finish
-
-            conn.stateUpdateHandler = { [weak self] state in
-                Task { @MainActor in
-                    guard let self, self.generation == gen, !finished else { return }
-                    switch state {
-                    case .ready:
-                        print("[EventsWS][NWConnection] Connection ready")
-                        opened = true
-                        self.hasEverConnected = true
-                        self.connectionWatchdogTask?.cancel()
-                        self.connectionWatchdogTask = nil
-                        self.setConnected(true)
-                        self.receiveNWLoop(on: conn, generation: gen, finish: finish)
-                    case .waiting(let err):
-                        print("[EventsWS][NWConnection] Connection waiting: \(err)")
-                    case .failed(let err):
-                        print("[EventsWS][NWConnection] Connection failed: \(err)")
-                        finish()
-                    case .cancelled:
-                        finish()
-                    default:
-                        break
-                    }
-                }
-            }
-            conn.start(queue: .main)
-
-            connectionWatchdogTask = Task { [weak self] in
-                try? await Task.sleep(nanoseconds: 10_000_000_000)
-                guard let self, !Task.isCancelled, self.generation == gen, !opened else { return }
-                print("[EventsWS][NWConnection] Handshake watchdog timed out (10s)")
-                finish()
-            }
-        }
-    }
-
-    private func receiveNWLoop(on conn: NWConnection, generation gen: Int, finish: @escaping @MainActor () -> Void) {
-        conn.receiveMessage { [weak self] content, _, isComplete, error in
-            Task { @MainActor in
-                guard let self, self.generation == gen, self.connection === conn else { return }
-                if let error {
-                    print("[EventsWS][NWConnection] Receive error: \(error)")
-                    finish()
-                    return
-                }
-                if let data = content, !data.isEmpty, let frame = ConversationEventFrame.parse(data) {
-                    self.noteFrame(frame)
-                    if frame.requestsRefresh { self.onChange?() }
-                } else if content == nil && isComplete {
-                    finish()
-                    return
-                }
-                self.receiveNWLoop(on: conn, generation: gen, finish: finish)
-            }
-        }
-    }
-
     private func noteFrame(_ frame: ConversationEventFrame) {
         currentReceivedValidFrame = true
         if frame.rev > 0 { lastRev = frame.rev }
@@ -526,46 +349,5 @@ public final class ConversationEventsClient {
             desktopState = desktop
         }
         if let ts = frame.ts { lastServerTS = ts }
-    }
-}
-
-// MARK: - EventsSessionDelegate
-
-private final class EventsSessionDelegate: NSObject, URLSessionWebSocketDelegate, Sendable {
-    private let onOpen: @Sendable () -> Void
-    private let onClose: @Sendable (Error?, Bool) -> Void
-    private let isLoopback: Bool
-
-    init(isLoopback: Bool, onOpen: @escaping @Sendable () -> Void, onClose: @escaping @Sendable (Error?, Bool) -> Void) {
-        self.isLoopback = isLoopback
-        self.onOpen = onOpen
-        self.onClose = onClose
-    }
-
-    func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask, didOpenWithProtocol proto: String?) {
-        onOpen()
-    }
-
-    func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask, didCloseWith closeCode: URLSessionWebSocketTask.CloseCode, reason: Data?) {
-        let authRejected = (closeCode.rawValue == 4001 || closeCode.rawValue == 4003)
-        onClose(nil, authRejected)
-    }
-
-    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        let httpCode = (task.response as? HTTPURLResponse)?.statusCode ?? 0
-        let authRejected = (httpCode == 401 || httpCode == 403)
-        onClose(error, authRejected)
-    }
-
-    func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge, completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
-        if challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
-           let trust = challenge.protectionSpace.serverTrust {
-            let host = challenge.protectionSpace.host.lowercased()
-            if isLoopback || host == "127.0.0.1" || host == "localhost" || host == "::1" {
-                completionHandler(.useCredential, URLCredential(trust: trust))
-                return
-            }
-        }
-        completionHandler(.performDefaultHandling, nil)
     }
 }

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -100,5 +101,63 @@ func TestPoolProvider_SelectsFastestNodeAndFailsOver(t *testing.T) {
 	}
 	if got := pool.ActiveNode().ID; got != "slow" {
 		t.Fatalf("expected active node switched to 'slow', got %q", got)
+	}
+}
+
+func TestPoolProvider_ProbeRetriesTransientFailure(t *testing.T) {
+	var flakyCalls atomic.Int32
+	fastFlaky := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if flakyCalls.Add(1) == 1 {
+			w.WriteHeader(http.StatusBadGateway)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer fastFlaky.Close()
+
+	slowStable := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(150 * time.Millisecond)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer slowStable.Close()
+
+	ln := NewStreamListener()
+	defer ln.Close()
+
+	pool, err := NewPoolProvider(PoolConfig{
+		Nodes: []NodeConfig{
+			{
+				ID:        "jp1-direct",
+				Region:    "ap",
+				Priority:  10,
+				Endpoint:  "ws://127.0.0.1:1" + TunnelUpgradePath,
+				HealthURL: fastFlaky.URL + "/healthz",
+				Subdomain: "r-abcd1234.jp1.jiuge.space",
+				URL:       "https://r-abcd1234.jp1.jiuge.space",
+				Token:     "tok",
+			},
+			{
+				ID:        "lax-cf",
+				Region:    "us",
+				Priority:  100,
+				Endpoint:  "ws://127.0.0.1:2" + TunnelUpgradePath,
+				HealthURL: slowStable.URL + "/healthz",
+				Subdomain: "r-abcd1234.jiuge.space",
+				URL:       "https://r-abcd1234.jiuge.space",
+				Token:     "tok",
+			},
+		},
+		Listener: ln,
+	})
+	if err != nil {
+		t.Fatalf("NewPoolProvider: %v", err)
+	}
+
+	best, rtt := pool.selectFastestNode(context.Background(), pool.nodes)
+	if best.ID != "jp1-direct" {
+		t.Fatalf("expected jp1-direct to win after retrying transient 1st probe failure, got %q (rtt=%v)", best.ID, rtt)
+	}
+	if flakyCalls.Load() < 2 {
+		t.Fatalf("expected at least 2 probe attempts on jp1-direct, got %d", flakyCalls.Load())
 	}
 }

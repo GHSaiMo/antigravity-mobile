@@ -29,6 +29,8 @@ public final class GatewayWebSocketTask: @unchecked Sendable {
     private let onOpen: (@Sendable () -> Void)?
     private let onClose: (@Sendable () -> Void)?
     private let onFail: (@Sendable (any Error) -> Void)?
+    private let onAuthRejected: (@Sendable () -> Void)?
+    private let originalHost: String?
 
     private struct State {
         var didOpen = false
@@ -43,11 +45,14 @@ public final class GatewayWebSocketTask: @unchecked Sendable {
         waitsForConnectivity: Bool = false,
         onOpen: (@Sendable () -> Void)? = nil,
         onClose: (@Sendable () -> Void)? = nil,
-        onFail: (@Sendable (any Error) -> Void)? = nil
+        onFail: (@Sendable (any Error) -> Void)? = nil,
+        onAuthRejected: (@Sendable () -> Void)? = nil
     ) {
         self.onOpen = onOpen
         self.onClose = onClose
         self.onFail = onFail
+        self.onAuthRejected = onAuthRejected
+        self.originalHost = request.url?.host
 
         var effectiveRequest = request
         var resolvedE2EE: E2EEConfig? = nil
@@ -444,6 +449,18 @@ public final class GatewayWebSocketTask: @unchecked Sendable {
         }
     }
 
+    fileprivate func notifyAuthRejected() {
+        onAuthRejected?()
+    }
+
+    fileprivate func handleHTTPUpgradeStatus(_ statusCode: Int) {
+        if statusCode == 401 || statusCode == 403 {
+            onAuthRejected?()
+        } else if statusCode == 426, let host = originalHost, !host.isEmpty, E2EECrypto.shared.isReady {
+            E2EECrypto.shared.markHostRequiresE2EE(host)
+        }
+    }
+
     private final class SessionDelegate: NSObject, URLSessionWebSocketDelegate, @unchecked Sendable {
         weak var owner: GatewayWebSocketTask?
 
@@ -452,12 +469,20 @@ public final class GatewayWebSocketTask: @unchecked Sendable {
         }
 
         func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask, didCloseWith closeCode: URLSessionWebSocketTask.CloseCode, reason: Data?) {
+            if closeCode.rawValue == 4001 || closeCode.rawValue == 4003 {
+                owner?.notifyAuthRejected()
+            }
             owner?.notifySessionClosed()
         }
 
         func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: (any Error)?) {
+            if let httpCode = (task.response as? HTTPURLResponse)?.statusCode {
+                owner?.handleHTTPUpgradeStatus(httpCode)
+            }
             if let error {
                 owner?.notifySessionFailed(error)
+            } else {
+                owner?.notifySessionClosed()
             }
         }
 
