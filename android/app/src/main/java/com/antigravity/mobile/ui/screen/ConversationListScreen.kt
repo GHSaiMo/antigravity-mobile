@@ -33,7 +33,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
-import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -180,6 +179,7 @@ fun ConversationListScreen(
     val colors = AntigravityTheme.colors
     val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
     val pullRefreshState = rememberPullToRefreshState()
+    var refreshTriggerToken by remember { mutableIntStateOf(0) }
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
     var previousSearchQuery by rememberSaveable { mutableStateOf(searchQuery) }
@@ -277,15 +277,19 @@ fun ConversationListScreen(
         // Content Area with PullToRefresh and Bottom Floating Search Bar
         PullToRefreshBox(
             isRefreshing = isRefreshing,
-            onRefresh = { viewModel.refresh() },
+            onRefresh = {
+                refreshTriggerToken++
+                viewModel.refresh()
+            },
             modifier = Modifier
                 .fillMaxSize()
                 .clipToBounds(),
             state = pullRefreshState,
             indicator = {
-                PullToRefreshDefaults.Indicator(
+                MgyPullToRefreshIndicator(
                     state = pullRefreshState,
                     isRefreshing = isRefreshing,
+                    refreshTriggerToken = refreshTriggerToken,
                     modifier = Modifier
                         .align(Alignment.TopCenter)
                         .padding(top = topBarHeight),

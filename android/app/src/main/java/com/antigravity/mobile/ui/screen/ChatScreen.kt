@@ -45,7 +45,6 @@ import com.antigravity.mobile.data.model.hasBlockingTasks
 import com.antigravity.mobile.ui.components.ConversationNavigatorSheet
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
-import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -58,6 +57,7 @@ import com.google.mlkit.vision.documentscanner.GmsDocumentScanning
 import com.google.mlkit.vision.documentscanner.GmsDocumentScanningResult
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
@@ -587,6 +587,7 @@ fun ChatScreen(
 
     val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
     val pullRefreshState = rememberPullToRefreshState()
+    var refreshTriggerToken by remember { mutableIntStateOf(0) }
 
 
 
@@ -1531,13 +1532,19 @@ fun ChatScreen(
                     else -> {
                         PullToRefreshBox(
                             isRefreshing = isRefreshing,
-                            onRefresh = { viewModel.refresh() },
-                            modifier = Modifier.fillMaxSize(),
+                            onRefresh = {
+                                refreshTriggerToken++
+                                viewModel.refresh()
+                            },
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .clipToBounds(),
                             state = pullRefreshState,
                             indicator = {
-                                PullToRefreshDefaults.Indicator(
+                                MgyPullToRefreshIndicator(
                                     state = pullRefreshState,
                                     isRefreshing = isRefreshing,
+                                    refreshTriggerToken = refreshTriggerToken,
                                     modifier = Modifier.align(Alignment.TopCenter),
                                     containerColor = colors.surface,
                                     color = colors.accentIndigo
