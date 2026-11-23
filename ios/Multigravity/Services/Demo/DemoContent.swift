@@ -1492,7 +1492,6 @@ extension DemoGateway {
         )
 
         // 8. Data Report: Unread + Attached CSV/MD + Inline Chart PNG + 4-page PDF
-        let chartBase64 = chartData.base64EncodedString()
         let c04Sales = Conversation(
             id: "demo-0004-sales",
             title: Self.t("Q3 区域经营分析与汇报 PDF", "Q3 regional revenue report & PDF", "Q3 エリア別売上分析と経営陣向けPDF"),
@@ -1555,7 +1554,7 @@ extension DemoGateway {
                         | 华南区 | 195 | 224 | 271 | +21.0% |
                         | 华北区 | 162 | 175 | 209 | +19.4% |
 
-                        ![Q1-Q3 分区销售增长趋势图](data:image/png;base64,\(chartBase64))
+                        ![Q1-Q3 分区销售增长趋势图](file:///Users/demo/Documents/sales_chart.png)
 
                         ### 生成产物与原始文档
                         - 📄 [三季度销售报告.pdf](file:///Users/demo/Documents/三季度销售报告.pdf)（共 4 页：封面概览 / 核心趋势图表 / 区域拆解 / Q4 行动建议）
@@ -1571,7 +1570,7 @@ extension DemoGateway {
                         | East Coast | 195 | 224 | 271 | +21.0% |
                         | Central | 162 | 175 | 209 | +19.4% |
 
-                        ![Q1-Q3 Regional Sales Trend](data:image/png;base64,\(chartBase64))
+                        ![Q1-Q3 Regional Sales Trend](file:///Users/demo/Documents/sales_chart.png)
 
                         ### Deliverables & Source Files
                         - 📄 [q3_sales_report.pdf](file:///Users/demo/Documents/q3_sales_report.pdf) (4 pages: Cover, Charts, Regional Breakdown, Q4 Plan)
@@ -1587,7 +1586,7 @@ extension DemoGateway {
                         | 関西エリア | 195 | 224 | 271 | +21.0% |
                         | 中部エリア | 162 | 175 | 209 | +19.4% |
 
-                        ![Q1-Q3 エリア別売上推移グラフ](data:image/png;base64,\(chartBase64))
+                        ![Q1-Q3 エリア別売上推移グラフ](file:///Users/demo/Documents/sales_chart.png)
 
                         ### 成果物と元データ
                         - 📄 [q3_sales_report.pdf](file:///Users/demo/Documents/q3_sales_report.pdf)（全 4 ページ：サマリー / 推移グラフ / エリア別詳細 / Q4 施策）
