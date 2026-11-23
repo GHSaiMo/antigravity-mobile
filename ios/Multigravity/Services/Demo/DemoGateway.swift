@@ -123,6 +123,9 @@ final class DemoGateway: @unchecked Sendable {
         var gitStatus: DemoGitState?
         var changes: [DemoFileDiff]
         var chapters: [[String: Any]]
+        var activeFocus: String? = nil
+        var activeFocusStartedAt: String? = nil
+        var activePlan: [String: Any]? = nil
 
         var isSubagent: Bool {
             guard let parent = parentConversationId else { return false }
@@ -149,6 +152,9 @@ final class DemoGateway: @unchecked Sendable {
         var timestamp: String?
         var subagent: [String: Any]?
         var workflow: [String: Any]?
+        var stepPlan: [String: Any]? = nil
+        var focusText: String? = nil
+        var startedAt: String? = nil
         var slashCommands: [[String: Any]]?
         var clientMessageId: String?
         var errorKind: String?
@@ -175,6 +181,9 @@ final class DemoGateway: @unchecked Sendable {
             if let timestamp { dict["timestamp"] = timestamp }
             if let subagent { dict["subagent"] = subagent }
             if let workflow { dict["workflow"] = workflow }
+            if let stepPlan { dict["stepPlan"] = stepPlan }
+            if let focusText { dict["focusText"] = focusText }
+            if let startedAt { dict["startedAt"] = startedAt }
             if let slashCommands { dict["slashCommands"] = slashCommands }
             if let clientMessageId { dict["clientMessageId"] = clientMessageId }
             if let errorKind { dict["errorKind"] = errorKind }
@@ -592,6 +601,15 @@ final class DemoGateway: @unchecked Sendable {
         }
         if let role = c.subagentRole {
             payload["subagentRole"] = role
+        }
+        if let focus = c.activeFocus {
+            payload["activeFocus"] = focus
+        }
+        if let focusStart = c.activeFocusStartedAt {
+            payload["activeFocusStartedAt"] = focusStart
+        }
+        if let plan = c.activePlan {
+            payload["activePlan"] = plan
         }
         if c.status == "CASCADE_RUN_STATUS_ERROR", let lastErr = c.messages.last(where: { $0.type == "error" }) {
             payload["hasError"] = true
@@ -2193,7 +2211,9 @@ final class DemoGateway: @unchecked Sendable {
         tools: [String],
         thinking: String? = nil,
         thinkingDuration: String? = nil,
-        toolDetails: [[String: Any]]? = nil
+        toolDetails: [[String: Any]]? = nil,
+        focusText: String? = nil,
+        startedAt: String? = nil
     ) -> Message {
         Message(
             id: id,
@@ -2204,7 +2224,34 @@ final class DemoGateway: @unchecked Sendable {
             toolCount: tools.count,
             toolNames: tools,
             toolDetails: toolDetails,
-            stepIndex: step
+            stepIndex: step,
+            focusText: focusText,
+            startedAt: startedAt
+        )
+    }
+
+    static func stepPlanMsg(
+        id: String,
+        step: Int,
+        items: [[String: Any]]
+    ) -> Message {
+        let doneCount = items.filter { ($0["status"] as? String) == "done" }.count
+        let skippedCount = items.filter { ($0["status"] as? String) == "skipped" }.count
+        let failedCount = items.filter { ($0["status"] as? String) == "failed" }.count
+        let planDict: [String: Any] = [
+            "anchorStepIndex": step,
+            "items": items,
+            "doneCount": doneCount,
+            "totalCount": max(0, items.count - skippedCount),
+            "skippedCount": skippedCount,
+            "failedCount": failedCount
+        ]
+        return Message(
+            id: id,
+            type: "step_plan",
+            text: "",
+            stepIndex: step,
+            stepPlan: planDict
         )
     }
 

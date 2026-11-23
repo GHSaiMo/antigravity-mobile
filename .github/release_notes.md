@@ -27,12 +27,12 @@
   - 同步加固 iOS Live Activity 按钮与 Android 通知栏快捷操作的过期状态核验，避免误触过期锁屏审批请求。
 - 🔋 **宿主机任务期动态自动防休眠守护（macOS / Windows / Linux）**：
   - 新增跨平台任务期按需防休眠守卫（macOS `caffeinate -i -w <pid>` / Windows `SetThreadExecutionState` / Linux `systemd-inhibit`），仅在存在活跃 Antigravity 会话时自动阻止宿主机空闲休眠（允许正常熄屏省电），全部任务空闲 2 分钟后自动释放，网关退出或异常终止零残留锁；支持 `-prevent-sleep=false` 或 `MGY_PREVENT_SLEEP=0` 关闭。
-- ⚡ **E2EE `bin2+flate` 压缩、多连接 Yamux 隧道池与双端交互修复（Go / iOS / Android / Web）**：
+- ⚡ **E2EE `bin2+flate` 压缩、多连接 Yamux 隧道池与全端下载/交互修复（Go / iOS / Android / Web）**：
   - 全端新增 `bin2+flate` E2EE 载荷压缩与多连接并发 `yamux` 中继隧道池，大幅降低远程同步带宽占用与高并发请求排队延迟；
-  - iOS 会话事件流 WebSocket 全面切换至 E2EE `GatewayWebSocketTask` 传输，`RelayPool` 优选直连物理 RTT 进一步降低远程延迟；
-  - Android 在 E2EE 中继返回 `502 / 503` 时自动迁移健康节点并在路由切换时同步刷新额度与事件流，同时新增自定义 `MgyPullToRefreshIndicator` 修复下拉刷新收起后的阴影残留拖尾问题。
+  - iOS 会话事件流 WebSocket 全面切换至 E2EE `GatewayWebSocketTask` 传输，`RelayPool` 优选直连物理 RTT 进一步降低远程延迟；修复 iOS 在 5G / 公网 Relay 下下载文档、导出微信归档附件与保存远端视频触发 `HTTP 426 e2ee_required` 的问题，统一接入 E2EE 加密下载、取消控制与 `426` 自动重试，并在网关 E2EE RPC 响应补齐 `Content-Length` 精确进度；
+  - Android 新增 `direct` / `play` 双渠道构建（直装版支持克制式应用内自更新并迁移至仓库外固定私有签名），在 E2EE 中继返回 `502 / 503` 时自动迁移健康节点并在路由切换时同步刷新额度与事件流，同时新增自定义 `MgyPullToRefreshIndicator` 修复下拉刷新收起后的阴影残留拖尾问题。
 - 📦 **全端版本号对齐**：
-  - Android `1.2.6`（Version Code `35`）；iOS `1.2.6`（Build `35`）；桌面/服务端网关 `mgy` `1.2.6`。
+  - Android `1.2.6`（Version Code `36`）；iOS `1.2.6`（Build `36`）；桌面/服务端网关 `mgy` `1.2.6`。
 
 ---
 
@@ -52,12 +52,12 @@
   - Hardened stale-request reconciliation for both iOS Live Activity intents and Android notification action buttons to prevent blind or duplicate approvals.
 - 🔋 **Dynamic Task-Time Host Idle-Sleep Guard (macOS / Windows / Linux)**:
   - Added cross-platform on-demand host sleep prevention (`caffeinate -i -w <pid>` on macOS, `SetThreadExecutionState` on a locked OS thread on Windows, and `systemd-inhibit` with pipe-EOF cleanup on Linux). Holds an idle-sleep assertion only while Antigravity sessions are active (still allowing display sleep), releases automatically 2 minutes after all sessions go idle, and leaves zero orphan locks on exit or crash (disable via `-prevent-sleep=false` or `MGY_PREVENT_SLEEP=0`).
-- ⚡ **E2EE `bin2+flate` Compression, Multi-Connection Yamux Pool & Mobile Polish (Go / iOS / Android / Web)**:
+- ⚡ **E2EE `bin2+flate` Compression, Multi-Connection Yamux Pool & Mobile Fixes (Go / iOS / Android / Web)**:
   - Added `bin2+flate` E2EE payload compression and a multi-connection `yamux` relay tunnel pool across Go, iOS, Android, and Web to cut remote bandwidth and eliminate head-of-line latency;
-  - Routed iOS conversation events WebSockets through E2EE `GatewayWebSocketTask` and prioritized direct physical RTT in `RelayPool`;
-  - Added automatic stale-relay migration on HTTP `502 / 503` and synchronized quota/events refresh on route changes in Android, alongside a custom `MgyPullToRefreshIndicator` fixing pull-to-refresh shadow tail artifacts after retraction.
+  - Routed iOS conversation events WebSockets through E2EE `GatewayWebSocketTask` and prioritized direct physical RTT in `RelayPool`; fixed iOS document downloads, WeChat archive exports, and remote video saving hitting `HTTP 426 e2ee_required` over public relays by routing downloads through unified E2EE transport with `426` auto-recovery and `Content-Length` progress headers from the gateway;
+  - Added `direct` / `play` Android distribution flavors (with a restrained in-app self-updater on `direct` and private release signing), automatic stale-relay migration on HTTP `502 / 503`, synchronized quota/events refresh on route changes, and a custom `MgyPullToRefreshIndicator` fixing pull-to-refresh shadow tail artifacts after retraction.
 - 📦 **Version Alignment**:
-  - Android `1.2.6` (Version Code `35`); iOS `1.2.6` (Build `35`); desktop/server gateway `mgy` `1.2.6`.
+  - Android `1.2.6` (Version Code `36`); iOS `1.2.6` (Build `36`); desktop/server gateway `mgy` `1.2.6`.
 
 ---
 
@@ -67,5 +67,5 @@
 - 🛡️ **全 5 プール対応クォータ守護・公式早期リセット通知・異常急減アラート＆完全 3 言語プッシュ通知**：監視対象を **Gemini 5h / 週間・Claude 5h / 週間・Gemini 4 Argon** の全 5 プールへ拡張し、Cockpit Tools 未導入環境でも `FetchLiveQuota` でそのまま動作。予定より早い公式リセットのまとめ喜報通知、短時間急減・アイドル中消費アラート、および **日本語 / English / 简体中文** のネイティブプッシュ通知（`--lang ja` / `MGY_LANG=ja` / OS 自動判別）に対応し、VS Code / tmux 等が注入する `LANG=C.UTF-8` による誤判別も解消しました。
 - 🧹 **デスクトップ承認済みバナーの自動サイレント消去＆ロック画面承認の整合性強化**：デスクトップ側で承認が完了すると、スマートフォン側に届いた古い承認通知バナーをサイレントプッシュで自動消去し、期限切れボタンの誤操作を防ぎます。
 - 🔋 **アクティブ実行時限定のホスト自動スリープ防止（macOS / Windows / Linux）**：エージェント稼働中のみアイドルスリープを防止（画面オフは許可）し、全タスク完了から 2 分後に自動解除。プロセス終了時にもロックを残さない設計です（`MGY_PREVENT_SLEEP=0` で無効化可能）。
-- ⚡ **E2EE `bin2+flate` 圧縮・マルチ接続 Yamux トンネルプール＆モバイル品質向上**：Go / iOS / Android / Web 全端で E2EE 圧縮と複数接続 Yamux リレープールを導入してリモート通信の帯域と遅延を削減。さらに iOS イベント WebSocket の E2EE 統一、`RelayPool` の物理 RTT 優先、Android の `502 / 503` 自動フェイルオーバーとプルダウン更新の残像修正を行いました。
-- 📦 **バージョン統一**：iOS `1.2.6` (Build `35`) / Android `1.2.6` (Version Code `35`) / ゲートウェイ `mgy` `1.2.6`。
+- ⚡ **E2EE `bin2+flate` 圧縮・マルチ接続 Yamux トンネルプール＆モバイル品質向上**：Go / iOS / Android / Web 全端で E2EE 圧縮と複数接続 Yamux リレープールを導入してリモート通信の帯域と遅延を削減。さらに iOS のリレー経由ファイルダウンロード／動画保存における `HTTP 426 e2ee_required` を E2EE 統一トランスポート＆自動リトライで修正し、イベント WebSocket の E2EE 統一、`RelayPool` の物理 RTT 優先、Android の `direct` / `play` フレーバー対応・控えめなアプリ内アップデート・`502 / 503` 自動フェイルオーバー・プルダウン更新の残像修正を行いました。
+- 📦 **バージョン統一**：iOS `1.2.6` (Build `36`) / Android `1.2.6` (Version Code `36`) / ゲートウェイ `mgy` `1.2.6`。

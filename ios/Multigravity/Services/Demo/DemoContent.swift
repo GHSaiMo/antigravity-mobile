@@ -725,6 +725,16 @@ extension DemoGateway {
                     text: Self.t("帮我把移动端大文件附件上传接到本地网关 `Inbox`，落盘按 SHA-256 短 ID 去重，顺手把网关单测也跑一下。", "Wire mobile attachment uploads into the local gateway `Inbox` with SHA-256 short-ID deduplication, and run the gateway upload test suite.", "モバイル側の添付ファイル送信をローカルゲートウェイの `Inbox` につないで、SHA-256 短縮 ID で重複排除しつつゲートウェイの単体テストも回して。"),
                     timestamp: isoAgo(minutes: 9)
                 ),
+                Self.stepPlanMsg(
+                    id: "c01-sp0",
+                    step: 1,
+                    items: [
+                        ["key": "s1", "title": Self.t("检查网关与 iOS 附件上传协议", "Inspect gateway & iOS upload handlers", "ゲートウェイと iOS 添付処理を調査"), "status": "done"],
+                        ["key": "s2", "title": Self.t("接入 io.TeeReader 流式 SHA-256 去重", "Wire streaming io.TeeReader SHA-256 dedup", "ストリーム SHA-256 重複排除を実装"), "status": "done"],
+                        ["key": "s3", "title": Self.t("适配 iOS 并发直传与引用路径注入", "Adapt iOS concurrent upload & link injection", "iOS 並列送信と参照リンク挿入に対応"), "status": "done"],
+                        ["key": "s4", "title": Self.t("运行网关附件上传单元测试", "Run gateway attachment upload unit tests", "添付アップロード単体テストを実行"), "status": "done"]
+                    ]
+                ),
                 Self.toolMsg(
                     id: "c01-t1",
                     step: 1,
@@ -1918,7 +1928,26 @@ extension DemoGateway {
             chapters: []
         )
 
-        // 12. Running Background Tasks + Daemon Logs
+        // 12. Running Background Tasks + Daemon Logs + Native Desktop-Parity Step Plan & Live Focus Timer
+        let c14PlanItems: [[String: Any]] = [
+            ["key": "hmr", "title": Self.t("启动 Vite 5173 热更新守护进程", "Start Vite 5173 HMR dev daemon", "Vite 5173 HMR 常駐サーバーを起動"), "status": "done"],
+            ["key": "bind", "title": Self.t("验证局域网绑定与端口健康探针", "Verify LAN bind & port health probe", "LAN バインドとポート疎通を検証"), "status": "done"],
+            ["key": "race", "title": Self.t("执行 Go -race 并发竞态回归测试", "Run Go -race concurrency test suite", "Go -race 並行レース回帰テストを実行"), "status": "in_progress"],
+            ["key": "report", "title": Self.t("汇总测试报告并推送移动端提醒", "Summarize results & send mobile alert", "検証結果を集計しモバイル通知を送信"), "status": "pending"]
+        ]
+        let c14ActivePlan: [String: Any] = [
+            "anchorStepIndex": 1,
+            "items": c14PlanItems,
+            "doneCount": 2,
+            "totalCount": 4,
+            "skippedCount": 0,
+            "failedCount": 0
+        ]
+        let c14FocusText = Self.t(
+            "正在运行 ./internal/cockpit/... Go 竞态回归测试",
+            "Running Go -race concurrency suite on ./internal/cockpit/...",
+            "./internal/cockpit/... の Go -race 並行テストを実行中"
+        )
         let c14Running = Conversation(
             id: "demo-0014-running",
             title: Self.t("本地 HMR 守护进程与竞态测试", "Local HMR dev server & race suite", "ローカルHMR常駐サーバーとレース検証"),
@@ -1930,52 +1959,26 @@ extension DemoGateway {
                 Self.userMsg(
                     id: "c14-u0",
                     step: 0,
-                    text: Self.t("把 Vite 热更新守护进程和 Go `-race` 并发回归测试同时跑起来，我在外面随时看输出日志，不需要的话直接手机停掉。", "Start the Vite HMR dev server daemon and the Go `-race` test suite so I can tail logs and stop tasks individually from mobile.", "Vite の HMR 常駐サーバーと Go の `-race` 並行回帰テストを同時に走らせて。外出先からライブログ確認と個別停止ができるようにしたい。"),
-                    timestamp: isoAgo(minutes: 112)
+                    text: Self.t("把 Vite 热更新守护进程和 Go `-race` 并发回归测试同时跑起来，我在外面随时看步骤进度和实时日志，不需要的话直接手机停掉。", "Start the Vite HMR dev server daemon and the Go `-race` test suite so I can track step progress, tail logs, and stop tasks individually from mobile.", "Vite の HMR 常駐サーバーと Go の `-race` 並行回帰テストを同時に走らせて。外出先からステップ進捗とライブログ確認・個別停止ができるようにしたい。"),
+                    timestamp: isoAgo(minutes: 4)
+                ),
+                Self.stepPlanMsg(
+                    id: "c14-sp1",
+                    step: 1,
+                    items: c14PlanItems
                 ),
                 Self.toolMsg(
-                    id: "c14-t1",
-                    step: 1,
+                    id: "c14-t2",
+                    step: 2,
                     tools: ["run_command", "manage_task"],
-                    thinking: Self.t("以 IsDaemon=true 拉起 Vite 5173 开发服务，再并行启动 ./internal/cockpit/... 竞态测试任务。", "Launching Vite HMR as a background daemon and running ./internal/cockpit/... with -race in parallel.", "Vite HMR をデーモン起動し、並行して `./internal/cockpit/...` の `-race` テストを実行します。"),
+                    thinking: Self.t("以 IsDaemon=true 拉起 Vite 5173 开发服务并确认端口就绪，现正持续监听 ./internal/cockpit/... 的 Go -race 并发测试输出。", "Started Vite HMR daemon on port 5173 and verified readiness; now streaming ./internal/cockpit/... Go -race test output.", "Vite HMR デーモンをポート 5173 で起動して疎通確認済み。現在 `./internal/cockpit/...` の Go -race テスト出力を監視中です。"),
                     thinkingDuration: "2.3s",
                     toolDetails: [
-                        ["name": "run_command", "summary": "npm run dev -- --host 0.0.0.0 --port 5173 (daemon)", "status": "running", "duration": "360s", "stepIndex": 1],
-                        ["name": "run_command", "summary": "go test -race -count=1 ./internal/cockpit/...", "status": "running", "duration": "90s", "stepIndex": 1]
-                    ]
-                ),
-                Self.agentMsg(
-                    id: "c14-a2",
-                    step: 2,
-                    model: "gemini-4-hydrogen-high",
-                    modelName: "Gemini 4 Hydrogen (High)",
-                    text: Self.t(
-                        """
-                        已并行拉起 2 个后台进程：
-
-                        1. **守护进程 `task-vite-daemon`**：监听 `0.0.0.0:5173`，局域网实时热更新就绪。
-                        2. **验证任务 `task-go-race`**：正在执行 `./internal/cockpit/...` 并发竞态测试。
-
-                        点击顶部任务条可展开实时终端输出或单独中止任一进程。
-                        """,
-                        """
-                        Started 2 background processes:
-
-                        1. **Daemon `task-vite-daemon`**: Listening on `0.0.0.0:5173` for LAN live HMR preview.
-                        2. **Task `task-go-race`**: Running `-race` tests across `./internal/cockpit/...`.
-
-                        Tap the live tasks bar above to stream stdout or stop either process individually.
-                        """,
-                        """
-                        バックグラウンドプロセスを 2 件起動しました：
-
-                        1. **常駐デーモン `task-vite-daemon`**：`0.0.0.0:5173` で LAN プレビュー待機中。
-                        2. **検証タスク `task-go-race`**：`./internal/cockpit/...` の `-race` テストを実行中。
-
-                        画面上部のタスクバーからライブログ確認や個別停止ができます。
-                        """
-                    ),
-                    timestamp: isoAgo(minutes: 110)
+                        ["name": "run_command", "summary": "npm run dev -- --host 0.0.0.0 --port 5173 (daemon)", "status": "done", "duration": "1.8s", "stepIndex": 1],
+                        ["name": "run_command", "summary": "go test -race -count=1 ./internal/cockpit/...", "status": "running", "duration": "48s", "stepIndex": 2]
+                    ],
+                    focusText: c14FocusText,
+                    startedAt: isoAgo(minutes: 0.8)
                 )
             ],
             pendingInteraction: nil,
@@ -1994,22 +1997,22 @@ extension DemoGateway {
                 ],
                 [
                     "id": "task-go-race",
-                    "stepIndex": 1,
+                    "stepIndex": 2,
                     "commandLine": "go test -race -count=1 ./internal/cockpit/...",
                     "toolName": "run_command",
                     "toolSummary": Self.t("Go 并发竞态测试", "Go Race-Detector Suite", "Go 並行レース検出テスト"),
                     "toolAction": "running",
-                    "startedAt": isoAgo(minutes: 1.5),
+                    "startedAt": isoAgo(minutes: 0.8),
                     "isDaemon": false
                 ]
             ],
             queuedMessages: [],
-            lastModified: ago(minutes: 110),
+            lastModified: ago(minutes: 2),
             unread: false,
             pinned: false,
             modelId: "gemini-4-hydrogen-high",
             modelName: "Gemini 4 Hydrogen (High)",
-            startedAt: isoAgo(minutes: 112),
+            startedAt: isoAgo(minutes: 4),
             contextMeter: Self.meter(used: 71_400, maxTokens: 512_000, tps: 168.0, ttft: 2.2),
             swarm: nil,
             subagents: [],
@@ -2017,7 +2020,10 @@ extension DemoGateway {
             subagentRole: nil,
             gitStatus: nil,
             changes: [],
-            chapters: []
+            chapters: [],
+            activeFocus: c14FocusText,
+            activeFocusStartedAt: isoAgo(minutes: 0.8),
+            activePlan: c14ActivePlan
         )
 
         // 13. Context Overflow + /compact rescue
