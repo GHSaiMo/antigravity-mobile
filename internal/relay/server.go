@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -21,8 +22,10 @@ import (
 )
 
 const (
-	TunnelUpgradePath = "/_mgy_tunnel"
-	RelayVersion      = "1.0.0"
+	TunnelUpgradePath        = "/_mgy_tunnel"
+	RelayVersion             = "1.1.0"
+	HeaderPoolMaxConns       = "X-Mgy-Relay-Pool-Max"
+	defaultMaxConnsPerTunnel = 4
 )
 
 // ServerConfig configures the mgy-relay reverse tunnel server.
@@ -33,23 +36,68 @@ type ServerConfig struct {
 	ReservedHosts       []string      // domains forbidden from being claimed as user tunnels
 	MaxTunnels          int           // global concurrent tunnel ceiling (default 10000)
 	MaxStreamsPerTunnel int           // concurrent HTTP/WS streams per tunnel (default 64)
+	MaxConnsPerTunnel   int           // max parallel yamux connections per gateway domain (default 4)
 	TokenMaxAge         time.Duration // 0 = no expiry (tokens are long-lived until rotated)
 	Logger              *slog.Logger
 }
 
-type tunnelSession struct {
-	domain      string
-	shortID     string
-	ownerHash   string
+type tunnelConn struct {
+	slotID      string
+	gen         string
 	session     *yamux.Session
 	proxy       *httputil.ReverseProxy
-	sem         chan struct{}
 	connectedAt time.Time
 	active      atomic.Int64
 }
 
+type tunnelGroup struct {
+	domain    string
+	shortID   string
+	ownerHash string
+	sem       chan struct{}
+
+	mu    sync.RWMutex
+	conns []*tunnelConn
+	rr    atomic.Uint64
+}
+
+func (g *tunnelGroup) pickConn() *tunnelConn {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	n := len(g.conns)
+	if n == 0 {
+		return nil
+	}
+	if n == 1 {
+		if g.conns[0].session.IsClosed() {
+			return nil
+		}
+		return g.conns[0]
+	}
+	// Rotate starting index so idle connections share requests evenly, then pick least-loaded
+	// live connection to isolate long-lived WebSockets and large transfers from control/API traffic.
+	start := int(g.rr.Add(1) % uint64(n))
+	var best *tunnelConn
+	var bestLoad int64
+	for i := 0; i < n; i++ {
+		c := g.conns[(start+i)%n]
+		if c.session.IsClosed() {
+			continue
+		}
+		load := c.active.Load() + int64(c.session.NumStreams())
+		if best == nil || load < bestLoad {
+			best = c
+			bestLoad = load
+			if load == 0 {
+				break
+			}
+		}
+	}
+	return best
+}
+
 // Server terminates inbound gateway WSS tunnels and routes public HTTPS/WSS traffic
-// by Host header to the corresponding gateway's multiplexed yamux session.
+// by Host header to the corresponding gateway's multiplexed yamux session pool.
 // Strict zero-logging: request paths, headers, tokens, and bodies are never logged.
 type Server struct {
 	cfg           ServerConfig
@@ -61,7 +109,7 @@ type Server struct {
 	upgrader      websocket.Upgrader
 
 	mu            sync.RWMutex
-	tunnels       map[string]*tunnelSession // domain -> active session
+	tunnels       map[string]*tunnelGroup // domain -> active tunnel group (1..N yamux conns)
 	activeStreams atomic.Int64
 	totalStreams  atomic.Int64
 
@@ -84,6 +132,12 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 	}
 	if cfg.MaxStreamsPerTunnel <= 0 {
 		cfg.MaxStreamsPerTunnel = 64
+	}
+	if cfg.MaxConnsPerTunnel <= 0 {
+		cfg.MaxConnsPerTunnel = defaultMaxConnsPerTunnel
+	}
+	if cfg.MaxConnsPerTunnel > 8 {
+		cfg.MaxConnsPerTunnel = 8
 	}
 	logger := cfg.Logger
 	if logger == nil {
@@ -137,14 +191,14 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 		reservedHosts: reserved,
 		suffixes:      suffixes,
 		upgrader: websocket.Upgrader{
-			ReadBufferSize:  32 << 10,
-			WriteBufferSize: 32 << 10,
+			ReadBufferSize:  64 << 10,
+			WriteBufferSize: 64 << 10,
 			CheckOrigin: func(r *http.Request) bool {
 				// Tunnel ingress is authenticated by Bearer HMAC token, never cookies.
 				return true
 			},
 		},
-		tunnels: make(map[string]*tunnelSession),
+		tunnels: make(map[string]*tunnelGroup),
 		ipRates: make(map[string]*ipBucket),
 	}, nil
 }
@@ -156,18 +210,46 @@ func (s *Server) ActiveTunnels() int {
 	return len(s.tunnels)
 }
 
+// ActiveConns returns the total number of live yamux connections across all gateways.
+func (s *Server) ActiveConns() int {
+	s.mu.RLock()
+	groups := make([]*tunnelGroup, 0, len(s.tunnels))
+	for _, g := range s.tunnels {
+		groups = append(groups, g)
+	}
+	s.mu.RUnlock()
+
+	total := 0
+	for _, g := range groups {
+		g.mu.RLock()
+		for _, c := range g.conns {
+			if !c.session.IsClosed() {
+				total++
+			}
+		}
+		g.mu.RUnlock()
+	}
+	return total
+}
+
 // Close terminates all active gateway sessions gracefully.
 func (s *Server) Close() {
 	s.mu.Lock()
-	sessions := make([]*tunnelSession, 0, len(s.tunnels))
-	for _, ts := range s.tunnels {
-		sessions = append(sessions, ts)
+	groups := make([]*tunnelGroup, 0, len(s.tunnels))
+	for _, g := range s.tunnels {
+		groups = append(groups, g)
 	}
-	s.tunnels = make(map[string]*tunnelSession)
+	s.tunnels = make(map[string]*tunnelGroup)
 	s.mu.Unlock()
 
-	for _, ts := range sessions {
-		_ = ts.session.Close()
+	for _, g := range groups {
+		g.mu.Lock()
+		conns := append([]*tunnelConn(nil), g.conns...)
+		g.conns = nil
+		g.mu.Unlock()
+		for _, c := range conns {
+			_ = c.session.Close()
+		}
 	}
 }
 
@@ -244,6 +326,7 @@ func (s *Server) handleHealthz(w http.ResponseWriter, _ *http.Request) {
 		"service":        "mgy-relay",
 		"version":        RelayVersion,
 		"active_tunnels": s.ActiveTunnels(),
+		"active_conns":   s.ActiveConns(),
 		"active_streams": s.activeStreams.Load(),
 		"total_streams":  s.totalStreams.Load(),
 		"uptime_sec":     int64(time.Since(s.startedAt).Seconds()),
@@ -290,7 +373,19 @@ func (s *Server) handleTunnelConnect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ws, err := s.upgrader.Upgrade(w, r, nil)
+	slotID := strings.TrimSpace(r.URL.Query().Get("conn"))
+	if len(slotID) > 16 {
+		slotID = slotID[:16]
+	}
+	gen := strings.TrimSpace(r.URL.Query().Get("gen"))
+	if len(gen) > 32 {
+		gen = gen[:32]
+	}
+
+	respHeader := http.Header{
+		HeaderPoolMaxConns: []string{strconv.Itoa(s.cfg.MaxConnsPerTunnel)},
+	}
+	ws, err := s.upgrader.Upgrade(w, r, respHeader)
 	if err != nil {
 		return
 	}
@@ -303,52 +398,101 @@ func (s *Server) handleTunnelConnect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ts := s.newTunnelSession(claims, sess)
+	tc := s.newTunnelConn(slotID, gen, sess)
 
-	// Register atomically, replacing any previous session owned by the same machine
+	// Register atomically into the domain's tunnelGroup.
+	// - Legacy clients (no ?conn= slot) replace all existing connections (1:1 backwards-compatible).
+	// - Multi-connection pool clients (?conn=0..N&gen=...) coexist up to MaxConnsPerTunnel,
+	//   evicting same-slot reconnects and previous process generations automatically.
+	var toClose []*tunnelConn
 	s.mu.Lock()
-	prev := s.tunnels[claims.Domain]
-	if prev != nil && subtle.ConstantTimeCompare([]byte(prev.ownerHash), []byte(claims.OwnerHash)) != 1 {
+	g := s.tunnels[claims.Domain]
+	if g != nil && subtle.ConstantTimeCompare([]byte(g.ownerHash), []byte(claims.OwnerHash)) != 1 {
 		s.mu.Unlock()
 		_ = sess.Close()
 		return
 	}
-	if prev == nil && len(s.tunnels) >= s.cfg.MaxTunnels {
-		s.mu.Unlock()
-		_ = sess.Close()
-		return
+	if g == nil {
+		if len(s.tunnels) >= s.cfg.MaxTunnels {
+			s.mu.Unlock()
+			_ = sess.Close()
+			return
+		}
+		g = &tunnelGroup{
+			domain:    claims.Domain,
+			shortID:   claims.ShortID,
+			ownerHash: claims.OwnerHash,
+			sem:       make(chan struct{}, s.cfg.MaxStreamsPerTunnel),
+		}
+		s.tunnels[claims.Domain] = g
 	}
-	s.tunnels[claims.Domain] = ts
+	g.mu.Lock()
+	if slotID == "" {
+		toClose = append(toClose, g.conns...)
+		g.conns = []*tunnelConn{tc}
+	} else {
+		kept := make([]*tunnelConn, 0, len(g.conns)+1)
+		for _, prev := range g.conns {
+			superseded := prev.session.IsClosed() ||
+				prev.slotID == "" ||
+				prev.slotID == slotID ||
+				(gen != "" && prev.gen != "" && prev.gen != gen)
+			if superseded {
+				toClose = append(toClose, prev)
+			} else {
+				kept = append(kept, prev)
+			}
+		}
+		kept = append(kept, tc)
+		for len(kept) > s.cfg.MaxConnsPerTunnel {
+			toClose = append(toClose, kept[0])
+			kept = kept[1:]
+		}
+		g.conns = kept
+	}
+	groupConns := len(g.conns)
+	g.mu.Unlock()
 	total := len(s.tunnels)
 	s.mu.Unlock()
 
-	if prev != nil {
+	for _, prev := range toClose {
 		_ = prev.session.Close()
 	}
 
-	s.logger.Info("tunnel connected", "sid", claims.ShortID, "region", claims.Region, "active_tunnels", total)
+	s.logger.Info("tunnel connected", "sid", claims.ShortID, "region", claims.Region, "slot", slotID, "conns", groupConns, "active_tunnels", total)
 
-	// Block until the yamux session closes, then clean up only if still the registered entry
+	// Block until this yamux session closes, then remove only this connection from its group
 	<-sess.CloseChan()
 	_ = wsc.Close()
 
 	s.mu.Lock()
-	if s.tunnels[claims.Domain] == ts {
-		delete(s.tunnels, claims.Domain)
+	remainingConns := 0
+	if curGroup := s.tunnels[claims.Domain]; curGroup == g {
+		g.mu.Lock()
+		filtered := g.conns[:0]
+		for _, c := range g.conns {
+			if c != tc {
+				filtered = append(filtered, c)
+			}
+		}
+		g.conns = filtered
+		remainingConns = len(g.conns)
+		g.mu.Unlock()
+		if remainingConns == 0 {
+			delete(s.tunnels, claims.Domain)
+		}
 	}
-	remaining := len(s.tunnels)
+	remainingTunnels := len(s.tunnels)
 	s.mu.Unlock()
 
-	s.logger.Info("tunnel disconnected", "sid", claims.ShortID, "active_tunnels", remaining)
+	s.logger.Info("tunnel disconnected", "sid", claims.ShortID, "slot", slotID, "conns", remainingConns, "active_tunnels", remainingTunnels)
 }
 
-func (s *Server) newTunnelSession(claims *TokenClaims, sess *yamux.Session) *tunnelSession {
-	ts := &tunnelSession{
-		domain:      claims.Domain,
-		shortID:     claims.ShortID,
-		ownerHash:   claims.OwnerHash,
+func (s *Server) newTunnelConn(slotID, gen string, sess *yamux.Session) *tunnelConn {
+	tc := &tunnelConn{
+		slotID:      slotID,
+		gen:         gen,
 		session:     sess,
-		sem:         make(chan struct{}, s.cfg.MaxStreamsPerTunnel),
 		connectedAt: time.Now(),
 	}
 
@@ -361,8 +505,8 @@ func (s *Server) newTunnelSession(claims *TokenClaims, sess *yamux.Session) *tun
 			}
 			return stream, nil
 		},
-		MaxIdleConns:          16,
-		MaxIdleConnsPerHost:   16,
+		MaxIdleConns:          8,
+		MaxIdleConnsPerHost:   8,
 		IdleConnTimeout:       60 * time.Second,
 		ResponseHeaderTimeout: 30 * time.Second,
 		DisableCompression:    true, // preserve upstream gzip/br/ETag transparently
@@ -390,8 +534,8 @@ func (s *Server) newTunnelSession(claims *TokenClaims, sess *yamux.Session) *tun
 		},
 	}
 
-	ts.proxy = rp
-	return ts
+	tc.proxy = rp
+	return tc
 }
 
 func (s *Server) handlePublicProxy(w http.ResponseWriter, r *http.Request, host string) {
@@ -401,10 +545,18 @@ func (s *Server) handlePublicProxy(w http.ResponseWriter, r *http.Request, host 
 	}
 
 	s.mu.RLock()
-	ts := s.tunnels[host]
+	g := s.tunnels[host]
 	s.mu.RUnlock()
 
-	if ts == nil || ts.session.IsClosed() {
+	if g == nil {
+		writeRelayJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"error": "gateway_offline",
+		})
+		return
+	}
+
+	tc := g.pickConn()
+	if tc == nil {
 		writeRelayJSON(w, http.StatusServiceUnavailable, map[string]string{
 			"error": "gateway_offline",
 		})
@@ -412,8 +564,8 @@ func (s *Server) handlePublicProxy(w http.ResponseWriter, r *http.Request, host 
 	}
 
 	select {
-	case ts.sem <- struct{}{}:
-		defer func() { <-ts.sem }()
+	case g.sem <- struct{}{}:
+		defer func() { <-g.sem }()
 	default:
 		writeRelayJSON(w, http.StatusTooManyRequests, map[string]string{
 			"error": "tunnel_busy",
@@ -421,15 +573,15 @@ func (s *Server) handlePublicProxy(w http.ResponseWriter, r *http.Request, host 
 		return
 	}
 
-	ts.active.Add(1)
+	tc.active.Add(1)
 	s.activeStreams.Add(1)
 	s.totalStreams.Add(1)
 	defer func() {
-		ts.active.Add(-1)
+		tc.active.Add(-1)
 		s.activeStreams.Add(-1)
 	}()
 
-	ts.proxy.ServeHTTP(w, r)
+	tc.proxy.ServeHTTP(w, r)
 }
 
 func defaultYamuxConfig() *yamux.Config {
@@ -437,8 +589,8 @@ func defaultYamuxConfig() *yamux.Config {
 	cfg.LogOutput = io.Discard
 	cfg.EnableKeepAlive = true
 	cfg.KeepAliveInterval = 20 * time.Second
-	cfg.ConnectionWriteTimeout = 15 * time.Second
-	cfg.MaxStreamWindowSize = 512 << 10 // 512 KiB per stream
+	cfg.ConnectionWriteTimeout = 20 * time.Second
+	cfg.MaxStreamWindowSize = 1 << 20 // 1 MiB per stream to avoid window stalls on lossy WAN links
 	return cfg
 }
 

@@ -14,6 +14,7 @@ import (
 type WSOpenFrame struct {
 	Path    string            `json:"path"`
 	Headers map[string]string `json:"headers,omitempty"`
+	Enc     string            `json:"enc,omitempty"` // optional "flate" capability for compressed s2c WS frames
 }
 
 var e2eeWSUpgrader = websocket.Upgrader{
@@ -194,7 +195,8 @@ func (h *Handler) HandleWS(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	// Local Gateway -> Client (encrypt)
+	// Local Gateway -> Client (encrypt, with optional RFC 1951 raw deflate when negotiated in Frame 0)
+	wsAllowFlate := headerContainsToken(openReq.Enc, "flate")
 	go func() {
 		for {
 			msgType, rawData, rErr := innerWS.ReadMessage()
@@ -202,9 +204,19 @@ func (h *Handler) HandleWS(w http.ResponseWriter, r *http.Request) {
 				errCh <- rErr
 				return
 			}
-			buf := make([]byte, 1+len(rawData))
-			buf[0] = byte(msgType)
-			copy(buf[1:], rawData)
+			var buf []byte
+			if wsAllowFlate && len(rawData) >= compressMinBytes {
+				if comp, ok := deflateRaw(rawData); ok {
+					buf = make([]byte, 1+len(comp))
+					buf[0] = byte(msgType) | wsCompressedFlag
+					copy(buf[1:], comp)
+				}
+			}
+			if buf == nil {
+				buf = make([]byte, 1+len(rawData))
+				buf[0] = byte(msgType)
+				copy(buf[1:], rawData)
+			}
 			enc, eErr := Encrypt(key, buf, FrameAAD(deviceID, "ws-s2c"))
 			if eErr != nil {
 				errCh <- eErr

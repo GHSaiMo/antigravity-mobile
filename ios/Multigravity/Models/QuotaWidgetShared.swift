@@ -1029,6 +1029,7 @@ nonisolated public final class QuotaWidgetStore: Sendable {
             req.timeoutInterval = 2.8
             req.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
             req.setValue(deviceID, forHTTPHeaderField: "X-Mgy-E2EE-Device")
+            req.setValue("bin2,flate", forHTTPHeaderField: "X-Mgy-E2EE-Enc")
             req.httpBody = combined
 
             guard let (encResp, resp) = try? await session.data(for: req),
@@ -1041,11 +1042,38 @@ nonisolated public final class QuotaWidgetStore: Sendable {
                       using: SymmetricKey(data: key),
                       authenticating: Data("mgy-e2ee-v1:\(deviceID):s2c".utf8)
                   ),
-                  let decoded = try? JSONDecoder().decode(InnerResp.self, from: respPlain),
-                  (200...299).contains(decoded.s) else {
+                  let firstByte = respPlain.first else {
                 return nil
             }
-            let data = decoded.b.flatMap { Data(base64Encoded: $0) } ?? Data()
+            let status: Int
+            let data: Data
+            if firstByte == 0x01 || firstByte == 0x02 {
+                let unpacked: Data
+                if firstByte == 0x02 {
+                    guard let inflated = try? (Data(respPlain.dropFirst()) as NSData).decompressed(using: .zlib) as Data else {
+                        return nil
+                    }
+                    unpacked = inflated
+                } else {
+                    unpacked = Data(respPlain.dropFirst())
+                }
+                guard unpacked.count >= 4 else { return nil }
+                let b = [UInt8](unpacked.prefix(4))
+                let metaLen = (Int(b[0]) << 24) | (Int(b[1]) << 16) | (Int(b[2]) << 8) | Int(b[3])
+                guard metaLen >= 2, 4 + metaLen <= unpacked.count,
+                      let meta = try? JSONDecoder().decode(InnerResp.self, from: unpacked.subdata(in: 4..<(4 + metaLen))) else {
+                    return nil
+                }
+                status = meta.s
+                data = unpacked.subdata(in: (4 + metaLen)..<unpacked.count)
+            } else {
+                guard let decoded = try? JSONDecoder().decode(InnerResp.self, from: respPlain) else {
+                    return nil
+                }
+                status = decoded.s
+                data = decoded.b.flatMap { Data(base64Encoded: $0) } ?? Data()
+            }
+            guard (200...299).contains(status) else { return nil }
             return data.count <= maxExtensionPayloadBytes ? data : nil
         }
 

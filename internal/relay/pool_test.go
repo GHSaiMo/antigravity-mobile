@@ -2,9 +2,11 @@ package relay
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -159,5 +161,118 @@ func TestPoolProvider_ProbeRetriesTransientFailure(t *testing.T) {
 	}
 	if flakyCalls.Load() < 2 {
 		t.Fatalf("expected at least 2 probe attempts on jp1-direct, got %d", flakyCalls.Load())
+	}
+}
+
+func TestPoolProvider_MultiConnPoolAndSingleSlotHealing(t *testing.T) {
+	secret := "multiconn-test-secret"
+	srv, err := NewServer(ServerConfig{
+		SigningSecret:   secret,
+		ControlHosts:    []string{"ctl.jp1.jiuge.space"},
+		AllowedSuffixes: []string{".jiuge.space"},
+	})
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	defer srv.Close()
+
+	relayHTTP := httptest.NewServer(srv)
+	defer relayHTTP.Close()
+
+	domain := "r-cafe1234.jp1.jiuge.space"
+	tok, _ := SignToken(secret, TokenClaims{
+		ShortID:   "cafe1234",
+		OwnerHash: "cccccccccccccccccccccccccccccccc",
+		Domain:    domain,
+	})
+
+	ln := NewStreamListener()
+	defer ln.Close()
+
+	localMux := http.NewServeMux()
+	localMux.HandleFunc("/echo", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok:" + r.URL.Query().Get("n")))
+	})
+	localSrv := &http.Server{Handler: localMux}
+	go func() { _ = localSrv.Serve(ln) }()
+	defer localSrv.Close()
+
+	pool, err := NewPoolProvider(PoolConfig{
+		Nodes: []NodeConfig{{
+			ID:        "jp1-direct",
+			Region:    "ap",
+			Priority:  10,
+			Endpoint:  "ws" + strings.TrimPrefix(relayHTTP.URL, "http") + TunnelUpgradePath,
+			HealthURL: relayHTTP.URL + "/healthz",
+			Subdomain: domain,
+			URL:       "https://" + domain,
+			Token:     tok,
+		}},
+		Listener:     ln,
+		ConnsPerNode: 3,
+	})
+	if err != nil {
+		t.Fatalf("NewPoolProvider: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := pool.Start(ctx); err != nil {
+		t.Fatalf("pool.Start: %v", err)
+	}
+	defer pool.Stop()
+
+	deadline := time.Now().Add(4 * time.Second)
+	for (srv.ActiveTunnels() < 1 || srv.ActiveConns() < 3) && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if srv.ActiveTunnels() != 1 || srv.ActiveConns() != 3 {
+		t.Fatalf("expected 1 active tunnel with 3 parallel conns, got tunnels=%d conns=%d", srv.ActiveTunnels(), srv.ActiveConns())
+	}
+
+	// Simulate dropping 1 physical TCP/yamux slot while sibling slots keep serving traffic cleanly
+	srv.mu.RLock()
+	grp := srv.tunnels[domain]
+	srv.mu.RUnlock()
+	grp.mu.RLock()
+	victim := grp.conns[0].session
+	grp.mu.RUnlock()
+	_ = victim.Close()
+
+	// Concurrent requests right after dropping slot 0 must succeed via slots 1 & 2 with zero errors
+	var wg sync.WaitGroup
+	errCh := make(chan error, 12)
+	for i := 0; i < 12; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			req, _ := http.NewRequest(http.MethodGet, relayHTTP.URL+"/echo?n=hi", nil)
+			req.Host = domain
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				errCh <- err
+				return
+			}
+			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			if resp.StatusCode != http.StatusOK || string(body) != "ok:hi" {
+				errCh <- io.ErrUnexpectedEOF
+			}
+		}(i)
+	}
+	wg.Wait()
+	close(errCh)
+	for e := range errCh {
+		t.Fatalf("request failed during single-slot drop: %v", e)
+	}
+
+	// Dropped slot should self-heal back to 3 conns automatically
+	healDeadline := time.Now().Add(5 * time.Second)
+	for srv.ActiveConns() < 3 && time.Now().Before(healDeadline) {
+		time.Sleep(30 * time.Millisecond)
+	}
+	if srv.ActiveConns() != 3 {
+		t.Fatalf("expected dropped slot to heal back to 3 conns, got %d", srv.ActiveConns())
 	}
 }

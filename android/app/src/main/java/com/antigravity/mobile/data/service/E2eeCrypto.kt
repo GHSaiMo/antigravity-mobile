@@ -17,6 +17,7 @@ import okio.Buffer
 import okio.ByteString
 import okio.ByteString.Companion.toByteString
 import org.json.JSONObject
+import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.math.BigInteger
 import java.security.AlgorithmParameters
@@ -33,6 +34,7 @@ import java.security.spec.ECPublicKeySpec
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
+import java.util.zip.Inflater
 import javax.crypto.Cipher
 import javax.crypto.KeyAgreement
 import javax.crypto.Mac
@@ -50,7 +52,36 @@ import javax.crypto.spec.SecretKeySpec
 object E2eeCrypto {
     private const val TAG = "E2eeCrypto"
     const val HEADER_DEVICE_ID = "X-Mgy-E2EE-Device"
+    const val HEADER_ACCEPT_ENC = "X-Mgy-E2EE-Enc"
+    const val SUPPORTED_ENC = "bin2,flate"
+    const val FRAME_BIN_RAW: Byte = 0x01
+    const val FRAME_BIN_FLATE: Byte = 0x02
     private val PAIR_SALT = "mgy-e2ee-pair-v1".toByteArray(Charsets.UTF_8)
+
+    /** Decompresses RFC 1951 raw deflate payload (matching Go `compress/flate`). */
+    fun inflateRaw(data: ByteArray, offset: Int = 0, length: Int = data.size - offset, maxBytes: Int = 64 * 1024 * 1024): ByteArray {
+        if (length <= 0) return ByteArray(0)
+        val inflater = Inflater(true)
+        try {
+            inflater.setInput(data, offset, length)
+            val out = ByteArrayOutputStream(minOf(length * 3, 64 * 1024))
+            val buf = ByteArray(8192)
+            while (!inflater.finished()) {
+                val n = inflater.inflate(buf)
+                if (n > 0) {
+                    if (out.size() + n > maxBytes) {
+                        throw IOException("E2EE inflated payload exceeded limit")
+                    }
+                    out.write(buf, 0, n)
+                } else if (inflater.needsInput() || inflater.needsDictionary()) {
+                    break
+                }
+            }
+            return out.toByteArray()
+        } finally {
+            inflater.end()
+        }
+    }
     private val secureRandom = SecureRandom()
     private val e2eeRequiredHosts = ConcurrentHashMap.newKeySet<String>()
     private val upgradeInFlight = AtomicBoolean(false)
@@ -427,6 +458,7 @@ class E2eeTransportInterceptor(
         val outerReq = Request.Builder()
             .url(outerUrl)
             .header(E2eeCrypto.HEADER_DEVICE_ID, deviceId)
+            .header(E2eeCrypto.HEADER_ACCEPT_ENC, E2eeCrypto.SUPPORTED_ENC)
             .post(cipherFrame.toRequestBody(octetMediaType))
             .build()
 
@@ -443,12 +475,47 @@ class E2eeTransportInterceptor(
         } catch (e: Exception) {
             throw IOException("E2EE response decrypt failed: ${e.message}", e)
         }
+        if (plainBytes.isEmpty()) {
+            throw IOException("E2EE response empty")
+        }
 
-        val decoded = JSONObject(String(plainBytes, Charsets.UTF_8))
-        val statusCode = decoded.optInt("s", 200)
+        val statusCode: Int
+        val headersObj: JSONObject?
+        val respBodyBytes: ByteArray
+
+        val firstByte = plainBytes[0]
+        if (firstByte == E2eeCrypto.FRAME_BIN_RAW || firstByte == E2eeCrypto.FRAME_BIN_FLATE) {
+            val unpacked = if (firstByte == E2eeCrypto.FRAME_BIN_FLATE) {
+                E2eeCrypto.inflateRaw(plainBytes, 1, plainBytes.size - 1)
+            } else {
+                plainBytes.copyOfRange(1, plainBytes.size)
+            }
+            if (unpacked.size < 4) {
+                throw IOException("E2EE bin2 response too short")
+            }
+            val metaLen = ((unpacked[0].toInt() and 0xFF) shl 24) or
+                ((unpacked[1].toInt() and 0xFF) shl 16) or
+                ((unpacked[2].toInt() and 0xFF) shl 8) or
+                (unpacked[3].toInt() and 0xFF)
+            if (metaLen < 2 || 4 + metaLen > unpacked.size) {
+                throw IOException("E2EE bin2 invalid meta length=$metaLen")
+            }
+            val meta = JSONObject(String(unpacked, 4, metaLen, Charsets.UTF_8))
+            statusCode = meta.optInt("s", 200)
+            headersObj = meta.optJSONObject("h")
+            respBodyBytes = unpacked.copyOfRange(4 + metaLen, unpacked.size)
+        } else {
+            val decoded = JSONObject(String(plainBytes, Charsets.UTF_8))
+            statusCode = decoded.optInt("s", 200)
+            headersObj = decoded.optJSONObject("h")
+            respBodyBytes = decoded.optString("b", "").takeIf { it.isNotEmpty() }?.let { b64 ->
+                Base64.decode(b64, Base64.DEFAULT)
+            } ?: ByteArray(0)
+        }
+
         val respHeadersBuilder = Headers.Builder()
         var contentType = "application/json; charset=utf-8"
-        decoded.optJSONObject("h")?.let { hObj ->
+        headersObj?.let { hObj ->
             val keys = hObj.keys()
             while (keys.hasNext()) {
                 val k = keys.next()
@@ -467,9 +534,6 @@ class E2eeTransportInterceptor(
                 }
             }
         }
-        val respBodyBytes = decoded.optString("b", "").takeIf { it.isNotEmpty() }?.let { b64 ->
-            Base64.decode(b64, Base64.DEFAULT)
-        } ?: ByteArray(0)
 
         return Response.Builder()
             .request(original)
@@ -542,6 +606,7 @@ object E2eeWebSocketHelper {
                     val openObj = JSONObject().apply {
                         put("path", innerPath)
                         if (innerHeaders.length() > 0) put("headers", innerHeaders)
+                        put("enc", "flate")
                     }
                     val frame0 = E2eeCrypto.encrypt(
                         key = key,
@@ -564,8 +629,14 @@ object E2eeWebSocketHelper {
                         aad = E2eeCrypto.frameAad(deviceId, "ws-s2c")
                     )
                     if (plain.isEmpty()) return
-                    val msgType = plain[0].toInt() and 0xFF
-                    val payload = plain.copyOfRange(1, plain.size)
+                    val headerByte = plain[0].toInt() and 0xFF
+                    val isCompressed = (headerByte and 0x80) != 0
+                    val msgType = headerByte and 0x7F
+                    val payload = if (isCompressed) {
+                        E2eeCrypto.inflateRaw(plain, 1, plain.size - 1)
+                    } else {
+                        plain.copyOfRange(1, plain.size)
+                    }
                     if (msgType == 1) {
                         listener.onMessage(wrapper, String(payload, Charsets.UTF_8))
                     } else {

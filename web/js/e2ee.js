@@ -16,7 +16,25 @@
   const LS_KEY_B64 = "agy_e2ee_key_b64";
   const LS_BEARER = "agy_e2ee_bearer";
   const HEADER_DEVICE_ID = "X-Mgy-E2EE-Device";
+  const HEADER_ACCEPT_ENC = "X-Mgy-E2EE-Enc";
   const PAIR_SALT = new TextEncoder().encode("mgy-e2ee-pair-v1");
+
+  const SUPPORTS_DEFLATE_RAW = (() => {
+    try {
+      if (typeof DecompressionStream === "undefined") return false;
+      new DecompressionStream("deflate-raw");
+      return true;
+    } catch (_) {
+      return false;
+    }
+  })();
+
+  async function inflateRawBytes(u8) {
+    if (!u8 || u8.length === 0) return new Uint8Array(0);
+    const ds = new DecompressionStream("deflate-raw");
+    const stream = new Blob([u8]).stream().pipeThrough(ds);
+    return new Uint8Array(await new Response(stream).arrayBuffer());
+  }
 
   const enc = new TextEncoder();
   const dec = new TextDecoder();
@@ -329,6 +347,7 @@
       headers: {
         "Content-Type": "application/octet-stream",
         [HEADER_DEVICE_ID]: creds.deviceId,
+        [HEADER_ACCEPT_ENC]: SUPPORTS_DEFLATE_RAW ? "bin2,flate" : "bin2",
       },
       body: encPayload,
       signal: options && options.signal,
@@ -341,11 +360,30 @@
 
     const encRespBytes = new Uint8Array(await outerResp.arrayBuffer());
     const plainBytes = await aesDecrypt(aesKey, encRespBytes, frameAad(creds.deviceId, "s2c"));
-    const decoded = JSON.parse(dec.decode(plainBytes));
-    const status = decoded.s || 200;
+    let status = 200;
+    let decodedHeaders = null;
+    let respBody = null;
+
+    if (plainBytes.length > 0 && (plainBytes[0] === 0x01 || plainBytes[0] === 0x02)) {
+      const unpacked =
+        plainBytes[0] === 0x02 ? await inflateRawBytes(plainBytes.subarray(1)) : plainBytes.subarray(1);
+      const dv = new DataView(unpacked.buffer, unpacked.byteOffset, unpacked.byteLength);
+      const metaLen = dv.getUint32(0, false);
+      const meta = JSON.parse(dec.decode(unpacked.subarray(4, 4 + metaLen)));
+      status = meta.s || 200;
+      decodedHeaders = meta.h || null;
+      const bodySlice = unpacked.subarray(4 + metaLen);
+      respBody = bodySlice.length > 0 ? bodySlice : null;
+    } else {
+      const decoded = JSON.parse(dec.decode(plainBytes));
+      status = decoded.s || 200;
+      decodedHeaders = decoded.h || null;
+      respBody = decoded.b ? b64DecodeFlexible(decoded.b) : null;
+    }
+
     const respHeaders = new Headers();
-    if (decoded.h && typeof decoded.h === "object") {
-      for (const [k, v] of Object.entries(decoded.h)) {
+    if (decodedHeaders && typeof decodedHeaders === "object") {
+      for (const [k, v] of Object.entries(decodedHeaders)) {
         const lower = k.toLowerCase();
         if (lower === "set-cookie" || lower === "content-length" || lower === "transfer-encoding") continue;
         try {
@@ -353,7 +391,6 @@
         } catch (_) {}
       }
     }
-    const respBody = decoded.b ? b64DecodeFlexible(decoded.b) : null;
     if (status === 401) clearStoredCreds();
     return new Response(status === 204 || status === 304 ? null : respBody, {
       status,
@@ -463,9 +500,11 @@
               ? protocols.join(", ")
               : String(protocols);
           }
+          const openFrame = { path: innerPath, headers: openHeaders };
+          if (SUPPORTS_DEFLATE_RAW) openFrame.enc = "flate";
           const frame0 = await aesEncrypt(
             aesKey,
-            enc.encode(JSON.stringify({ path: innerPath, headers: openHeaders })),
+            enc.encode(JSON.stringify(openFrame)),
             frameAad(creds.deviceId, "ws-open")
           );
           this._raw.send(frame0);
@@ -495,8 +534,11 @@
           }
           const plain = await aesDecrypt(aesKey, buf, frameAad(creds.deviceId, "ws-s2c"));
           if (!plain || plain.length < 1) return;
-          const msgType = plain[0];
-          const payload = plain.slice(1);
+          const headerByte = plain[0];
+          const isCompressed = (headerByte & 0x80) !== 0;
+          const msgType = headerByte & 0x7f;
+          const rawPayload = plain.slice(1);
+          const payload = isCompressed ? await inflateRawBytes(rawPayload) : rawPayload;
           const outData = msgType === 1 ? dec.decode(payload) : payload.buffer;
           const msgEv = new MessageEvent("message", { data: outData });
           if (typeof this.onmessage === "function") this.onmessage(msgEv);

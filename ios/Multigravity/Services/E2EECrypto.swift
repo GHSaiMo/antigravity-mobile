@@ -28,6 +28,8 @@ public final class E2EECrypto: Sendable {
     public static let shared = E2EECrypto()
 
     public static let deviceHeader = "X-Mgy-E2EE-Device"
+    public static let acceptEncHeader = "X-Mgy-E2EE-Enc"
+    public static let supportedEncValue = "bin2,flate"
     private static let pairSalt = Data("mgy-e2ee-pair-v1".utf8)
 
     private let e2eeRequiredHostsLock = OSAllocatedUnfairLock(initialState: Set<String>())
@@ -248,8 +250,20 @@ public final class E2EECrypto: Sendable {
         outerReq.timeoutInterval = request.timeoutInterval
         outerReq.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
         outerReq.setValue(deviceID, forHTTPHeaderField: Self.deviceHeader)
+        outerReq.setValue(Self.supportedEncValue, forHTTPHeaderField: Self.acceptEncHeader)
         outerReq.httpBody = cipherFrame
         return (outerReq, deviceID, key)
+    }
+
+    /// Decompresses RFC 1951 raw deflate data using Apple's native Compression framework (`.zlib`).
+    public static func inflateRaw(_ data: Data) throws -> Data {
+        guard !data.isEmpty else { return Data() }
+        return try (data as NSData).decompressed(using: .zlib) as Data
+    }
+
+    private struct InnerHTTPMeta: Decodable {
+        let s: Int
+        let h: [String: String]?
     }
 
     public func unwrapHTTPResponse(
@@ -259,18 +273,52 @@ public final class E2EECrypto: Sendable {
         key: Data
     ) throws -> (Data, HTTPURLResponse) {
         let plain = try Self.decrypt(key: key, frame: encData, aad: Self.frameAAD(deviceID: deviceID, direction: "s2c"))
-        let decoded = try JSONDecoder().decode(InnerHTTPResponse.self, from: plain)
-        let bodyData: Data
-        if let b64 = decoded.b, !b64.isEmpty {
-            bodyData = Data(base64Encoded: b64) ?? Data()
-        } else {
-            bodyData = Data()
+        guard let firstByte = plain.first else {
+            throw E2EEError.invalidEnvelope
         }
+
+        let statusCode: Int
+        let headerFields: [String: String]?
+        let bodyData: Data
+
+        if firstByte == 0x01 || firstByte == 0x02 {
+            // Binary v2 envelope: [0x01|0x02][optional raw-deflate([u32 BE metaLen][metaJSON][rawBody])]
+            let unpacked: Data
+            if firstByte == 0x02 {
+                unpacked = try Self.inflateRaw(Data(plain.dropFirst()))
+            } else {
+                unpacked = Data(plain.dropFirst())
+            }
+            guard unpacked.count >= 4 else {
+                throw E2EEError.invalidEnvelope
+            }
+            let b = [UInt8](unpacked.prefix(4))
+            let metaLen = (Int(b[0]) << 24) | (Int(b[1]) << 16) | (Int(b[2]) << 8) | Int(b[3])
+            guard metaLen >= 2, 4 + metaLen <= unpacked.count else {
+                throw E2EEError.invalidEnvelope
+            }
+            let metaSlice = unpacked.subdata(in: 4..<(4 + metaLen))
+            let meta = try JSONDecoder().decode(InnerHTTPMeta.self, from: metaSlice)
+            statusCode = meta.s
+            headerFields = meta.h
+            bodyData = unpacked.subdata(in: (4 + metaLen)..<unpacked.count)
+        } else {
+            // Legacy JSON v1 envelope: {"s":200,"h":{...},"b":"<base64>"}
+            let decoded = try JSONDecoder().decode(InnerHTTPResponse.self, from: plain)
+            statusCode = decoded.s
+            headerFields = decoded.h
+            if let b64 = decoded.b, !b64.isEmpty {
+                bodyData = Data(base64Encoded: b64) ?? Data()
+            } else {
+                bodyData = Data()
+            }
+        }
+
         guard let httpResp = HTTPURLResponse(
             url: originalURL,
-            statusCode: decoded.s,
+            statusCode: statusCode,
             httpVersion: "HTTP/1.1",
-            headerFields: decoded.h
+            headerFields: headerFields
         ) else {
             throw E2EEError.invalidEnvelope
         }

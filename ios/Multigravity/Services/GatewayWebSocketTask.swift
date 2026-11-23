@@ -260,16 +260,19 @@ public final class GatewayWebSocketTask: @unchecked Sendable {
                         frame: enc,
                         aad: E2EECrypto.frameAAD(deviceID: e2ee.deviceID, direction: "ws-s2c")
                     )
-                    guard let msgType = plain.first else {
+                    guard let rawHeader = plain.first else {
                         completionHandler(.failure(E2EEError.decryptionFailed))
                         return
                     }
-                    let payload = plain.dropFirst()
+                    let isCompressed = (rawHeader & 0x80) != 0
+                    let msgType = rawHeader & 0x7F
+                    let rawPayload = Data(plain.dropFirst())
+                    let payload = isCompressed ? try E2EECrypto.inflateRaw(rawPayload) : rawPayload
                     if msgType == 1 {
-                        let text = String(data: Data(payload), encoding: .utf8) ?? ""
+                        let text = String(data: payload, encoding: .utf8) ?? ""
                         completionHandler(.success(.string(text)))
                     } else {
-                        completionHandler(.success(.data(Data(payload))))
+                        completionHandler(.success(.data(payload)))
                     }
                 } catch {
                     completionHandler(.failure(error))
@@ -385,11 +388,13 @@ public final class GatewayWebSocketTask: @unchecked Sendable {
             struct OpenPayload: Encodable {
                 let path: String
                 let headers: [String: String]?
+                let enc: String?
             }
             do {
                 let openJSON = try JSONEncoder().encode(OpenPayload(
                     path: e2ee.openPath,
-                    headers: e2ee.openHeaders.isEmpty ? nil : e2ee.openHeaders
+                    headers: e2ee.openHeaders.isEmpty ? nil : e2ee.openHeaders,
+                    enc: "flate"
                 ))
                 let frame0 = try E2EECrypto.encrypt(
                     key: e2ee.key,

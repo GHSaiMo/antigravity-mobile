@@ -2,20 +2,108 @@ package e2ee
 
 import (
 	"bytes"
+	"compress/flate"
 	"context"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 )
 
 const (
 	// HeaderDeviceID identifies which paired device's E2EE session key decrypts the request.
 	HeaderDeviceID = "X-Mgy-E2EE-Device"
+	// HeaderAcceptEnc advertises client-supported E2EE inner response framing/compression (e.g. "bin2,flate").
+	HeaderAcceptEnc = "X-Mgy-E2EE-Enc"
+
+	// Inner binary v2 response framing markers (never collide with legacy JSON '{' = 0x7b).
+	FrameTypeBinRaw   byte = 0x01 // [0x01][u32 BE metaLen][metaJSON][rawBody]
+	FrameTypeBinFlate byte = 0x02 // [0x02][raw-deflate([u32 BE metaLen][metaJSON][rawBody])]
+
+	compressMinBytes  = 512
+	flateLevel        = 4 // fast speed + strong JSON compression (~4.5x-8x smaller than base64 JSON)
+	wsCompressedFlag  = byte(0x80)
 
 	maxEncryptedRPCBytes = 64 << 20 // 64 MiB safety ceiling matching gateway MaxBytesMiddleware
 )
+
+var flateWriterPool = sync.Pool{
+	New: func() any {
+		w, _ := flate.NewWriter(io.Discard, flateLevel)
+		return w
+	},
+}
+
+// deflateRaw compresses src with RFC 1951 raw deflate (compatible with Go flate,
+// iOS NSData.decompressed(using: .zlib), Android Inflater(true), and Web DecompressionStream("deflate-raw")).
+func deflateRaw(src []byte) ([]byte, bool) {
+	if len(src) < compressMinBytes {
+		return nil, false
+	}
+	var buf bytes.Buffer
+	buf.Grow(len(src) / 3)
+	fw := flateWriterPool.Get().(*flate.Writer)
+	fw.Reset(&buf)
+	_, wErr := fw.Write(src)
+	cErr := fw.Close()
+	fw.Reset(io.Discard)
+	flateWriterPool.Put(fw)
+	if wErr != nil || cErr != nil {
+		return nil, false
+	}
+	out := buf.Bytes()
+	if len(out) >= len(src) {
+		return nil, false
+	}
+	return out, true
+}
+
+func headerContainsToken(raw, token string) bool {
+	if raw == "" {
+		return false
+	}
+	for _, part := range strings.Split(raw, ",") {
+		if strings.EqualFold(strings.TrimSpace(part), token) {
+			return true
+		}
+	}
+	return false
+}
+
+// InnerHTTPMeta is the JSON metadata header inside Binary v2 E2EE responses (without base64 body).
+type InnerHTTPMeta struct {
+	Status  int               `json:"s"`
+	Headers map[string]string `json:"h,omitempty"`
+}
+
+func encodeBinaryHTTPResponse(status int, headers map[string]string, body []byte, allowFlate bool) ([]byte, error) {
+	metaJSON, err := json.Marshal(InnerHTTPMeta{
+		Status:  status,
+		Headers: headers,
+	})
+	if err != nil {
+		return nil, err
+	}
+	rawLen := 4 + len(metaJSON) + len(body)
+	payload := make([]byte, 1+rawLen)
+	payload[0] = FrameTypeBinRaw
+	binary.BigEndian.PutUint32(payload[1:5], uint32(len(metaJSON)))
+	copy(payload[5:5+len(metaJSON)], metaJSON)
+	copy(payload[5+len(metaJSON):], body)
+
+	if allowFlate && rawLen >= compressMinBytes {
+		if comp, ok := deflateRaw(payload[1:]); ok && len(comp) < rawLen {
+			out := make([]byte, 1+len(comp))
+			out[0] = FrameTypeBinFlate
+			copy(out[1:], comp)
+			return out, nil
+		}
+	}
+	return payload, nil
+}
 
 // InnerHTTPRequest is the JSON-encoded plaintext inside `POST /api/v1/e2ee/rpc`.
 type InnerHTTPRequest struct {
@@ -186,15 +274,25 @@ func (h *Handler) HandleRPC(w http.ResponseWriter, r *http.Request) {
 		}
 		respHeaders[k] = strings.Join(vals, ", ")
 	}
-	innerResp := InnerHTTPResponse{
-		Status:  rec.statusCode,
-		Headers: respHeaders,
+	acceptEnc := r.Header.Get(HeaderAcceptEnc)
+	var respPlain []byte
+	if headerContainsToken(acceptEnc, "bin2") {
+		respPlain, err = encodeBinaryHTTPResponse(
+			rec.statusCode,
+			respHeaders,
+			rec.body.Bytes(),
+			headerContainsToken(acceptEnc, "flate"),
+		)
+	} else {
+		innerResp := InnerHTTPResponse{
+			Status:  rec.statusCode,
+			Headers: respHeaders,
+		}
+		if rec.body.Len() > 0 {
+			innerResp.BodyB64 = base64.StdEncoding.EncodeToString(rec.body.Bytes())
+		}
+		respPlain, err = json.Marshal(innerResp)
 	}
-	if rec.body.Len() > 0 {
-		innerResp.BodyB64 = base64.StdEncoding.EncodeToString(rec.body.Bytes())
-	}
-
-	respPlain, err := json.Marshal(innerResp)
 	if err != nil {
 		writeE2EEError(w, http.StatusInternalServerError, "encode_inner_response_failed")
 		return

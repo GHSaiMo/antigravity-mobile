@@ -2,19 +2,29 @@ package relay
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/hashicorp/yamux"
+)
+
+const (
+	defaultConnsPerNode = 3
+	maxConnsPerNode     = 4
 )
 
 // NodeConfig represents a single VPS relay node dispatched by the Worker pool.
@@ -35,6 +45,7 @@ type PoolConfig struct {
 	Nodes             []NodeConfig
 	Listener          *StreamListener // preferred: direct in-process E2EE-guarded HTTP listener
 	LocalAddr         string          // fallback if Listener is nil
+	ConnsPerNode      int             // parallel yamux connections per node (default 3, max 4; negotiated with server)
 	RefreshInterval   time.Duration   // default 6h
 	RefreshFunc       func(ctx context.Context) ([]NodeConfig, error)
 	OnEndpointChanged func(node NodeConfig)
@@ -45,17 +56,19 @@ type PoolConfig struct {
 
 // PoolProvider implements tunnel.Provider across a dynamic pool of mgy-relay VPS nodes.
 type PoolProvider struct {
-	cfg    PoolConfig
-	logger *slog.Logger
+	cfg          PoolConfig
+	logger       *slog.Logger
+	connsPerNode int
 
-	mu         sync.RWMutex
-	nodes      []NodeConfig
-	activeNode NodeConfig
-	activeRTT  time.Duration
-	running    bool
-	cancel     context.CancelFunc
-	done       chan struct{}
-	sess       *yamux.Session
+	mu          sync.RWMutex
+	nodes       []NodeConfig
+	activeNode  NodeConfig
+	activeRTT   time.Duration
+	running     bool
+	cancel      context.CancelFunc
+	epochCancel context.CancelFunc
+	done        chan struct{}
+	sessions    map[*yamux.Session]struct{}
 }
 
 // NewPoolProvider initializes a multi-node relay pool provider.
@@ -75,15 +88,31 @@ func NewPoolProvider(cfg PoolConfig) (*PoolProvider, error) {
 	if cfg.LocalAddr == "" {
 		cfg.LocalAddr = "127.0.0.1:58900"
 	}
+	connsPerNode := cfg.ConnsPerNode
+	if connsPerNode <= 0 {
+		if envVal := strings.TrimSpace(os.Getenv("MGY_RELAY_CONNS")); envVal != "" {
+			if n, err := strconv.Atoi(envVal); err == nil && n > 0 {
+				connsPerNode = n
+			}
+		}
+	}
+	if connsPerNode <= 0 {
+		connsPerNode = defaultConnsPerNode
+	}
+	if connsPerNode > maxConnsPerNode {
+		connsPerNode = maxConnsPerNode
+	}
 	logger := cfg.Logger
 	if logger == nil {
 		logger = slog.Default()
 	}
 	return &PoolProvider{
-		cfg:        cfg,
-		logger:     logger,
-		nodes:      valid,
-		activeNode: valid[0],
+		cfg:          cfg,
+		logger:       logger,
+		connsPerNode: connsPerNode,
+		nodes:        valid,
+		activeNode:   valid[0],
+		sessions:     make(map[*yamux.Session]struct{}),
 	}, nil
 }
 
@@ -135,7 +164,7 @@ func (p *PoolProvider) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop terminates the active relay tunnel and halts background supervision.
+// Stop terminates all active relay tunnel sessions and halts background supervision.
 func (p *PoolProvider) Stop() {
 	p.mu.Lock()
 	if !p.running {
@@ -143,22 +172,76 @@ func (p *PoolProvider) Stop() {
 		return
 	}
 	cancel := p.cancel
-	sess := p.sess
+	epochCancel := p.epochCancel
 	done := p.done
 	p.running = false
 	p.mu.Unlock()
 
+	if epochCancel != nil {
+		epochCancel()
+	}
 	if cancel != nil {
 		cancel()
 	}
-	if sess != nil {
-		_ = sess.Close()
-	}
+	p.closeAllSessions()
 	if done != nil {
 		select {
 		case <-done:
 		case <-time.After(3 * time.Second):
 		}
+	}
+}
+
+func (p *PoolProvider) addSession(s *yamux.Session) {
+	p.mu.Lock()
+	p.sessions[s] = struct{}{}
+	p.mu.Unlock()
+}
+
+func (p *PoolProvider) removeSession(s *yamux.Session) {
+	p.mu.Lock()
+	delete(p.sessions, s)
+	p.mu.Unlock()
+}
+
+func (p *PoolProvider) activeSessionCount() int {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	n := 0
+	for s := range p.sessions {
+		if !s.IsClosed() {
+			n++
+		}
+	}
+	return n
+}
+
+func (p *PoolProvider) totalNumStreams() int {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	total := 0
+	for s := range p.sessions {
+		if !s.IsClosed() {
+			total += s.NumStreams()
+		}
+	}
+	return total
+}
+
+func (p *PoolProvider) closeAllSessions() {
+	p.mu.Lock()
+	list := make([]*yamux.Session, 0, len(p.sessions))
+	for s := range p.sessions {
+		list = append(list, s)
+	}
+	epochCancel := p.epochCancel
+	p.mu.Unlock()
+
+	if epochCancel != nil {
+		epochCancel()
+	}
+	for _, s := range list {
+		_ = s.Close()
 	}
 }
 
@@ -342,12 +425,22 @@ func (p *PoolProvider) supervise(ctx context.Context) {
 		}
 		node := p.ActiveNode()
 		startedAt := time.Now()
-		err := p.connectAndServe(ctx, node)
+		allDownOutage, err := p.runNodeEpoch(ctx, node)
 		if ctx.Err() != nil {
 			return
 		}
 
-		if time.Since(startedAt) >= 30*time.Second {
+		// If refreshLoop explicitly switched activeNode while this epoch was running, reconnect immediately.
+		if p.ActiveNode().Endpoint != node.Endpoint {
+			consecutiveOnNode = 0
+			backoffStep = 0
+			continue
+		}
+
+		if allDownOutage {
+			consecutiveOnNode = 3
+			backoffStep++
+		} else if time.Since(startedAt) >= 30*time.Second {
 			consecutiveOnNode = 0
 			backoffStep = 0
 			allFailedNotified = false
@@ -416,7 +509,6 @@ func (p *PoolProvider) refreshLoop(ctx context.Context) {
 			p.mu.Lock()
 			p.nodes = fresh
 			curNode := p.activeNode
-			sess := p.sess
 			p.mu.Unlock()
 
 			// Check if current node was removed from pool
@@ -432,34 +524,70 @@ func (p *PoolProvider) refreshLoop(ctx context.Context) {
 			if !stillPresent {
 				p.logger.Info("🔄 [RelayPool] 当前节点已从池中下线，平滑迁移至新节点", "from", curNode.ID, "to", bestNode.ID)
 				p.setActiveNode(bestNode, bestRTT)
-				if sess != nil {
-					_ = sess.Close()
-				}
+				p.closeAllSessions()
 				continue
 			}
 
 			// Hysteresis: only migrate if new node is >40% faster AND at least 50ms lower RTT, and no active streams
 			if bestNode.ID != curNode.ID && bestRTT > 0 {
 				curRTT, curOK := p.probeSingle(ctx, curNode)
-				noActiveStreams := sess == nil || sess.NumStreams() == 0
+				noActiveStreams := p.totalNumStreams() == 0
 				if noActiveStreams && (!curOK || (curRTT-bestRTT >= 50*time.Millisecond && float64(bestRTT) < float64(curRTT)*0.6)) {
 					p.logger.Info("🚀 [RelayPool] 发现更优节点，空闲时无感切换",
 						"from", curNode.ID, "from_ms", curRTT.Milliseconds(),
 						"to", bestNode.ID, "to_ms", bestRTT.Milliseconds())
 					p.setActiveNode(bestNode, bestRTT)
-					if sess != nil {
-						_ = sess.Close()
-					}
+					p.closeAllSessions()
 				}
 			}
 		}
 	}
 }
 
-func (p *PoolProvider) connectAndServe(ctx context.Context, node NodeConfig) error {
+func generateEpochGen() string {
+	var b [4]byte
+	if _, err := rand.Read(b[:]); err == nil {
+		return hex.EncodeToString(b[:])
+	}
+	return fmt.Sprintf("%x", time.Now().UnixNano()&0xffffffff)
+}
+
+func appendTunnelSlotQuery(endpoint, gen string, slot int) string {
+	u, err := url.Parse(endpoint)
+	if err != nil {
+		return endpoint
+	}
+	q := u.Query()
+	q.Set("gen", gen)
+	q.Set("conn", strconv.Itoa(slot))
+	u.RawQuery = q.Encode()
+	return u.String()
+}
+
+func parsePoolMaxConns(resp *http.Response) int {
+	if resp == nil {
+		return 1
+	}
+	raw := strings.TrimSpace(resp.Header.Get(HeaderPoolMaxConns))
+	if raw == "" {
+		return 1
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 1 {
+		return 1
+	}
+	if n > maxConnsPerNode {
+		return maxConnsPerNode
+	}
+	return n
+}
+
+func (p *PoolProvider) dialSlot(ctx context.Context, node NodeConfig, gen string, slot int) (*wsNetConn, *yamux.Session, int, error) {
 	hdr := http.Header{}
 	hdr.Set("Authorization", "Bearer "+node.Token)
-	hdr.Set("User-Agent", "Multigravity-RelayPool/1.0")
+	hdr.Set("User-Agent", "Multigravity-RelayPool/1.1")
+
+	targetEndpoint := appendTunnelSlotQuery(node.Endpoint, gen, slot)
 
 	// Try direct connection first (bypassing local dev proxies like Clash/V2Ray so the
 	// tunnel follows the physical low-latency route and survives proxy restarts), falling
@@ -467,11 +595,11 @@ func (p *PoolProvider) connectAndServe(ctx context.Context, node NodeConfig) err
 	directDialer := websocket.Dialer{
 		Proxy:             nil,
 		HandshakeTimeout:  10 * time.Second,
-		ReadBufferSize:    32 << 10,
-		WriteBufferSize:   32 << 10,
+		ReadBufferSize:    64 << 10,
+		WriteBufferSize:   64 << 10,
 		EnableCompression: false,
 	}
-	ws, resp, err := directDialer.DialContext(ctx, node.Endpoint, hdr)
+	ws, resp, err := directDialer.DialContext(ctx, targetEndpoint, hdr)
 	if err != nil && ctx.Err() == nil && hasEnvProxyForURL(node.Endpoint) {
 		if resp != nil {
 			_ = resp.Body.Close()
@@ -479,47 +607,51 @@ func (p *PoolProvider) connectAndServe(ctx context.Context, node NodeConfig) err
 		proxyDialer := websocket.Dialer{
 			Proxy:             http.ProxyFromEnvironment,
 			HandshakeTimeout:  15 * time.Second,
-			ReadBufferSize:    32 << 10,
-			WriteBufferSize:   32 << 10,
+			ReadBufferSize:    64 << 10,
+			WriteBufferSize:   64 << 10,
 			EnableCompression: false,
 		}
-		ws, resp, err = proxyDialer.DialContext(ctx, node.Endpoint, hdr)
+		ws, resp, err = proxyDialer.DialContext(ctx, targetEndpoint, hdr)
 	}
 	if err != nil {
 		if resp != nil {
 			defer resp.Body.Close()
 			body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-			return fmt.Errorf("dial %s (HTTP %d): %w (%s)", node.ID, resp.StatusCode, err, strings.TrimSpace(string(body)))
+			return nil, nil, 1, fmt.Errorf("dial %s:slot%d (HTTP %d): %w (%s)", node.ID, slot, resp.StatusCode, err, strings.TrimSpace(string(body)))
 		}
-		return fmt.Errorf("dial %s: %w", node.ID, err)
+		return nil, nil, 1, fmt.Errorf("dial %s:slot%d: %w", node.ID, slot, err)
+	}
+	serverMax := parsePoolMaxConns(resp)
+	if resp != nil && resp.Body != nil {
+		_ = resp.Body.Close()
 	}
 
 	wsc := newWSNetConn(ws)
 	sess, err := yamux.Client(wsc, defaultYamuxConfig())
 	if err != nil {
 		_ = wsc.Close()
-		return fmt.Errorf("yamux init: %w", err)
+		return nil, nil, serverMax, fmt.Errorf("yamux init: %w", err)
 	}
+	return wsc, sess, serverMax, nil
+}
 
-	p.mu.Lock()
-	p.sess = sess
-	p.mu.Unlock()
+func (p *PoolProvider) serveSession(ctx context.Context, wsc *wsNetConn, sess *yamux.Session) error {
+	p.addSession(sess)
+	doneCh := make(chan struct{})
 	defer func() {
+		close(doneCh)
 		_ = sess.Close()
 		_ = wsc.Close()
-		p.mu.Lock()
-		if p.sess == sess {
-			p.sess = nil
-		}
-		p.mu.Unlock()
+		p.removeSession(sess)
 	}()
 
 	go func() {
-		<-ctx.Done()
-		_ = sess.Close()
+		select {
+		case <-ctx.Done():
+			_ = sess.Close()
+		case <-doneCh:
+		}
 	}()
-
-	p.logger.Info("✅ [RelayPool] E2EE 中继隧道就绪", "node", node.ID, "url", node.URL)
 
 	for {
 		stream, err := sess.AcceptStream()
@@ -532,6 +664,151 @@ func (p *PoolProvider) connectAndServe(ctx context.Context, node NodeConfig) err
 			go pipeStreamToTCP(ctx, stream, p.cfg.LocalAddr)
 		}
 	}
+}
+
+// runNodeEpoch establishes slot 0 to probe server multi-connection support (X-Mgy-Relay-Pool-Max).
+// When supported (>=2), it runs up to connsPerNode parallel yamux tunnels under a shared epoch so
+// individual TCP drops heal silently with zero user-visible downtime and zero Head-of-Line blocking.
+func (p *PoolProvider) runNodeEpoch(parentCtx context.Context, node NodeConfig) (bool, error) {
+	epochCtx, epochCancel := context.WithCancel(parentCtx)
+	p.mu.Lock()
+	p.epochCancel = epochCancel
+	p.mu.Unlock()
+	defer func() {
+		epochCancel()
+		p.mu.Lock()
+		if p.epochCancel != nil {
+			p.epochCancel = nil
+		}
+		p.mu.Unlock()
+	}()
+
+	gen := generateEpochGen()
+	wsc0, sess0, serverMax, err := p.dialSlot(epochCtx, node, gen, 0)
+	if err != nil {
+		return false, err
+	}
+
+	targetConns := p.connsPerNode
+	if serverMax < targetConns {
+		targetConns = serverMax
+	}
+	if targetConns < 1 {
+		targetConns = 1
+	}
+
+	if targetConns == 1 {
+		p.logger.Info("✅ [RelayPool] E2EE 中继隧道就绪", "node", node.ID, "conns", 1, "url", node.URL)
+		return false, p.serveSession(epochCtx, wsc0, sess0)
+	}
+
+	p.logger.Info("✅ [RelayPool] E2EE 并发中继隧道池就绪", "node", node.ID, "conns", targetConns, "url", node.URL)
+
+	var (
+		allDownFailures atomic.Int32
+		outageTriggered atomic.Bool
+		lastErrMu       sync.Mutex
+		lastErr         error
+		wg              sync.WaitGroup
+	)
+	recordErr := func(e error) {
+		if e == nil {
+			return
+		}
+		lastErrMu.Lock()
+		lastErr = e
+		lastErrMu.Unlock()
+	}
+
+	runSlot := func(slot int, initWSC *wsNetConn, initSess *yamux.Session) {
+		defer wg.Done()
+		if slot > 0 {
+			stagger := time.NewTimer(time.Duration(slot) * 80 * time.Millisecond)
+			select {
+			case <-epochCtx.Done():
+				stagger.Stop()
+				return
+			case <-stagger.C:
+			}
+		}
+
+		backoff := 0
+		wsc := initWSC
+		sess := initSess
+
+		for {
+			if epochCtx.Err() != nil {
+				return
+			}
+			if sess == nil {
+				var dialErr error
+				wsc, sess, _, dialErr = p.dialSlot(epochCtx, node, gen, slot)
+				if dialErr != nil {
+					if epochCtx.Err() != nil {
+						return
+					}
+					recordErr(dialErr)
+					backoff++
+					if p.activeSessionCount() == 0 {
+						if allDownFailures.Add(1) >= 3 {
+							outageTriggered.Store(true)
+							epochCancel()
+							return
+						}
+					}
+					delay := nextClientBackoff(backoff)
+					timer := time.NewTimer(delay)
+					select {
+					case <-epochCtx.Done():
+						timer.Stop()
+						return
+					case <-timer.C:
+					}
+					continue
+				}
+			}
+
+			// Connected cleanly
+			allDownFailures.Store(0)
+			connectedAt := time.Now()
+			serveErr := p.serveSession(epochCtx, wsc, sess)
+			wsc = nil
+			sess = nil
+			if epochCtx.Err() != nil {
+				return
+			}
+			recordErr(serveErr)
+			if time.Since(connectedAt) >= 30*time.Second {
+				backoff = 0
+			} else {
+				backoff++
+			}
+			// Brief jitter before reconnecting this slot while sibling slots keep serving traffic
+			delay := nextClientBackoff(backoff)
+			if delay > 5*time.Second {
+				delay = 5 * time.Second
+			}
+			timer := time.NewTimer(delay)
+			select {
+			case <-epochCtx.Done():
+				timer.Stop()
+				return
+			case <-timer.C:
+			}
+		}
+	}
+
+	wg.Add(targetConns)
+	go runSlot(0, wsc0, sess0)
+	for slot := 1; slot < targetConns; slot++ {
+		go runSlot(slot, nil, nil)
+	}
+	wg.Wait()
+
+	lastErrMu.Lock()
+	retErr := lastErr
+	lastErrMu.Unlock()
+	return outageTriggered.Load(), retErr
 }
 
 func pipeStreamToTCP(ctx context.Context, stream *yamux.Stream, localAddr string) {

@@ -2,7 +2,9 @@ package e2ee
 
 import (
 	"bytes"
+	"compress/flate"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -246,5 +248,171 @@ func TestE2EE_HTTP_RPC_And_WebSocket_EndToEnd(t *testing.T) {
 	plainAck, err := Decrypt(devKey, encAck, FrameAAD(devID, "ws-s2c"))
 	if err != nil || string(plainAck[1:]) != "ack:ping-e2ee" {
 		t.Fatalf("unexpected decrypted ack: err=%v plain=%q", err, string(plainAck))
+	}
+}
+
+func TestE2EE_Bin2Flate_HTTP_And_WebSocket(t *testing.T) {
+	gwID, _ := GenerateIdentity()
+	cliID, _ := GenerateIdentity()
+	shared, _ := gwID.ECDH(cliID.PublicKeyB64())
+	salt, _ := RandomBytes(16)
+	devID := "dev_e2ee_flate"
+	devToken := "tok_flate_123456"
+	devKey := DeriveDeviceKey(shared, salt, devID)
+
+	bigBody := strings.Repeat(`{"cascadeId":"abc12345","status":"RUNNING","title":"Multigravity Benchmark Session"},`, 120)
+	tinyBody := `{"ok":true}`
+	wsUpgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+
+	innerMux := http.NewServeMux()
+	innerMux.HandleFunc("/big", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Antigravity-Cloud-URL", "https://r-a1b2c3d4.jp1.jiuge.space")
+		_, _ = w.Write([]byte(bigBody))
+	})
+	innerMux.HandleFunc("/tiny", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(tinyBody))
+	})
+	innerMux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+		conn, err := wsUpgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		_ = conn.WriteMessage(websocket.TextMessage, []byte(tinyBody))
+		_ = conn.WriteMessage(websocket.TextMessage, []byte(bigBody))
+	})
+
+	localSrv := httptest.NewServer(innerMux)
+	defer localSrv.Close()
+	localAddr := strings.TrimPrefix(localSrv.URL, "http://")
+
+	h := &Handler{
+		Identity: gwID,
+		LookupKey: func(id string) ([]byte, bool) {
+			if id == devID {
+				return devKey, true
+			}
+			return nil, false
+		},
+		ValidateToken: func(raw string) (string, bool) {
+			if raw == devToken {
+				return devID, true
+			}
+			return "", false
+		},
+		InnerHandler: innerMux,
+		LocalWSAddr:  func() string { return localAddr },
+	}
+	outerMux := http.NewServeMux()
+	outerMux.HandleFunc("/api/v1/e2ee/rpc", h.HandleRPC)
+	outerMux.HandleFunc("/api/v1/e2ee/ws", h.HandleWS)
+	outerSrv := httptest.NewServer(outerMux)
+	defer outerSrv.Close()
+
+	// 1. Large HTTP RPC with X-Mgy-E2EE-Enc: bin2,flate -> FrameTypeBinFlate (0x02) & >5x smaller than raw
+	doRPC := func(path string) []byte {
+		innerReqBytes, _ := json.Marshal(InnerHTTPRequest{
+			Method:  "GET",
+			Path:    path,
+			Headers: map[string]string{"Authorization": "Bearer " + devToken},
+		})
+		encReq, _ := Encrypt(devKey, innerReqBytes, FrameAAD(devID, "c2s"))
+		req, _ := http.NewRequest(http.MethodPost, outerSrv.URL+"/api/v1/e2ee/rpc", bytes.NewReader(encReq))
+		req.Header.Set(HeaderDeviceID, devID)
+		req.Header.Set(HeaderAcceptEnc, "bin2,flate")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("RPC %s: %v", path, err)
+		}
+		defer resp.Body.Close()
+		raw, _ := io.ReadAll(resp.Body)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("RPC %s status=%d", path, resp.StatusCode)
+		}
+		plain, err := Decrypt(devKey, raw, FrameAAD(devID, "s2c"))
+		if err != nil {
+			t.Fatalf("decrypt %s: %v", path, err)
+		}
+		return plain
+	}
+
+	plainBig := doRPC("/big")
+	if len(plainBig) < 2 || plainBig[0] != FrameTypeBinFlate {
+		t.Fatalf("expected FrameTypeBinFlate (0x02), got first byte 0x%02x (len=%d)", plainBig[0], len(plainBig))
+	}
+	if len(plainBig) >= len(bigBody)/5 {
+		t.Fatalf("expected >=5x compression on repetitive JSON, got compressed=%d vs raw=%d", len(plainBig), len(bigBody))
+	}
+	fr := flate.NewReader(bytes.NewReader(plainBig[1:]))
+	unpacked, err := io.ReadAll(fr)
+	_ = fr.Close()
+	if err != nil {
+		t.Fatalf("inflate big RPC: %v", err)
+	}
+	metaLen := binary.BigEndian.Uint32(unpacked[:4])
+	var meta InnerHTTPMeta
+	if err := json.Unmarshal(unpacked[4:4+metaLen], &meta); err != nil {
+		t.Fatalf("unmarshal bin2 meta: %v", err)
+	}
+	bodyGot := string(unpacked[4+metaLen:])
+	if meta.Status != 200 || bodyGot != bigBody {
+		t.Fatalf("bin2 flate mismatch: status=%d bodyLen=%d want=%d", meta.Status, len(bodyGot), len(bigBody))
+	}
+	if meta.Headers[http.CanonicalHeaderKey("X-Antigravity-Cloud-URL")] != "https://r-a1b2c3d4.jp1.jiuge.space" {
+		t.Fatalf("missing cloud URL in bin2 meta: %+v", meta.Headers)
+	}
+
+	// 2. Tiny HTTP RPC -> FrameTypeBinRaw (0x01)
+	plainTiny := doRPC("/tiny")
+	if len(plainTiny) < 5 || plainTiny[0] != FrameTypeBinRaw {
+		t.Fatalf("expected FrameTypeBinRaw (0x01), got 0x%02x", plainTiny[0])
+	}
+	tMetaLen := binary.BigEndian.Uint32(plainTiny[1:5])
+	if got := string(plainTiny[5+tMetaLen:]); got != tinyBody {
+		t.Fatalf("tiny bin2 mismatch: got=%q want=%q", got, tinyBody)
+	}
+
+	// 3. WebSocket with enc="flate" -> small frame uncompressed (0x01), big frame compressed (0x81)
+	wsURL := "ws" + strings.TrimPrefix(outerSrv.URL, "http") + "/api/v1/e2ee/ws?d=" + devID
+	wsConn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("ws dial: %v", err)
+	}
+	defer wsConn.Close()
+
+	openJSON, _ := json.Marshal(WSOpenFrame{
+		Path:    "/ws",
+		Headers: map[string]string{"Authorization": "Bearer " + devToken},
+		Enc:     "flate",
+	})
+	encOpen, _ := Encrypt(devKey, openJSON, FrameAAD(devID, "ws-open"))
+	if err := wsConn.WriteMessage(websocket.BinaryMessage, encOpen); err != nil {
+		t.Fatalf("write ws open: %v", err)
+	}
+
+	_, encFrame1, err := wsConn.ReadMessage()
+	if err != nil {
+		t.Fatalf("read ws frame1: %v", err)
+	}
+	p1, err := Decrypt(devKey, encFrame1, FrameAAD(devID, "ws-s2c"))
+	if err != nil || p1[0] != byte(websocket.TextMessage) || string(p1[1:]) != tinyBody {
+		t.Fatalf("unexpected tiny ws frame: err=%v hdr=0x%02x body=%q", err, p1[0], string(p1[1:]))
+	}
+
+	_, encFrame2, err := wsConn.ReadMessage()
+	if err != nil {
+		t.Fatalf("read ws frame2: %v", err)
+	}
+	p2, err := Decrypt(devKey, encFrame2, FrameAAD(devID, "ws-s2c"))
+	if err != nil || p2[0] != (byte(websocket.TextMessage)|wsCompressedFlag) {
+		t.Fatalf("expected compressed ws frame 0x81, got err=%v hdr=0x%02x", err, p2[0])
+	}
+	wsFr := flate.NewReader(bytes.NewReader(p2[1:]))
+	wsUnpacked, err := io.ReadAll(wsFr)
+	_ = wsFr.Close()
+	if err != nil || string(wsUnpacked) != bigBody {
+		t.Fatalf("ws inflated mismatch: err=%v len=%d want=%d", err, len(wsUnpacked), len(bigBody))
 	}
 }
