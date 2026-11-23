@@ -754,15 +754,26 @@ func buildLowQuotaAlert(lang string, acc *AccountQuota, hits []lowQuotaHit, now 
 	}
 }
 
+func bonusResetSingleTitle(lang string, spec bucketSpec) string {
+	switch i18n.NormalizeLang(lang) {
+	case i18n.LangZh:
+		return fmt.Sprintf("🎁 %s已提前回满", quotaSubject(lang, spec))
+	case i18n.LangJa:
+		name := spec.label(lang)
+		if strings.HasSuffix(name, "週間") {
+			return fmt.Sprintf("🎁 %s枠が早期回復", name)
+		}
+		return fmt.Sprintf("🎁 %s 枠が早期回復", name)
+	default:
+		return fmt.Sprintf("🎁 %s refilled early", spec.label(lang))
+	}
+}
+
 func buildBonusResetAlert(lang string, acc *AccountQuota, hits []bonusResetHit, now time.Time) QuotaAlert {
 	parts := accountPrefixParts(lang, acc)
 	if len(hits) == 1 {
 		h := hits[0]
-		subj := quotaSubject(lang, h.spec)
-		title := fmt.Sprintf(
-			i18n.T3For(lang, "🎁 %s已提前回满", "🎁 %s refilled early", "🎁 %sが予定より早く回復"),
-			subj,
-		)
+		title := bonusResetSingleTitle(lang, h.spec)
 		detail := fmt.Sprintf("%d%% → %d%%", pctInt(h.prevFrac), pctInt(h.curFrac))
 		if !h.prevReset.IsZero() {
 			resetStr := formatResetClock(h.prevReset, now)
@@ -794,7 +805,7 @@ func buildBonusResetAlert(lang string, acc *AccountQuota, hits []bonusResetHit, 
 	parts = append(parts, summary)
 	return QuotaAlert{
 		Level:    "bonus_reset",
-		Title:    i18n.T3For(lang, "🎁 Antigravity 额度已提前回满", "🎁 Antigravity quotas refilled early", "🎁 Antigravity クォータが予定より早く回復"),
+		Title:    i18n.T3For(lang, "🎁 Antigravity 额度已提前回满", "🎁 Antigravity refilled early", "🎁 Antigravity 枠が早期回復"),
 		Body:     strings.Join(parts, " · "),
 		StateKey: strings.Join(keys, "+"),
 	}

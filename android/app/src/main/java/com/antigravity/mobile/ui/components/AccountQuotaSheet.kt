@@ -1284,9 +1284,9 @@ private fun WeeklyPaceDetailDialog(
                         )
                         Text(
                             text = if (info.isOverPacing) {
-                                "当前额度已消耗 ${String.format(Locale.US, ".loc%.1f%%", info.usedPercent)}，快于 ${info.windowLabel}时间匀速基准线 (${String.format(Locale.US, ".loc%.1f%%", info.expectedUsedPercent)})。若保持此速率可能在周期结束前提前耗尽。".loc
+                                "当前额度已消耗 ${String.format(Locale.US, "%.1f%%", info.usedPercent)}，快于 ${info.windowLabel}时间匀速基准线 (${String.format(Locale.US, "%.1f%%", info.expectedUsedPercent)})。若保持此速率可能在周期结束前提前耗尽。".loc
                             } else {
-                                "当前额度已消耗 ${String.format(Locale.US, ".loc%.1f%%", info.usedPercent)}，低于或符合 ${info.windowLabel}时间匀速基准线 (${String.format(Locale.US, ".loc%.1f%%", info.expectedUsedPercent)})。剩余额度充足，无需担心断粮。".loc
+                                "当前额度已消耗 ${String.format(Locale.US, "%.1f%%", info.usedPercent)}，低于或符合 ${info.windowLabel}时间匀速基准线 (${String.format(Locale.US, "%.1f%%", info.expectedUsedPercent)})。剩余额度充足，无需担心断粮。".loc
                             },
                             fontSize = 12.sp,
                             lineHeight = 16.sp,

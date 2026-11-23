@@ -111,7 +111,16 @@ object L10n {
         PatternRule(Regex("""^当前会话任务 \((\d+)\)$""")) { m -> "This Session (${m.groupValues[1]})" },
         PatternRule(Regex("""^其他会话任务 \((\d+)\)$""")) { m -> "Other Sessions (${m.groupValues[1]})" },
         PatternRule(Regex("""^\((\d+) 行\)$""")) { m -> "(${m.groupValues[1]} lines)" },
-        PatternRule(Regex("""^(\d+) 行$""")) { m -> "${m.groupValues[1]} lines" }
+        PatternRule(Regex("""^(\d+) 行$""")) { m -> "${m.groupValues[1]} lines" },
+        // 配额消耗节奏分析
+        PatternRule(Regex("""^当前额度已消耗 (.+?)，低于或符合 (.+?)时间匀速基准线 \((.+?)\)。剩余额度充足，无需担心断粮。$""")) { m ->
+            "Used ${m.groupValues[1]}, at or below the ${m.groupValues[2]} even-pace baseline (${m.groupValues[3]}). Healthy remaining headroom."
+        },
+        PatternRule(Regex("""^当前额度已消耗 (.+?)，快于 (.+?)时间匀速基准线 \((.+?)\)。若保持此速率可能在周期结束前提前耗尽。$""")) { m ->
+            "Used ${m.groupValues[1]}, faster than the ${m.groupValues[2]} even-pace baseline (${m.groupValues[3]}). May run out before reset at current pace."
+        },
+        PatternRule(Regex("""^(.+?)匀速应剩 \(游标位\)$""")) { m -> "${m.groupValues[1]} Even-Pace Remaining" },
+        PatternRule(Regex("""^(.+?)匀速应耗基准$""")) { m -> "${m.groupValues[1]} Even-Pace Used Baseline" }
     )
 
     private val patternRulesJa: List<PatternRule> = listOf(
@@ -171,7 +180,16 @@ object L10n {
         PatternRule(Regex("""^当前会话任务 \((\d+)\)$""")) { m -> "この会話のタスク (${m.groupValues[1]})" },
         PatternRule(Regex("""^其他会话任务 \((\d+)\)$""")) { m -> "他の会話のタスク (${m.groupValues[1]})" },
         PatternRule(Regex("""^\((\d+) 行\)$""")) { m -> "(${m.groupValues[1]} 行)" },
-        PatternRule(Regex("""^(\d+) 行$""")) { m -> "${m.groupValues[1]} 行" }
+        PatternRule(Regex("""^(\d+) 行$""")) { m -> "${m.groupValues[1]} 行" },
+        // 配额消耗节奏分析
+        PatternRule(Regex("""^当前额度已消耗 (.+?)，低于或符合 (.+?)时间匀速基准线 \((.+?)\)。剩余额度充足，无需担心断粮。$""")) { m ->
+            "現在の消費は ${m.groupValues[1]} で、${m.groupValues[2]}の均等基準ライン (${m.groupValues[3]}) 以下です。残枠に十分な余裕があります。"
+        },
+        PatternRule(Regex("""^当前额度已消耗 (.+?)，快于 (.+?)时间匀速基准线 \((.+?)\)。若保持此速率可能在周期结束前提前耗尽。$""")) { m ->
+            "現在の消費は ${m.groupValues[1]} で、${m.groupValues[2]}の均等基準ライン (${m.groupValues[3]}) より速いペースです。このままではリセット前に枠を使い切る可能性があります。"
+        },
+        PatternRule(Regex("""^(.+?)匀速应剩 \(游标位\)$""")) { m -> "${m.groupValues[1]}均等残枠の目安" },
+        PatternRule(Regex("""^(.+?)匀速应耗基准$""")) { m -> "${m.groupValues[1]}均等消費の基準" }
     )
 
     private val dictEn: Map<String, String> by lazy {

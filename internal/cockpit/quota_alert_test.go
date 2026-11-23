@@ -591,8 +591,8 @@ func TestAlertTrilingualLocalization(t *testing.T) {
 		wantIdle   string
 	}{
 		{"zh", "⚠️ Gemini 5h 额度仅剩 18%", "🎁 Gemini 5h 额度已提前回满", "⚡ Gemini 周额度短时骤降 20%", "🔍 空闲期检测到 Gemini 5h 额度下降"},
-		{"en", "⚠️ Gemini 5h quota down to 18%", "🎁 Gemini 5h quota refilled early", "⚡ Gemini Weekly quota dropped 20% rapidly", "🔍 Gemini 5h quota dropped while idle"},
-		{"ja", "⚠️ Gemini 5h クォータ残り 18%", "🎁 Gemini 5h クォータが予定より早く回復", "⚡ Gemini 週間クォータが短時間で 20% 急減", "🔍 アイドル中に Gemini 5h クォータが減少"},
+		{"en", "⚠️ Gemini 5h quota down to 18%", "🎁 Gemini 5h refilled early", "⚡ Gemini Weekly quota dropped 20% rapidly", "🔍 Gemini 5h quota dropped while idle"},
+		{"ja", "⚠️ Gemini 5h クォータ残り 18%", "🎁 Gemini 5h 枠が早期回復", "⚡ Gemini 週間クォータが短時間で 20% 急減", "🔍 アイドル中に Gemini 5h クォータが減少"},
 	} {
 		now := t0
 		idleSince := time.Time{}
@@ -691,5 +691,44 @@ func TestStartQuotaAlerterUsesCustomFetchQuotaWithoutCockpit(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for StartQuotaAlerter custom FetchQuota alert")
+	}
+}
+
+func TestBonusResetCompactTitlesForLockScreen(t *testing.T) {
+	acc := &AccountQuota{ID: "acc-1", Email: "kenji@gmail.com"}
+	weeklySpec := monitoredBuckets[1] // gemini_weekly
+	fiveHSpec := monitoredBuckets[0]  // gemini_5h
+	resetAt := time.Date(2026, 11, 28, 17, 40, 3, 0, time.UTC)
+	now := time.Date(2026, 11, 23, 20, 7, 42, 0, time.UTC)
+
+	singleHit := []bonusResetHit{{
+		spec:      weeklySpec,
+		bonusKey:  "k1",
+		prevFrac:  0.52,
+		curFrac:   0.99,
+		prevReset: resetAt,
+	}}
+	multiHits := []bonusResetHit{
+		singleHit[0],
+		{spec: fiveHSpec, bonusKey: "k2", prevFrac: 0.40, curFrac: 1.00, prevReset: now.Add(3 * time.Hour)},
+	}
+
+	for _, tc := range []struct {
+		lang       string
+		wantSingle string
+		wantMulti  string
+	}{
+		{"zh", "🎁 Gemini 周额度已提前回满", "🎁 Antigravity 额度已提前回满"},
+		{"en", "🎁 Gemini Weekly refilled early", "🎁 Antigravity refilled early"},
+		{"ja", "🎁 Gemini 週間枠が早期回復", "🎁 Antigravity 枠が早期回復"},
+	} {
+		gotSingle := buildBonusResetAlert(tc.lang, acc, singleHit, now)
+		if gotSingle.Title != tc.wantSingle {
+			t.Errorf("[%s] single weekly bonus title = %q, want %q", tc.lang, gotSingle.Title, tc.wantSingle)
+		}
+		gotMulti := buildBonusResetAlert(tc.lang, acc, multiHits, now)
+		if gotMulti.Title != tc.wantMulti {
+			t.Errorf("[%s] multi bonus title = %q, want %q", tc.lang, gotMulti.Title, tc.wantMulti)
+		}
 	}
 }
