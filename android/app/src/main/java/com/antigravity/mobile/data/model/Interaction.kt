@@ -55,6 +55,19 @@ data class WorkflowApprovalDetails(
 )
 
 @Serializable
+data class ApprovalPreviewDetails(
+    val riskLevel: String = "low",
+    val riskReasons: List<String> = emptyList(),
+    val displayPath: String? = null,
+    val cwd: String? = null,
+    val addedLines: Int = 0,
+    val removedLines: Int = 0,
+    val isNewFile: Boolean = false,
+    val diffPreview: String? = null,
+    val diffTruncated: Boolean = false
+)
+
+@Serializable
 data class PendingInteraction(
     val type: String = "", // "permission", "ask_question", "file_permission", "run_command"
     val trajectoryId: String = "",
@@ -65,6 +78,7 @@ data class PendingInteraction(
     val description: String? = null,
     val permissionGrant: PermissionGrantDetails? = null,
     val workflowApproval: WorkflowApprovalDetails? = null,
+    val approvalPreview: ApprovalPreviewDetails? = null,
     val options: List<InteractionOption> = emptyList(),
     val isMultiSelect: Boolean = false,
     val defaultOptionId: String? = null,

@@ -37,8 +37,56 @@ public struct InteractionCardView: View {
     
     // Expandable card state (default: adaptive height up to ~half chat area, expandable to full chat area without overlapping nav bar)
     @State private var isExpanded: Bool = false
+    @State private var isDiffExpanded: Bool = false
     @State private var scrollContentHeight: CGFloat = 0
     @State private var headerHeight: CGFloat = 28
+
+    private var approvalPreview: ApprovalPreviewDetails? {
+        interaction.approvalPreview
+    }
+
+    private var isHighRiskApproval: Bool {
+        approvalPreview?.riskLevel == "high"
+    }
+
+    private var isMediumRiskApproval: Bool {
+        approvalPreview?.riskLevel == "medium" && !(approvalPreview?.riskReasons ?? []).isEmpty
+    }
+
+    private var diffLines: [String] {
+        guard let raw = approvalPreview?.diffPreview, !raw.isEmpty else { return [] }
+        return raw.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+    }
+
+    private func localizedRiskReason(_ code: String) -> String {
+        switch code {
+        case "destructive_delete": return String(localized: "破坏性删除")
+        case "force_git": return String(localized: "Git 强推/硬重置")
+        case "privilege_exec": return String(localized: "提权执行")
+        case "remote_pipe_exec": return String(localized: "远程脚本执行")
+        case "destructive_sql": return String(localized: "高危 SQL 删除")
+        case "system_ops": return String(localized: "系统级操作")
+        case "sensitive_path": return String(localized: "敏感凭证路径")
+        case "outside_workspace": return String(localized: "工作区外路径")
+        case "overwrite_file": return String(localized: "覆盖写入")
+        case "external_write": return String(localized: "外部写入操作")
+        case "git_push": return String(localized: "推送远端")
+        default: return code
+        }
+    }
+
+    private var riskSummaryText: String? {
+        let reasons = (approvalPreview?.riskReasons ?? []).map(localizedRiskReason)
+        if isHighRiskApproval {
+            let prefix = String(localized: "高危操作")
+            return reasons.isEmpty ? prefix : "\(prefix) · \(reasons.joined(separator: " · "))"
+        }
+        if isMediumRiskApproval {
+            let prefix = String(localized: "注意")
+            return "\(prefix) · \(reasons.joined(separator: " · "))"
+        }
+        return nil
+    }
     
     private var isPermissionType: Bool {
         interaction.type == "permission" || interaction.type == "file_permission"
@@ -163,6 +211,9 @@ public struct InteractionCardView: View {
     }
     
     private var headerIconName: String {
+        if isHighRiskApproval {
+            return "exclamationmark.triangle.fill"
+        }
         if interaction.permissionGrant != nil {
             return "lock.shield.fill"
         }
@@ -187,6 +238,9 @@ public struct InteractionCardView: View {
     }
     
     private var headerIconColor: Color {
+        if isHighRiskApproval {
+            return .red
+        }
         if interaction.permissionGrant != nil {
             return .orange
         }
@@ -398,16 +452,42 @@ public struct InteractionCardView: View {
     }
     
     @ViewBuilder
+    private var riskSummaryBannerView: some View {
+        if let summary = riskSummaryText {
+            let accent: Color = isHighRiskApproval ? .red : .orange
+            HStack(spacing: 6) {
+                Image(systemName: isHighRiskApproval ? "exclamationmark.shield.fill" : "exclamationmark.circle.fill")
+                    .font(.system(size: 11.5, weight: .semibold))
+                    .foregroundColor(accent)
+                Text(summary)
+                    .font(.system(size: 11.5, weight: isHighRiskApproval ? .semibold : .medium))
+                    .foregroundColor(accent)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(accent.opacity(isHighRiskApproval ? 0.12 : 0.10))
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(accent.opacity(isHighRiskApproval ? 0.35 : 0.25), lineWidth: 0.75)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        }
+    }
+
+    @ViewBuilder
     private var targetBoxView: some View {
         if let pg = interaction.permissionGrant {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 6) {
                     Text(pg.binary.uppercased())
                         .font(.system(size: 10, weight: .bold))
-                        .foregroundColor(.orange)
+                        .foregroundColor(isHighRiskApproval ? .red : .orange)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
-                        .background(Color.orange.opacity(0.18))
+                        .background((isHighRiskApproval ? Color.red : Color.orange).opacity(0.18))
                         .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
                     
                     Text("操作: \(pg.action)")
@@ -433,19 +513,151 @@ public struct InteractionCardView: View {
             .padding(.vertical, 8)
             .background(Color(uiColor: .tertiarySystemFill).opacity(0.8))
             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-        } else if let target = interaction.target, !target.isEmpty {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(target)
-                    .font(.system(size: 11.5, design: .monospaced))
-                    .foregroundColor(.secondary)
-                    .lineLimit(isExpanded ? 8 : 3)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 7)
-                    .background(Color(uiColor: .tertiarySystemFill))
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        } else {
+            let displayTarget: String = {
+                if let dp = approvalPreview?.displayPath, !dp.isEmpty, interaction.type != "run_command" {
+                    return dp
+                }
+                return interaction.target ?? ""
+            }()
+            let cwdText = approvalPreview?.cwd ?? ""
+            if !displayTarget.isEmpty || !cwdText.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    if !displayTarget.isEmpty {
+                        Text(displayTarget)
+                            .font(.system(size: 11.5, design: .monospaced))
+                            .foregroundColor(isHighRiskApproval ? .primary : .secondary)
+                            .lineLimit(isExpanded ? 8 : 3)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    if !cwdText.isEmpty {
+                        HStack(spacing: 4) {
+                            Image(systemName: "folder")
+                                .font(.system(size: 10))
+                                .foregroundColor(Color(uiColor: .tertiaryLabel))
+                            Text(cwdText)
+                                .font(.system(size: 10.5, design: .monospaced))
+                                .foregroundColor(Color(uiColor: .tertiaryLabel))
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .background(Color(uiColor: .tertiarySystemFill))
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             }
         }
+    }
+
+    @ViewBuilder
+    private var compactDiffPreviewView: some View {
+        let lines = diffLines
+        if !lines.isEmpty {
+            let added = approvalPreview?.addedLines ?? 0
+            let removed = approvalPreview?.removedLines ?? 0
+            let isNew = (approvalPreview?.isNewFile == true) && removed == 0
+            let truncated = approvalPreview?.diffTruncated == true
+
+            VStack(alignment: .leading, spacing: 6) {
+                Button {
+                    UISelectionFeedbackGenerator().selectionChanged()
+                    withAnimation(.spring(response: 0.28, dampingFraction: 0.85)) {
+                        isDiffExpanded.toggle()
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "doc.text.magnifyingglass")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundColor(.secondary)
+
+                        Text(isDiffExpanded ? String(localized: "收起改动") : String(localized: "预览改动"))
+                            .font(.system(size: 11.5, weight: .medium))
+                            .foregroundColor(.primary)
+
+                        if isNew {
+                            Text("新建")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundColor(.blue)
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 1)
+                                .background(Color.blue.opacity(0.14))
+                                .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                        }
+
+                        if added > 0 {
+                            Text("+\(added)")
+                                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                                .foregroundColor(.green)
+                        }
+
+                        if removed > 0 {
+                            Text("-\(removed)")
+                                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                                .foregroundColor(.red)
+                        }
+
+                        Spacer(minLength: 4)
+
+                        Image(systemName: isDiffExpanded ? "chevron.up" : "chevron.down")
+                            .font(.system(size: 10.5, weight: .semibold))
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(Color(uiColor: .tertiarySystemFill).opacity(0.75))
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                }
+                .buttonStyle(.plain)
+
+                if isDiffExpanded {
+                    let rowHeight: CGFloat = 17
+                    let boxHeight = min(CGFloat(lines.count) * rowHeight + (truncated ? 28 : 14), 180)
+                    ScrollView([.vertical, .horizontal], showsIndicators: true) {
+                        VStack(alignment: .leading, spacing: 1) {
+                            ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
+                                diffLineView(line)
+                            }
+                            if truncated {
+                                Text("仅展示前 40 行改动")
+                                    .font(.system(size: 10.5))
+                                    .foregroundColor(Color(uiColor: .tertiaryLabel))
+                                    .padding(.top, 4)
+                                    .padding(.horizontal, 6)
+                            }
+                        }
+                        .padding(.vertical, 6)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .frame(height: boxHeight)
+                    .background(Color(uiColor: .systemBackground).opacity(0.85))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .stroke(Color(uiColor: .separator).opacity(0.45), lineWidth: 0.75)
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func diffLineView(_ line: String) -> some View {
+        let isAdded = line.hasPrefix("+ ")
+        let isRemoved = line.hasPrefix("- ")
+        let isHunk = line == "@@"
+        let fg: Color = isAdded ? .green : (isRemoved ? .red : (isHunk ? Color(uiColor: .tertiaryLabel) : .secondary))
+        let bg: Color = isAdded ? Color.green.opacity(0.11) : (isRemoved ? Color.red.opacity(0.11) : .clear)
+
+        Text(line.isEmpty ? " " : line)
+            .font(.system(size: 11, design: .monospaced))
+            .foregroundColor(fg)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 1)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(bg)
     }
     
     @ViewBuilder
@@ -706,7 +918,11 @@ public struct InteractionCardView: View {
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
 
+                        riskSummaryBannerView
+
                         targetBoxView
+
+                        compactDiffPreviewView
 
                         if hasMultipleQuestions, let questions = interaction.questions {
                             VStack(alignment: .leading, spacing: 14) {
@@ -766,6 +982,9 @@ public struct InteractionCardView: View {
                 if !newFocus {
                     pendingAutoFocusSingleWriteIn = false
                 }
+            }
+            .onChange(of: interaction.id) { _, _ in
+                isDiffExpanded = false
             }
         }
     }

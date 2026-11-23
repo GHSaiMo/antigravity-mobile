@@ -215,17 +215,32 @@ type PermissionGrantDetails struct {
 	RawScope string `json:"rawScope,omitempty"`
 }
 
+// ApprovalPreviewDetails provides structured risk classification and a bounded compact diff
+// so mobile users can verify destructive commands, sensitive paths, and file edits within seconds.
+type ApprovalPreviewDetails struct {
+	RiskLevel     string   `json:"riskLevel"` // "high", "medium", "low"
+	RiskReasons   []string `json:"riskReasons,omitempty"`
+	DisplayPath   string   `json:"displayPath,omitempty"`
+	Cwd           string   `json:"cwd,omitempty"`
+	AddedLines    int      `json:"addedLines,omitempty"`
+	RemovedLines  int      `json:"removedLines,omitempty"`
+	IsNewFile     bool     `json:"isNewFile,omitempty"`
+	DiffPreview   string   `json:"diffPreview,omitempty"`
+	DiffTruncated bool     `json:"diffTruncated,omitempty"`
+}
+
 type PendingInteraction struct {
-	Type               string                  `json:"type"` // "permission", "ask_question", "file_permission", "run_command"
-	TrajectoryID       string                  `json:"trajectoryId"`
-	StepIndex          int                     `json:"stepIndex"`
-	Title              string                  `json:"title"`
-	Target             string                  `json:"target,omitempty"`
-	Action             string                  `json:"action,omitempty"`
-	Description        string                  `json:"description,omitempty"`
-	PermissionGrant    *PermissionGrantDetails `json:"permissionGrant,omitempty"`
+	Type               string                   `json:"type"` // "permission", "ask_question", "file_permission", "run_command"
+	TrajectoryID       string                   `json:"trajectoryId"`
+	StepIndex          int                      `json:"stepIndex"`
+	Title              string                   `json:"title"`
+	Target             string                   `json:"target,omitempty"`
+	Action             string                   `json:"action,omitempty"`
+	Description        string                   `json:"description,omitempty"`
+	PermissionGrant    *PermissionGrantDetails  `json:"permissionGrant,omitempty"`
 	WorkflowApproval   *WorkflowApprovalDetails `json:"workflowApproval,omitempty"`
-	Options            []InteractionOption     `json:"options"`
+	ApprovalPreview    *ApprovalPreviewDetails  `json:"approvalPreview,omitempty"`
+	Options            []InteractionOption      `json:"options"`
 	IsMultiSelect      bool                    `json:"isMultiSelect,omitempty"`
 	DefaultOptionID    string                  `json:"defaultOptionId,omitempty"`
 	HasWriteIn         bool                    `json:"hasWriteIn"`

@@ -14,6 +14,7 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -25,7 +26,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.HelpOutline
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Difference
+import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.FileDownload
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PlayArrow
@@ -111,7 +116,43 @@ fun InteractionCard(
     }
 
     val pg = interaction.permissionGrant
+    val preview = interaction.approvalPreview
+    val isHighRisk = preview?.riskLevel == "high"
+    val isMediumRisk = preview?.riskLevel == "medium" && !preview.riskReasons.isNullOrEmpty()
+    val riskSummaryText: String? = if (!isHighRisk && !isMediumRisk) {
+        null
+    } else {
+        val labels = (preview?.riskReasons ?: emptyList()).map { code ->
+            when (code) {
+                "destructive_delete" -> "破坏性删除".loc
+                "force_git" -> "Git 强推/硬重置".loc
+                "privilege_exec" -> "提权执行".loc
+                "remote_pipe_exec" -> "远程脚本执行".loc
+                "destructive_sql" -> "高危 SQL 删除".loc
+                "system_ops" -> "系统级操作".loc
+                "sensitive_path" -> "敏感凭证路径".loc
+                "outside_workspace" -> "工作区外路径".loc
+                "overwrite_file" -> "覆盖写入".loc
+                "external_write" -> "外部写入操作".loc
+                "git_push" -> "推送远端".loc
+                else -> code
+            }
+        }
+        if (isHighRisk) {
+            val prefix = "高危操作".loc
+            if (labels.isEmpty()) prefix else "$prefix · ${labels.joinToString(" · ")}"
+        } else {
+            val prefix = "注意".loc
+            "$prefix · ${labels.joinToString(" · ")}"
+        }
+    }
+    val diffLines = remember(preview?.diffPreview) {
+        val raw = preview?.diffPreview
+        if (raw.isNullOrEmpty()) emptyList() else raw.split("\n")
+    }
+
     val headerIcon = when {
+        isHighRisk -> Icons.Default.Warning
         pg != null -> Icons.Default.Lock
         interaction.type == "browser_download" -> Icons.Default.FileDownload
         interaction.type == "approval" -> Icons.Default.CheckCircle
@@ -124,6 +165,7 @@ fun InteractionCard(
     }
 
     val headerColor = when {
+        isHighRisk -> colors.accentRed
         pg != null -> colors.accentOrange
         interaction.type == "browser_download" -> colors.accentBlue
         interaction.type == "approval" -> colors.accentGreen
@@ -152,6 +194,7 @@ fun InteractionCard(
     // 默认自适应高度，只有超出半屏才截断至半屏，支持一键扩展到会话全屏（严格不超过可用高度，避免遮挡顶栏或挤没底部按钮）
     val interactionKey = "${interaction.trajectoryId}:${interaction.stepIndex}:${interaction.title.hashCode()}"
     var isExpanded by remember(interactionKey) { mutableStateOf(false) }
+    var isDiffExpanded by remember(interactionKey) { mutableStateOf(false) }
     val screenHeight = LocalConfiguration.current.screenHeightDp.dp
     val effectiveAvailable = maxAvailableHeight ?: (screenHeight * 0.72f)
     val maxAllowedHeight = (effectiveAvailable - 16.dp).coerceAtLeast(200.dp)
@@ -314,8 +357,40 @@ fun InteractionCard(
                     }
                 }
 
+                // Risk summary 1-line banner (high risk in red, medium risk in subtle amber; silent for low risk)
+                if (!riskSummaryText.isNullOrBlank()) {
+                    val accent = if (isHighRisk) colors.accentRed else colors.accentOrange
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(accent.copy(alpha = if (isHighRisk) 0.12f else 0.10f))
+                            .border(0.75.dp, accent.copy(alpha = if (isHighRisk) 0.35f else 0.25f), RoundedCornerShape(8.dp))
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (isHighRisk) Icons.Default.Warning else Icons.Default.ErrorOutline,
+                            contentDescription = null,
+                            tint = accent,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Text(
+                            text = riskSummaryText,
+                            color = accent,
+                            fontSize = 11.5.sp,
+                            fontWeight = if (isHighRisk) FontWeight.SemiBold else FontWeight.Medium,
+                            lineHeight = 16.sp,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+
                 // Structured Permission Grant Preview (Antigravity 2.26+)
                 if (pg != null) {
+                    val badgeAccent = if (isHighRisk) colors.accentRed else colors.accentOrange
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -332,12 +407,12 @@ fun InteractionCard(
                             Box(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(4.dp))
-                                    .background(colors.accentOrange.copy(alpha = 0.2f))
+                                    .background(badgeAccent.copy(alpha = 0.2f))
                                     .padding(horizontal = 6.dp, vertical = 2.dp)
                             ) {
                                 Text(
                                     text = pg.binary.uppercase(),
-                                    color = colors.accentOrange,
+                                    color = badgeAccent,
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.Bold
                                 )
@@ -372,23 +447,190 @@ fun InteractionCard(
                     }
                 } else {
                     // Target / Command Monospace Preview Box
-                    val targetText = interaction.target ?: interaction.command
-                    if (!targetText.isNullOrBlank()) {
+                    val displayTarget = if (!preview?.displayPath.isNullOrBlank() && interaction.type != "run_command") {
+                        preview?.displayPath
+                    } else {
+                        interaction.target ?: interaction.command
+                    }
+                    val cwdText = preview?.cwd
+                    if (!displayTarget.isNullOrBlank() || !cwdText.isNullOrBlank()) {
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(8.dp))
                                 .background(colors.surfaceVariant)
-                                .padding(8.dp)
+                                .padding(horizontal = 10.dp, vertical = 7.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
+                            if (!displayTarget.isNullOrBlank()) {
+                                Text(
+                                    text = displayTarget,
+                                    color = if (isHighRisk) colors.textPrimary else colors.textSecondary,
+                                    fontSize = 11.5.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    maxLines = if (isExpanded) 12 else 4,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            if (!cwdText.isNullOrBlank()) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Folder,
+                                        contentDescription = null,
+                                        tint = colors.textSecondary.copy(alpha = 0.7f),
+                                        modifier = Modifier.size(12.dp)
+                                    )
+                                    Text(
+                                        text = cwdText,
+                                        color = colors.textSecondary.copy(alpha = 0.75f),
+                                        fontSize = 10.5.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Compact Collapsible Diff Preview (Option A: collapsed by default)
+                if (diffLines.isNotEmpty()) {
+                    val added = preview?.addedLines ?: 0
+                    val removed = preview?.removedLines ?: 0
+                    val isNew = (preview?.isNewFile == true) && removed == 0
+                    val truncated = preview?.diffTruncated == true
+
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(colors.surfaceVariant.copy(alpha = 0.75f))
+                                .clickable {
+                                    haptic.light()
+                                    isDiffExpanded = !isDiffExpanded
+                                }
+                                .padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Difference,
+                                contentDescription = null,
+                                tint = colors.textSecondary,
+                                modifier = Modifier.size(14.dp)
+                            )
                             Text(
-                                text = targetText,
+                                text = if (isDiffExpanded) "收起改动".loc else "预览改动".loc,
                                 color = colors.textPrimary,
                                 fontSize = 11.5.sp,
-                                fontFamily = FontFamily.Monospace,
-                                maxLines = if (isExpanded) 12 else 4,
-                                overflow = TextOverflow.Ellipsis
+                                fontWeight = FontWeight.Medium
                             )
+                            if (isNew) {
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(colors.accentBlue.copy(alpha = 0.15f))
+                                        .padding(horizontal = 5.dp, vertical = 1.dp)
+                                ) {
+                                    Text(
+                                        text = "新建".loc,
+                                        color = colors.accentBlue,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+                            }
+                            if (added > 0) {
+                                Text(
+                                    text = "+$added",
+                                    color = colors.accentGreen,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            }
+                            if (removed > 0) {
+                                Text(
+                                    text = "-$removed",
+                                    color = colors.accentRed,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            }
+                            Spacer(modifier = Modifier.weight(1f))
+                            Icon(
+                                imageVector = if (isDiffExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                                contentDescription = null,
+                                tint = colors.textSecondary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+
+                        AnimatedVisibility(
+                            visible = isDiffExpanded,
+                            enter = expandVertically() + fadeIn(),
+                            exit = shrinkVertically() + fadeOut()
+                        ) {
+                            val diffVertScroll = rememberScrollState()
+                            val diffHorizScroll = rememberScrollState()
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(max = 180.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(colors.background.copy(alpha = 0.85f))
+                                    .border(0.75.dp, colors.border.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
+                                    .verticalScroll(diffVertScroll)
+                                    .horizontalScroll(diffHorizScroll)
+                                    .padding(vertical = 6.dp)
+                            ) {
+                                Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                                    diffLines.forEach { line ->
+                                        val isAdded = line.startsWith("+ ")
+                                        val isRemoved = line.startsWith("- ")
+                                        val isHunk = line == "@@"
+                                        val fg = when {
+                                            isAdded -> colors.accentGreen
+                                            isRemoved -> colors.accentRed
+                                            isHunk -> colors.textSecondary.copy(alpha = 0.6f)
+                                            else -> colors.textSecondary
+                                        }
+                                        val bg = when {
+                                            isAdded -> colors.accentGreen.copy(alpha = 0.11f)
+                                            isRemoved -> colors.accentRed.copy(alpha = 0.11f)
+                                            else -> Color.Transparent
+                                        }
+                                        Text(
+                                            text = line.ifEmpty { " " },
+                                            color = fg,
+                                            fontSize = 11.sp,
+                                            fontFamily = FontFamily.Monospace,
+                                            lineHeight = 15.sp,
+                                            softWrap = false,
+                                            modifier = Modifier
+                                                .background(bg)
+                                                .padding(horizontal = 8.dp, vertical = 1.dp)
+                                        )
+                                    }
+                                    if (truncated) {
+                                        Text(
+                                            text = "仅展示前 40 行改动".loc,
+                                            color = colors.textSecondary.copy(alpha = 0.7f),
+                                            fontSize = 10.5.sp,
+                                            modifier = Modifier.padding(start = 8.dp, end = 8.dp, top = 4.dp)
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
                 }

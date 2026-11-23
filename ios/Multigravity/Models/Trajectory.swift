@@ -289,6 +289,40 @@ public struct WorkflowApprovalDetails: Codable, Sendable, Hashable {
     }
 }
 
+public struct ApprovalPreviewDetails: Codable, Sendable, Hashable {
+    public let riskLevel: String?
+    public let riskReasons: [String]?
+    public let displayPath: String?
+    public let cwd: String?
+    public let addedLines: Int?
+    public let removedLines: Int?
+    public let isNewFile: Bool?
+    public let diffPreview: String?
+    public let diffTruncated: Bool?
+
+    public init(
+        riskLevel: String? = nil,
+        riskReasons: [String]? = nil,
+        displayPath: String? = nil,
+        cwd: String? = nil,
+        addedLines: Int? = nil,
+        removedLines: Int? = nil,
+        isNewFile: Bool? = nil,
+        diffPreview: String? = nil,
+        diffTruncated: Bool? = nil
+    ) {
+        self.riskLevel = riskLevel
+        self.riskReasons = riskReasons
+        self.displayPath = displayPath
+        self.cwd = cwd
+        self.addedLines = addedLines
+        self.removedLines = removedLines
+        self.isNewFile = isNewFile
+        self.diffPreview = diffPreview
+        self.diffTruncated = diffTruncated
+    }
+}
+
 public struct PendingInteraction: Codable, Sendable, Identifiable, Hashable {
     public var id: String { "\(trajectoryId):\(stepIndex)" }
     public let type: String
@@ -300,6 +334,7 @@ public struct PendingInteraction: Codable, Sendable, Identifiable, Hashable {
     public let description: String?
     public let permissionGrant: PermissionGrantDetails?
     public let workflowApproval: WorkflowApprovalDetails?
+    public let approvalPreview: ApprovalPreviewDetails?
     public let options: [InteractionOption]
     public let isMultiSelect: Bool?
     public let defaultOptionId: String?
@@ -318,6 +353,7 @@ public struct PendingInteraction: Codable, Sendable, Identifiable, Hashable {
         description: String? = nil,
         permissionGrant: PermissionGrantDetails? = nil,
         workflowApproval: WorkflowApprovalDetails? = nil,
+        approvalPreview: ApprovalPreviewDetails? = nil,
         options: [InteractionOption] = [],
         isMultiSelect: Bool? = nil,
         defaultOptionId: String? = nil,
@@ -335,6 +371,7 @@ public struct PendingInteraction: Codable, Sendable, Identifiable, Hashable {
         self.description = description
         self.permissionGrant = permissionGrant
         self.workflowApproval = workflowApproval
+        self.approvalPreview = approvalPreview
         self.options = options
         self.isMultiSelect = isMultiSelect
         self.defaultOptionId = defaultOptionId
@@ -345,7 +382,7 @@ public struct PendingInteraction: Codable, Sendable, Identifiable, Hashable {
     }
     
     enum CodingKeys: String, CodingKey {
-        case type, trajectoryId, stepIndex, title, target, action, description, permissionGrant, workflowApproval
+        case type, trajectoryId, stepIndex, title, target, action, description, permissionGrant, workflowApproval, approvalPreview
         case options, isMultiSelect, defaultOptionId, hasWriteIn, writeInLabel, writeInPlaceholder, questions
     }
     
@@ -360,6 +397,7 @@ public struct PendingInteraction: Codable, Sendable, Identifiable, Hashable {
         self.description = try container.decodeIfPresent(String.self, forKey: .description)
         self.permissionGrant = try container.decodeIfPresent(PermissionGrantDetails.self, forKey: .permissionGrant)
         self.workflowApproval = try container.decodeIfPresent(WorkflowApprovalDetails.self, forKey: .workflowApproval)
+        self.approvalPreview = try container.decodeIfPresent(ApprovalPreviewDetails.self, forKey: .approvalPreview)
         self.options = try container.decodeIfPresent([InteractionOption].self, forKey: .options) ?? []
         self.isMultiSelect = try container.decodeIfPresent(Bool.self, forKey: .isMultiSelect)
         self.defaultOptionId = try container.decodeIfPresent(String.self, forKey: .defaultOptionId)

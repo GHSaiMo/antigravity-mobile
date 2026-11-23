@@ -1436,6 +1436,7 @@ func buildPendingInteraction(rawResp *upstreamTrajectoryResp, steps []Trajectory
 				}
 				applyElicitationSchema(pi, req.Elicitation.RequestedSchemaJSON, req.Elicitation.Message)
 			}
+			pi.ApprovalPreview = buildApprovalPreview(pi, s, rawResp.Trajectory.WorkspaceUris)
 			pendingInteraction = pi
 			break
 		}

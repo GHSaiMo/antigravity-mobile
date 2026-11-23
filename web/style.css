@@ -9914,5 +9914,140 @@ mark.md-find-mark.active {
   transform: rotate(90deg);
 }
 
+/* Approval Card Risk Summary & Compact Collapsible Diff */
+.interaction-risk-banner {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+
+.interaction-risk-banner.is-high {
+  color: #f87171;
+  font-weight: 600;
+  background: rgba(239, 68, 68, 0.13);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+}
+
+.interaction-risk-banner.is-medium {
+  color: #fbbf24;
+  font-weight: 500;
+  background: rgba(245, 158, 11, 0.11);
+  border: 1px solid rgba(245, 158, 11, 0.28);
+}
+
+.interaction-target-cwd {
+  margin-top: 4px;
+  font-size: 10.5px;
+  color: var(--text-muted, var(--text-secondary));
+  opacity: 0.8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.interaction-diff-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.interaction-diff-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.08));
+  background: var(--bg-tertiary, rgba(255, 255, 255, 0.05));
+  color: var(--text-primary);
+  font-size: 11.5px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.interaction-diff-toggle-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.interaction-diff-new {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: 4px;
+  color: #60a5fa;
+  background: rgba(59, 130, 246, 0.16);
+}
+
+.interaction-diff-added {
+  font-family: monospace;
+  font-size: 11px;
+  font-weight: 600;
+  color: #34d399;
+}
+
+.interaction-diff-removed {
+  font-family: monospace;
+  font-size: 11px;
+  font-weight: 600;
+  color: #f87171;
+}
+
+.interaction-diff-chevron {
+  font-size: 11px;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.interaction-diff-box {
+  max-height: 180px;
+  overflow: auto;
+  padding: 6px 0;
+  border-radius: 8px;
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.1));
+  background: rgba(0, 0, 0, 0.28);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.interaction-diff-line {
+  padding: 1px 8px;
+  white-space: pre;
+  color: var(--text-secondary);
+}
+
+.interaction-diff-line.is-add {
+  color: #34d399;
+  background: rgba(16, 185, 129, 0.12);
+}
+
+.interaction-diff-line.is-del {
+  color: #f87171;
+  background: rgba(239, 68, 68, 0.12);
+}
+
+.interaction-diff-line.is-hunk {
+  color: var(--text-muted, var(--text-secondary));
+  opacity: 0.65;
+}
+
+.interaction-diff-truncated {
+  padding: 4px 8px 0;
+  font-size: 10.5px;
+  font-family: inherit;
+  color: var(--text-muted, var(--text-secondary));
+  opacity: 0.75;
+}
+
+
 
 

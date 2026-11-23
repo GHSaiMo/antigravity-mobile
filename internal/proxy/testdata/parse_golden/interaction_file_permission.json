@@ -45,6 +45,13 @@
       "stepIndex": 1,
       "title": "Allow access to this file outside workspace?",
       "target": "file:///outside/file.txt",
+      "approvalPreview": {
+        "riskLevel": "medium",
+        "riskReasons": [
+          "outside_workspace"
+        ],
+        "displayPath": "/outside/file.txt"
+      },
       "options": [
         {
           "id": "1",

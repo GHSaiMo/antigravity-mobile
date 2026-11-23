@@ -81,6 +81,7 @@ let currentPendingInteraction = null;
 let selectedInteractionOptionId = null;
 let isSubmittingInteraction = false;
 let isInteractionCardExpanded = false;
+let isInteractionDiffExpanded = false;
 
 function updatePendingInteraction(interaction, isRunning) {
   const container = document.getElementById("interaction-card-container");
@@ -90,6 +91,7 @@ function updatePendingInteraction(interaction, isRunning) {
     currentPendingInteraction = null;
     selectedInteractionOptionId = null;
     isInteractionCardExpanded = false;
+    isInteractionDiffExpanded = false;
     container.innerHTML = "";
     container.classList.add("hidden");
     return;
@@ -105,6 +107,7 @@ function updatePendingInteraction(interaction, isRunning) {
   }
   if (isDifferent) {
     isInteractionCardExpanded = false;
+    isInteractionDiffExpanded = false;
   }
 
   renderInteractionCard(isDifferent);
@@ -150,6 +153,76 @@ function resolveCompactInteractionCategory(interaction) {
     default:
       return "需要确认";
   }
+}
+
+function resolveApprovalRiskReason(code) {
+  const tr = (typeof window !== "undefined" && typeof window.t === "function") ? window.t : (s) => s;
+  switch (code) {
+    case "destructive_delete": return tr("破坏性删除");
+    case "force_git": return tr("Git 强推/硬重置");
+    case "privilege_exec": return tr("提权执行");
+    case "remote_pipe_exec": return tr("远程脚本执行");
+    case "destructive_sql": return tr("高危 SQL 删除");
+    case "system_ops": return tr("系统级操作");
+    case "sensitive_path": return tr("敏感凭证路径");
+    case "outside_workspace": return tr("工作区外路径");
+    case "overwrite_file": return tr("覆盖写入");
+    case "external_write": return tr("外部写入操作");
+    case "git_push": return tr("推送远端");
+    default: return code;
+  }
+}
+
+function buildApprovalRiskSummary(preview) {
+  if (!preview) return null;
+  const tr = (typeof window !== "undefined" && typeof window.t === "function") ? window.t : (s) => s;
+  const reasons = Array.isArray(preview.riskReasons) ? preview.riskReasons.map(resolveApprovalRiskReason) : [];
+  if (preview.riskLevel === "high") {
+    const prefix = tr("高危操作");
+    return { level: "high", text: reasons.length > 0 ? `${prefix} · ${reasons.join(" · ")}` : prefix };
+  }
+  if (preview.riskLevel === "medium" && reasons.length > 0) {
+    const prefix = tr("注意");
+    return { level: "medium", text: `${prefix} · ${reasons.join(" · ")}` };
+  }
+  return null;
+}
+
+function buildApprovalDiffHtml(preview) {
+  if (!preview || !preview.diffPreview) return "";
+  const tr = (typeof window !== "undefined" && typeof window.t === "function") ? window.t : (s) => s;
+  const lines = String(preview.diffPreview).split("\n");
+  if (lines.length === 0) return "";
+  const added = Number(preview.addedLines || 0);
+  const removed = Number(preview.removedLines || 0);
+  const isNew = Boolean(preview.isNewFile) && removed === 0;
+  const truncated = Boolean(preview.diffTruncated);
+  const toggleLabel = isInteractionDiffExpanded ? tr("收起改动") : tr("预览改动");
+  const diffLinesHtml = isInteractionDiffExpanded ? `
+    <div class="interaction-diff-box">
+      ${lines.map(line => {
+        const cls = line.startsWith("+ ") ? "is-add" : (line.startsWith("- ") ? "is-del" : (line === "@@" ? "is-hunk" : ""));
+        return `<div class="interaction-diff-line ${cls}">${escapeHtml(line || " ")}</div>`;
+      }).join("")}
+      ${truncated ? `<div class="interaction-diff-truncated">${escapeHtml(tr("仅展示前 40 行改动"))}</div>` : ""}
+    </div>
+  ` : "";
+
+  return `
+    <div class="interaction-diff-wrap">
+      <button type="button" id="btn-interaction-diff-toggle" class="interaction-diff-toggle">
+        <span class="interaction-diff-toggle-main">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="9" y1="15" x2="15" y2="15"></line></svg>
+          <span>${escapeHtml(toggleLabel)}</span>
+          ${isNew ? `<span class="interaction-diff-new">${escapeHtml(tr("新建"))}</span>` : ""}
+          ${added > 0 ? `<span class="interaction-diff-added">+${added}</span>` : ""}
+          ${removed > 0 ? `<span class="interaction-diff-removed">-${removed}</span>` : ""}
+        </span>
+        <span class="interaction-diff-chevron">${isInteractionDiffExpanded ? "▴" : "▾"}</span>
+      </button>
+      ${diffLinesHtml}
+    </div>
+  `;
 }
 
 function renderInteractionCard(resetScroll = false) {
@@ -243,9 +316,15 @@ function renderInteractionCard(resetScroll = false) {
   const isElicitation = interaction.type === "elicitation";
   const isApproval = interaction.type === "approval" || isDownload || isMcp;
   const hasMultiQuestions = interaction.questions && interaction.questions.length > 1;
+  const preview = interaction.approvalPreview || null;
+  const isHighRisk = preview && preview.riskLevel === "high";
+  const riskSummary = buildApprovalRiskSummary(preview);
+  const diffHtml = buildApprovalDiffHtml(preview);
 
   let iconSvg = '';
-  if (isDownload) {
+  if (isHighRisk) {
+    iconSvg = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>`;
+  } else if (isDownload) {
     iconSvg = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>`;
   } else if (isMcp) {
     iconSvg = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#8b5cf6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22v-5"></path><path d="M9 8V2"></path><path d="M15 8V2"></path><path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"></path></svg>`;
@@ -342,11 +421,29 @@ function renderInteractionCard(resetScroll = false) {
     `;
   }
 
+  const displayTarget = (preview && preview.displayPath && interaction.type !== "run_command")
+    ? preview.displayPath
+    : (interaction.target || "");
+  const cwdText = (preview && preview.cwd) ? preview.cwd : "";
+  const riskBannerHtml = riskSummary ? `
+    <div class="interaction-risk-banner ${riskSummary.level === "high" ? "is-high" : "is-medium"}">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+      <span>${escapeHtml(riskSummary.text)}</span>
+    </div>
+  ` : "";
+  const targetBoxHtml = (displayTarget || cwdText) ? `
+    <div class="interaction-target-box" style="padding: 6px 10px; border-radius: 6px; background: rgba(0,0,0,0.2); font-family: monospace; font-size: 11.5px; color: ${isHighRisk ? 'var(--text-primary)' : 'var(--text-secondary)'}; word-break: break-all; white-space: pre-wrap;">
+      ${displayTarget ? `<div>${escapeHtml(displayTarget)}</div>` : ""}
+      ${cwdText ? `<div class="interaction-target-cwd">📁 ${escapeHtml(cwdText)}</div>` : ""}
+    </div>
+  ` : "";
+
   const cardMaxHeight = isInteractionCardExpanded ? 'min(76dvh, 660px)' : 'min(54dvh, 420px)';
+  const cardBorderColor = isHighRisk ? 'rgba(239,68,68,0.48)' : 'rgba(59,130,246,0.35)';
   container.innerHTML = `
-    <div class="interaction-card" style="display: flex; flex-direction: column; max-height: ${cardMaxHeight}; padding: 14px; border-radius: 12px; border: 1px solid rgba(59,130,246,0.35); background: var(--bg-secondary, #1a1d24); box-shadow: 0 4px 16px rgba(0,0,0,0.25);">
+    <div class="interaction-card" style="display: flex; flex-direction: column; max-height: ${cardMaxHeight}; padding: 14px; border-radius: 12px; border: 1px solid ${cardBorderColor}; background: var(--bg-secondary, #1a1d24); box-shadow: 0 4px 16px rgba(0,0,0,0.25);">
       <div class="interaction-card-header" style="display: flex; align-items: ${isLongSingleQuestion || hasMultiQuestions ? 'center' : 'flex-start'}; gap: 8px; flex-shrink: 0; padding-bottom: ${isLongSingleQuestion ? '8px' : '6px'}; ${isLongSingleQuestion ? 'border-bottom: 1px solid var(--border-color, rgba(255,255,255,0.08));' : ''}">
-        <div class="interaction-icon" style="color: ${hasMultiQuestions ? '#9333ea' : '#3b82f6'}; flex-shrink: 0; margin-top: ${isLongSingleQuestion || hasMultiQuestions ? '0' : '2px'};">${iconSvg}</div>
+        <div class="interaction-icon" style="color: ${isHighRisk ? '#ef4444' : (hasMultiQuestions ? '#9333ea' : '#3b82f6')}; flex-shrink: 0; margin-top: ${isLongSingleQuestion || hasMultiQuestions ? '0' : '2px'};">${iconSvg}</div>
         <div class="interaction-title-group" style="flex: 1; min-width: 0;">
           <div class="interaction-title" style="font-size: 14px; font-weight: bold; color: var(--text-primary); line-height: 1.35; ${isLongSingleQuestion || hasMultiQuestions ? 'white-space: nowrap; overflow: hidden; text-overflow: ellipsis;' : 'display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; word-break: break-word;'}">
             ${escapeHtml(headerTitleText)}
@@ -363,11 +460,11 @@ function renderInteractionCard(resetScroll = false) {
           <div class="interaction-long-question" style="font-size: 13.5px; font-weight: 500; line-height: 1.5; color: var(--text-primary); white-space: pre-wrap; word-break: break-word;">${escapeHtml(singleTitle)}</div>
         ` : ''}
 
-        ${interaction.target ? `
-          <div class="interaction-target-box" style="padding: 6px 10px; border-radius: 6px; background: rgba(0,0,0,0.2); font-family: monospace; font-size: 11.5px; color: var(--text-secondary); word-break: break-all; white-space: pre-wrap;">
-            ${escapeHtml(interaction.target)}
-          </div>
-        ` : ''}
+        ${riskBannerHtml}
+
+        ${targetBoxHtml}
+
+        ${diffHtml}
 
         ${contentHtml}
       </div>
@@ -396,6 +493,13 @@ function renderInteractionCard(resetScroll = false) {
   if (expandBtn) {
     expandBtn.addEventListener("click", () => {
       isInteractionCardExpanded = !isInteractionCardExpanded;
+      renderInteractionCard(false);
+    });
+  }
+  const diffToggleBtn = container.querySelector("#btn-interaction-diff-toggle");
+  if (diffToggleBtn) {
+    diffToggleBtn.addEventListener("click", () => {
+      isInteractionDiffExpanded = !isInteractionDiffExpanded;
       renderInteractionCard(false);
     });
   }

@@ -46,6 +46,12 @@
       "title": "Allow executing this command?",
       "target": "rm -rf x",
       "action": "run_command",
+      "approvalPreview": {
+        "riskLevel": "high",
+        "riskReasons": [
+          "destructive_delete"
+        ]
+      },
       "options": [
         {
           "id": "1",

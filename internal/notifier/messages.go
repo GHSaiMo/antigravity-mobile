@@ -44,6 +44,10 @@ func msgTitleApproval() string {
 	return i18n.T3(MsgTitleApproval, "⚠️ Antigravity Approval Needed", "⚠️ Antigravity 承認が必要です")
 }
 
+func msgTitleHighRiskApproval() string {
+	return i18n.T3("🚨 高危操作审批", "🚨 High-Risk Approval", "🚨 高リスク操作の承認")
+}
+
 func msgTitleWorkflowApproval() string {
 	return i18n.T3("⚠️ 动态工作流需审批", "⚠️ Workflow Approval Needed", "⚠️ ワークフローの承認が必要です")
 }

@@ -329,6 +329,10 @@ func (n *Notifier) NotifyAction(cascadeID, title string, pi *proxy.PendingIntera
 		notifBody = msgBodyWaiting(truncateString(SanitizePushText(pi.Title), 90))
 	}
 
+	if pi.ApprovalPreview != nil && pi.ApprovalPreview.RiskLevel == "high" && pi.Type != "ask_question" {
+		notifTitle = msgTitleHighRiskApproval()
+	}
+
 	cleanSessionTitle := SanitizePushText(title)
 	if cleanSessionTitle != "" && cleanSessionTitle != MsgUntitledSession {
 		notifBody = formatSessionPrefix(truncateString(cleanSessionTitle, 60), notifBody)
