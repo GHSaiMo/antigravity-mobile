@@ -26,7 +26,7 @@
 </p>
 
 <p align="center">
-  🌐 <b>官网</b>：<a href="https://mgy.jiuge.space">mgy.jiuge.space</a> &nbsp;·&nbsp; 🍎 <b>App Store</b>：<a href="https://apps.apple.com/app/id6835508934">iOS 正式版下载</a> &nbsp;·&nbsp; 🧪 <b>TestFlight</b>：<a href="https://testflight.apple.com/join/YM7f4aSK">公开测试通道</a> &nbsp;·&nbsp; 📦 <a href="https://github.com/GHSaiMo/antigravity-mobile/releases/latest">最新版 v1.2.5</a> &nbsp;·&nbsp; 💬 <a href="#wechat-group">微信用户群</a>
+  🌐 <b>官网</b>：<a href="https://mgy.jiuge.space">mgy.jiuge.space</a> &nbsp;·&nbsp; 🍎 <b>App Store</b>：<a href="https://apps.apple.com/app/id6835508934">iOS 正式版下载</a> &nbsp;·&nbsp; 🧪 <b>TestFlight</b>：<a href="https://testflight.apple.com/join/YM7f4aSK">公开测试通道</a> &nbsp;·&nbsp; 📦 <a href="https://github.com/GHSaiMo/antigravity-mobile/releases/latest">最新版 v1.2.6</a> &nbsp;·&nbsp; 💬 <a href="#wechat-group">微信用户群</a>
 </p>
 
 > 🎉 **反重力智能体移动伴侣 iOS 版现已正式上架 Apple App Store！**  
@@ -68,7 +68,7 @@ irm https://raw.githubusercontent.com/GHSaiMo/antigravity-mobile/main/scripts/in
 
 ### 2. 安装或打开移动端
 - **iOS**：🎉 现已正式上架 Apple App Store，直接前往 **[App Store 下载 Multigravity](https://apps.apple.com/app/id6835508934)** 一键安装（中文系统自动优先展示中文介绍与演示截图），也可通过 **[TestFlight 公开测试](https://testflight.apple.com/join/YM7f4aSK)** 抢先体验最新构建（如需自行源码编译调试，仍可参考 [iOS 本地构建与真机调试指南](docs/ios_build_guide.md)）。
-- **Android**：前往 [GitHub Releases](https://github.com/GHSaiMo/antigravity-mobile/releases/latest) 直接下载安装 `Multigravity-v1.2.5.apk`（支持覆盖升级，请仅从官方 Releases 下载）。
+- **Android**：前往 [GitHub Releases](https://github.com/GHSaiMo/antigravity-mobile/releases/latest) 直接下载安装 `Multigravity-v1.2.6.apk`（支持覆盖升级，请仅从官方 Releases 下载）。
 - **PWA / Web**：无需安装 App，手机浏览器直接访问网关地址（或 `/?view=pwa`）即可添加到主屏幕。
 
 ### 3. 启动并扫码配对
@@ -102,7 +102,7 @@ mgy
   </tr>
 </table>
 
-> 以上截图均来自客户端内置**离线演示模式**（v1.2.5 原生深色中文界面，完整对齐 Antigravity 2.34 真实协议与系统级灵动岛 / 锁屏实时活动 / 主屏小组件），下载后未配对即可零配置直接体验。
+> 以上截图均来自客户端内置**离线演示模式**（v1.2.6 原生深色中文界面，完整对齐 Antigravity 2.34 真实协议与系统级灵动岛 / 锁屏实时活动 / 主屏小组件），下载后未配对即可零配置直接体验。
 
 ---
 
@@ -110,7 +110,7 @@ mgy
 
 ### 1. 全端一致的实时流式体验
 - **三端全覆盖与原生三语自适应**：原生 **iOS**（SwiftUI / Swift 6）、原生 **Android**（Jetpack Compose Material 3）与零构建嵌入式 **PWA Web**，全端支持**简体中文 / English / 日本語**自动识别与切换，提供「跟随系统 / 浅色 / 深色」原生外观与独立「精简模式」二级降噪开关。
-- **低延迟增量推流与超长会话秒级跳转**：响应式 Connect 流 Hub + WebSocket `sinceRev` 增量断点续传、长思考静默期心跳保活与内容哈希校验；内置**全量会话轮次大纲（Turn Outline）、按需轮次跳转与尾部窗口磁盘缓存**，配合增量 Markdown LRU 缓存、步骤导轨及稳态立即发送，超长会话秒开且任意回溯丝滑流畅。
+- **桌面级步骤计划卡片与实时计时器**：四端原生复刻 Antigravity 步骤计划卡片（Step Plan Card）与实时焦点计时器，同步透出至 iOS 灵动岛与锁屏实时活动；内置**全量会话轮次大纲（Turn Outline）、按需轮次跳转与尾部窗口磁盘缓存**，配合 Connect 增量推流、Markdown LRU 缓存与步骤导轨，超长会话秒开且任意回溯丝滑流畅。
 - **专业级富媒体排版与交互**：180+ 语言离线语法高亮（含 `R / R Markdown`）、单列行号槽 + 词级行内代码 Diff、LaTeX 公式、Mermaid 容错渲染、**MCP Apps (`ui://`) 交互式组件桥接**、**文档页内查找（Find in Page）**及高密度 PDF 懒加载预览。
 
 ### 2. 关键决策、分级权限与模型协同
@@ -138,7 +138,7 @@ mgy
 
 ### 7. 零知识端到端加密、多地域中继池与安全推送
 - **多通道并发测速与多地域中继池**：支持零知识多节点 VPS 中继池（并发 RTT 测速、滞回钉选、故障自动切换）、Cloudflare Tunnel 专属 HTTPS 域名自动回退、局域网 Wi-Fi 与 Tailscale 并发探活，自动择优切换最低延迟链路。
-- **分级消息通知与灵动岛**：iOS 原生支持 **APNs 推送与远程 Live Activity 灵动岛状态更新**（经无状态 Cloudflare Relay 转发，开箱即用）；Android 支持 `dataSync` 前台保活同步与 FCM 推送，在任务完成、等待审批、工作流节点及低额度预警时即时唤醒。
+- **分级三语推送、过期审批静默清除、全 5 池额度守护与任务期防休眠**：iOS 原生支持 **APNs 推送与远程 Live Activity 灵动岛状态更新**，Android 支持 `dataSync` 前台保活与 FCM 推送；全量推送支持**简中 / English / 日本語**原生适配，桌面端已审批后自动静默撤回手机端过期横幅，覆盖全 5 池低水位、官方提前回满喜报及短时骤降/空闲期掉额告警（无 Cockpit 亦开箱生效）；网关内置跨平台**任务期动态防休眠守卫**（仅活跃任务期持锁、允许熄屏、空闲 2 分钟自动释放）。
 - **零知识 E2EE 与本地优先安全架构**：全端内置 **`mgy-e2ee-v1` 端到端加密协议**（ECDH P-256 + HKDF-SHA256 + AES-256-GCM），中继路径强制拒绝明文（HTTP 426）确保中转节点零知识不可见；支持老设备双轨静默升级，设备凭据存入系统 Keychain / EncryptedSharedPreferences，集成敏感路径黑名单与 WS 限流防刷。
 
 ---
@@ -170,7 +170,7 @@ mgy help           # 查看完整命令与启动参数
 ```
 
 - **默认配置目录**：`~/.multigravity/.env`（自动兼容迁移旧版 `~/.antigravity-mobile/`）。
-- **核心环境变量**：`MULTIGRAVITY_PORT` (`58900`)、`CF_TUNNEL_ENABLED` (`1`)、`APNS_ENABLED` (`1`)、`MGY_LANG` (`zh` / `en` 自适应)、`MULTIGRAVITY_LOG_LEVEL` (`info`)。
+- **核心环境变量**：`MULTIGRAVITY_PORT` (`58900`)、`CF_TUNNEL_ENABLED` (`1`)、`APNS_ENABLED` (`1`)、`MGY_PREVENT_SLEEP` (`1` 任务期按需防休眠)、`MGY_LANG` (`zh` / `en` / `ja` 自适应)、`MULTIGRAVITY_LOG_LEVEL` (`info`)。
 - **进阶文档**：安装自测与排错详见 [安装与运维指南](docs/installation_and_testing_guide.md)，RPC 接入细节详见 [language_server RPC 说明](docs/ls_rpc_integration_notes.md)。
 
 <details>

@@ -26,7 +26,7 @@
 </p>
 
 <p align="center">
-  🌐 <b>Website</b>: <a href="https://mgy.jiuge.space/en.html">mgy.jiuge.space/en.html</a> &nbsp;·&nbsp; 🍎 <b>App Store</b>: <a href="https://apps.apple.com/app/id6835508934">Download for iOS</a> &nbsp;·&nbsp; 🧪 <b>TestFlight</b>: <a href="https://testflight.apple.com/join/YM7f4aSK">Public Beta</a> &nbsp;·&nbsp; 📦 <a href="https://github.com/GHSaiMo/antigravity-mobile/releases/latest">Latest Release v1.2.5</a> &nbsp;·&nbsp; 💬 <a href="#wechat-group">WeChat Group</a>
+  🌐 <b>Website</b>: <a href="https://mgy.jiuge.space/en.html">mgy.jiuge.space/en.html</a> &nbsp;·&nbsp; 🍎 <b>App Store</b>: <a href="https://apps.apple.com/app/id6835508934">Download for iOS</a> &nbsp;·&nbsp; 🧪 <b>TestFlight</b>: <a href="https://testflight.apple.com/join/YM7f4aSK">Public Beta</a> &nbsp;·&nbsp; 📦 <a href="https://github.com/GHSaiMo/antigravity-mobile/releases/latest">Latest Release v1.2.6</a> &nbsp;·&nbsp; 💬 <a href="#wechat-group">WeChat Group</a>
 </p>
 
 > 🎉 **Multigravity for iOS is officially available on the Apple App Store!**  
@@ -68,7 +68,7 @@ irm https://ghfast.top/https://raw.githubusercontent.com/GHSaiMo/antigravity-mob
 
 ### 2. Install or Open the Mobile Client
 - **iOS**: 🎉 Officially released on the Apple App Store! Install directly via **[App Store](https://apps.apple.com/app/id6835508934)** with one tap, or join the **[TestFlight Public Beta](https://testflight.apple.com/join/YM7f4aSK)** to test pre-release builds (for building from source or debugging on physical devices, refer to the [iOS Local Build & Device Debugging Guide](docs/ios_build_guide.md)).
-- **Android**: Download `Multigravity-v1.2.5.apk` directly from [GitHub Releases](https://github.com/GHSaiMo/antigravity-mobile/releases/latest) (supports in-place upgrade; please download only from official Releases).
+- **Android**: Download `Multigravity-v1.2.6.apk` directly from [GitHub Releases](https://github.com/GHSaiMo/antigravity-mobile/releases/latest) (supports in-place upgrade; please download only from official Releases).
 - **PWA / Web**: No app installation needed. Open the gateway URL (or `/?view=pwa`) directly in your mobile browser and add it to your Home Screen.
 
 ### 3. Launch & Scan QR Code to Pair
@@ -102,7 +102,7 @@ When launched in the foreground, the gateway prints a one-time pairing QR code i
   </tr>
 </table>
 
-> *All screenshots above are captured from the built-in **offline Demo Mode** (v1.2.5 native dark English UI, aligned with Antigravity 2.34 protocols plus live iOS Dynamic Island, Lock Screen Live Activities & Home Screen Widgets) — try it out-of-the-box before pairing.*
+> *All screenshots above are captured from the built-in **offline Demo Mode** (v1.2.6 native dark English UI, aligned with Antigravity 2.34 protocols plus live iOS Dynamic Island, Lock Screen Live Activities & Home Screen Widgets) — try it out-of-the-box before pairing.*
 
 ---
 
@@ -110,7 +110,7 @@ When launched in the foreground, the gateway prints a one-time pairing QR code i
 
 ### 1. Consistent Real-Time Streaming Across All Platforms
 - **Cross-Platform & Trilingual Parity**: Native **iOS** (SwiftUI / Swift 6), native **Android** (Jetpack Compose Material 3), and zero-build embedded **PWA Web**, with native **English / 简体中文 / 日本語** localization and automatic locale detection. Supports System/Light/Dark themes and an independent "Compact Mode" toggle for reduced visual noise.
-- **Low-Latency Streaming & Instant Long-Session Jump**: Reactive Connect streaming Hub + WebSocket `sinceRev` incremental resumption, heartbeat keep-alive during prolonged reasoning, and content-hash verification. Built-in **full-session Turn Outline, on-demand turn jumping, and tail-window disk caching** work alongside Markdown LRU caching, step rail navigation, and steady-state instant sending so even massive sessions open instantly and jump smoothly to any turn.
+- **Desktop-Parity Step Plan Card, Live Focus Timer & Long-Session Jump**: Native **Step Plan Cards** and a **Live Focus Timer** across iOS, Android, PWA Web, and iOS Live Activities; paired with reactive Connect streaming, **full-session Turn Outline, on-demand turn jumping, and tail-window disk caching** so even massive sessions open instantly and jump smoothly to any turn.
 - **Professional-Grade Rich Media & Interactive Rendering**: 180+ languages offline syntax highlighting (including `R / R Markdown`), single-gutter line-numbered & word-level inline code diffs, LaTeX math equations, fault-tolerant Mermaid rendering, **interactive MCP Apps (`ui://`) bridging**, **Find in Page**, and high-density PDF lazy loading.
 
 ### 2. Critical Decisions, Tiered Permissions & Model Synergy
@@ -138,7 +138,7 @@ When launched in the foreground, the gateway prints a one-time pairing QR code i
 
 ### 7. Zero-Knowledge E2EE, Multi-Region Relay Pool & Secure Push
 - **Multi-Region Relay Pool & Smart Routing**: Combines a zero-knowledge multi-VPS relay pool (concurrent RTT probing, hysteresis pinning, automatic failover) with automatic Cloudflare Tunnel HTTPS fallback, LAN Wi-Fi, and Tailscale — probing all paths concurrently and switching to the lowest-latency route automatically.
-- **Tiered Notifications & Dynamic Island**: iOS features native **APNs push notifications and remote Live Activity Dynamic Island tracking** (relayed via stateless Cloudflare Worker, ready out of the box); Android supports `dataSync` foreground sync and FCM push to alert on task completion, pending approvals, workflow milestones, and low quota warnings.
+- **Trilingual Push, Silent Stale-Banner Dismissal, 5-Bucket Quota Guardian & Task-Time Sleep Guard**: Native **iOS APNs & Live Activities** and **Android FCM** with native **English / 简体中文 / 日本語** alerts; automatically clears stale approval banners when resolved on desktop, guards all 5 quota pools (low-quota, early bonus-reset refills, rapid/idle anomaly drops — works with or without Cockpit Tools), and prevents host idle sleep only while sessions are running (allowing display sleep, auto-releasing 2 minutes after idle).
 - **Zero-Knowledge E2EE & Local-First Security**: Implements **`mgy-e2ee-v1`** (ECDH P-256 + HKDF-SHA256 + AES-256-GCM) end-to-end across iOS, Android, PWA, and Go gateway, strictly rejecting plaintext over relay routes (`HTTP 426`) with dual-track silent migration for legacy paired devices. Credentials stay in Keychain / EncryptedSharedPreferences, hardened with sensitive path blacklists and WebSocket rate limiting.
 
 ---
@@ -170,7 +170,7 @@ mgy help           # Show full command list and startup options
 ```
 
 - **Default Config Path**: `~/.multigravity/.env` (automatically migrates legacy `~/.antigravity-mobile/`).
-- **Core Environment Variables**: `MULTIGRAVITY_PORT` (`58900`), `CF_TUNNEL_ENABLED` (`1`), `APNS_ENABLED` (`1`), `MGY_LANG` (`zh` / `en` auto-detect), `MULTIGRAVITY_LOG_LEVEL` (`info`).
+- **Core Environment Variables**: `MULTIGRAVITY_PORT` (`58900`), `CF_TUNNEL_ENABLED` (`1`), `APNS_ENABLED` (`1`), `MGY_PREVENT_SLEEP` (`1` task-time idle-sleep guard), `MGY_LANG` (`zh` / `en` / `ja` auto-detect), `MULTIGRAVITY_LOG_LEVEL` (`info`).
 - **Advanced Documentation**: See [Installation & Testing Guide](docs/installation_and_testing_guide.md) for troubleshooting, and [language_server RPC Notes](docs/ls_rpc_integration_notes.md) for RPC protocol specifications.
 
 <details>

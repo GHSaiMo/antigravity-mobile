@@ -1,4 +1,4 @@
-# 🚀 Multigravity v1.2.5
+# 🚀 Multigravity v1.2.6
 
 > 🎉 **Multigravity（反重力智能体移动伴侣）iOS 版现已正式上架 Apple App Store！**  
 > 无需本地编译或自签，前往 👉 **[App Store 下载 Multigravity](https://apps.apple.com/app/id6835508934)**（覆盖海外 174 个国家/地区，内置零配置**离线演示模式**）；也可加入 👉 **[TestFlight 公开测试](https://testflight.apple.com/join/YM7f4aSK)** 抢先体验最新构建。
@@ -15,26 +15,22 @@
 
 ### ✨ 核心亮点与新特性
 
-- 🔐 **全栈零知识端到端加密（`mgy-e2ee-v1`）与多地域 VPS 中继池**：
-  - 全新引入 **`mgy-relay`** 零知识反向中继服务（`cmd/relay`、`internal/relay`）与多节点 **`RelayPoolProvider`**，支持并发 RTT 测速、滞回防抖钉选、故障自动切换、周期性节点池刷新及 **Cloudflare Tunnel 自动无缝回退**；
-  - Cloudflare Worker 调度层升级至 **`v1.7.0`**，支持多 VPS `RELAY_POOL` 调度（含 `host_template` 与节点级 `secret_env` 独立 HMAC 签名密钥）、区域优先级排序与无状态 `GET /api/relay/pool`；
-  - 全端落地 **`mgy-e2ee-v1`** 加密协议（ECDH P-256 + HKDF-SHA256 + AES-256-GCM），中继网关启用 `RelayGuardMiddleware` 严禁明文流量通过（直返 `HTTP 426`），完整覆盖加密 HTTP RPC（`/api/v1/e2ee/rpc`）、加密 WebSocket（`/api/v1/e2ee/ws`）、加密配对（`/api/v1/e2ee/pair`）与存量设备静默升级（`/api/v1/auth/e2ee/upgrade`）；
-  - 网关内置**双轨平滑迁移**机制，配对二维码与 `mgy cf` 状态页同步清晰标注 E2EE 中继状态，并优化端口监听优先于 `admin_token` 初始化（避免端口冲突时误刷凭据）；未升级的老版本客户端继续沿用 Cloudflare Tunnel，待所有已配对设备完成 E2EE 升级后无缝切换至零知识中继；
-  - iOS（含 WidgetKit 小组件）、Android（API 26+ JCA 与全量 WebSocket）及 PWA Web 全面透明接入 E2EE 传输与无状态 `RelayPoolResolver`，并新增区域 VPS 直连 DNS 旁路避开 Cloudflare Anycast 绕路；同时为 iOS & Android Cloudflare Anycast 优选 DNS 升级 **Error 1034 三层自愈防线**（移除受限 IP、升级 TLS+HTTPS `/cdn-cgi/trace` 7 层验活、24h 自动拉黑与 1034 自动熔断回退原生 DNS 重试）。
-- 🧭 **超长会话全量轮次大纲、按需跳转与尾部窗口磁盘缓存（Go / iOS / Android）**：
-  - 代理层与 iOS / Android 双端新增**全量会话轮次大纲（Turn Outline）**及按需加载跳转能力，配合尾部窗口磁盘缓存机制，超长会话既可毫秒级秒开最新对话，又能通过目录瞬时定位并按需拉取任意历史轮次，大幅降低内存占用。
-- 🌍 **安装/卸载脚本全量原生中/英/日三语自适应与智能路由**：
-  - `scripts/install.sh`、`install.ps1`、`uninstall.sh`、`uninstall.ps1` 全面支持 **简体中文 / English / 日本語** 原生本地化提示，并依据系统语言与代理连通状态智能选择 GitHub 直连或国内镜像加速源；macOS 卸载脚本新增自动 `launchctl bootout` 彻底清理已注册的 LaunchAgents。
-- 🤖 **移动端 Token 分享海报修复、Android 相册排序与文档下载重构**：
-  - 修复 iOS & Android Token 历史分享长图卡片截断当日模型列表的问题，现完整展示当日全量模型消耗明细；
-  - 修复 Android 相册选择器（`AttachmentPickerSheet`）因 AOSP `QUERY_ARG_SORT_COLUMNS` 多列拼接导致「最近项目」倒序（最旧照片排在最前）的问题，改用显式 SQL 双降序与时间戳精确排序；
-  - 重构 Android 文档下载状态流与进度弹窗：独立单调递增 `documentDownloadProgress` 流避免并发状态刷新导致的进度条跳回或闪烁，取消下载立即中断底层 OkHttp 请求并清理唯一临时文件，同时修复带 `?uri=` 参数的附件文件名提取。
-- 🎨 **iOS 离线演示模式（Demo Mode）升级、工具本地化补齐与三语视觉资产焕新**：
-  - 升级 iOS 内置离线 Demo Mode（`DemoContent` / `DemoGateway` / `QuotaWidgetShared`），完整对齐 Antigravity 2.34、Gemini 4 Neon / Orchestrator / Opus 5.5、Swarm 蜂群与小组件真实数据结构；
-  - 补全 `write_file`、`run_workflow`、`swarm`、`post_message`、`read_board`、`swarm_wait`、`checkpoint` 及会话运行态标签的三语本地化；
-  - 中 / 英 / 日三语 README 同步换装全新分语言 12 图暗黑实机界面画廊与 Hero 横幅。
+- 📋 **全端原生步骤计划卡片与实时计时器（Go / iOS / Android / Web / Live Activity）**：
+  - 代理层与 iOS / Android / PWA Web 全端新增桌面级对齐的**步骤计划卡片（Step Plan Card）**与**实时焦点计时器（Live Focus Timer）**，清晰呈现计划步骤进展与当前耗时，并同步透出至 iOS 灵动岛与锁屏 Live Activity。
+- 🛡️ **全 5 池智能额度守护、官方提前回满喜报、异常骤降预警与三语原生推送（Go 网关）**：
+  - 额度守护从单一 `Gemini 5h` 全面升级至全 5 池覆盖（**`Gemini 5h` / `Gemini Weekly` / `Claude 5h` / `Claude Weekly` / `Gemini 4 Argon`**），并直接接通无 Cockpit Tools 的本机 `FetchLiveQuota` 实时采样，未装 Cockpit 的新用户开箱即可生效；
+  - 新增**官方临时额度重置（Bonus Reset）喜报推送**（精准区分正常到期与提前回满，多池同轮回满自动合并为 1 条），以及**短时骤降 & 本机空闲期静默掉额预警**（结合 `Watcher.IdleSince()` 严防任务结束后的滞后误报）；
+  - 网关 CLI 与全部推送通知（审批 / 提问 / Proceed / 完成 / 失败 / 额度守护）全面升级为原生 **简体中文 / English / 日本語** 三语自适应（支持 `--lang ja`、`MGY_LANG=ja` 及 macOS / Windows / Linux 系统语言自动识别）。
+- 🧹 **过期锁屏审批状态核验与桌面已处理横幅静默撤回（Go / iOS / Android / APNs Worker）**：
+  - 当桌面端或另一设备已完成审批后，网关通过静默推送自动清除手机通知中心中已送达的过期审批横幅；
+  - 同步加固 iOS Live Activity 按钮与 Android 通知栏快捷操作的过期状态核验，避免误触过期锁屏审批请求。
+- 🔋 **宿主机任务期动态自动防休眠守护（macOS / Windows / Linux）**：
+  - 新增跨平台任务期按需防休眠守卫（macOS `caffeinate -i -w <pid>` / Windows `SetThreadExecutionState` / Linux `systemd-inhibit`），仅在存在活跃 Antigravity 会话时自动阻止宿主机空闲休眠（允许正常熄屏省电），全部任务空闲 2 分钟后自动释放，网关退出或异常终止零残留锁；支持 `-prevent-sleep=false` 或 `MGY_PREVENT_SLEEP=0` 关闭。
+- ⚡ **E2EE 中继自愈、直连 RTT 优选与双端交互修复（Go / iOS / Android）**：
+  - iOS 会话事件流 WebSocket 全面切换至 E2EE `GatewayWebSocketTask` 传输，`RelayPool` 优选直连物理 RTT 进一步降低远程延迟；
+  - Android 在 E2EE 中继返回 `502 / 503` 时自动迁移健康节点并在路由切换时同步刷新额度与事件流，同时新增自定义 `MgyPullToRefreshIndicator` 修复下拉刷新收起后的阴影残留拖尾问题。
 - 📦 **全端版本号对齐**：
-  - Android `1.2.5`（Version Code `33`）；iOS `1.2.5`（Build `33`）；桌面/服务端网关 `mgy` `1.2.5`。
+  - Android `1.2.6`（Version Code `34`）；iOS `1.2.6`（Build `34`）；桌面/服务端网关 `mgy` `1.2.6`。
 
 ---
 
@@ -42,34 +38,30 @@
 
 ### ✨ Highlights & New Features
 
-- 🔐 **Zero-Knowledge End-to-End Encryption (`mgy-e2ee-v1`) & Multi-Region VPS Relay Pool**:
-  - Introduced the **`mgy-relay`** zero-knowledge reverse-relay server (`cmd/relay`, `internal/relay`) and multi-node **`RelayPoolProvider`** featuring concurrent RTT probing, hysteresis pinning, automatic failover, periodic pool refreshes, and seamless **Cloudflare Tunnel fallback**;
-  - Upgraded the Cloudflare Worker dispatcher to **`v1.7.0`** with multi-VPS `RELAY_POOL` orchestration (supporting `host_template` and per-node `secret_env` HMAC signing secrets), region ordering, and stateless `GET /api/relay/pool`;
-  - Implemented cross-platform **`mgy-e2ee-v1`** (ECDH P-256 + HKDF-SHA256 + AES-256-GCM) with strict `RelayGuardMiddleware` enforcement (rejecting plaintext over relay with `HTTP 426`), covering encrypted HTTP RPC (`/api/v1/e2ee/rpc`), encrypted WebSockets (`/api/v1/e2ee/ws`), encrypted pairing (`/api/v1/e2ee/pair`), and silent legacy upgrade (`/api/v1/auth/e2ee/upgrade`);
-  - Wired **dual-track migration** in the gateway with clear E2EE relay labels in pairing QR / `mgy cf` status and port-binding before `admin_token` initialization so older paired clients continue operating via Cloudflare Tunnel until every paired device completes the silent E2EE upgrade;
-  - Added transparent E2EE transport and stateless `RelayPoolResolver` across iOS (including WidgetKit), Android (API 26+ JCA and all WebSockets), and Web PWA, plus direct regional VPS DNS bypass and a **3-layer Cloudflare Error 1034 self-healing defense** on iOS & Android (removing restricted Anycast IPs, 7-layer HTTPS `/cdn-cgi/trace` probing with 24h auto-ban, and automatic fallback to native DNS + connection pool reset on HTTP 403/1034).
-- 🧭 **Full-Session Turn Outline, On-Demand Turn Jump & Tail-Window Disk Cache (Go / iOS / Android)**:
-  - Added full-session turn outline indexing and on-demand turn jumping paired with tail-window disk caching across the Go proxy, iOS, and Android — keeping ultra-long conversations fast to open while enabling instant TOC jumps to any historical turn on demand.
-- 🌍 **Trilingual (`zh` / `en` / `ja`) Install & Uninstall Scripts with Locale-Aware Routing**:
-  - Upgraded `scripts/install.sh`, `install.ps1`, `uninstall.sh`, and `uninstall.ps1` with native Chinese, English, and Japanese localization, locale- and proxy-aware GitHub direct vs. mirror routing, and automatic `launchctl bootout` LaunchAgent cleanup during macOS uninstall.
-- 🤖 **Token Share Poster Fix, Android Photo Ordering Fix & Resilient Document Downloads**:
-  - Fixed iOS & Android Token History share cards so all daily models are displayed completely without truncation;
-  - Fixed Android `AttachmentPickerSheet` showing Recents in oldest-first order (caused by AOSP `QUERY_ARG_SORT_COLUMNS` multi-column SQL expansion) by switching to explicit `DATE_ADDED DESC, _ID DESC` ordering;
-  - Refactored Android document downloads with a dedicated monotonic `documentDownloadProgress` flow, smooth animated progress bars, instant OkHttp call cancellation and temp-file cleanup, and accurate filename decoding for `?uri=` query links.
-- 🎨 **Upgraded iOS Offline Demo Mode, Tool Localizations & Trilingual README Visuals**:
-  - Refreshed iOS built-in Demo Mode (`DemoContent`, `DemoGateway`, `QuotaWidgetShared`) to reflect Antigravity 2.34, Gemini 4 Neon / Orchestrator / Opus 5.5, Swarm Hive, and live widget snapshots;
-  - Completed trilingual localization for newer tool names (`write_file`, `run_workflow`, `swarm`, `post_message`, `read_board`, `swarm_wait`, `checkpoint`) and conversation status labels;
-  - Updated all trilingual READMEs with localized dark-mode 12-screen galleries and Hero banners.
+- 📋 **Desktop-Parity Step Plan Card & Live Focus Timer (Go / iOS / Android / Web / Live Activity)**:
+  - Added native **Step Plan Cards** and a **Live Focus Timer** across the Go proxy, iOS, Android, and Web PWA — mirroring the desktop step checklist and live elapsed duration, and syncing active step progress directly into iOS Dynamic Island and Lock Screen Live Activities.
+- 🛡️ **5-Bucket Quota Guardian, Official Early Bonus-Reset Alerts, Anomaly Detection & Native Trilingual Push (Go Gateway)**:
+  - Expanded quota monitoring from `Gemini 5h` only to all 5 pools (**`Gemini 5h` / `Gemini Weekly` / `Claude 5h` / `Claude Weekly` / `Gemini 4 Argon`**), wired directly to `FetchLiveQuota` so users without Cockpit Tools receive full alerts out of the box;
+  - Added **early bonus-reset notifications** (aggregating multi-pool official refills into a single celebratory push while ignoring normal scheduled resets) plus **rapid-drop & host-idle silent burn alerts** backed by `Watcher.IdleSince()` to prevent post-task false positives;
+  - Upgraded gateway CLI locale detection and all push notification templates (approvals, questions, Proceed, completion, failures, and quota alerts) to native **English / 简体中文 / 日本語** (`--lang zh|en|ja`, `MGY_LANG`, and macOS / Windows / Linux auto-detection).
+- 🧹 **Stale Lock-Screen Approval Reconciliation & Silent Banner Dismissal (Go / iOS / Android / APNs Worker)**:
+  - When an approval is resolved on desktop or another device, the gateway automatically dispatches a silent push to dismiss stale delivered approval banners from mobile notification centers;
+  - Hardened stale-request reconciliation for both iOS Live Activity intents and Android notification action buttons to prevent blind or duplicate approvals.
+- 🔋 **Dynamic Task-Time Host Idle-Sleep Guard (macOS / Windows / Linux)**:
+  - Added cross-platform on-demand host sleep prevention (`caffeinate -i -w <pid>` on macOS, `SetThreadExecutionState` on a locked OS thread on Windows, and `systemd-inhibit` with pipe-EOF cleanup on Linux). Holds an idle-sleep assertion only while Antigravity sessions are active (still allowing display sleep), releases automatically 2 minutes after all sessions go idle, and leaves zero orphan locks on exit or crash (disable via `-prevent-sleep=false` or `MGY_PREVENT_SLEEP=0`).
+- ⚡ **E2EE Relay Self-Healing, Direct Physical RTT Preference & Mobile Polish (Go / iOS / Android)**:
+  - Routed iOS conversation events WebSockets through E2EE `GatewayWebSocketTask` and prioritized direct physical RTT in `RelayPool`;
+  - Added automatic stale-relay migration on HTTP `502 / 503` and synchronized quota/events refresh on route changes in Android, alongside a custom `MgyPullToRefreshIndicator` fixing pull-to-refresh shadow tail artifacts after retraction.
 - 📦 **Version Alignment**:
-  - Android `1.2.5` (Version Code `33`); iOS `1.2.5` (Build `33`); desktop/server gateway `mgy` `1.2.5`.
+  - Android `1.2.6` (Version Code `34`); iOS `1.2.6` (Build `34`); desktop/server gateway `mgy` `1.2.6`.
 
 ---
 
 ## 🇯🇵 日本語リリースノート
 
-- 🔐 **ゼロ知識エンドツーエンド暗号化（`mgy-e2ee-v1`）＆マルチリージョン VPS リレープール**：ゼロ知識リバースリレー `mgy-relay` とマルチノード `RelayPoolProvider`（並列 RTT 計測・ヒステリシス固定・自動フェイルオーバー・Cloudflare Tunnel 自動フォールバック）を新搭載。Cloudflare Worker を `v1.7.0`（`host_template` / ノード別 `secret_env` 対応）へ刷新し、ECDH P-256 + HKDF-SHA256 + AES-256-GCM による E2EE 通信（リレー経路の平文は `HTTP 426` で厳格拒否）、QR/`mgy cf` での E2EE リレー表示、ポート先行バインド、既存端末向けデュアルトラック自動移行、および iOS / Android の Cloudflare Anycast **Error 1034 3層自動復旧**（HTTPS `/cdn-cgi/trace` 検証＆システム DNS フォールバック）を実装しました。
-- 🧭 **超長文セッション向け全ターン目次・オンデマンドジャンプ＆末尾ウィンドウキャッシュ**：Go プロキシ・iOS・Android に全ターン目次（Turn Outline）とオンデマンド読み込みジャンプ、末尾ウィンドウディスクキャッシュを追加。巨大セッションでも最新発言を即座に開きつつ、任意の過去ターンへ高速移動できます。
-- 🌍 **インストール／アンインストールスクリプトの完全 3 言語対応**：`install.sh` / `install.ps1` / `uninstall.sh` / `uninstall.ps1` が日本語・英語・中国語にネイティブ対応し、ロケールとプロキシ環境に応じて最適ダウンロード経路を自動選択。macOS アンインストール時の LaunchAgents `bootout` 掃除も追加しました。
-- 🤖 **トークン共有ポスター全モデル表示・Android アルバム並び順＆ダウンロード刷新**：iOS / Android のトークン履歴共有カードで当日の全モデルを省略せず表示するよう修正。Android アルバムの古い順バグ修正と単調増加プログレス・即時キャンセル対応も実装しました。
-- 🎨 **iOS オフラインデモモード刷新・ツール名ローカライズ補完＆3 言語 README 刷新**：Demo Mode を Antigravity 2.34 / Gemini 4 Neon / Swarm 準拠へ全面更新し、新ツール名（`swarm` / `run_workflow` 等）のローカライズと日・英・中 3 言語 README の 12 枚ダーク UI スクリーンショットを刷新しました。
-- 📦 **バージョン統一**：iOS `1.2.5` (Build `33`) / Android `1.2.5` (Version Code `33`) / ゲートウェイ `mgy` `1.2.5`。
+- 📋 **デスクトップ同等のステップ計画カード＆リアルタイムタイマー（Go / iOS / Android / Web / Live Activity）**：全クライアントにネイティブの **Step Plan Card** と実行経過タイマーを追加し、進行中ステップを iOS Dynamic Island やロック画面ライブアクティビティにもリアルタイム反映します。
+- 🛡️ **全 5 プール対応クォータ守護・公式早期リセット通知・異常急減アラート＆完全 3 言語プッシュ通知**：監視対象を **Gemini 5h / 週間・Claude 5h / 週間・Gemini 4 Argon** の全 5 プールへ拡張し、Cockpit Tools 未導入環境でも `FetchLiveQuota` でそのまま動作。予定より早い公式リセットのまとめ喜報通知、短時間急減・アイドル中消費アラート、および **日本語 / English / 简体中文** のネイティブプッシュ通知（`--lang ja` / `MGY_LANG=ja` / OS 自動判別）に対応しました。
+- 🧹 **デスクトップ承認済みバナーの自動サイレント消去＆ロック画面承認の整合性強化**：デスクトップ側で承認が完了すると、スマートフォン側に届いた古い承認通知バナーをサイレントプッシュで自動消去し、期限切れボタンの誤操作を防ぎます。
+- 🔋 **アクティブ実行時限定のホスト自動スリープ防止（macOS / Windows / Linux）**：エージェント稼働中のみアイドルスリープを防止（画面オフは許可）し、全タスク完了から 2 分後に自動解除。プロセス終了時にもロックを残さない設計です（`MGY_PREVENT_SLEEP=0` で無効化可能）。
+- ⚡ **E2EE リレー自動復旧・物理 RTT 優先選択＆モバイル品質向上**：iOS のイベント WebSocket を E2EE `GatewayWebSocketTask` 経由に統一し、`RelayPool` で物理 RTT を優先選択。Android ではリレー `502 / 503` 時の自動フェイルオーバーとルート切替時のクォータ／イベント同期、プルダウン更新後の残像修正を行いました。
+- 📦 **バージョン統一**：iOS `1.2.6` (Build `34`) / Android `1.2.6` (Version Code `34`) / ゲートウェイ `mgy` `1.2.6`。

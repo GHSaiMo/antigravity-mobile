@@ -26,7 +26,7 @@
 </p>
 
 <p align="center">
-  🌐 <b>公式サイト</b>：<a href="https://mgy.jiuge.space/ja.html">mgy.jiuge.space/ja.html</a> &nbsp;·&nbsp; 🍎 <b>App Store</b>：<a href="https://apps.apple.com/app/id6835508934">iOS 正式版をダウンロード</a> &nbsp;·&nbsp; 🧪 <b>TestFlight</b>：<a href="https://testflight.apple.com/join/YM7f4aSK">パブリックベータ</a> &nbsp;·&nbsp; 📦 <a href="https://github.com/GHSaiMo/antigravity-mobile/releases/latest">最新リリース v1.2.5</a> &nbsp;·&nbsp; 💬 <a href="#wechat-group">WeChat ユーザーグループ</a>
+  🌐 <b>公式サイト</b>：<a href="https://mgy.jiuge.space/ja.html">mgy.jiuge.space/ja.html</a> &nbsp;·&nbsp; 🍎 <b>App Store</b>：<a href="https://apps.apple.com/app/id6835508934">iOS 正式版をダウンロード</a> &nbsp;·&nbsp; 🧪 <b>TestFlight</b>：<a href="https://testflight.apple.com/join/YM7f4aSK">パブリックベータ</a> &nbsp;·&nbsp; 📦 <a href="https://github.com/GHSaiMo/antigravity-mobile/releases/latest">最新リリース v1.2.6</a> &nbsp;·&nbsp; 💬 <a href="#wechat-group">WeChat ユーザーグループ</a>
 </p>
 
 > 🎉 **Multigravity for iOS が Apple App Store にて正式公開されました！**  
@@ -68,7 +68,7 @@ irm https://ghfast.top/https://raw.githubusercontent.com/GHSaiMo/antigravity-mob
 
 ### 2. モバイルクライアントのインストール・起動
 - **iOS**：🎉 Apple App Store にて正式配信中。**[App Store](https://apps.apple.com/app/id6835508934)** からワンタップでインストールできるほか、**[TestFlight パブリックベータ](https://testflight.apple.com/join/YM7f4aSK)** で最新ビルドを先行体験できます（ソースコードからのビルドや実機デバッグを行う場合は [iOS ローカルビルド＆実機デバッグガイド](docs/ios_build_guide.md) を参照してください）。
-- **Android**：[GitHub Releases](https://github.com/GHSaiMo/antigravity-mobile/releases/latest) から `Multigravity-v1.2.5.apk` を直接ダウンロードしてインストールしてください（上書きアップデート対応。必ず公式 Releases から入手してください）。
+- **Android**：[GitHub Releases](https://github.com/GHSaiMo/antigravity-mobile/releases/latest) から `Multigravity-v1.2.6.apk` を直接ダウンロードしてインストールしてください（上書きアップデート対応。必ず公式 Releases から入手してください）。
 - **PWA / Web**：アプリをインストールせず、モバイルブラウザからゲートウェイ URL（または `/?view=pwa`）を開いてホーム画面に追加するだけで利用できます。
 
 ### 3. 起動して QR コードでペアリング
@@ -102,7 +102,7 @@ mgy
   </tr>
 </table>
 
-> *上記スクリーンショットはクライアント内蔵の**オフラインデモモード**（v1.2.5 ネイティブ日本語ダーク UI・Antigravity 2.34 準拠および実機 Dynamic Island / ロック画面ライブアクティビティ / ホームウィジェット）で撮影したもので、ペアリング前でもすぐ操作感を体験できます。*
+> *上記スクリーンショットはクライアント内蔵の**オフラインデモモード**（v1.2.6 ネイティブ日本語ダーク UI・Antigravity 2.34 準拠および実機 Dynamic Island / ロック画面ライブアクティビティ / ホームウィジェット）で撮影したもので、ペアリング前でもすぐ操作感を体験できます。*
 
 ---
 
@@ -110,7 +110,7 @@ mgy
 
 ### 1. 全プラットフォームで一貫したリアルタイムストリーミング体験
 - **3 プラットフォーム＆3 言語完全対応**：ネイティブ **iOS**（SwiftUI / Swift 6）、ネイティブ **Android**（Jetpack Compose Material 3）、ビルド不要の組み込み **PWA Web** を提供し、全クライアントで**日本語 / English / 简体中文**の自動判別・切替に対応。システム連動 / ライト / ダーク外観に加え、情報密度を抑える独立した「コンパクトモード」切替も備えています。
-- **低遅延ストリーミングと超長文セッション即時ジャンプ**：リアクティブな Connect ストリーミング Hub と WebSocket `sinceRev` による差分レジュームを実装。**全ターン目次（Turn Outline）・オンデマンドターンジャンプ・末尾ウィンドウディスクキャッシュ**に加え、長時間推論時のハートビート維持、Markdown LRU キャッシュ、ステップレール、定常状態での即時送信により、超長文セッションでも即座に開いて任意の履歴へ滑らかに移動できます。
+- **デスクトップ同等のステップ計画カード・リアルタイムタイマー＆超長文ジャンプ**：全クライアントと iOS Live Activity で**ステップ計画カード（Step Plan Card）**と実行経過タイマーをネイティブ描画。リアクティブ Connect ストリーミング、**全ターン目次（Turn Outline）・オンデマンドジャンプ・末尾ウィンドウキャッシュ**により、巨大セッションでも即座に開いて任意の履歴へ滑らかに移動できます。
 - **プロ品質のリッチメディア描画と操作性**：180 言語以上のオフライン構文ハイライト（`R / R Markdown` 対応）、単一ガター行番号＋単語単位インラインコード Diff、LaTeX 数式、フォールトトレラントな Mermaid 描画、**MCP Apps (`ui://`) インタラクティブコンポーネント連携**、**ドキュメント内検索（Find in Page）**、高密度 PDF 遅延読み込みプレビューを備えています。
 
 ### 2. 重要な意思決定・段階的権限管理・モデル連携
@@ -138,7 +138,7 @@ mgy
 
 ### 7. ゼロ知識 E2EE・マルチリージョンリレープール・セキュア通知
 - **マルチリージョンリレープールとスマート経路選択**：ゼロ知識マルチ VPS リレープール（並列 RTT 計測・ヒステリシス固定・自動フェイルオーバー）、Cloudflare Tunnel 自動フォールバック、LAN Wi-Fi、Tailscale を一括管理し、並列疎通テストで最小遅延ルートへ自動切替します。
-- **段階的プッシュ通知と Dynamic Island**：iOS はネイティブ **APNs プッシュ通知およびリモート Live Activity（Dynamic Island）進捗更新**に対応（ステートレスな Cloudflare Relay 経由で設定不要・即利用可能）。Android は `dataSync` フォアグラウンド同期と FCM プッシュに対応し、タスク完了・承認待ち・ワークフロー節目・クォータ残量低下を即時通知します。
+- **3 言語ネイティブ通知・承認済みバナー自動消去・全 5 プール守護＆稼働時スリープ防止**：iOS の **APNs / Dynamic Island** と Android の **FCM** が**日本語 / English / 简体中文**に完全対応。デスクトップ側で承認済みの古いバナーを自動サイレント消去し、全 5 プール（残量低下・公式早期リセット喜報・急減/アイドル減少、Cockpit 未導入でも動作）を監視。さらにエージェント稼働中のみホストのアイドルスリープを防止し（画面オフ可）、完了 2 分後に自動解除します。
 - **ゼロ知識 E2EE とローカルファースト設計**：全クライアント＆ゲートウェイに **`mgy-e2ee-v1` エンドツーエンド暗号化**（ECDH P-256 + HKDF-SHA256 + AES-256-GCM）を実装し、リレー経路での平文アクセスを厳格に拒否（HTTP 426）。既存デバイスのデュアルトラック自動移行、Keychain / EncryptedSharedPreferences による認証情報保護、機密パスブラックリスト、WebSocket レート制限も標準搭載しています。
 
 ---
@@ -170,7 +170,7 @@ mgy help           # 全コマンド一覧と起動オプションを表示
 ```
 
 - **デフォルト設定パス**：`~/.multigravity/.env`（旧 `~/.antigravity-mobile/` からの自動マイグレーションに対応）。
-- **主な環境変数**：`MULTIGRAVITY_PORT` (`58900`)、`CF_TUNNEL_ENABLED` (`1`)、`APNS_ENABLED` (`1`)、`MGY_LANG` (`zh` / `en` 自動判別)、`MULTIGRAVITY_LOG_LEVEL` (`info`)。
+- **主な環境変数**：`MULTIGRAVITY_PORT` (`58900`)、`CF_TUNNEL_ENABLED` (`1`)、`APNS_ENABLED` (`1`)、`MGY_PREVENT_SLEEP` (`1` 稼働時スリープ防止)、`MGY_LANG` (`zh` / `en` / `ja` 自動判別)、`MULTIGRAVITY_LOG_LEVEL` (`info`)。
 - **詳細ドキュメント**：インストール検証やトラブルシューティングは [インストール＆運用テストガイド](docs/installation_and_testing_guide.md)、RPC プロトコル仕様は [language_server RPC 技術ノート](docs/ls_rpc_integration_notes.md) を参照してください。
 
 <details>
