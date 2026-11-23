@@ -41,6 +41,7 @@ type Watcher struct {
 	hasInitialSync bool
 	initialSyncAt  time.Time
 	lastActivityAt time.Time
+	onActivity     func(active bool)
 	alertCh        chan func()
 }
 
@@ -50,6 +51,26 @@ func NewWatcher(p *proxy.Proxy, n *Notifier) *Watcher {
 		proxy:         p,
 		notifier:      n,
 		knownSessions: make(map[string]*sessionTrackingState),
+	}
+}
+
+// SetOnActivityChange registers a callback invoked after each scan with whether any
+// Antigravity session on this host is currently running or waiting on a background task.
+func (w *Watcher) SetOnActivityChange(fn func(active bool)) {
+	if w == nil {
+		return
+	}
+	w.mu.Lock()
+	w.onActivity = fn
+	w.mu.Unlock()
+}
+
+func (w *Watcher) notifyActivity(active bool) {
+	w.mu.RLock()
+	fn := w.onActivity
+	w.mu.RUnlock()
+	if fn != nil {
+		fn(active)
 	}
 }
 
@@ -123,7 +144,10 @@ func (w *Watcher) dispatchLiveUpdate(details *proxy.TrajectoryDetails) {
 
 // Start initiates the background monitoring loop in a separate goroutine.
 func (w *Watcher) Start(ctx context.Context) {
-	if !w.notifier.IsEnabled() && !w.notifier.HasLiveActivityTargets() && !w.notifier.CanActivateDynamically() {
+	w.mu.RLock()
+	hasActivityHook := w.onActivity != nil
+	w.mu.RUnlock()
+	if !w.notifier.IsEnabled() && !w.notifier.HasLiveActivityTargets() && !w.notifier.CanActivateDynamically() && !hasActivityHook {
 		return
 	}
 	go w.run(ctx)
@@ -243,11 +267,16 @@ type watcherDetailResult struct {
 func (w *Watcher) scanOnceWithMaxAge(summaryMaxAge time.Duration) int {
 	port, _ := w.proxy.ActiveUpstream()
 	if port == 0 {
+		w.notifyActivity(false)
 		return 0
 	}
 
 	summaries, runningSubagents, err := w.proxy.FetchRawCascadeSummariesWithMaxAge(summaryMaxAge)
-	if err != nil || len(summaries) == 0 {
+	if err != nil {
+		return 0
+	}
+	if len(summaries) == 0 {
+		w.notifyActivity(false)
 		return 0
 	}
 
@@ -303,13 +332,16 @@ func (w *Watcher) scanOnceWithMaxAge(summaryMaxAge time.Duration) int {
 		}
 		w.hasInitialSync = true
 		w.initialSyncAt = now
+		initialRunning := false
 		for _, st := range w.knownSessions {
 			if st.lastStatus == "CASCADE_RUN_STATUS_RUNNING" {
 				w.lastActivityAt = now
+				initialRunning = true
 				break
 			}
 		}
 		w.mu.Unlock()
+		w.notifyActivity(initialRunning)
 		for _, fn := range deferred {
 			_ = w.dispatchAlert(fn)
 		}
@@ -409,6 +441,7 @@ func (w *Watcher) scanOnceWithMaxAge(summaryMaxAge time.Duration) int {
 			}
 			w.mu.Unlock()
 		}
+		w.notifyActivity(runningCount > 0)
 		return runningCount
 	}
 
@@ -747,6 +780,7 @@ func (w *Watcher) scanOnceWithMaxAge(summaryMaxAge time.Duration) int {
 		}
 		w.mu.Unlock()
 	}
+	w.notifyActivity(runningCount > 0)
 
 	return runningCount
 }

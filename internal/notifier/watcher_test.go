@@ -480,3 +480,78 @@ func TestWatcherIdleSince(t *testing.T) {
 	}
 }
 
+func TestWatcherActivityChangeCallback(t *testing.T) {
+	var mu sync.Mutex
+	statusVal := "CASCADE_RUN_STATUS_IDLE"
+	stepCountVal := 2
+
+	mockUpstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		mu.Lock()
+		curStatus := statusVal
+		curSteps := stepCountVal
+		mu.Unlock()
+		if strings.HasSuffix(r.URL.Path, "/GetAllCascadeTrajectories") {
+			w.Write([]byte(`{
+				"trajectorySummaries": {
+					"cas_power_cb": {
+						"summary": "Power guard callback test",
+						"status": "` + curStatus + `",
+						"stepCount": ` + jsonNumber(curSteps) + `,
+						"lastModifiedTime": "2026-09-12T00:00:00Z"
+					}
+				}
+			}`))
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, "/GetCascadeTrajectory") {
+			w.Write([]byte(`{
+				"status": "` + curStatus + `",
+				"trajectory": {
+					"trajectoryId": "cas_power_cb",
+					"cascadeId": "cas_power_cb",
+					"steps": [
+						{"type": "CORTEX_STEP_TYPE_USER_INPUT", "status": "CORTEX_STEP_STATUS_DONE"},
+						{"type": "CORTEX_STEP_TYPE_PLANNER_RESPONSE", "status": "CORTEX_STEP_STATUS_DONE", "plannerResponse": {"response": "done"}}
+					]
+				}
+			}`))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer mockUpstream.Close()
+
+	port := mockUpstream.Listener.Addr().(*net.TCPAddr).Port
+	p := proxy.NewProxy(inspector.NewInspector(10 * time.Second))
+	p.SetTestUpstream(port, "test-token")
+	notif := NewNotifierWithSender(config.NotificationConfig{Enabled: false}, &mockSender{})
+	watcher := NewWatcher(p, notif)
+
+	var states []bool
+	watcher.SetOnActivityChange(func(active bool) {
+		states = append(states, active)
+	})
+
+	// 1. Initial sync while IDLE -> false
+	watcher.scanOnce()
+	// 2. Session becomes RUNNING -> true
+	time.Sleep(300 * time.Millisecond)
+	mu.Lock()
+	statusVal = "CASCADE_RUN_STATUS_RUNNING"
+	stepCountVal = 3
+	mu.Unlock()
+	watcher.scanOnce()
+	// 3. Session returns to IDLE -> false
+	time.Sleep(300 * time.Millisecond)
+	mu.Lock()
+	statusVal = "CASCADE_RUN_STATUS_IDLE"
+	stepCountVal = 4
+	mu.Unlock()
+	watcher.scanOnce()
+
+	if len(states) != 3 || states[0] != false || states[1] != true || states[2] != false {
+		t.Fatalf("unexpected activity callback sequence: %v, want [false true false]", states)
+	}
+}
+

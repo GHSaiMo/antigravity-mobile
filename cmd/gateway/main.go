@@ -31,6 +31,7 @@ import (
 	"antigravity-mobile/internal/logx"
 	"antigravity-mobile/internal/netutil"
 	"antigravity-mobile/internal/notifier"
+	"antigravity-mobile/internal/power"
 	"antigravity-mobile/internal/proxy"
 	"antigravity-mobile/internal/relay"
 	"antigravity-mobile/internal/tunnel"
@@ -164,7 +165,9 @@ func runGatewayServer(args []string) {
 	pollSec := fs.Int("poll", 5, i18n.T("探测本地 Antigravity 实例与健康检查的轮询间隔秒数（默认 5 秒）", "Polling interval in seconds for Antigravity health checks (default 5s)"))
 	ddnsHost := fs.String("ddns", os.Getenv("DDNS_HOST"), i18n.T("公网 DDNS 域名，用于生成扫码配对链接及外部直连", "Public DDNS hostname for pairing link and direct external access"))
 	trustLAN := fs.Bool("trust-lan", config.GetTrustLAN(), i18n.T("是否信任局域网访问（允许免配对直接使用，默认: 需配对码）", "Trust LAN access without pairing code (default: false, pairing code required)"))
-	langFlag := fs.String("lang", "", i18n.T("界面与终端语言 (zh/en，默认自适应系统)", "Interface and terminal language (zh/en, defaults to system locale)"))
+	preventSleepDefault := !envDisabled("MGY_PREVENT_SLEEP") && !envDisabled("MULTIGRAVITY_PREVENT_SLEEP")
+	preventSleep := fs.Bool("prevent-sleep", preventSleepDefault, i18n.T("仅在有活跃 Antigravity 任务时自动阻止宿主机空闲休眠（默认开启，MGY_PREVENT_SLEEP=0 可关闭）", "Prevent host idle sleep only while Antigravity sessions are running (default: true, env: MGY_PREVENT_SLEEP=0 to disable)"))
+	langFlag := fs.String("lang", "", i18n.T("界面与终端语言 (zh/en/ja，默认自适应系统)", "Interface and terminal language (zh/en/ja, defaults to system locale)"))
 	_ = fs.Parse(args)
 
 	if *langFlag != "" {
@@ -348,12 +351,26 @@ func runGatewayServer(args []string) {
 		}
 	}
 
+	var powerGuard *power.Guard
+	if *preventSleep {
+		g := power.NewGuard(nil, power.DefaultReleaseGrace)
+		if g.Available() {
+			powerGuard = g
+			powerGuard.WatchContext(watcherCtx)
+			defer powerGuard.Close()
+			slog.Info("[Power] 🔋 任务期自动防休眠已就绪（空闲 2m 自动释放，MGY_PREVENT_SLEEP=0 可关闭）", "backend", powerGuard.BackendName())
+		}
+	}
+
 	var pushSummary string
 	var watcher *notifier.Watcher
 	if notif.IsEnabled() || notif.CanActivateDynamically() {
 		p.SetNotificationSink(notif)
 
 		watcher = notifier.NewWatcher(p, notif)
+		if powerGuard != nil {
+			watcher.SetOnActivityChange(powerGuard.SetActive)
+		}
 		watcher.Start(watcherCtx)
 
 		var pushes []string
@@ -370,6 +387,11 @@ func runGatewayServer(args []string) {
 		if len(pushes) > 0 {
 			pushSummary = strings.Join(pushes, " + ")
 		}
+	} else if powerGuard != nil {
+		// Notifications disabled, still run lightweight watcher to drive dynamic task-time sleep guard.
+		watcher = notifier.NewWatcher(p, notif)
+		watcher.SetOnActivityChange(powerGuard.SetActive)
+		watcher.Start(watcherCtx)
 	}
 	if pushSummary == "" {
 		pushSummary = i18n.T("未配置 (支持 APNs / FCM)", "Not configured (Supports APNs / FCM)")
@@ -913,6 +935,7 @@ func runHelpCmd() {
   -poll <秒数>            Antigravity 实例轮询间隔 (默认: 5秒)
   -ddns <域名/IP>         公网 DDNS 域名或固定 IP 地址
   -trust-lan=<true|false> 是否信任局域网免配对访问 (默认: false, 环境变量: MULTIGRAVITY_TRUST_LAN)
+  -prevent-sleep=<bool>   仅在活跃任务期阻止宿主机空闲休眠 (默认: true, 环境变量: MGY_PREVENT_SLEEP)
   -lang <zh|en|ja>        界面与终端语言 (默认: 自适应系统语言, 环境变量: MGY_LANG)
   -open=<true|false>      启动时是否自动在默认浏览器打开主页 (默认: true, 无头系统自动跳过)
 `, Version)
@@ -941,6 +964,7 @@ Gateway Startup Flags (for mgy or mgy run):
   -poll <seconds>         Antigravity instance health check polling interval (default: 5s)
   -ddns <domain/IP>       Public DDNS domain or fixed IP address
   -trust-lan=<true|false> Trust LAN access without pairing code (default: false, env: MULTIGRAVITY_TRUST_LAN)
+  -prevent-sleep=<bool>   Prevent host idle sleep only while tasks run (default: true, env: MGY_PREVENT_SLEEP)
   -lang <zh|en|ja>        Interface and terminal language (default: auto-detect system locale, env: MGY_LANG)
   -open=<true|false>      Auto-open homepage in default browser on launch (default: true, skipped on headless)
 `, Version)
