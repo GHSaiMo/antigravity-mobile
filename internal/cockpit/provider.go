@@ -417,11 +417,20 @@ func makeMetric(fraction *float64, resetTime string) *QuotaMetric {
 	if val > 1 {
 		val = 1
 	}
+	resetTime = strings.TrimSpace(resetTime)
+	friendly := formatResetFriendly(resetTime)
+	// Upstream retrieveUserQuotaSummary omits resetTime for full (100%) rolling
+	// windows when no active countdown has started (e.g. ULTRA 3p-5h replenished
+	// to 100% while 3p-weekly is partially used). Treat full + empty resetTime
+	// as ready rather than unknown.
+	if resetTime == "" && val >= 1.0 {
+		friendly = "已就绪"
+	}
 	return &QuotaMetric{
 		RemainingFraction: val,
 		RemainingPercent:  float64(int(val*1000+0.5)) / 10.0,
 		ResetTime:         resetTime,
-		ResetFriendly:     formatResetFriendly(resetTime),
+		ResetFriendly:     friendly,
 	}
 }
 

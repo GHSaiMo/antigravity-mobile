@@ -187,6 +187,43 @@ func TestFormatResetFriendly(t *testing.T) {
 	}
 }
 
+func TestMakeMetricFullQuotaWithoutResetTimeIsReady(t *testing.T) {
+	full := 1.0
+	m := makeMetric(&full, "")
+	if m == nil {
+		t.Fatal("expected non-nil metric")
+	}
+	if m.RemainingPercent != 100.0 {
+		t.Errorf("expected RemainingPercent 100.0, got %v", m.RemainingPercent)
+	}
+	if m.ResetFriendly != "已就绪" {
+		t.Errorf("expected ResetFriendly '已就绪' for full bucket without resetTime, got %q", m.ResetFriendly)
+	}
+	if m.ResetTime != "" {
+		t.Errorf("expected empty ResetTime, got %q", m.ResetTime)
+	}
+
+	// Whitespace-only resetTime at full quota should also resolve to ready.
+	mWS := makeMetric(&full, "   ")
+	if mWS == nil || mWS.ResetFriendly != "已就绪" || mWS.ResetTime != "" {
+		t.Errorf("expected whitespace resetTime at 100%% to normalize to ready, got %+v", mWS)
+	}
+
+	// Partial quota without resetTime must still report unknown.
+	partial := 0.8
+	mPartial := makeMetric(&partial, "")
+	if mPartial == nil || mPartial.ResetFriendly != "未知" {
+		t.Errorf("expected ResetFriendly '未知' for partial bucket without resetTime, got %+v", mPartial)
+	}
+
+	// Full quota with an explicit future resetTime preserves the formatted countdown.
+	future := time.Now().Add(2*time.Hour + 15*time.Minute + 20*time.Second).Format(time.RFC3339)
+	mFuture := makeMetric(&full, future)
+	if mFuture == nil || mFuture.ResetFriendly != "2h 15m" || mFuture.ResetTime != future {
+		t.Errorf("expected explicit future resetTime to be preserved, got %+v", mFuture)
+	}
+}
+
 func TestEnsureCockpitAntigravityConfig_AlignsConfig(t *testing.T) {
 	origChecker := cockpitProcessChecker
 	cockpitProcessChecker = func() bool { return false }

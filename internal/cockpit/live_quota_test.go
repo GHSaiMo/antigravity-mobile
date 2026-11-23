@@ -99,3 +99,29 @@ func TestBuildQuotaResponseWithoutCockpit(t *testing.T) {
 		t.Fatalf("unexpected: %+v", resp)
 	}
 }
+
+func TestFetchLiveQuotaFullClaude5hWithoutResetTime(t *testing.T) {
+	const summaryMissing3p5hReset = `{"response":{"groups":[
+ {"buckets":[{"bucketId":"gemini-weekly","remainingFraction":0.94,"resetTime":"2030-01-02T00:00:00Z"},{"bucketId":"gemini-5h","remainingFraction":0.83,"resetTime":"2030-01-01T00:00:00Z"}]},
+ {"buckets":[{"bucketId":"3p-weekly","remainingFraction":0.796,"resetTime":"2030-01-02T00:00:00Z"},{"bucketId":"3p-5h","remainingFraction":1}]}]}}`
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/GetUserStatus"):
+			_, _ = w.Write([]byte(fakeUserStatus))
+		case strings.HasSuffix(r.URL.Path, "/RetrieveUserQuotaSummary"):
+			_, _ = w.Write([]byte(summaryMissing3p5hReset))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	acc, err := FetchLiveQuota(srv.Client(), srv.URL, "tok")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if acc.Claude5h == nil || acc.Claude5h.RemainingPercent != 100 || acc.Claude5h.ResetFriendly != "已就绪" {
+		t.Fatalf("expected Claude5h 100%% 已就绪, got %+v", acc.Claude5h)
+	}
+}
