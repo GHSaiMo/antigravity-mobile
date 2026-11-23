@@ -180,10 +180,11 @@ dependencies {
 gradle.taskGraph.whenReady {
     val requiresReleaseSigning = allTasks.any { task ->
         val name = task.name
-        (name.startsWith("assemble") || name.startsWith("bundle") || name.startsWith("package")) &&
-            name.contains("Release") &&
-            !name.contains("UnitTest") &&
-            !name.contains("AndroidTest")
+        (name.startsWith("assemble") ||
+            name.startsWith("bundle") ||
+            name.startsWith("package") ||
+            name.startsWith("sign")) &&
+            (name.endsWith("Release") || name.endsWith("ReleaseBundle"))
     }
     if (requiresReleaseSigning && !hasReleaseSigning) {
         throw GradleException(
