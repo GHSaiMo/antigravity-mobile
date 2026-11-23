@@ -179,30 +179,11 @@ extension APIClient {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
         
-        let tempDownloadedURL: URL
-        let httpResp: HTTPURLResponse
-        if NetworkTransport.requiresCleartextATSBypass(endpoint) {
-            (tempDownloadedURL, httpResp) = try await transport.downloadCleartextHTTP(
-                request: request,
-                onProgress: onProgress
-            )
-        } else {
-            let delegate = FileDownloadProgressDelegate(onProgress: onProgress)
-            // A plain session: background sessions are scheduled by nsurlsessiond out of process, which adds
-            // start-up latency to the small, user-awaited preview downloads this is used for.
-            let config = URLSessionConfiguration.default
-            config.timeoutIntervalForRequest = 60
-            config.httpShouldSetCookies = false
-            config.protocolClasses = [DemoURLProtocol.self] + (config.protocolClasses ?? [])
-            let session = URLSession(configuration: config, delegate: delegate, delegateQueue: nil)
-            
-            (tempDownloadedURL, httpResp) = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<(URL, HTTPURLResponse), Error>) in
-                delegate.continuation = continuation
-                let task = session.downloadTask(with: request)
-                task.resume()
-            }
-            session.finishTasksAndInvalidate()
-        }
+        let (tempDownloadedURL, httpResp) = try await transport.download(
+            request: request,
+            allowE2EE: attachCredentials || NetworkTransport.isConfiguredGatewayOrigin(endpoint),
+            onProgress: onProgress
+        )
         
         guard (200...299).contains(httpResp.statusCode) else {
             let errData = (try? Data(contentsOf: tempDownloadedURL)) ?? Data()
@@ -336,74 +317,4 @@ extension APIClient {
         return cleanPath.trimmingCharacters(in: CharacterSet(charactersIn: "`\"'()[]<>"))
     }
     
-}
-
-// MARK: - File Download Progress Delegate
-
-private final class FileDownloadProgressDelegate: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
-    let onProgress: (@Sendable (Double, Int64, Int64) -> Void)?
-    var continuation: CheckedContinuation<(URL, HTTPURLResponse), Error>?
-    private let lock = NSLock()
-    private var lastReportedBytes: Int64 = 0
-    private var lastReportedTime: CFAbsoluteTime = 0
-    
-    init(onProgress: (@Sendable (Double, Int64, Int64) -> Void)?) {
-        self.onProgress = onProgress
-    }
-    
-    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
-        guard let onProgress = onProgress else { return }
-        let now = CFAbsoluteTimeGetCurrent()
-        
-        lock.lock()
-        // 严格保证单调递增，丢弃网络乱序或重置导致的倒退包
-        if totalBytesWritten < lastReportedBytes && totalBytesWritten > 0 {
-            lock.unlock()
-            return
-        }
-        
-        let isCompleted = totalBytesExpectedToWrite > 0 && totalBytesWritten >= totalBytesExpectedToWrite
-        let timeElapsed = now - lastReportedTime
-        let bytesDelta = totalBytesWritten - lastReportedBytes
-        
-        // 节流策略：首包、尾包(完成)、间隔超50ms、或增量超256KB时上报，避免主线程状态风暴
-        let shouldReport = isCompleted || lastReportedBytes == 0 || timeElapsed >= 0.05 || bytesDelta >= 262_144
-        if shouldReport {
-            lastReportedBytes = totalBytesWritten
-            lastReportedTime = now
-            lock.unlock()
-            
-            let progress = totalBytesExpectedToWrite > 0 ? max(0, min(1.0, Double(totalBytesWritten) / Double(totalBytesExpectedToWrite))) : 0.0
-            onProgress(progress, totalBytesWritten, totalBytesExpectedToWrite)
-        } else {
-            lock.unlock()
-        }
-    }
-    
-    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
-        let total = downloadTask.countOfBytesExpectedToReceive
-        let written = downloadTask.countOfBytesReceived
-        if total > 0 {
-            onProgress?(1.0, total, total)
-        } else if written > 0 {
-            onProgress?(1.0, written, written)
-        }
-        guard let httpResp = downloadTask.response as? HTTPURLResponse else {
-            continuation?.resume(throwing: APIError.networkError("Invalid response type"))
-            return
-        }
-        let tempFile = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        do {
-            try FileManager.default.moveItem(at: location, to: tempFile)
-            continuation?.resume(returning: (tempFile, httpResp))
-        } catch {
-            continuation?.resume(throwing: error)
-        }
-    }
-    
-    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        if let error = error {
-            continuation?.resume(throwing: error)
-        }
-    }
 }

@@ -363,6 +363,133 @@ public final class NetworkTransport: Sendable {
         }
         return (data, decorateResponse(response, url: req.url, forcedCellular: usedCellular))
     }
+
+    /// Downloads a file to a temporary URL, transparently handling E2EE relay encryption
+    /// (`POST /api/v1/e2ee/rpc`) with `HTTP 426 e2ee_required` auto-recovery, Tailscale
+    /// cleartext ATS bypass, streaming progress updates, and Swift Task cancellation.
+    public func download(
+        request: URLRequest,
+        allowE2EE: Bool? = nil,
+        onProgress: (@Sendable (Double, Int64, Int64) -> Void)? = nil
+    ) async throws -> (URL, HTTPURLResponse) {
+        var req = request
+        if let url = req.url, url.scheme?.lowercased() == "http" {
+            let host = url.host ?? ""
+            guard Self.isLocalOrPrivateHost(host) else {
+                throw URLError(.appTransportSecurityRequiresSecureConnection)
+            }
+        }
+        if let token = KeychainHelper.shared.read(key: .deviceToken), !token.isEmpty,
+           let reqURL = req.url,
+           reqURL.path != "/healthz",
+           Self.isConfiguredGatewayOrigin(reqURL),
+           req.value(forHTTPHeaderField: "Authorization") == nil {
+            req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+
+        let useE2EE = allowE2EE ?? Self.isConfiguredGatewayOrigin(req.url)
+        if useE2EE && E2EECrypto.shared.shouldEncrypt(url: req.url) {
+            return try await downloadOverE2EE(req, onProgress: onProgress)
+        }
+
+        if Self.requiresCleartextATSBypass(req.url) {
+            return try await downloadCleartextHTTP(request: req, onProgress: onProgress)
+        }
+
+        let (tempURL, httpResp) = try await downloadViaURLSession(req, onProgress: onProgress)
+        // Auto-recover if a custom relay domain enforces E2EE with HTTP 426 Upgrade Required
+        if useE2EE,
+           httpResp.statusCode == 426,
+           E2EECrypto.shared.isReady,
+           let host = req.url?.host,
+           !Self.isLocalOrPrivateHost(host),
+           req.url?.path.hasPrefix("/api/v1/e2ee/") != true {
+            try? FileManager.default.removeItem(at: tempURL)
+            E2EECrypto.shared.markHostRequiresE2EE(host)
+            return try await downloadOverE2EE(req, onProgress: onProgress)
+        }
+        let decorated = (decorateResponse(httpResp, url: req.url) as? HTTPURLResponse) ?? httpResp
+        return (tempURL, decorated)
+    }
+
+    private func downloadOverE2EE(
+        _ req: URLRequest,
+        onProgress: (@Sendable (Double, Int64, Int64) -> Void)?
+    ) async throws -> (URL, HTTPURLResponse) {
+        guard let originalURL = req.url else {
+            throw URLError(.badURL)
+        }
+        let (outerReq, deviceID, key) = try E2EECrypto.shared.wrapHTTPRequest(req)
+        let (tempEncURL, outerHTTP) = try await downloadViaURLSession(outerReq, onProgress: onProgress)
+        if outerHTTP.statusCode != 200 {
+            let decorated = (decorateResponse(outerHTTP, url: originalURL) as? HTTPURLResponse) ?? outerHTTP
+            return (tempEncURL, decorated)
+        }
+
+        defer { try? FileManager.default.removeItem(at: tempEncURL) }
+        try Task.checkCancellation()
+        let encData = try Data(contentsOf: tempEncURL, options: .mappedIfSafe)
+        let (innerData, innerResp) = try E2EECrypto.shared.unwrapHTTPResponse(
+            encData: encData,
+            originalURL: originalURL,
+            deviceID: deviceID,
+            key: key
+        )
+        try Task.checkCancellation()
+
+        let plainTempURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try innerData.write(to: plainTempURL, options: .atomic)
+        let decorated = (decorateResponse(innerResp, url: originalURL, trustedByE2EE: true) as? HTTPURLResponse) ?? innerResp
+        if (200...299).contains(decorated.statusCode), !innerData.isEmpty {
+            let size = Int64(innerData.count)
+            onProgress?(1.0, size, size)
+        }
+        return (plainTempURL, decorated)
+    }
+
+    private func downloadViaURLSession(
+        _ request: URLRequest,
+        onProgress: (@Sendable (Double, Int64, Int64) -> Void)?
+    ) async throws -> (URL, HTTPURLResponse) {
+        try Task.checkCancellation()
+        let delegate = FileDownloadProgressDelegate(onProgress: onProgress)
+        // A plain session: background sessions are scheduled by nsurlsessiond out of process, which adds
+        // start-up latency to the small, user-awaited preview downloads this is used for.
+        let config = URLSessionConfiguration.default
+        let reqTimeout = request.timeoutInterval > 0 ? request.timeoutInterval : 60
+        config.timeoutIntervalForRequest = reqTimeout
+        config.timeoutIntervalForResource = max(reqTimeout * 5, 300)
+        config.httpShouldSetCookies = false
+        config.httpCookieAcceptPolicy = .never
+        config.httpCookieStorage = nil
+        config.protocolClasses = [DemoURLProtocol.self] + (config.protocolClasses ?? [])
+        let session = URLSession(configuration: config, delegate: delegate, delegateQueue: nil)
+        defer { session.finishTasksAndInvalidate() }
+
+        let taskHolder = OSAllocatedUnfairLock<URLSessionDownloadTask?>(initialState: nil)
+        let cancelledFlag = OSAllocatedUnfairLock(initialState: false)
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<(URL, HTTPURLResponse), Error>) in
+                delegate.setContinuation(continuation)
+                if cancelledFlag.withLock({ $0 }) {
+                    delegate.cancel()
+                    return
+                }
+                let task = session.downloadTask(with: request)
+                taskHolder.withLock { $0 = task }
+                if cancelledFlag.withLock({ $0 }) {
+                    task.cancel()
+                    delegate.cancel()
+                    return
+                }
+                task.resume()
+            }
+        } onCancel: {
+            cancelledFlag.withLock { $0 = true }
+            taskHolder.withLock { $0 }?.cancel()
+            delegate.cancel()
+        }
+    }
     
     /// ATS blocks cleartext HTTP to Tailscale private hosts (NSAllowsLocalNetworking only exempts RFC1918/loopback/.local).
     /// Only Tailscale WireGuard private hosts (100.64.0.0/10, *.ts.net) may use NWConnection cleartext transport; public cleartext is rejected above.
@@ -979,6 +1106,128 @@ public final class NetworkTransport: Sendable {
                 }
                 return (accumulator.buffer, true)
             }
+        }
+    }
+}
+
+// MARK: - File Download Progress Delegate
+
+private final class FileDownloadProgressDelegate: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
+    let onProgress: (@Sendable (Double, Int64, Int64) -> Void)?
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<(URL, HTTPURLResponse), Error>?
+    private var pendingResult: Result<(URL, HTTPURLResponse), Error>?
+    private var lastReportedBytes: Int64 = 0
+    private var lastReportedTime: CFAbsoluteTime = 0
+
+    init(onProgress: (@Sendable (Double, Int64, Int64) -> Void)?) {
+        self.onProgress = onProgress
+    }
+
+    func setContinuation(_ cont: CheckedContinuation<(URL, HTTPURLResponse), Error>) {
+        let immediate: Result<(URL, HTTPURLResponse), Error>?
+        lock.lock()
+        if let pending = pendingResult {
+            pendingResult = nil
+            immediate = pending
+        } else {
+            continuation = cont
+            immediate = nil
+        }
+        lock.unlock()
+        if let immediate {
+            cont.resume(with: immediate)
+        }
+    }
+
+    func cancel() {
+        finish(with: .failure(CancellationError()))
+    }
+
+    @discardableResult
+    private func finish(with result: Result<(URL, HTTPURLResponse), Error>) -> Bool {
+        let cont: CheckedContinuation<(URL, HTTPURLResponse), Error>?
+        var accepted = false
+        lock.lock()
+        if let c = continuation {
+            continuation = nil
+            cont = c
+            accepted = true
+        } else if pendingResult == nil {
+            pendingResult = result
+            cont = nil
+            accepted = true
+        } else {
+            cont = nil
+        }
+        lock.unlock()
+        cont?.resume(with: result)
+        return accepted
+    }
+
+    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
+        guard let onProgress = onProgress else { return }
+        if let httpResp = downloadTask.response as? HTTPURLResponse,
+           !(200...299).contains(httpResp.statusCode) {
+            return
+        }
+        let now = CFAbsoluteTimeGetCurrent()
+
+        lock.lock()
+        // 严格保证单调递增，丢弃网络乱序或重置导致的倒退包
+        if totalBytesWritten < lastReportedBytes && totalBytesWritten > 0 {
+            lock.unlock()
+            return
+        }
+
+        let isCompleted = totalBytesExpectedToWrite > 0 && totalBytesWritten >= totalBytesExpectedToWrite
+        let timeElapsed = now - lastReportedTime
+        let bytesDelta = totalBytesWritten - lastReportedBytes
+
+        // 节流策略：首包、尾包(完成)、间隔超50ms、或增量超256KB时上报，避免主线程状态风暴
+        let shouldReport = isCompleted || lastReportedBytes == 0 || timeElapsed >= 0.05 || bytesDelta >= 262_144
+        if shouldReport {
+            lastReportedBytes = totalBytesWritten
+            lastReportedTime = now
+            lock.unlock()
+
+            let progress = totalBytesExpectedToWrite > 0 ? max(0, min(1.0, Double(totalBytesWritten) / Double(totalBytesExpectedToWrite))) : 0.0
+            onProgress(progress, totalBytesWritten, totalBytesExpectedToWrite)
+        } else {
+            lock.unlock()
+        }
+    }
+
+    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
+        guard let httpResp = downloadTask.response as? HTTPURLResponse else {
+            finish(with: .failure(URLError(.badServerResponse)))
+            return
+        }
+        if (200...299).contains(httpResp.statusCode) {
+            let total = downloadTask.countOfBytesExpectedToReceive
+            let written = downloadTask.countOfBytesReceived
+            if total > 0 {
+                onProgress?(1.0, total, total)
+            } else if written > 0 {
+                onProgress?(1.0, written, written)
+            }
+        }
+        let tempFile = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        do {
+            try FileManager.default.moveItem(at: location, to: tempFile)
+            if !finish(with: .success((tempFile, httpResp))) {
+                try? FileManager.default.removeItem(at: tempFile)
+            }
+        } catch {
+            finish(with: .failure(error))
+        }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        if let error = error {
+            finish(with: .failure(error))
+        } else {
+            finish(with: .failure(URLError(.unknown)))
         }
     }
 }

@@ -333,13 +333,20 @@ public struct QuickLookPreviewSheet: View {
                     do {
                         var request = URLRequest(url: self.url)
                         request.timeoutInterval = 60
-                        let tempURL: URL
-                        if NetworkTransport.requiresCleartextATSBypass(self.url) {
-                            (tempURL, _) = try await NetworkTransport.shared.downloadCleartextHTTP(request: request)
-                        } else {
-                            (tempURL, _) = try await URLSession.shared.download(for: request)
+                        let (tempURL, httpResp) = try await NetworkTransport.shared.download(request: request)
+                        guard (200...299).contains(httpResp.statusCode) else {
+                            try? FileManager.default.removeItem(at: tempURL)
+                            throw APIError.serverError(statusCode: httpResp.statusCode, message: "HTTP \(httpResp.statusCode)")
                         }
-                        let ext = self.url.pathExtension.isEmpty ? "mp4" : self.url.pathExtension
+                        let ext: String = {
+                            if !self.url.pathExtension.isEmpty { return self.url.pathExtension }
+                            if let comps = URLComponents(url: self.url, resolvingAgainstBaseURL: false),
+                               let uri = comps.queryItems?.first(where: { $0.name == "uri" })?.value {
+                                let uriExt = (uri as NSString).pathExtension
+                                if !uriExt.isEmpty { return uriExt }
+                            }
+                            return "mp4"
+                        }()
                         let destURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathExtension(ext)
                         try? FileManager.default.removeItem(at: destURL)
                         try FileManager.default.moveItem(at: tempURL, to: destURL)

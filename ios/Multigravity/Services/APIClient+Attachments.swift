@@ -84,7 +84,28 @@ extension APIClient {
             )
         }
         
-        guard let http = response as? HTTPURLResponse else {
+        var finalData = data
+        var finalResponse = response
+        if !isDemoEndpoint,
+           let http = finalResponse as? HTTPURLResponse,
+           http.statusCode == 426,
+           E2EECrypto.shared.isReady,
+           let host = endpoint.host,
+           !NetworkTransport.isLocalOrPrivateHost(host) {
+            E2EECrypto.shared.markHostRequiresE2EE(host)
+            do {
+                request.httpBody = try Data(contentsOf: fileURL)
+                onProgress?(0.25)
+                (finalData, finalResponse) = try await transport.send(request: request)
+                onProgress?(0.95)
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                throw APIError.networkError(error.localizedDescription)
+            }
+        }
+        
+        guard let http = finalResponse as? HTTPURLResponse else {
             throw APIError.networkError("Invalid response type")
         }
         guard (200...299).contains(http.statusCode) else {
@@ -92,13 +113,13 @@ extension APIClient {
                 NotificationCenter.default.post(name: .deviceTokenRevoked, object: nil)
             }
             struct ErrBody: Decodable { let message: String? }
-            let message = (try? JSONDecoder().decode(ErrBody.self, from: data))?.message
-                ?? String(data: data, encoding: .utf8)
+            let message = (try? JSONDecoder().decode(ErrBody.self, from: finalData))?.message
+                ?? String(data: finalData, encoding: .utf8)
                 ?? "HTTP \(http.statusCode)"
             throw APIError.serverError(statusCode: http.statusCode, message: message)
         }
         do {
-            return try JSONDecoder().decode(UploadedAttachment.self, from: data)
+            return try JSONDecoder().decode(UploadedAttachment.self, from: finalData)
         } catch {
             throw APIError.decodingError(error.localizedDescription)
         }

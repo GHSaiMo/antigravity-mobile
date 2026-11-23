@@ -192,6 +192,9 @@ func TestE2EE_HTTP_RPC_And_WebSocket_EndToEnd(t *testing.T) {
 	if httpResp.StatusCode != http.StatusOK {
 		t.Fatalf("expected outer 200, got %d", httpResp.StatusCode)
 	}
+	if httpResp.ContentLength != int64(len(encResp)) {
+		t.Fatalf("expected outer Content-Length=%d, got %d", len(encResp), httpResp.ContentLength)
+	}
 	plainResp, err := Decrypt(devKey, encResp, FrameAAD(devID, "s2c"))
 	if err != nil {
 		t.Fatalf("decrypt resp: %v", err)
