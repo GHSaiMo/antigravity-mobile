@@ -1081,10 +1081,17 @@ func GetSwarmSnapshot(cascadeID string, afterSeq int, clientETag string) (*Swarm
 			unread = 0
 		}
 
+		memberModel := strings.TrimSpace(rm.Model)
+		if rm.ConversationID != "" && cascadeIDRe.MatchString(rm.ConversationID) {
+			if actual := strings.TrimSpace(resolveSubagentRuntimeModel(rm.ConversationID)); actual != "" {
+				memberModel = actual
+			}
+		}
+
 		members = append(members, SwarmMemberInfo{
 			Name:           name,
 			ConversationID: rm.ConversationID,
-			Model:          rm.Model,
+			Model:          memberModel,
 			Role:           rm.Role,
 			WakeMode:       rm.WakeMode,
 			WaitSince:      string(rm.WaitSince),

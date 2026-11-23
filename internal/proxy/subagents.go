@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"antigravity-mobile/internal/cockpit"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -9,6 +10,10 @@ import (
 	"net/http"
 	"strings"
 )
+
+// resolveSubagentRuntimeModel resolves the actual runtime model recorded for a child conversation.
+// Replaceable in tests for deterministic verification without touching local conversation DBs.
+var resolveSubagentRuntimeModel = cockpit.ResolveConversationRuntimeModel
 
 // 子代理可见性。
 //
@@ -77,27 +82,65 @@ func truncateRunes(s string, max int) string {
 	return string(r[:max]) + "…"
 }
 
-// enrichSubagentMessages fills the live state of the inline subagent cards. It returns the input
-// unchanged when there are none, and never mutates the (possibly cached) input messages.
+// enrichSubagentMessages fills the live state (and resolved runtime model) of inline subagent
+// cards and dynamic workflow subagent grids. It returns the input unchanged when there are none,
+// and never mutates the (possibly cached) input messages.
 func (p *Proxy) enrichSubagentMessages(msgs []CascadeMessageItem) []CascadeMessageItem {
-	var idxs []int
+	var subIdxs []int
+	var wfIdxs []int
 	var ids []string
 	for i, m := range msgs {
 		if m.Subagent != nil {
-			idxs = append(idxs, i)
-			ids = append(ids, m.Subagent.ConversationID)
+			subIdxs = append(subIdxs, i)
+			if m.Subagent.ConversationID != "" {
+				ids = append(ids, m.Subagent.ConversationID)
+			}
+		}
+		if m.Workflow != nil {
+			hasWfSub := false
+			for _, ph := range m.Workflow.Phases {
+				for _, sa := range ph.Subagents {
+					if sa.ConversationID != "" {
+						ids = append(ids, sa.ConversationID)
+						hasWfSub = true
+					}
+				}
+			}
+			if hasWfSub {
+				wfIdxs = append(wfIdxs, i)
+			}
 		}
 	}
-	if len(idxs) == 0 {
+	if len(subIdxs) == 0 && len(wfIdxs) == 0 {
 		return msgs
 	}
 	live := p.liveSummaries(ids)
 	out := make([]CascadeMessageItem, len(msgs))
 	copy(out, msgs)
-	for _, i := range idxs {
+	for _, i := range subIdxs {
 		it := *msgs[i].Subagent
 		applyLive(&it, live)
 		out[i].Subagent = &it
+	}
+	for _, i := range wfIdxs {
+		wfCopy := *msgs[i].Workflow
+		phasesCopy := make([]WorkflowPhaseItem, len(wfCopy.Phases))
+		for pIdx, ph := range wfCopy.Phases {
+			phCopy := ph
+			if len(ph.Subagents) > 0 {
+				saCopy := make([]SubagentItem, len(ph.Subagents))
+				for sIdx, sa := range ph.Subagents {
+					if sa.ConversationID != "" {
+						applyLive(&sa, live)
+					}
+					saCopy[sIdx] = sa
+				}
+				phCopy.Subagents = saCopy
+			}
+			phasesCopy[pIdx] = phCopy
+		}
+		wfCopy.Phases = phasesCopy
+		out[i].Workflow = &wfCopy
 	}
 	return out
 }
@@ -167,7 +210,7 @@ func (p *Proxy) enrichSubagents(items []SubagentItem) []SubagentItem {
 	return out
 }
 
-// applyLive fills Status / StepCount / Title from the list snapshot.
+// applyLive fills Status / StepCount / Title from the list snapshot and RuntimeModel from local gen_metadata.
 func applyLive(it *SubagentItem, live map[string]subagentLive) {
 	if l, ok := live[it.ConversationID]; ok {
 		it.StepCount = l.StepCount
@@ -179,6 +222,9 @@ func applyLive(it *SubagentItem, live map[string]subagentLive) {
 		}
 	} else {
 		it.Status = subagentStatusGone
+	}
+	if it.RuntimeModel == "" && it.ConversationID != "" {
+		it.RuntimeModel = strings.TrimSpace(resolveSubagentRuntimeModel(it.ConversationID))
 	}
 }
 
@@ -206,7 +252,8 @@ func (p *Proxy) subagentLiveSignature(raw *upstreamTrajectoryResp) string {
 	var b strings.Builder
 	for _, id := range ids {
 		l, ok := live[id]
-		fmt.Fprintf(&b, "%s:%t:%s:%d;", id, ok, l.Status, l.StepCount)
+		rtModel := strings.TrimSpace(resolveSubagentRuntimeModel(id))
+		fmt.Fprintf(&b, "%s:%t:%s:%d:%s;", id, ok, l.Status, l.StepCount, rtModel)
 	}
 	return b.String()
 }

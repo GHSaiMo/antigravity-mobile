@@ -244,14 +244,16 @@ public struct WorkflowStageCardView: View {
                                                     .lineLimit(1)
                                                 
                                                 HStack(spacing: 3) {
-                                                    if let tier = sa.modelTier, !tier.isEmpty {
-                                                        Text(tier.uppercased())
+                                                    if let badge = sa.modelBadgeText, !badge.isEmpty {
+                                                        Text(badge)
                                                             .font(.system(size: 8.5, weight: .bold, design: .monospaced))
-                                                            .foregroundColor(tier.lowercased() == "pro" ? .purple : .blue)
+                                                            .foregroundColor((sa.runtimeModel ?? sa.modelTier ?? "").lowercased().contains("pro") || (sa.runtimeModel ?? "").lowercased().contains("neon") || (sa.runtimeModel ?? "").lowercased().contains("opus") ? .purple : .blue)
+                                                            .lineLimit(1)
                                                     }
                                                     Text(sa.isRunning ? String(localized: "运行中") : String(localized: "已就绪"))
                                                         .font(.system(size: 9.5))
                                                         .foregroundColor(.secondary)
+                                                        .lineLimit(1)
                                                 }
                                             }
 

@@ -84,4 +84,30 @@ class SubagentItemTest {
         val msg = json.decodeFromString<GatewayMessageItem>("""{"id":"x","type":"subagent","text":"t"}""")
         assertFalse(msg.isSubagent) // 没有卡片数据时不当作子代理卡片渲染
     }
+
+    @Test
+    fun runtimeModelOverridesModelTierInBadgeAndNormalizesRequestedTier() {
+        val downgraded = SubagentItem(
+            conversationId = "c1",
+            modelTier = "inherit",
+            runtimeModel = "Gemini 4 Hydrogen (Orchestrator)"
+        )
+        assertEquals("inherit", downgraded.requestedTierDisplay)
+        assertEquals("Hydrogen · Orch", downgraded.modelBadgeText)
+
+        val neon = SubagentItem(
+            conversationId = "c2",
+            modelTier = "MODEL_TIER_PRO",
+            runtimeModel = "Gemini 4 Neon (High)"
+        )
+        assertEquals("pro", neon.requestedTierDisplay)
+        assertEquals("Neon · High", neon.modelBadgeText)
+
+        val fallback = SubagentItem(
+            conversationId = "c3",
+            modelTier = "MODEL_TIER_FLASH_LITE"
+        )
+        assertEquals("flash lite", fallback.requestedTierDisplay)
+        assertEquals("Flash Lite", fallback.modelBadgeText)
+    }
 }

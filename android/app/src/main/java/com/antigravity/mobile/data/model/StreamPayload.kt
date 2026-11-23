@@ -233,6 +233,7 @@ data class SubagentItem(
     val role: String? = null,
     val prompt: String? = null,
     val modelTier: String? = null,
+    val runtimeModel: String? = null,
     val stepIndex: Int? = null,
     /** "running" | "done" | "gone"；网关尚未补全时为 null。 */
     val status: String? = null,
@@ -254,6 +255,31 @@ data class SubagentItem(
             "gone" -> "已清理".loc
             "done" -> "已结束".loc
             else -> ""
+        }
+
+    /** 规范化请求档位（去掉 MODEL_TIER_ 前缀），便于详情页与实际落盘模型对照。 */
+    val requestedTierDisplay: String?
+        get() {
+            val raw = modelTier?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+            val cleaned = raw
+                .replace(Regex("^MODEL_TIER_", RegexOption.IGNORE_CASE), "")
+                .replace('_', ' ')
+                .trim()
+            return cleaned.takeIf { it.isNotEmpty() }?.lowercase()
+        }
+
+    /** 优先展示真实落盘模型（紧凑格式，如 `Hydrogen · Orch` / `Neon · High`），未落盘时回退请求档位。 */
+    val modelBadgeText: String?
+        get() {
+            val rt = runtimeModel?.trim()?.takeIf { it.isNotEmpty() }
+            if (rt != null) {
+                val compact = ModelDefaults.formatFullNameToCompact(rt)
+                    .replace("· Orchestrator", "· Orch")
+                return compact.ifEmpty { rt }
+            }
+            val tier = requestedTierDisplay ?: return null
+            return tier.split(' ').filter { it.isNotEmpty() }
+                .joinToString(" ") { w -> w.replaceFirstChar { it.uppercase() } }
         }
 }
 

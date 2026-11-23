@@ -367,10 +367,17 @@ fun WorkflowStageCard(
                                                         maxLines = 1,
                                                         overflow = TextOverflow.Ellipsis
                                                     )
+                                                    val statusLabel = if (sa.isRunning) "运行中".loc else "已就绪".loc
+                                                    val subMeta = listOfNotNull(
+                                                        sa.modelBadgeText?.takeIf { it.isNotBlank() },
+                                                        statusLabel
+                                                    ).joinToString(" · ")
                                                     Text(
-                                                        text = if (sa.isRunning) "运行中".loc else "已就绪".loc,
+                                                        text = subMeta,
                                                         color = colors.textSecondary,
-                                                        fontSize = 9.5.sp
+                                                        fontSize = 9.5.sp,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis
                                                     )
                                                 }
 

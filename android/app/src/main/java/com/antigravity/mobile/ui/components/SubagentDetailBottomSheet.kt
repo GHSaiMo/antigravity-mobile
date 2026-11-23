@@ -111,20 +111,23 @@ fun SubagentDetailBottomSheet(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        subagent.modelTier?.takeIf { it.isNotBlank() }?.let { tier ->
+                        subagent.modelBadgeText?.takeIf { it.isNotBlank() }?.let { badge ->
+                            val rawLower = (subagent.runtimeModel ?: subagent.modelTier ?: "").lowercase()
+                            val isHighTier = rawLower.contains("pro") || rawLower.contains("neon") || rawLower.contains("opus") || rawLower.contains("carbon")
                             Surface(
                                 shape = RoundedCornerShape(4.dp),
-                                color = if (tier.equals("pro", ignoreCase = true)) Color(0xFF9C27B0) else colors.accentBlue
+                                color = if (isHighTier) Color(0xFF9C27B0) else colors.accentBlue
                             ) {
                                 Text(
-                                    text = tier.uppercase(),
+                                    text = badge,
                                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                                     style = MaterialTheme.typography.labelSmall.copy(
                                         fontSize = 9.sp,
                                         fontWeight = FontWeight.Bold,
                                         fontFamily = FontFamily.Monospace
                                     ),
-                                    color = Color.White
+                                    color = Color.White,
+                                    maxLines = 1
                                 )
                             }
                         }
@@ -221,6 +224,21 @@ fun SubagentDetailBottomSheet(
                         ) {
                             Text("智能体类型".loc, style = MaterialTheme.typography.bodySmall, color = colors.textSecondary)
                             Text(subagent.typeName ?: "self", style = MaterialTheme.typography.bodySmall, color = colors.textPrimary)
+                        }
+                        subagent.runtimeModel?.trim()?.takeIf { it.isNotEmpty() }?.let { rt ->
+                            HorizontalDivider(color = colors.border.copy(alpha = 0.3f))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("实际模型".loc, style = MaterialTheme.typography.bodySmall, color = colors.textSecondary)
+                                val suffix = subagent.requestedTierDisplay?.let { " (${"请求".loc}: $it)" } ?: ""
+                                Text(
+                                    text = "$rt$suffix",
+                                    style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                                    color = colors.textPrimary
+                                )
+                            }
                         }
                         HorizontalDivider(color = colors.border.copy(alpha = 0.3f))
                         Row(

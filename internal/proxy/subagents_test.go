@@ -317,3 +317,70 @@ func TestEnrichSubagentMessages_DoesNotMutateInput(t *testing.T) {
 		t.Fatal("no subagent cards → same slice returned")
 	}
 }
+
+func TestEnrichSubagents_PopulatesRuntimeModelAndWorkflowCards(t *testing.T) {
+	origResolver := resolveSubagentRuntimeModel
+	resolveSubagentRuntimeModel = func(convID string) string {
+		switch convID {
+		case "child-a":
+			return "Gemini 4 Hydrogen (Orchestrator)"
+		case "child-b":
+			return "Gemini 4 Neon (High)"
+		default:
+			return ""
+		}
+	}
+	t.Cleanup(func() { resolveSubagentRuntimeModel = origResolver })
+
+	_, p := newFakeSubagentUpstream(t, subagentListFixture)
+	steps := []TrajectoryStep{parseStep(t, invokeSubagentStepJSON)}
+
+	// 1. enrichSubagents populates RuntimeModel while keeping requested ModelTier intact
+	subs := p.enrichSubagents(p.buildSubagents(steps))
+	if subs[0].ModelTier != "MODEL_TIER_FLASH" || subs[0].RuntimeModel != "Gemini 4 Hydrogen (Orchestrator)" {
+		t.Fatalf("sub[0] unexpected model fields: %+v", subs[0])
+	}
+	if subs[1].RuntimeModel != "Gemini 4 Neon (High)" {
+		t.Fatalf("sub[1] unexpected runtimeModel: %+v", subs[1])
+	}
+
+	// 2. enrichSubagentMessages populates both inline Subagent cards and Workflow phase Subagents without mutating input
+	wfMsg := CascadeMessageItem{
+		ID:   "wf-1",
+		Type: "workflow",
+		Workflow: &WorkflowItem{
+			Status: "running",
+			Phases: []WorkflowPhaseItem{{
+				Name:   "Plan",
+				Status: "running",
+				Subagents: []SubagentItem{{
+					ConversationID: "child-a",
+					Role:           "Planner",
+					ModelTier:      "inherit",
+				}},
+			}},
+		},
+	}
+	msgs, _ := buildTrajectoryMessages(steps)
+	msgs = append(msgs, wfMsg)
+
+	out := p.enrichSubagentMessages(msgs)
+	if out[0].Subagent.RuntimeModel != "Gemini 4 Hydrogen (Orchestrator)" {
+		t.Fatalf("inline subagent missing runtimeModel: %+v", out[0].Subagent)
+	}
+	gotWfSub := out[len(out)-1].Workflow.Phases[0].Subagents[0]
+	if gotWfSub.RuntimeModel != "Gemini 4 Hydrogen (Orchestrator)" || gotWfSub.Status != "running" || gotWfSub.StepCount != 12 {
+		t.Fatalf("workflow subagent not enriched: %+v", gotWfSub)
+	}
+	if wfMsg.Workflow.Phases[0].Subagents[0].RuntimeModel != "" {
+		t.Fatal("cached workflow message must not be mutated")
+	}
+
+	// 3. subagentLiveSignature includes runtimeModel so live stream pushes when model resolves
+	raw := &upstreamTrajectoryResp{}
+	raw.Trajectory.Steps = steps
+	sig := p.subagentLiveSignature(raw)
+	if !strings.Contains(sig, "Gemini 4 Hydrogen (Orchestrator)") {
+		t.Fatalf("subagentLiveSignature missing runtimeModel: %q", sig)
+	}
+}

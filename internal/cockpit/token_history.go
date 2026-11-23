@@ -754,6 +754,97 @@ func loadGenMetadataModelsCached(convID, source string, cache *tokenHistoryScanC
 	return entries
 }
 
+type runtimeModelCacheEntry struct {
+	dbPath    string
+	size      int64
+	modTime   int64
+	checkedAt time.Time
+	model     string
+}
+
+var (
+	runtimeModelCacheMu sync.Mutex
+	runtimeModelCache   = make(map[string]runtimeModelCacheEntry)
+)
+
+const (
+	runtimeModelCacheMaxEntries = 512
+	runtimeModelNegativeTTL     = 5 * time.Second
+)
+
+// ClearRuntimeModelCache clears the in-memory conversation runtime model cache (used in tests).
+func ClearRuntimeModelCache() {
+	runtimeModelCacheMu.Lock()
+	runtimeModelCache = make(map[string]runtimeModelCacheEntry)
+	runtimeModelCacheMu.Unlock()
+}
+
+// ResolveConversationRuntimeModel reads the latest actual LLM display name recorded in a
+// conversation's local SQLite gen_metadata table (pure Go, zero external deps, mtime-cached).
+// Returns "" when the conversation has no local DB or has not yet recorded a non-default model.
+func ResolveConversationRuntimeModel(convID string) string {
+	convID = strings.TrimSpace(convID)
+	if !isSafeConvID(convID) {
+		return ""
+	}
+	now := time.Now()
+
+	var dbPath string
+	var fileSize, modTime int64
+	for _, cand := range conversationDBCandidates(convID, "desktop") {
+		if st, err := os.Stat(cand); err == nil && !st.IsDir() {
+			dbPath = cand
+			fileSize = st.Size()
+			modTime = st.ModTime().UnixNano()
+			break
+		}
+	}
+
+	runtimeModelCacheMu.Lock()
+	if ent, ok := runtimeModelCache[convID]; ok {
+		if dbPath == "" {
+			if ent.dbPath == "" && now.Sub(ent.checkedAt) < runtimeModelNegativeTTL {
+				runtimeModelCacheMu.Unlock()
+				return ent.model
+			}
+		} else if ent.dbPath == dbPath && ent.size == fileSize && ent.modTime == modTime {
+			if ent.model != "" || now.Sub(ent.checkedAt) < runtimeModelNegativeTTL {
+				runtimeModelCacheMu.Unlock()
+				return ent.model
+			}
+		}
+	}
+	runtimeModelCacheMu.Unlock()
+
+	resolved := ""
+	if dbPath != "" {
+		if blobs, err := queryGenMetadataBlobs(dbPath); err == nil && len(blobs) > 0 {
+			for i := len(blobs) - 1; i >= 0; i-- {
+				entry := parseGenMetadataBlobDetailed(blobs[i])
+				m := strings.TrimSpace(entry.modelName)
+				if m != "" && !strings.EqualFold(m, "default") {
+					resolved = normalizeModelDisplayName(m)
+					break
+				}
+			}
+		}
+	}
+
+	runtimeModelCacheMu.Lock()
+	if len(runtimeModelCache) >= runtimeModelCacheMaxEntries {
+		runtimeModelCache = make(map[string]runtimeModelCacheEntry)
+	}
+	runtimeModelCache[convID] = runtimeModelCacheEntry{
+		dbPath:    dbPath,
+		size:      fileSize,
+		modTime:   modTime,
+		checkedAt: now,
+		model:     resolved,
+	}
+	runtimeModelCacheMu.Unlock()
+	return resolved
+}
+
 func cockpitPythonCandidates() []string {
 	if runtime.GOOS == "windows" {
 		return []string{"python", "py", "python3"}

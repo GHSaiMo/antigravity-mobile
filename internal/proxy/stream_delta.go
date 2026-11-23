@@ -89,6 +89,7 @@ func hashSubagentItem(h *fnv64, sa *SubagentItem) {
 	h.str(sa.Role)
 	h.str(sa.Prompt)
 	h.str(sa.ModelTier)
+	h.str(sa.RuntimeModel)
 	h.num(sa.StepIndex)
 	h.str(sa.Status)
 	h.num(sa.StepCount)

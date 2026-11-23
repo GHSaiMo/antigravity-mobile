@@ -53,13 +53,16 @@ public struct SubagentDetailSheet: View {
                                 .foregroundColor(.primary)
                             
                             HStack(spacing: 6) {
-                                if let tier = subagent.modelTier, !tier.isEmpty {
-                                    Text(tier.uppercased())
+                                if let badge = subagent.modelBadgeText, !badge.isEmpty {
+                                    let lower = (subagent.runtimeModel ?? subagent.modelTier ?? "").lowercased()
+                                    let isHighTier = lower.contains("pro") || lower.contains("neon") || lower.contains("opus") || lower.contains("carbon")
+                                    Text(badge)
                                         .font(.system(size: 10.5, weight: .bold, design: .monospaced))
                                         .foregroundColor(.white)
+                                        .lineLimit(1)
                                         .padding(.horizontal, 6)
                                         .padding(.vertical, 2)
-                                        .background(tier.lowercased() == "pro" ? Color.purple : Color.blue)
+                                        .background(isHighTier ? Color.purple : Color.blue)
                                         .clipShape(Capsule())
                                 }
                                 
@@ -134,6 +137,20 @@ public struct SubagentDetailSheet: View {
                                 Text(subagent.typeName ?? "self")
                                     .font(.system(size: 12, design: .monospaced))
                                     .foregroundColor(.primary)
+                            }
+                            if let rt = subagent.runtimeModel?.trimmingCharacters(in: .whitespacesAndNewlines), !rt.isEmpty {
+                                Divider()
+                                HStack(alignment: .top, spacing: 8) {
+                                    Text("实际模型")
+                                        .font(.system(size: 12))
+                                        .foregroundColor(.secondary)
+                                    Spacer()
+                                    let suffix = subagent.requestedTierDisplay.map { " (\(String(localized: "请求")): \($0))" } ?? ""
+                                    Text("\(rt)\(suffix)")
+                                        .font(.system(size: 11.5, design: .monospaced))
+                                        .foregroundColor(.primary)
+                                        .multilineTextAlignment(.trailing)
+                                }
                             }
                             Divider()
                             HStack {

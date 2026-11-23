@@ -54,7 +54,7 @@ const SubagentManager = {
           (s) => `<div class="subagents-row" data-id="${escapeHtml(s.conversationId)}">
             <button type="button" class="subagents-open" data-act="open" data-id="${escapeHtml(s.conversationId)}">
               <span class="subagents-name">${escapeHtml(subagentDisplayName(s))}</span>
-              <span class="subagents-meta">${escapeHtml(s.typeName || "")}${s.stepCount ? ` · ${s.stepCount} 步` : ""}</span>
+              <span class="subagents-meta">${escapeHtml([s.typeName || "", subagentModelBadge(s), s.stepCount ? `${s.stepCount} 步` : ""].filter(Boolean).join(" · "))}</span>
             </button>
             <button type="button" class="subagents-stop" data-act="stop" data-id="${escapeHtml(s.conversationId)}" data-feature="subagents" aria-label="关停子代理" title="关停子代理"><i></i></button>
           </div>`,
@@ -120,13 +120,33 @@ function subagentStatusText(status) {
   return status === "running" ? "运行中" : status === "gone" ? "已清理" : status === "done" ? "已结束" : "";
 }
 
+function subagentRequestedTier(s) {
+  const raw = (s && s.modelTier ? String(s.modelTier) : "").trim();
+  if (!raw) return "";
+  return raw.replace(/^MODEL_TIER_/i, "").replace(/_/g, " ").trim().toLowerCase();
+}
+
+function subagentModelBadge(s) {
+  const rt = (s && s.runtimeModel ? String(s.runtimeModel) : "").trim();
+  if (rt) {
+    const compact = typeof formatFullNameToCompact === "function" ? formatFullNameToCompact(rt) : rt;
+    return compact.replace("· Orchestrator", "· Orch") || rt;
+  }
+  const tier = subagentRequestedTier(s);
+  if (!tier) return "";
+  return tier.split(/\s+/).map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+}
+
 // 消息流里的内联卡片（由 chat.js generateItemHtml 调用）
 function buildSubagentCardHtml(sub) {
   const status = SubagentManager.statusOf(sub.conversationId) || "";
   const live = SubagentManager.byId.get(sub.conversationId) || {};
-  const name = subagentDisplayName(sub);
+  const merged = { ...sub, ...live, runtimeModel: live.runtimeModel || sub.runtimeModel };
+  const name = subagentDisplayName(merged);
   const metaParts = [];
-  if (sub.typeName && sub.typeName !== name) metaParts.push(sub.typeName);
+  if (merged.typeName && merged.typeName !== name) metaParts.push(merged.typeName);
+  const modelBadge = subagentModelBadge(merged);
+  if (modelBadge) metaParts.push(modelBadge);
   if (status && status !== "done") metaParts.push(subagentStatusText(status));
   if (status === "running" && live.stepCount) metaParts.push(`${live.stepCount} 步`);
   const icon =

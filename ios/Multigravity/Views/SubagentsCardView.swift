@@ -266,6 +266,9 @@ public struct SubagentInlineCardView: View {
                     if let t = item.typeName, !t.isEmpty, t != item.displayName {
                         Text(t)
                     }
+                    if let model = item.modelBadgeText, !model.isEmpty {
+                        Text(model)
+                    }
                     if !item.statusText.isEmpty, item.status != "done" {
                         Text(item.statusText)
                     }
@@ -275,6 +278,7 @@ public struct SubagentInlineCardView: View {
                 }
                 .font(.system(size: 12))
                 .foregroundColor(.secondary)
+                .lineLimit(1)
             }
             Spacer(minLength: 8)
             if !item.isGone {

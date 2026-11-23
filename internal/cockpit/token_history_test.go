@@ -1041,6 +1041,50 @@ func TestPureGoSQLiteReader_MultiPageInteriorAndWAL(t *testing.T) {
 	}
 }
 
+func TestResolveConversationRuntimeModel_ReadsLatestAndTracksMtime(t *testing.T) {
+	sqliteBin, err := exec.LookPath("sqlite3")
+	if err != nil {
+		t.Skip("sqlite3 not available")
+	}
+
+	tempHome := t.TempDir()
+	t.Setenv("HOME", tempHome)
+	ClearRuntimeModelCache()
+	t.Cleanup(ClearRuntimeModelCache)
+
+	convID := "subagent-rt-model-1"
+	convDBDir := filepath.Join(tempHome, ".gemini", "antigravity", "conversations")
+	if err := os.MkdirAll(convDBDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := ResolveConversationRuntimeModel(convID); got != "" {
+		t.Fatalf("expected empty model before DB exists, got %q", got)
+	}
+
+	blob0 := hex.EncodeToString(encodeTestGenMetadataBlob("gemini-flash-worker-agy", "MODEL_PLACEHOLDER_M669", "", "1"))
+	dbPath := filepath.Join(convDBDir, convID+".db")
+	sqlInit := "CREATE TABLE gen_metadata (idx integer PRIMARY KEY, data blob, size integer NOT NULL DEFAULT 0);" +
+		"INSERT INTO gen_metadata (idx, data, size) VALUES (0, X'" + blob0 + "', 10);"
+	if out, err := exec.Command(sqliteBin, dbPath, sqlInit).CombinedOutput(); err != nil {
+		t.Fatalf("sqlite3 init failed: %v (%s)", err, string(out))
+	}
+
+	ClearRuntimeModelCache()
+	if got := ResolveConversationRuntimeModel(convID); got != "Gemini 4 Hydrogen (Orchestrator)" {
+		t.Fatalf("got %q, want %q", got, "Gemini 4 Hydrogen (Orchestrator)")
+	}
+
+	blob1 := hex.EncodeToString(encodeTestGenMetadataBlob("gemini-4-neon-high", "MODEL_PLACEHOLDER_M532", "Gemini 4 Neon (High)", "2"))
+	sqlUpdate := "INSERT INTO gen_metadata (idx, data, size) VALUES (1, X'" + blob1 + "', 10);"
+	if out, err := exec.Command(sqliteBin, dbPath, sqlUpdate).CombinedOutput(); err != nil {
+		t.Fatalf("sqlite3 update failed: %v (%s)", err, string(out))
+	}
+	if got := ResolveConversationRuntimeModel(convID); got != "Gemini 4 Neon (High)" {
+		t.Fatalf("after append got %q, want %q", got, "Gemini 4 Neon (High)")
+	}
+}
+
 func strconvFormatInt(v int64) string {
 	if v == 0 {
 		return "0"

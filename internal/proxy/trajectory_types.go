@@ -145,7 +145,10 @@ type SubagentItem struct {
 	Role           string `json:"role,omitempty"`
 	Prompt         string `json:"prompt,omitempty"`
 	ModelTier      string `json:"modelTier,omitempty"`
-	StepIndex      int    `json:"stepIndex"`
+	// RuntimeModel is the actual model observed in the child conversation's gen_metadata (e.g.
+	// "Gemini 4 Hydrogen (Orchestrator)"), revealing silent downgrades when ModelTier is "inherit".
+	RuntimeModel string `json:"runtimeModel,omitempty"`
+	StepIndex    int    `json:"stepIndex"`
 	// Status: "running" | "done" | "gone" (no longer known to the language_server). "" when not yet resolved.
 	Status    string `json:"status,omitempty"`
 	StepCount int    `json:"stepCount,omitempty"`

@@ -1693,8 +1693,14 @@
         } catch (_) {}
       }
 
+      const rtModel = (sub.runtimeModel || "").trim();
+      const reqTier = typeof subagentRequestedTier === "function" ? subagentRequestedTier(sub) : (sub.modelTier || "");
+      const modelMetaHtml = rtModel
+        ? ` · 实际模型: <span class="monospaced">${escapeHtml(rtModel)}</span>${reqTier ? ` (请求: ${escapeHtml(reqTier)})` : ""}`
+        : (reqTier ? ` · 模型档位: <span class="monospaced">${escapeHtml(reqTier)}</span>` : "");
+
       body.innerHTML = `
-        <div class="p3-row-sub">会话 ID: <span class="monospaced">${escapeHtml(cid)}</span> · 状态: ${escapeHtml(sub.status || "")}</div>
+        <div class="p3-row-sub">会话 ID: <span class="monospaced">${escapeHtml(cid)}</span> · 状态: ${escapeHtml(sub.status || "")}${modelMetaHtml}</div>
         ${browserHtml}
         <div class="p3-form-card">
           <div class="p3-row-title">向子代理中途插话 / 指示</div>

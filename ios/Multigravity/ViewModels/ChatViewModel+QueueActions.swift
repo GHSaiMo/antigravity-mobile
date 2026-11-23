@@ -304,7 +304,7 @@ extension ChatViewModel {
         self.subagents = self.subagents.map { sa in
             sa.conversationId == item.conversationId
                 ? SubagentItem(conversationId: sa.conversationId, typeName: sa.typeName, role: sa.role, prompt: sa.prompt,
-                               modelTier: sa.modelTier, stepIndex: sa.stepIndex, status: "done", stepCount: sa.stepCount, title: sa.title)
+                               modelTier: sa.modelTier, runtimeModel: sa.runtimeModel, stepIndex: sa.stepIndex, status: "done", stepCount: sa.stepCount, title: sa.title)
                 : sa
         }
         do {

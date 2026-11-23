@@ -8,6 +8,7 @@ public struct SubagentItem: Identifiable, Sendable, Codable, Hashable {
     public let role: String?
     public let prompt: String?
     public let modelTier: String?
+    public let runtimeModel: String?
     public let stepIndex: Int?
     /// "running" | "done" | "gone"；网关还没补全时为 nil。
     public let status: String?
@@ -20,6 +21,7 @@ public struct SubagentItem: Identifiable, Sendable, Codable, Hashable {
         role: String? = nil,
         prompt: String? = nil,
         modelTier: String? = nil,
+        runtimeModel: String? = nil,
         stepIndex: Int? = nil,
         status: String? = nil,
         stepCount: Int? = nil,
@@ -30,10 +32,34 @@ public struct SubagentItem: Identifiable, Sendable, Codable, Hashable {
         self.role = role
         self.prompt = prompt
         self.modelTier = modelTier
+        self.runtimeModel = runtimeModel
         self.stepIndex = stepIndex
         self.status = status
         self.stepCount = stepCount
         self.title = title
+    }
+
+    /// 规范化请求档位（去掉 MODEL_TIER_ 前缀），便于详情页与实际落盘模型对照。
+    public var requestedTierDisplay: String? {
+        guard let raw = modelTier?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
+            return nil
+        }
+        let cleaned = raw
+            .replacingOccurrences(of: "MODEL_TIER_", with: "", options: [.caseInsensitive, .anchored])
+            .replacingOccurrences(of: "_", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return cleaned.isEmpty ? nil : cleaned.lowercased()
+    }
+
+    /// 优先展示真实落盘模型（紧凑格式，如 `Hydrogen · Orch` / `Neon · High`），未落盘时回退请求档位。
+    public var modelBadgeText: String? {
+        if let rt = runtimeModel?.trimmingCharacters(in: .whitespacesAndNewlines), !rt.isEmpty {
+            let compact = ModelDefaultsLogic.formatFullNameToCompact(rt)
+                .replacingOccurrences(of: "· Orchestrator", with: "· Orch")
+            return compact.isEmpty ? rt : compact
+        }
+        guard let tier = requestedTierDisplay else { return nil }
+        return tier.split(separator: " ").map { $0.capitalized }.joined(separator: " ")
     }
 
     public var isRunning: Bool { status == "running" }

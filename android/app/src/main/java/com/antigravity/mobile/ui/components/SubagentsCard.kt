@@ -346,6 +346,7 @@ fun SubagentInlineCard(
             )
             val meta = buildList {
                 item.typeName?.takeIf { it.isNotBlank() && it != item.displayName }?.let { add(it) }
+                item.modelBadgeText?.takeIf { it.isNotBlank() }?.let { add(it) }
                 if (item.status != "done") item.statusText.takeIf { it.isNotEmpty() }?.let { add(it) }
                 if (item.isRunning) item.stepCount?.takeIf { it > 0 }?.let { add("$it 步".loc) }
             }.joinToString(" · ")
