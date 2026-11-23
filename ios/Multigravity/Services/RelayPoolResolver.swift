@@ -30,6 +30,7 @@ public final class RelayPoolResolver: Sendable {
     }
 
     private let cacheLock = OSAllocatedUnfairLock(initialState: CacheState())
+    private let inFlightResolveLock = OSAllocatedUnfairLock<[String: Task<String?, Never>]>(initialState: [:])
 
     private init() {}
 
@@ -101,8 +102,78 @@ public final class RelayPoolResolver: Sendable {
     }
 
     /// Discovers which VPS node in `RELAY_POOL` currently serves this paired gateway.
+    /// Concurrent callers for the same failed URL share one in-flight probe (single-flight).
     /// Returns the lowest-latency reachable HTTPS base URL, or nil if no pool node is online.
     public func resolveReachableCloudURL(currentCloudURL: String?) async -> String? {
+        guard E2EECrypto.shared.isReady,
+              Self.extractSID(from: currentCloudURL) != nil else {
+            return nil
+        }
+        let key = (currentCloudURL ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            .lowercased()
+
+        let task: Task<String?, Never> = inFlightResolveLock.withLock { map in
+            if let existing = map[key] {
+                return existing
+            }
+            let created = Task<String?, Never> { [self] in
+                await self.performResolveReachableCloudURL(currentCloudURL: currentCloudURL)
+            }
+            map[key] = created
+            return created
+        }
+
+        let result = await task.value
+        inFlightResolveLock.withLock { map in
+            if map[key] == task {
+                map.removeValue(forKey: key)
+            }
+        }
+        return result
+    }
+
+    /// Discovers an active peer VPS relay node when `failedURL` returns HTTP 502/503 (`gateway_offline`),
+    /// updates `AppSettings` active/primary cloud URLs, and returns the new base URL if migration succeeded.
+    public func migrateRelayHostIfNeeded(failedURL: URL) async -> URL? {
+        guard let scheme = failedURL.scheme?.lowercased(), scheme == "https",
+              let failedHost = failedURL.host?.trimmingCharacters(in: CharacterSet(charactersIn: "[]")).lowercased(),
+              !failedHost.isEmpty,
+              !NetworkTransport.isLocalOrPrivateHost(failedHost) else {
+            return nil
+        }
+        let portSuffix: String
+        if let port = failedURL.port, port != 443 {
+            portSuffix = ":\(port)"
+        } else {
+            portSuffix = ""
+        }
+        let failedOrigin = "https://\(failedHost)\(portSuffix)"
+        guard let migratedStr = await resolveReachableCloudURL(currentCloudURL: failedOrigin),
+              let migratedURL = URL(string: migratedStr),
+              let migratedHost = migratedURL.host?.trimmingCharacters(in: CharacterSet(charactersIn: "[]")).lowercased(),
+              !migratedHost.isEmpty,
+              migratedHost != failedHost else {
+            return nil
+        }
+
+        E2EECrypto.shared.markHostRequiresE2EE(migratedHost)
+        await MainActor.run {
+            let settings = AppSettings.shared
+            let oldActive = settings.activeServerURL?.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            let cleanMigrated = migratedStr.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            settings.primaryCloudURL = cleanMigrated
+            settings.activeServerURL = cleanMigrated
+            settings.syncWidgetConfiguration(reloadWidget: false)
+            if oldActive != cleanMigrated {
+                NotificationCenter.default.post(name: .networkRoutingPreferenceChanged, object: nil)
+            }
+        }
+        return migratedURL
+    }
+
+    private func performResolveReachableCloudURL(currentCloudURL: String?) async -> String? {
         guard E2EECrypto.shared.isReady,
               let sid = Self.extractSID(from: currentCloudURL) else {
             return nil

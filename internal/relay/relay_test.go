@@ -410,3 +410,133 @@ func TestLiveRelaySmoke(t *testing.T) {
 	}
 	t.Logf("LIVE WSS 3-frame test total %dms", time.Since(t3).Milliseconds())
 }
+
+func TestRelayMultiSlotFailoverOnDeadSlot(t *testing.T) {
+	secret := "multi-slot-failover-secret"
+	localGateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprintf(w, `{"method":"%s","body":"%s"}`, r.Method, string(body))
+	}))
+	defer localGateway.Close()
+	localAddr := strings.TrimPrefix(localGateway.URL, "http://")
+
+	relaySrv, err := NewServer(ServerConfig{
+		SigningSecret:     secret,
+		ControlHosts:      []string{"relay.jiuge.space"},
+		AllowedSuffixes:   []string{".jiuge.space"},
+		MaxConnsPerTunnel: 3,
+	})
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	defer relaySrv.Close()
+
+	relayHTTP := httptest.NewServer(relaySrv)
+	defer relayHTTP.Close()
+
+	userDomain := "r-beefcafe.jiuge.space"
+	tok, err := SignToken(secret, TokenClaims{
+		ShortID:   "beefcafe",
+		OwnerHash: "cccccccccccccccccccccccccccccccc",
+		Domain:    userDomain,
+		Region:    "ap",
+	})
+	if err != nil {
+		t.Fatalf("SignToken: %v", err)
+	}
+
+	wsBase := "ws" + strings.TrimPrefix(relayHTTP.URL, "http") + TunnelUpgradePath
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	slot0, err := NewClient(ClientConfig{
+		RelayEndpoint: wsBase + "?conn=0&gen=epoch1",
+		Token:         tok,
+		LocalAddr:     localAddr,
+		PublicURL:     "https://" + userDomain,
+		Subdomain:     userDomain,
+	})
+	if err != nil {
+		t.Fatalf("NewClient slot0: %v", err)
+	}
+	slot1, err := NewClient(ClientConfig{
+		RelayEndpoint: wsBase + "?conn=1&gen=epoch1",
+		Token:         tok,
+		LocalAddr:     localAddr,
+		PublicURL:     "https://" + userDomain,
+		Subdomain:     userDomain,
+	})
+	if err != nil {
+		t.Fatalf("NewClient slot1: %v", err)
+	}
+
+	if err := slot0.Start(ctx); err != nil {
+		t.Fatalf("slot0.Start: %v", err)
+	}
+	defer slot0.Stop()
+	if err := slot1.Start(ctx); err != nil {
+		t.Fatalf("slot1.Start: %v", err)
+	}
+	defer slot1.Stop()
+
+	deadline := time.Now().Add(3 * time.Second)
+	for relaySrv.ActiveConns() < 2 && time.Now().Before(deadline) {
+		time.Sleep(15 * time.Millisecond)
+	}
+	if relaySrv.ActiveConns() != 2 {
+		t.Fatalf("expected 2 active conns, got %d", relaySrv.ActiveConns())
+	}
+
+	// Warm up both slots with POSTs (mimicking POST /api/v1/e2ee/rpc)
+	for i := 0; i < 4; i++ {
+		req, _ := http.NewRequest(http.MethodPost, relayHTTP.URL+"/api/v1/e2ee/rpc", strings.NewReader(fmt.Sprintf("warm-%d", i)))
+		req.Host = userDomain
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("warm POST %d: %v", i, err)
+		}
+		b, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK || !strings.Contains(string(b), fmt.Sprintf("warm-%d", i)) {
+			t.Fatalf("warm POST %d failed: status=%d body=%s", i, resp.StatusCode, string(b))
+		}
+	}
+
+	// Abruptly kill slot0's server-side yamux session right before sending POSTs so slot0 fails OpenStream
+	// even before the background cleanup removes it from g.conns.
+	relaySrv.mu.RLock()
+	g := relaySrv.tunnels[userDomain]
+	relaySrv.mu.RUnlock()
+	if g == nil {
+		t.Fatalf("missing tunnel group")
+	}
+	g.mu.RLock()
+	var slot0Sess *tunnelConn
+	for _, c := range g.conns {
+		if c.slotID == "0" {
+			slot0Sess = c
+			break
+		}
+	}
+	g.mu.RUnlock()
+	if slot0Sess == nil {
+		t.Fatalf("missing slot0 tunnelConn")
+	}
+	_ = slot0Sess.session.Close()
+
+	// Every POST must transparently fall back to healthy slot1 with zero 502/503 responses.
+	for i := 0; i < 6; i++ {
+		req, _ := http.NewRequest(http.MethodPost, relayHTTP.URL+"/api/v1/e2ee/rpc", strings.NewReader(fmt.Sprintf("post-%d", i)))
+		req.Host = userDomain
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("failover POST %d: %v", i, err)
+		}
+		b, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK || !strings.Contains(string(b), fmt.Sprintf("post-%d", i)) {
+			t.Fatalf("failover POST %d failed: status=%d body=%s", i, resp.StatusCode, string(b))
+		}
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/subtle"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -11,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -41,13 +43,28 @@ type ServerConfig struct {
 	Logger              *slog.Logger
 }
 
+var errGatewayOffline = errors.New("gateway_offline")
+
 type tunnelConn struct {
 	slotID      string
 	gen         string
 	session     *yamux.Session
-	proxy       *httputil.ReverseProxy
 	connectedAt time.Time
 	active      atomic.Int64
+}
+
+type trackedStreamConn struct {
+	net.Conn
+	tc        *tunnelConn
+	closeOnce sync.Once
+}
+
+func (c *trackedStreamConn) Close() error {
+	err := c.Conn.Close()
+	c.closeOnce.Do(func() {
+		c.tc.active.Add(-1)
+	})
+	return err
 }
 
 type tunnelGroup struct {
@@ -55,45 +72,82 @@ type tunnelGroup struct {
 	shortID   string
 	ownerHash string
 	sem       chan struct{}
+	proxy     *httputil.ReverseProxy
 
 	mu    sync.RWMutex
 	conns []*tunnelConn
 	rr    atomic.Uint64
 }
 
-func (g *tunnelGroup) pickConn() *tunnelConn {
+func (g *tunnelGroup) hasLiveConn() bool {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
+	for _, c := range g.conns {
+		if !c.session.IsClosed() {
+			return true
+		}
+	}
+	return false
+}
+
+// openStream selects live yamux connections in least-loaded order (rotating ties across slots)
+// and falls back across sibling slots automatically if a slot dies right before OpenStream.
+func (g *tunnelGroup) openStream(ctx context.Context) (net.Conn, error) {
+	type candidate struct {
+		tc   *tunnelConn
+		load int64
+		ord  int
+	}
+
+	g.mu.RLock()
 	n := len(g.conns)
 	if n == 0 {
-		return nil
+		g.mu.RUnlock()
+		return nil, errGatewayOffline
 	}
-	if n == 1 {
-		if g.conns[0].session.IsClosed() {
-			return nil
-		}
-		return g.conns[0]
-	}
-	// Rotate starting index so idle connections share requests evenly, then pick least-loaded
-	// live connection to isolate long-lived WebSockets and large transfers from control/API traffic.
 	start := int(g.rr.Add(1) % uint64(n))
-	var best *tunnelConn
-	var bestLoad int64
+	cands := make([]candidate, 0, n)
 	for i := 0; i < n; i++ {
 		c := g.conns[(start+i)%n]
 		if c.session.IsClosed() {
 			continue
 		}
-		load := c.active.Load() + int64(c.session.NumStreams())
-		if best == nil || load < bestLoad {
-			best = c
-			bestLoad = load
-			if load == 0 {
-				break
-			}
-		}
+		cands = append(cands, candidate{
+			tc:   c,
+			load: c.active.Load() + int64(c.session.NumStreams()),
+			ord:  i,
+		})
 	}
-	return best
+	g.mu.RUnlock()
+
+	if len(cands) == 0 {
+		return nil, errGatewayOffline
+	}
+	if len(cands) > 1 {
+		sort.Slice(cands, func(i, j int) bool {
+			if cands[i].load != cands[j].load {
+				return cands[i].load < cands[j].load
+			}
+			return cands[i].ord < cands[j].ord
+		})
+	}
+
+	var lastErr error
+	for _, cand := range cands {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		stream, err := cand.tc.session.OpenStream()
+		if err == nil {
+			cand.tc.active.Add(1)
+			return &trackedStreamConn{Conn: stream, tc: cand.tc}, nil
+		}
+		lastErr = err
+	}
+	if lastErr != nil {
+		return nil, lastErr
+	}
+	return nil, errGatewayOffline
 }
 
 // Server terminates inbound gateway WSS tunnels and routes public HTTPS/WSS traffic
@@ -398,7 +452,12 @@ func (s *Server) handleTunnelConnect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tc := s.newTunnelConn(slotID, gen, sess)
+	tc := &tunnelConn{
+		slotID:      slotID,
+		gen:         gen,
+		session:     sess,
+		connectedAt: time.Now(),
+	}
 
 	// Register atomically into the domain's tunnelGroup.
 	// - Legacy clients (no ?conn= slot) replace all existing connections (1:1 backwards-compatible).
@@ -418,12 +477,7 @@ func (s *Server) handleTunnelConnect(w http.ResponseWriter, r *http.Request) {
 			_ = sess.Close()
 			return
 		}
-		g = &tunnelGroup{
-			domain:    claims.Domain,
-			shortID:   claims.ShortID,
-			ownerHash: claims.OwnerHash,
-			sem:       make(chan struct{}, s.cfg.MaxStreamsPerTunnel),
-		}
+		g = s.newTunnelGroup(claims)
 		s.tunnels[claims.Domain] = g
 	}
 	g.mu.Lock()
@@ -488,31 +542,27 @@ func (s *Server) handleTunnelConnect(w http.ResponseWriter, r *http.Request) {
 	s.logger.Info("tunnel disconnected", "sid", claims.ShortID, "slot", slotID, "conns", remainingConns, "active_tunnels", remainingTunnels)
 }
 
-func (s *Server) newTunnelConn(slotID, gen string, sess *yamux.Session) *tunnelConn {
-	tc := &tunnelConn{
-		slotID:      slotID,
-		gen:         gen,
-		session:     sess,
-		connectedAt: time.Now(),
+func (s *Server) newTunnelGroup(claims *TokenClaims) *tunnelGroup {
+	g := &tunnelGroup{
+		domain:    claims.Domain,
+		shortID:   claims.ShortID,
+		ownerHash: claims.OwnerHash,
+		sem:       make(chan struct{}, s.cfg.MaxStreamsPerTunnel),
 	}
 
 	targetURL := &url.URL{Scheme: "http", Host: "mgy.local"}
 	transport := &http.Transport{
 		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-			stream, err := sess.OpenStream()
-			if err != nil {
-				return nil, err
-			}
-			return stream, nil
+			return g.openStream(ctx)
 		},
-		MaxIdleConns:          8,
-		MaxIdleConnsPerHost:   8,
-		IdleConnTimeout:       60 * time.Second,
+		// Opening a fresh yamux stream is 0-RTT over the persistent WSS tunnel; disabling HTTP/1.1
+		// idle keep-alive pooling eliminates stale-stream EOF 502 errors on non-idempotent POSTs.
+		DisableKeepAlives:     true,
 		ResponseHeaderTimeout: 30 * time.Second,
 		DisableCompression:    true, // preserve upstream gzip/br/ETag transparently
 	}
 
-	rp := &httputil.ReverseProxy{
+	g.proxy = &httputil.ReverseProxy{
 		Transport:     transport,
 		FlushInterval: -1, // immediate flush for SSE / streaming
 		Rewrite: func(pr *httputil.ProxyRequest) {
@@ -528,14 +578,19 @@ func (s *Server) newTunnelConn(slotID, gen string, sess *yamux.Session) *tunnelC
 			if req.Context().Err() != nil {
 				return
 			}
+			if errors.Is(err, errGatewayOffline) {
+				writeRelayJSON(rw, http.StatusServiceUnavailable, map[string]string{
+					"error": "gateway_offline",
+				})
+				return
+			}
 			writeRelayJSON(rw, http.StatusBadGateway, map[string]string{
 				"error": "gateway_unreachable",
 			})
 		},
 	}
 
-	tc.proxy = rp
-	return tc
+	return g
 }
 
 func (s *Server) handlePublicProxy(w http.ResponseWriter, r *http.Request, host string) {
@@ -548,15 +603,7 @@ func (s *Server) handlePublicProxy(w http.ResponseWriter, r *http.Request, host 
 	g := s.tunnels[host]
 	s.mu.RUnlock()
 
-	if g == nil {
-		writeRelayJSON(w, http.StatusServiceUnavailable, map[string]string{
-			"error": "gateway_offline",
-		})
-		return
-	}
-
-	tc := g.pickConn()
-	if tc == nil {
+	if g == nil || !g.hasLiveConn() {
 		writeRelayJSON(w, http.StatusServiceUnavailable, map[string]string{
 			"error": "gateway_offline",
 		})
@@ -573,15 +620,13 @@ func (s *Server) handlePublicProxy(w http.ResponseWriter, r *http.Request, host 
 		return
 	}
 
-	tc.active.Add(1)
 	s.activeStreams.Add(1)
 	s.totalStreams.Add(1)
 	defer func() {
-		tc.active.Add(-1)
 		s.activeStreams.Add(-1)
 	}()
 
-	tc.proxy.ServeHTTP(w, r)
+	g.proxy.ServeHTTP(w, r)
 }
 
 func defaultYamuxConfig() *yamux.Config {

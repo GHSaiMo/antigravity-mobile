@@ -305,17 +305,98 @@ public final class NetworkTransport: Sendable {
         return (data, response, false)
     }
 
-    private func sendOverE2EE(_ req: URLRequest, preferCellular: Bool) async throws -> (Data, URLResponse) {
+    private static func isIdempotentForTransientRetry(_ req: URLRequest) -> Bool {
+        let method = (req.httpMethod ?? "GET").uppercased()
+        if method == "GET" || method == "HEAD" || method == "OPTIONS" {
+            return true
+        }
+        // Requests carrying explicit server-deduplicated idempotency IDs (e.g. SendUserCascadeMessage
+        // and createCascade via X-Client-Message-Id) can be retried safely without duplicating messages.
+        if let cmid = req.value(forHTTPHeaderField: "X-Client-Message-Id")?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !cmid.isEmpty {
+            return true
+        }
+        if let idem = req.value(forHTTPHeaderField: "Idempotency-Key")?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !idem.isEmpty {
+            return true
+        }
+        guard let path = req.url?.path else { return false }
+        let safeReadSuffixes = [
+            "/GetAllCascadeTrajectories",
+            "/GetCascadeTrajectory",
+            "/GetCascadeTrajectorySteps",
+            "/GetAuthStatus",
+            "/GetCascadeNuxes",
+            "/GetUserStatus",
+            "/SearchConversations",
+            "/GetModelConfigs",
+            "/GetAvailableCascadePlugins",
+            "/GetMcpServerStates"
+        ]
+        return safeReadSuffixes.contains(where: { path.hasSuffix($0) })
+    }
+
+    private static func isRelayTunnelBusy(statusCode: Int, data: Data) -> Bool {
+        guard statusCode == 429 else { return false }
+        let snippet = String(data: data.prefix(256), encoding: .utf8)?.lowercased() ?? ""
+        return snippet.contains("tunnel_busy")
+    }
+
+    private static func isOuterRelayRetryableStatus(_ statusCode: Int, data: Data) -> (retryable: Bool, preGateway: Bool) {
+        switch statusCode {
+        case 503:
+            // Relay `gateway_offline` / `relay_capacity_full` (or edge 503): never reached mgy gateway.
+            return (true, true)
+        case 429:
+            return isRelayTunnelBusy(statusCode: statusCode, data: data) ? (true, true) : (false, false)
+        case 502, 520, 521, 522, 523, 524:
+            // Relay `gateway_unreachable` (e.g. single dead yamux slot) or Cloudflare edge blip.
+            return (true, false)
+        default:
+            return (false, false)
+        }
+    }
+
+    private static func isRetryableTransportError(_ error: Error) -> Bool {
+        guard let urlErr = error as? URLError else { return false }
+        switch urlErr.code {
+        case .networkConnectionLost, .cannotConnectToHost, .cannotFindHost, .dnsLookupFailed, .secureConnectionFailed:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private static func rewrittenRequest(_ req: URLRequest, toBaseURL base: URL) -> URLRequest? {
+        guard let orig = req.url,
+              var comps = URLComponents(url: orig, resolvingAgainstBaseURL: false),
+              let scheme = base.scheme,
+              let host = base.host else {
+            return nil
+        }
+        comps.scheme = scheme
+        comps.host = host
+        comps.port = base.port
+        guard let newURL = comps.url else { return nil }
+        var copy = req
+        copy.url = newURL
+        return copy
+    }
+
+    private func sendOverE2EEOnce(
+        _ req: URLRequest,
+        preferCellular: Bool
+    ) async throws -> (data: Data, response: URLResponse, outerStatus: Int?) {
         guard let originalURL = req.url else {
             throw URLError(.badURL)
         }
         let (outerReq, deviceID, key) = try E2EECrypto.shared.wrapHTTPRequest(req)
         let (outerData, outerResp, usedCellular) = try await sendRaw(outerReq, preferCellular: preferCellular)
         guard let outerHTTP = outerResp as? HTTPURLResponse else {
-            return (outerData, decorateResponse(outerResp, url: originalURL, forcedCellular: usedCellular))
+            return (outerData, decorateResponse(outerResp, url: originalURL, forcedCellular: usedCellular), nil)
         }
         if outerHTTP.statusCode != 200 {
-            return (outerData, decorateResponse(outerHTTP, url: originalURL, forcedCellular: usedCellular))
+            return (outerData, decorateResponse(outerHTTP, url: originalURL, forcedCellular: usedCellular), outerHTTP.statusCode)
         }
         let (innerData, innerResp) = try E2EECrypto.shared.unwrapHTTPResponse(
             encData: outerData,
@@ -323,7 +404,82 @@ public final class NetworkTransport: Sendable {
             deviceID: deviceID,
             key: key
         )
-        return (innerData, decorateResponse(innerResp, url: originalURL, forcedCellular: usedCellular, trustedByE2EE: true))
+        return (innerData, decorateResponse(innerResp, url: originalURL, forcedCellular: usedCellular, trustedByE2EE: true), 200)
+    }
+
+    /// Sends an E2EE request with transparent recovery for relay-layer failures (`503 gateway_offline`,
+    /// `502 gateway_unreachable`, `429 tunnel_busy`, or transient pre-response transport drops) so
+    /// recoverable glitches heal silently without popping spurious errors in the UI.
+    private func sendOverE2EE(_ req: URLRequest, preferCellular: Bool) async throws -> (Data, URLResponse) {
+        guard let originalURL = req.url else {
+            throw URLError(.badURL)
+        }
+
+        let firstResult: (data: Data, response: URLResponse, outerStatus: Int?)
+        do {
+            firstResult = try await sendOverE2EEOnce(req, preferCellular: preferCellular)
+        } catch {
+            guard !Task.isCancelled,
+                  Self.isRetryableTransportError(error),
+                  Self.isIdempotentForTransientRetry(req) else {
+                throw error
+            }
+            if let migratedBase = await RelayPoolResolver.shared.migrateRelayHostIfNeeded(failedURL: originalURL),
+               let migratedReq = Self.rewrittenRequest(req, toBaseURL: migratedBase) {
+                let retried = try await sendOverE2EEOnce(migratedReq, preferCellular: preferCellular)
+                return (retried.data, retried.response)
+            }
+            try await Task.sleep(nanoseconds: 250_000_000)
+            let retried = try await sendOverE2EEOnce(req, preferCellular: preferCellular)
+            return (retried.data, retried.response)
+        }
+
+        guard let outerStatus = firstResult.outerStatus, outerStatus != 200 else {
+            return (firstResult.data, firstResult.response)
+        }
+
+        let classification = Self.isOuterRelayRetryableStatus(outerStatus, data: firstResult.data)
+        let canRetry = classification.retryable && (classification.preGateway || Self.isIdempotentForTransientRetry(req))
+        guard canRetry, !Task.isCancelled else {
+            return (firstResult.data, firstResult.response)
+        }
+
+        var latest = firstResult
+        var latestStatus = outerStatus
+
+        // 1. Fast same-node retry for 502/429/edge blips (immediately rotates onto a healthy yamux slot).
+        if latestStatus != 503 {
+            try await Task.sleep(nanoseconds: 250_000_000)
+            if let attempt = try? await sendOverE2EEOnce(req, preferCellular: preferCellular) {
+                latest = attempt
+                if attempt.outerStatus == 200 {
+                    return (attempt.data, attempt.response)
+                }
+                if let nextStatus = attempt.outerStatus {
+                    latestStatus = nextStatus
+                }
+            }
+        }
+
+        // 2. Stale-relay migration via /api/relay/pool (e.g. gateway moved from lax-cf to jp1-direct).
+        if latestStatus == 503 || latestStatus == 502 {
+            if let migratedBase = await RelayPoolResolver.shared.migrateRelayHostIfNeeded(failedURL: originalURL),
+               let migratedReq = Self.rewrittenRequest(req, toBaseURL: migratedBase),
+               let migrated = try? await sendOverE2EEOnce(migratedReq, preferCellular: preferCellular) {
+                if migrated.outerStatus == 200 {
+                    return (migrated.data, migrated.response)
+                }
+                latest = migrated
+            } else if latestStatus == 503 {
+                // Gateway is still assigned to this relay node (brief tunnel reconnect window); retry once.
+                try await Task.sleep(nanoseconds: 800_000_000)
+                if let healed = try? await sendOverE2EEOnce(req, preferCellular: preferCellular) {
+                    latest = healed
+                }
+            }
+        }
+
+        return (latest.data, latest.response)
     }
 
     /// Sends a request using URLSession, except cleartext HTTP to Tailscale private tunnel nodes
@@ -360,6 +516,20 @@ public final class NetworkTransport: Sendable {
            req.url?.path.hasPrefix("/api/v1/e2ee/") != true {
             E2EECrypto.shared.markHostRequiresE2EE(host)
             return try await sendOverE2EE(req, preferCellular: preferCellular)
+        }
+        // Auto-migrate if a legacy cloud/tunnel endpoint returns 502/503 while an E2EE relay pool node is live
+        if let http = response as? HTTPURLResponse,
+           (http.statusCode == 503 || (http.statusCode == 502 && Self.isIdempotentForTransientRetry(req))),
+           E2EECrypto.shared.isReady,
+           let reqURL = req.url,
+           reqURL.path != "/healthz",
+           !reqURL.path.hasPrefix("/api/v1/e2ee/"),
+           Self.isConfiguredGatewayOrigin(reqURL),
+           let host = reqURL.host,
+           !Self.isLocalOrPrivateHost(host),
+           let migratedBase = await RelayPoolResolver.shared.migrateRelayHostIfNeeded(failedURL: reqURL),
+           let migratedReq = Self.rewrittenRequest(req, toBaseURL: migratedBase) {
+            return try await sendOverE2EE(migratedReq, preferCellular: preferCellular)
         }
         return (data, decorateResponse(response, url: req.url, forcedCellular: usedCellular))
     }
@@ -412,10 +582,10 @@ public final class NetworkTransport: Sendable {
         return (tempURL, decorated)
     }
 
-    private func downloadOverE2EE(
+    private func downloadOverE2EEOnce(
         _ req: URLRequest,
         onProgress: (@Sendable (Double, Int64, Int64) -> Void)?
-    ) async throws -> (URL, HTTPURLResponse) {
+    ) async throws -> (fileURL: URL, response: HTTPURLResponse, outerStatus: Int) {
         guard let originalURL = req.url else {
             throw URLError(.badURL)
         }
@@ -423,7 +593,7 @@ public final class NetworkTransport: Sendable {
         let (tempEncURL, outerHTTP) = try await downloadViaURLSession(outerReq, onProgress: onProgress)
         if outerHTTP.statusCode != 200 {
             let decorated = (decorateResponse(outerHTTP, url: originalURL) as? HTTPURLResponse) ?? outerHTTP
-            return (tempEncURL, decorated)
+            return (tempEncURL, decorated, outerHTTP.statusCode)
         }
 
         defer { try? FileManager.default.removeItem(at: tempEncURL) }
@@ -444,7 +614,54 @@ public final class NetworkTransport: Sendable {
             let size = Int64(innerData.count)
             onProgress?(1.0, size, size)
         }
-        return (plainTempURL, decorated)
+        return (plainTempURL, decorated, 200)
+    }
+
+    private func downloadOverE2EE(
+        _ req: URLRequest,
+        onProgress: (@Sendable (Double, Int64, Int64) -> Void)?
+    ) async throws -> (URL, HTTPURLResponse) {
+        guard let originalURL = req.url else {
+            throw URLError(.badURL)
+        }
+        var latest = try await downloadOverE2EEOnce(req, onProgress: onProgress)
+        guard latest.outerStatus != 200 else {
+            return (latest.fileURL, latest.response)
+        }
+
+        let errSnippet = (try? Data(contentsOf: latest.fileURL)) ?? Data()
+        let classification = Self.isOuterRelayRetryableStatus(latest.outerStatus, data: errSnippet)
+        guard classification.retryable, !Task.isCancelled else {
+            return (latest.fileURL, latest.response)
+        }
+
+        if latest.outerStatus != 503 {
+            try await Task.sleep(nanoseconds: 250_000_000)
+            if let attempt = try? await downloadOverE2EEOnce(req, onProgress: onProgress) {
+                try? FileManager.default.removeItem(at: latest.fileURL)
+                latest = attempt
+                if latest.outerStatus == 200 {
+                    return (latest.fileURL, latest.response)
+                }
+            }
+        }
+
+        if latest.outerStatus == 503 || latest.outerStatus == 502 {
+            if let migratedBase = await RelayPoolResolver.shared.migrateRelayHostIfNeeded(failedURL: originalURL),
+               let migratedReq = Self.rewrittenRequest(req, toBaseURL: migratedBase),
+               let migrated = try? await downloadOverE2EEOnce(migratedReq, onProgress: onProgress) {
+                try? FileManager.default.removeItem(at: latest.fileURL)
+                latest = migrated
+            } else if latest.outerStatus == 503 {
+                try await Task.sleep(nanoseconds: 800_000_000)
+                if let healed = try? await downloadOverE2EEOnce(req, onProgress: onProgress) {
+                    try? FileManager.default.removeItem(at: latest.fileURL)
+                    latest = healed
+                }
+            }
+        }
+
+        return (latest.fileURL, latest.response)
     }
 
     private func downloadViaURLSession(
