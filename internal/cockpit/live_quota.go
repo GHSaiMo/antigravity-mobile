@@ -108,12 +108,16 @@ func FetchLiveQuota(client *http.Client, baseURL, token string) (*AccountQuota, 
 
 	// 4 base buckets from RetrieveUserQuotaSummary. Failure here is not fatal:
 	// we still return the account, with 5h values derived from model quotas.
+	hasDedicatedArgonBucket := false
+	argonMergedInGeminiGroup := false
 	sumBody, sumErr := lsCall(client, baseURL, token, "RetrieveUserQuotaSummary")
 	if sumErr == nil {
 		var qs struct {
 			Response struct {
 				Groups []struct {
-					Buckets []struct {
+					DisplayName string `json:"displayName"`
+					Description string `json:"description"`
+					Buckets     []struct {
 						BucketID          string   `json:"bucketId"`
 						RemainingFraction *float64 `json:"remainingFraction"`
 						ResetTime         string   `json:"resetTime"`
@@ -123,17 +127,28 @@ func FetchLiveQuota(client *http.Client, baseURL, token string) (*AccountQuota, 
 		}
 		if json.Unmarshal(sumBody, &qs) == nil {
 			for _, g := range qs.Response.Groups {
+				groupHasGemini := false
 				for _, b := range g.Buckets {
 					switch b.BucketID {
 					case "gemini-5h", "gemini_5h":
+						groupHasGemini = true
 						acc.Gemini5h = makeMetric(b.RemainingFraction, b.ResetTime)
 					case "gemini-weekly", "gemini_weekly":
+						groupHasGemini = true
 						acc.GeminiWeekly = makeMetric(b.RemainingFraction, b.ResetTime)
 					case "3p-5h", "claude-5h", "claude_5h":
 						acc.Claude5h = makeMetric(b.RemainingFraction, b.ResetTime)
 					case "3p-weekly", "claude-weekly", "claude_weekly":
 						acc.ClaudeWeekly = makeMetric(b.RemainingFraction, b.ResetTime)
+					default:
+						if isArgonModelOrBucket(b.BucketID) && b.RemainingFraction != nil {
+							acc.Gemini4Argon = makeMetric(b.RemainingFraction, b.ResetTime)
+							hasDedicatedArgonBucket = true
+						}
 					}
+				}
+				if groupHasGemini && groupMentionsArgon(g.DisplayName, g.Description) {
+					argonMergedInGeminiGroup = true
 				}
 			}
 		}
@@ -170,6 +185,9 @@ func FetchLiveQuota(client *http.Client, baseURL, token string) (*AccountQuota, 
 				}
 			}
 		}
+	}
+	if isArgonMergedIntoGemini(acc, hasDedicatedArgonBucket, argonMergedInGeminiGroup) {
+		acc.Gemini4Argon = nil
 	}
 	return acc, nil
 }
@@ -247,6 +265,13 @@ func BuildQuotaResponse(live *AccountQuota, liveEmail string) (*CockpitQuotaResp
 			}
 			if live.Gemini4Argon != nil {
 				merged.Gemini4Argon = live.Gemini4Argon
+			} else if live.Gemini5h != nil || live.GeminiWeekly != nil {
+				// Live quota confirmed no separate Argon bucket (e.g. merged into main Gemini pool);
+				// clear any stale cached Argon so it does not trigger duplicate alerts.
+				merged.Gemini4Argon = nil
+			}
+			if isArgonMergedIntoGemini(&merged, false, false) {
+				merged.Gemini4Argon = nil
 			}
 			merged.UpdatedAt = live.UpdatedAt
 			out.CurrentAccount = &merged

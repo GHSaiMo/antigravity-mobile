@@ -125,3 +125,37 @@ func TestFetchLiveQuotaFullClaude5hWithoutResetTime(t *testing.T) {
 		t.Fatalf("expected Claude5h 100%% 已就绪, got %+v", acc.Claude5h)
 	}
 }
+
+func TestFetchLiveQuotaSuppressesMergedArgon(t *testing.T) {
+	const mergedUserStatus = `{"userStatus":{"name":"Seven","email":"a@b.com",
+"userTier":{"id":"g1-ultra-tier","name":"Google AI Ultra"},
+"cascadeModelConfigData":{"clientModelConfigs":[
+ {"label":"Gemini 4 Argon (High)","modelId":"gemini-4-argon-high","quotaInfo":{"remainingFraction":0.57,"resetTime":"2030-01-01T00:00:01Z"}},
+ {"label":"Gemini 4 Neon (High)","modelId":"gemini-4-neon-high","quotaInfo":{"remainingFraction":0.57,"resetTime":"2030-01-01T00:00:00Z"}}]}}}`
+
+	const mergedSummary = `{"response":{"groups":[
+ {"displayName":"Gemini Models","description":"Models within this group: Gemini 4 Neon, Gemini 4 Carbon, Gemini 4 Argon, Gemini 4 Hydrogen","buckets":[{"bucketId":"gemini-weekly","remainingFraction":0.86,"resetTime":"2030-01-07T00:00:00Z"},{"bucketId":"gemini-5h","remainingFraction":0.57,"resetTime":"2030-01-01T00:00:00Z"}]}]}}`
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/GetUserStatus"):
+			_, _ = w.Write([]byte(mergedUserStatus))
+		case strings.HasSuffix(r.URL.Path, "/RetrieveUserQuotaSummary"):
+			_, _ = w.Write([]byte(mergedSummary))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	acc, err := FetchLiveQuota(srv.Client(), srv.URL, "tok")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if acc.Gemini5h == nil || acc.Gemini5h.RemainingPercent != 57 {
+		t.Fatalf("expected Gemini5h=57%%, got %+v", acc.Gemini5h)
+	}
+	if acc.Gemini4Argon != nil {
+		t.Fatalf("expected merged Gemini4Argon to be suppressed (nil), got %+v", acc.Gemini4Argon)
+	}
+}

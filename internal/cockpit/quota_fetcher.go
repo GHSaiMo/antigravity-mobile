@@ -116,14 +116,7 @@ func FetchRemoteQuotaForAccount(detail *CockpitAccountDetail) error {
 	}
 
 	var summaryData struct {
-		Groups []struct {
-			Buckets []struct {
-				BucketID          string   `json:"bucketId"`
-				DisplayName       string   `json:"displayName"`
-				RemainingFraction *float64 `json:"remainingFraction"`
-				ResetTime         string   `json:"resetTime"`
-			} `json:"buckets"`
-		} `json:"groups"`
+		Groups []quotaSummaryGroup `json:"groups"`
 	}
 	_ = json.Unmarshal(summaryBody, &summaryData)
 

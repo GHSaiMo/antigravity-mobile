@@ -516,4 +516,115 @@ func TestGetQuotas_BackupAccountTierPriority(t *testing.T) {
 	}
 }
 
+func TestGetQuotas_ArgonMergedIntoGeminiSuppressed(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("COCKPIT_DATA_DIR", tmpDir)
+	InvalidateQuotaCache()
+
+	accountsJSON := `{
+		"current_account_id": "acc-merged-desc",
+		"accounts": [
+			{"id": "acc-merged-desc", "email": "merged-desc@example.com", "name": "MergedDesc"},
+			{"id": "acc-merged-mirror", "email": "merged-mirror@example.com", "name": "MergedMirror"},
+			{"id": "acc-fallback-neon", "email": "fallback-neon@example.com", "name": "FallbackNeon"}
+		]
+	}`
+	if err := os.WriteFile(filepath.Join(tmpDir, "accounts.json"), []byte(accountsJSON), 0644); err != nil {
+		t.Fatal(err)
+	}
+	accountsDir := filepath.Join(tmpDir, "accounts")
+	if err := os.MkdirAll(accountsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	for id, email := range map[string]string{
+		"acc-merged-desc":   "merged-desc@example.com",
+		"acc-merged-mirror": "merged-mirror@example.com",
+		"acc-fallback-neon": "fallback-neon@example.com",
+	} {
+		body := `{"id":"` + id + `","email":"` + email + `","quota":{"subscription_tier":"g1-ultra-tier"}}`
+		if err := os.WriteFile(filepath.Join(accountsDir, id+".json"), []byte(body), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	cacheDir := filepath.Join(tmpDir, "cache", "quota_api_v1_desktop", "authorized")
+	if err := os.MkdirAll(cacheDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	writeCache := func(email, content string) {
+		h := sha256.Sum256([]byte(email))
+		if err := os.WriteFile(filepath.Join(cacheDir, hex.EncodeToString(h[:])+".json"), []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// 1. Explicit upstream signal: Gemini Models group description lists Gemini 4 Argon + mirrors 5h bucket
+	writeCache("merged-desc@example.com", `{
+		"updatedAt": 1720000200,
+		"payload": {
+			"models": {
+				"gemini-4-argon-high": {"displayName": "Gemini 4 Argon (High)", "quotaInfo": {"remainingFraction": 0.959, "resetTime": "2026-11-24T02:00:56Z"}}
+			},
+			"quota_summary": {
+				"groups": [{
+					"displayName": "Gemini Models",
+					"description": "Models within this group: Gemini 4 Neon, Gemini 4 Carbon, Gemini 4 Argon, Gemini 4 Hydrogen, Gemini 3.8 Flash",
+					"buckets": [
+						{"bucketId": "gemini-5h", "remainingFraction": 0.959, "resetTime": "2026-11-24T02:00:56Z"},
+						{"bucketId": "gemini-weekly", "remainingFraction": 0.987, "resetTime": "2026-11-30T21:00:56Z"}
+					]
+				}]
+			}
+		}
+	}`)
+
+	// 2. No group description, but Argon model quotaInfo mirrors gemini-5h with 1-second server jitter
+	writeCache("merged-mirror@example.com", `{
+		"updatedAt": 1720000200,
+		"payload": {
+			"models": {
+				"gemini-4-argon-medium": {"displayName": "Gemini 4 Argon (Medium)", "quotaInfo": {"remainingFraction": 0.64, "resetTime": "2026-11-24T03:47:09Z"}}
+			},
+			"quota_summary": {
+				"groups": [{
+					"buckets": [
+						{"bucketId": "gemini-5h", "remainingFraction": 0.64, "resetTime": "2026-11-24T03:47:10Z"}
+					]
+				}]
+			}
+		}
+	}`)
+
+	// 3. No quota_summary at all: falls back to gemini-4-neon-high for Gemini5h and suppresses mirrored Argon
+	writeCache("fallback-neon@example.com", `{
+		"updatedAt": 1720000200,
+		"payload": {
+			"models": {
+				"gemini-4-neon-high": {"displayName": "Gemini 4 Neon (High)", "quotaInfo": {"remainingFraction": 0.72, "resetTime": "2026-11-24T04:00:00Z"}},
+				"gemini-4-argon-high": {"displayName": "Gemini 4 Argon (High)", "quotaInfo": {"remainingFraction": 0.72, "resetTime": "2026-11-24T04:00:00Z"}}
+			}
+		}
+	}`)
+
+	resp, err := GetQuotas()
+	if err != nil {
+		t.Fatalf("GetQuotas failed: %v", err)
+	}
+	byID := map[string]AccountQuota{}
+	for _, a := range resp.Accounts {
+		byID[a.ID] = a
+	}
+
+	if got := byID["acc-merged-desc"]; got.Gemini4Argon != nil {
+		t.Errorf("expected Gemini4Argon=nil when listed in Gemini Models group description, got %+v", got.Gemini4Argon)
+	}
+	if got := byID["acc-merged-mirror"]; got.Gemini4Argon != nil {
+		t.Errorf("expected Gemini4Argon=nil when mirroring gemini-5h within ±1s jitter, got %+v", got.Gemini4Argon)
+	}
+	if got := byID["acc-fallback-neon"]; got.Gemini5h == nil || got.Gemini5h.RemainingPercent != 72 || got.Gemini4Argon != nil {
+		t.Errorf("expected Gemini5h=72%% fallback from gemini-4-neon-high and Gemini4Argon=nil, got 5h=%+v argon=%+v", got.Gemini5h, got.Gemini4Argon)
+	}
+}
+
+
 

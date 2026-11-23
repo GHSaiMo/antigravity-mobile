@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -226,6 +227,17 @@ func GetAutoRefreshInterval(defaultInterval time.Duration) time.Duration {
 	return defaultInterval
 }
 
+type quotaSummaryGroup struct {
+	DisplayName string `json:"displayName,omitempty"`
+	Description string `json:"description,omitempty"`
+	Buckets     []struct {
+		BucketID          string   `json:"bucketId"`
+		DisplayName       string   `json:"displayName"`
+		RemainingFraction *float64 `json:"remainingFraction"`
+		ResetTime         string   `json:"resetTime"`
+	} `json:"buckets"`
+}
+
 type cachePayload struct {
 	UpdatedAt int64 `json:"updatedAt"`
 	Payload   struct {
@@ -238,14 +250,7 @@ type cachePayload struct {
 			} `json:"quotaInfo"`
 		} `json:"models"`
 		QuotaSummary struct {
-			Groups []struct {
-				Buckets []struct {
-					BucketID          string   `json:"bucketId"`
-					DisplayName       string   `json:"displayName"`
-					RemainingFraction *float64 `json:"remainingFraction"`
-					ResetTime         string   `json:"resetTime"`
-				} `json:"buckets"`
-			} `json:"groups"`
+			Groups []quotaSummaryGroup `json:"groups"`
 		} `json:"quota_summary"`
 	} `json:"payload"`
 }
@@ -316,6 +321,45 @@ func isArgonModelOrBucket(id string) bool {
 		return false
 	}
 	return strings.Contains(lower, "argon")
+}
+
+func groupMentionsArgon(displayName, description string) bool {
+	return strings.Contains(strings.ToLower(displayName), "argon") ||
+		strings.Contains(strings.ToLower(description), "argon")
+}
+
+// isQuotaMetricMirrored reports whether candidate (e.g. model-level Gemini 4 Argon) is
+// simply mirroring another bucket (e.g. Gemini 5h / Gemini Weekly) after upstream folded
+// the standalone Argon pool into the main Gemini pool. Allows ±0.5% fraction rounding and
+// ±60s resetTime jitter between group-level and model-level fields.
+func isQuotaMetricMirrored(candidate, ref *QuotaMetric) bool {
+	if candidate == nil || ref == nil {
+		return false
+	}
+	if math.Abs(candidate.RemainingFraction-ref.RemainingFraction) > 0.005 {
+		return false
+	}
+	tA, errA := time.Parse(time.RFC3339, strings.TrimSpace(candidate.ResetTime))
+	tB, errB := time.Parse(time.RFC3339, strings.TrimSpace(ref.ResetTime))
+	if errA != nil || errB != nil {
+		return false
+	}
+	diff := tA.Sub(tB)
+	if diff < 0 {
+		diff = -diff
+	}
+	return diff <= 60*time.Second
+}
+
+func isArgonMergedIntoGemini(acc *AccountQuota, hasDedicatedArgonBucket, argonMergedInGeminiGroup bool) bool {
+	if acc == nil || acc.Gemini4Argon == nil || hasDedicatedArgonBucket {
+		return false
+	}
+	if argonMergedInGeminiGroup {
+		return true
+	}
+	return isQuotaMetricMirrored(acc.Gemini4Argon, acc.Gemini5h) ||
+		isQuotaMetricMirrored(acc.Gemini4Argon, acc.GeminiWeekly)
 }
 
 var (
@@ -656,6 +700,8 @@ func GetQuotas(activeEmails ...string) (*CockpitQuotaResponse, error) {
 			item.SubscriptionTier = normalizeSubscriptionTier(sq.SubscriptionTier)
 		}
 
+		argonMergedInGeminiGroup := false
+		hasCacheModels := false
 		if cp, ok := loadCachedQuotaPayloadFile(cachePath); ok {
 			{
 				item.UpdatedAt = cp.UpdatedAt
@@ -667,16 +713,21 @@ func GetQuotas(activeEmails ...string) (*CockpitQuotaResponse, error) {
 				}
 
 				isFree := item.SubscriptionTier == "FREE"
+				hasDedicatedArgonBucket := false
+				hasCacheModels = len(cp.Payload.Models) > 0
 
 				// 2. Check QuotaSummary buckets first
 				for _, g := range cp.Payload.QuotaSummary.Groups {
+					groupHasGemini := false
 					for _, b := range g.Buckets {
 						switch b.BucketID {
 						case "gemini-5h", "gemini_5h":
+							groupHasGemini = true
 							if !isFree {
 								item.Gemini5h = makeMetric(b.RemainingFraction, b.ResetTime)
 							}
 						case "gemini-weekly", "gemini_weekly":
+							groupHasGemini = true
 							item.GeminiWeekly = makeMetric(b.RemainingFraction, b.ResetTime)
 						case "3p-5h", "claude-5h", "claude_5h":
 							if !isFree {
@@ -687,8 +738,12 @@ func GetQuotas(activeEmails ...string) (*CockpitQuotaResponse, error) {
 						default:
 							if item.Gemini4Argon == nil && isArgonModelOrBucket(b.BucketID) && b.RemainingFraction != nil {
 								item.Gemini4Argon = makeMetric(b.RemainingFraction, b.ResetTime)
+								hasDedicatedArgonBucket = true
 							}
 						}
+					}
+					if groupHasGemini && groupMentionsArgon(g.DisplayName, g.Description) {
+						argonMergedInGeminiGroup = true
 					}
 				}
 
@@ -715,7 +770,7 @@ func GetQuotas(activeEmails ...string) (*CockpitQuotaResponse, error) {
 						}
 					}
 					if item.GeminiWeekly == nil {
-						for _, k := range []string{"gemini-3.8-flash-high", "gemini-3.8-flash-medium", "gemini-3-flash", "gemini-2.5-pro"} {
+						for _, k := range []string{"gemini-4-hydrogen-high", "gemini-4-hydrogen-medium", "gemini-4-carbon-high", "gemini-3.8-flash-high", "gemini-3.8-flash-medium", "gemini-3-flash", "gemini-2.5-pro"} {
 							if m, ok := cp.Payload.Models[k]; ok && m.QuotaInfo.RemainingFraction != nil {
 								item.GeminiWeekly = makeMetric(m.QuotaInfo.RemainingFraction, m.QuotaInfo.ResetTime)
 								break
@@ -741,13 +796,25 @@ func GetQuotas(activeEmails ...string) (*CockpitQuotaResponse, error) {
 						}
 					}
 					if item.Gemini5h == nil {
-						if m, ok := cp.Payload.Models["gemini-2.5-pro"]; ok && m.QuotaInfo.RemainingFraction != nil {
-							item.Gemini5h = makeMetric(m.QuotaInfo.RemainingFraction, m.QuotaInfo.ResetTime)
+						for _, k := range []string{"gemini-4-neon-high", "gemini-4-carbon-high", "gemini-4-hydrogen-high", "gemini-3.8-flash-high", "gemini-2.5-pro"} {
+							if m, ok := cp.Payload.Models[k]; ok && m.QuotaInfo.RemainingFraction != nil {
+								item.Gemini5h = makeMetric(m.QuotaInfo.RemainingFraction, m.QuotaInfo.ResetTime)
+								break
+							}
+						}
+						if item.Gemini5h == nil {
+							for k, m := range cp.Payload.Models {
+								lk := strings.ToLower(k)
+								if strings.Contains(lk, "gemini") && !isArgonModelOrBucket(lk) && m.QuotaInfo.RemainingFraction != nil {
+									item.Gemini5h = makeMetric(m.QuotaInfo.RemainingFraction, m.QuotaInfo.ResetTime)
+									break
+								}
+							}
 						}
 					}
 				}
 
-				if item.Gemini4Argon == nil && len(cp.Payload.Models) > 0 {
+				if !argonMergedInGeminiGroup && item.Gemini4Argon == nil && len(cp.Payload.Models) > 0 {
 					for _, key := range []string{"gemini-4-argon-high", "gemini-4-argon-medium", "gemini-4-argon-low", "gemini-4-argon"} {
 						if m, ok := cp.Payload.Models[key]; ok && m.QuotaInfo.RemainingFraction != nil {
 							item.Gemini4Argon = makeMetric(m.QuotaInfo.RemainingFraction, m.QuotaInfo.ResetTime)
@@ -763,15 +830,22 @@ func GetQuotas(activeEmails ...string) (*CockpitQuotaResponse, error) {
 						}
 					}
 				}
+
+				if isArgonMergedIntoGemini(&item, hasDedicatedArgonBucket, argonMergedInGeminiGroup) {
+					item.Gemini4Argon = nil
+				}
 			}
 		}
 
-		// Fallback argon from sq if needed
-		if sq != nil && item.Gemini4Argon == nil {
+		// Fallback argon from sq only when desktop cache didn't already supply model quotas or confirm merge.
+		if !argonMergedInGeminiGroup && !hasCacheModels && sq != nil && item.Gemini4Argon == nil {
 			for _, m := range sq.Models {
 				if isArgonModelOrBucket(m.Name) && m.Percentage != nil {
 					frac := float64(*m.Percentage) / 100.0
-					item.Gemini4Argon = makeMetric(&frac, m.ResetTime)
+					cand := makeMetric(&frac, m.ResetTime)
+					if !isQuotaMetricMirrored(cand, item.Gemini5h) && !isQuotaMetricMirrored(cand, item.GeminiWeekly) {
+						item.Gemini4Argon = cand
+					}
 					break
 				}
 			}

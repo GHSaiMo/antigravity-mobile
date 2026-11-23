@@ -732,3 +732,66 @@ func TestBonusResetCompactTitlesForLockScreen(t *testing.T) {
 		}
 	}
 }
+
+func TestAlertSuppressesMirroredArgonAcrossAllAlertTypes(t *testing.T) {
+	now := t0
+	reset5h := t0.Add(4 * time.Hour)
+	reset5hJitter := reset5h.Add(-1 * time.Second) // real 1s model-vs-bucket jitter
+	resetWeekly := t0.Add(5 * 24 * time.Hour)
+
+	var sent []QuotaAlert
+	a := newQuotaAlerter(QuotaAlertConfig{
+		WarnFraction:     0.20,
+		CriticalFraction: 0.05,
+		Lang:             func() string { return "zh" },
+		Now:              func() time.Time { return now },
+		Notify:           func(al QuotaAlert) { sent = append(sent, al) },
+	})
+
+	// 1. Steady drop to 18%: both Gemini5h and mirrored Gemini4Argon cross warn threshold.
+	// Only Gemini 5h should alert (single-bucket title, no phantom "Gemini 4 Argon").
+	for _, f := range []float64{0.60, 0.45, 0.18} {
+		now = now.Add(5 * time.Minute)
+		a.Observe(makeMultiBucketQuota("acc-1", "dev@example.com", now, func(acc *AccountQuota) {
+			acc.Gemini5h = metricAt(f, reset5h)
+			acc.GeminiWeekly = metricAt(0.85, resetWeekly)
+			acc.Gemini4Argon = metricAt(f, reset5hJitter)
+		}), "")
+	}
+	if len(sent) != 1 {
+		t.Fatalf("expected 1 low-quota alert (not duplicated for Argon), got %d: %+v", len(sent), sent)
+	}
+	if strings.Contains(sent[0].Title, "Argon") || strings.Contains(sent[0].Body, "Argon") {
+		t.Errorf("mirrored Argon must not appear in low-quota alert: title=%q body=%q", sent[0].Title, sent[0].Body)
+	}
+
+	// 2. Official early refill (18% -> 100%) on both Gemini5h and mirrored Argon:
+	// must emit single-bucket Gemini 5h bonus reset, NOT multi-bucket with Argon.
+	now = now.Add(10 * time.Minute)
+	a.Observe(makeMultiBucketQuota("acc-1", "dev@example.com", now, func(acc *AccountQuota) {
+		acc.Gemini5h = metricAt(1.0, reset5h)
+		acc.GeminiWeekly = metricAt(0.85, resetWeekly)
+		acc.Gemini4Argon = metricAt(1.0, reset5hJitter)
+	}), "")
+	if len(sent) != 2 || sent[1].Level != "bonus_reset" {
+		t.Fatalf("expected 1 bonus_reset alert, got %+v", sent)
+	}
+	if strings.Contains(sent[1].Title, "Argon") || strings.Contains(sent[1].Body, "Argon") || !strings.Contains(sent[1].Title, "Gemini 5h") {
+		t.Errorf("expected single-bucket Gemini 5h bonus reset without Argon, got title=%q body=%q", sent[1].Title, sent[1].Body)
+	}
+
+	// 3. Rapid 15m drop (100% -> 50%, >=45% threshold) on both Gemini5h and mirrored Argon:
+	// must emit single-bucket anomaly without Argon.
+	now = now.Add(5 * time.Minute)
+	a.Observe(makeMultiBucketQuota("acc-1", "dev@example.com", now, func(acc *AccountQuota) {
+		acc.Gemini5h = metricAt(0.50, reset5h)
+		acc.GeminiWeekly = metricAt(0.85, resetWeekly)
+		acc.Gemini4Argon = metricAt(0.50, reset5hJitter)
+	}), "")
+	if len(sent) != 3 || sent[2].Level != "anomaly" {
+		t.Fatalf("expected 1 rapid anomaly alert, got %+v", sent)
+	}
+	if strings.Contains(sent[2].Title, "Argon") || strings.Contains(sent[2].Body, "Argon") {
+		t.Errorf("mirrored Argon must not appear in anomaly alert: title=%q body=%q", sent[2].Title, sent[2].Body)
+	}
+}

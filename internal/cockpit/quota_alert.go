@@ -418,6 +418,14 @@ func (a *quotaAlerter) Observe(q *CockpitQuotaResponse, liveEmail string) {
 		if m == nil {
 			continue
 		}
+		// Upstream folded the standalone Argon bucket into the main Gemini pool.
+		// Defensively suppress gemini_4_argon whenever it mirrors gemini_5h or gemini_weekly
+		// so low-quota, bonus-reset, and anomaly alerts never duplicate or pollute pushes.
+		if spec.id == "gemini_4_argon" &&
+			(isQuotaMetricMirrored(m, acc.Gemini5h) || isQuotaMetricMirrored(m, acc.GeminiWeekly)) {
+			delete(a.buckets, spec.id)
+			continue
+		}
 		frac := m.RemainingFraction
 		if frac < 0 {
 			frac = 0
