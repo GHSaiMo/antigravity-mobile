@@ -765,12 +765,15 @@ func resolveSafeZipPath(uri, cascadeID string) (string, int, error) {
 	}
 	filePath, err := ResolveLocalFilePath(uri, cascadeID)
 	if err != nil {
+		if errors.Is(err, errAccessRestricted) {
+			return "", http.StatusForbidden, errors.New("access to file is restricted")
+		}
 		return "", http.StatusBadRequest, fmt.Errorf("failed to resolve file path: %w", err)
 	}
 	if resolved, err := filepath.EvalSymlinks(filePath); err == nil {
 		filePath = resolved
 	}
-	if !IsSafeFilePath(filePath) {
+	if !IsSafeReadableFilePath(filePath) {
 		return "", http.StatusForbidden, errors.New("access to file is restricted")
 	}
 	st, err := os.Stat(filePath)

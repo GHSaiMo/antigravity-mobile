@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -15,6 +16,8 @@ import (
 	"sync"
 	"unicode/utf8"
 )
+
+var errAccessRestricted = errors.New("access to file is restricted")
 
 // FileContentResult represents the structured response of file reading.
 type FileContentResult struct {
@@ -106,8 +109,8 @@ func ResolveLocalFilePath(rawURI, cascadeID string) (string, error) {
 	// 6. Absolute path on local filesystem
 	if filepath.IsAbs(clean) {
 		cleanPath := filepath.Clean(clean)
-		if !IsSafeFilePath(cleanPath) {
-			return "", fmt.Errorf("access to file is restricted")
+		if !IsSafeReadableFilePath(cleanPath) {
+			return "", errAccessRestricted
 		}
 		if _, err := os.Stat(cleanPath); err == nil {
 			return cleanPath, nil
@@ -123,8 +126,8 @@ func ResolveLocalFilePath(rawURI, cascadeID string) (string, error) {
 		planPath, err := joinUnder(filepath.Join(home, ".gemini", "antigravity", "brain"), filepath.Join(cascadeID, clean))
 		if err == nil {
 			if _, err := os.Stat(planPath); err == nil {
-				if !IsSafeFilePath(planPath) {
-					return "", fmt.Errorf("access to file is restricted")
+				if !IsSafeReadableFilePath(planPath) {
+					return "", errAccessRestricted
 				}
 				return planPath, nil
 			}
@@ -132,8 +135,8 @@ func ResolveLocalFilePath(rawURI, cascadeID string) (string, error) {
 	}
 
 	cleanPath := filepath.Clean(clean)
-	if !IsSafeFilePath(cleanPath) {
-		return "", fmt.Errorf("access to file is restricted")
+	if !IsSafeReadableFilePath(cleanPath) {
+		return "", errAccessRestricted
 	}
 	return cleanPath, nil
 }
@@ -162,7 +165,7 @@ func resolveMovedInboxAttachment(home, cleanPath, cascadeID string) (string, boo
 	if cascadeID != "" {
 		candidate, err := joinUnder(brainRoot, filepath.Join(cascadeID, ".user_uploaded", base))
 		if err == nil {
-			if st, err := os.Stat(candidate); err == nil && st.Mode().IsRegular() && IsSafeFilePath(candidate) {
+			if st, err := os.Stat(candidate); err == nil && st.Mode().IsRegular() && IsSafeReadableFilePath(candidate) {
 				return candidate, true
 			}
 		}
@@ -180,7 +183,7 @@ func resolveMovedInboxAttachment(home, cleanPath, cascadeID string) (string, boo
 				if err != nil {
 					continue
 				}
-				if st, err := os.Stat(candidate); err == nil && st.Mode().IsRegular() && IsSafeFilePath(candidate) {
+				if st, err := os.Stat(candidate); err == nil && st.Mode().IsRegular() && IsSafeReadableFilePath(candidate) {
 					return candidate, true
 				}
 			}
@@ -208,6 +211,8 @@ var (
 	workspaceRootsHome  string
 	workspaceRootsExtra string
 	workspaceRoots      []string
+	readableRootsTmpDir string
+	readableFileRoots   []string
 )
 
 // evalSymlinksExistingPrefix resolves symlinks along the longest existing ancestor prefix of p,
@@ -312,6 +317,63 @@ func AllowedWorkspaceRoots() []string {
 	workspaceRootsHome = home
 	workspaceRootsExtra = extra
 	workspaceRoots = roots
+	readableRootsTmpDir = ""
+	readableFileRoots = nil
+	workspaceRootsMu.Unlock()
+	return roots
+}
+
+// AllowedReadableFileRoots returns directory prefixes that may be served read-only
+// via file preview/download endpoints (/api/v1/files/raw, /api/v1/files/content, etc.).
+// It always includes AllowedWorkspaceRoots(). When ALLOWED_WORKSPACE_ROOTS is unset
+// (default paired-computer mode), system temporary directories (os.TempDir() and /tmp
+// on Unix) are also included so agent-generated temporary media/artifacts can be previewed
+// or downloaded without exposing temp directories as writable workspace roots.
+func AllowedReadableFileRoots() []string {
+	wsRoots := AllowedWorkspaceRoots()
+	if len(wsRoots) == 0 {
+		return nil
+	}
+	extra := strings.TrimSpace(os.Getenv("MULTIGRAVITY_ALLOWED_WORKSPACE_ROOTS"))
+	if extra == "" {
+		extra = strings.TrimSpace(os.Getenv("ALLOWED_WORKSPACE_ROOTS"))
+	}
+	if extra != "" {
+		return wsRoots
+	}
+
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return wsRoots
+	}
+	tmpDir := strings.TrimSpace(os.TempDir())
+
+	workspaceRootsMu.RLock()
+	if readableFileRoots != nil && workspaceRootsHome == home && workspaceRootsExtra == extra && readableRootsTmpDir == tmpDir {
+		cached := readableFileRoots
+		workspaceRootsMu.RUnlock()
+		return cached
+	}
+	workspaceRootsMu.RUnlock()
+
+	roots := make([]string, len(wsRoots))
+	copy(roots, wsRoots)
+	if tmpDir != "" {
+		cleanTmp := filepath.Clean(tmpDir)
+		resolvedTmp := evalSymlinksExistingPrefix(cleanTmp)
+		if !isDriveRoot(cleanTmp) && !isDriveRoot(resolvedTmp) {
+			roots = appendNormalizedRootPrefix(roots, cleanTmp)
+		}
+	}
+	if runtime.GOOS != "windows" {
+		roots = appendNormalizedRootPrefix(roots, "/tmp")
+	}
+
+	workspaceRootsMu.Lock()
+	if workspaceRootsHome == home && workspaceRootsExtra == extra {
+		readableRootsTmpDir = tmpDir
+		readableFileRoots = roots
+	}
 	workspaceRootsMu.Unlock()
 	return roots
 }
@@ -321,13 +383,26 @@ func resetWorkspaceRootsForTest() {
 	workspaceRootsHome = ""
 	workspaceRootsExtra = ""
 	workspaceRoots = nil
+	readableRootsTmpDir = ""
+	readableFileRoots = nil
 	workspaceRootsMu.Unlock()
 }
 
-// IsSafeFilePath validates that the resolved path is within an allowed directory
+// IsSafeFilePath validates that the resolved path is within an allowed workspace directory
 // and is not a credential or secret file. Default allowlist is the user's home
 // (agent-generated PPTX/PDF/HTML/images live on Desktop, Downloads, Websites, etc.).
 func IsSafeFilePath(path string) bool {
+	return isSafePathUnderRoots(path, AllowedWorkspaceRoots())
+}
+
+// IsSafeReadableFilePath validates that the resolved path is within an allowed read-only
+// directory (AllowedReadableFileRoots, including system temp directories in default mode)
+// and is not a credential or secret file.
+func IsSafeReadableFilePath(path string) bool {
+	return isSafePathUnderRoots(path, AllowedReadableFileRoots())
+}
+
+func isSafePathUnderRoots(path string, roots []string) bool {
 	if strings.TrimSpace(path) == "" || strings.ContainsRune(path, 0) {
 		return false
 	}
@@ -410,7 +485,7 @@ func IsSafeFilePath(path string) bool {
 	}
 
 	sep := string(filepath.Separator)
-	for _, prefix := range AllowedWorkspaceRoots() {
+	for _, prefix := range roots {
 		if strings.HasPrefix(resolved, prefix) || resolved+sep == prefix {
 			return true
 		}
@@ -545,8 +620,8 @@ func GetFileContent(rawURI, cascadeID string) (*FileContentResult, error) {
 	if resolved, err := filepath.EvalSymlinks(filePath); err == nil {
 		filePath = resolved
 	}
-	if !IsSafeFilePath(filePath) {
-		return nil, fmt.Errorf("access to file is restricted")
+	if !IsSafeReadableFilePath(filePath) {
+		return nil, errAccessRestricted
 	}
 
 	f, err := openRegularNoFollow(filePath)
@@ -590,7 +665,7 @@ func GetFileContent(rawURI, cascadeID string) (*FileContentResult, error) {
 
 	// Check companion metadata file
 	metaFile := filePath + ".metadata.json"
-	if IsSafeFilePath(metaFile) {
+	if IsSafeReadableFilePath(metaFile) {
 		if metaBytes, err := os.ReadFile(metaFile); err == nil {
 			var meta ArtifactMetadata
 			if err := json.Unmarshal(metaBytes, &meta); err == nil {
@@ -704,6 +779,11 @@ func (p *Proxy) HandleFileRaw(w http.ResponseWriter, r *http.Request) {
 
 	filePath, err := ResolveLocalFilePath(uri, cascadeID)
 	if err != nil {
+		if errors.Is(err, errAccessRestricted) {
+			slog.Info("[Files] denied raw download", "uri", uri)
+			http.Error(w, "access to file is restricted", http.StatusForbidden)
+			return
+		}
 		http.Error(w, fmt.Sprintf("failed to resolve file path: %v", err), http.StatusBadRequest)
 		return
 	}
@@ -711,7 +791,7 @@ func (p *Proxy) HandleFileRaw(w http.ResponseWriter, r *http.Request) {
 	if resolved, err := filepath.EvalSymlinks(filePath); err == nil {
 		filePath = resolved
 	}
-	if !IsSafeFilePath(filePath) {
+	if !IsSafeReadableFilePath(filePath) {
 		slog.Info("[Files] denied raw download", "path", filePath, "uri", uri)
 		http.Error(w, "access to file is restricted", http.StatusForbidden)
 		return

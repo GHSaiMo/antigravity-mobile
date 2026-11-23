@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -562,5 +564,140 @@ func TestIsSafeFilePath_CockpitAndToolCredentialsAndXmlSandbox(t *testing.T) {
 	}
 	if csp := rr.Header().Get("Content-Security-Policy"); !strings.Contains(csp, "sandbox") {
 		t.Errorf("expected Content-Security-Policy containing 'sandbox' for .xml, got %q", csp)
+	}
+}
+
+func TestTempDirReadableFilesAndWorkspaceConfinement(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("ALLOWED_WORKSPACE_ROOTS", "")
+	t.Setenv("MULTIGRAVITY_ALLOWED_WORKSPACE_ROOTS", "")
+	resetWorkspaceRootsForTest()
+	t.Cleanup(resetWorkspaceRootsForTest)
+
+	// Prepare temp directories to test: os.TempDir() (via t.TempDir()) and /tmp on Unix.
+	tmpDirs := []string{t.TempDir()}
+	if runtime.GOOS != "windows" {
+		slashTmpDir, err := os.MkdirTemp("/tmp", "mgy-tmp-readable-*")
+		if err != nil {
+			t.Fatalf("failed to create dir in /tmp: %v", err)
+		}
+		t.Cleanup(func() { _ = os.RemoveAll(slashTmpDir) })
+		tmpDirs = append(tmpDirs, slashTmpDir)
+	}
+
+	p := &Proxy{}
+	videoBytes := []byte("\x00\x00\x00\x18ftypmp42\x00\x00\x00\x00mp42isom")
+
+	for _, dir := range tmpDirs {
+		mp4Path := filepath.Join(dir, "minimax_h3_preview.mp4")
+		if err := os.WriteFile(mp4Path, videoBytes, 0o644); err != nil {
+			t.Fatalf("failed to write temp mp4: %v", err)
+		}
+
+		// Temp dirs remain outside workspace roots (validateWorkspaceDir / IsSafeFilePath must reject them).
+		if IsSafeFilePath(mp4Path) {
+			t.Errorf("expected temp file %s to remain outside workspace roots", mp4Path)
+		}
+		if _, err := validateWorkspaceDir(dir, true); err == nil {
+			t.Errorf("expected validateWorkspaceDir to reject temp dir %s", dir)
+		}
+
+		// Read-only file preview/download must allow regular non-sensitive files in temp dirs.
+		if !IsSafeReadableFilePath(mp4Path) {
+			t.Fatalf("expected temp video %s to be readable", mp4Path)
+		}
+
+		for _, rawURI := range []string{mp4Path, "file://" + filepath.ToSlash(mp4Path)} {
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/files/raw?uri="+url.QueryEscape(rawURI), nil)
+			rr := httptest.NewRecorder()
+			p.HandleFileRaw(rr, req)
+			if rr.Code != http.StatusOK {
+				t.Fatalf("expected 200 downloading %s, got %d: %s", rawURI, rr.Code, rr.Body.String())
+			}
+			if ct := rr.Header().Get("Content-Type"); ct != "video/mp4" {
+				t.Errorf("expected Content-Type video/mp4 for %s, got %q", rawURI, ct)
+			}
+			if rr.Body.String() != string(videoBytes) {
+				t.Errorf("downloaded bytes mismatch for %s", rawURI)
+			}
+		}
+
+		// Verify HTTP Range requests work cleanly for video streaming.
+		rangeReq := httptest.NewRequest(http.MethodGet, "/api/v1/files/raw?uri="+url.QueryEscape(mp4Path), nil)
+		rangeReq.Header.Set("Range", "bytes=4-11")
+		rangeRR := httptest.NewRecorder()
+		p.HandleFileRaw(rangeRR, rangeReq)
+		if rangeRR.Code != http.StatusPartialContent {
+			t.Fatalf("expected 206 Partial Content for range request on %s, got %d", mp4Path, rangeRR.Code)
+		}
+		if rangeRR.Body.String() != "ftypmp42" {
+			t.Errorf("expected range body ftypmp42, got %q", rangeRR.Body.String())
+		}
+
+		// Text content preview should also work for non-sensitive files in temp dir.
+		txtPath := filepath.Join(dir, "notes.txt")
+		if err := os.WriteFile(txtPath, []byte("verify ok"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		res, err := GetFileContent(txtPath, "")
+		if err != nil {
+			t.Fatalf("expected GetFileContent to allow temp text file %s: %v", txtPath, err)
+		}
+		if res.Content != "verify ok" {
+			t.Errorf("unexpected GetFileContent body: %q", res.Content)
+		}
+
+		// Sensitive filenames inside temp dir must still be rejected.
+		for _, badName := range []string{".env", "server.key", "id_rsa", "secrets.json", "cert.pem"} {
+			badPath := filepath.Join(dir, badName)
+			if err := os.WriteFile(badPath, []byte("secret"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if IsSafeReadableFilePath(badPath) {
+				t.Errorf("expected sensitive temp file %s to be rejected", badPath)
+			}
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/files/raw?uri="+url.QueryEscape(badPath), nil)
+			rr := httptest.NewRecorder()
+			p.HandleFileRaw(rr, req)
+			if rr.Code != http.StatusForbidden {
+				t.Errorf("expected 403 for sensitive temp file %s, got %d", badPath, rr.Code)
+			}
+		}
+
+		// Symlink inside temp dir pointing outside allowed roots must be rejected.
+		if runtime.GOOS != "windows" {
+			linkPath := filepath.Join(dir, "escape.mp4")
+			if err := os.Symlink("/etc/hosts", linkPath); err == nil {
+				if IsSafeReadableFilePath(linkPath) {
+					t.Errorf("expected temp symlink %s -> /etc/hosts to be rejected", linkPath)
+				}
+				req := httptest.NewRequest(http.MethodGet, "/api/v1/files/raw?uri="+url.QueryEscape(linkPath), nil)
+				rr := httptest.NewRecorder()
+				p.HandleFileRaw(rr, req)
+				if rr.Code != http.StatusForbidden {
+					t.Errorf("expected 403 for temp symlink escape %s, got %d", linkPath, rr.Code)
+				}
+			}
+		}
+	}
+
+	// Explicit ALLOWED_WORKSPACE_ROOTS must override default temp dir access.
+	downloadsDir := filepath.Join(home, "Downloads")
+	if err := os.MkdirAll(downloadsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ALLOWED_WORKSPACE_ROOTS", downloadsDir)
+	resetWorkspaceRootsForTest()
+
+	mp4InTmp := filepath.Join(tmpDirs[0], "minimax_h3_preview.mp4")
+	if IsSafeReadableFilePath(mp4InTmp) {
+		t.Errorf("expected temp file %s to be blocked when ALLOWED_WORKSPACE_ROOTS is explicitly set", mp4InTmp)
+	}
+	reqBlocked := httptest.NewRequest(http.MethodGet, "/api/v1/files/raw?uri="+url.QueryEscape(mp4InTmp), nil)
+	rrBlocked := httptest.NewRecorder()
+	p.HandleFileRaw(rrBlocked, reqBlocked)
+	if rrBlocked.Code != http.StatusForbidden {
+		t.Errorf("expected 403 when ALLOWED_WORKSPACE_ROOTS excludes temp dir, got %d", rrBlocked.Code)
 	}
 }
