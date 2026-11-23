@@ -46,15 +46,33 @@ object FileIconResolver {
 
     /**
      * Checks whether a file path or URL represents an image format.
+     * Also inspects the `uri` query parameter on gateway `/api/v1/files/raw?uri=...` URLs.
      */
     fun isImage(pathOrName: String): Boolean {
-        var str = pathOrName.trim().trim('`', '\'', '"')
-        if (str.isEmpty()) return false
+        val trimmed = pathOrName.trim().trim('`', '\'', '"')
+        if (trimmed.isEmpty()) return false
+        var str = trimmed
         if (str.contains('#')) str = str.substringBefore('#')
         if (str.contains('?')) str = str.substringBefore('?')
         str = str.replace(lineSuffixRegex, "").trim()
         val lower = str.lowercase()
-        return imageExtensions.any { ext -> lower.endsWith(ext) }
+        if (imageExtensions.any { ext -> lower.endsWith(ext) }) return true
+
+        val queryPart = trimmed.substringAfter('?', "").substringBefore('#')
+        if (queryPart.isNotEmpty()) {
+            val uriParam = queryPart.split('&')
+                .firstOrNull { it.startsWith("uri=") }
+                ?.substringAfter("uri=")
+            if (!uriParam.isNullOrEmpty()) {
+                val decoded = try {
+                    java.net.URLDecoder.decode(uriParam, "UTF-8")
+                } catch (_: Exception) {
+                    uriParam
+                }.substringBefore('#').substringBefore('?').replace(lineSuffixRegex, "").trim().lowercase()
+                return imageExtensions.any { ext -> decoded.endsWith(ext) }
+            }
+        }
+        return false
     }
 
     /**

@@ -16,6 +16,7 @@ import androidx.core.content.FileProvider
 import coil.imageLoader
 import coil.request.ImageRequest
 import coil.request.SuccessResult
+import com.antigravity.mobile.data.service.ApiClient
 import com.antigravity.mobile.ui.components.ImageViewerItem
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -28,21 +29,43 @@ import java.io.OutputStream
  */
 object ShareImageUtils {
 
-    /** 把预览项解析为可操作的 Bitmap（优先内存位图，其次字节/URL 经 Coil 解码）。 */
+    /** 把预览项解析为可操作的 Bitmap（优先内存位图，其次清晰预览 URL `preview=1`，最后回退缩略图字节）。 */
     suspend fun resolveBitmap(context: Context, item: ImageViewerItem): Bitmap? {
         if (item.bitmap != null) return item.bitmap
-        val data: Any = item.bytes ?: item.url?.takeIf { it.isNotBlank() } ?: return null
+        val rawUrl = item.url?.takeIf { it.isNotBlank() }
+        if (rawUrl != null) {
+            val fullUrl = ApiClient.withImagePreview(rawUrl, ApiClient.IMAGE_PREVIEW_FULL)
+            val fullKey = ApiClient.mediaCacheKey(fullUrl)
+            val remoteBitmap = withContext(Dispatchers.IO) {
+                try {
+                    val request = ImageRequest.Builder(context)
+                        .data(fullUrl)
+                        .diskCacheKey(fullKey)
+                        .memoryCacheKey(fullKey)
+                        .allowHardware(false)
+                        .build()
+                    val result = context.imageLoader.execute(request)
+                    if (result is SuccessResult) {
+                        (result.drawable as? android.graphics.drawable.BitmapDrawable)?.bitmap
+                    } else null
+                } catch (_: Exception) {
+                    null
+                }
+            }
+            if (remoteBitmap != null) return remoteBitmap
+        }
+        val fallbackBytes = item.bytes ?: return null
         return withContext(Dispatchers.IO) {
             try {
                 val request = ImageRequest.Builder(context)
-                    .data(data)
+                    .data(fallbackBytes)
                     .allowHardware(false)
                     .build()
                 val result = context.imageLoader.execute(request)
                 if (result is SuccessResult) {
                     (result.drawable as? android.graphics.drawable.BitmapDrawable)?.bitmap
                 } else null
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 null
             }
         }

@@ -587,9 +587,22 @@ private fun MessageShareCard(
 
             val appContext = LocalContext.current
             images.forEach { item ->
+                val fullUrl = item.url?.takeIf { it.isNotBlank() }?.let {
+                    com.antigravity.mobile.data.service.ApiClient.withImagePreview(
+                        it,
+                        com.antigravity.mobile.data.service.ApiClient.IMAGE_PREVIEW_FULL
+                    )
+                }
                 AsyncImage(
                     model = ImageRequest.Builder(appContext)
-                        .data(item.bitmap ?: item.bytes ?: item.url)
+                        .data(item.bitmap ?: fullUrl ?: item.bytes)
+                        .apply {
+                            if (item.bitmap == null && fullUrl != null) {
+                                val key = com.antigravity.mobile.data.service.ApiClient.mediaCacheKey(fullUrl)
+                                diskCacheKey(key)
+                                memoryCacheKey(key)
+                            }
+                        }
                         .crossfade(false)
                         .build(),
                     contentDescription = null,
@@ -794,8 +807,24 @@ private fun QuestionBubble(
 
         if (imageItems.size == 1) {
             val item = imageItems.first()
+            val fullUrl = item.url?.takeIf { it.isNotBlank() }?.let {
+                com.antigravity.mobile.data.service.ApiClient.withImagePreview(
+                    it,
+                    com.antigravity.mobile.data.service.ApiClient.IMAGE_PREVIEW_FULL
+                )
+            }
             AsyncImage(
-                model = ImageRequest.Builder(appContext).data(item.bytes ?: item.url).crossfade(false).build(),
+                model = ImageRequest.Builder(appContext)
+                    .data(item.bitmap ?: fullUrl ?: item.bytes)
+                    .apply {
+                        if (item.bitmap == null && fullUrl != null) {
+                            val key = com.antigravity.mobile.data.service.ApiClient.mediaCacheKey(fullUrl)
+                            diskCacheKey(key)
+                            memoryCacheKey(key)
+                        }
+                    }
+                    .crossfade(false)
+                    .build(),
                 contentDescription = null,
                 contentScale = ContentScale.Fit,
                 alignment = Alignment.CenterStart,
@@ -808,8 +837,24 @@ private fun QuestionBubble(
         } else if (imageItems.size > 1) {
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 imageItems.forEach { item ->
+                    val fullUrl = item.url?.takeIf { it.isNotBlank() }?.let {
+                        com.antigravity.mobile.data.service.ApiClient.withImagePreview(
+                            it,
+                            com.antigravity.mobile.data.service.ApiClient.IMAGE_PREVIEW_FULL
+                        )
+                    }
                     AsyncImage(
-                        model = ImageRequest.Builder(appContext).data(item.bytes ?: item.url).crossfade(false).build(),
+                        model = ImageRequest.Builder(appContext)
+                            .data(item.bitmap ?: fullUrl ?: item.bytes)
+                            .apply {
+                                if (item.bitmap == null && fullUrl != null) {
+                                    val key = com.antigravity.mobile.data.service.ApiClient.mediaCacheKey(fullUrl)
+                                    diskCacheKey(key)
+                                    memoryCacheKey(key)
+                                }
+                            }
+                            .crossfade(false)
+                            .build(),
                         contentDescription = null,
                         contentScale = ContentScale.Crop,
                         modifier = Modifier

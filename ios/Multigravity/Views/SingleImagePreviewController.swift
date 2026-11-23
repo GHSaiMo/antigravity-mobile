@@ -71,31 +71,55 @@ final class SingleImagePreviewController: UIViewController, UIScrollViewDelegate
     }
     
     private func loadImage() {
+        if let url = item.url {
+            if url.isFileURL {
+                if let data = try? Data(contentsOf: url), let img = UIImage(data: data) {
+                    imageView.image = img
+                    updateImageFrame()
+                    return
+                }
+                if let fallback = item.image {
+                    imageView.image = fallback
+                    updateImageFrame()
+                }
+                return
+            }
+
+            let fullURL = APIClient.shared.previewMediaURL(url, mode: .full)
+            let bubbleURL = APIClient.shared.previewMediaURL(url, mode: .thumb)
+
+            // Hit fullscreen preview cache immediately (zero spinner, zero network).
+            if let cachedFull = MarkdownImageCache.shared.image(for: fullURL) {
+                imageView.image = cachedFull
+                updateImageFrame()
+                return
+            }
+
+            // Show instant placeholder (prefer already-loaded bubble preview over L0 thumbnail).
+            let placeholder = MarkdownImageCache.shared.image(for: bubbleURL) ?? item.image
+            if let placeholder {
+                imageView.image = placeholder
+                updateImageFrame()
+            } else {
+                spinner.startAnimating()
+            }
+
+            loadTask?.cancel()
+            loadTask = Task { @MainActor [weak self] in
+                let loaded = await ImageActions.loadImage(url: fullURL)
+                guard let self, !Task.isCancelled else { return }
+                self.spinner.stopAnimating()
+                if let img = loaded {
+                    self.imageView.image = img
+                    self.updateImageFrame()
+                }
+            }
+            return
+        }
+
         if let img = item.image {
             imageView.image = img
             updateImageFrame()
-        }
-        
-        guard let url = item.url else { return }
-        
-        if url.isFileURL, let data = try? Data(contentsOf: url), let img = UIImage(data: data) {
-            imageView.image = img
-            updateImageFrame()
-            return
-        }
-        
-        if item.image == nil {
-            spinner.startAnimating()
-        }
-        loadTask?.cancel()
-        loadTask = Task { @MainActor [weak self] in
-            let loaded = await ImageActions.loadImage(url: url)
-            guard let self, !Task.isCancelled else { return }
-            self.spinner.stopAnimating()
-            if let img = loaded {
-                self.imageView.image = img
-                self.updateImageFrame()
-            }
         }
     }
     
@@ -205,13 +229,15 @@ final class SingleImagePreviewController: UIViewController, UIScrollViewDelegate
     }
     
     private func saveToPhotosAlbum() {
-        guard let image = imageView.image else {
-            showToast(message: String(localized: "图片正在加载，请稍后重试"), isError: true)
-            return
-        }
-        let fileURL = item.url
+        let fallback = imageView.image
+        let targetItem = item
         Task { @MainActor [weak self] in
-            switch await ImageActions.saveToPhotos(image, fileURL: fileURL) {
+            let resolved = await ImageActions.loadImage(targetItem) ?? fallback
+            guard let image = resolved else {
+                self?.showToast(message: String(localized: "图片正在加载，请稍后重试"), isError: true)
+                return
+            }
+            switch await ImageActions.saveToPhotos(image, fileURL: targetItem.url) {
             case .saved:
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
                 self?.showToast(message: String(localized: "已保存到相册"), isError: false)
@@ -225,11 +251,17 @@ final class SingleImagePreviewController: UIViewController, UIScrollViewDelegate
     }
     
     private func shareImage() {
-        guard let image = imageView.image else {
-            showToast(message: String(localized: "图片正在加载，请稍后重试"), isError: true)
-            return
+        let fallback = imageView.image
+        let targetItem = item
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let resolved = await ImageActions.loadImage(targetItem) ?? fallback
+            guard let image = resolved else {
+                self.showToast(message: String(localized: "图片正在加载，请稍后重试"), isError: true)
+                return
+            }
+            ImageActions.share(image, from: self, sourceView: self.view)
         }
-        ImageActions.share(image, from: self, sourceView: view)
     }
     
     private func copyImage() {

@@ -222,8 +222,17 @@ private struct UserAsyncImageBubbleView: View {
     let onTap: ([IdentifiableImage], Int) -> Void
     
     @State private var uiImage: UIImage?
+    @State private var hasLoadedRemote: Bool = false
     @State private var isLoading: Bool = false
     @State private var hasFailed: Bool = false
+    
+    private var bubbleURL: URL {
+        APIClient.shared.previewMediaURL(url, mode: .thumb)
+    }
+    
+    private var fullURL: URL {
+        APIClient.shared.previewMediaURL(url, mode: .full)
+    }
     
     init(
         url: URL,
@@ -237,7 +246,15 @@ private struct UserAsyncImageBubbleView: View {
         self.gallery = gallery
         self.index = index
         self.onTap = onTap
-        _uiImage = State(initialValue: placeholder ?? MarkdownImageCache.shared.image(for: url))
+        let full = APIClient.shared.previewMediaURL(url, mode: .full)
+        let bubble = APIClient.shared.previewMediaURL(url, mode: .thumb)
+        if let cached = MarkdownImageCache.shared.image(for: full) ?? MarkdownImageCache.shared.image(for: bubble) {
+            _uiImage = State(initialValue: cached)
+            _hasLoadedRemote = State(initialValue: true)
+        } else {
+            _uiImage = State(initialValue: placeholder)
+            _hasLoadedRemote = State(initialValue: false)
+        }
     }
     
     var body: some View {
@@ -317,22 +334,28 @@ private struct UserAsyncImageBubbleView: View {
                         RoundedRectangle(cornerRadius: 14, style: .continuous)
                             .stroke(Color.primary.opacity(0.12), lineWidth: 0.8)
                     )
-                    .task(id: url) {
-                        await loadImage()
-                    }
+            }
+        }
+        .task(id: bubbleURL) {
+            if !hasLoadedRemote {
+                await loadImage()
             }
         }
         .onAppear {
-            if uiImage == nil && !hasFailed {
-                if let cached = MarkdownImageCache.shared.image(for: url) {
+            if !hasLoadedRemote {
+                if let cached = MarkdownImageCache.shared.image(for: fullURL) ?? MarkdownImageCache.shared.image(for: bubbleURL) {
                     uiImage = cached
+                    hasLoadedRemote = true
+                    hasFailed = false
                 } else {
-                    var request = URLRequest(url: url)
+                    var request = URLRequest(url: bubbleURL)
                     request.cachePolicy = .returnCacheDataElseLoad
                     if let cachedData = URLCache.shared.cachedResponse(for: request)?.data,
                        let cached = UIImage(data: cachedData) {
-                        MarkdownImageCache.shared.insert(cached, for: url)
+                        MarkdownImageCache.shared.insert(cached, for: bubbleURL)
                         uiImage = cached
+                        hasLoadedRemote = true
+                        hasFailed = false
                     }
                 }
             }
@@ -340,16 +363,21 @@ private struct UserAsyncImageBubbleView: View {
     }
     
     private func loadImage() async {
-        if let cached = MarkdownImageCache.shared.image(for: url) {
+        let targetURL = bubbleURL
+        if let cached = MarkdownImageCache.shared.image(for: fullURL) ?? MarkdownImageCache.shared.image(for: targetURL) {
             uiImage = cached
+            hasLoadedRemote = true
+            hasFailed = false
             return
         }
-        var request = URLRequest(url: url)
+        var request = URLRequest(url: targetURL)
         request.cachePolicy = .returnCacheDataElseLoad
         if let cachedData = URLCache.shared.cachedResponse(for: request)?.data,
            let cached = UIImage(data: cachedData) {
-            MarkdownImageCache.shared.insert(cached, for: url)
+            MarkdownImageCache.shared.insert(cached, for: targetURL)
             uiImage = cached
+            hasLoadedRemote = true
+            hasFailed = false
             return
         }
         if isLoading { return }
@@ -357,23 +385,24 @@ private struct UserAsyncImageBubbleView: View {
         defer { isLoading = false }
         
         do {
-            var req = URLRequest(url: url)
+            var req = URLRequest(url: targetURL)
             req.cachePolicy = .returnCacheDataElseLoad
             req.timeoutInterval = 15
             let (data, response) = try await NetworkTransport.shared.fetchCachedData(for: req)
             if let http = response as? HTTPURLResponse, http.statusCode >= 400 {
-                hasFailed = true
+                if uiImage == nil { hasFailed = true }
                 return
             }
             if let decoded = UIImage(data: data) {
-                MarkdownImageCache.shared.insert(decoded, for: url)
+                MarkdownImageCache.shared.insert(decoded, for: targetURL)
                 uiImage = decoded
+                hasLoadedRemote = true
                 hasFailed = false
             } else {
-                hasFailed = true
+                if uiImage == nil { hasFailed = true }
             }
         } catch {
-            if !Task.isCancelled {
+            if !Task.isCancelled && uiImage == nil {
                 hasFailed = true
             }
         }

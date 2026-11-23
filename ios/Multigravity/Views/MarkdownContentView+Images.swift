@@ -77,6 +77,14 @@ struct GatewayAsyncThumbnailView: View {
     @State private var loadedImage: UIImage?
     @State private var didFail = false
 
+    private var bubbleURL: URL {
+        APIClient.shared.previewMediaURL(url, mode: .thumb)
+    }
+
+    private var fullURL: URL {
+        APIClient.shared.previewMediaURL(url, mode: .full)
+    }
+
     init(
         url: URL,
         fallbackImage: UIImage? = nil,
@@ -89,7 +97,9 @@ struct GatewayAsyncThumbnailView: View {
         self.size = size
         self.iconFontSize = iconFontSize
         self.progressScale = progressScale
-        _loadedImage = State(initialValue: MarkdownImageCache.shared.image(for: url))
+        let full = APIClient.shared.previewMediaURL(url, mode: .full)
+        let bubble = APIClient.shared.previewMediaURL(url, mode: .thumb)
+        _loadedImage = State(initialValue: MarkdownImageCache.shared.image(for: full) ?? MarkdownImageCache.shared.image(for: bubble))
     }
 
     var body: some View {
@@ -117,12 +127,17 @@ struct GatewayAsyncThumbnailView: View {
                     .frame(width: size, height: size)
             }
         }
-        .task(id: url) {
+        .task(id: bubbleURL) {
             guard loadedImage == nil else { return }
-            if let img = await ImageActions.loadImage(url: url) {
+            if let cached = MarkdownImageCache.shared.image(for: fullURL) ?? MarkdownImageCache.shared.image(for: bubbleURL) {
+                loadedImage = cached
+                didFail = false
+                return
+            }
+            if let img = await ImageActions.loadImage(url: bubbleURL) {
                 loadedImage = img
                 didFail = false
-            } else if !Task.isCancelled {
+            } else if !Task.isCancelled && fallbackImage == nil {
                 didFail = true
             }
         }
@@ -137,17 +152,32 @@ struct CachedMarkdownAsyncImageView: View {
     let onTap: (URL) -> Void
     let onFailure: (String) -> AnyView
 
+    @Environment(\.isShareExport) private var isShareExport
     @State private var uiImage: UIImage?
     @State private var isLoading = false
     @State private var hasFailed = false
+
+    private var bubbleURL: URL {
+        APIClient.shared.previewMediaURL(url, mode: .thumb)
+    }
+
+    private var fullURL: URL {
+        APIClient.shared.previewMediaURL(url, mode: .full)
+    }
+
+    private var targetURL: URL {
+        isShareExport ? fullURL : bubbleURL
+    }
 
     init(url: URL, alt: String, onTap: @escaping (URL) -> Void, onFailure: @escaping (String) -> AnyView) {
         self.url = url
         self.alt = alt
         self.onTap = onTap
         self.onFailure = onFailure
-        // 同步命中缓存，保证离屏渲染（长图卡片）首帧就有图。
-        _uiImage = State(initialValue: MarkdownImageCache.shared.image(for: url))
+        // 同步命中缓存（优先清晰预览档，其次气泡预览档），保证离屏渲染（长图卡片）首帧就有图。
+        let full = APIClient.shared.previewMediaURL(url, mode: .full)
+        let bubble = APIClient.shared.previewMediaURL(url, mode: .thumb)
+        _uiImage = State(initialValue: MarkdownImageCache.shared.image(for: full) ?? MarkdownImageCache.shared.image(for: bubble))
     }
 
     var body: some View {
@@ -179,21 +209,21 @@ struct CachedMarkdownAsyncImageView: View {
             } else {
                 ProgressView()
                     .frame(maxWidth: .infinity, minHeight: 120, maxHeight: 160, alignment: .leading)
-                    .task(id: url) {
+                    .task(id: targetURL) {
                         await loadImage()
                     }
             }
         }
         .onAppear {
             if uiImage == nil && !hasFailed {
-                if let cached = MarkdownImageCache.shared.image(for: url) {
+                if let cached = MarkdownImageCache.shared.image(for: fullURL) ?? MarkdownImageCache.shared.image(for: targetURL) {
                     uiImage = cached
                 } else {
-                    var request = URLRequest(url: url)
+                    var request = URLRequest(url: targetURL)
                     request.cachePolicy = .returnCacheDataElseLoad
                     if let cachedData = URLCache.shared.cachedResponse(for: request)?.data,
                        let cached = UIImage(data: cachedData) {
-                        MarkdownImageCache.shared.insert(cached, for: url)
+                        MarkdownImageCache.shared.insert(cached, for: targetURL)
                         uiImage = cached
                     }
                 }
@@ -202,15 +232,16 @@ struct CachedMarkdownAsyncImageView: View {
     }
 
     private func loadImage() async {
-        if let cached = MarkdownImageCache.shared.image(for: url) {
+        let fetchURL = targetURL
+        if let cached = MarkdownImageCache.shared.image(for: fullURL) ?? MarkdownImageCache.shared.image(for: fetchURL) {
             uiImage = cached
             return
         }
-        var request = URLRequest(url: url)
+        var request = URLRequest(url: fetchURL)
         request.cachePolicy = .returnCacheDataElseLoad
         if let cachedData = URLCache.shared.cachedResponse(for: request)?.data,
            let cached = UIImage(data: cachedData) {
-            MarkdownImageCache.shared.insert(cached, for: url)
+            MarkdownImageCache.shared.insert(cached, for: fetchURL)
             uiImage = cached
             return
         }
@@ -219,7 +250,7 @@ struct CachedMarkdownAsyncImageView: View {
         defer { isLoading = false }
 
         do {
-            var request = URLRequest(url: url)
+            var request = URLRequest(url: fetchURL)
             request.cachePolicy = .returnCacheDataElseLoad
             request.timeoutInterval = 15
             let (data, response) = try await NetworkTransport.shared.fetchCachedData(for: request)
@@ -228,7 +259,7 @@ struct CachedMarkdownAsyncImageView: View {
                 return
             }
             if let decoded = UIImage(data: data) {
-                MarkdownImageCache.shared.insert(decoded, for: url)
+                MarkdownImageCache.shared.insert(decoded, for: fetchURL)
                 uiImage = decoded
             } else {
                 hasFailed = true

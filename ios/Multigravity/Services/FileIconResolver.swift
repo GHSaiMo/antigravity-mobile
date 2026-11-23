@@ -1167,14 +1167,31 @@ public enum FileIconResolver {
     ]
 
     /// Checks whether a given path, URL or filename represents an image format.
+    /// Also inspects the `uri` query parameter for gateway `/api/v1/files/raw?uri=...` URLs.
     public static func isImage(for pathOrName: String) -> Bool {
-        var str = pathOrName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !str.isEmpty else { return false }
-        str = str.trimmingCharacters(in: CharacterSet(charactersIn: "`'\""))
+        let trimmed = pathOrName.trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "`'\""))
+        guard !trimmed.isEmpty else { return false }
+
+        var str = trimmed
         if let hashIdx = str.firstIndex(of: "#") { str = String(str[..<hashIdx]) }
         if let queryIdx = str.firstIndex(of: "?") { str = String(str[..<queryIdx]) }
         let ext = (str as NSString).pathExtension.lowercased()
-        return imageExtensionsSet.contains(ext)
+        if imageExtensionsSet.contains(ext) {
+            return true
+        }
+
+        // Gateway-resolved URLs carry the target file path inside `?uri=...`
+        if let comps = URLComponents(string: trimmed),
+           let uriVal = comps.queryItems?.first(where: { $0.name == "uri" })?.value,
+           !uriVal.isEmpty {
+            var inner = uriVal.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let hashIdx = inner.firstIndex(of: "#") { inner = String(inner[..<hashIdx]) }
+            if let queryIdx = inner.firstIndex(of: "?") { inner = String(inner[..<queryIdx]) }
+            let innerExt = (inner as NSString).pathExtension.lowercased()
+            return imageExtensionsSet.contains(innerExt)
+        }
+        return false
     }
 
     private static func hexColor(_ hex: UInt32) -> Color {

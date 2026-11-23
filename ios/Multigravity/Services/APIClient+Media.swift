@@ -1,6 +1,41 @@
 import Foundation
 
+public enum GatewayImagePreviewMode: String {
+    /// Chat bubble tier (~40-90KB, <=720px normal / <=480px short-side tall).
+    case thumb = "thumb"
+    /// Fullscreen & share preview tier (~150-450KB, <=1600px normal / <=1080px short-side tall).
+    case full = "1"
+}
+
 extension APIClient {
+    /// Returns a gateway preview URL for `/api/v1/files/raw` endpoints; non-gateway URLs pass through unchanged.
+    public func previewMediaURL(_ url: URL, mode: GatewayImagePreviewMode) -> URL {
+        guard !url.isFileURL,
+              let scheme = url.scheme?.lowercased(), (scheme == "http" || scheme == "https"),
+              var comps = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              comps.path.hasSuffix("/api/v1/files/raw") else {
+            return url
+        }
+        var items = (comps.queryItems ?? []).filter { $0.name.lowercased() != "preview" }
+        items.append(URLQueryItem(name: "preview", value: mode.rawValue))
+        comps.queryItems = items
+        return comps.url ?? url
+    }
+
+    /// Strips any `preview` query parameter from a `/api/v1/files/raw` URL so original file downloads stay untouched.
+    public func originalMediaURL(_ url: URL) -> URL {
+        guard !url.isFileURL,
+              var comps = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              comps.path.hasSuffix("/api/v1/files/raw"),
+              let items = comps.queryItems,
+              items.contains(where: { $0.name.lowercased() == "preview" }) else {
+            return url
+        }
+        let filtered = items.filter { $0.name.lowercased() != "preview" }
+        comps.queryItems = filtered.isEmpty ? nil : filtered
+        return comps.url ?? url
+    }
+
     /// Resolves a raw media/image URI into a loadable HTTP URL for the mobile client.
     /// Authentication is injected via HTTP `Authorization: Bearer` header in `NetworkTransport` (never in query URLs).
     public func resolveMediaURL(_ raw: String, baseURL: URL) -> String {
@@ -146,7 +181,8 @@ extension APIClient {
         let endpoint: URL
         let isDirectHttp = uri.hasPrefix("http://") || uri.hasPrefix("https://")
         if isDirectHttp, let directURL = URL(string: uri) {
-            endpoint = directURL
+            // Document/image download sheets (QuickLookPreviewSheet) must always fetch the original untouched file.
+            endpoint = originalMediaURL(directURL)
         } else {
             var cleanPath = uri.trimmingCharacters(in: .whitespacesAndNewlines)
             if cleanPath.hasPrefix("MEDIA:") {

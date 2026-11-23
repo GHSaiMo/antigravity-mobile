@@ -15,9 +15,10 @@ function initApp() {
     if (thumbCard) {
       const origUrl = thumbCard.dataset.originalUrl;
       const thumbUrl = thumbCard.dataset.thumbUrl;
+      const fallbackUrl = thumbCard.dataset.fallbackUrl;
       const title = thumbCard.dataset.title;
       if (origUrl) {
-        ImageViewerManager.open(origUrl, title, thumbUrl);
+        ImageViewerManager.open(origUrl, title, thumbUrl, fallbackUrl);
       }
       return;
     }
@@ -33,9 +34,10 @@ function initApp() {
     } else if (action === "open-lightbox") {
       const origUrl = btn.dataset.originalUrl;
       const thumbUrl = btn.dataset.thumbUrl;
+      const fallbackUrl = btn.dataset.fallbackUrl;
       const title = btn.dataset.title;
       if (origUrl) {
-        ImageViewerManager.open(origUrl, title, thumbUrl);
+        ImageViewerManager.open(origUrl, title, thumbUrl, fallbackUrl);
       }
     } else if (action === "open-attachment-file") {
       const uri = btn.dataset.uri;

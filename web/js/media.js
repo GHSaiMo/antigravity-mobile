@@ -653,30 +653,33 @@ function resolveMediaRawUrl(rawPath) {
 }
 
 /**
- * Returns candidate thumbnail URL. If original path does not have _thumb,
- * replaces .ext with _thumb.ext.
+ * Appends or replaces `?preview=<mode>` on gateway `/api/v1/files/raw` URLs.
+ * Non-gateway, data:, blob:, or external URLs are returned unchanged.
+ */
+function withImagePreviewUrl(rawUrl, mode) {
+  if (!rawUrl || !mode) return rawUrl || "";
+  if (rawUrl.startsWith("data:") || rawUrl.startsWith("blob:")) return rawUrl;
+  try {
+    const parsed = new URL(rawUrl, window.location.origin);
+    if (!parsed.pathname.endsWith("/api/v1/files/raw")) return rawUrl;
+    parsed.searchParams.set("preview", mode);
+    if (rawUrl.startsWith("/")) {
+      return `${parsed.pathname}?${parsed.searchParams.toString()}${parsed.hash || ""}`;
+    }
+    return parsed.toString();
+  } catch (_) {
+    return rawUrl;
+  }
+}
+window.withImagePreviewUrl = withImagePreviewUrl;
+
+/**
+ * Returns gateway chat-bubble thumbnail URL (`?preview=thumb`) for local files.
  */
 function resolveThumbnailRawUrl(originalPath) {
   if (!originalPath) return "";
-  let clean = String(originalPath).trim();
-  if (clean.startsWith("MEDIA:")) clean = clean.slice(6).trim();
-  clean = clean.replace(/^[`"'<(\[]+|[`>"')\]]+$/g, "");
-
-  if (clean.startsWith("data:image/") || clean.startsWith("blob:")) {
-    return clean;
-  }
-  if (clean.startsWith("http://") || clean.startsWith("https://")) {
-    return resolveMediaRawUrl(clean);
-  }
-
-  // If path already contains _thumb, use as is
-  if (/_thumb\.[a-zA-Z0-9]+$/i.test(clean)) {
-    return resolveMediaRawUrl(clean);
-  }
-
-  // Try companion _thumb file
-  const thumbPath = clean.replace(/\.([a-zA-Z0-9]+)$/, "_thumb.$1");
-  return resolveMediaRawUrl(thumbPath);
+  const rawUrl = resolveMediaRawUrl(originalPath);
+  return withImagePreviewUrl(rawUrl, "thumb");
 }
 
 /**
@@ -724,11 +727,17 @@ function isPreviewableDocumentResource(url) {
 function buildImageThumbnailCard(originalPath, thumbPath, altText) {
   if (!originalPath) return "";
   const origRawUrl = resolveMediaRawUrl(originalPath);
-  const thumbRawUrl = thumbPath ? resolveMediaRawUrl(thumbPath) : resolveThumbnailRawUrl(originalPath);
+  const isGatewayRaw = origRawUrl.includes("/api/v1/files/raw");
+  const previewFullUrl = isGatewayRaw ? withImagePreviewUrl(origRawUrl, "1") : origRawUrl;
+  const fallbackThumbUrl = thumbPath ? resolveMediaRawUrl(thumbPath) : "";
+  const bubbleThumbUrl = isGatewayRaw
+    ? withImagePreviewUrl(origRawUrl, "thumb")
+    : (fallbackThumbUrl || origRawUrl);
   const fileName = extractImageFileName(originalPath);
   const alt = altText ? altText.trim() : fileName;
-  const origAttr = protectMdAttr(escapeHtml(origRawUrl));
-  const thumbAttr = protectMdAttr(escapeHtml(thumbRawUrl));
+  const origAttr = protectMdAttr(escapeHtml(previewFullUrl));
+  const thumbAttr = protectMdAttr(escapeHtml(bubbleThumbUrl));
+  const fallbackAttr = protectMdAttr(escapeHtml(fallbackThumbUrl));
   const titleAttr = protectMdAttr(escapeHtml(fileName));
   const altAttr = protectMdAttr(escapeHtml(alt));
 
@@ -737,6 +746,7 @@ function buildImageThumbnailCard(originalPath, thumbPath, altText) {
          data-action="open-lightbox" 
          data-original-url="${origAttr}" 
          data-thumb-url="${thumbAttr}" 
+         data-fallback-url="${fallbackAttr}"
          data-title="${titleAttr}" 
          data-alt="${altAttr}"
          tabindex="0"
@@ -744,6 +754,7 @@ function buildImageThumbnailCard(originalPath, thumbPath, altText) {
          aria-label="查看图片 ${titleAttr}">
       <div class="image-thumb-media">
         <img src="${thumbAttr}" 
+             data-fallback-src="${fallbackAttr}"
              data-original-src="${origAttr}" 
              alt="${altAttr}" 
              class="image-thumb-img" 
@@ -1004,7 +1015,13 @@ window.handleThumbnailLoad = function(img) {
 
 window.handleThumbnailError = function(img) {
   if (!img) return;
-  // If thumbnail fails, try falling back to original image
+  // 1. Prefer inline L0 fallback thumbnail if gateway preview failed (e.g. source deleted on desktop)
+  if (!img.dataset.triedFallback && img.dataset.fallbackSrc && img.src !== img.dataset.fallbackSrc) {
+    img.dataset.triedFallback = "1";
+    img.src = img.dataset.fallbackSrc;
+    return;
+  }
+  // 2. Otherwise fall back to the full preview URL
   if (!img.dataset.fallback && img.dataset.originalSrc && img.src !== img.dataset.originalSrc) {
     img.dataset.fallback = "1";
     img.src = img.dataset.originalSrc;
@@ -3009,13 +3026,13 @@ const ImageViewerManager = {
     }
   },
 
-  open(originalUrl, title, thumbUrl) {
+  open(originalUrl, title, thumbUrl, fallbackUrl) {
     this.init();
     const modal = document.getElementById("image-viewer-modal");
     if (!modal) return;
 
     this.currentUrl = originalUrl;
-    this.currentTitle = title || "原图预览";
+    this.currentTitle = title || "图片预览";
     this.currentScale = 1.0;
     this.translateX = 0;
     this.translateY = 0;
@@ -3027,7 +3044,7 @@ const ImageViewerManager = {
     const viewport = document.getElementById("image-viewer-viewport");
 
     if (titleEl) titleEl.textContent = this.currentTitle;
-    if (metaEl) metaEl.textContent = "正在载入高清原图...";
+    if (metaEl) metaEl.textContent = "正在载入清晰预览...";
     if (loadingEl) loadingEl.classList.remove("hidden");
     if (viewport) viewport.scrollTop = 0;
 
@@ -3054,9 +3071,14 @@ const ImageViewerManager = {
       };
       tempImg.onerror = () => {
         if (loadingEl) loadingEl.classList.add("hidden");
-        if (metaEl) metaEl.textContent = "图片加载失败";
-        if (thumbUrl && thumbUrl !== this.currentUrl) {
-          img.src = thumbUrl;
+        const backup = (fallbackUrl && fallbackUrl !== this.currentUrl)
+          ? fallbackUrl
+          : ((thumbUrl && thumbUrl !== this.currentUrl) ? thumbUrl : "");
+        if (backup) {
+          img.src = backup;
+          if (metaEl) metaEl.textContent = "已回退显示缩略图";
+        } else if (metaEl) {
+          metaEl.textContent = "图片加载失败";
         }
       };
       tempImg.src = this.currentUrl;

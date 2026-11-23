@@ -60,8 +60,11 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.material.icons.filled.ContentCopy
+import coil.compose.AsyncImagePainter
 import coil.compose.SubcomposeAsyncImage
+import coil.compose.SubcomposeAsyncImageContent
 import coil.request.ImageRequest
+import com.antigravity.mobile.data.service.ApiClient
 import android.graphics.Bitmap
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
@@ -458,25 +461,48 @@ fun MessageBubble(
                                     contentScale = ContentScale.Crop,
                                     modifier = Modifier.fillMaxSize()
                                 )
-                            } else if (item.bytes != null || !item.url.isNullOrBlank()) {
-                                val imgUrl = item.url
-                                val stableKey = if (!imgUrl.isNullOrBlank()) {
-                                    if (imgUrl.contains("/api/v1/files/raw")) {
-                                        imgUrl.substringAfter("/api/v1/files/raw")
-                                    } else {
-                                        imgUrl
+                            } else if (!item.url.isNullOrBlank()) {
+                                val bubbleUrl = remember(item.url) {
+                                    ApiClient.withImagePreview(item.url, ApiClient.IMAGE_PREVIEW_THUMB)
+                                }
+                                val bubbleKey = remember(bubbleUrl) { ApiClient.mediaCacheKey(bubbleUrl) }
+                                val fallbackThumb = remember(item.bytes) {
+                                    item.bytes?.let { b ->
+                                        try {
+                                            BitmapFactory.decodeByteArray(b, 0, b.size)
+                                        } catch (_: Exception) { null }
                                     }
-                                } else null
+                                }
                                 SubcomposeAsyncImage(
                                     model = ImageRequest.Builder(context)
-                                        .data(item.bytes ?: item.url)
-                                        .size(256)
-                                        .apply {
-                                            if (stableKey != null) {
-                                                diskCacheKey(stableKey)
-                                                memoryCacheKey(stableKey)
+                                        .data(bubbleUrl)
+                                        .diskCacheKey(bubbleKey)
+                                        .memoryCacheKey(bubbleKey)
+                                        .crossfade(fallbackThumb == null)
+                                        .build(),
+                                    contentDescription = "Attached image",
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize()
+                                ) {
+                                    when (painter.state) {
+                                        is AsyncImagePainter.State.Success -> SubcomposeAsyncImageContent()
+                                        else -> {
+                                            if (fallbackThumb != null) {
+                                                Image(
+                                                    bitmap = fallbackThumb.asImageBitmap(),
+                                                    contentDescription = "Attached image",
+                                                    contentScale = ContentScale.Crop,
+                                                    modifier = Modifier.fillMaxSize()
+                                                )
                                             }
                                         }
+                                    }
+                                }
+                            } else if (item.bytes != null) {
+                                SubcomposeAsyncImage(
+                                    model = ImageRequest.Builder(context)
+                                        .data(item.bytes)
+                                        .size(256)
                                         .crossfade(true)
                                         .build(),
                                     contentDescription = "Attached image",

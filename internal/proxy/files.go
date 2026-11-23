@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -824,6 +825,30 @@ func (p *Proxy) HandleFileRaw(w http.ResponseWriter, r *http.Request) {
 
 	fileName := filepath.Base(filePath)
 	ext := strings.ToLower(filepath.Ext(filePath))
+
+	// Dual-tier mobile preview transcode: ?preview=thumb (bubble ~40-90KB) or ?preview=1 (viewer ~150-450KB).
+	// Unset preview or non-image/small/animated/unsupported files fall through untouched to raw streaming.
+	if previewMode := parseImagePreviewMode(q.Get("preview")); previewMode != imagePreviewNone && isTranscodablePreviewExt(ext) {
+		previewETag := fmt.Sprintf(`"%x-%x-p-%s"`, fi.ModTime().UnixNano(), fi.Size(), previewMode)
+		if strings.TrimSpace(r.Header.Get("If-None-Match")) == previewETag {
+			w.Header().Set("ETag", previewETag)
+			w.Header().Set("Cache-Control", "private, max-age=604800, must-revalidate")
+			w.WriteHeader(http.StatusNotModified)
+			return
+		}
+		if previewBytes, ok := getOrBuildImagePreview(filePath, ext, fi, f, previewMode); ok {
+			previewName := strings.TrimSuffix(fileName, filepath.Ext(fileName)) + ".jpg"
+			encodedPreviewName := url.PathEscape(previewName)
+			w.Header().Set("Content-Type", "image/jpeg")
+			w.Header().Set("Content-Disposition", fmt.Sprintf("inline; filename=%q; filename*=UTF-8''%s", previewName, encodedPreviewName))
+			w.Header().Set("ETag", previewETag)
+			w.Header().Set("Cache-Control", "private, max-age=604800, must-revalidate")
+			http.ServeContent(w, r, previewName, fi.ModTime(), bytes.NewReader(previewBytes))
+			return
+		}
+		_, _ = f.Seek(0, io.SeekStart)
+	}
+
 	switch ext {
 	case ".pptx":
 		w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.presentationml.presentation")

@@ -5,6 +5,7 @@ import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
@@ -58,6 +59,7 @@ import coil.compose.SubcomposeAsyncImage
 import coil.compose.SubcomposeAsyncImageContent
 import coil.imageLoader
 import coil.request.ImageRequest
+import com.antigravity.mobile.data.service.ApiClient
 import coil.request.SuccessResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -261,24 +263,71 @@ fun ImageViewerSheet(
                             contentScale = ContentScale.Fit,
                             modifier = Modifier.fillMaxSize()
                         )
-                    } else if (item?.bytes != null || !item?.url.isNullOrBlank()) {
-                        val imgUrl = item?.url
-                        val stableKey = if (!imgUrl.isNullOrBlank()) {
-                            if (imgUrl.contains("/api/v1/files/raw")) {
-                                imgUrl.substringAfter("/api/v1/files/raw")
-                            } else {
-                                imgUrl
+                    } else if (!item?.url.isNullOrBlank()) {
+                        val imgUrl = item!!.url!!
+                        val fullUrl = remember(imgUrl) {
+                            ApiClient.withImagePreview(imgUrl, ApiClient.IMAGE_PREVIEW_FULL)
+                        }
+                        val fullKey = remember(fullUrl) { ApiClient.mediaCacheKey(fullUrl) }
+                        val bubbleKey = remember(imgUrl) {
+                            ApiClient.mediaCacheKey(ApiClient.withImagePreview(imgUrl, ApiClient.IMAGE_PREVIEW_THUMB))
+                        }
+                        val fallbackThumb = remember(item.bytes) {
+                            item.bytes?.let { b ->
+                                try {
+                                    BitmapFactory.decodeByteArray(b, 0, b.size)
+                                } catch (_: Exception) { null }
                             }
-                        } else null
+                        }
                         SubcomposeAsyncImage(
                             model = ImageRequest.Builder(context)
-                                .data(item?.bytes ?: item?.url)
-                                .apply {
-                                    if (stableKey != null) {
-                                        diskCacheKey(stableKey)
-                                        memoryCacheKey(stableKey)
+                                .data(fullUrl)
+                                .diskCacheKey(fullKey)
+                                .memoryCacheKey(fullKey)
+                                .placeholderMemoryCacheKey(bubbleKey)
+                                .crossfade(false)
+                                .build(),
+                            contentDescription = "Full image preview",
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier.fillMaxSize()
+                        ) {
+                            val state = painter.state
+                            if (state is AsyncImagePainter.State.Loading) {
+                                if (state.painter != null) {
+                                    SubcomposeAsyncImageContent()
+                                } else if (fallbackThumb != null) {
+                                    Image(
+                                        bitmap = fallbackThumb.asImageBitmap(),
+                                        contentDescription = "Full image preview",
+                                        contentScale = ContentScale.Fit,
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                } else {
+                                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                        CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp)
                                     }
                                 }
+                            } else if (state is AsyncImagePainter.State.Error) {
+                                if (fallbackThumb != null) {
+                                    Image(
+                                        bitmap = fallbackThumb.asImageBitmap(),
+                                        contentDescription = "Full image preview",
+                                        contentScale = ContentScale.Fit,
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                } else {
+                                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                        Text("图片加载失败".loc, color = Color.White.copy(alpha = 0.7f), fontSize = 14.sp)
+                                    }
+                                }
+                            } else {
+                                SubcomposeAsyncImageContent()
+                            }
+                        }
+                    } else if (item?.bytes != null) {
+                        SubcomposeAsyncImage(
+                            model = ImageRequest.Builder(context)
+                                .data(item.bytes)
                                 .crossfade(true)
                                 .build(),
                             contentDescription = "Full image preview",

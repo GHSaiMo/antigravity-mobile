@@ -138,14 +138,21 @@ func newBase64Reader(b64 string) io.Reader {
 // mediaThumbMaxDim on either side, or "" if the image cannot be decoded or exceeds maxMediaDecodePixels.
 func makeMediaThumbnail(b64 string) string {
 	// 1. Stream header only through DecodeConfig to block decompression bombs without allocating raw []byte
-	cfg, _, err := image.DecodeConfig(newBase64Reader(b64))
+	cfg, format, err := image.DecodeConfig(newBase64Reader(b64))
 	if err != nil || cfg.Width <= 0 || cfg.Height <= 0 || int64(cfg.Width)*int64(cfg.Height) > maxMediaDecodePixels {
 		return ""
+	}
+	orient := 1
+	if format == "jpeg" {
+		orient = readJPEGEXIFOrientation(newBase64Reader(b64))
 	}
 	// 2. Stream full image decode without intermediate raw []byte copy
 	src, _, err := image.Decode(newBase64Reader(b64))
 	if err != nil {
 		return ""
+	}
+	if orient > 1 && orient <= 8 {
+		src = applyEXIFOrientation(src, orient)
 	}
 	var buf bytes.Buffer
 	if err := jpeg.Encode(&buf, downscaleImage(src, mediaThumbMaxDim), &jpeg.Options{Quality: mediaThumbJPEGQuality}); err != nil {
@@ -154,7 +161,7 @@ func makeMediaThumbnail(b64 string) string {
 	return base64.StdEncoding.EncodeToString(buf.Bytes())
 }
 
-// downscaleImage fits src into maxDim×maxDim, averaging a 2×2 sample grid per output pixel.
+// downscaleImage fits src into maxDim×maxDim using area-averaging and alpha-over-white compositing.
 func downscaleImage(src image.Image, maxDim int) image.Image {
 	b := src.Bounds()
 	sw, sh := b.Dx(), b.Dy()
@@ -175,28 +182,5 @@ func downscaleImage(src image.Image, maxDim int) image.Image {
 	if dh < 1 {
 		dh = 1
 	}
-	dst := image.NewRGBA(image.Rect(0, 0, dw, dh))
-	pix := dst.Pix
-	stride := dst.Stride
-	for y := 0; y < dh; y++ {
-		rowOff := y * stride
-		for x := 0; x < dw; x++ {
-			var r, g, bl, a uint32
-			for _, oy := range [2]int{1, 3} {
-				sy := b.Min.Y + (y*4+oy)*sh/(dh*4)
-				for _, ox := range [2]int{1, 3} {
-					sx := b.Min.X + (x*4+ox)*sw/(dw*4)
-					cr, cg, cb, ca := src.At(sx, sy).RGBA()
-					r, g, bl, a = r+cr, g+cg, bl+cb, a+ca
-				}
-			}
-			// Average of 4 16-bit premultiplied RGBA samples -> 8-bit: (sum / 4) >> 8 == sum >> 10
-			i := rowOff + x*4
-			pix[i+0] = uint8(r >> 10)
-			pix[i+1] = uint8(g >> 10)
-			pix[i+2] = uint8(bl >> 10)
-			pix[i+3] = uint8(a >> 10)
-		}
-	}
-	return dst
+	return downscaleImageArea(src, dw, dh)
 }

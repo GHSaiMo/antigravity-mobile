@@ -48,6 +48,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
+import com.antigravity.mobile.data.service.ApiClient
 import com.antigravity.mobile.data.service.FileIconResolver
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -269,13 +270,12 @@ internal fun MarkdownImageView(
         return
     }
 
-    val stableCacheKey = remember(url, resolvedUrl) {
-        if (resolvedUrl.contains("/api/v1/files/raw")) {
-            resolvedUrl.substringAfter("/api/v1/files/raw")
-        } else {
-            url
-        }
+    val isShareExport = LocalShareExport.current
+    val displayUrl = remember(resolvedUrl, isShareExport) {
+        val mode = if (isShareExport) ApiClient.IMAGE_PREVIEW_FULL else ApiClient.IMAGE_PREVIEW_THUMB
+        ApiClient.withImagePreview(resolvedUrl, mode)
     }
+    val stableCacheKey = remember(displayUrl) { ApiClient.mediaCacheKey(displayUrl) }
 
     var showMenu by remember { mutableStateOf(false) }
 
@@ -291,10 +291,10 @@ internal fun MarkdownImageView(
         )
         SubcomposeAsyncImage(
             model = ImageRequest.Builder(context)
-                .data(resolvedUrl)
+                .data(displayUrl)
                 .diskCacheKey(stableCacheKey)
                 .memoryCacheKey(stableCacheKey)
-                .crossfade(!LocalShareExport.current)
+                .crossfade(!isShareExport)
                 .build(),
             contentDescription = alt.ifBlank { "图片".loc },
             contentScale = ContentScale.Fit,

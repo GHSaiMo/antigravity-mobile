@@ -11,11 +11,15 @@ enum ImageActions {
 
     // MARK: - Loading
 
-    /// 取得可操作的 UIImage：优先内存里的图，其次共享缓存，最后走网络（带 URLCache）。
+    /// 取得可操作的 UIImage：有远程 URL 时优先拉取清晰预览档（`preview=1`，约几百 KB），失败或无 URL 时回退到内存图。
     static func loadImage(_ item: IdentifiableImage) async -> UIImage? {
-        if let image = item.image { return image }
-        guard let url = item.url else { return nil }
-        return await loadImage(url: url)
+        if let url = item.url {
+            let targetURL = url.isFileURL ? url : APIClient.shared.previewMediaURL(url, mode: .full)
+            if let loaded = await loadImage(url: targetURL) {
+                return loaded
+            }
+        }
+        return item.image
     }
 
     static func loadImage(url: URL) async -> UIImage? {

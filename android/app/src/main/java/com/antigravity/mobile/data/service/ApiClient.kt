@@ -65,6 +65,49 @@ class ApiClient(
     }
 
     companion object {
+        const val IMAGE_PREVIEW_THUMB = "thumb"
+        const val IMAGE_PREVIEW_FULL = "1"
+
+        /**
+         * Appends or replaces `?preview=<mode>` on gateway `/api/v1/files/raw` URLs.
+         * Non-gateway / external / static URLs are returned unchanged.
+         */
+        fun withImagePreview(url: String, mode: String): String {
+            val parsed = url.toHttpUrlOrNull() ?: return url
+            if (!parsed.encodedPath.endsWith("/api/v1/files/raw")) return url
+            return parsed.newBuilder()
+                .removeAllQueryParameters("preview")
+                .addQueryParameter("preview", mode)
+                .build()
+                .toString()
+        }
+
+        /**
+         * Removes any `preview` query parameter from gateway `/api/v1/files/raw` URLs so
+         * independent document/image download sheets always fetch the untouched original file.
+         */
+        fun stripImagePreview(url: String): String {
+            val parsed = url.toHttpUrlOrNull() ?: return url
+            if (!parsed.encodedPath.endsWith("/api/v1/files/raw")) return url
+            if (parsed.queryParameter("preview") == null) return url
+            return parsed.newBuilder()
+                .removeAllQueryParameters("preview")
+                .build()
+                .toString()
+        }
+
+        /**
+         * Stable Coil cache key for gateway media URLs (includes query params like `uri` and `preview`
+         * so bubble thumbnails and fullscreen previews never collide in cache).
+         */
+        fun mediaCacheKey(url: String): String {
+            return if (url.contains("/api/v1/files/raw")) {
+                url.substringAfter("/api/v1/files/raw")
+            } else {
+                url
+            }
+        }
+
         @Volatile
         var defaultInstance: ApiClient? = null
 
@@ -1182,7 +1225,8 @@ class ApiClient(
         onProgress: ((progress: Float, written: Long, total: Long) -> Unit)? = null
     ): Result<java.io.File> = withContext(Dispatchers.IO) {
         try {
-            val resolvedUrl = resolveMediaURL(uri)
+            // Document/image download sheet (DocumentPreviewSheet) always downloads the untouched original file.
+            val resolvedUrl = stripImagePreview(resolveMediaURL(uri))
             val parsedTarget = resolvedUrl.toHttpUrlOrNull()
                 ?: return@withContext Result.failure(IllegalArgumentException("无效的文件链接".loc))
             val isGatewayOrigin = isConfiguredGatewayOrigin(parsedTarget, prefs)

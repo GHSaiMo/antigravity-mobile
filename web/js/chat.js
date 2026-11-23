@@ -3245,7 +3245,8 @@ const LocalQueueManager = {
         const src = raw.startsWith("data:") ? raw : `data:image/jpeg;base64,${raw}`;
         thumbHtml = `<img class="queued-item-thumb" src="${escapeHtml(src)}" alt="attachment" />`;
       } else if (item.imageUrls && item.imageUrls.length > 0) {
-        thumbHtml = `<img class="queued-item-thumb" src="${escapeHtml(item.imageUrls[0])}" alt="attachment" />`;
+        const thumbSrc = typeof resolveThumbnailRawUrl === "function" ? resolveThumbnailRawUrl(item.imageUrls[0]) : item.imageUrls[0];
+        thumbHtml = `<img class="queued-item-thumb" src="${escapeHtml(thumbSrc)}" alt="attachment" />`;
       }
       const safeId = escapeHtml(String(item.id ?? ""));
       return `

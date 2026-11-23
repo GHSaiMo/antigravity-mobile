@@ -150,11 +150,19 @@ extension ChatMessage {
     var attachmentImages: [IdentifiableImage] {
         let validImageUrls = imageUrls.filter { FileIconResolver.isImage(for: $0) }
         if !validImageUrls.isEmpty {
-            return validImageUrls.enumerated().compactMap { idx, urlString in
+            var list: [IdentifiableImage] = validImageUrls.enumerated().compactMap { idx, urlString in
                 guard let url = URL(string: urlString) else { return nil }
                 let thumb = idx < imageDataList.count ? UIImage(data: imageDataList[idx]) : nil
                 return IdentifiableImage(image: thumb, url: url)
             }
+            if imageDataList.count > validImageUrls.count {
+                for idx in validImageUrls.count..<imageDataList.count {
+                    if let img = UIImage(data: imageDataList[idx]) {
+                        list.append(IdentifiableImage(image: img))
+                    }
+                }
+            }
+            return list
         }
         return imageDataList.compactMap { data in
             guard let image = UIImage(data: data) else { return nil }
@@ -627,7 +635,8 @@ struct MessageShareCardSheet: View {
         }
         await withTaskGroup(of: Void.self) { group in
             for url in urls {
-                group.addTask { _ = await ImageActions.loadImage(url: url) }
+                let previewURL = APIClient.shared.previewMediaURL(url, mode: .full)
+                group.addTask { _ = await ImageActions.loadImage(url: previewURL) }
             }
         }
     }
