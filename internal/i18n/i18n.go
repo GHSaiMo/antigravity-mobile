@@ -144,3 +144,42 @@ func normalizeLang(s string) string {
 		return ""
 	}
 }
+
+func isEncodingOnlyLocale(lower string) bool {
+	return lower == "" || lower == "utf-8" || lower == "utf8"
+}
+
+func isNeutralPosixLocale(lower string) bool {
+	return lower == "c" || lower == "posix" ||
+		strings.HasPrefix(lower, "c.") || strings.HasPrefix(lower, "posix.")
+}
+
+// detectEnvLocale inspects standard POSIX locale environment variables in priority order.
+// Neutral encoding/POSIX placeholders (UTF-8, C, POSIX, C.UTF-8) do not short-circuit
+// before remaining env vars or OS-native UI language APIs (e.g. macOS AppleLanguages,
+// Windows GetUserDefaultUILanguage), because IDE terminals (VS Code, tmux, Git Bash)
+// frequently inject LANG=C.UTF-8 even on Chinese/Japanese desktops.
+func detectEnvLocale() (lang string, sawPosixFallback bool) {
+	for _, envKey := range []string{"LC_ALL", "LC_MESSAGES", "LANG", "LANGUAGE"} {
+		raw := strings.TrimSpace(os.Getenv(envKey))
+		if raw == "" {
+			continue
+		}
+		for _, part := range strings.Split(raw, ":") {
+			lower := strings.ToLower(strings.TrimSpace(part))
+			if isEncodingOnlyLocale(lower) {
+				continue
+			}
+			if isNeutralPosixLocale(lower) {
+				sawPosixFallback = true
+				continue
+			}
+			if norm := normalizeLang(lower); norm != "" {
+				return norm, false
+			}
+			// Any other explicit non-Chinese/non-Japanese locale defaults to English.
+			return LangEn, false
+		}
+	}
+	return "", sawPosixFallback
+}
