@@ -30,12 +30,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.CheckCircleOutline
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.PauseCircleOutline
+import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -377,6 +379,90 @@ internal fun formatElapsedDuration(elapsedMs: Long): String {
 }
 
 /**
+ * Level-2 collapsible thinking process block used inside ActiveFocusToolRow,
+ * ToolStepCollapseCard, and standalone reasoning sections.
+ */
+@Composable
+fun CollapsibleThinkingBlock(
+    thinkingText: String,
+    initiallyExpanded: Boolean = false,
+    modifier: Modifier = Modifier
+) {
+    val colors = AntigravityTheme.colors
+    val haptic = rememberHaptic()
+    var isExpanded by remember { mutableStateOf(initiallyExpanded) }
+    val chevronAngle by animateFloatAsState(
+        targetValue = if (isExpanded) 90f else 0f,
+        animationSpec = spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMedium),
+        label = "thinkingChevron"
+    )
+
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(colors.accentIndigo.copy(alpha = 0.08f))
+            .border(0.5.dp, colors.accentIndigo.copy(alpha = 0.16f), RoundedCornerShape(8.dp))
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable {
+                    haptic.light()
+                    isExpanded = !isExpanded
+                }
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.Psychology,
+                contentDescription = "Thinking",
+                tint = colors.accentIndigo,
+                modifier = Modifier.size(13.dp)
+            )
+            Text(
+                text = "思考过程".loc,
+                color = colors.accentIndigo,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.weight(1f)
+            )
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = if (isExpanded) "Collapse" else "Expand",
+                tint = colors.accentIndigo.copy(alpha = 0.7f),
+                modifier = Modifier
+                    .size(14.dp)
+                    .rotate(chevronAngle)
+            )
+        }
+
+        AnimatedVisibility(
+            visible = isExpanded,
+            enter = expandVertically(
+                animationSpec = spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMediumLow)
+            ) + fadeIn(),
+            exit = shrinkVertically(
+                animationSpec = spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMediumLow)
+            ) + fadeOut()
+        ) {
+            SelectionContainer {
+                Text(
+                    text = thinkingText,
+                    color = colors.textSecondary,
+                    fontSize = 12.sp,
+                    lineHeight = 16.sp,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 12.dp, end = 12.dp, top = 2.dp, bottom = 8.dp)
+                )
+            }
+        }
+    }
+}
+
+/**
  * Live focus status line + 1-second elapsed timer + expandable tool details,
  * matching Antigravity desktop `tSc` + `rSc` right underneath the StepPlan card.
  */
@@ -495,28 +581,7 @@ fun ActiveFocusToolRow(
                 verticalArrangement = Arrangement.spacedBy(5.dp)
             ) {
                 if (!thinkingText.isNullOrBlank()) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(colors.surfaceVariant.copy(alpha = 0.55f))
-                            .border(0.5.dp, colors.border.copy(alpha = 0.45f), RoundedCornerShape(8.dp))
-                            .padding(horizontal = 12.dp, vertical = 8.dp)
-                    ) {
-                        Text(
-                            text = "思考过程".loc,
-                            color = colors.textSecondary,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        Spacer(Modifier.height(3.dp))
-                        Text(
-                            text = thinkingText,
-                            color = colors.textSecondary,
-                            fontSize = 12.sp,
-                            lineHeight = 16.sp
-                        )
-                    }
+                    CollapsibleThinkingBlock(thinkingText = thinkingText.trim())
                 }
 
                 if (!toolDetails.isNullOrEmpty()) {

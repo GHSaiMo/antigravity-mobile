@@ -151,28 +151,10 @@ fun ToolStepCollapseCard(
                 verticalArrangement = Arrangement.spacedBy(5.dp)
             ) {
                 if (!thinkingText.isNullOrBlank()) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(colors.surfaceVariant.copy(alpha = 0.55f))
-                            .border(0.5.dp, colors.border.copy(alpha = 0.45f), RoundedCornerShape(8.dp))
-                            .padding(horizontal = 12.dp, vertical = 8.dp)
-                    ) {
-                        Text(
-                            text = "思考过程".loc,
-                            color = colors.textSecondary,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        Spacer(Modifier.height(3.dp))
-                        Text(
-                            text = thinkingText,
-                            color = colors.textSecondary,
-                            fontSize = 12.sp,
-                            lineHeight = 16.sp
-                        )
-                    }
+                    CollapsibleThinkingBlock(
+                        thinkingText = thinkingText.trim(),
+                        initiallyExpanded = !hasTools
+                    )
                 }
                 toolCalls.forEachIndexed { index, tool ->
                     val detailMeta = toolDetails?.getOrNull(index)

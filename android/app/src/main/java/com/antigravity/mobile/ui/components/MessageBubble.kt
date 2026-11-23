@@ -378,47 +378,13 @@ fun MessageBubble(
 
         // Render Reasoning / Thinking section if present
         message.reasoningContent?.takeIf { it.isNotBlank() }?.let { reasoning ->
-            Column(
+            CollapsibleThinkingBlock(
+                thinkingText = reasoning.trim(),
+                initiallyExpanded = false,
                 modifier = Modifier
                     .fillMaxWidth(0.95f)
-                    .shadow(
-                        elevation = 1.dp,
-                        shape = RoundedCornerShape(12.dp),
-                        ambientColor = Color.Black.copy(alpha = 0.04f),
-                        spotColor = Color.Black.copy(alpha = 0.06f)
-                    )
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(colors.surfaceVariant.copy(alpha = 0.5f))
-                    .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
-                    .padding(10.dp)
-                    .padding(bottom = 4.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Psychology,
-                        contentDescription = "Thinking",
-                        tint = colors.accentIndigo,
-                        modifier = Modifier.size(14.dp)
-                    )
-                    Text(
-                        text = "思考过程".loc,
-                        color = colors.textMuted,
-                        fontSize = 11.5.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
-                Text(
-                    text = reasoning.take(320) + if (reasoning.length > 320) "..." else "",
-                    color = colors.textSecondary,
-                    fontSize = 12.sp,
-                    lineHeight = 16.sp
-                )
-            }
-            Spacer(modifier = Modifier.height(4.dp))
+                    .padding(bottom = 6.dp)
+            )
         }
 
         // Render Message Content

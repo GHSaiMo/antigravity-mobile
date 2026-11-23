@@ -228,6 +228,67 @@ public struct StepPlanCardView: View {
     }
 }
 
+// MARK: - Collapsible Thinking Process Block (Level-2 Disclosure inside Focus Row / Tool Batch)
+
+public struct CollapsibleThinkingBlockView: View {
+    public let thinking: String
+    @State private var isExpanded: Bool
+
+    public init(thinking: String, initiallyExpanded: Bool = false) {
+        self.thinking = thinking
+        self._isExpanded = State(initialValue: initiallyExpanded)
+    }
+
+    public var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                withAnimation(.spring(response: 0.28, dampingFraction: 0.92)) {
+                    isExpanded.toggle()
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Label("思考过程", systemImage: "brain")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(.indigo)
+
+                    Spacer(minLength: 4)
+
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 9.5, weight: .semibold))
+                        .foregroundColor(.indigo.opacity(0.7))
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if isExpanded {
+                Text(thinking)
+                    .font(.system(size: 11.5))
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12)
+                    .padding(.top, 2)
+                    .padding(.bottom, 8)
+                    .transition(.opacity)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.indigo.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(Color.indigo.opacity(0.14), lineWidth: 0.5)
+        )
+    }
+}
+
 // MARK: - Live Focus Status Row + Elapsed Timer (Matches Desktop Antigravity `tSc` + `rSc`)
 
 public enum ElapsedTimerFormatter {
@@ -324,20 +385,7 @@ public struct ActiveFocusToolRowView: View {
             if isExpanded && hasDetails {
                 VStack(alignment: .leading, spacing: 5) {
                     if let thinking = thinking?.trimmingCharacters(in: .whitespacesAndNewlines), !thinking.isEmpty {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Label("思考过程", systemImage: "brain")
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundColor(.indigo)
-                            Text(thinking)
-                                .font(.system(size: 11.5))
-                                .foregroundColor(.secondary)
-                                .textSelection(.enabled)
-                        }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Color.indigo.opacity(0.08))
-                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        CollapsibleThinkingBlockView(thinking: thinking)
                     }
 
                     if let details = toolDetails, !details.isEmpty {

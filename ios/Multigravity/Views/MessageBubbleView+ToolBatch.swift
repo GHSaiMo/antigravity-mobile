@@ -30,6 +30,10 @@ extension MessageBubbleView {
             self.toolDetails = toolDetails
         }
         
+        private var hasTools: Bool {
+            max(count, tools.count) > 0 || !(toolDetails?.isEmpty ?? true)
+        }
+
         private var resolvedTools: [String] {
             if !tools.isEmpty {
                 return tools
@@ -95,27 +99,17 @@ extension MessageBubbleView {
                 if isExpanded {
                     LazyVStack(alignment: .leading, spacing: 5) {
                         if let thinking = thinking?.trimmingCharacters(in: .whitespacesAndNewlines), !thinking.isEmpty {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Label("思考过程", systemImage: "brain")
-                                    .font(.system(size: 11, weight: .semibold))
-                                    .foregroundColor(.indigo)
-                                Text(thinking)
-                                    .font(.system(size: 11.5))
-                                    .foregroundColor(.secondary)
-                                    .textSelection(.enabled)
-                            }
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(Color.indigo.opacity(0.08))
-                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                            CollapsibleThinkingBlockView(
+                                thinking: thinking,
+                                initiallyExpanded: !hasTools
+                            )
                         }
 
                         if let details = toolDetails, !details.isEmpty {
                             ForEach(Array(details.enumerated()), id: \.offset) { _, detail in
                                 toolDetailRow(detail)
                             }
-                        } else {
+                        } else if hasTools {
                             ForEach(Array(resolvedTools.enumerated()), id: \.offset) { _, toolName in
                                 HStack(spacing: 8) {
                                     Image(systemName: "puzzlepiece.extension.fill")

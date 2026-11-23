@@ -2194,7 +2194,26 @@ function generateItemHtml(item, isRunning, isLastItem, isActivePlan = false) {
     const localizedNames = [...new Set((item.toolNames || []).filter(n => n !== "thinking").map(formatToolName))];
     const toolNamesStr = localizedNames.join(", ") + (localizedNames.length > 2 ? "..." : "");
     const liveThinking = (item.thinking || "").trim();
-    const thinkingHtml = liveThinking ? `<div class="p3-thinking-detail">${escapeHtml(liveThinking)}</div>` : "";
+    const openThinkingByDefault = !isActive && toolCount === 0;
+    const thinkingHtml = liveThinking
+      ? `
+        <details class="p3-thinking-accordion"${openThinkingByDefault ? " open" : ""}>
+          <summary class="p3-thinking-summary">
+            <span class="p3-thinking-title">
+              <svg class="p3-thinking-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96.44 2.5 2.5 0 0 1-2.96-3.08 3 3 0 0 1-.34-5.58 2.5 2.5 0 0 1 1.32-4.24 2.5 2.5 0 0 1 1.98-3A2.5 2.5 0 0 1 9.5 2Z"></path>
+                <path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96.44 2.5 2.5 0 0 0 2.96-3.08 3 3 0 0 0 .34-5.58 2.5 2.5 0 0 0-1.32-4.24 2.5 2.5 0 0 0-1.98-3A2.5 2.5 0 0 0 14.5 2Z"></path>
+              </svg>
+              <span>思考过程</span>
+            </span>
+            <svg class="p3-thinking-chevron" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <polyline points="9 6 15 12 9 18"></polyline>
+            </svg>
+          </summary>
+          <div class="p3-thinking-detail">${escapeHtml(liveThinking)}</div>
+        </details>
+      `
+      : "";
     const stepItemsHtml = item.steps.filter(s => s.name !== "thinking").map(s => `
       <div class="tool-step-item">
         <div class="tool-step-left">
@@ -2541,10 +2560,15 @@ function renderMessages(steps, isRunning = false) {
             patchAgentBodyHtml(bodyEl, bodyHtml);
           } else {
             const wasOpen = existingEl.querySelector("details")?.open;
+            const wasThinkingOpen = existingEl.querySelector("details.p3-thinking-accordion")?.open;
             existingEl.innerHTML = generateItemHtml(item, isRunning, isLastItem, isActivePlan);
             if (wasOpen) {
               const newDetails = existingEl.querySelector("details");
               if (newDetails) newDetails.open = true;
+            }
+            if (wasThinkingOpen !== undefined) {
+              const newThinkingDetails = existingEl.querySelector("details.p3-thinking-accordion");
+              if (newThinkingDetails) newThinkingDetails.open = wasThinkingOpen;
             }
           }
           hasDOMChanges = true;
