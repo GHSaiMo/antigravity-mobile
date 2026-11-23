@@ -894,6 +894,167 @@ function hydrateAllAgentEmbeds(root = document) {
 }
 window.hydrateAllAgentEmbeds = hydrateAllAgentEmbeds;
 
+window.isWebDarkTheme = function() {
+  const attr = document.documentElement.getAttribute("data-theme");
+  if (attr === "light") return false;
+  if (attr === "dark") return true;
+  if (document.documentElement.classList.contains("dark")) return true;
+  if (document.documentElement.classList.contains("light")) return false;
+  return !(window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches);
+};
+
+window.usesAntigravityTheme = function(html) {
+  const lower = String(html || "").toLowerCase();
+  if (lower.includes("data-marpit-svg") || lower.includes("bespoke-marp") || lower.includes("marpit")) {
+    return false;
+  }
+  if (lower.includes("gstatic.com/antigravity")) return true;
+  if (lower.includes("themechange") && lower.includes("addeventlistener")) return true;
+  if (lower.includes("classlist.contains('light')") || lower.includes('classlist.contains("light")')) return true;
+  const semanticRefs = [
+    "var(--background)", "var(--foreground)", "var(--card)", "var(--card-border)",
+    "var(--content)", "var(--muted-foreground)", "var(--chart-1)", "var(--chart-2)",
+    "var(--chart-3)", "var(--code-foreground)"
+  ];
+  if (!semanticRefs.some(ref => lower.includes(ref))) return false;
+  const selfDefinesBg = /--background\s*:/i.test(html);
+  const selfDefinesFg = /--foreground\s*:/i.test(html);
+  return !(selfDefinesBg && selfDefinesFg);
+};
+
+window.buildAntigravityThemeCss = function(isDark, mode = "inline", includeContainerTheme = true) {
+  const paletteDark = includeContainerTheme ? !!isDark : false;
+  const vars = `:root {
+  --background: ${paletteDark ? "#0f1117" : "#ffffff"};
+  --content: ${paletteDark ? "#13161f" : "#f8fafc"};
+  --card: ${paletteDark ? "#181c26" : "#f4f4f5"};
+  --sidebar: ${paletteDark ? "#141720" : "#fafafa"};
+  --card-border: ${paletteDark ? "rgba(255, 255, 255, 0.10)" : "rgba(15, 23, 42, 0.10)"};
+  --border: ${paletteDark ? "rgba(255, 255, 255, 0.14)" : "rgba(15, 23, 42, 0.13)"};
+  --foreground: ${paletteDark ? "#f4f4f5" : "#18181b"};
+  --muted-foreground: ${paletteDark ? "#a1a1aa" : "#64748b"};
+  --placeholder: ${paletteDark ? "#71717a" : "#94a3b8"};
+  --code-foreground: ${paletteDark ? "#e4e4e7" : "#1e293b"};
+  --primary: ${paletteDark ? "#6e7bf2" : "#4f46e5"};
+  --primary-foreground: #ffffff;
+  --secondary: ${paletteDark ? "#27272a" : "#e4e4e7"};
+  --secondary-foreground: ${paletteDark ? "#f4f4f5" : "#18181b"};
+  --accent: ${paletteDark ? "rgba(255, 255, 255, 0.08)" : "rgba(15, 23, 42, 0.06)"};
+  --accent-foreground: ${paletteDark ? "#f4f4f5" : "#18181b"};
+  --muted: ${paletteDark ? "#27272a" : "#f4f4f5"};
+  --link: ${paletteDark ? "#60a5fa" : "#2563eb"};
+  --success: ${paletteDark ? "#34d399" : "#16a34a"};
+  --warning: ${paletteDark ? "#fbbf24" : "#d97706"};
+  --error: ${paletteDark ? "#f87171" : "#dc2626"};
+  --destructive: ${paletteDark ? "#f87171" : "#dc2626"};
+  --destructive-foreground: #ffffff;
+  --chart-1: ${paletteDark ? "#60a5fa" : "#2563eb"};
+  --chart-2: ${paletteDark ? "#a78bfa" : "#7c3aed"};
+  --chart-3: ${paletteDark ? "#2dd4bf" : "#0d9488"};
+  --chart-4: ${paletteDark ? "#fb923c" : "#ea580c"};
+  --chart-5: ${paletteDark ? "#f472b6" : "#db2777"};
+  --chart-6: ${paletteDark ? "#facc15" : "#ca8a04"};${includeContainerTheme ? `\n  color-scheme: ${isDark ? "dark" : "light"};` : ""}
+}`;
+  if (mode === "standalone") {
+    if (!includeContainerTheme) return vars;
+    return `${vars}
+:where(*) { box-sizing: border-box; }
+:where(html, body) {
+  margin: 0;
+  background-color: var(--background);
+  color: var(--foreground);
+  font-size: 14px;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+}`;
+  }
+  return `${vars}
+:where(*) { box-sizing: border-box; }
+:where(html, body) {
+  margin: 0; padding: 8px; background: transparent;
+  color: var(--foreground);
+  font-size: 14px;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+  -webkit-text-size-adjust: 100%;
+  touch-action: pan-x pan-y;
+  overscroll-behavior: none;
+}
+:where(img, svg, video) { max-width: 100%; }`;
+};
+
+function applyHtmlRootThemeClass(html, isDark) {
+  const darkClass = isDark ? "dark" : "light";
+  const oppositeClass = isDark ? "light" : "dark";
+  return html.replace(/<html\b([^>]*)>/i, (_, attrs) => {
+    if (/\bclass\s*=\s*(["'])([^"']*)\1/i.test(attrs)) {
+      const updatedAttrs = attrs.replace(/(\bclass\s*=\s*)(["'])([^"']*)\2/i, (__, prefix, quote, existing) => {
+        const tokens = existing.split(/\s+/).filter(t => t && t !== oppositeClass && t !== darkClass);
+        return `${prefix}${quote}${[darkClass, ...tokens].join(" ")}${quote}`;
+      });
+      return `<html${updatedAttrs}>`;
+    }
+    return `<html class="${darkClass}"${attrs}>`;
+  });
+}
+
+window.buildAntigravityThemedHtml = function(rawContent, isDark, options = {}) {
+  const mode = options.mode === "standalone" ? "standalone" : "inline";
+  let rawHtml = String(rawContent || "");
+  const isGenUi = mode === "inline" ? true : window.usesAntigravityTheme(rawHtml);
+
+  if (mode === "inline") {
+    rawHtml = rawHtml.replace(/<meta\s+[^>]*?name\s*=\s*["']viewport["'][^>]*>/gi, "");
+  }
+  if (isGenUi) {
+    rawHtml = applyHtmlRootThemeClass(rawHtml, isDark);
+  }
+
+  const cspMeta = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js; style-src 'unsafe-inline'; img-src data: blob: https:; font-src data:; media-src data: blob:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none';">`;
+  const hasViewport = /<meta\s+[^>]*?name\s*=\s*["']viewport["'][^>]*>/i.test(rawHtml);
+  const viewportMeta = mode === "inline"
+    ? `<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover">`
+    : (hasViewport ? "" : `<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">`);
+  const themeStyle = `<style id="antigravity-theme-vars">\n${window.buildAntigravityThemeCss(isDark, mode, isGenUi)}\n</style>`;
+
+  const liveSyncScript = isGenUi ? `<script id="antigravity-theme-sync">
+    (function() {
+      ${mode === "inline" ? `
+      document.addEventListener('gesturestart', function(e) { e.preventDefault(); }, { passive: false });
+      document.addEventListener('gesturechange', function(e) { e.preventDefault(); }, { passive: false });
+      document.addEventListener('gestureend', function(e) { e.preventDefault(); });
+      ` : ""}
+      window.addEventListener('message', function(e) {
+        var d = e && e.data;
+        if (!d || d.type !== 'antigravity:themechange') return;
+        try {
+          var css = ${mode === "standalone" ? "d.cssStandalone" : "d.cssInline"};
+          if (typeof css === 'string') {
+            var styleEl = document.getElementById('antigravity-theme-vars');
+            if (styleEl) styleEl.textContent = css;
+          }
+          var root = document.documentElement;
+          if (root) {
+            root.classList.remove(d.isDark ? 'light' : 'dark');
+            root.classList.add(d.isDark ? 'dark' : 'light');
+          }
+          window.dispatchEvent(new Event('themechange'));
+        } catch (_) {}
+      });
+    })();
+  </script>` : "";
+
+  const injections = "\n" + [cspMeta, viewportMeta, themeStyle, liveSyncScript].filter(Boolean).join("\n") + "\n";
+  if (/<head\b[^>]*>(?:\s*<meta\s+[^>]*charset[^>]*>)?/i.test(rawHtml)) {
+    return rawHtml.replace(/<head\b[^>]*>(?:\s*<meta\s+[^>]*charset[^>]*>)?/i, (m) => m + injections);
+  }
+  if (/<html\b[^>]*>/i.test(rawHtml)) {
+    return rawHtml.replace(/<html\b[^>]*>/i, (m) => m + `<head><meta charset="UTF-8">${injections}</head>`);
+  }
+  const classAttr = isGenUi ? ` class="${isDark ? "dark" : "light"}"` : "";
+  return `<!DOCTYPE html><html${classAttr}><head><meta charset="UTF-8">${injections}</head><body>${rawHtml}</body></html>`;
+};
+
 window.loadAgentEmbedContent = function(cardOrId, src, forceRefresh = false) {
   const card = resolveAgentEmbedCard(cardOrId);
   if (!card) return;
@@ -901,50 +1062,8 @@ window.loadAgentEmbedContent = function(cardOrId, src, forceRefresh = false) {
   if (!frame) return;
 
   const applyRawHtml = (rawContent) => {
-    let rawHtml = rawContent || "";
-    rawHtml = rawHtml.replace(/<meta\s+[^>]*?name=["']viewport["'][^>]*>/gi, "");
-    const isDark = document.documentElement.classList.contains("dark") || window.matchMedia("(prefers-color-scheme: dark)").matches;
-    const themeCss = `
-      <style>
-        :root {
-          --background: ${isDark ? "#18181b" : "#ffffff"};
-          --foreground: ${isDark ? "#f4f4f5" : "#18181b"};
-          --muted-foreground: ${isDark ? "#a1a1aa" : "#71717a"};
-          --card: ${isDark ? "#27272a" : "#f4f4f5"};
-          --sidebar: ${isDark ? "#18181b" : "#fafafa"};
-          --border: ${isDark ? "rgba(255, 255, 255, 0.12)" : "rgba(0, 0, 0, 0.10)"};
-          --primary: ${isDark ? "#6366f1" : "#4f46e5"};
-          --primary-foreground: #ffffff;
-          --secondary: ${isDark ? "#27272a" : "#e4e4e7"};
-          --secondary-foreground: ${isDark ? "#f4f4f5" : "#18181b"};
-          --accent: ${isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(0, 0, 0, 0.05)"};
-          color-scheme: ${isDark ? "dark" : "light"};
-        }
-        * { box-sizing: border-box; }
-        html, body {
-          margin: 0; padding: 8px; background: transparent !important;
-          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-          -webkit-text-size-adjust: 100%;
-          touch-action: pan-x pan-y;
-          overscroll-behavior: none;
-        }
-        img, svg, video { max-width: 100% !important; }
-      </style>
-    `;
-    const cspMeta = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data: blob:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none';">`;
-    const meta = cspMeta + `<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover">`;
-    const gestureScript = `<script>
-      document.addEventListener('gesturestart', function(e) { e.preventDefault(); }, { passive: false });
-      document.addEventListener('gesturechange', function(e) { e.preventDefault(); }, { passive: false });
-      document.addEventListener('gestureend', function(e) { e.preventDefault(); });
-    </script>`;
-    let finalHtml = rawHtml;
-    if (/<head(\s[^>]*)?>/i.test(finalHtml)) {
-      finalHtml = finalHtml.replace(/<head(\s[^>]*)?>/i, (m) => m + meta + themeCss + gestureScript);
-    } else {
-      finalHtml = "<!DOCTYPE html><html><head>" + meta + themeCss + gestureScript + "</head><body>" + finalHtml + "</body></html>";
-    }
-    frame.srcdoc = finalHtml;
+    const isDark = window.isWebDarkTheme();
+    frame.srcdoc = window.buildAntigravityThemedHtml(rawContent || "", isDark, { mode: "inline" });
   };
 
   if (!forceRefresh && agentEmbedContentCache.has(src)) {

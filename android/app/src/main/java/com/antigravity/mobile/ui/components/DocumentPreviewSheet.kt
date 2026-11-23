@@ -752,15 +752,30 @@ private fun formatVideoTime(ms: Long): String {
     return "%02d:%02d".format(minutes, seconds)
 }
 
+private data class PreparedHtmlDocument(
+    val html: String,
+    val isMarp: Boolean,
+    val isGenerativeUi: Boolean,
+    val initialIsDark: Boolean
+)
+
+private data class LoadedDocWebViewState(
+    val html: String,
+    val isDark: Boolean,
+    val isGenerativeUi: Boolean
+)
+
 @Composable
 private fun HtmlDocumentViewer(file: File, colors: AppColors = AntigravityTheme.colors) {
     val context = LocalContext.current
+    val isDark = colors.isDark
+    val initialIsDark = remember(file) { isDark }
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
     var showFindBar by remember { mutableStateOf(false) }
     var findQuery by remember { mutableStateOf("") }
     var matchCount by remember { mutableStateOf(0) }
     var activeMatchIdx by remember { mutableStateOf(0) }
-    val preparedHtml by produceState<Pair<String, Boolean>?>(initialValue = null, key1 = file) {
+    val preparedHtml by produceState<PreparedHtmlDocument?>(initialValue = null, key1 = file) {
         value = withContext(Dispatchers.IO) {
             try {
                 var htmlContent = file.readText(Charsets.UTF_8).trim()
@@ -863,17 +878,28 @@ private fun HtmlDocumentViewer(file: File, colors: AppColors = AntigravityTheme.
                     } else {
                         "$mobileSlideStyle$htmlContent"
                     }
-                } else if (!htmlContent.contains("viewport", ignoreCase = true)) {
-                    val viewportMeta = """<meta name="viewport" content="width=device-width, initial-scale=1.0">"""
-                    htmlContent = if (htmlContent.contains("<head>", ignoreCase = true)) {
-                        htmlContent.replaceFirst("<head>", "<head>$viewportMeta", ignoreCase = true)
-                    } else {
-                        "$viewportMeta$htmlContent"
-                    }
+                    PreparedHtmlDocument(
+                        html = htmlContent,
+                        isMarp = true,
+                        isGenerativeUi = false,
+                        initialIsDark = initialIsDark
+                    )
+                } else {
+                    val prepared = GenerativeUIHtmlHelper.prepareStandaloneHtml(htmlContent, initialIsDark)
+                    PreparedHtmlDocument(
+                        html = prepared.html,
+                        isMarp = false,
+                        isGenerativeUi = prepared.isGenerativeUi,
+                        initialIsDark = initialIsDark
+                    )
                 }
-                htmlContent to isMarp
             } catch (e: Exception) {
-                "<html><body><pre>无法加载 HTML 预览</pre></body></html>" to false
+                PreparedHtmlDocument(
+                    html = "<html><body><pre>无法加载 HTML 预览</pre></body></html>",
+                    isMarp = false,
+                    isGenerativeUi = false,
+                    initialIsDark = initialIsDark
+                )
             }
         }
     }
@@ -952,8 +978,13 @@ private fun HtmlDocumentViewer(file: File, colors: AppColors = AntigravityTheme.
                     WebView(ctx).apply {
                         webViewRef = this
                         setBackgroundColor(
-                            if (currentPrepared.second) android.graphics.Color.parseColor("#F4F5F7")
-                            else android.graphics.Color.WHITE
+                            when {
+                                currentPrepared.isMarp -> android.graphics.Color.parseColor("#F4F5F7")
+                                currentPrepared.isGenerativeUi -> android.graphics.Color.parseColor(
+                                    if (isDark) GenerativeUIHtmlHelper.DARK_BG_HEX else GenerativeUIHtmlHelper.LIGHT_BG_HEX
+                                )
+                                else -> android.graphics.Color.WHITE
+                            }
                         )
                         webViewClient = object : WebViewClient() {
                             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
@@ -1008,18 +1039,54 @@ private fun HtmlDocumentViewer(file: File, colors: AppColors = AntigravityTheme.
                             useWideViewPort = true
                             loadWithOverviewMode = true
                         }
-                        tag = currentPrepared.first
-                        loadDataWithBaseURL("about:blank", currentPrepared.first, "text/html", "utf-8", null)
+                        tag = LoadedDocWebViewState(
+                            html = currentPrepared.html,
+                            isDark = currentPrepared.initialIsDark,
+                            isGenerativeUi = currentPrepared.isGenerativeUi
+                        )
+                        loadDataWithBaseURL("about:blank", currentPrepared.html, "text/html", "utf-8", null)
                     }
                 },
                 update = { wv ->
-                    if (wv.tag != currentPrepared.first) {
+                    val prev = wv.tag as? LoadedDocWebViewState
+                    if (prev == null || prev.html != currentPrepared.html) {
                         wv.setBackgroundColor(
-                            if (currentPrepared.second) android.graphics.Color.parseColor("#F4F5F7")
-                            else android.graphics.Color.WHITE
+                            when {
+                                currentPrepared.isMarp -> android.graphics.Color.parseColor("#F4F5F7")
+                                currentPrepared.isGenerativeUi -> android.graphics.Color.parseColor(
+                                    if (isDark) GenerativeUIHtmlHelper.DARK_BG_HEX else GenerativeUIHtmlHelper.LIGHT_BG_HEX
+                                )
+                                else -> android.graphics.Color.WHITE
+                            }
                         )
-                        wv.tag = currentPrepared.first
-                        wv.loadDataWithBaseURL("about:blank", currentPrepared.first, "text/html", "utf-8", null)
+                        wv.tag = LoadedDocWebViewState(
+                            html = currentPrepared.html,
+                            isDark = currentPrepared.initialIsDark,
+                            isGenerativeUi = currentPrepared.isGenerativeUi
+                        )
+                        wv.loadDataWithBaseURL("about:blank", currentPrepared.html, "text/html", "utf-8", null)
+                        if (currentPrepared.isGenerativeUi && currentPrepared.initialIsDark != isDark) {
+                            wv.tag = LoadedDocWebViewState(
+                                html = currentPrepared.html,
+                                isDark = isDark,
+                                isGenerativeUi = true
+                            )
+                            wv.evaluateJavascript(
+                                GenerativeUIHtmlHelper.liveThemeUpdateJs(isDark, GenerativeUIHtmlHelper.RenderMode.STANDALONE),
+                                null
+                            )
+                        }
+                    } else if (prev.isDark != isDark && prev.isGenerativeUi) {
+                        wv.setBackgroundColor(
+                            android.graphics.Color.parseColor(
+                                if (isDark) GenerativeUIHtmlHelper.DARK_BG_HEX else GenerativeUIHtmlHelper.LIGHT_BG_HEX
+                            )
+                        )
+                        wv.tag = prev.copy(isDark = isDark)
+                        wv.evaluateJavascript(
+                            GenerativeUIHtmlHelper.liveThemeUpdateJs(isDark, GenerativeUIHtmlHelper.RenderMode.STANDALONE),
+                            null
+                        )
                     }
                 }
             )

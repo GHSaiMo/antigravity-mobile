@@ -19,7 +19,6 @@ import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -99,7 +98,7 @@ fun AgentEmbedView(
     var reloadTrigger by remember { mutableStateOf(0) }
 
     val haptic = rememberHaptic()
-    val isDark = isSystemInDarkTheme()
+    val isDark = colors.isDark
     val context = LocalContext.current
     val hostCascadeId = LocalCurrentCascadeId.current.orEmpty()
 
@@ -476,7 +475,7 @@ fun AgentEmbedView(
     }
 }
 
-private data class LoadedHtmlState(val url: String, val html: String)
+private data class LoadedHtmlState(val url: String, val rawHtml: String, val isDark: Boolean)
 
 private object AgentEmbedSecurityPolicy {
     fun extractMcpServer(rawUri: String): String {
@@ -544,8 +543,9 @@ private fun AgentEmbedWebViewContainer(
     onHeightMeasured: ((Int) -> Unit)? = null,
     onTitleDetected: ((String) -> Unit)? = null
 ) {
-    val enhancedHtml = remember(htmlContent, isDark) {
-        AgentEmbedHtmlBuilder.build(htmlContent, isDark)
+    val initialIsDark = remember(htmlContent) { isDark }
+    val enhancedHtml = remember(htmlContent, initialIsDark) {
+        AgentEmbedHtmlBuilder.build(htmlContent, initialIsDark)
     }
     val targetBaseUrl = "about:blank"
     val latestSrc by rememberUpdatedState(embedSrc)
@@ -754,15 +754,21 @@ private fun AgentEmbedWebViewContainer(
                     "AndroidAgentEmbedBridge"
                 )
 
-                tag = LoadedHtmlState(targetBaseUrl, enhancedHtml)
+                tag = LoadedHtmlState(targetBaseUrl, htmlContent, isDark)
                 loadDataWithBaseURL(targetBaseUrl, enhancedHtml, "text/html", "UTF-8", null)
             }
         },
         update = { webView ->
             val lastState = webView.tag as? LoadedHtmlState
-            if (lastState?.url != targetBaseUrl || lastState?.html != enhancedHtml) {
-                webView.tag = LoadedHtmlState(targetBaseUrl, enhancedHtml)
+            if (lastState?.url != targetBaseUrl || lastState.rawHtml != htmlContent) {
+                webView.tag = LoadedHtmlState(targetBaseUrl, htmlContent, isDark)
                 webView.loadDataWithBaseURL(targetBaseUrl, enhancedHtml, "text/html", "UTF-8", null)
+            } else if (lastState.isDark != isDark) {
+                webView.tag = lastState.copy(isDark = isDark)
+                webView.evaluateJavascript(
+                    GenerativeUIHtmlHelper.liveThemeUpdateJs(isDark, GenerativeUIHtmlHelper.RenderMode.INLINE_EMBED),
+                    null
+                )
             }
         }
     )
@@ -773,42 +779,6 @@ private fun AgentEmbedWebViewContainer(
  */
 private object AgentEmbedHtmlBuilder {
     fun build(html: String, isDark: Boolean): String {
-        val darkClass = if (isDark) "dark" else "light"
-        val themeCss = """
-            <style id="antigravity-embed-injected-theme">
-              :root {
-                --background: ${if (isDark) "#18181b" else "#ffffff"};
-                --foreground: ${if (isDark) "#f4f4f5" else "#18181b"};
-                --muted-foreground: ${if (isDark) "#a1a1aa" else "#71717a"};
-                --card: ${if (isDark) "#27272a" else "#f4f4f5"};
-                --sidebar: ${if (isDark) "#18181b" else "#fafafa"};
-                --border: ${if (isDark) "rgba(255, 255, 255, 0.12)" else "rgba(0, 0, 0, 0.10)"};
-                --primary: ${if (isDark) "#6366f1" else "#4f46e5"};
-                --primary-foreground: #ffffff;
-                --secondary: ${if (isDark) "#27272a" else "#e4e4e7"};
-                --secondary-foreground: ${if (isDark) "#f4f4f5" else "#18181b"};
-                --accent: ${if (isDark) "rgba(255, 255, 255, 0.08)" else "rgba(0, 0, 0, 0.05)"};
-                color-scheme: ${if (isDark) "dark" else "light"};
-              }
-              * {
-                box-sizing: border-box;
-              }
-              html, body {
-                margin: 0;
-                padding: 8px;
-                background: transparent !important;
-                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-                -webkit-text-size-adjust: 100%;
-                -webkit-tap-highlight-color: transparent;
-                touch-action: pan-x pan-y;
-                overscroll-behavior: none;
-              }
-              img, svg, video {
-                max-width: 100% !important;
-              }
-            </style>
-        """.trimIndent()
-
         val viewportMeta = """<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover">"""
 
         val reporterScript = """
@@ -887,30 +857,11 @@ private object AgentEmbedHtmlBuilder {
             </script>
         """.trimIndent()
 
-        // Strip any existing viewport meta tags to prevent conflicting zoom/scale settings
-        val vpRegex = Regex("""<meta\s+[^>]*?name=["']viewport["'][^>]*>""", RegexOption.IGNORE_CASE)
-        var modified = vpRegex.replace(html, "")
-        if (modified.contains("<html")) {
-            modified = if (modified.contains("class=\"")) {
-                modified.replace("class=\"", "class=\"$darkClass ")
-            } else {
-                modified.replace("<html", "<html class=\"$darkClass\"")
-            }
-        }
-
-        val injections = "\n$viewportMeta\n$themeCss\n$reporterScript\n"
-        return when {
-            modified.contains("<head>", ignoreCase = true) -> {
-                val idx = modified.indexOf("<head>", ignoreCase = true) + 6
-                modified.substring(0, idx) + injections + modified.substring(idx)
-            }
-            modified.contains("<html>", ignoreCase = true) -> {
-                val idx = modified.indexOf("<html>", ignoreCase = true) + 6
-                modified.substring(0, idx) + "<head>$injections</head>" + modified.substring(idx)
-            }
-            else -> {
-                "<!DOCTYPE html><html class=\"$darkClass\"><head>$injections</head><body>$modified</body></html>"
-            }
-        }
+        return GenerativeUIHtmlHelper.prepareInlineEmbedHtml(
+            html = html,
+            isDark = isDark,
+            viewportMeta = viewportMeta,
+            reporterScript = reporterScript
+        )
     }
 }

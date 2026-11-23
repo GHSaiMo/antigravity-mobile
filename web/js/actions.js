@@ -456,6 +456,38 @@ async function fetchFileContent(uri, cascadeId) {
   return resp.json();
 }
 
+function isHtmlArtifactFilename(nameOrUri) {
+  const clean = String(nameOrUri || "").split("?")[0].split("#")[0].toLowerCase().trim();
+  return clean.endsWith(".html") || clean.endsWith(".htm");
+}
+
+function renderViewerContent(contentEl, content, filename, uri) {
+  if (!contentEl) return;
+  const sheetBody = contentEl.closest(".md-viewer-sheet-body");
+  const findBtn = document.getElementById("btn-md-viewer-find");
+  const isHtml = isHtmlArtifactFilename(filename) || isHtmlArtifactFilename(uri);
+
+  if (isHtml && typeof window.buildAntigravityThemedHtml === "function") {
+    sheetBody?.classList.add("is-html-preview");
+    findBtn?.classList.add("hidden");
+    const iframe = document.createElement("iframe");
+    iframe.className = "html-artifact-preview-frame";
+    iframe.setAttribute("sandbox", "allow-scripts");
+    iframe.title = filename || "HTML Preview";
+    const isDark = typeof window.isWebDarkTheme === "function" ? window.isWebDarkTheme() : false;
+    iframe.srcdoc = window.buildAntigravityThemedHtml(content || "", isDark, { mode: "standalone" });
+    contentEl.innerHTML = "";
+    contentEl.appendChild(iframe);
+    return;
+  }
+
+  sheetBody?.classList.remove("is-html-preview");
+  findBtn?.classList.remove("hidden");
+  contentEl.innerHTML = renderViewerDocumentText(content || "", filename);
+  renderAllMermaidDiagrams(contentEl);
+  if (typeof hydrateAllAgentEmbeds === "function") hydrateAllAgentEmbeds(contentEl);
+}
+
 function renderViewerDocumentText(content, filename) {
   const lower = String(filename || "").toLowerCase();
   if (lower.endsWith(".r") || lower.endsWith(".rprofile") || lower.endsWith(".renviron") || lower.endsWith(".namespace")) {
@@ -517,9 +549,7 @@ async function openMarkdownViewer(uri, title) {
     if (loadingEl) loadingEl.classList.add("hidden");
     if (errorEl) errorEl.classList.add("hidden");
     if (contentEl) {
-      contentEl.innerHTML = renderViewerDocumentText(cached.content || "", cached.filename || filename);
-      renderAllMermaidDiagrams(contentEl);
-      if (typeof hydrateAllAgentEmbeds === "function") hydrateAllAgentEmbeds(contentEl);
+      renderViewerContent(contentEl, cached.content || "", cached.filename || filename, currentViewerUri);
     }
     if (cached.filename) {
       if (subtitleEl) subtitleEl.textContent = cached.filename;
@@ -537,7 +567,10 @@ async function openMarkdownViewer(uri, title) {
     }
   } else {
     // Reset state when not cached
-    if (contentEl) contentEl.innerHTML = "";
+    if (contentEl) {
+      contentEl.closest(".md-viewer-sheet-body")?.classList.remove("is-html-preview");
+      contentEl.innerHTML = "";
+    }
     if (errorEl) errorEl.classList.add("hidden");
     if (loadingEl) loadingEl.classList.remove("hidden");
     if (proceedBar) {
@@ -570,11 +603,13 @@ async function openMarkdownViewer(uri, title) {
       }
     }
 
-    // Render markdown content using chat's rich markdown parser
-    if (contentEl) {
-      contentEl.innerHTML = renderViewerDocumentText(data.content || "", data.filename || filename);
-      renderAllMermaidDiagrams(contentEl);
-      if (typeof hydrateAllAgentEmbeds === "function") hydrateAllAgentEmbeds(contentEl);
+    // Render markdown or standalone HTML artifact content (skip redundant iframe rebuild if identical to cache)
+    const isSameCachedHtml = hasCache &&
+      cached &&
+      cached.content === data.content &&
+      (isHtmlArtifactFilename(data.filename || filename) || isHtmlArtifactFilename(currentViewerUri));
+    if (contentEl && !isSameCachedHtml) {
+      renderViewerContent(contentEl, data.content || "", data.filename || filename, currentViewerUri);
     }
 
     // Check proceed capability
@@ -601,6 +636,13 @@ function closeMarkdownViewer() {
   const sheet = document.getElementById("sheet-markdown-viewer");
   if (sheet) {
     sheet.classList.add("hidden");
+    const sheetBody = sheet.querySelector(".md-viewer-sheet-body");
+    sheetBody?.classList.remove("is-html-preview");
+    const contentEl = document.getElementById("md-viewer-content");
+    if (contentEl && contentEl.querySelector("iframe.html-artifact-preview-frame")) {
+      contentEl.innerHTML = "";
+    }
+    document.getElementById("btn-md-viewer-find")?.classList.remove("hidden");
   }
   currentViewerData = null;
 }
@@ -791,7 +833,7 @@ function initMarkdownViewer() {
       const isHttp = lower.startsWith("http://") || lower.startsWith("https://");
       const isExternal = isHttp && !lower.includes(window.location.host);
       if (!isExternal && !isPreviewableBinary(href)) {
-        if (lower.endsWith(".md") || lower.endsWith(".markdown") || lower.endsWith(".rmd") || lower.endsWith(".rmarkdown") || lower.endsWith(".r") || lower.endsWith(".rprofile") || lower.includes("/brain/") || lower.includes("/static/artifacts/")) {
+        if (lower.endsWith(".md") || lower.endsWith(".markdown") || lower.endsWith(".html") || lower.endsWith(".htm") || lower.endsWith(".rmd") || lower.endsWith(".rmarkdown") || lower.endsWith(".r") || lower.endsWith(".rprofile") || lower.includes("/brain/") || lower.includes("/static/artifacts/")) {
           isLocalMd = true;
         }
       }

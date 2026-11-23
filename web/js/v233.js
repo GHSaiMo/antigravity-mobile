@@ -133,6 +133,20 @@
       if (tcMeta) tcMeta.setAttribute("content", theme === "light" ? "#f2f2f7" : "#0f172a");
     }
     updateThemeSegmentedUI(theme);
+    if (typeof window.isWebDarkTheme === "function" && typeof window.buildAntigravityThemeCss === "function") {
+      const isDark = window.isWebDarkTheme();
+      const payload = {
+        type: "antigravity:themechange",
+        isDark,
+        cssInline: window.buildAntigravityThemeCss(isDark, "inline", true),
+        cssStandalone: window.buildAntigravityThemeCss(isDark, "standalone", true),
+      };
+      document.querySelectorAll("iframe.agent-embed-frame, iframe.html-artifact-preview-frame").forEach((frame) => {
+        try {
+          frame.contentWindow?.postMessage(payload, "*");
+        } catch (_) {}
+      });
+    }
   }
 
   function initThemeSettings() {

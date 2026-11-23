@@ -401,12 +401,18 @@ public struct AgentEmbedWebView: UIViewRepresentable {
         context.coordinator.parent = self
         context.coordinator.disableZoomGestures()
         if context.coordinator.lastHtml != htmlContent ||
-            context.coordinator.lastIsDark != isDark ||
             context.coordinator.lastReloadKey != reloadKey {
             context.coordinator.lastHtml = htmlContent
             context.coordinator.lastIsDark = isDark
             context.coordinator.lastReloadKey = reloadKey
             loadContent(into: uiView)
+        } else if context.coordinator.lastIsDark != isDark {
+            context.coordinator.lastIsDark = isDark
+            let js = AntigravityHTMLThemeHelper.liveThemeUpdateJS(
+                isDark: isDark,
+                mode: .inlineEmbed
+            )
+            uiView.evaluateJavaScript(js, completionHandler: nil)
         }
     }
     
@@ -729,45 +735,270 @@ public struct AgentEmbedFullscreenViewer: View {
     }
 }
 
+// MARK: - Shared Antigravity Generative UI HTML Theme Helper
+
+internal enum AntigravityHTMLRenderMode {
+    case inlineEmbed
+    case standalone
+}
+
+internal struct AntigravityPreparedHTML {
+    let html: String
+    let isGenerativeUI: Bool
+}
+
+internal enum AntigravityHTMLThemeHelper {
+    static let styleElementID = "antigravity-theme-vars"
+
+    static func darkBackgroundUIColor(isDark: Bool) -> UIColor {
+        isDark
+            ? UIColor(red: 15.0 / 255.0, green: 17.0 / 255.0, blue: 23.0 / 255.0, alpha: 1.0) // #0f1117
+            : UIColor.white
+    }
+
+    /// Detects whether an HTML document relies on Antigravity Generative UI host-injected theme variables
+    /// (and is not a self-styled Marp slide deck or a page that already defines its own :root palette).
+    static func usesAntigravityTheme(_ html: String) -> Bool {
+        let lower = html.lowercased()
+        if lower.contains("data-marpit-svg") || lower.contains("bespoke-marp") || lower.contains("marpit") {
+            return false
+        }
+        if lower.contains("gstatic.com/antigravity") {
+            return true
+        }
+        if lower.contains("themechange") && lower.contains("addeventlistener") {
+            return true
+        }
+        if lower.contains("classlist.contains('light')") || lower.contains("classlist.contains(\"light\")") {
+            return true
+        }
+        let semanticRefs = [
+            "var(--background)",
+            "var(--foreground)",
+            "var(--card)",
+            "var(--card-border)",
+            "var(--content)",
+            "var(--muted-foreground)",
+            "var(--chart-1)",
+            "var(--chart-2)",
+            "var(--chart-3)",
+            "var(--code-foreground)"
+        ]
+        let hasSemanticRef = semanticRefs.contains { lower.contains($0) }
+        guard hasSemanticRef else { return false }
+
+        // If the document itself already defines both --background and --foreground in CSS, respect its own theme.
+        let selfDefinesBackground = html.range(
+            of: #"--background\s*:"#,
+            options: [.regularExpression, .caseInsensitive]
+        ) != nil
+        let selfDefinesForeground = html.range(
+            of: #"--foreground\s*:"#,
+            options: [.regularExpression, .caseInsensitive]
+        ) != nil
+        return !(selfDefinesBackground && selfDefinesForeground)
+    }
+
+    /// Builds the CSS text inside `<style id="antigravity-theme-vars">`.
+    static func themeCSSBody(isDark: Bool, mode: AntigravityHTMLRenderMode, includeContainerTheme: Bool) -> String {
+        let paletteDark = includeContainerTheme ? isDark : false
+        let vars = """
+        :root {
+          --background: \(paletteDark ? "#0f1117" : "#ffffff");
+          --content: \(paletteDark ? "#13161f" : "#f8fafc");
+          --card: \(paletteDark ? "#181c26" : "#f4f4f5");
+          --sidebar: \(paletteDark ? "#141720" : "#fafafa");
+          --card-border: \(paletteDark ? "rgba(255, 255, 255, 0.10)" : "rgba(15, 23, 42, 0.10)");
+          --border: \(paletteDark ? "rgba(255, 255, 255, 0.14)" : "rgba(15, 23, 42, 0.13)");
+          --foreground: \(paletteDark ? "#f4f4f5" : "#18181b");
+          --muted-foreground: \(paletteDark ? "#a1a1aa" : "#64748b");
+          --placeholder: \(paletteDark ? "#71717a" : "#94a3b8");
+          --code-foreground: \(paletteDark ? "#e4e4e7" : "#1e293b");
+          --primary: \(paletteDark ? "#6e7bf2" : "#4f46e5");
+          --primary-foreground: #ffffff;
+          --secondary: \(paletteDark ? "#27272a" : "#e4e4e7");
+          --secondary-foreground: \(paletteDark ? "#f4f4f5" : "#18181b");
+          --accent: \(paletteDark ? "rgba(255, 255, 255, 0.08)" : "rgba(15, 23, 42, 0.06)");
+          --accent-foreground: \(paletteDark ? "#f4f4f5" : "#18181b");
+          --muted: \(paletteDark ? "#27272a" : "#f4f4f5");
+          --link: \(paletteDark ? "#60a5fa" : "#2563eb");
+          --success: \(paletteDark ? "#34d399" : "#16a34a");
+          --warning: \(paletteDark ? "#fbbf24" : "#d97706");
+          --error: \(paletteDark ? "#f87171" : "#dc2626");
+          --destructive: \(paletteDark ? "#f87171" : "#dc2626");
+          --destructive-foreground: #ffffff;
+          --chart-1: \(paletteDark ? "#60a5fa" : "#2563eb");
+          --chart-2: \(paletteDark ? "#a78bfa" : "#7c3aed");
+          --chart-3: \(paletteDark ? "#2dd4bf" : "#0d9488");
+          --chart-4: \(paletteDark ? "#fb923c" : "#ea580c");
+          --chart-5: \(paletteDark ? "#f472b6" : "#db2777");
+          --chart-6: \(paletteDark ? "#facc15" : "#ca8a04");\(includeContainerTheme ? "\n  color-scheme: \(isDark ? "dark" : "light");" : "")
+        }
+        """
+
+        switch mode {
+        case .inlineEmbed:
+            return """
+            \(vars)
+            :where(*) {
+              box-sizing: border-box;
+            }
+            :where(html, body) {
+              margin: 0;
+              padding: 8px;
+              background: transparent;
+              color: var(--foreground);
+              font-size: 14px;
+              font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+              -webkit-text-size-adjust: 100%;
+              -webkit-tap-highlight-color: transparent;
+              touch-action: pan-x pan-y;
+              overscroll-behavior: none;
+            }
+            :where(img, svg, video) {
+              max-width: 100%;
+            }
+            """
+        case .standalone:
+            guard includeContainerTheme else {
+                return vars
+            }
+            return """
+            \(vars)
+            :where(*) {
+              box-sizing: border-box;
+            }
+            :where(html, body) {
+              margin: 0;
+              background-color: var(--background);
+              color: var(--foreground);
+              font-size: 14px;
+              font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+              -webkit-text-size-adjust: 100%;
+              -webkit-tap-highlight-color: transparent;
+            }
+            """
+        }
+    }
+
+    static func liveThemeUpdateJS(isDark: Bool, mode: AntigravityHTMLRenderMode) -> String {
+        let cssBody = themeCSSBody(isDark: isDark, mode: mode, includeContainerTheme: true)
+        let encodedCSS: String = {
+            if let data = try? JSONSerialization.data(withJSONObject: [cssBody], options: []),
+               let arr = String(data: data, encoding: .utf8),
+               arr.count >= 2 {
+                return String(arr.dropFirst().dropLast())
+            }
+            return "\"\""
+        }()
+        let addClass = isDark ? "dark" : "light"
+        let removeClass = isDark ? "light" : "dark"
+        return """
+        (function() {
+          try {
+            var styleEl = document.getElementById('\(styleElementID)');
+            if (!styleEl) {
+              styleEl = document.createElement('style');
+              styleEl.id = '\(styleElementID)';
+              var head = document.head || document.documentElement;
+              head.insertBefore(styleEl, head.firstChild);
+            }
+            styleEl.textContent = \(encodedCSS);
+            var root = document.documentElement;
+            if (root) {
+              root.classList.remove('\(removeClass)');
+              root.classList.add('\(addClass)');
+            }
+            window.dispatchEvent(new Event('themechange'));
+          } catch (e) {}
+        })();
+        """
+    }
+
+    static func prepareStandaloneHTML(_ html: String, isDark: Bool) -> AntigravityPreparedHTML {
+        let isGenUI = usesAntigravityTheme(html)
+        let styleTag = "<style id=\"\(styleElementID)\">\n\(themeCSSBody(isDark: isDark, mode: .standalone, includeContainerTheme: isGenUI))\n</style>"
+        let hasViewport = html.range(
+            of: #"<meta\s+[^>]*?name\s*=\s*["']viewport["'][^>]*>"#,
+            options: [.regularExpression, .caseInsensitive]
+        ) != nil
+        let viewportTag = hasViewport ? "" : "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0, viewport-fit=cover\">"
+
+        var modified = html
+        if isGenUI {
+            modified = applyHtmlRootThemeClass(modified, isDark: isDark)
+        }
+        let injection = [viewportTag, styleTag].filter { !$0.isEmpty }.joined(separator: "\n")
+        modified = injectIntoHead(modified, injection: injection, rootThemeClass: isGenUI ? (isDark ? "dark" : "light") : nil)
+        return AntigravityPreparedHTML(html: modified, isGenerativeUI: isGenUI)
+    }
+
+    /// Safely adds `dark` or `light` ONLY to the opening `<html ...>` tag without touching descendant `class="..."` attributes.
+    static func applyHtmlRootThemeClass(_ html: String, isDark: Bool) -> String {
+        let darkClass = isDark ? "dark" : "light"
+        let oppositeClass = isDark ? "light" : "dark"
+        guard let htmlTagRegex = try? NSRegularExpression(pattern: #"<html\b([^>]*)>"#, options: [.caseInsensitive]) else {
+            return html
+        }
+        let fullRange = NSRange(html.startIndex..<html.endIndex, in: html)
+        guard let match = htmlTagRegex.firstMatch(in: html, options: [], range: fullRange),
+              let tagRange = Range(match.range, in: html),
+              let attrsRange = Range(match.range(at: 1), in: html) else {
+            return html
+        }
+        let attrs = String(html[attrsRange])
+        let updatedTag: String
+        if let classRegex = try? NSRegularExpression(pattern: #"(\bclass\s*=\s*)(["'])([^"']*)(\2)"#, options: [.caseInsensitive]),
+           let classMatch = classRegex.firstMatch(in: attrs, options: [], range: NSRange(attrs.startIndex..<attrs.endIndex, in: attrs)),
+           let fullClassRange = Range(classMatch.range, in: attrs),
+           let prefixRange = Range(classMatch.range(at: 1), in: attrs),
+           let quoteRange = Range(classMatch.range(at: 2), in: attrs),
+           let valueRange = Range(classMatch.range(at: 3), in: attrs) {
+            let tokens = attrs[valueRange]
+                .split(whereSeparator: { $0.isWhitespace })
+                .map(String.init)
+                .filter { $0 != oppositeClass && $0 != darkClass }
+            let merged = ([darkClass] + tokens).joined(separator: " ")
+            let quote = String(attrs[quoteRange])
+            var newAttrs = attrs
+            newAttrs.replaceSubrange(fullClassRange, with: "\(attrs[prefixRange])\(quote)\(merged)\(quote)")
+            updatedTag = "<html\(newAttrs)>"
+        } else {
+            updatedTag = "<html class=\"\(darkClass)\"\(attrs)>"
+        }
+        var result = html
+        result.replaceSubrange(tagRange, with: updatedTag)
+        return result
+    }
+
+    /// Inserts `injection` at the beginning of `<head>` (right after `<meta charset=...>` if immediately present,
+    /// preserving HTML5 1024-byte charset prescan while staying before page `<style>`/`<script>` tags).
+    static func injectIntoHead(_ html: String, injection: String, rootThemeClass: String?) -> String {
+        let block = "\n\(injection)\n"
+        if let headRegex = try? NSRegularExpression(pattern: #"<head\b[^>]*>(?:\s*<meta\s+[^>]*charset[^>]*>)?"#, options: [.caseInsensitive]),
+           let match = headRegex.firstMatch(in: html, options: [], range: NSRange(html.startIndex..<html.endIndex, in: html)),
+           let range = Range(match.range, in: html) {
+            var result = html
+            result.insert(contentsOf: block, at: range.upperBound)
+            return result
+        }
+        if let htmlRegex = try? NSRegularExpression(pattern: #"<html\b[^>]*>"#, options: [.caseInsensitive]),
+           let match = htmlRegex.firstMatch(in: html, options: [], range: NSRange(html.startIndex..<html.endIndex, in: html)),
+           let range = Range(match.range, in: html) {
+            var result = html
+            result.insert(contentsOf: "<head><meta charset=\"UTF-8\">\(block)</head>", at: range.upperBound)
+            return result
+        }
+        let classAttr = rootThemeClass.map { " class=\"\($0)\"" } ?? ""
+        return "<!DOCTYPE html><html\(classAttr)><head><meta charset=\"UTF-8\">\(block)</head><body>\(html)</body></html>"
+    }
+}
+
 // MARK: - HTML Enhancement Builder
 
 private enum AgentEmbedHTMLBuilder {
     static func build(html: String, isDark: Bool) -> String {
-        // Theme variables matching Antigravity Generative UI standards
-        let themeCSS = """
-        <style id="antigravity-embed-injected-theme">
-          :root {
-            --background: \(isDark ? "#18181b" : "#ffffff");
-            --foreground: \(isDark ? "#f4f4f5" : "#18181b");
-            --muted-foreground: \(isDark ? "#a1a1aa" : "#71717a");
-            --card: \(isDark ? "#27272a" : "#f4f4f5");
-            --sidebar: \(isDark ? "#18181b" : "#fafafa");
-            --border: \(isDark ? "rgba(255, 255, 255, 0.12)" : "rgba(0, 0, 0, 0.10)");
-            --primary: \(isDark ? "#6366f1" : "#4f46e5");
-            --primary-foreground: #ffffff;
-            --secondary: \(isDark ? "#27272a" : "#e4e4e7");
-            --secondary-foreground: \(isDark ? "#f4f4f5" : "#18181b");
-            --accent: \(isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(0, 0, 0, 0.05)");
-            color-scheme: \(isDark ? "dark" : "light");
-          }
-          * {
-            box-sizing: border-box;
-          }
-          html, body {
-            margin: 0;
-            padding: 8px;
-            background: transparent !important;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            -webkit-text-size-adjust: 100%;
-            -webkit-tap-highlight-color: transparent;
-            touch-action: pan-x pan-y;
-            overscroll-behavior: none;
-          }
-          img, svg, video {
-            max-width: 100% !important;
-          }
-        </style>
-        """
+        let themeCSS = "<style id=\"\(AntigravityHTMLThemeHelper.styleElementID)\">\n\(AntigravityHTMLThemeHelper.themeCSSBody(isDark: isDark, mode: .inlineEmbed, includeContainerTheme: true))\n</style>"
         
         let viewportMeta = """
         <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover">
@@ -850,26 +1081,8 @@ private enum AgentEmbedHTMLBuilder {
         }
         
         let darkClass = isDark ? "dark" : "light"
-        
-        // Ensure <html class="..."> has proper dark/light theme class
-        if modified.contains("<html") {
-            if modified.contains("class=\"") {
-                modified = modified.replacingOccurrences(of: "class=\"", with: "class=\"\(darkClass) ")
-            } else {
-                modified = modified.replacingOccurrences(of: "<html", with: "<html class=\"\(darkClass)\"")
-            }
-        }
-        
-        // Inject into <head> if present, otherwise prepend
-        let injections = "\n" + viewportMeta + "\n" + themeCSS + "\n" + reporterScript + "\n"
-        if let headRange = modified.range(of: "<head>", options: .caseInsensitive) {
-            modified.insert(contentsOf: injections, at: headRange.upperBound)
-        } else if let htmlRange = modified.range(of: "<html>", options: .caseInsensitive) {
-            modified.insert(contentsOf: "<head>" + injections + "</head>", at: htmlRange.upperBound)
-        } else {
-            modified = "<!DOCTYPE html><html class=\"\(darkClass)\"><head>" + injections + "</head><body>" + modified + "</body></html>"
-        }
-        
-        return modified
+        modified = AntigravityHTMLThemeHelper.applyHtmlRootThemeClass(modified, isDark: isDark)
+        let injections = viewportMeta + "\n" + themeCSS + "\n" + reporterScript
+        return AntigravityHTMLThemeHelper.injectIntoHead(modified, injection: injections, rootThemeClass: darkClass)
     }
 }

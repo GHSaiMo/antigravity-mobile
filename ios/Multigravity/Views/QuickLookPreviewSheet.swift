@@ -995,6 +995,7 @@ public struct HTMLPreviewSheet: View {
     public let url: URL
     public let title: String
     public let onDismiss: () -> Void
+    @Environment(\.colorScheme) private var colorScheme
     @State private var isShowingDocumentPicker: Bool = false
     @State private var toastSuccessMessage: String? = nil
     @State private var findTrigger: Int = 0
@@ -1008,7 +1009,7 @@ public struct HTMLPreviewSheet: View {
     
     public var body: some View {
         NavigationStack {
-            HTMLWebViewRepresentable(url: url, findTrigger: findTrigger)
+            HTMLWebViewRepresentable(url: url, isDark: colorScheme == .dark, findTrigger: findTrigger)
                 .ignoresSafeArea(edges: .bottom)
                 .navigationTitle(title)
                 .navigationBarTitleDisplayMode(.inline)
@@ -1125,10 +1126,14 @@ public struct DocumentExporterRepresentable: UIViewControllerRepresentable {
 
 public struct HTMLWebViewRepresentable: UIViewRepresentable {
     public let url: URL
+    public var isDark: Bool = false
     public var findTrigger: Int = 0
 
     public final class Coordinator {
         var lastFindTrigger: Int = 0
+        var lastURL: URL?
+        var lastIsDark: Bool = false
+        var isGenerativeUI: Bool = false
     }
 
     public func makeCoordinator() -> Coordinator { Coordinator() }
@@ -1144,11 +1149,21 @@ public struct HTMLWebViewRepresentable: UIViewRepresentable {
         webView.allowsBackForwardNavigationGestures = false
         webView.isFindInteractionEnabled = true
         webView.scrollView.contentInsetAdjustmentBehavior = .automatic
-        webView.loadFileURL(url, allowingReadAccessTo: url)
+        loadDocument(into: webView, coordinator: context.coordinator)
         return webView
     }
     
     public func updateUIView(_ uiView: WKWebView, context: Context) {
+        if context.coordinator.lastURL != url {
+            loadDocument(into: uiView, coordinator: context.coordinator)
+        } else if context.coordinator.lastIsDark != isDark {
+            context.coordinator.lastIsDark = isDark
+            if context.coordinator.isGenerativeUI {
+                applyWebViewBackground(uiView, isGenerativeUI: true, isDark: isDark)
+                let js = AntigravityHTMLThemeHelper.liveThemeUpdateJS(isDark: isDark, mode: .standalone)
+                uiView.evaluateJavaScript(js, completionHandler: nil)
+            }
+        }
         if findTrigger != context.coordinator.lastFindTrigger {
             context.coordinator.lastFindTrigger = findTrigger
             DispatchQueue.main.async {
@@ -1156,6 +1171,30 @@ public struct HTMLWebViewRepresentable: UIViewRepresentable {
                 uiView.findInteraction?.presentFindNavigator(showingReplace: false)
             }
         }
+    }
+
+    private func loadDocument(into webView: WKWebView, coordinator: Coordinator) {
+        coordinator.lastURL = url
+        coordinator.lastIsDark = isDark
+        if let rawHTML = try? String(contentsOf: url, encoding: .utf8) {
+            let prepared = AntigravityHTMLThemeHelper.prepareStandaloneHTML(rawHTML, isDark: isDark)
+            coordinator.isGenerativeUI = prepared.isGenerativeUI
+            applyWebViewBackground(webView, isGenerativeUI: prepared.isGenerativeUI, isDark: isDark)
+            webView.loadHTMLString(prepared.html, baseURL: URL(string: "about:blank"))
+        } else {
+            coordinator.isGenerativeUI = false
+            applyWebViewBackground(webView, isGenerativeUI: false, isDark: isDark)
+            webView.loadFileURL(url, allowingReadAccessTo: url)
+        }
+    }
+
+    private func applyWebViewBackground(_ webView: WKWebView, isGenerativeUI: Bool, isDark: Bool) {
+        let bg: UIColor = isGenerativeUI
+            ? AntigravityHTMLThemeHelper.darkBackgroundUIColor(isDark: isDark)
+            : .white
+        webView.isOpaque = !isGenerativeUI
+        webView.backgroundColor = bg
+        webView.scrollView.backgroundColor = bg
     }
 }
 
