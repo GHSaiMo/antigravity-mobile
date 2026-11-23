@@ -89,6 +89,7 @@ extension ChatViewModel {
 
     public func confirmUndo() {
         guard let message = activeUndoMessage, let url = settings.serverURL, !isReverting else { return }
+        AppReviewManager.shared.recordFriction()
 
         undoPreviewTask?.cancel()
         undoPreviewTask = nil

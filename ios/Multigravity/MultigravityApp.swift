@@ -24,10 +24,12 @@ struct MultigravityApp: App {
                     settings.applyAppearance()
                     ActivityManager.shared.startRemoteTokenObservers()
                     PushNotificationManager.shared.syncAllTokensIfPaired()
+                    AppReviewManager.shared.recordActiveDayIfEligible()
                 }
                 .onChange(of: scenePhase) { _, newPhase in
                     if newPhase == .active {
                         settings.applyAppearance()
+                        AppReviewManager.shared.recordActiveDayIfEligible()
                     }
                 }
         }

@@ -348,11 +348,13 @@ extension ChatViewModel {
                 baseURL: url
             )
             PushNotificationManager.shared.clearDeliveredNotifications(for: cascadeId, approvalOnly: true)
+            self.currentTurnHadRemoteApproval = true
             try? await Task.sleep(nanoseconds: 250_000_000)
             await self.loadMessages(isBackgroundPoll: true)
         } catch {
             print("❌ proceedArtifact error: \(error)")
             errorMessage = String(localized: "确认方案失败: \(error.localizedDescription)")
+            AppReviewManager.shared.recordFriction()
             isRunning = false
             isAwaitingResponse = false
             awaitingResponseSince = nil
@@ -684,6 +686,9 @@ extension ChatViewModel {
         guard !cascadeId.isEmpty, let url = settings.serverURL else { return }
         
         UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
+        lastUserCancelledAt = Date()
+        currentTurnHadRemoteApproval = false
+        AppReviewManager.shared.recordFriction()
         isAwaitingResponse = false
         awaitingResponseSince = nil
         isRunning = false

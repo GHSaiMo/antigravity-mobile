@@ -570,6 +570,8 @@ public final class ChatViewModel {
     @ObservationIgnored var backgroundTaskId: UIBackgroundTaskIdentifier = .invalid
     @ObservationIgnored var backgroundDisconnectTask: Task<Void, Never>? = nil
     @ObservationIgnored var decodedStreamMediaCache: [String: (rawMedia: [String], decoded: [Data])] = [:]
+    @ObservationIgnored var lastUserCancelledAt: Date = .distantPast
+    @ObservationIgnored var currentTurnHadRemoteApproval: Bool = false
     
     public init(
         cascadeId: String,
@@ -1081,6 +1083,7 @@ public final class ChatViewModel {
             self.isLoading = false
             
             let previouslyRunning = self.isRunning
+            let wasAwaiting = self.isAwaitingResponse
             let lastUserIdx = self.messages.lastIndex(where: { $0.isUser }) ?? -1
             let latestTurn = lastUserIdx >= 0 ? self.messages.suffix(from: lastUserIdx + 1) : self.messages[...]
             let latestEndedInError = latestTurn.last?.isError == true
@@ -1197,6 +1200,11 @@ public final class ChatViewModel {
             
             // Manage Live Activity
             syncLiveActivity()
+            evaluateTurnDelightTransition(
+                previouslyRunning: previouslyRunning,
+                wasAwaiting: wasAwaiting,
+                isError: isTrajectoryError
+            )
             
             if !self.isRunning && previouslyRunning {
                 // Agent just finished turn; schedule post-turn title verification tasks
@@ -1404,6 +1412,66 @@ public final class ChatViewModel {
         }
 
         return messages.contains(where: { $0.id == targetMessageId }) || !hasMore
+    }
+
+    /// 评估本轮会话状态翻转是否构成「前台亲眼见证 Agent 顺利交付」的正向爽点，
+    /// 或新发生的报错摩擦。WebSocket 流式推送与 HTTP 轮询共用此判定，避免重复计分。
+    @MainActor
+    func evaluateTurnDelightTransition(previouslyRunning: Bool, wasAwaiting: Bool, isError: Bool) {
+        let wasActiveTurn = previouslyRunning || wasAwaiting
+        if isError {
+            if wasActiveTurn {
+                currentTurnHadRemoteApproval = false
+                AppReviewManager.shared.recordFriction()
+            }
+            return
+        }
+
+        guard wasActiveTurn else { return }
+        guard !isRunning, !isAwaitingResponse, !hasError, errorMessage == nil else { return }
+        guard pendingInteraction == nil, !canProceed, runningTasks.blockingTasks.isEmpty else { return }
+        guard Date().timeIntervalSince(lastUserCancelledAt) > 10 else { return }
+        guard !cascadeId.isEmpty, Self.activeCascadeId == cascadeId else { return }
+
+        let lastUserIdx = messages.lastIndex(where: { $0.isUser }) ?? -1
+        let latestTurn = lastUserIdx >= 0 ? messages.suffix(from: lastUserIdx + 1) : messages[...]
+        guard !latestTurn.contains(where: { $0.isError }) else { return }
+
+        let meaningfulAgentMsg = latestTurn.last(where: { msg in
+            guard msg.sender == .agent else { return false }
+            return !msg.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                || !msg.imageUrls.isEmpty
+                || !msg.imageDataList.isEmpty
+                || !msg.artifacts.isEmpty
+        })
+        guard let anchorMsg = meaningfulAgentMsg else { return }
+
+        let usedTools = latestTurn.contains { msg in
+            if case .toolBatch = msg.sender { return true }
+            return msg.toolCount > 0 || msg.sender == .subagent || msg.sender == .workflow
+        }
+        let afterApproval = currentTurnHadRemoteApproval
+        currentTurnHadRemoteApproval = false
+
+        AppReviewManager.shared.recordTurnCompleted(
+            cascadeId: cascadeId,
+            anchorMessageId: anchorMsg.id,
+            usedTools: usedTools,
+            afterRemoteApproval: afterApproval
+        ) { [weak self] in
+            guard let self else { return false }
+            return Self.activeCascadeId == self.cascadeId
+                && !self.isRunning
+                && !self.isAwaitingResponse
+                && !self.isSending
+                && !self.isSubmittingInteraction
+                && !self.hasError
+                && self.errorMessage == nil
+                && self.pendingInteraction == nil
+                && !self.canProceed
+                && self.runningTasks.blockingTasks.isEmpty
+                && self.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
     }
     
 }

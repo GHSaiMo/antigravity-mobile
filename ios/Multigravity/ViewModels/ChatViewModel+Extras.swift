@@ -178,11 +178,17 @@ extension ChatViewModel {
                 s.isWorking = false
                 s.result = res
                 self.gitSheet = s
+                if res.committed && res.pushError == nil {
+                    AppReviewManager.shared.recordHighValueDelight(.gitCommitSucceeded, deferUntilDismiss: true)
+                } else if res.pushError != nil {
+                    AppReviewManager.shared.recordFriction()
+                }
             } catch {
                 guard var s = self.gitSheet else { return }
                 s.isWorking = false
                 s.actionError = error.localizedDescription
                 self.gitSheet = s
+                AppReviewManager.shared.recordFriction()
             }
         }
     }
@@ -210,17 +216,20 @@ extension ChatViewModel {
                 }
                 self.gitSheet = s
                 if s.result == nil { self.refreshGitStatus() }
+                AppReviewManager.shared.recordHighValueDelight(.gitCommitSucceeded, deferUntilDismiss: true)
             } catch {
                 guard var s = self.gitSheet else { return }
                 s.isWorking = false
                 s.actionError = error.localizedDescription
                 self.gitSheet = s
+                AppReviewManager.shared.recordFriction()
             }
         }
     }
 
     public func closeGitSheet() {
         gitSheet = nil
+        AppReviewManager.shared.flushPendingPromptIfReady(delay: 0.9)
     }
 
     // MARK: - 斜杠命令

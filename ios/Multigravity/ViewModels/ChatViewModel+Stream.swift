@@ -233,6 +233,7 @@ extension ChatViewModel {
         }
         
         let previouslyRunning = self.isRunning
+        let wasAwaiting = self.isAwaitingResponse
         let lastUserIdx = self.messages.lastIndex(where: { $0.isUser }) ?? -1
         let latestTurn = lastUserIdx >= 0 ? self.messages.suffix(from: lastUserIdx + 1) : self.messages[...]
         let latestEndedInError = latestTurn.last?.isError == true
@@ -334,6 +335,11 @@ extension ChatViewModel {
         }
         
         syncLiveActivity()
+        evaluateTurnDelightTransition(
+            previouslyRunning: previouslyRunning,
+            wasAwaiting: wasAwaiting,
+            isError: isStreamError
+        )
         
         let toCache = self.messages.filter { $0.id != self.pendingOptimisticMessageId && !$0.id.hasPrefix("optimistic-") }
         cacheManager.saveSession(CachedChatSession(
@@ -415,12 +421,16 @@ extension ChatViewModel {
             }
             self.isSubmittingInteraction = false
             PushNotificationManager.shared.clearDeliveredNotifications(for: cascadeId, approvalOnly: true)
+            if allow {
+                self.currentTurnHadRemoteApproval = true
+            }
             
             try? await Task.sleep(nanoseconds: 250_000_000)
             await self.loadMessages(isBackgroundPoll: true)
         } catch {
             isSubmittingInteraction = false
             errorMessage = String(localized: "提交失败: \(error.localizedDescription)")
+            AppReviewManager.shared.recordFriction()
         }
     }
     

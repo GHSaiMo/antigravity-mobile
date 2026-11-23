@@ -248,11 +248,14 @@ public struct ConversationListView: View {
             }
             PushNotificationManager.shared.hasBlockingModalPresented = hasBlockingModalPresented
         }
-        .onChange(of: navigationPath) { _, newPath in
+        .onChange(of: navigationPath) { oldPath, newPath in
             let viewingId = newPath.last?.id
             PushNotificationManager.shared.activeViewingCascadeId = viewingId
             if let viewingId, !viewingId.isEmpty {
                 PushNotificationManager.shared.clearDeliveredNotifications(for: viewingId)
+            } else if !oldPath.isEmpty && !hasBlockingModalPresented {
+                // 用户看完刚跑完的会话后心满意足返回列表页：顺势承接未过期的爽点窗口
+                AppReviewManager.shared.flushPendingPromptIfReady(delay: 0.9)
             }
         }
         .onChange(of: hasBlockingModalPresented) { _, isBlocked in
@@ -1284,6 +1287,7 @@ public struct ConversationListView: View {
             do {
                 _ = try await PairingService.shared.pair(with: info)
                 settings.refreshPairedState()
+                AppReviewManager.shared.recordActiveDayIfEligible()
                 viewModel.startAutoRefresh()
                 await viewModel.fetchConversations()
                 await ProjectCacheManager.shared.fetchAndCacheProjects()

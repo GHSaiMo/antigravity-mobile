@@ -148,6 +148,7 @@ public final class VoiceCallManager: ObservableObject {
     }
 
     public func endCall(preserveFailure: Bool = false) {
+        let wasInCall = isInCall
         UIApplication.shared.isIdleTimerDisabled = false
         isIntentionallyClosed = true
         isSocketReady = false
@@ -182,6 +183,10 @@ public final class VoiceCallManager: ObservableObject {
         if !preserveFailure {
             callState = .idle
             activeCascadeId = ""
+        }
+
+        if wasInCall && preserveFailure {
+            AppReviewManager.shared.recordFriction()
         }
     }
 

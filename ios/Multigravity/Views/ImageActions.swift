@@ -58,8 +58,10 @@ enum ImageActions {
 
     /// SwiftUI 场景：保存并用 HUD + 触觉反馈提示结果。
     @MainActor
-    static func saveWithFeedback(_ image: UIImage, fileURL: URL? = nil) async {
-        switch await saveToPhotos(image, fileURL: fileURL) {
+    @discardableResult
+    static func saveWithFeedback(_ image: UIImage, fileURL: URL? = nil) async -> SaveOutcome {
+        let outcome = await saveToPhotos(image, fileURL: fileURL)
+        switch outcome {
         case .saved:
             UINotificationFeedbackGenerator().notificationOccurred(.success)
             CopiedHUD.show(String(localized: "已保存到相册"))
@@ -70,6 +72,7 @@ enum ImageActions {
             UINotificationFeedbackGenerator().notificationOccurred(.error)
             CopiedHUD.show(String(localized: "保存失败: \(message)"))
         }
+        return outcome
     }
 
     @MainActor
@@ -101,9 +104,22 @@ enum ImageActions {
     // MARK: - Share
 
     @MainActor
-    static func share(_ image: UIImage, from presenter: UIViewController? = nil, sourceView: UIView? = nil) {
+    static func share(
+        _ image: UIImage,
+        from presenter: UIViewController? = nil,
+        sourceView: UIView? = nil,
+        onComplete: (@MainActor (Bool) -> Void)? = nil
+    ) {
         guard let host = presenter ?? topViewController() else { return }
         let controller = UIActivityViewController(activityItems: [image], applicationActivities: nil)
+        if let onComplete {
+            controller.completionWithItemsHandler = { _, completed, _, error in
+                let succeeded = completed && error == nil
+                Task { @MainActor in
+                    onComplete(succeeded)
+                }
+            }
+        }
         if let popover = controller.popoverPresentationController {
             let anchor = sourceView ?? host.view
             popover.sourceView = anchor

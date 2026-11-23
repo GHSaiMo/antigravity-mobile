@@ -453,7 +453,11 @@ struct MessageShareCardSheet: View {
                 ToolbarItem(placement: .topBarLeading) {
                     Button {
                         guard let image = renderedImage else { return }
-                        Task { await ImageActions.saveWithFeedback(image) }
+                        Task {
+                            if case .saved = await ImageActions.saveWithFeedback(image) {
+                                AppReviewManager.shared.recordHighValueDelight(.shareCardExported, deferUntilDismiss: true)
+                            }
+                        }
                     } label: {
                         Image(systemName: "square.and.arrow.down")
                     }
@@ -463,7 +467,11 @@ struct MessageShareCardSheet: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         guard let image = renderedImage else { return }
-                        ImageActions.share(image)
+                        ImageActions.share(image) { completed in
+                            if completed {
+                                AppReviewManager.shared.recordHighValueDelight(.shareCardExported, deferUntilDismiss: true)
+                            }
+                        }
                     } label: {
                         Image(systemName: "square.and.arrow.up")
                     }

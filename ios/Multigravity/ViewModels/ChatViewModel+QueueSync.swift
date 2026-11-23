@@ -325,6 +325,8 @@ extension ChatViewModel {
         
         isSending = true
         defer { isSending = false }
+        currentTurnHadRemoteApproval = false
+        AppReviewManager.shared.cancelScheduledPrompt()
         
         // If agent is currently running and session already exists, queue follow-up message!
         if (self.isRunning || self.isAwaitingResponse) && !self.cascadeId.isEmpty {

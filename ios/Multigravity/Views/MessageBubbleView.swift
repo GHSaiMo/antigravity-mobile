@@ -122,7 +122,9 @@ public struct MessageBubbleView: View {
                 .presentationBackground(.clear)
                 .ignoresSafeArea()
         }
-        .sheet(isPresented: $showShareCard) {
+        .sheet(isPresented: $showShareCard, onDismiss: {
+            AppReviewManager.shared.flushPendingPromptIfReady(delay: 0.9)
+        }) {
             MessageShareCardSheet(
                 message: message,
                 context: makeShareContext?() ?? ShareCardContext(sessionTitle: "", modelName: nil, previousMessage: nil),
