@@ -161,7 +161,13 @@ class MainActivity : ComponentActivity() {
 
         // Initialize ViewModels
         pairingViewModel = PairingViewModel(apiClient, prefs)
-        conversationListViewModel = ConversationListViewModel(apiClient, prefs, cacheManager, liveActivityManager)
+        conversationListViewModel = ConversationListViewModel(
+            apiClient = apiClient,
+            prefs = prefs,
+            cacheManager = cacheManager,
+            liveActivityManager = liveActivityManager,
+            connectionManager = connectionManager
+        )
         pairingViewModel.setPreheatAction {
             conversationListViewModel.loadInitialData()
         }
@@ -711,6 +717,19 @@ class MainActivity : ComponentActivity() {
         if (::liveActivityManager.isInitialized) {
             liveActivityManager.refreshActiveActivitiesNow()
             liveActivityManager.cleanUpOrphanedActivities()
+        }
+        if (::connectionManager.isInitialized && ::prefs.isInitialized && prefs.isPaired()) {
+            val lastProbe = connectionManager.lastProbeTime.value ?: 0L
+            val probeStale = System.currentTimeMillis() - lastProbe > 15_000L
+            val needsRecovery = ::conversationListViewModel.isInitialized && (
+                conversationListViewModel.quotaData.value == null ||
+                    !conversationListViewModel.linkSnapshot.value.connected
+                )
+            if (probeStale || needsRecovery) {
+                lifecycleScope.launch(Dispatchers.IO) {
+                    connectionManager.probeEndpoints(prefs)
+                }
+            }
         }
     }
 

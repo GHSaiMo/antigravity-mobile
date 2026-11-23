@@ -128,7 +128,7 @@ class ApiClient(
         .dns(CloudflareOptimizedDns)
         .cache(Cache(File(context.cacheDir, "http_cache"), 10L * 1024L * 1024L))
         .addInterceptor(RouteFailoverInterceptor(prefs, connectionManager))
-        .addInterceptor(E2eeTransportInterceptor(prefs))
+        .addInterceptor(E2eeTransportInterceptor(prefs, connectionManager))
         .addInterceptor(CloudflareEdgeFallbackInterceptor(connectionPool))
         .addInterceptor(LanCleartextSecurityInterceptor())
         .retryOnConnectionFailure(true)
@@ -1891,13 +1891,18 @@ class ApiClient(
 
 /**
  * OkHttp Interceptor that automatically fails over from an unreachable LAN gateway
- * to the primary cloud domain (Cloudflare HTTPS tunnel) when on external/foreign Wi-Fi.
+ * to the primary cloud domain (Cloudflare/E2EE HTTPS tunnel), and transparently migrates
+ * across multi-VPS relay nodes when a stale relay returns HTTP 502/503 (`gateway_offline`)
+ * or fails with a network error.
  */
 class RouteFailoverInterceptor(
     private val prefs: PreferencesManager,
     private val connectionManager: ConnectionManager?
 ) : okhttp3.Interceptor {
     private fun canSafelyFailover(request: Request, error: IOException): Boolean {
+        if (request.body?.isOneShot() == true) {
+            return false
+        }
         val method = request.method.uppercase()
         if (method == "GET" || method == "HEAD") {
             return true
@@ -1908,6 +1913,86 @@ class RouteFailoverInterceptor(
             error is java.net.UnknownHostException ||
             error is java.net.NoRouteToHostException ||
             (error is java.net.SocketTimeoutException && error.message?.contains("connect", ignoreCase = true) == true)
+    }
+
+    private fun isSafeReadRequest(request: Request): Boolean {
+        if (request.body?.isOneShot() == true) return false
+        val method = request.method.uppercase()
+        if (method == "GET" || method == "HEAD") return true
+        val path = request.url.encodedPath
+        return path.endsWith("/GetAllCascadeTrajectories") ||
+            path.endsWith("/GetCascadeTrajectory") ||
+            path.endsWith("/GetCascadeTrajectorySteps") ||
+            path.endsWith("/GetAuthStatus") ||
+            path.endsWith("/GetCascadeNuxes") ||
+            path.endsWith("/SearchConversations")
+    }
+
+    private fun isRelayGatewayOfflineResponse(response: okhttp3.Response): Boolean {
+        if (response.code != 503) return false
+        val snippet = try {
+            response.peekBody(256).string().lowercase()
+        } catch (_: Exception) {
+            ""
+        }
+        return snippet.contains("gateway_offline") || snippet.contains("relay_capacity_full")
+    }
+
+    private fun originOf(url: HttpUrl): String {
+        val defaultPort = if (url.isHttps) 443 else 80
+        return if (url.port == defaultPort) {
+            "${url.scheme}://${url.host}"
+        } else {
+            "${url.scheme}://${url.host}:${url.port}"
+        }
+    }
+
+    private fun retryOnTargetBase(
+        chain: okhttp3.Interceptor.Chain,
+        request: Request,
+        targetBaseUrl: String
+    ): okhttp3.Response? {
+        val clean = targetBaseUrl.trim().trimEnd('/')
+        if (clean.isEmpty()) return null
+        val targetUri = java.net.URI(if (!clean.contains("://")) "https://$clean" else clean)
+        val newScheme = targetUri.scheme ?: "https"
+        val newHost = targetUri.host ?: ConnectionManager.extractHost(clean)
+        if (newHost.isBlank()) return null
+        if (!newScheme.equals("https", ignoreCase = true) && !ConnectionManager.isLanHost(newHost)) {
+            return null
+        }
+        val newPort = if (targetUri.port != -1) {
+            targetUri.port
+        } else if (newScheme.equals("https", ignoreCase = true)) {
+            443
+        } else {
+            80
+        }
+
+        val fallbackUrl = request.url.newBuilder()
+            .scheme(newScheme)
+            .host(newHost)
+            .port(newPort)
+            .build()
+
+        val fallbackRequest = request.newBuilder()
+            .url(fallbackUrl)
+            .build()
+
+        val fallbackResponse = chain.withConnectTimeout(10, TimeUnit.SECONDS).proceed(fallbackRequest)
+        if (fallbackResponse.isSuccessful || fallbackResponse.code < 500) {
+            ConnectionManager.applyAdvertisedCloudUrl(
+                rawHeader = fallbackResponse.header("X-Antigravity-Cloud-URL"),
+                prefs = prefs,
+                connectionManager = connectionManager
+            )
+            if (!prefs.gatewayBaseUrl.equals(clean, ignoreCase = true)) {
+                Log.i("ApiClient", "Failover to $clean succeeded! Updating active gateway to $clean")
+                prefs.gatewayBaseUrl = clean
+                connectionManager?.notifyRouteChanged(clean)
+            }
+        }
+        return fallbackResponse
     }
 
     override fun intercept(chain: okhttp3.Interceptor.Chain): okhttp3.Response {
@@ -1926,54 +2011,109 @@ class RouteFailoverInterceptor(
             chain
         }
 
-        try {
-            val response = initialChain.proceed(request)
-            if (response.code < 500) {
-                ConnectionManager.applyAdvertisedCloudUrl(response.header("X-Antigravity-Cloud-URL"), prefs)
-            }
-            return response
+        var initialError: IOException? = null
+        val response = try {
+            initialChain.proceed(request)
         } catch (e: IOException) {
-            if (!canSafelyFailover(request, e)) {
-                throw e
+            initialError = e
+            null
+        }
+
+        if (response != null) {
+            if (response.code < 500) {
+                ConnectionManager.applyAdvertisedCloudUrl(
+                    rawHeader = response.header("X-Antigravity-Cloud-URL"),
+                    prefs = prefs,
+                    connectionManager = connectionManager
+                )
+                return response
             }
-            val cloud = prefs.primaryCloudUrl?.trim()?.trimEnd('/')
-            if (!cloud.isNullOrBlank()) {
-                val cloudHost = ConnectionManager.extractHost(cloud)
-                if (!originalHost.equals(cloudHost, ignoreCase = true)) {
-                    Log.w("ApiClient", "Request to $originalHost failed (${e.message}). Failing over to cloud domain: $cloud")
-                    try {
-                        val cloudUri = java.net.URI(if (!cloud.contains("://")) "https://$cloud" else cloud)
-                        val newScheme = cloudUri.scheme ?: "https"
-                        val newHost = cloudUri.host ?: cloudHost
-                        if (!newScheme.equals("https", ignoreCase = true) && !ConnectionManager.isLanHost(newHost)) {
-                            throw e
+
+            // Multi-VPS relay migration: when an old relay node returns HTTP 503 gateway_offline
+            // (or 502/503 on a safe read request), discover the active node via /api/relay/pool
+            // and transparently retry once so quota/list loads recover on the first attempt.
+            if (!isLan &&
+                connectionManager != null &&
+                request.body?.isOneShot() != true &&
+                (response.code == 502 || response.code == 503) &&
+                (isRelayGatewayOfflineResponse(response) || isSafeReadRequest(request))
+            ) {
+                val failedOrigin = originOf(originalUrl)
+                val migratedUrl = connectionManager.migrateUnreachableCloudBlocking(prefs, failedOrigin)
+                if (!migratedUrl.isNullOrBlank()) {
+                    val migratedHost = ConnectionManager.extractHost(migratedUrl)
+                    if (migratedHost.isNotBlank() && !migratedHost.equals(originalHost, ignoreCase = true)) {
+                        response.close()
+                        try {
+                            retryOnTargetBase(chain, request, migratedUrl)?.let { return it }
+                        } catch (retryEx: Exception) {
+                            Log.w("ApiClient", "Retry on migrated relay $migratedUrl failed: ${retryEx.message}")
+                            throw retryEx
                         }
-                        val newPort = if (cloudUri.port != -1) cloudUri.port else (if (newScheme.equals("https", ignoreCase = true)) 443 else 80)
-
-                        val fallbackUrl = originalUrl.newBuilder()
-                            .scheme(newScheme)
-                            .host(newHost)
-                            .port(newPort)
-                            .build()
-
-                        val fallbackRequest = request.newBuilder()
-                            .url(fallbackUrl)
-                            .build()
-
-                        val fallbackResponse = chain.withConnectTimeout(10, TimeUnit.SECONDS).proceed(fallbackRequest)
-                        if (fallbackResponse.isSuccessful || fallbackResponse.code < 500) {
-                            ConnectionManager.applyAdvertisedCloudUrl(fallbackResponse.header("X-Antigravity-Cloud-URL"), prefs)
-                            Log.i("ApiClient", "Failover to $cloud succeeded! Updating active gateway to $cloud")
-                            prefs.gatewayBaseUrl = cloud
-                            connectionManager?.notifyRouteChanged(cloud)
-                        }
-                        return fallbackResponse
-                    } catch (fallbackEx: Exception) {
-                        Log.w("ApiClient", "Failover to $cloud also failed: ${fallbackEx.message}")
                     }
                 }
             }
+            return response
+        }
+
+        val e = initialError!!
+        if (!canSafelyFailover(request, e)) {
             throw e
         }
+        val cloud = prefs.primaryCloudUrl?.trim()?.trimEnd('/')
+        var failedCloudOrigin: String? = null
+        var migrationAttempted = false
+        if (!cloud.isNullOrBlank()) {
+            val cloudHost = ConnectionManager.extractHost(cloud)
+            if (!originalHost.equals(cloudHost, ignoreCase = true)) {
+                Log.w("ApiClient", "Request to $originalHost failed (${e.message}). Failing over to cloud domain: $cloud")
+                val fallbackResponse = try {
+                    retryOnTargetBase(chain, request, cloud)
+                } catch (fallbackEx: Exception) {
+                    Log.w("ApiClient", "Failover to $cloud also failed: ${fallbackEx.message}")
+                    failedCloudOrigin = cloud
+                    null
+                }
+                if (fallbackResponse != null) {
+                    if ((fallbackResponse.code == 502 || fallbackResponse.code == 503) &&
+                        connectionManager != null &&
+                        (isRelayGatewayOfflineResponse(fallbackResponse) || isSafeReadRequest(request))
+                    ) {
+                        migrationAttempted = true
+                        val migratedUrl = connectionManager.migrateUnreachableCloudBlocking(prefs, cloud)
+                        if (!migratedUrl.isNullOrBlank() &&
+                            !ConnectionManager.extractHost(migratedUrl).equals(cloudHost, ignoreCase = true)
+                        ) {
+                            fallbackResponse.close()
+                            try {
+                                retryOnTargetBase(chain, request, migratedUrl)?.let { return it }
+                            } catch (migEx: Exception) {
+                                Log.w("ApiClient", "Failover to migrated relay $migratedUrl failed: ${migEx.message}")
+                                throw migEx
+                            }
+                        }
+                    }
+                    return fallbackResponse
+                }
+            } else {
+                failedCloudOrigin = originOf(originalUrl)
+            }
+        } else if (!isLan) {
+            failedCloudOrigin = originOf(originalUrl)
+        }
+
+        if (!migrationAttempted && !failedCloudOrigin.isNullOrBlank() && connectionManager != null) {
+            val migratedUrl = connectionManager.migrateUnreachableCloudBlocking(prefs, failedCloudOrigin)
+            if (!migratedUrl.isNullOrBlank() &&
+                !ConnectionManager.extractHost(migratedUrl).equals(originalHost, ignoreCase = true)
+            ) {
+                try {
+                    retryOnTargetBase(chain, request, migratedUrl)?.let { return it }
+                } catch (migEx: Exception) {
+                    Log.w("ApiClient", "Failover to migrated relay $migratedUrl also failed: ${migEx.message}")
+                }
+            }
+        }
+        throw e
     }
 }

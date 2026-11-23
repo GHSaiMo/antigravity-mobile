@@ -66,12 +66,16 @@ internal fun parseConversationEventFrame(text: String): ConversationEventFrame? 
  */
 class ConversationEventsClient(
     private val prefs: PreferencesManager,
-    private val baseUrlProvider: () -> String?
+    private val baseUrlProvider: () -> String?,
+    private val onRelayUnavailable: (() -> Unit)? = null
 ) {
+    private val connectionPool = okhttp3.ConnectionPool()
     private val client = OkHttpClient.Builder()
+        .connectionPool(connectionPool)
         .dns(CloudflareOptimizedDns)
         .pingInterval(15, TimeUnit.SECONDS)
         .readTimeout(0, TimeUnit.MILLISECONDS) // infinite for websockets
+        .addInterceptor(CloudflareEdgeFallbackInterceptor(connectionPool))
         .addInterceptor(LanCleartextSecurityInterceptor())
         .build()
 
@@ -229,9 +233,30 @@ class ConversationEventsClient(
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                 val httpCode = response?.code ?: 0
                 Log.d("ConvEvents", "events socket ended (http=$httpCode): ${t.message}")
+                if (httpCode == 403) {
+                    val snippet = try {
+                        response?.peekBody(512)?.string().orEmpty()
+                    } catch (_: Exception) {
+                        ""
+                    }
+                    if (CloudflareOptimizedDns.isError1034Body(snippet)) {
+                        CloudflareOptimizedDns.reportEdgeRestricted()
+                        connectionPool.evictAll()
+                        done.complete(SessionOutcome.FAILED_OR_PREMATURE)
+                        return
+                    }
+                }
                 if (httpCode == 401 || httpCode == 403) {
                     done.complete(SessionOutcome.AUTH_REJECTED)
                     return
+                }
+                if (httpCode == 426 && E2eeCrypto.isReady(prefs)) {
+                    E2eeCrypto.markHostRequiresE2ee(hostPart)
+                    done.complete(SessionOutcome.HEALTHY_CLOSED)
+                    return
+                }
+                if (httpCode == 502 || httpCode == 503) {
+                    onRelayUnavailable?.invoke()
                 }
                 val isOpen = opened.get()
                 val tOpen = openedAtMs.get()

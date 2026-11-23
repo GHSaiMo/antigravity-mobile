@@ -103,29 +103,45 @@ object RelayPoolResolver {
         val currentClean = currentCloudUrl?.trim()?.trimEnd('/')?.lowercase()
 
         val nodes = fetchPoolNodes(httpClient, forceRefresh = true)
-        if (nodes.isEmpty()) return null
-
-        val candidates = linkedSetOf<String>()
+        val relayCandidates = linkedSetOf<String>()
         for (node in nodes) {
             val host = node.hostTemplate.replace("{sid}", sid).trim().lowercase()
             if (host.isEmpty() || !host.contains('.')) continue
             val urlStr = "https://$host"
             if (urlStr != currentClean) {
-                candidates.add(urlStr)
+                relayCandidates.add(urlStr)
             }
         }
-        if (candidates.isEmpty()) return null
 
-        val statuses = coroutineScope {
-            candidates.map { cand ->
-                async { connectionManager.testSingleEndpoint(cand) }
-            }.awaitAll()
+        if (relayCandidates.isNotEmpty()) {
+            val statuses = coroutineScope {
+                relayCandidates.map { cand ->
+                    async { connectionManager.testSingleEndpoint(cand) }
+                }.awaitAll()
+            }
+            val best = statuses.filter { it.isReachable }.minByOrNull { it.latencyMs }
+            if (best != null) {
+                val bestHost = ConnectionManager.extractHost(best.urlString)
+                if (bestHost.isNotEmpty()) {
+                    E2eeCrypto.markHostRequiresE2ee(bestHost)
+                }
+                return best.urlString
+            }
         }
-        val best = statuses.filter { it.isReachable }.minByOrNull { it.latencyMs } ?: return null
-        val bestHost = ConnectionManager.extractHost(best.urlString)
-        if (bestHost.isNotEmpty()) {
-            E2eeCrypto.markHostRequiresE2ee(bestHost)
+
+        // Secondary fallback: if the dispatcher or every peer relay node is temporarily unreachable,
+        // try the DualTrack legacy Cloudflare tunnel domain (`https://<sid>.jiuge.space`) so the
+        // client stays online and can re-learn the active relay node via X-Antigravity-Cloud-URL.
+        val currentHost = currentCloudUrl?.let { ConnectionManager.extractHost(it) }.orEmpty()
+        if (currentHost.endsWith(".jiuge.space")) {
+            val legacyCfUrl = "https://$sid.jiuge.space"
+            if (legacyCfUrl != currentClean) {
+                val cfStatus = connectionManager.testSingleEndpoint(legacyCfUrl)
+                if (cfStatus.isReachable) {
+                    return cfStatus.urlString
+                }
+            }
         }
-        return best.urlString
+        return null
     }
 }

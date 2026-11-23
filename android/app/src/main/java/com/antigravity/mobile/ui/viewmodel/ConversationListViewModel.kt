@@ -16,6 +16,7 @@ import com.antigravity.mobile.data.model.LocalDraftSession
 import com.antigravity.mobile.data.model.ProjectItem
 import com.antigravity.mobile.data.service.ApiClient
 import com.antigravity.mobile.data.service.CacheManager
+import com.antigravity.mobile.data.service.ConnectionManager
 import com.antigravity.mobile.data.service.ConversationEventsClient
 import com.antigravity.mobile.data.service.PreferencesManager
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -71,7 +72,8 @@ class ConversationListViewModel(
     private val apiClient: ApiClient,
     val prefs: PreferencesManager,
     val cacheManager: CacheManager? = null,
-    private val liveActivityManager: com.antigravity.mobile.data.service.LiveActivityNotificationManager? = null
+    private val liveActivityManager: com.antigravity.mobile.data.service.LiveActivityNotificationManager? = null,
+    private val connectionManager: ConnectionManager? = null
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<ConversationListUiState>(ConversationListUiState.Loading)
@@ -140,14 +142,36 @@ class ConversationListViewModel(
     private var pendingReorderJob: kotlinx.coroutines.Job? = null
 
     /** Gateway push hints for list changes; polling below is the fallback and a slow safety net. */
-    private val eventsClient = ConversationEventsClient(prefs) { apiClient.currentBaseUrl }
+    private val eventsClient = ConversationEventsClient(
+        prefs = prefs,
+        baseUrlProvider = { apiClient.currentBaseUrl },
+        onRelayUnavailable = {
+            if (prefs.isPaired()) {
+                viewModelScope.launch {
+                    connectionManager?.probeEndpoints(prefs)
+                }
+            }
+        }
+    )
     /** Heartbeat facts backing the connection dot in the home quota bar. */
     val linkSnapshot: kotlinx.coroutines.flow.StateFlow<com.antigravity.mobile.data.service.LinkSnapshot> = eventsClient.snapshot
     fun reconnectEvents() = eventsClient.reconnect()
     fun reconnectEventsIfStale() = eventsClient.reconnectIfStale()
 
+    @Volatile private var lastNotifiedRouteUrl: String? = null
+    private val routeChangeListener: (String) -> Unit = { newUrl ->
+        if (prefs.isPaired() && !ConnectionManager.isSameEndpoint(lastNotifiedRouteUrl, newUrl)) {
+            lastNotifiedRouteUrl = newUrl
+            Log.d("ConvListVM", "Route changed to $newUrl; reconnecting events and refreshing list/quota")
+            eventsClient.reconnect()
+            loadConversations()
+            loadQuotas()
+        }
+    }
+
     init {
         rawConversations = loadInitialConversations()
+        connectionManager?.addOnRouteChangedListener(routeChangeListener)
         if (prefs.isPaired()) {
             loadConversations()
             loadQuotas()
@@ -156,6 +180,12 @@ class ConversationListViewModel(
         } else {
             _uiState.value = ConversationListUiState.Success(emptyList())
         }
+    }
+
+    private suspend fun probeAndDetectRouteChange(failedBaseUrl: String?): Boolean {
+        val cm = connectionManager ?: return false
+        val elected = cm.probeEndpoints(prefs) ?: return false
+        return !ConnectionManager.isSameEndpoint(elected, failedBaseUrl)
     }
 
     private fun sortConversations(items: List<ConversationItem>): List<ConversationItem> {
@@ -276,7 +306,14 @@ class ConversationListViewModel(
     }
 
     private suspend fun refreshConversationsFromServer() {
-        apiClient.fetchConversations().onSuccess { list ->
+        val attemptedBase = apiClient.currentBaseUrl
+        val firstResult = apiClient.fetchConversations()
+        val effectiveResult = if (firstResult.isFailure && probeAndDetectRouteChange(attemptedBase)) {
+            apiClient.fetchConversations()
+        } else {
+            firstResult
+        }
+        effectiveResult.onSuccess { list ->
             rawConversations = mergeWithLocalConversations(list, forceReorder = false)
             persistConversationsToCache(rawConversations)
             applyFilter()
@@ -285,6 +322,12 @@ class ConversationListViewModel(
         }
         apiClient.fetchGlobalBackgroundTasks().onSuccess {
             _globalBackgroundTasks.value = it
+        }
+        // Self-heal home quota bar if initial startup fetch failed before route migration completed.
+        if (_quotaData.value == null) {
+            apiClient.fetchCockpitQuotas().onSuccess {
+                _quotaData.value = it
+            }
         }
     }
 
@@ -461,7 +504,13 @@ class ConversationListViewModel(
         viewModelScope.launch {
             _isRefreshing.value = true
             try {
-                val convResult = apiClient.fetchConversations()
+                val attemptedBase = apiClient.currentBaseUrl
+                val firstConvResult = apiClient.fetchConversations()
+                val convResult = if (firstConvResult.isFailure && probeAndDetectRouteChange(attemptedBase)) {
+                    apiClient.fetchConversations()
+                } else {
+                    firstConvResult
+                }
                 convResult.onSuccess { list ->
                     rawConversations = mergeWithLocalConversations(list)
                     persistConversationsToCache(rawConversations)
@@ -472,7 +521,14 @@ class ConversationListViewModel(
                         _uiState.value = ConversationListUiState.Error(err.message ?: "无法获取会话列表".loc)
                     }
                 }
-                apiClient.fetchCockpitQuotas().onSuccess {
+                val quotaAttemptBase = apiClient.currentBaseUrl
+                val firstQuota = apiClient.fetchCockpitQuotas()
+                val quotaResult = if (firstQuota.isFailure && probeAndDetectRouteChange(quotaAttemptBase)) {
+                    apiClient.fetchCockpitQuotas()
+                } else {
+                    firstQuota
+                }
+                quotaResult.onSuccess {
                     _quotaData.value = it
                 }
                 apiClient.fetchGlobalBackgroundTasks().onSuccess {
@@ -507,13 +563,22 @@ class ConversationListViewModel(
             }
         }
         viewModelScope.launch {
-            val result = apiClient.fetchConversations()
+            val attemptedBase = apiClient.currentBaseUrl
+            val firstResult = apiClient.fetchConversations()
+            val result = if (firstResult.isFailure && probeAndDetectRouteChange(attemptedBase)) {
+                apiClient.fetchConversations()
+            } else {
+                firstResult
+            }
             result.onSuccess { list ->
                 rawConversations = mergeWithLocalConversations(list)
                 persistConversationsToCache(rawConversations)
                 applyFilter()
                 cacheManager?.prewarmSessions(rawConversations.take(15).map { it.id })
                 liveActivityManager?.syncWithConversations(rawConversations)
+                if (_quotaData.value == null) {
+                    loadQuotas()
+                }
             }.onFailure { err ->
                 if (rawConversations.isEmpty()) {
                     _uiState.value = ConversationListUiState.Error(err.message ?: "无法获取会话列表".loc)
@@ -524,7 +589,14 @@ class ConversationListViewModel(
 
     fun loadQuotas() {
         viewModelScope.launch {
-            apiClient.fetchCockpitQuotas().onSuccess {
+            val attemptedBase = apiClient.currentBaseUrl
+            val firstResult = apiClient.fetchCockpitQuotas()
+            val result = if (firstResult.isFailure && probeAndDetectRouteChange(attemptedBase)) {
+                apiClient.fetchCockpitQuotas()
+            } else {
+                firstResult
+            }
+            result.onSuccess {
                 _quotaData.value = it
             }
         }
@@ -533,7 +605,14 @@ class ConversationListViewModel(
     fun refreshQuotas() {
         _isRefreshingQuota.value = true
         viewModelScope.launch {
-            apiClient.refreshCockpitQuotas().onSuccess {
+            val attemptedBase = apiClient.currentBaseUrl
+            val firstResult = apiClient.refreshCockpitQuotas()
+            val result = if (firstResult.isFailure && probeAndDetectRouteChange(attemptedBase)) {
+                apiClient.refreshCockpitQuotas()
+            } else {
+                firstResult
+            }
+            result.onSuccess {
                 _quotaData.value = it
             }
             _isRefreshingQuota.value = false
@@ -946,6 +1025,7 @@ class ConversationListViewModel(
     }
 
     override fun onCleared() {
+        connectionManager?.removeOnRouteChangedListener(routeChangeListener)
         stopAutoRefresh()
         eventsClient.close()
         super.onCleared()

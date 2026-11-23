@@ -337,7 +337,8 @@ object E2eeCrypto {
  * Also auto-recovers on `HTTP 426 e2ee_required` for custom-domain relay nodes.
  */
 class E2eeTransportInterceptor(
-    private val prefs: PreferencesManager
+    private val prefs: PreferencesManager,
+    private val connectionManager: ConnectionManager? = null
 ) : Interceptor {
     private val octetMediaType = "application/octet-stream".toMediaType()
 
@@ -457,7 +458,12 @@ class E2eeTransportInterceptor(
                     contentType = v
                 }
                 if (k.equals("X-Antigravity-Cloud-URL", ignoreCase = true) && v.isNotBlank()) {
-                    ConnectionManager.applyAdvertisedCloudUrl(v, prefs, trustedByE2ee = true)
+                    ConnectionManager.applyAdvertisedCloudUrl(
+                        rawHeader = v,
+                        prefs = prefs,
+                        trustedByE2ee = true,
+                        connectionManager = connectionManager
+                    )
                 }
             }
         }

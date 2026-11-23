@@ -6,6 +6,7 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.util.Log
 import com.antigravity.mobile.data.model.PairingInfo
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -17,6 +18,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import okhttp3.ConnectionPool
 import okhttp3.OkHttpClient
@@ -57,6 +59,8 @@ class ConnectionManager(private val context: Context) {
 
     private val httpConnectionPool = ConnectionPool()
 
+    // Short timeout for LAN probes so off-network Wi-Fi failover stays snappy;
+    // longer timeout for public HTTPS / cellular relay-pool discovery & cold TLS handshakes.
     private val httpClient = OkHttpClient.Builder()
         .connectionPool(httpConnectionPool)
         .dns(CloudflareOptimizedDns)
@@ -66,6 +70,18 @@ class ConnectionManager(private val context: Context) {
         .addInterceptor(CloudflareEdgeFallbackInterceptor(httpConnectionPool))
         .addInterceptor(LanCleartextSecurityInterceptor())
         .build()
+
+    private val publicProbeClient = httpClient.newBuilder()
+        .connectTimeout(5500, TimeUnit.MILLISECONDS)
+        .readTimeout(5500, TimeUnit.MILLISECONDS)
+        .writeTimeout(5500, TimeUnit.MILLISECONDS)
+        .build()
+
+    private val probeLock = Any()
+    @Volatile private var inFlightProbe: CompletableDeferred<String?>? = null
+    private val migrationLock = Any()
+    @Volatile private var lastFailedMigrationOrigin: String? = null
+    @Volatile private var lastFailedMigrationAtMs: Long = 0L
 
     private val _endpointStatuses = MutableStateFlow<Map<String, EndpointHealthStatus>>(emptyMap())
     val endpointStatuses: StateFlow<Map<String, EndpointHealthStatus>> = _endpointStatuses.asStateFlow()
@@ -224,10 +240,11 @@ class ConnectionManager(private val context: Context) {
             "$clean/healthz"
         }
 
+        val targetClient = if (isLanHost(extractHost(clean))) httpClient else publicProbeClient
         val start = System.currentTimeMillis()
         try {
             val req = Request.Builder().url(targetUrl).build()
-            httpClient.newCall(req).execute().use { resp ->
+            targetClient.newCall(req).execute().use { resp ->
                 val took = System.currentTimeMillis() - start
                 if (resp.isSuccessful) {
                     val body = resp.body?.string() ?: ""
@@ -264,9 +281,107 @@ class ConnectionManager(private val context: Context) {
         }
     }
 
-    suspend fun probeEndpoints(prefs: PreferencesManager): String? = withContext(Dispatchers.IO) {
-        if (_isProbing.value) return@withContext prefs.gatewayBaseUrl
+    /**
+     * Synchronous single-flight relay migration for OkHttp interceptors when an active cloud/relay
+     * endpoint fails with HTTP 502/503 (`gateway_offline`) or a network error.
+     * Deduplicates concurrent failures so only one thread queries `/api/relay/pool` and probes peers.
+     */
+    fun migrateUnreachableCloudBlocking(prefs: PreferencesManager, failedOrigin: String): String? {
+        val cleanFailed = failedOrigin.trim().trimEnd('/').lowercase()
+        if (cleanFailed.isEmpty() || !E2eeCrypto.isReady(prefs)) return null
 
+        synchronized(migrationLock) {
+            // Fast path: another thread already migrated away from cleanFailed.
+            val currentCloud = prefs.primaryCloudUrl?.trim()?.trimEnd('/')
+            if (!currentCloud.isNullOrBlank() &&
+                !currentCloud.equals(cleanFailed, ignoreCase = true) &&
+                !isLanHost(extractHost(currentCloud))
+            ) {
+                val curActive = prefs.gatewayBaseUrl?.trim()?.trimEnd('/')
+                if (curActive.isNullOrBlank() || curActive.equals(cleanFailed, ignoreCase = true)) {
+                    prefs.gatewayBaseUrl = currentCloud
+                }
+                return currentCloud
+            }
+
+            val now = System.currentTimeMillis()
+            if (lastFailedMigrationOrigin == cleanFailed && (now - lastFailedMigrationAtMs) < 10_000L) {
+                return null
+            }
+
+            val migratedUrl = try {
+                runBlocking(Dispatchers.IO) {
+                    RelayPoolResolver.resolveReachableCloudUrl(
+                        currentCloudUrl = cleanFailed,
+                        prefs = prefs,
+                        connectionManager = this@ConnectionManager,
+                        httpClient = publicProbeClient
+                    )
+                }
+            } catch (e: Exception) {
+                Log.w("ConnectionManager", "Blocking relay migration failed for $cleanFailed: ${e.message}")
+                null
+            }
+
+            if (!migratedUrl.isNullOrBlank() && !migratedUrl.equals(cleanFailed, ignoreCase = true)) {
+                lastFailedMigrationOrigin = null
+                lastFailedMigrationAtMs = 0L
+                val cleanMigrated = migratedUrl.trim().trimEnd('/')
+                val oldBase = prefs.gatewayBaseUrl
+                prefs.primaryCloudUrl = cleanMigrated
+                if (extractHost(cleanMigrated).startsWith("r-")) {
+                    prefs.relayServerUrl = cleanMigrated
+                }
+                prefs.gatewayBaseUrl = cleanMigrated
+                Log.i("ConnectionManager", "Migrated cloud relay from $cleanFailed to $cleanMigrated")
+                if (!oldBase.equals(cleanMigrated, ignoreCase = true)) {
+                    notifyRouteChanged(cleanMigrated)
+                }
+                return cleanMigrated
+            }
+
+            lastFailedMigrationOrigin = cleanFailed
+            lastFailedMigrationAtMs = System.currentTimeMillis()
+            return null
+        }
+    }
+
+    suspend fun probeEndpoints(prefs: PreferencesManager): String? {
+        val existing: CompletableDeferred<String?>?
+        val owned: CompletableDeferred<String?>?
+        synchronized(probeLock) {
+            val current = inFlightProbe
+            if (current != null && !current.isCompleted) {
+                existing = current
+                owned = null
+            } else {
+                val created = CompletableDeferred<String?>()
+                inFlightProbe = created
+                existing = null
+                owned = created
+            }
+        }
+        if (existing != null) {
+            return existing.await()
+        }
+        val deferred = owned!!
+        return try {
+            val result = performProbeEndpoints(prefs)
+            deferred.complete(result)
+            result
+        } catch (t: Throwable) {
+            deferred.complete(prefs.gatewayBaseUrl)
+            throw t
+        } finally {
+            synchronized(probeLock) {
+                if (inFlightProbe === deferred) {
+                    inFlightProbe = null
+                }
+            }
+        }
+    }
+
+    private suspend fun performProbeEndpoints(prefs: PreferencesManager): String? = withContext(Dispatchers.IO) {
         val isCellularNow = isCellular || !isWifi
 
         // 智能路由候选集：
@@ -322,25 +437,39 @@ class ConnectionManager(private val context: Context) {
             // Silent legacy-to-E2EE key negotiation for pre-1.2.5 paired devices (zero user interaction)
             if (!prefs.deviceToken.isNullOrBlank() && !E2eeCrypto.isReady(prefs) && reachable.isNotEmpty()) {
                 val reachableBase = reachable.first().urlString
-                E2eeCrypto.silentUpgradeIfNeeded(reachableBase, prefs, httpClient)
+                val upgradeClient = if (isLanHost(extractHost(reachableBase))) httpClient else publicProbeClient
+                E2eeCrypto.silentUpgradeIfNeeded(reachableBase, prefs, upgradeClient)
             }
 
             // Stateless multi-VPS pool auto-discovery when all known endpoints are unreachable
-            if (reachable.isEmpty() && E2eeCrypto.isReady(prefs) && !prefs.primaryCloudUrl.isNullOrBlank()) {
+            val seedCloudUrl = prefs.primaryCloudUrl?.trim()?.trimEnd('/')?.takeIf { it.isNotBlank() }
+                ?: prefs.gatewayBaseUrl?.trim()?.trimEnd('/')?.takeIf { it.isNotBlank() && !isLanHost(extractHost(it)) }
+            if (reachable.isEmpty() && E2eeCrypto.isReady(prefs) && !seedCloudUrl.isNullOrBlank()) {
                 val migratedUrl = RelayPoolResolver.resolveReachableCloudUrl(
-                    currentCloudUrl = prefs.primaryCloudUrl,
+                    currentCloudUrl = seedCloudUrl,
                     prefs = prefs,
                     connectionManager = this@ConnectionManager,
-                    httpClient = httpClient
+                    httpClient = publicProbeClient
                 )
                 if (!migratedUrl.isNullOrBlank()) {
+                    val cleanMigrated = migratedUrl.trim().trimEnd('/')
                     val oldBase = prefs.gatewayBaseUrl
-                    prefs.primaryCloudUrl = migratedUrl
-                    prefs.gatewayBaseUrl = migratedUrl
-                    if (!oldBase.equals(migratedUrl, ignoreCase = true)) {
-                        routeChangeListeners.forEach { it.invoke(migratedUrl) }
+                    prefs.primaryCloudUrl = cleanMigrated
+                    if (extractHost(cleanMigrated).startsWith("r-")) {
+                        prefs.relayServerUrl = cleanMigrated
                     }
-                    return@withContext migratedUrl
+                    prefs.gatewayBaseUrl = cleanMigrated
+                    _endpointStatuses.value = _endpointStatuses.value + (
+                        cleanMigrated to EndpointHealthStatus(
+                            urlString = cleanMigrated,
+                            isReachable = true,
+                            latencyMs = 0L
+                        )
+                    )
+                    if (!oldBase.equals(cleanMigrated, ignoreCase = true)) {
+                        notifyRouteChanged(cleanMigrated)
+                    }
+                    return@withContext cleanMigrated
                 }
             }
 
@@ -350,14 +479,19 @@ class ConnectionManager(private val context: Context) {
                 for (ep in reachable) {
                     val cleanBase = ep.urlString.trim().trimEnd('/')
                     val probeUrl = "$cleanBase/api/v1/auth/endpoints"
+                    val epClient = if (isLanHost(extractHost(cleanBase))) httpClient else publicProbeClient
                     try {
                         val reqBuilder = Request.Builder().url(probeUrl).get()
                         if (token != null) {
                             reqBuilder.header("Authorization", "Bearer $token")
                         }
-                        httpClient.newCall(reqBuilder.build()).execute().use { resp ->
+                        epClient.newCall(reqBuilder.build()).execute().use { resp ->
                             if (resp.isSuccessful) {
-                                applyAdvertisedCloudUrl(resp.header("X-Antigravity-Cloud-URL"), prefs)
+                                applyAdvertisedCloudUrl(
+                                    rawHeader = resp.header("X-Antigravity-Cloud-URL"),
+                                    prefs = prefs,
+                                    connectionManager = this@ConnectionManager
+                                )
                                 if (prefs.primaryCloudUrl.isNullOrBlank()) {
                                     val bodyStr = resp.body?.string().orEmpty()
                                     val json = JSONObject(bodyStr)
@@ -640,21 +774,41 @@ class ConnectionManager(private val context: Context) {
 
         /**
          * Silently hot-updates primaryCloudUrl when a trusted paired gateway advertises a migrated cloud/relay URL.
+         * Also syncs gatewayBaseUrl when the device is currently using the previous cloud/relay endpoint
+         * (while never clobbering active LAN, Tailscale, or user-configured custom routes).
          */
         fun applyAdvertisedCloudUrl(
             rawHeader: String?,
             prefs: PreferencesManager,
-            trustedByE2ee: Boolean = false
+            trustedByE2ee: Boolean = false,
+            connectionManager: ConnectionManager? = null
         ) {
             val clean = rawHeader?.trim()?.trimEnd('/')?.takeIf { it.isNotBlank() } ?: return
             if (!isValidAdvertisedCloudUrl(clean, prefs, trustedByE2ee = trustedByE2ee)) return
             val host = extractHost(clean)
             if (host.startsWith("r-")) {
                 E2eeCrypto.markHostRequiresE2ee(host)
+                if (prefs.relayServerUrl?.trim()?.trimEnd('/') != clean) {
+                    prefs.relayServerUrl = clean
+                }
             }
             val current = prefs.primaryCloudUrl?.trim()?.trimEnd('/')
             if (current != clean) {
                 prefs.primaryCloudUrl = clean
+            }
+            val active = prefs.gatewayBaseUrl?.trim()?.trimEnd('/')
+            if (!active.isNullOrBlank() && !active.equals(clean, ignoreCase = true)) {
+                val activeHost = extractHost(active)
+                val custom = prefs.customServerUrl?.trim()?.trimEnd('/')
+                val isUsingOldCloud = (!current.isNullOrBlank() && active.equals(current, ignoreCase = true)) ||
+                    (!isLanHost(activeHost) &&
+                        !isTailscaleHost(activeHost) &&
+                        !active.equals(custom, ignoreCase = true) &&
+                        isRelayHost(activeHost))
+                if (isUsingOldCloud) {
+                    prefs.gatewayBaseUrl = clean
+                    connectionManager?.notifyRouteChanged(clean)
+                }
             }
         }
     }
