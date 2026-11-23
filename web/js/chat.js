@@ -3975,7 +3975,40 @@ function formatCacheNoticeWeb(diag, meter) {
     }
     return `❄ 已闲置 ${idleText}，约 ${usedText} 上下文缓存可能已失效；直接续聊将重算输入额度，建议先压缩或开启新会话。`;
   }
+
+  const pct = Math.min(Math.max(Number(meter.percentage) || 0, 0), 100);
+  const pctInt = Math.round(pct);
+  if (meter.isOverflow || pct >= 95) {
+    if (lang === "en") {
+      return `⚠ Context window is nearly full (${pctInt}%) — auto-compaction or truncation may trigger at any time. Consider compacting now or starting a new session.`;
+    }
+    if (lang === "ja") {
+      return `⚠ コンテキスト上限間近（${pctInt}%）です。自動圧縮や切り詰めが発生する恐れがあるため、今すぐ圧縮するか新規チャットをおすすめします。`;
+    }
+    return `⚠ 上下文窗口已接近上限（${pctInt}%），随时可能触发自动压缩或截断，建议先一键压缩保留关键上下文，或开启新会话。`;
+  }
+  if (pct >= 75) {
+    if (lang === "en") {
+      return `ℹ Context is at ${pctInt}%, approaching auto-compaction. Compacting before the next long step helps avoid redundant input cost.`;
+    }
+    if (lang === "ja") {
+      return `ℹ コンテキスト使用率が ${pctInt}% に達し、自動圧縮のしきい値に近づいています。長い作業の前に圧縮すると再入力コストを抑えられます。`;
+    }
+    return `ℹ 上下文已用 ${pctInt}%，临近自动压缩阈值；继续长任务前建议先一键压缩，减少后续重复输入消耗。`;
+  }
   return "";
+}
+
+function formatSessionTotalsHeaderWeb(steps) {
+  const rawLang = (document.documentElement.getAttribute("data-lang") || navigator.language || "zh").toLowerCase();
+  const lang = rawLang.startsWith("ja") ? "ja" : rawLang.startsWith("en") ? "en" : "zh";
+  if (lang === "en") {
+    return steps > 0 ? `Session Total · ${steps} steps` : "Session Total";
+  }
+  if (lang === "ja") {
+    return steps > 0 ? `セッション累計 · ${steps} ステップ` : "セッション累計";
+  }
+  return steps > 0 ? `本会话累计 · ${steps} 步` : "本会话累计";
 }
 
 function updateContextMeterUI(meter, isRunning, hasPendingInteraction) {
@@ -4083,6 +4116,51 @@ function renderAuditSheetContent(meter) {
   }
   if (outEl) outEl.textContent = (meter.outputTokens || 0).toLocaleString();
   if (thinkEl) thinkEl.textContent = (meter.thinkingTokens || 0).toLocaleString();
+
+  const sessionSection = document.getElementById("audit-session-section");
+  if (sessionSection) {
+    const sessSteps = Number(meter.sessionSteps) || 0;
+    const sessInp = Number(meter.sessionInputTokens) || 0;
+    const sessCache = Number(meter.sessionCacheReadTokens) || 0;
+    const sessOut = Number(meter.sessionOutputTokens) || 0;
+    const sessThink = Number(meter.sessionThinkingTokens) || 0;
+    const hasSessionTotals = sessSteps > 0 || sessInp + sessCache + sessOut + sessThink > 0;
+    if (hasSessionTotals) {
+      sessionSection.classList.remove("hidden");
+      const titleEl = document.getElementById("audit-session-title");
+      const costEl = document.getElementById("audit-session-cost");
+      const sInpEl = document.getElementById("audit-session-input");
+      const sCacheEl = document.getElementById("audit-session-cache");
+      const sOutEl = document.getElementById("audit-session-output");
+      const sThinkEl = document.getElementById("audit-session-thinking");
+      if (titleEl) titleEl.textContent = formatSessionTotalsHeaderWeb(sessSteps);
+      if (costEl) {
+        const cost = Number(meter.sessionCostUsd) || 0;
+        if (cost >= 0.01) {
+          costEl.textContent = `≈ $${cost.toFixed(2)}`;
+          costEl.classList.remove("hidden");
+        } else {
+          costEl.textContent = "";
+          costEl.classList.add("hidden");
+        }
+      }
+      if (sInpEl) sInpEl.textContent = sessInp.toLocaleString();
+      if (sCacheEl) {
+        let sessHitRate = null;
+        if (typeof meter.sessionCacheHitRate === "number" && Number.isFinite(meter.sessionCacheHitRate)) {
+          sessHitRate = Math.min(Math.max(meter.sessionCacheHitRate, 0), 100);
+        } else if (sessInp + sessCache > 0) {
+          sessHitRate = (sessCache / (sessInp + sessCache)) * 100;
+        }
+        const baseText = sessCache.toLocaleString();
+        sCacheEl.textContent = sessHitRate !== null ? `${baseText} (${Math.round(sessHitRate)}%)` : baseText;
+      }
+      if (sOutEl) sOutEl.textContent = sessOut.toLocaleString();
+      if (sThinkEl) sThinkEl.textContent = sessThink.toLocaleString();
+    } else {
+      sessionSection.classList.add("hidden");
+    }
+  }
 
   if (noticeEl) {
     const noticeText = formatCacheNoticeWeb(diag, meter);

@@ -3,6 +3,8 @@ package proxy
 import (
 	"strings"
 	"testing"
+
+	"antigravity-mobile/internal/cockpit"
 )
 
 func TestParseGeneratorMetadataProtoJSONStrings(t *testing.T) {
@@ -294,5 +296,150 @@ func TestSanitizeContextMeterForClientShadowVsLive(t *testing.T) {
 	live := sanitizeContextMeterForClient(raw)
 	if live.CacheMissStreak != 3 || live.CacheMissTokens != 720000 || live.CacheStatus != "miss_streak" {
 		t.Fatalf("expected miss_streak passed through in live mode, got %+v", live)
+	}
+}
+
+func TestContextMeterSessionUsageAccumulationAndIncrementalMerge(t *testing.T) {
+	fullPayload := `{
+		"generatorMetadata": [
+			{
+				"chatModel": {
+					"model": "claude-opus-5-5-high",
+					"modelDisplayName": "Claude Opus 5.5 (High)",
+					"usage": {
+						"inputTokens": "10000",
+						"cacheCreationTokens": "2000",
+						"cacheReadTokens": "48000",
+						"outputTokens": "1000",
+						"thinkingOutputTokens": "400",
+						"responseId": "r-1"
+					}
+				}
+			},
+			{
+				"chatModel": {
+					"model": "claude-opus-5-5-high",
+					"modelDisplayName": "Claude Opus 5.5 (High)",
+					"usage": {
+						"inputTokens": "10000",
+						"cacheCreationTokens": "2000",
+						"cacheReadTokens": "48000",
+						"outputTokens": "1000",
+						"thinkingOutputTokens": "400",
+						"responseId": "r-1"
+					}
+				}
+			},
+			{
+				"chatModel": {
+					"model": "claude-opus-5-5-high",
+					"modelDisplayName": "Claude Opus 5.5 (High)",
+					"usage": {
+						"inputTokens": "8000",
+						"cacheReadTokens": "72000",
+						"outputTokens": "2000",
+						"thinkingOutputTokens": "600",
+						"responseId": "r-2"
+					}
+				}
+			}
+		]
+	}`
+
+	item, sum := parseGeneratorMetadataDetailedWithOffset(strings.NewReader(fullPayload), 0)
+	if item == nil {
+		t.Fatal("expected non-nil ContextMeterItem")
+	}
+	if item.SessionSteps != 2 || item.SessionInputTokens != 20000 || item.SessionCacheReadTokens != 120000 ||
+		item.SessionOutputTokens != 3000 || item.SessionThinkingTokens != 1000 || item.SessionTotalTokens != 143000 {
+		t.Fatalf("unexpected offset=0 session totals: %+v", item)
+	}
+	if item.SessionCacheHitRate == nil || *item.SessionCacheHitRate != 85.7 {
+		t.Fatalf("expected SessionCacheHitRate=85.7, got %v", item.SessionCacheHitRate)
+	}
+	// Opus: 20k*5/1e6 ($0.10) + 120k*0.5/1e6 ($0.06) + 3k*25/1e6 ($0.075) = $0.235
+	if item.SessionCostUSD < 0.234 || item.SessionCostUSD > 0.236 {
+		t.Fatalf("expected SessionCostUSD≈0.235, got %.4f", item.SessionCostUSD)
+	}
+
+	// Incremental tail fetch starting at offset=2 re-sending step 2 plus a brand-new step 3
+	tailPayload := `{
+		"generatorMetadata": [
+			{
+				"chatModel": {
+					"model": "claude-opus-5-5-high",
+					"modelDisplayName": "Claude Opus 5.5 (High)",
+					"usage": {
+						"inputTokens": "8000",
+						"cacheReadTokens": "72000",
+						"outputTokens": "2000",
+						"thinkingOutputTokens": "600",
+						"responseId": "r-2"
+					}
+				}
+			},
+			{
+				"chatModel": {
+					"model": "claude-opus-5-5-high",
+					"modelDisplayName": "Claude Opus 5.5 (High)",
+					"usage": {
+						"inputTokens": "5000",
+						"cacheReadTokens": "95000",
+						"outputTokens": "1500",
+						"thinkingOutputTokens": "500",
+						"responseId": "r-3"
+					}
+				}
+			}
+		]
+	}`
+	tailItem, tailSum := parseGeneratorMetadataDetailedWithOffset(strings.NewReader(tailPayload), 2)
+	if tailItem == nil {
+		t.Fatal("expected non-nil tail ContextMeterItem")
+	}
+	if tailItem.SessionSteps != 0 {
+		t.Fatalf("expected offset>0 parse not to emit truncated SessionSteps before merge, got %d", tailItem.SessionSteps)
+	}
+	merged := mergeSessionStepUsages(sum.stepUsages, 2, tailSum.stepUsages)
+	applySessionUsageTotals(tailItem, merged)
+	if tailItem.SessionSteps != 3 || tailItem.SessionInputTokens != 25000 || tailItem.SessionCacheReadTokens != 215000 ||
+		tailItem.SessionOutputTokens != 4500 || tailItem.SessionThinkingTokens != 1500 {
+		t.Fatalf("unexpected merged session totals: %+v", tailItem)
+	}
+
+	// Fallback SQLite overlay must not mutate base and must not overwrite existing SessionSteps > 0
+	origHook := resolveSessionTokenUsage
+	t.Cleanup(func() { resolveSessionTokenUsage = origHook })
+	rate := 90.0
+	resolveSessionTokenUsage = func(convID string) *cockpit.ConversationSessionUsage {
+		if convID != "conv-fallback" {
+			return nil
+		}
+		return &cockpit.ConversationSessionUsage{
+			InputTokens:      10000,
+			CacheReadTokens:  90000,
+			OutputTokens:     2500,
+			ThinkingTokens:   700,
+			Steps:            4,
+			CacheHitRate:     &rate,
+			EstimatedCostUSD: 0.18,
+		}
+	}
+
+	baseEmpty := &ContextMeterItem{UsedTokens: 60000, MaxTokens: 200000, Percentage: 30.0}
+	overlaid := overlaySessionTokenUsage("conv-fallback", baseEmpty)
+	if baseEmpty.SessionSteps != 0 {
+		t.Fatalf("overlaySessionTokenUsage must not mutate base pointer")
+	}
+	if overlaid == nil || overlaid.SessionSteps != 4 || overlaid.SessionCacheReadTokens != 90000 ||
+		overlaid.SessionTotalTokens != 102500 || overlaid.SessionCostUSD != 0.18 ||
+		overlaid.SessionCacheHitRate == nil || *overlaid.SessionCacheHitRate != 90.0 {
+		t.Fatalf("unexpected overlaid session usage: %+v", overlaid)
+	}
+
+	// Already-populated SessionSteps stays untouched
+	untouched := overlaySessionTokenUsage("conv-fallback", tailItem)
+	if untouched != tailItem || untouched.SessionSteps != 3 {
+		t.Fatalf("expected existing session totals preserved, got %+v", untouched)
 	}
 }

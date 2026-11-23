@@ -605,7 +605,15 @@ public struct ChatView: View {
                 if let meter = viewModel.contextMeter {
                     let isRunning = viewModel.isRunning || viewModel.isAwaitingResponse
                     let hasPending = viewModel.pendingInteraction != nil || viewModel.canProceed
-                    let hasNotice = meter.hasCacheWarning(isRunning: isRunning, hasPendingInteraction: hasPending)
+                    let hasNotice = meter.hasCacheWarning(isRunning: isRunning, hasPendingInteraction: hasPending) || meter.isNearCompactionCeiling
+                    let hasSession = meter.hasSessionTotals
+                    let detents: Set<PresentationDetent> = {
+                        switch (hasNotice, hasSession) {
+                        case (true, true): return [.fraction(0.62), .large]
+                        case (true, false), (false, true): return [.fraction(0.52), .large]
+                        case (false, false): return [.fraction(0.42), .medium]
+                        }
+                    }()
                     ContextAuditSheetView(
                         meter: meter,
                         isRunning: isRunning,
@@ -621,7 +629,7 @@ public struct ChatView: View {
                             )
                         }
                     )
-                    .presentationDetents(hasNotice ? [.fraction(0.52), .medium] : [.fraction(0.42), .medium])
+                    .presentationDetents(detents)
                     .presentationDragIndicator(.visible)
                 }
             }
@@ -1128,6 +1136,24 @@ struct ContextAuditSheetView: View {
         return "\(base) (\(Int(rate.rounded()))%)"
     }
 
+    private var sessionCacheHitDisplay: String {
+        let base = AccountQuotaSheet.formatTokensCompact(meter.sessionCacheReadTokens ?? 0)
+        guard let rate = meter.effectiveSessionCacheHitRate else { return base }
+        return "\(base) (\(Int(rate.rounded()))%)"
+    }
+
+    private var sessionHeaderTitle: String {
+        if let steps = meter.sessionSteps, steps > 0 {
+            return String(localized: "本会话累计 · \(steps) 步")
+        }
+        return String(localized: "本会话累计")
+    }
+
+    private var sessionCostBadge: String? {
+        guard let cost = meter.sessionCostUsd, cost >= 0.01 else { return nil }
+        return String(format: "≈ $%.2f", cost)
+    }
+
     private var cacheHitValueColor: Color {
         if meter.isCacheMissStreak {
             return .orange
@@ -1151,100 +1177,139 @@ struct ContextAuditSheetView: View {
     }
 
     var body: some View {
-        VStack(spacing: 16) {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("实时上下文")
-                        .font(.system(size: 17, weight: .bold))
-                    Text("\(AccountQuotaSheet.formatTokensCompact(meter.usedTokens)) / \(AccountQuotaSheet.formatTokensCompact(meter.maxTokens)) Tokens")
-                        .font(.system(size: 12, design: .monospaced))
-                        .foregroundColor(.secondary)
-                }
-                Spacer()
-                Text(String(format: "%.1f%%", clampedPct))
-                    .font(.system(size: 14, weight: .bold, design: .monospaced))
-                    .foregroundColor(accentColor)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 4)
-                    .background(accentColor.opacity(0.14))
-                    .clipShape(Capsule())
-            }
-
-            ProgressView(value: clampedPct, total: 100)
-                .tint(accentColor)
-
-            HStack(spacing: 8) {
-                auditTile(title: String(localized: "输出速度"), value: (meter.tokensPerSecond ?? 0) > 0 ? String(format: "%.1f t/s", meter.tokensPerSecond ?? 0) : "--")
-                auditTile(title: String(localized: "首字延迟 (TTFT)"), value: (meter.timeToFirstTokenSec ?? 0) > 0 ? String(format: "%.2fs", meter.timeToFirstTokenSec ?? 0) : "--")
-                auditTile(title: String(localized: "流式耗时"), value: (meter.streamingDurationSec ?? 0) > 0 ? String(format: "%.1fs", meter.streamingDurationSec ?? 0) : "--")
-            }
-
-            VStack(alignment: .leading, spacing: 8) {
-                Text("最近一步 Token 构成")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(.secondary)
+        ScrollView(showsIndicators: false) {
+            VStack(spacing: 16) {
                 HStack {
-                    auditCell("Input", AccountQuotaSheet.formatTokensCompact(meter.inputTokens ?? 0))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("实时上下文")
+                            .font(.system(size: 17, weight: .bold))
+                        Text("\(AccountQuotaSheet.formatTokensCompact(meter.usedTokens)) / \(AccountQuotaSheet.formatTokensCompact(meter.maxTokens)) Tokens")
+                            .font(.system(size: 12, design: .monospaced))
+                            .foregroundColor(.secondary)
+                    }
                     Spacer()
-                    auditCell("Cache Hit", cacheHitDisplay, valueColor: cacheHitValueColor)
-                    Spacer()
-                    auditCell("Output", AccountQuotaSheet.formatTokensCompact(meter.outputTokens ?? 0))
-                    Spacer()
-                    auditCell("Thinking", AccountQuotaSheet.formatTokensCompact(meter.thinkingTokens ?? 0))
+                    Text(String(format: "%.1f%%", clampedPct))
+                        .font(.system(size: 14, weight: .bold, design: .monospaced))
+                        .foregroundColor(accentColor)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .background(accentColor.opacity(0.14))
+                        .clipShape(Capsule())
                 }
-            }
-            .padding(14)
-            .background(Color(uiColor: .secondarySystemGroupedBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 12))
 
-            if meter.isCacheMissStreak {
-                let streak = max(meter.cacheMissStreak ?? 2, 2)
-                let uncached = AccountQuotaSheet.formatTokensCompact(meter.cacheMissTokens ?? (meter.inputTokens ?? 0))
-                cacheNoticeBanner(
-                    icon: "exclamationmark.triangle.fill",
-                    text: String(localized: "近 \(streak) 步均未命中缓存（累计重算 \(uncached)），可能正在加速消耗周额度，建议压缩或开启新会话。")
-                )
-            } else if let idleMins = staleIdleMinutes {
-                let idleText = Self.formatIdleDuration(idleMins)
-                let usedText = AccountQuotaSheet.formatTokensCompact(meter.usedTokens)
-                cacheNoticeBanner(
-                    icon: "snowflake",
-                    text: String(localized: "已闲置 \(idleText)，约 \(usedText) 上下文缓存可能已失效；直接续聊将重算输入额度，建议先压缩或开启新会话。")
-                )
-            }
+                ProgressView(value: clampedPct, total: 100)
+                    .tint(accentColor)
 
-            HStack(spacing: 10) {
-                if canCompact {
+                HStack(spacing: 8) {
+                    auditTile(title: String(localized: "输出速度"), value: (meter.tokensPerSecond ?? 0) > 0 ? String(format: "%.1f t/s", meter.tokensPerSecond ?? 0) : "--")
+                    auditTile(title: String(localized: "首字延迟 (TTFT)"), value: (meter.timeToFirstTokenSec ?? 0) > 0 ? String(format: "%.2fs", meter.timeToFirstTokenSec ?? 0) : "--")
+                    auditTile(title: String(localized: "流式耗时"), value: (meter.streamingDurationSec ?? 0) > 0 ? String(format: "%.1fs", meter.streamingDurationSec ?? 0) : "--")
+                }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("最近一步 Token 构成")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(.secondary)
+                    HStack {
+                        auditCell("Input", AccountQuotaSheet.formatTokensCompact(meter.inputTokens ?? 0))
+                        Spacer()
+                        auditCell("Cache Hit", cacheHitDisplay, valueColor: cacheHitValueColor)
+                        Spacer()
+                        auditCell("Output", AccountQuotaSheet.formatTokensCompact(meter.outputTokens ?? 0))
+                        Spacer()
+                        auditCell("Thinking", AccountQuotaSheet.formatTokensCompact(meter.thinkingTokens ?? 0))
+                    }
+
+                    if meter.hasSessionTotals {
+                        Divider()
+                            .padding(.vertical, 2)
+                        HStack(spacing: 6) {
+                            Text(sessionHeaderTitle)
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundColor(.secondary)
+                            Spacer(minLength: 4)
+                            if let costText = sessionCostBadge {
+                                Text(costText)
+                                    .font(.system(size: 11, design: .monospaced))
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                        HStack {
+                            auditCell("Input", AccountQuotaSheet.formatTokensCompact(meter.sessionInputTokens ?? 0))
+                            Spacer()
+                            auditCell("Cache Hit", sessionCacheHitDisplay)
+                            Spacer()
+                            auditCell("Output", AccountQuotaSheet.formatTokensCompact(meter.sessionOutputTokens ?? 0))
+                            Spacer()
+                            auditCell("Thinking", AccountQuotaSheet.formatTokensCompact(meter.sessionThinkingTokens ?? 0))
+                        }
+                    }
+                }
+                .padding(14)
+                .background(Color(uiColor: .secondarySystemGroupedBackground))
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+
+                if meter.isCacheMissStreak {
+                    let streak = max(meter.cacheMissStreak ?? 2, 2)
+                    let uncached = AccountQuotaSheet.formatTokensCompact(meter.cacheMissTokens ?? (meter.inputTokens ?? 0))
+                    cacheNoticeBanner(
+                        icon: "exclamationmark.triangle.fill",
+                        text: String(localized: "近 \(streak) 步均未命中缓存（累计重算 \(uncached)），可能正在加速消耗周额度，建议压缩或开启新会话。")
+                    )
+                } else if let idleMins = staleIdleMinutes {
+                    let idleText = Self.formatIdleDuration(idleMins)
+                    let usedText = AccountQuotaSheet.formatTokensCompact(meter.usedTokens)
+                    cacheNoticeBanner(
+                        icon: "snowflake",
+                        text: String(localized: "已闲置 \(idleText)，约 \(usedText) 上下文缓存可能已失效；直接续聊将重算输入额度，建议先压缩或开启新会话。")
+                    )
+                } else if meter.isOverflow == true || clampedPct >= 95 {
+                    let pctInt = Int(clampedPct.rounded())
+                    cacheNoticeBanner(
+                        icon: "exclamationmark.circle.fill",
+                        text: String(localized: "上下文窗口已接近上限（\(pctInt)%），随时可能触发自动压缩或截断，建议先一键压缩保留关键上下文，或开启新会话。")
+                    )
+                } else if clampedPct >= 75 {
+                    let pctInt = Int(clampedPct.rounded())
+                    cacheNoticeBanner(
+                        icon: "arrow.down.right.and.arrow.up.left",
+                        text: String(localized: "上下文已用 \(pctInt)%，临近自动压缩阈值；继续长任务前建议先一键压缩，减少后续重复输入消耗。")
+                    )
+                }
+
+                HStack(spacing: 10) {
+                    if canCompact {
+                        Button(action: {
+                            dismiss()
+                            onCompact()
+                        }) {
+                            HStack(spacing: 6) {
+                                CompactChevronsIcon(size: 8, weight: .bold)
+                                Text("一键压缩")
+                            }
+                            .font(.system(size: 13, weight: .semibold))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 8)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(.orange)
+                    }
                     Button(action: {
                         dismiss()
-                        onCompact()
+                        onStartNewSession()
                     }) {
-                        HStack(spacing: 6) {
-                            CompactChevronsIcon(size: 8, weight: .bold)
-                            Text("一键压缩")
-                        }
-                        .font(.system(size: 13, weight: .semibold))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 8)
+                        Label("开启新会话", systemImage: "plus.circle")
+                            .font(.system(size: 13, weight: .semibold))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 8)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.orange)
+                    .buttonStyle(.bordered)
                 }
-                Button(action: {
-                    dismiss()
-                    onStartNewSession()
-                }) {
-                    Label("开启新会话", systemImage: "plus.circle")
-                        .font(.system(size: 13, weight: .semibold))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 8)
-                }
-                .buttonStyle(.bordered)
             }
+            .padding(.horizontal, 20)
+            .padding(.top, 52)
+            .padding(.bottom, 28)
         }
-        .padding(.horizontal, 20)
-        .padding(.top, 52)
-        .padding(.bottom, 28)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(Color(uiColor: .systemGroupedBackground))
     }

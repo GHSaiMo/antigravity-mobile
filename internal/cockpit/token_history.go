@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"log/slog"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -842,6 +843,158 @@ func ResolveConversationRuntimeModel(convID string) string {
 		model:     resolved,
 	}
 	runtimeModelCacheMu.Unlock()
+	return resolved
+}
+
+// ConversationSessionUsage summarizes cumulative token consumption across all LLM calls in a single conversation.
+type ConversationSessionUsage struct {
+	InputTokens      int64
+	OutputTokens     int64
+	CacheReadTokens  int64
+	ThinkingTokens   int64
+	Steps            int
+	CacheHitRate     *float64
+	EstimatedCostUSD float64
+}
+
+type sessionUsageCacheEntry struct {
+	dbPath    string
+	size      int64
+	modTime   int64
+	checkedAt time.Time
+	usage     *ConversationSessionUsage
+}
+
+var (
+	sessionUsageCacheMu sync.Mutex
+	sessionUsageCache   = make(map[string]sessionUsageCacheEntry)
+)
+
+// ClearSessionUsageCache clears the in-memory per-conversation session token usage cache (used in tests).
+func ClearSessionUsageCache() {
+	sessionUsageCacheMu.Lock()
+	sessionUsageCache = make(map[string]sessionUsageCacheEntry)
+	sessionUsageCacheMu.Unlock()
+}
+
+func cloneConversationSessionUsage(u *ConversationSessionUsage) *ConversationSessionUsage {
+	if u == nil {
+		return nil
+	}
+	cp := *u
+	if u.CacheHitRate != nil {
+		rate := *u.CacheHitRate
+		cp.CacheHitRate = &rate
+	}
+	return &cp
+}
+
+// ResolveConversationSessionUsage sums all deduplicated LLM usage rows in a conversation's local
+// SQLite gen_metadata table (pure Go, zero external deps, mtime+size-cached).
+// Returns nil when the conversation has no local DB or no recorded token usage yet.
+func ResolveConversationSessionUsage(convID string) *ConversationSessionUsage {
+	convID = strings.TrimSpace(convID)
+	if !isSafeConvID(convID) {
+		return nil
+	}
+	now := time.Now()
+
+	var dbPath string
+	var fileSize, modTime int64
+	for _, cand := range conversationDBCandidates(convID, "desktop") {
+		if st, err := os.Stat(cand); err == nil && !st.IsDir() {
+			dbPath = cand
+			fileSize = st.Size()
+			modTime = st.ModTime().UnixNano()
+			break
+		}
+	}
+
+	sessionUsageCacheMu.Lock()
+	if ent, ok := sessionUsageCache[convID]; ok {
+		if dbPath == "" {
+			if ent.dbPath == "" && now.Sub(ent.checkedAt) < runtimeModelNegativeTTL {
+				res := cloneConversationSessionUsage(ent.usage)
+				sessionUsageCacheMu.Unlock()
+				return res
+			}
+		} else if ent.dbPath == dbPath && ent.size == fileSize && ent.modTime == modTime {
+			if ent.usage != nil || now.Sub(ent.checkedAt) < runtimeModelNegativeTTL {
+				res := cloneConversationSessionUsage(ent.usage)
+				sessionUsageCacheMu.Unlock()
+				return res
+			}
+		}
+	}
+	sessionUsageCacheMu.Unlock()
+
+	var resolved *ConversationSessionUsage
+	if dbPath != "" {
+		if blobs, err := queryGenMetadataBlobs(dbPath); err == nil && len(blobs) > 0 {
+			seenCalls := make(map[string]bool, len(blobs))
+			var totalInp, totalOut, totalCacheRead, totalThinking int64
+			var totalCost float64
+			var steps int
+			var lastModel string
+
+			for _, blob := range blobs {
+				entry := parseGenMetadataBlobDetailed(blob)
+				if m := normalizeModelDisplayName(entry.modelName); m != "" && !strings.EqualFold(m, "default") {
+					lastModel = m
+				}
+				if entry.responseID != "" {
+					if seenCalls[entry.responseID] {
+						continue
+					}
+					seenCalls[entry.responseID] = true
+				}
+				if entry.inputTokens+entry.outputTokens+entry.cacheReadTokens <= 0 {
+					continue
+				}
+				totalInp += entry.inputTokens
+				totalOut += entry.outputTokens
+				totalCacheRead += entry.cacheReadTokens
+				totalThinking += entry.thinkingTokens
+				steps++
+
+				modelForCost := normalizeModelDisplayName(entry.modelName)
+				if modelForCost == "" || strings.EqualFold(modelForCost, "default") {
+					modelForCost = lastModel
+				}
+				totalCost += CalculateCostUSD(modelForCost, entry.inputTokens, entry.cacheReadTokens, entry.outputTokens)
+			}
+
+			if steps > 0 {
+				var hitRate *float64
+				if promptTotal := totalInp + totalCacheRead; promptTotal > 0 {
+					r := math.Round((float64(totalCacheRead)/float64(promptTotal)*100.0)*10) / 10
+					hitRate = &r
+				}
+				resolved = &ConversationSessionUsage{
+					InputTokens:      totalInp,
+					OutputTokens:     totalOut,
+					CacheReadTokens:  totalCacheRead,
+					ThinkingTokens:   totalThinking,
+					Steps:            steps,
+					CacheHitRate:     hitRate,
+					EstimatedCostUSD: math.Round(totalCost*10000) / 10000,
+				}
+			}
+		}
+	}
+
+	sessionUsageCacheMu.Lock()
+	if len(sessionUsageCache) >= runtimeModelCacheMaxEntries {
+		sessionUsageCache = make(map[string]sessionUsageCacheEntry)
+	}
+	sessionUsageCache[convID] = sessionUsageCacheEntry{
+		dbPath:    dbPath,
+		size:      fileSize,
+		modTime:   modTime,
+		checkedAt: now,
+		usage:     cloneConversationSessionUsage(resolved),
+	}
+	sessionUsageCacheMu.Unlock()
 	return resolved
 }
 

@@ -930,6 +930,18 @@
             <div class="audit-breakdown-row"><span>模型输出 (Output)</span><strong id="audit-output-tokens">0</strong></div>
             <div class="audit-breakdown-row"><span>深度思考 (Thinking)</span><strong id="audit-thinking-tokens">0</strong></div>
           </div>
+          <div id="audit-session-section" class="hidden">
+            <div class="audit-section-header">
+              <div id="audit-session-title" class="audit-section-title">本会话累计</div>
+              <span id="audit-session-cost" class="audit-session-cost hidden"></span>
+            </div>
+            <div class="audit-breakdown-card">
+              <div class="audit-breakdown-row"><span>输入 Tokens (Prompt)</span><strong id="audit-session-input">0</strong></div>
+              <div class="audit-breakdown-row"><span>缓存命中 (Cache Read)</span><strong id="audit-session-cache">0</strong></div>
+              <div class="audit-breakdown-row"><span>模型输出 (Output)</span><strong id="audit-session-output">0</strong></div>
+              <div class="audit-breakdown-row"><span>深度思考 (Thinking)</span><strong id="audit-session-thinking">0</strong></div>
+            </div>
+          </div>
           <div id="audit-cache-notice" class="audit-cache-notice hidden"></div>
           <div class="audit-actions-bar">
             <button id="btn-audit-compact" class="audit-action-btn primary" type="button">

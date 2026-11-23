@@ -27860,6 +27860,98 @@
         }
       }
     },
+    "本会话累计": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本会话累计"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Session Total"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッション累計"
+          }
+        }
+      }
+    },
+    "本会话累计 · %lld 步": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本会话累计 · %lld 步"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Session Total · %lld steps"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッション累計 · %lld ステップ"
+          }
+        }
+      }
+    },
+    "上下文窗口已接近上限（%lld%%），随时可能触发自动压缩或截断，建议先一键压缩保留关键上下文，或开启新会话。": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上下文窗口已接近上限（%lld%%），随时可能触发自动压缩或截断，建议先一键压缩保留关键上下文，或开启新会话。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Context window is nearly full (%lld%%) — auto-compaction or truncation may trigger at any time. Consider compacting now or starting a new session."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンテキスト上限間近（%lld%%）です。自動圧縮や切り詰めが発生する恐れがあるため、今すぐ圧縮するか新規チャットをおすすめします。"
+          }
+        }
+      }
+    },
+    "上下文已用 %lld%%，临近自动压缩阈值；继续长任务前建议先一键压缩，减少后续重复输入消耗。": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上下文已用 %lld%%，临近自动压缩阈值；继续长任务前建议先一键压缩，减少后续重复输入消耗。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Context is at %lld%%, approaching auto-compaction. Compacting before the next long step helps avoid redundant input cost."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンテキスト使用率が %lld%% に達し、自動圧縮のしきい値に近づいています。長い作業の前に圧縮すると再入力コストを抑えられます。"
+          }
+        }
+      }
+    },
     "其他工作区有 1 个待审批": {
       "extractionState": "manual",
       "localizations": {

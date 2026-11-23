@@ -1085,6 +1085,75 @@ func TestResolveConversationRuntimeModel_ReadsLatestAndTracksMtime(t *testing.T)
 	}
 }
 
+func TestResolveConversationSessionUsage_SumsDeduplicatedStepsAndTracksMtime(t *testing.T) {
+	sqliteBin, err := exec.LookPath("sqlite3")
+	if err != nil {
+		t.Skip("sqlite3 not available")
+	}
+
+	tempHome := t.TempDir()
+	t.Setenv("HOME", tempHome)
+	ClearSessionUsageCache()
+	t.Cleanup(ClearSessionUsageCache)
+
+	convID := "session-usage-sum-1"
+	convDBDir := filepath.Join(tempHome, ".gemini", "antigravity", "conversations")
+	if err := os.MkdirAll(convDBDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := ResolveConversationSessionUsage(convID); got != nil {
+		t.Fatalf("expected nil before DB exists, got %+v", got)
+	}
+
+	// Step 0: Claude Opus 5.5 (10k input + 2k cache create = 12k input, 48k cache read, 2k output, 800 thinking)
+	blob0 := encodeTestGenMetadataBlobWithUsage("claude-opus-5-5-high", "MODEL_PLACEHOLDER_M402", "Claude Opus 5.5 (High)", "0", true, 10000, 2000, 2000, 48000, 800, "resp-1")
+	// Duplicate responseID must be deduplicated
+	blobDup := encodeTestGenMetadataBlobWithUsage("claude-opus-5-5-high", "MODEL_PLACEHOLDER_M402", "Claude Opus 5.5 (High)", "0", true, 10000, 2000, 2000, 48000, 800, "resp-1")
+	// Step 1: Claude Opus 5.5 (8k input, 72k cache read, 3k output, 1200 thinking)
+	blob1 := encodeTestGenMetadataBlobWithUsage("claude-opus-5-5-high", "MODEL_PLACEHOLDER_M402", "Claude Opus 5.5 (High)", "1", true, 8000, 3000, 0, 72000, 1200, "resp-2")
+
+	dbPath := filepath.Join(convDBDir, convID+".db")
+	sqlInit := "CREATE TABLE gen_metadata (idx integer PRIMARY KEY, data blob, size integer NOT NULL DEFAULT 0);" +
+		"INSERT INTO gen_metadata (idx, data, size) VALUES (0, X'" + hex.EncodeToString(blob0) + "', 100);" +
+		"INSERT INTO gen_metadata (idx, data, size) VALUES (1, X'" + hex.EncodeToString(blobDup) + "', 100);" +
+		"INSERT INTO gen_metadata (idx, data, size) VALUES (2, X'" + hex.EncodeToString(blob1) + "', 100);"
+	if out, err := exec.Command(sqliteBin, dbPath, sqlInit).CombinedOutput(); err != nil {
+		t.Fatalf("sqlite3 init failed: %v (%s)", err, string(out))
+	}
+
+	ClearSessionUsageCache()
+	got := ResolveConversationSessionUsage(convID)
+	if got == nil {
+		t.Fatalf("expected non-nil session usage")
+	}
+	if got.Steps != 2 || got.InputTokens != 20000 || got.CacheReadTokens != 120000 || got.OutputTokens != 5000 || got.ThinkingTokens != 2000 {
+		t.Fatalf("unexpected summed session usage: %+v", got)
+	}
+	// Cache hit rate = 120000 / (20000 + 120000) = 85.7%
+	if got.CacheHitRate == nil || *got.CacheHitRate != 85.7 {
+		t.Fatalf("expected CacheHitRate=85.7, got %v", got.CacheHitRate)
+	}
+	// Opus rates: 20k * 5/1e6 ($0.10) + 120k * 0.5/1e6 ($0.06) + 5k * 25/1e6 ($0.125) = $0.285
+	if got.EstimatedCostUSD < 0.284 || got.EstimatedCostUSD > 0.286 {
+		t.Fatalf("expected EstimatedCostUSD≈0.285, got %.4f", got.EstimatedCostUSD)
+	}
+
+	// Append a third step and bump mtime so cache invalidates cleanly across filesystems
+	blob2 := encodeTestGenMetadataBlobWithUsage("claude-opus-5-5-high", "MODEL_PLACEHOLDER_M402", "Claude Opus 5.5 (High)", "2", true, 5000, 1000, 0, 55000, 500, "resp-3")
+	sqlAppend := "INSERT INTO gen_metadata (idx, data, size) VALUES (3, X'" + hex.EncodeToString(blob2) + "', 100);"
+	if out, err := exec.Command(sqliteBin, dbPath, sqlAppend).CombinedOutput(); err != nil {
+		t.Fatalf("sqlite3 append failed: %v (%s)", err, string(out))
+	}
+	future := time.Now().Add(2 * time.Second)
+	_ = os.Chtimes(dbPath, future, future)
+
+	updated := ResolveConversationSessionUsage(convID)
+	if updated == nil || updated.Steps != 3 || updated.InputTokens != 25000 || updated.CacheReadTokens != 175000 || updated.OutputTokens != 6000 || updated.ThinkingTokens != 2500 {
+		t.Fatalf("expected refreshed session usage after append, got %+v", updated)
+	}
+}
+
 func strconvFormatInt(v int64) string {
 	if v == 0 {
 		return "0"

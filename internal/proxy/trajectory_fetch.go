@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -15,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"antigravity-mobile/internal/cockpit"
 	"antigravity-mobile/internal/config"
 )
 
@@ -644,10 +646,97 @@ func (p *Proxy) FetchRawCascadeSummariesWithMaxAge(maxAge time.Duration) (map[st
 	return summaries, runningSubagents, nil
 }
 
+type sessionStepUsage struct {
+	input      int64
+	output     int64
+	cacheRead  int64
+	thinking   int64
+	model      string
+	responseID string
+	hasUsage   bool
+}
+
 type contextMeterCacheEntry struct {
 	item       *ContextMeterItem
 	at         time.Time
 	nextOffset int
+	steps      []sessionStepUsage
+}
+
+var resolveSessionTokenUsage = cockpit.ResolveConversationSessionUsage
+
+func applySessionUsageTotals(item *ContextMeterItem, steps []sessionStepUsage) {
+	if item == nil || len(steps) == 0 {
+		return
+	}
+	var count int
+	var sumInp, sumOut, sumCache, sumThink int64
+	var sumCost float64
+	var lastModel string
+	seenResp := make(map[string]bool, len(steps))
+	for _, s := range steps {
+		if m := strings.TrimSpace(s.model); m != "" {
+			lastModel = m
+		}
+		if !s.hasUsage {
+			continue
+		}
+		if s.responseID != "" {
+			if seenResp[s.responseID] {
+				continue
+			}
+			seenResp[s.responseID] = true
+		}
+		count++
+		sumInp += s.input
+		sumOut += s.output
+		sumCache += s.cacheRead
+		sumThink += s.thinking
+		modelForCost := strings.TrimSpace(s.model)
+		if modelForCost == "" {
+			modelForCost = lastModel
+		}
+		if modelForCost == "" {
+			modelForCost = strings.TrimSpace(item.ModelName)
+		}
+		sumCost += cockpit.CalculateCostUSD(modelForCost, s.input, s.cacheRead, s.output)
+	}
+	if count == 0 {
+		return
+	}
+	item.SessionSteps = count
+	item.SessionInputTokens = sumInp
+	item.SessionOutputTokens = sumOut
+	item.SessionCacheReadTokens = sumCache
+	item.SessionThinkingTokens = sumThink
+	item.SessionTotalTokens = sumInp + sumOut + sumCache
+	item.SessionCostUSD = math.Round(sumCost*10000) / 10000
+	if promptTotal := sumInp + sumCache; promptTotal > 0 {
+		rate := float64(sumCache) / float64(promptTotal) * 100.0
+		rounded := float64(int(rate*10+0.5)) / 10
+		item.SessionCacheHitRate = &rounded
+	} else {
+		item.SessionCacheHitRate = nil
+	}
+}
+
+func mergeSessionStepUsages(prev []sessionStepUsage, offset int, slice []sessionStepUsage) []sessionStepUsage {
+	if offset <= 0 {
+		out := make([]sessionStepUsage, len(slice))
+		copy(out, slice)
+		return out
+	}
+	totalLen := offset + len(slice)
+	out := make([]sessionStepUsage, totalLen)
+	if len(prev) > 0 {
+		n := len(prev)
+		if n > offset {
+			n = offset
+		}
+		copy(out[:n], prev[:n])
+	}
+	copy(out[offset:], slice)
+	return out
 }
 
 var (
@@ -729,15 +818,17 @@ func (p *Proxy) fetchUpstreamGeneratorMetadata(cascadeID string, port int, token
 
 	reqOffset := 0
 	var prevItem *ContextMeterItem
+	var prevSteps []sessionStepUsage
 	contextMeterCacheMu.Lock()
 	if entry, ok := contextMeterCache[cascadeID]; ok {
 		if time.Since(entry.at) < 1200*time.Millisecond {
 			cached := entry.item
 			contextMeterCacheMu.Unlock()
-			return p.overlayLiveContextUsage(cascadeID, cached)
+			return p.enrichContextMeter(cascadeID, cached)
 		}
 		reqOffset = entry.nextOffset
 		prevItem = entry.item
+		prevSteps = entry.steps
 	}
 	contextMeterCacheMu.Unlock()
 
@@ -776,18 +867,18 @@ func (p *Proxy) fetchUpstreamGeneratorMetadata(cascadeID string, port int, token
 
 	item, sum, ok := doQuery(reqOffset)
 	if !ok {
-		return p.overlayLiveContextUsage(cascadeID, prevItem)
+		return p.enrichContextMeter(cascadeID, prevItem)
 	}
 	// If trajectory reverted or tail slice had no chat model metrics, fall back to full offset=0 once.
 	if reqOffset > 0 && (item == nil || (!sum.hasMetrics && prevItem != nil)) {
 		reqOffset = 0
 		item, sum, ok = doQuery(0)
 		if !ok {
-			return p.overlayLiveContextUsage(cascadeID, prevItem)
+			return p.enrichContextMeter(cascadeID, prevItem)
 		}
 	}
 	if item == nil {
-		return p.overlayLiveContextUsage(cascadeID, nil)
+		return p.enrichContextMeter(cascadeID, nil)
 	}
 
 	if !sum.explicitMax && sum.model != "" {
@@ -804,6 +895,9 @@ func (p *Proxy) fetchUpstreamGeneratorMetadata(cascadeID string, port int, token
 		}
 	}
 
+	mergedSteps := mergeSessionStepUsages(prevSteps, reqOffset, sum.stepUsages)
+	applySessionUsageTotals(item, mergedSteps)
+
 	totalCount := reqOffset + sum.count
 	nextOffset := 0
 	if totalCount > 5 {
@@ -818,10 +912,38 @@ func (p *Proxy) fetchUpstreamGeneratorMetadata(cascadeID string, port int, token
 		item:       item,
 		at:         time.Now(),
 		nextOffset: nextOffset,
+		steps:      mergedSteps,
 	}
 	contextMeterCacheMu.Unlock()
 
-	return p.overlayLiveContextUsage(cascadeID, item)
+	return p.enrichContextMeter(cascadeID, item)
+}
+
+func (p *Proxy) enrichContextMeter(cascadeID string, base *ContextMeterItem) *ContextMeterItem {
+	return overlaySessionTokenUsage(cascadeID, p.overlayLiveContextUsage(cascadeID, base))
+}
+
+func overlaySessionTokenUsage(cascadeID string, base *ContextMeterItem) *ContextMeterItem {
+	if base == nil || base.SessionSteps > 0 || cascadeID == "" || resolveSessionTokenUsage == nil {
+		return base
+	}
+	usage := resolveSessionTokenUsage(cascadeID)
+	if usage == nil || usage.Steps <= 0 {
+		return base
+	}
+	cp := *base
+	cp.SessionSteps = usage.Steps
+	cp.SessionInputTokens = usage.InputTokens
+	cp.SessionOutputTokens = usage.OutputTokens
+	cp.SessionCacheReadTokens = usage.CacheReadTokens
+	cp.SessionThinkingTokens = usage.ThinkingTokens
+	cp.SessionTotalTokens = usage.InputTokens + usage.OutputTokens + usage.CacheReadTokens
+	cp.SessionCostUSD = usage.EstimatedCostUSD
+	if usage.CacheHitRate != nil {
+		rate := *usage.CacheHitRate
+		cp.SessionCacheHitRate = &rate
+	}
+	return &cp
 }
 
 func (p *Proxy) overlayLiveContextUsage(cascadeID string, base *ContextMeterItem) *ContextMeterItem {
@@ -883,6 +1005,7 @@ type generatorMetaSummary struct {
 	model       string
 	explicitMax bool
 	hasMetrics  bool
+	stepUsages  []sessionStepUsage
 }
 
 func parseGeneratorMetadata(r io.Reader) *ContextMeterItem {
@@ -915,6 +1038,7 @@ func parseGeneratorMetadataDetailedWithOffset(r io.Reader, offset int) (*Context
 					CacheCreationInputTokens flexInt64 `json:"cacheCreationInputTokens"`
 					CacheReadTokens          flexInt64 `json:"cacheReadTokens"`
 					ThinkingOutputTokens     flexInt64 `json:"thinkingOutputTokens"`
+					ResponseID               string    `json:"responseId"`
 				} `json:"usage"`
 				RetryInfos []struct {
 					Error string `json:"error"`
@@ -934,7 +1058,8 @@ func parseGeneratorMetadataDetailedWithOffset(r io.Reader, offset int) (*Context
 		hitRate       float64
 	}
 	usageSamples := make([]usageStepSample, 0, len(metaResp.GeneratorMetadata))
-	for _, entry := range metaResp.GeneratorMetadata {
+	stepUsages := make([]sessionStepUsage, len(metaResp.GeneratorMetadata))
+	for i, entry := range metaResp.GeneratorMetadata {
 		u := entry.ChatModel.Usage
 		if u == nil {
 			continue
@@ -948,6 +1073,23 @@ func parseGeneratorMetadataDetailedWithOffset(r io.Reader, offset int) (*Context
 			stepInp += stepCacheCreate
 		}
 		stepCacheRead := int64(u.CacheReadTokens)
+		stepOut := int64(u.OutputTokens)
+		stepThink := int64(u.ThinkingOutputTokens)
+		stepModel := strings.TrimSpace(entry.ChatModel.ModelDisplayName)
+		if stepModel == "" {
+			stepModel = strings.TrimSpace(entry.ChatModel.Model)
+		}
+		if stepInp > 0 || stepOut > 0 || stepCacheRead > 0 || stepThink > 0 {
+			stepUsages[i] = sessionStepUsage{
+				input:      stepInp,
+				output:     stepOut,
+				cacheRead:  stepCacheRead,
+				thinking:   stepThink,
+				model:      stepModel,
+				responseID: strings.TrimSpace(u.ResponseID),
+				hasUsage:   true,
+			}
+		}
 		promptInp := stepInp + stepCacheRead
 		if promptInp <= 0 {
 			continue
@@ -1062,30 +1204,36 @@ func parseGeneratorMetadataDetailedWithOffset(r io.Reader, offset int) (*Context
 		modelName = strings.TrimSpace(cm.Model)
 	}
 
-	return &ContextMeterItem{
-			UsedTokens:        usedTokens,
-			MaxTokens:         maxTokens,
-			Percentage:        float64(int(percentage*10+0.5)) / 10,
-			InputTokens:       inp,
-			OutputTokens:      outp,
-			CacheReadTokens:   capTokens,
-			ThinkingTokens:    thinking,
-			TimeToFirstToken:  ttftSec,
-			StreamingDuration: streamSec,
-			TokensPerSecond:   float64(int(tps*10+0.5)) / 10,
-			IsOverflow:        errKind == "context_overflow",
-			ErrorKind:         errKind,
-			CacheHitRate:      cacheHitRate,
-			CacheMissStreak:   cacheMissStreak,
-			CacheMissTokens:   cacheMissTokens,
-			CacheStatus:       cacheStatus,
-			ModelName:         modelName,
-		}, generatorMetaSummary{
-			count:       len(metaResp.GeneratorMetadata),
-			model:       cm.Model,
-			explicitMax: explicitMax,
-			hasMetrics:  hasMetrics,
-		}
+	item := &ContextMeterItem{
+		UsedTokens:        usedTokens,
+		MaxTokens:         maxTokens,
+		Percentage:        float64(int(percentage*10+0.5)) / 10,
+		InputTokens:       inp,
+		OutputTokens:      outp,
+		CacheReadTokens:   capTokens,
+		ThinkingTokens:    thinking,
+		TimeToFirstToken:  ttftSec,
+		StreamingDuration: streamSec,
+		TokensPerSecond:   float64(int(tps*10+0.5)) / 10,
+		IsOverflow:        errKind == "context_overflow",
+		ErrorKind:         errKind,
+		CacheHitRate:      cacheHitRate,
+		CacheMissStreak:   cacheMissStreak,
+		CacheMissTokens:   cacheMissTokens,
+		CacheStatus:       cacheStatus,
+		ModelName:         modelName,
+	}
+	if offset == 0 {
+		applySessionUsageTotals(item, stepUsages)
+	}
+
+	return item, generatorMetaSummary{
+		count:       len(metaResp.GeneratorMetadata),
+		model:       cm.Model,
+		explicitMax: explicitMax,
+		hasMetrics:  hasMetrics,
+		stepUsages:  stepUsages,
+	}
 }
 
 func parseDurationToSec(s string) float64 {

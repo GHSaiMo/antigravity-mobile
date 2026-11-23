@@ -182,6 +182,18 @@ fun ContextAuditSheet(
             append(" (${Math.round(hitRate)}%)")
         }
     }
+    val sessionHitRate = meter.effectiveSessionCacheHitRate()
+    val sessionCacheHitDisplay = buildString {
+        append(formatTokensCompact(meter.sessionCacheReadTokens))
+        if (sessionHitRate != null) {
+            append(" (${Math.round(sessionHitRate)}%)")
+        }
+    }
+    val sessionCostDisplay = if (meter.sessionCostUsd >= 0.01) {
+        String.format(Locale.US, "≈ $%.2f", meter.sessionCostUsd)
+    } else {
+        null
+    }
     val cacheHitColor = if (isMissStreak || (hitRate != null && meter.usedTokens >= 24_000L && hitRate < 20.0)) {
         colors.accentOrange
     } else {
@@ -311,6 +323,42 @@ fun ContextAuditSheet(
                     AuditBreakdownCell("Output", formatTokensCompact(meter.outputTokens))
                     AuditBreakdownCell("Thinking", formatTokensCompact(meter.thinkingTokens))
                 }
+                if (meter.hasSessionTotals()) {
+                    HorizontalDivider(
+                        color = colors.border,
+                        thickness = 0.5.dp,
+                        modifier = Modifier.padding(vertical = 2.dp)
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = formatSessionTotalsHeader(meter.sessionSteps),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = colors.textSecondary
+                        )
+                        if (sessionCostDisplay != null) {
+                            Text(
+                                text = sessionCostDisplay,
+                                fontSize = 11.sp,
+                                fontFamily = FontFamily.Monospace,
+                                color = colors.textMuted
+                            )
+                        }
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        AuditBreakdownCell("Input", formatTokensCompact(meter.sessionInputTokens))
+                        AuditBreakdownCell("Cache Hit", sessionCacheHitDisplay)
+                        AuditBreakdownCell("Output", formatTokensCompact(meter.sessionOutputTokens))
+                        AuditBreakdownCell("Thinking", formatTokensCompact(meter.sessionThinkingTokens))
+                    }
+                }
             }
 
             if (isMissStreak) {
@@ -324,6 +372,16 @@ fun ContextAuditSheet(
                 AuditCacheNoticeBanner(
                     icon = Icons.Default.AcUnit,
                     text = formatStaleCacheNotice(staleIdleMins, formatTokensCompact(meter.usedTokens))
+                )
+            } else if (meter.isOverflow || pct >= 95.0) {
+                AuditCacheNoticeBanner(
+                    icon = Icons.Default.Warning,
+                    text = formatCompactionFullNotice(Math.round(pct).toInt())
+                )
+            } else if (pct >= 75.0) {
+                AuditCacheNoticeBanner(
+                    icon = Icons.Default.Compress,
+                    text = formatCompactionApproachingNotice(Math.round(pct).toInt())
                 )
             }
 
@@ -501,6 +559,24 @@ private fun formatStaleCacheNotice(minutes: Int, usedText: String): String {
         L10n.AppLang.JA -> "$idleText 間アイドル状態です。約 $usedText のキャッシュが失効している可能性があります。このまま続行すると入力を再計算するため、圧縮または新規チャットをおすすめします。"
         L10n.AppLang.ZH -> "已闲置 $idleText，约 $usedText 上下文缓存可能已失效；直接续聊将重算输入额度，建议先压缩或开启新会话。"
     }
+}
+
+private fun formatSessionTotalsHeader(steps: Int): String = when (L10n.currentLang) {
+    L10n.AppLang.EN -> if (steps > 0) "Session Total · $steps steps" else "Session Total"
+    L10n.AppLang.JA -> if (steps > 0) "セッション累計 · $steps ステップ" else "セッション累計"
+    L10n.AppLang.ZH -> if (steps > 0) "本会话累计 · $steps 步" else "本会话累计"
+}
+
+private fun formatCompactionFullNotice(pct: Int): String = when (L10n.currentLang) {
+    L10n.AppLang.EN -> "Context window is nearly full ($pct%) — auto-compaction or truncation may trigger at any time. Consider compacting now or starting a new session."
+    L10n.AppLang.JA -> "コンテキスト上限間近（$pct%）です。自動圧縮や切り詰めが発生する恐れがあるため、今すぐ圧縮するか新規チャットをおすすめします。"
+    L10n.AppLang.ZH -> "上下文窗口已接近上限（$pct%），随时可能触发自动压缩或截断，建议先一键压缩保留关键上下文，或开启新会话。"
+}
+
+private fun formatCompactionApproachingNotice(pct: Int): String = when (L10n.currentLang) {
+    L10n.AppLang.EN -> "Context is at $pct%, approaching auto-compaction. Compacting before the next long step helps avoid redundant input cost."
+    L10n.AppLang.JA -> "コンテキスト使用率が $pct% に達し、自動圧縮のしきい値に近づいています。長い作業の前に圧縮すると再入力コストを抑えられます。"
+    L10n.AppLang.ZH -> "上下文已用 $pct%，临近自动压缩阈值；继续长任务前建议先一键压缩，减少后续重复输入消耗。"
 }
 
 @Composable

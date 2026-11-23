@@ -380,6 +380,14 @@ public struct ContextMeterItem: Codable, Sendable, Equatable {
     public let cacheMissTokens: Int64?
     public let cacheStatus: String?
     public let lastActivityAt: String?
+    public let sessionSteps: Int?
+    public let sessionInputTokens: Int64?
+    public let sessionOutputTokens: Int64?
+    public let sessionCacheReadTokens: Int64?
+    public let sessionThinkingTokens: Int64?
+    public let sessionTotalTokens: Int64?
+    public let sessionCacheHitRate: Double?
+    public let sessionCostUsd: Double?
 
     public init(
         usedTokens: Int64,
@@ -398,7 +406,15 @@ public struct ContextMeterItem: Codable, Sendable, Equatable {
         cacheMissStreak: Int? = nil,
         cacheMissTokens: Int64? = nil,
         cacheStatus: String? = nil,
-        lastActivityAt: String? = nil
+        lastActivityAt: String? = nil,
+        sessionSteps: Int? = nil,
+        sessionInputTokens: Int64? = nil,
+        sessionOutputTokens: Int64? = nil,
+        sessionCacheReadTokens: Int64? = nil,
+        sessionThinkingTokens: Int64? = nil,
+        sessionTotalTokens: Int64? = nil,
+        sessionCacheHitRate: Double? = nil,
+        sessionCostUsd: Double? = nil
     ) {
         self.usedTokens = usedTokens
         self.maxTokens = maxTokens
@@ -417,6 +433,34 @@ public struct ContextMeterItem: Codable, Sendable, Equatable {
         self.cacheMissTokens = cacheMissTokens
         self.cacheStatus = cacheStatus
         self.lastActivityAt = lastActivityAt
+        self.sessionSteps = sessionSteps
+        self.sessionInputTokens = sessionInputTokens
+        self.sessionOutputTokens = sessionOutputTokens
+        self.sessionCacheReadTokens = sessionCacheReadTokens
+        self.sessionThinkingTokens = sessionThinkingTokens
+        self.sessionTotalTokens = sessionTotalTokens
+        self.sessionCacheHitRate = sessionCacheHitRate
+        self.sessionCostUsd = sessionCostUsd
+    }
+
+    public var hasSessionTotals: Bool {
+        (sessionSteps ?? 0) > 0 ||
+            (sessionInputTokens ?? 0) + (sessionOutputTokens ?? 0) + (sessionCacheReadTokens ?? 0) + (sessionThinkingTokens ?? 0) > 0
+    }
+
+    public var effectiveSessionCacheHitRate: Double? {
+        if let rate = sessionCacheHitRate {
+            return min(max(rate, 0), 100)
+        }
+        let inp = max(sessionInputTokens ?? 0, 0)
+        let cr = max(sessionCacheReadTokens ?? 0, 0)
+        let total = inp + cr
+        guard total > 0 else { return nil }
+        return (Double(cr) / Double(total)) * 100.0
+    }
+
+    public var isNearCompactionCeiling: Bool {
+        isOverflow == true || percentage >= 75
     }
 
     /// 兼容新旧网关：优先采用网关回传命中率，缺失时基于最近一步 input + cacheRead 本地计算。

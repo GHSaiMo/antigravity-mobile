@@ -120,7 +120,7 @@ func (p *StreamUpdatePayload) Fingerprint() string {
 	}
 	cmKey := "none"
 	if p.ContextMeter != nil {
-		cmKey = fmt.Sprintf("%d:%d:%d:%.1f:%d:%s:%s",
+		cmKey = fmt.Sprintf("%d:%d:%d:%.1f:%d:%s:%s:%d:%d",
 			p.ContextMeter.UsedTokens,
 			p.ContextMeter.OutputTokens,
 			p.ContextMeter.CacheReadTokens,
@@ -128,6 +128,8 @@ func (p *StreamUpdatePayload) Fingerprint() string {
 			p.ContextMeter.CacheMissStreak,
 			p.ContextMeter.CacheStatus,
 			p.ContextMeter.LastActivityAt,
+			p.ContextMeter.SessionSteps,
+			p.ContextMeter.SessionTotalTokens,
 		)
 	}
 	sugKey := fmt.Sprintf("%d:%s", len(p.SuggestedResponses), strings.Join(p.SuggestedResponses, "|"))

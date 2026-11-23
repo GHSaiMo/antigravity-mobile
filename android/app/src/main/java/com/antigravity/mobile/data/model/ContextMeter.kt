@@ -21,7 +21,15 @@ data class ContextMeterItem(
     val cacheMissStreak: Int = 0,
     val cacheMissTokens: Long = 0,
     val cacheStatus: String? = null,
-    val lastActivityAt: String? = null
+    val lastActivityAt: String? = null,
+    val sessionSteps: Int = 0,
+    val sessionInputTokens: Long = 0,
+    val sessionOutputTokens: Long = 0,
+    val sessionCacheReadTokens: Long = 0,
+    val sessionThinkingTokens: Long = 0,
+    val sessionTotalTokens: Long = 0,
+    val sessionCacheHitRate: Double? = null,
+    val sessionCostUsd: Double = 0.0
 ) {
     /**
      * 兼容新旧网关：优先使用网关返回的命中率，缺失时基于最近一步 input + cacheRead 本地计算。
@@ -34,6 +42,22 @@ data class ContextMeterItem(
         if (total <= 0L) return null
         return (cr.toDouble() / total.toDouble()) * 100.0
     }
+
+    fun hasSessionTotals(): Boolean =
+        sessionSteps > 0 ||
+            (sessionInputTokens + sessionOutputTokens + sessionCacheReadTokens + sessionThinkingTokens) > 0L
+
+    fun effectiveSessionCacheHitRate(): Double? {
+        sessionCacheHitRate?.let { return it.coerceIn(0.0, 100.0) }
+        val inp = sessionInputTokens.coerceAtLeast(0L)
+        val cr = sessionCacheReadTokens.coerceAtLeast(0L)
+        val total = inp + cr
+        if (total <= 0L) return null
+        return (cr.toDouble() / total.toDouble()) * 100.0
+    }
+
+    fun isNearCompactionCeiling(): Boolean =
+        isOverflow || percentage >= 75.0
 
     fun isCacheMissStreak(): Boolean =
         cacheStatus == "miss_streak" || cacheMissStreak >= 2

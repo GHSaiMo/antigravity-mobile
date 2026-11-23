@@ -7369,6 +7369,21 @@ body.font-comfortable pre, body.font-comfortable code {
   margin-bottom: 8px;
   color: var(--ios-label, #000);
 }
+.audit-section-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.audit-section-header .audit-section-title {
+  margin-bottom: 0;
+}
+.audit-session-cost {
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  color: var(--ios-secondary-label, #8e8e93);
+}
 .audit-breakdown-card {
   background: var(--ios-secondary-system-grouped-background, rgba(120, 120, 128, 0.08));
   border-radius: 12px;

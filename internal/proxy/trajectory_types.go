@@ -269,9 +269,17 @@ type ContextMeterItem struct {
 	CacheHitRate      *float64 `json:"cacheHitRate,omitempty"`
 	CacheMissStreak   int      `json:"cacheMissStreak,omitempty"`
 	CacheMissTokens   int64    `json:"cacheMissTokens,omitempty"`
-	CacheStatus       string   `json:"cacheStatus,omitempty"`
-	ModelName         string   `json:"modelName,omitempty"`
-	LastActivityAt    string   `json:"lastActivityAt,omitempty"`
+	CacheStatus            string   `json:"cacheStatus,omitempty"`
+	ModelName              string   `json:"modelName,omitempty"`
+	LastActivityAt         string   `json:"lastActivityAt,omitempty"`
+	SessionSteps           int      `json:"sessionSteps,omitempty"`
+	SessionInputTokens     int64    `json:"sessionInputTokens,omitempty"`
+	SessionOutputTokens    int64    `json:"sessionOutputTokens,omitempty"`
+	SessionCacheReadTokens int64    `json:"sessionCacheReadTokens,omitempty"`
+	SessionThinkingTokens  int64    `json:"sessionThinkingTokens,omitempty"`
+	SessionTotalTokens     int64    `json:"sessionTotalTokens,omitempty"`
+	SessionCacheHitRate    *float64 `json:"sessionCacheHitRate,omitempty"`
+	SessionCostUSD         float64  `json:"sessionCostUsd,omitempty"`
 }
 
 // TurnOutlineItem is a lightweight, full-session index entry for a single conversation turn.
