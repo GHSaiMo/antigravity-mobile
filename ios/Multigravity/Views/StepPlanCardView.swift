@@ -103,13 +103,13 @@ public struct StepPlanCardView: View {
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 0) {
             if isActivePlan {
                 checklistCard(isRunning: true)
             } else {
                 Button {
                     UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                    withAnimation(.spring(response: 0.28, dampingFraction: 0.9)) {
+                    withAnimation(.spring(response: 0.28, dampingFraction: 0.92)) {
                         isManuallyExpanded.toggle()
                     }
                 } label: {
@@ -129,18 +129,28 @@ public struct StepPlanCardView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
                     .overlay(
                         RoundedRectangle(cornerRadius: 9, style: .continuous)
-                            .stroke(Color.primary.opacity(0.08), lineWidth: 0.7)
+                            .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.7)
                     )
                 }
                 .buttonStyle(.plain)
+                .zIndex(2)
 
                 if isManuallyExpanded {
                     checklistCard(isRunning: false)
-                        .transition(.opacity.combined(with: .move(edge: .top)))
+                        .padding(.top, 6)
+                        .clipped()
+                        .zIndex(1)
+                        .transition(
+                            .asymmetric(
+                                insertion: .opacity.combined(with: .scale(scale: 0.98, anchor: .top)),
+                                removal: .opacity
+                            )
+                        )
                 }
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .clipped()
         .onChange(of: isActivePlan) { wasActive, nowActive in
             if wasActive && !nowActive {
                 withAnimation(.easeInOut(duration: 0.22)) {
@@ -172,7 +182,7 @@ public struct StepPlanCardView: View {
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(Color.primary.opacity(0.10), lineWidth: 0.9)
+                .strokeBorder(Color.primary.opacity(0.10), lineWidth: 0.9)
         )
     }
 
@@ -293,20 +303,23 @@ public struct ActiveFocusToolRowView: View {
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            if hasDetails {
-                Button {
-                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                    withAnimation(.spring(response: 0.28, dampingFraction: 0.9)) {
-                        isExpanded.toggle()
+        VStack(alignment: .leading, spacing: 0) {
+            Group {
+                if hasDetails {
+                    Button {
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        withAnimation(.spring(response: 0.28, dampingFraction: 0.92)) {
+                            isExpanded.toggle()
+                        }
+                    } label: {
+                        rowContent
                     }
-                } label: {
+                    .buttonStyle(.plain)
+                } else {
                     rowContent
                 }
-                .buttonStyle(.plain)
-            } else {
-                rowContent
             }
+            .zIndex(2)
 
             if isExpanded && hasDetails {
                 VStack(alignment: .leading, spacing: 5) {
@@ -381,11 +394,19 @@ public struct ActiveFocusToolRowView: View {
                         }
                     }
                 }
-                .padding(.top, 2)
-                .transition(.opacity.combined(with: .move(edge: .top)))
+                .padding(.top, 8)
+                .clipped()
+                .zIndex(1)
+                .transition(
+                    .asymmetric(
+                        insertion: .opacity.combined(with: .scale(scale: 0.98, anchor: .top)),
+                        removal: .opacity
+                    )
+                )
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .clipped()
         .onAppear {
             withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) {
                 shimmerOn = true

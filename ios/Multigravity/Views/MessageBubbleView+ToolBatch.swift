@@ -85,7 +85,7 @@ extension MessageBubbleView {
                     .clipShape(Capsule())
                     .overlay(
                         Capsule()
-                            .stroke(Color.primary.opacity(0.08), lineWidth: 0.8)
+                            .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.8)
                     )
                 }
                 .buttonStyle(NoTapAnimationButtonStyle())
@@ -135,14 +135,20 @@ extension MessageBubbleView {
                                 .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                                 .overlay(
                                     RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                        .stroke(Color.primary.opacity(0.05), lineWidth: 0.5)
+                                        .strokeBorder(Color.primary.opacity(0.05), lineWidth: 0.5)
                                 )
                             }
                         }
                     }
                     .padding(.top, 6)
-                    .transition(.opacity.combined(with: .move(edge: .top)))
+                    .clipped()
                     .zIndex(1)
+                    .transition(
+                        .asymmetric(
+                            insertion: .opacity.combined(with: .scale(scale: 0.98, anchor: .top)),
+                            removal: .opacity
+                        )
+                    )
                 }
             }
             .frame(maxWidth: .infinity, alignment: .topLeading)
@@ -187,7 +193,7 @@ extension MessageBubbleView {
             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .stroke(Color.primary.opacity(0.05), lineWidth: 0.5)
+                    .strokeBorder(Color.primary.opacity(0.05), lineWidth: 0.5)
             )
         }
     }
