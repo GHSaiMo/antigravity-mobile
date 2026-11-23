@@ -72,6 +72,7 @@ import kotlin.math.roundToInt
 data class ModelPickerRow(
     val id: String,
     val title: String,
+    val compactTitle: String? = null,
     val providerKind: String,
     val isGroupStart: Boolean,
     val variantsTopToBottom: List<ModelVariant>,
@@ -101,14 +102,21 @@ class ModelSlidePickerState {
         val defaultRowSpacing = 3.dp
         val compactRowSpacing = 2.dp
         val cardPadding = 5.dp
+        val leftCardCompactMinWidth = 148.dp
         val leftCardMinWidth = 186.dp
         val leftCardMaxWidth = 226.dp
         val rightCardWidth = 104.dp
+        val compactWidthThreshold = 420.dp
         val gapBetweenButtonAndMenu = 8.dp
         val gapBetweenColumns = 8.dp
         val horizontalMargin = 12.dp
         val topSafeMargin = 12.dp
         val columnLockHysteresis = 6.dp
+    }
+
+    fun isCompactWidth(density: Density): Boolean = with(density) {
+        val wPx = containerSize.width.toFloat()
+        wPx <= 0f || wPx < Layout.compactWidthThreshold.toPx()
     }
 
     /** 长按打开全模型一级菜单：按 Gemini(蓝) -> Claude(橙) -> Orchestrator(钛灰) -> 其他 列出全部可用模型。 */
@@ -126,7 +134,7 @@ class ModelSlidePickerState {
             }
             val isFirstInGroup = prevProvider != null && prevProvider != kind
 
-            if (!family.hasEffortVariants && family.variants.size > 1) {
+            if (!family.hasEffortVariants && family.variants.size > 1 && kind != "orchestrator") {
                 family.variants.forEachIndexed { vIndex, variant ->
                     val rawTitle = variant.rawName.trim().ifEmpty { family.name }
                     val displayTitle = ModelDefaults.formatSlidePickerTitle(rawTitle)
@@ -145,16 +153,26 @@ class ModelSlidePickerState {
                 }
             } else {
                 val ordered = family.variantsTopToBottom
-                val rawTitle = if (kind == "orchestrator" && ordered.size == 1) {
-                    ordered.first().rawName.trim().ifEmpty { family.name }
+                val fullTitle: String
+                val compactTitle: String?
+                if (kind == "orchestrator") {
+                    if (ordered.size > 1) {
+                        fullTitle = family.name.ifBlank { "Orchestrator" }
+                        compactTitle = "Orch"
+                    } else {
+                        val rawTitle = ordered.firstOrNull()?.rawName?.trim().orEmpty().ifEmpty { family.name }
+                        fullTitle = rawTitle.ifEmpty { "Orchestrator" }
+                        compactTitle = ModelDefaults.formatSlidePickerTitle(rawTitle).ifEmpty { "Orch" }
+                    }
                 } else {
-                    family.name
+                    fullTitle = ModelDefaults.formatSlidePickerTitle(family.name).ifEmpty { family.name }
+                    compactTitle = null
                 }
-                val displayTitle = ModelDefaults.formatSlidePickerTitle(rawTitle)
                 builtRows.add(
                     ModelPickerRow(
                         id = family.id,
-                        title = displayTitle.ifEmpty { family.name },
+                        title = fullTitle,
+                        compactTitle = compactTitle,
                         providerKind = kind,
                         isGroupStart = isFirstInGroup,
                         variantsTopToBottom = ordered,
@@ -239,9 +257,10 @@ class ModelSlidePickerState {
         val rightW = Layout.rightCardWidth.toPx()
         val colGap = Layout.gapBetweenColumns.toPx()
         val maxRoom = if (containerW > 0f) containerW - rightW - colGap - hMargin * 2f else Layout.leftCardMaxWidth.toPx()
-        val upperW = min(Layout.leftCardMaxWidth.toPx(), max(Layout.leftCardMinWidth.toPx(), maxRoom))
-        val preferredW = if (containerW > 0f) containerW * 0.54f else Layout.leftCardMinWidth.toPx()
-        val width = min(upperW, max(Layout.leftCardMinWidth.toPx(), preferredW))
+        val minLeft = min(Layout.leftCardMinWidth.toPx(), max(Layout.leftCardCompactMinWidth.toPx(), maxRoom))
+        val upperW = min(Layout.leftCardMaxWidth.toPx(), max(minLeft, maxRoom))
+        val preferredW = if (containerW > 0f) containerW * 0.54f else minLeft
+        val width = min(upperW, max(minLeft, preferredW))
 
         val maxLeftX = max(hMargin, containerW - width - rightW - colGap - hMargin)
         val minX = if (containerW > 0f) {
@@ -531,8 +550,13 @@ fun ModelSlidePickerOverlay(
                                         modifier = Modifier.size(13.dp)
                                     )
                                 }
+                                val rowTitle = if (state.isCompactWidth(density)) {
+                                    row.compactTitle ?: row.title
+                                } else {
+                                    row.title
+                                }
                                 Text(
-                                    text = row.title,
+                                    text = rowTitle,
                                     fontSize = if (leftRowHeightDp < 29.dp) 12.5.sp else 13.5.sp,
                                     fontWeight = if (isHovered || isCurrentActive) FontWeight.SemiBold else FontWeight.Medium,
                                     color = rowColor,

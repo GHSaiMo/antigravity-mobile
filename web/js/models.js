@@ -453,11 +453,12 @@ function openWebModelPicker(anchorEl) {
   let prevProv = null;
   for (const fam of families) {
     const isGroupStart = prevProv !== null && prevProv !== fam.provider;
-    if (!fam.hasEffortVariants && fam.variantsTopToBottom.length > 1) {
+    if (!fam.hasEffortVariants && fam.variantsTopToBottom.length > 1 && fam.provider !== "orchestrator") {
       fam.variantsTopToBottom.forEach((v, idx) => {
         rows.push({
           id: v.id,
           title: v.rawName,
+          compactTitle: null,
           provider: fam.provider,
           isGroupStart: idx === 0 ? isGroupStart : false,
           variants: [v],
@@ -467,9 +468,22 @@ function openWebModelPicker(anchorEl) {
         });
       });
     } else {
+      let fullTitle = fam.name;
+      let compactTitle = null;
+      if (fam.provider === "orchestrator") {
+        if (fam.variantsTopToBottom.length > 1) {
+          fullTitle = fam.name || "Orchestrator";
+          compactTitle = "Orch";
+        } else {
+          const raw = fam.variantsTopToBottom[0]?.rawName || fam.name || "Orchestrator";
+          fullTitle = raw;
+          compactTitle = formatFullNameToCompact(raw) || "Orch";
+        }
+      }
       rows.push({
         id: fam.id,
-        title: fam.name,
+        title: fullTitle,
+        compactTitle,
         provider: fam.provider,
         isGroupStart,
         variants: fam.variantsTopToBottom,
@@ -494,7 +508,13 @@ function renderWebModelPicker() {
   const overlay = document.getElementById("model-picker-overlay");
   if (!overlay || !webPickerState) return;
   const { rows, anchor, hoveredIdx } = webPickerState;
-  const leftX = Math.max(12, Math.min(anchor.left, window.innerWidth - 336));
+  const isCompactWidth = window.innerWidth < 420;
+  const rightW = 108;
+  const colGap = 8;
+  const hMargin = 12;
+  const maxLeft = Math.max(148, window.innerWidth - rightW - colGap - hMargin * 2);
+  const leftW = Math.min(210, maxLeft);
+  const leftX = Math.max(hMargin, Math.min(anchor.left, window.innerWidth - leftW - rightW - colGap - hMargin));
   const bottomY = Math.max(16, window.innerHeight - anchor.top + 8);
   const maxHeight = Math.max(160, anchor.top - 20);
 
@@ -502,6 +522,7 @@ function renderWebModelPicker() {
     const isActive = row.variants.some((v) => v.id === activeModel);
     const isHovered = hoveredIdx === idx;
     const provSafe = String(row.provider || "").replace(/[^a-zA-Z0-9_-]/g, "");
+    const displayTitle = isCompactWidth && row.compactTitle ? row.compactTitle : row.title;
     const classes = [
       "mp-row",
       `mp-prov-${provSafe}`,
@@ -512,7 +533,7 @@ function renderWebModelPicker() {
     return `
       <button type="button" class="${classes}" data-row-idx="${idx}">
         <span class="mp-check">${isActive ? "✓" : ""}</span>
-        <span class="mp-title">${escapeHtml(row.title)}</span>
+        <span class="mp-title">${escapeHtml(displayTitle)}</span>
         ${row.hasSubmenu ? '<span class="mp-arrow">›</span>' : ""}
       </button>
     `;
@@ -539,7 +560,7 @@ function renderWebModelPicker() {
         </button>
       `;
     }).join("");
-    const rightLeft = Math.min(leftX + 218, window.innerWidth - 118);
+    const rightLeft = Math.min(leftX + leftW + colGap, window.innerWidth - rightW - hMargin);
     rightCardHtml = `
       <div class="mp-card mp-right mp-card-prov-${provSafe}" style="left:${rightLeft}px; bottom:${bottomY}px;">
         ${rightVariantsHtml}
@@ -549,7 +570,7 @@ function renderWebModelPicker() {
 
   overlay.innerHTML = `
     <div class="mp-backdrop"></div>
-    <div class="mp-card mp-left" style="left:${leftX}px; bottom:${bottomY}px; max-height:${maxHeight}px;">
+    <div class="mp-card mp-left" style="left:${leftX}px; bottom:${bottomY}px; width:${leftW}px; max-height:${maxHeight}px;">
       ${leftRowsHtml}
     </div>
     ${rightCardHtml}

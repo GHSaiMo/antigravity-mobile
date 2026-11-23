@@ -4,6 +4,7 @@ import UIKit
 public struct ModelPickerRow: Identifiable, Equatable {
     public let id: String
     public let title: String
+    public let compactTitle: String?
     public let providerKind: ModelProviderKind
     public let isGroupStart: Bool
     public let variantsTopToBottom: [ModelVariant]
@@ -36,14 +37,20 @@ public final class ModelSlidePickerState {
         static let defaultRowSpacing: CGFloat = 3
         static let compactRowSpacing: CGFloat = 2
         static let cardPadding: CGFloat = 5
+        static let leftCardCompactMinWidth: CGFloat = 148
         static let leftCardMinWidth: CGFloat = 186
         static let leftCardMaxWidth: CGFloat = 226
         static let rightCardWidth: CGFloat = 104
+        static let compactWidthThreshold: CGFloat = 420
         static let gapBetweenButtonAndMenu: CGFloat = 8
         static let gapBetweenColumns: CGFloat = 8
         static let horizontalMargin: CGFloat = 12
         static let topSafeMargin: CGFloat = 12
         static let columnLockHysteresis: CGFloat = 6
+    }
+
+    public var isCompactWidth: Bool {
+        containerSize.width <= 0 || containerSize.width < Layout.compactWidthThreshold
     }
 
     public init() {}
@@ -58,14 +65,15 @@ public final class ModelSlidePickerState {
             let kind = ModelDefaultsLogic.providerKind(forID: family.variants.first?.id ?? family.provider)
             let isFirstInGroup = prevProvider != nil && prevProvider != kind
 
-            if !family.hasEffortVariants && family.variants.count > 1 {
-                // Multi-variant non-effort family (e.g. Orchestrator Carbon / Argon): flatten into direct level-1 rows
+            if !family.hasEffortVariants && family.variants.count > 1 && kind != .orchestrator {
+                // Multi-variant non-effort family (non-Orchestrator): flatten into direct level-1 rows
                 for (vIndex, variant) in family.variants.enumerated() {
                     let displayTitle = variant.rawName.trimmingCharacters(in: .whitespacesAndNewlines)
                     builtRows.append(
                         ModelPickerRow(
                             id: variant.id,
                             title: displayTitle.isEmpty ? family.name : displayTitle,
+                            compactTitle: nil,
                             providerKind: kind,
                             isGroupStart: vIndex == 0 ? isFirstInGroup : false,
                             variantsTopToBottom: [variant],
@@ -77,10 +85,27 @@ public final class ModelSlidePickerState {
                 }
             } else {
                 let ordered = family.variantsTopToBottom
+                let fullTitle: String
+                let compactTitle: String?
+                if kind == .orchestrator {
+                    if ordered.count > 1 {
+                        fullTitle = family.name.isEmpty ? "Orchestrator" : family.name
+                        compactTitle = "Orch"
+                    } else {
+                        let raw = ordered.first?.rawName.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                        fullTitle = raw.isEmpty ? (family.name.isEmpty ? "Orchestrator" : family.name) : raw
+                        let short = ModelDefaultsLogic.formatFullNameToCompact(fullTitle)
+                        compactTitle = short.isEmpty ? "Orch" : short
+                    }
+                } else {
+                    fullTitle = family.name
+                    compactTitle = nil
+                }
                 builtRows.append(
                     ModelPickerRow(
                         id: family.id,
-                        title: family.name,
+                        title: fullTitle,
+                        compactTitle: compactTitle,
                         providerKind: kind,
                         isGroupStart: isFirstInGroup,
                         variantsTopToBottom: ordered,
@@ -164,9 +189,10 @@ public final class ModelSlidePickerState {
         let maxRoomForLeft = containerSize.width > 0
             ? containerSize.width - Layout.rightCardWidth - Layout.gapBetweenColumns - Layout.horizontalMargin * 2
             : Layout.leftCardMaxWidth
-        let upperWidth = min(Layout.leftCardMaxWidth, max(Layout.leftCardMinWidth, maxRoomForLeft))
-        let preferredWidth = containerSize.width > 0 ? containerSize.width * 0.54 : Layout.leftCardMinWidth
-        let width = min(upperWidth, max(Layout.leftCardMinWidth, preferredWidth))
+        let minLeft = min(Layout.leftCardMinWidth, max(Layout.leftCardCompactMinWidth, maxRoomForLeft))
+        let upperWidth = min(Layout.leftCardMaxWidth, max(minLeft, maxRoomForLeft))
+        let preferredWidth = containerSize.width > 0 ? containerSize.width * 0.54 : minLeft
+        let width = min(upperWidth, max(minLeft, preferredWidth))
         return CGSize(width: width, height: height)
     }
 
@@ -424,7 +450,8 @@ public struct ModelSlidePickerOverlay: View {
                                 .font(.system(size: 11, weight: .bold))
                                 .foregroundColor(rowColor)
                         }
-                        Text(row.title)
+                        let displayTitle = state.isCompactWidth ? (row.compactTitle ?? row.title) : row.title
+                        Text(displayTitle)
                             .font(.system(size: state.leftRowHeight < 29 ? 12.5 : 13.5, weight: (isHovered || isCurrentActive) ? .semibold : .medium))
                             .foregroundColor(rowColor)
                             .lineLimit(1)
