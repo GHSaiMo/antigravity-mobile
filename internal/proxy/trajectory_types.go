@@ -39,18 +39,39 @@ type TaskProgressItem struct {
 	Mode        string `json:"mode,omitempty"`
 }
 
+// StepPlanItemEntry represents one checklist step emitted by update_steps.
+type StepPlanItemEntry struct {
+	Key    string `json:"key"`
+	Title  string `json:"title"`
+	Status string `json:"status"` // "pending" | "in_progress" | "done" | "skipped" | "failed"
+}
+
+// StepPlanItem represents the live checklist of steps for a turn (update_steps).
+type StepPlanItem struct {
+	AnchorStepIndex int                 `json:"anchorStepIndex"`
+	Items           []StepPlanItemEntry `json:"items"`
+	DoneCount       int                 `json:"doneCount"`
+	TotalCount      int                 `json:"totalCount"` // excludes skipped, matching desktop
+	SkippedCount    int                 `json:"skippedCount,omitempty"`
+	FailedCount     int                 `json:"failedCount,omitempty"`
+}
+
 type CascadeMessageItem struct {
-	ID            string                `json:"id"`
-	Type          string                `json:"type"` // "user", "agent", "tools", "error", "subagent"
-	Role          string                `json:"role"`
-	Text          string                `json:"text"`
-	Content       string                `json:"content"`
-	StepIndex     *int                  `json:"stepIndex,omitempty"`
-	ToolCount     int                   `json:"toolCount,omitempty"`
-	ToolNames     []string              `json:"toolNames,omitempty"`
-	ToolDetails   []ToolDetailItem      `json:"toolDetails,omitempty"`
-	Thinking      string                `json:"thinking,omitempty"`
-	ThinkingDuration string             `json:"thinkingDuration,omitempty"`
+	ID               string                `json:"id"`
+	Type             string                `json:"type"` // "user", "agent", "tools", "error", "subagent", "workflow", "step_plan"
+	Role             string                `json:"role"`
+	Text             string                `json:"text"`
+	Content          string                `json:"content"`
+	StepIndex        *int                  `json:"stepIndex,omitempty"`
+	ToolCount        int                   `json:"toolCount,omitempty"`
+	ToolNames        []string              `json:"toolNames,omitempty"`
+	ToolDetails      []ToolDetailItem      `json:"toolDetails,omitempty"`
+	Thinking         string                `json:"thinking,omitempty"`
+	ThinkingDuration string                `json:"thinkingDuration,omitempty"`
+	// FocusText is the latest live status summary from update_focus for a tools batch.
+	FocusText string `json:"focusText,omitempty"`
+	// StartedAt is the RFC3339 timestamp when a tools batch started (drives live elapsed timer).
+	StartedAt     string                `json:"startedAt,omitempty"`
 	Media         []string              `json:"media,omitempty"`         // Base64 thumbnails
 	ImageURLs     []string              `json:"imageUrls,omitempty"`     // Markdown image URLs
 	Artifacts     []ArtifactItem        `json:"artifacts,omitempty"`     // Linked/generated artifact cards
@@ -66,6 +87,8 @@ type CascadeMessageItem struct {
 	Subagent *SubagentItem `json:"subagent,omitempty"`
 	// Workflow is set for Type "workflow": represents dynamic multi-agent workflows (run_workflow) in Antigravity 2.26+.
 	Workflow *WorkflowItem `json:"workflow,omitempty"`
+	// StepPlan is set for Type "step_plan": live checklist card emitted by update_steps.
+	StepPlan *StepPlanItem `json:"stepPlan,omitempty"`
 	// Timestamp is the RFC3339 timestamp when this step or turn was created.
 	Timestamp string `json:"timestamp,omitempty"`
 	// ClientMessageID is the client-supplied UUID (Antigravity 2.30+ native field or mgy-client tag) for user messages.
@@ -281,6 +304,9 @@ type CascadeMessagesResponse struct {
 	ContextMeter       *ContextMeterItem    `json:"contextMeter,omitempty"`
 	SuggestedResponses []string             `json:"suggestedResponses,omitempty"`
 	TaskProgress       *TaskProgressItem    `json:"taskProgress,omitempty"`
+	ActiveFocus        string               `json:"activeFocus,omitempty"`
+	ActiveFocusStarted string               `json:"activeFocusStartedAt,omitempty"`
+	ActivePlan         *StepPlanItem        `json:"activePlan,omitempty"`
 }
 
 type TrajectoryMediaItem struct {
@@ -570,6 +596,17 @@ type TrajectoryStep struct {
 		ToolAction    string `json:"toolAction,omitempty"`
 		ArgumentsJson string `json:"argumentsJson,omitempty"`
 	} `json:"toolCall,omitempty"`
+	Generic *struct {
+		Args   map[string]json.RawMessage `json:"args,omitempty"`
+		Result *struct {
+			StepRenderInfo *struct {
+				Title       string `json:"title,omitempty"`
+				TitlePrefix string `json:"titlePrefix,omitempty"`
+				Markdown    string `json:"markdown,omitempty"`
+				Hidden      bool   `json:"hidden,omitempty"`
+			} `json:"stepRenderInfo,omitempty"`
+		} `json:"result,omitempty"`
+	} `json:"generic,omitempty"`
 	Content string `json:"content,omitempty"`
 }
 
@@ -694,4 +731,7 @@ type TrajectoryDetails struct {
 	ContextMeter       *ContextMeterItem    `json:"contextMeter,omitempty"`
 	SuggestedResponses []string             `json:"suggestedResponses,omitempty"`
 	TaskProgress       *TaskProgressItem    `json:"taskProgress,omitempty"`
+	ActiveFocus        string               `json:"activeFocus,omitempty"`
+	ActiveFocusStarted string               `json:"activeFocusStartedAt,omitempty"`
+	ActivePlan         *StepPlanItem        `json:"activePlan,omitempty"`
 }

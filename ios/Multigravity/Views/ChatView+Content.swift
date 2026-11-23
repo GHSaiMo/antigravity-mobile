@@ -509,6 +509,22 @@ extension ChatView {
     func messagesList(proxy: ScrollViewProxy) -> some View {
         let lastId = viewModel.messages.last?.id
         let isStreamingOrRunning = viewModel.isRunning || viewModel.isAwaitingResponse
+        let activePlanId: String? = {
+            guard isStreamingOrRunning else { return nil }
+            let lastUserIdx = viewModel.messages.lastIndex(where: { $0.isUser }) ?? -1
+            let tailStart = lastUserIdx + 1
+            guard tailStart < viewModel.messages.count else { return nil }
+            for idx in stride(from: viewModel.messages.count - 1, through: tailStart, by: -1) {
+                let m = viewModel.messages[idx]
+                if m.isAgent {
+                    return nil
+                }
+                if m.isStepPlan {
+                    return m.id
+                }
+            }
+            return nil
+        }()
         let shouldTrackVisibility = viewModel.turns.count >= 2 || useLazyMessagesStack
         let canRevert = GatewayCompatStore.shared.isAvailable(GatewayFeature.revert)
         let canExport = GatewayCompatStore.shared.isAvailable(GatewayFeature.export)
@@ -533,6 +549,7 @@ extension ChatView {
                     message: message,
                     isLast: message.id == lastId,
                     isActive: (message.id == lastId) && isStreamingOrRunning,
+                    isActivePlan: message.id == activePlanId,
                     isHighlighted: highlightedId == message.id,
                     shouldTrackVisibility: shouldTrackVisibility,
                     canRevert: canRevert,
@@ -542,7 +559,10 @@ extension ChatView {
             }
             
             if shouldShowThinkingBubble {
-                AgentThinkingBubbleView()
+                AgentThinkingBubbleView(
+                    focusText: viewModel.activeFocus,
+                    startedAt: viewModel.activeFocusStartedAt
+                )
                     .id("THINKING_INDICATOR")
                     .transition(.opacity)
             }
@@ -566,6 +586,7 @@ extension ChatView {
         message: ChatMessage,
         isLast: Bool,
         isActive: Bool,
+        isActivePlan: Bool,
         isHighlighted: Bool,
         shouldTrackVisibility: Bool,
         canRevert: Bool,
@@ -575,6 +596,7 @@ extension ChatView {
         EquatableMessageRow(
             message: message,
             isActive: isActive,
+            isActivePlan: isActivePlan,
             isHighlighted: isHighlighted,
             canRevert: canRevert,
             canExport: canExport,
@@ -1032,6 +1054,7 @@ private struct ChatStepperOverlayView: View {
 private struct EquatableMessageRow: View, Equatable {
     let message: ChatMessage
     let isActive: Bool
+    let isActivePlan: Bool
     let isHighlighted: Bool
     let canRevert: Bool
     let canExport: Bool
@@ -1050,6 +1073,7 @@ private struct EquatableMessageRow: View, Equatable {
     static func == (lhs: EquatableMessageRow, rhs: EquatableMessageRow) -> Bool {
         lhs.message == rhs.message
             && lhs.isActive == rhs.isActive
+            && lhs.isActivePlan == rhs.isActivePlan
             && lhs.isHighlighted == rhs.isHighlighted
             && lhs.canRevert == rhs.canRevert
             && lhs.canExport == rhs.canExport
@@ -1060,6 +1084,7 @@ private struct EquatableMessageRow: View, Equatable {
             MessageBubbleView(
                 message: msg,
                 isActiveToolBatch: isActive,
+                isActivePlan: isActivePlan,
                 onUndo: canRevert ? onUndo : nil,
                 onExportMarkdown: canExport ? onExportMarkdown : nil,
                 onCompact: onCompact,

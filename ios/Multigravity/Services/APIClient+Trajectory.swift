@@ -57,6 +57,7 @@ extension APIClient {
                             case "error": return .error
                             case "subagent": return .subagent
                             case "workflow": return .workflow
+                            case "step_plan": return .stepPlan
                             default: return .toolBatch(count: item.toolCount ?? 1, tools: item.toolNames ?? [])
                             }
                         }()
@@ -87,6 +88,9 @@ extension APIClient {
                             modelName: item.modelName,
                             subagent: item.subagent,
                             workflow: item.workflow,
+                            stepPlan: item.stepPlan,
+                            focusText: item.focusText,
+                            startedAt: item.startedAt,
                             timestamp: item.timestamp,
                             slashCommands: item.slashCommands,
                             clientMessageId: item.clientMessageId,
@@ -132,7 +136,10 @@ extension APIClient {
                         subagents: decoded.subagents,
                         parentConversationId: decoded.parentConversationId,
                         subagentRole: decoded.subagentRole,
-                        suggestedResponses: decoded.suggestedResponses
+                        suggestedResponses: decoded.suggestedResponses,
+                        activeFocus: decoded.activeFocus,
+                        activeFocusStartedAt: decoded.activeFocusStartedAt,
+                        activePlan: decoded.activePlan
                     )
                     if let respETag = httpResp.value(forHTTPHeaderField: "ETag")?.trimmingCharacters(in: .whitespacesAndNewlines), !respETag.isEmpty {
                         cascadeMessagesETagCache.withLock { store in
@@ -179,7 +186,10 @@ extension APIClient {
             subagents: nil,
             parentConversationId: nil,
             subagentRole: nil,
-            suggestedResponses: nil
+            suggestedResponses: nil,
+            activeFocus: nil,
+            activeFocusStartedAt: nil,
+            activePlan: nil
         )
     }
     

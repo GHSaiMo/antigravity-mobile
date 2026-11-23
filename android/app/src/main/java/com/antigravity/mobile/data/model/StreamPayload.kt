@@ -49,9 +49,37 @@ data class WorkflowItem(
 
 @androidx.compose.runtime.Immutable
 @Serializable
+data class StepPlanItemEntry(
+    val key: String = "",
+    val title: String = "",
+    val status: String = "pending" // "pending" | "in_progress" | "done" | "skipped" | "failed"
+)
+
+@androidx.compose.runtime.Immutable
+@Serializable
+data class StepPlanItem(
+    val anchorStepIndex: Int = 0,
+    val items: List<StepPlanItemEntry> = emptyList(),
+    val doneCount: Int = 0,
+    val totalCount: Int = 0,
+    val skippedCount: Int = 0,
+    val failedCount: Int = 0
+) {
+    val effectiveDoneCount: Int
+        get() = if (doneCount > 0 || items.isEmpty()) doneCount else items.count { it.status == "done" }
+    val effectiveSkippedCount: Int
+        get() = if (skippedCount > 0 || items.isEmpty()) skippedCount else items.count { it.status == "skipped" }
+    val effectiveFailedCount: Int
+        get() = if (failedCount > 0 || items.isEmpty()) failedCount else items.count { it.status == "failed" }
+    val effectiveTotalCount: Int
+        get() = if (totalCount > 0) totalCount else maxOf(0, items.size - effectiveSkippedCount)
+}
+
+@androidx.compose.runtime.Immutable
+@Serializable
 data class GatewayMessageItem(
     val id: String = "",
-    val type: String = "user", // "user", "agent", "tools", "error", "subagent", "workflow"
+    val type: String = "user", // "user", "agent", "tools", "error", "subagent", "workflow", "step_plan"
     val role: String = "", // "user", "assistant", "system"
     val text: String = "",
     val content: String = "",
@@ -74,6 +102,12 @@ data class GatewayMessageItem(
     val subagent: SubagentItem? = null,
     /** type == "workflow" 时的动态多智能体工作流数据 (Antigravity 2.26+)。 */
     val workflow: WorkflowItem? = null,
+    /** type == "step_plan" 时的实时步骤清单卡片数据 (update_steps)。 */
+    val stepPlan: StepPlanItem? = null,
+    /** 工具组实时焦点摘要 (update_focus)。 */
+    val focusText: String? = null,
+    /** 工具组起始时间戳 (RFC3339，用于实时计时器)。 */
+    val startedAt: String? = null,
     /** type == "user" 时引用的斜杠命令 / 技能列表。 */
     val slashCommands: List<SlashCommandMention>? = null,
     /** 客户端发送时生成的幂等标识（Antigravity 2.30+）。 */
@@ -114,8 +148,11 @@ data class GatewayMessageItem(
     val isWorkflow: Boolean
         get() = type.equals("workflow", ignoreCase = true) && workflow != null
 
+    val isStepPlan: Boolean
+        get() = type.equals("step_plan", ignoreCase = true) && stepPlan != null
+
     val isAgent: Boolean
-        get() = !isUser && !isTools && !isError && !isSubagent && !isWorkflow
+        get() = !isUser && !isTools && !isError && !isSubagent && !isWorkflow && !isStepPlan
 
     val effectiveImageDataList: List<ByteArray>
         get() {
@@ -280,7 +317,10 @@ data class StreamUpdatePayload(
     val messageIds: List<String>? = null,
     val swarm: SwarmBrief? = null,
     val contextMeter: ContextMeterItem? = null,
-    val suggestedResponses: List<String>? = null
+    val suggestedResponses: List<String>? = null,
+    val activeFocus: String? = null,
+    val activeFocusStartedAt: String? = null,
+    val activePlan: StepPlanItem? = null
 )
 
 @Serializable

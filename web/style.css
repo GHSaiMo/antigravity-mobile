@@ -9652,4 +9652,213 @@ mark.md-find-mark.active {
   margin-top: 8px;
 }
 
+/* Native Desktop-Parity StepPlan Checklist & Live Focus Timer Row (Scheme A) */
+.step-plan-row,
+.focus-indicator-row {
+  width: 100%;
+  max-width: 100%;
+}
+
+.step-plan-card {
+  width: 100%;
+  box-sizing: border-box;
+  border-radius: 12px;
+  border: 1px solid var(--border-color, rgba(128, 128, 128, 0.22));
+  background: var(--bg-secondary, var(--ios-secondary-bg));
+  padding: 11px 14px;
+  margin: 2px 0;
+}
+
+.step-plan-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.step-plan-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+  font-size: 13.5px;
+  line-height: 1.4;
+}
+
+.step-plan-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 19px;
+  flex-shrink: 0;
+  color: var(--text-secondary, var(--ios-secondary-label));
+}
+
+.step-plan-icon.failed {
+  color: var(--status-error, #ef4444);
+}
+
+.step-plan-icon.skipped {
+  opacity: 0.45;
+}
+
+.step-plan-icon.pending {
+  opacity: 0.75;
+}
+
+.step-plan-title {
+  min-width: 0;
+  word-break: break-word;
+  color: var(--text-primary, var(--ios-label));
+}
+
+.step-plan-item.status-in_progress .step-plan-title {
+  font-weight: 500;
+  color: var(--text-primary, var(--ios-label));
+}
+
+.step-plan-item.status-done .step-plan-title {
+  color: var(--text-secondary, var(--ios-secondary-label));
+}
+
+.step-plan-item.status-skipped .step-plan-title {
+  color: var(--text-secondary, var(--ios-secondary-label));
+  text-decoration: line-through;
+}
+
+.step-plan-item.status-pending .step-plan-title {
+  opacity: 0.85;
+}
+
+.step-plan-dot-spinner {
+  display: grid;
+  grid-template-columns: repeat(2, 3.5px);
+  gap: 2px;
+  place-content: center;
+  width: 14px;
+  height: 14px;
+  color: var(--text-primary, var(--ios-label));
+}
+
+.step-plan-dot-spinner span {
+  width: 3.5px;
+  height: 3.5px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: stepPlanDotPulse 1.4s ease-in-out infinite;
+}
+
+.step-plan-dot-spinner span:nth-child(1) { animation-delay: 0s; }
+.step-plan-dot-spinner span:nth-child(2) { animation-delay: 0.2s; }
+.step-plan-dot-spinner span:nth-child(3) { animation-delay: 0.4s; }
+.step-plan-dot-spinner span:nth-child(4) { animation-delay: 0.6s; }
+
+@keyframes stepPlanDotPulse {
+  0%, 100% { opacity: 0.26; }
+  50% { opacity: 0.88; }
+}
+
+.step-plan-collapsible {
+  width: 100%;
+}
+
+.step-plan-collapsible > summary::-webkit-details-marker {
+  display: none;
+}
+
+.step-plan-chip {
+  list-style: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: 9px;
+  border: 0.7px solid var(--border-color, rgba(128, 128, 128, 0.2));
+  background: var(--bg-tertiary, var(--ios-tertiary-bg));
+  color: var(--text-secondary, var(--ios-secondary-label));
+  font-size: 12.5px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  user-select: none;
+}
+
+.step-plan-collapsible[open] > .step-plan-chip {
+  color: var(--text-primary, var(--ios-label));
+  margin-bottom: 6px;
+}
+
+.step-plan-chip-chevron {
+  opacity: 0.7;
+  transition: transform 0.2s ease;
+}
+
+.step-plan-collapsible[open] .step-plan-chip-chevron {
+  transform: rotate(90deg);
+}
+
+.focus-tool-row {
+  width: 100%;
+}
+
+.focus-tool-row.static {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px;
+}
+
+.focus-tool-row > summary::-webkit-details-marker {
+  display: none;
+}
+
+.focus-tool-summary {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px;
+  cursor: pointer;
+  user-select: none;
+  min-width: 0;
+}
+
+.focus-tool-text {
+  font-size: 13px;
+  color: var(--text-secondary, var(--ios-secondary-label));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  animation: focusTextBreath 2.4s ease-in-out infinite;
+}
+
+@keyframes focusTextBreath {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.62; }
+}
+
+.focus-elapsed-timer {
+  font-size: 12.5px;
+  color: var(--text-secondary, var(--ios-secondary-label));
+  opacity: 0.85;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+.focus-tool-chevron {
+  color: var(--text-secondary, var(--ios-secondary-label));
+  opacity: 0.65;
+  flex-shrink: 0;
+  transition: transform 0.2s ease;
+}
+
+.focus-tool-row[open] .focus-tool-chevron {
+  transform: rotate(90deg);
+}
+
+
 

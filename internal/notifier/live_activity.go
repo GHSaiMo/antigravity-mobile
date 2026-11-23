@@ -339,6 +339,9 @@ func buildLatestActionSummary(details *proxy.TrajectoryDetails, activeTaskTitle 
 	if activeTaskTitle != "" {
 		return activeTaskTitle
 	}
+	if summary := buildPlanOrFocusSummary(details); summary != "" {
+		return summary
+	}
 	if details.TaskProgress != nil {
 		if s := strings.TrimSpace(details.TaskProgress.TaskStatus); s != "" {
 			return s
@@ -360,6 +363,35 @@ func buildLatestActionSummary(details *proxy.TrajectoryDetails, activeTaskTitle 
 		return fmt.Sprintf("正在执行第 %d 步...", details.TotalSteps)
 	}
 	return "Agent 正在执行..."
+}
+
+func buildPlanOrFocusSummary(details *proxy.TrajectoryDetails) string {
+	if details == nil {
+		return ""
+	}
+	focus := strings.TrimSpace(details.ActiveFocus)
+	plan := details.ActivePlan
+	if plan != nil && len(plan.Items) > 0 {
+		prefix := ""
+		if plan.TotalCount > 0 {
+			prefix = fmt.Sprintf("%d/%d", plan.DoneCount, plan.TotalCount)
+		}
+		if focus != "" {
+			if prefix != "" {
+				return prefix + " · " + focus
+			}
+			return focus
+		}
+		for _, it := range plan.Items {
+			if it.Status == "in_progress" && strings.TrimSpace(it.Title) != "" {
+				if prefix != "" {
+					return prefix + " · " + strings.TrimSpace(it.Title)
+				}
+				return strings.TrimSpace(it.Title)
+			}
+		}
+	}
+	return focus
 }
 
 // SyncFromDetails dispatches a Live Activity start or update push when warranted by state change and throttling rules.

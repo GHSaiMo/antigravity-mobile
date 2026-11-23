@@ -76,6 +76,8 @@ import com.antigravity.mobile.data.service.FileIconResolver
 fun MessageBubble(
     message: GatewayMessageItem,
     modifier: Modifier = Modifier,
+    isActiveToolBatch: Boolean = false,
+    isActivePlan: Boolean = false,
     onPlanClick: ((uri: String, title: String) -> Unit)? = null,
     urlResolver: ((String) -> String)? = null,
     onImageClick: ((url: String?, bitmap: Bitmap?) -> Unit)? = null,
@@ -113,8 +115,32 @@ fun MessageBubble(
         return
     }
 
+    // 实时步骤清单卡片 (update_steps，对齐桌面端 Plan 卡片与自动折叠胶囊)
+    message.stepPlan?.takeIf { message.isStepPlan }?.let { plan ->
+        StepPlanCard(
+            plan = plan,
+            isActivePlan = isActivePlan,
+            modifier = modifier
+        )
+        return
+    }
+
     // Standalone tool or thinking capsule
     if (message.isTools) {
+        val liveFocus = message.focusText?.trim().orEmpty()
+        if (isActiveToolBatch && liveFocus.isNotEmpty()) {
+            ActiveFocusToolRow(
+                focusText = liveFocus,
+                startedAt = message.startedAt,
+                thinkingText = message.thinking,
+                toolDetails = message.toolDetails,
+                toolCalls = message.toolCalls.orEmpty(),
+                toolNames = message.toolNames.orEmpty(),
+                isExpandable = true,
+                modifier = modifier
+            )
+            return
+        }
         val hasStructuredThinking = !message.thinking.isNullOrBlank() || !message.toolDetails.isNullOrEmpty()
         if (hasStructuredThinking) {
             ToolStepCollapseCard(

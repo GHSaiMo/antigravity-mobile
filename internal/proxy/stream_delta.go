@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"fmt"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -122,6 +123,9 @@ func hashMessageItem(m *CascadeMessageItem) uint64 {
 	}
 	h.str(m.Thinking)
 	h.str(m.ThinkingDuration)
+	h.str(m.FocusText)
+	h.str(m.StartedAt)
+	hashStepPlanItem(&h, m.StepPlan)
 	h.num(len(m.Media))
 	for _, md := range m.Media {
 		h.str(md)
@@ -410,6 +414,35 @@ func hashStep(s *TrajectoryStep) uint64 {
 		h.str(s.ToolCall.ToolSummary)
 		h.str(s.ToolCall.ToolAction)
 		h.str(s.ToolCall.ArgumentsJson)
+	} else {
+		h.u8(0)
+	}
+	if s.Generic != nil {
+		h.u8(1)
+		if len(s.Generic.Args) > 0 {
+			keys := make([]string, 0, len(s.Generic.Args))
+			for k := range s.Generic.Args {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			h.num(len(keys))
+			for _, k := range keys {
+				h.str(k)
+				h.bytes(s.Generic.Args[k])
+			}
+		} else {
+			h.num(0)
+		}
+		if s.Generic.Result != nil && s.Generic.Result.StepRenderInfo != nil {
+			ri := s.Generic.Result.StepRenderInfo
+			h.u8(1)
+			h.str(ri.Title)
+			h.str(ri.TitlePrefix)
+			h.str(ri.Markdown)
+			h.flag(ri.Hidden)
+		} else {
+			h.u8(0)
+		}
 	} else {
 		h.u8(0)
 	}

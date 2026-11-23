@@ -85,6 +85,9 @@ extension ChatViewModel {
         if let cm = payload.contextMeter { self.contextMeter = cm }
         if let ws = payload.workspaceUri, !ws.isEmpty { self.workspaceUri = ws }
         if let suggestions = payload.suggestedResponses { self.suggestedResponses = suggestions }
+        self.activeFocus = payload.activeFocus
+        self.activeFocusStartedAt = payload.activeFocusStartedAt
+        self.activePlan = payload.activePlan
         
         if let title = payload.title?.trimmingCharacters(in: .whitespacesAndNewlines),
            !title.isEmpty, title != "未命名会话" {
@@ -111,6 +114,7 @@ extension ChatViewModel {
                     case "error": return .error
                     case "subagent": return .subagent
                     case "workflow": return .workflow
+                    case "step_plan": return .stepPlan
                     default: return .toolBatch(count: item.toolCount ?? 1, tools: item.toolNames ?? [])
                     }
                 }()
@@ -152,6 +156,9 @@ extension ChatViewModel {
                     modelName: item.modelName,
                     subagent: item.subagent,
                     workflow: item.workflow,
+                    stepPlan: item.stepPlan,
+                    focusText: item.focusText,
+                    startedAt: item.startedAt,
                     timestamp: item.timestamp,
                     slashCommands: item.slashCommands,
                     clientMessageId: item.clientMessageId,

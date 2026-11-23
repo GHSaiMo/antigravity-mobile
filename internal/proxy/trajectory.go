@@ -268,6 +268,9 @@ func (p *Proxy) handleCascadeMessages(w http.ResponseWriter, r *http.Request) {
 		ContextMeter:       details.ContextMeter,
 		SuggestedResponses: details.SuggestedResponses,
 		TaskProgress:       details.TaskProgress,
+		ActiveFocus:        details.ActiveFocus,
+		ActiveFocusStarted: details.ActiveFocusStarted,
+		ActivePlan:         details.ActivePlan,
 	})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)

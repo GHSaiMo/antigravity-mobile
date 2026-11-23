@@ -56,6 +56,9 @@ type StreamUpdatePayload struct {
 	ContextMeter       *ContextMeterItem    `json:"contextMeter,omitempty"`
 	SuggestedResponses []string             `json:"suggestedResponses,omitempty"`
 	TaskProgress       *TaskProgressItem    `json:"taskProgress,omitempty"`
+	ActiveFocus        string               `json:"activeFocus,omitempty"`
+	ActiveFocusStarted string               `json:"activeFocusStartedAt,omitempty"`
+	ActivePlan         *StepPlanItem        `json:"activePlan,omitempty"`
 
 	// Delta framing, only set for clients that connect with delta=1 (see streamDeltaState).
 	Delta      bool     `json:"delta,omitempty"`
@@ -97,7 +100,19 @@ func (p *StreamUpdatePayload) Fingerprint() string {
 	msgsKey := fmt.Sprintf("%d:%d", p.TotalMessages, len(p.TurnOutline))
 	if len(p.Messages) > 0 {
 		lastMsg := p.Messages[len(p.Messages)-1]
-		msgsKey = fmt.Sprintf("%d:%d:%s:%d:%x", p.TotalMessages, len(p.TurnOutline), lastMsg.ID, len(lastMsg.Text), hashStrings(lastMsg.Text))
+		mh := newFNV64()
+		mh.str(lastMsg.ID)
+		mh.str(lastMsg.Text)
+		mh.str(lastMsg.FocusText)
+		mh.str(lastMsg.StartedAt)
+		mh.num(lastMsg.ToolCount)
+		for i := range p.Messages {
+			if p.Messages[i].StepPlan != nil {
+				mh.str(p.Messages[i].ID)
+				hashStepPlanItem(&mh, p.Messages[i].StepPlan)
+			}
+		}
+		msgsKey = fmt.Sprintf("%d:%d:%s:%d:%x", p.TotalMessages, len(p.TurnOutline), lastMsg.ID, len(lastMsg.Text), uint64(mh))
 	}
 	swarmKey := "none"
 	if p.Swarm != nil && p.Swarm.Active {
@@ -111,6 +126,13 @@ func (p *StreamUpdatePayload) Fingerprint() string {
 	tpKey := ""
 	if p.TaskProgress != nil {
 		tpKey = p.TaskProgress.TaskName + ":" + p.TaskProgress.TaskStatus + ":" + p.TaskProgress.TaskSummary
+	}
+	if p.ActiveFocus != "" || p.ActivePlan != nil {
+		ph := newFNV64()
+		ph.str(p.ActiveFocus)
+		ph.str(p.ActiveFocusStarted)
+		hashStepPlanItem(&ph, p.ActivePlan)
+		tpKey += fmt.Sprintf("|%x", uint64(ph))
 	}
 	if len(p.Steps) == 0 {
 		return fmt.Sprintf("%s:%t:%s:%t:%s:%s:%s:%s:%s:%s:%s:%s:%s:%s", p.Status, p.HasError, msgsKey, p.CanProceed, piKey, queuedKey, tasksKey, p.ActiveModel, p.DesktopActiveModel, p.Title, swarmKey, cmKey, sugKey, tpKey)
@@ -174,6 +196,13 @@ func rawTrajectorySignature(raw *upstreamTrajectoryResp) string {
 	if last.ToolCall != nil {
 		lastContentLen += len(last.ToolCall.Name) + len(last.ToolCall.ArgumentsJson)
 	}
+	if last.Metadata.ToolCall != nil {
+		lastContentLen += len(last.Metadata.ToolCall.Name) + len(last.Metadata.ToolCall.ArgumentsJson)
+	}
+	if last.Generic != nil && last.Generic.Result != nil && last.Generic.Result.StepRenderInfo != nil {
+		ri := last.Generic.Result.StepRenderInfo
+		lastContentLen += len(ri.Title) + len(ri.Markdown)
+	}
 	if last.TaskDetails != nil {
 		lastContentLen += len(last.TaskDetails.Description)
 	}
@@ -182,6 +211,9 @@ func rawTrajectorySignature(raw *upstreamTrajectoryResp) string {
 	var contentHash uint64
 	if last.PlannerResponse != nil {
 		contentHash = hashStrings(last.PlannerResponse.Response, last.PlannerResponse.Thinking, last.Content)
+	} else if last.Generic != nil && last.Generic.Result != nil && last.Generic.Result.StepRenderInfo != nil {
+		ri := last.Generic.Result.StepRenderInfo
+		contentHash = hashStrings(ri.Title, ri.Markdown, last.Content)
 	} else {
 		contentHash = hashStrings(last.Content)
 	}
@@ -484,6 +516,9 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 			ContextMeter:       details.ContextMeter,
 			SuggestedResponses: details.SuggestedResponses,
 			TaskProgress:       details.TaskProgress,
+			ActiveFocus:        details.ActiveFocus,
+			ActiveFocusStarted: details.ActiveFocusStarted,
+			ActivePlan:         details.ActivePlan,
 		}
 
 		if !isMessagesOnly {

@@ -5,6 +5,7 @@ public struct MessageBubbleView: View {
     @Environment(\.openURL) var openURL
     public let message: ChatMessage
     public let isActiveToolBatch: Bool
+    public let isActivePlan: Bool
     public let onUndo: ((ChatMessage) -> Void)?
     let onExportMarkdown: (() -> Void)?
     let onCompact: (() -> Void)?
@@ -24,6 +25,7 @@ public struct MessageBubbleView: View {
     init(
         message: ChatMessage,
         isActiveToolBatch: Bool = false,
+        isActivePlan: Bool = false,
         onUndo: ((ChatMessage) -> Void)? = nil,
         onExportMarkdown: (() -> Void)? = nil,
         onCompact: (() -> Void)? = nil,
@@ -37,6 +39,7 @@ public struct MessageBubbleView: View {
     ) {
         self.message = message
         self.isActiveToolBatch = isActiveToolBatch
+        self.isActivePlan = isActivePlan
         self.onUndo = onUndo
         self.onExportMarkdown = onExportMarkdown
         self.onCompact = onCompact
@@ -101,6 +104,13 @@ public struct MessageBubbleView: View {
                         workflow: wf,
                         onStopWorkflow: onStopWorkflow,
                         onSelectSubagent: onSelectSubagent
+                    )
+                }
+            case .stepPlan:
+                if let plan = message.stepPlan {
+                    StepPlanCardView(
+                        plan: plan,
+                        isActivePlan: isActivePlan
                     )
                 }
             }

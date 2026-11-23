@@ -595,6 +595,77 @@ public struct WorkflowItem: Codable, Sendable, Hashable {
     }
 }
 
+public struct StepPlanItemEntry: Codable, Sendable, Hashable, Identifiable {
+    public var id: String { key.isEmpty ? title : key }
+    public let key: String
+    public let title: String
+    public let status: String // "pending" | "in_progress" | "done" | "skipped" | "failed"
+
+    public init(key: String = "", title: String, status: String = "pending") {
+        self.key = key.isEmpty ? title.lowercased() : key
+        self.title = title
+        self.status = status
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case key, title, status
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let title = try c.decodeIfPresent(String.self, forKey: .title) ?? ""
+        self.title = title
+        self.key = try c.decodeIfPresent(String.self, forKey: .key) ?? title.lowercased()
+        self.status = try c.decodeIfPresent(String.self, forKey: .status) ?? "pending"
+    }
+}
+
+public struct StepPlanItem: Codable, Sendable, Hashable {
+    public let anchorStepIndex: Int
+    public let items: [StepPlanItemEntry]
+    public let doneCount: Int
+    public let totalCount: Int
+    public let skippedCount: Int
+    public let failedCount: Int
+
+    public init(
+        anchorStepIndex: Int = 0,
+        items: [StepPlanItemEntry] = [],
+        doneCount: Int? = nil,
+        totalCount: Int? = nil,
+        skippedCount: Int? = nil,
+        failedCount: Int? = nil
+    ) {
+        self.anchorStepIndex = anchorStepIndex
+        self.items = items
+        let computedDone = items.filter { $0.status == "done" }.count
+        let computedSkipped = items.filter { $0.status == "skipped" }.count
+        let computedFailed = items.filter { $0.status == "failed" }.count
+        self.doneCount = doneCount ?? computedDone
+        self.skippedCount = skippedCount ?? computedSkipped
+        self.failedCount = failedCount ?? computedFailed
+        self.totalCount = totalCount ?? max(0, items.count - (skippedCount ?? computedSkipped))
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case anchorStepIndex, items, doneCount, totalCount, skippedCount, failedCount
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.anchorStepIndex = try c.decodeIfPresent(Int.self, forKey: .anchorStepIndex) ?? 0
+        let decodedItems = try c.decodeIfPresent([StepPlanItemEntry].self, forKey: .items) ?? []
+        self.items = decodedItems
+        let computedDone = decodedItems.filter { $0.status == "done" }.count
+        let computedSkipped = decodedItems.filter { $0.status == "skipped" }.count
+        let computedFailed = decodedItems.filter { $0.status == "failed" }.count
+        self.doneCount = try c.decodeIfPresent(Int.self, forKey: .doneCount) ?? computedDone
+        self.skippedCount = try c.decodeIfPresent(Int.self, forKey: .skippedCount) ?? computedSkipped
+        self.failedCount = try c.decodeIfPresent(Int.self, forKey: .failedCount) ?? computedFailed
+        self.totalCount = try c.decodeIfPresent(Int.self, forKey: .totalCount) ?? max(0, decodedItems.count - self.skippedCount)
+    }
+}
+
 // Clean model for SwiftUI chat view
 public struct ChatMessage: Identifiable, Hashable, Sendable, Codable {
     public let id: String
@@ -616,6 +687,12 @@ public struct ChatMessage: Identifiable, Hashable, Sendable, Codable {
     public let subagent: SubagentItem?
     /// sender == .workflow 时的动态工作流信息 (Antigravity 2.26+)。
     public let workflow: WorkflowItem?
+    /// sender == .stepPlan 时的实时步骤清单卡片 (update_steps)。
+    public let stepPlan: StepPlanItem?
+    /// 工具组实时焦点摘要 (update_focus)。
+    public let focusText: String?
+    /// 工具组起始时间 (RFC3339，用于驱动实时计时器)。
+    public let startedAt: String?
     /// 消息/步骤创建时间戳 (RFC3339)
     public let timestamp: String?
     /// 用户消息里引用的斜杠命令 / 技能（可选，兼容旧版缓存解码）
@@ -634,6 +711,7 @@ public struct ChatMessage: Identifiable, Hashable, Sendable, Codable {
         case error
         case subagent
         case workflow
+        case stepPlan
         
         private enum CodingKeys: String, CodingKey {
             case type, count, tools
@@ -656,6 +734,8 @@ public struct ChatMessage: Identifiable, Hashable, Sendable, Codable {
                 try container.encode("subagent", forKey: .type)
             case .workflow:
                 try container.encode("workflow", forKey: .type)
+            case .stepPlan:
+                try container.encode("stepPlan", forKey: .type)
             }
         }
         
@@ -671,6 +751,8 @@ public struct ChatMessage: Identifiable, Hashable, Sendable, Codable {
                 self = .subagent
             case "workflow":
                 self = .workflow
+            case "stepPlan", "step_plan":
+                self = .stepPlan
             case "toolBatch":
                 let count = try container.decodeIfPresent(Int.self, forKey: .count) ?? 1
                 let tools = try container.decodeIfPresent([String].self, forKey: .tools) ?? []
@@ -698,6 +780,9 @@ public struct ChatMessage: Identifiable, Hashable, Sendable, Codable {
         modelName: String? = nil,
         subagent: SubagentItem? = nil,
         workflow: WorkflowItem? = nil,
+        stepPlan: StepPlanItem? = nil,
+        focusText: String? = nil,
+        startedAt: String? = nil,
         timestamp: String? = nil,
         slashCommands: [SlashCommandMention]? = nil,
         clientMessageId: String? = nil,
@@ -710,6 +795,9 @@ public struct ChatMessage: Identifiable, Hashable, Sendable, Codable {
         self.modelName = modelName
         self.subagent = subagent
         self.workflow = workflow
+        self.stepPlan = stepPlan
+        self.focusText = focusText
+        self.startedAt = startedAt
         self.timestamp = timestamp
         self.slashCommands = slashCommands
         self.clientMessageId = clientMessageId
@@ -779,6 +867,11 @@ public struct ChatMessage: Identifiable, Hashable, Sendable, Codable {
     public var isWorkflow: Bool {
         if case .workflow = sender { return true }
         return workflow != nil
+    }
+
+    public var isStepPlan: Bool {
+        if case .stepPlan = sender { return true }
+        return stepPlan != nil
     }
 
     public var localizedToolNames: [String] {

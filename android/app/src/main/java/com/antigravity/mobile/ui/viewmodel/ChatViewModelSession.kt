@@ -563,14 +563,19 @@ internal fun ChatViewModel.initSession(
                         duration = payload.duration ?: _uiState.value.duration,
                         cascadeConfigRaw = payload.cascadeConfigRaw ?: _uiState.value.cascadeConfigRaw,
                         contextMeter = payload.contextMeter ?: _uiState.value.contextMeter,
-                        suggestedResponses = if (!isRunning) payload.suggestedResponses.orEmpty() else emptyList()
+                        suggestedResponses = if (!isRunning) payload.suggestedResponses.orEmpty() else emptyList(),
+                        activeFocus = payload.activeFocus,
+                        activeFocusStartedAt = payload.activeFocusStartedAt,
+                        activePlan = payload.activePlan
                     )
 
                     if (isRunning) {
                         val stepCount = mergedMsgs.count { !it.isUser }
+                        val planFocusSummary = buildPlanOrFocusAction(payload.activePlan, payload.activeFocus)
                         val latestAction = when {
                             payload.pendingInteraction != null -> payload.pendingInteraction.prompt ?: "需要审批操作".loc
                             activeRunningTasks.hasBlockingTasks -> activeRunningTasks.blockingTasks.firstOrNull()?.displayCommand?.ifBlank { "正在执行后台任务...".loc } ?: "正在执行后台任务...".loc
+                            !planFocusSummary.isNullOrBlank() -> planFocusSummary
                             lastMsg?.toolCalls?.isNotEmpty() == true -> "正在执行: ".loc + com.antigravity.mobile.ui.util.ToolLocalization.localizedName(lastMsg.toolCalls.lastOrNull()?.name ?: "操作".loc)
                             else -> "正在执行任务...".loc
                         }
@@ -823,14 +828,19 @@ internal fun ChatViewModel.ensureWebSocketObserving() {
                     duration = payload.duration ?: _uiState.value.duration,
                     cascadeConfigRaw = payload.cascadeConfigRaw ?: _uiState.value.cascadeConfigRaw,
                     contextMeter = payload.contextMeter ?: _uiState.value.contextMeter,
-                    suggestedResponses = if (!isRunning) payload.suggestedResponses.orEmpty() else emptyList()
+                    suggestedResponses = if (!isRunning) payload.suggestedResponses.orEmpty() else emptyList(),
+                    activeFocus = payload.activeFocus,
+                    activeFocusStartedAt = payload.activeFocusStartedAt,
+                    activePlan = payload.activePlan
                 )
 
                 if (isRunning) {
                     val stepCount = msgs.count { !it.isUser }
+                    val planFocusSummary = buildPlanOrFocusAction(payload.activePlan, payload.activeFocus)
                     val latestAction = when {
                         payload.pendingInteraction != null -> payload.pendingInteraction.prompt ?: "需要审批操作".loc
                         activeRunningTasks.hasBlockingTasks -> activeRunningTasks.blockingTasks.firstOrNull()?.displayCommand?.ifBlank { "正在执行后台任务...".loc } ?: "正在执行后台任务...".loc
+                        !planFocusSummary.isNullOrBlank() -> planFocusSummary
                         lastMsg?.toolCalls?.isNotEmpty() == true -> "正在执行: ".loc + com.antigravity.mobile.ui.util.ToolLocalization.localizedName(lastMsg.toolCalls.lastOrNull()?.name ?: "操作".loc)
                         awaiting || lastMsg?.isUser == true -> "正在思考并组织回复...".loc
                         else -> "正在执行任务...".loc
@@ -930,13 +940,18 @@ internal fun ChatViewModel.refresh(onComplete: (() -> Unit)? = null) {
                             totalTools = payload.totalTools,
                             duration = payload.duration ?: _uiState.value.duration,
                             cascadeConfigRaw = payload.cascadeConfigRaw ?: _uiState.value.cascadeConfigRaw,
-                            suggestedResponses = if (!isRunning) payload.suggestedResponses.orEmpty() else emptyList()
+                            suggestedResponses = if (!isRunning) payload.suggestedResponses.orEmpty() else emptyList(),
+                            activeFocus = payload.activeFocus,
+                            activeFocusStartedAt = payload.activeFocusStartedAt,
+                            activePlan = payload.activePlan
                         )
                         if (isRunning) {
                             val stepCount = msgs.count { !it.isUser }
+                            val planFocusSummary = buildPlanOrFocusAction(payload.activePlan, payload.activeFocus)
                             val latestAction = when {
                                 payload.pendingInteraction != null -> payload.pendingInteraction.prompt ?: "需要审批操作".loc
                                 activeRunningTasks.hasBlockingTasks -> activeRunningTasks.blockingTasks.firstOrNull()?.displayCommand?.ifBlank { "正在执行后台任务...".loc } ?: "正在执行后台任务...".loc
+                                !planFocusSummary.isNullOrBlank() -> planFocusSummary
                                 lastMsg?.toolCalls?.isNotEmpty() == true -> "正在执行: ".loc + com.antigravity.mobile.ui.util.ToolLocalization.localizedName(lastMsg.toolCalls.lastOrNull()?.name ?: "操作".loc)
                                 awaiting || lastMsg?.isUser == true -> "正在思考并组织回复...".loc
                                 else -> "正在执行任务...".loc
@@ -1116,4 +1131,20 @@ internal suspend fun ChatViewModel.loadMessagesThrough(
 
     val finalState = _uiState.value
     return finalState.messages.any { it.id == targetMessageId } || !finalState.hasMore
+}
+
+internal fun buildPlanOrFocusAction(plan: StepPlanItem?, focus: String?): String? {
+    val cleanFocus = focus?.trim().orEmpty()
+    if (plan != null && plan.items.isNotEmpty()) {
+        val total = plan.effectiveTotalCount
+        val prefix = if (total > 0) "${plan.effectiveDoneCount}/$total" else ""
+        if (cleanFocus.isNotEmpty()) {
+            return if (prefix.isNotEmpty()) "$prefix · $cleanFocus" else cleanFocus
+        }
+        val activeTitle = plan.items.firstOrNull { it.status == "in_progress" }?.title?.trim().orEmpty()
+        if (activeTitle.isNotEmpty()) {
+            return if (prefix.isNotEmpty()) "$prefix · $activeTitle" else activeTitle
+        }
+    }
+    return cleanFocus.ifEmpty { null }
 }

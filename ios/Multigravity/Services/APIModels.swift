@@ -122,6 +122,9 @@ public struct PaginatedMessagesResponse: Codable, Sendable {
     public let parentConversationId: String?
     public let subagentRole: String?
     public let suggestedResponses: [String]?
+    public let activeFocus: String?
+    public let activeFocusStartedAt: String?
+    public let activePlan: StepPlanItem?
     
     public struct GatewayMessageItem: Codable, Sendable {
         public let id: String
@@ -129,6 +132,8 @@ public struct PaginatedMessagesResponse: Codable, Sendable {
         public let text: String
         public let thinking: String?
         public let thinkingDuration: String?
+        public let focusText: String?
+        public let startedAt: String?
         public let toolCount: Int?
         public let toolNames: [String]?
         public let toolDetails: [ToolDetailItem]?
@@ -146,6 +151,8 @@ public struct PaginatedMessagesResponse: Codable, Sendable {
         public let subagent: SubagentItem?
         /// type == "workflow" 时的动态多智能体工作流数据 (Antigravity 2.26+)。
         public let workflow: WorkflowItem?
+        /// type == "step_plan" 时的实时步骤清单卡片数据 (update_steps)。
+        public let stepPlan: StepPlanItem?
         /// type == "user" 时引用的斜杠命令 / 技能列表。
         public let slashCommands: [SlashCommandMention]?
         /// 客户端发送时生成的幂等标识（Antigravity 2.30+）。
@@ -185,4 +192,7 @@ public struct FetchMessagesResult: Sendable {
     public let parentConversationId: String?
     public let subagentRole: String?
     public let suggestedResponses: [String]?
+    public let activeFocus: String?
+    public let activeFocusStartedAt: String?
+    public let activePlan: StepPlanItem?
 }

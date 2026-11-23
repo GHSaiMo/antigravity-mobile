@@ -55,6 +55,10 @@ object L10n {
     )
 
     private val patternRulesEn: List<PatternRule> = listOf(
+        // 步骤清单进度胶囊
+        PatternRule(Regex("""^(\d+)/(\d+)\s*步$""")) { m -> "${m.groupValues[1]}/${m.groupValues[2]} steps" },
+        PatternRule(Regex("""^(\d+)\s*失败$""")) { m -> "${m.groupValues[1]} failed" },
+        PatternRule(Regex("""^(\d+)\s*跳过$""")) { m -> "${m.groupValues[1]} skipped" },
         // 时间相对描述
         PatternRule(Regex("""^(\d+)\s*秒前$""")) { m -> "${m.groupValues[1]}s ago" },
         PatternRule(Regex("""^(\d+)\s*分钟前$""")) { m -> "${m.groupValues[1]}m ago" },
@@ -111,6 +115,10 @@ object L10n {
     )
 
     private val patternRulesJa: List<PatternRule> = listOf(
+        // 步骤清单进度胶囊
+        PatternRule(Regex("""^(\d+)/(\d+)\s*步$""")) { m -> "${m.groupValues[1]}/${m.groupValues[2]} ステップ" },
+        PatternRule(Regex("""^(\d+)\s*失败$""")) { m -> "${m.groupValues[1]} 失敗" },
+        PatternRule(Regex("""^(\d+)\s*跳过$""")) { m -> "${m.groupValues[1]} スキップ" },
         // 时间相对描述
         PatternRule(Regex("""^(\d+)\s*秒前$""")) { m -> "${m.groupValues[1]}秒前" },
         PatternRule(Regex("""^(\d+)\s*分钟前$""")) { m -> "${m.groupValues[1]}分前" },

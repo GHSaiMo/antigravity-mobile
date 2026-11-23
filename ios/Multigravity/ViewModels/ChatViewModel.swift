@@ -359,6 +359,9 @@ public final class ChatViewModel {
 
     // MARK: - Phase 3 State
     public var suggestedResponses: [String] = []
+    public var activeFocus: String? = nil
+    public var activeFocusStartedAt: String? = nil
+    public var activePlan: StepPlanItem? = nil
     public var selectedContextItems: [ContextMentionItem] = []
     public var mentionCandidates: [ContextMentionItem] = []
     public var isLoadingMentions: Bool = false
@@ -994,6 +997,9 @@ public final class ChatViewModel {
             if let suggestions = result.suggestedResponses {
                 self.suggestedResponses = suggestions
             }
+            self.activeFocus = result.activeFocus
+            self.activeFocusStartedAt = result.activeFocusStartedAt
+            self.activePlan = result.activePlan
             
             if let outline = result.turnOutline {
                 if self.turnOutline != outline {

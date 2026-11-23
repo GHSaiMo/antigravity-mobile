@@ -76,11 +76,16 @@ extension ChatMessage {
             modelName: modelName,
             subagent: subagent,
             workflow: workflow,
+            stepPlan: stepPlan,
+            focusText: focusText,
+            startedAt: startedAt,
             timestamp: timestamp,
             slashCommands: slashCommands,
             clientMessageId: clientMessageId,
             errorKind: errorKind,
-            isOverflow: isOverflow
+            isOverflow: isOverflow,
+            thinkingDuration: thinkingDuration,
+            toolDetails: toolDetails
         )
     }
 }

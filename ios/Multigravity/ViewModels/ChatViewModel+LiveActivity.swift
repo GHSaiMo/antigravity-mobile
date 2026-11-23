@@ -48,6 +48,8 @@ extension ChatViewModel {
                 actionText = String(localized: "方案待确认，可点击 Proceed")
             } else if let title = taskTitle, !title.isEmpty {
                 actionText = title
+            } else if let planOrFocus = liveActivityPlanOrFocusSummary(), !planOrFocus.isEmpty {
+                actionText = planOrFocus
             } else if let lastMsg = self.messages.last, !lastMsg.content.isEmpty {
                 let trimmed = lastMsg.content.trimmingCharacters(in: .whitespacesAndNewlines)
                 actionText = trimmed.count > 500 ? String(trimmed.prefix(500)) : trimmed
@@ -107,6 +109,22 @@ extension ChatViewModel {
         }
     }
     
+    @MainActor
+    private func liveActivityPlanOrFocusSummary() -> String? {
+        let focus = activeFocus?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if let plan = activePlan, !plan.items.isEmpty {
+            let prefix = plan.totalCount > 0 ? "\(plan.doneCount)/\(plan.totalCount)" : ""
+            if !focus.isEmpty {
+                return prefix.isEmpty ? focus : "\(prefix) · \(focus)"
+            }
+            if let current = plan.items.first(where: { $0.status == "in_progress" })?.title.trimmingCharacters(in: .whitespacesAndNewlines),
+               !current.isEmpty {
+                return prefix.isEmpty ? current : "\(prefix) · \(current)"
+            }
+        }
+        return focus.isEmpty ? nil : focus
+    }
+
     @MainActor
     func endBackgroundGraceTask() {
         backgroundDisconnectTask?.cancel()

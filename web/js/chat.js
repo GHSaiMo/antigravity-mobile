@@ -1284,25 +1284,238 @@ async function loadChat(cascadeId, isBackgroundPoll = false) {
   }
 }
 
+const STEP_PLAN_VALID_STATUSES = new Set(["pending", "in_progress", "done", "skipped", "failed"]);
+const STEP_PLAN_MD_STATUS_MAP = { " ": "pending", ">": "in_progress", x: "done", X: "done", "-": "skipped", "!": "failed" };
+const STEP_PLAN_MD_LINE_RE = /^\s*[-*]\s+\[([ >xX\-!])\]\s+(.+?)\s*$/;
+
+function extractToolNameFromRawStep(s) {
+  if (!s) return "";
+  if (s.metadata?.toolCall?.name) return s.metadata.toolCall.name;
+  if (s.toolCall?.name) return s.toolCall.name;
+  return "";
+}
+
+function parseStepPlanMarkdownWeb(md) {
+  if (!md || typeof md !== "string") return null;
+  const items = [];
+  for (const line of md.split("\n")) {
+    const m = STEP_PLAN_MD_LINE_RE.exec(line);
+    if (m) {
+      const title = m[2].trim();
+      if (title) {
+        items.push({ title, status: STEP_PLAN_MD_STATUS_MAP[m[1]] || "pending" });
+      }
+    }
+  }
+  return items.length > 0 ? items : null;
+}
+
+function parseStepPlanJsonWeb(raw) {
+  let val = raw;
+  if (typeof val === "string") {
+    try { val = JSON.parse(val); } catch { return null; }
+  }
+  if (val && typeof val === "object" && !Array.isArray(val) && "steps" in val) {
+    return parseStepPlanJsonWeb(val.steps);
+  }
+  if (!Array.isArray(val)) return null;
+  const items = [];
+  for (const d of val) {
+    if (!d || typeof d !== "object") continue;
+    const title = typeof d.title === "string" ? d.title.trim() : "";
+    if (!title) continue;
+    const status = typeof d.status === "string" && STEP_PLAN_VALID_STATUSES.has(d.status) ? d.status : "pending";
+    items.push({ title, status });
+  }
+  return items.length > 0 ? items : null;
+}
+
+function finalizeStepPlanWeb(anchorStepIndex, rawItems) {
+  if (!rawItems || rawItems.length === 0) return null;
+  const seen = new Set();
+  let doneCount = 0;
+  let skippedCount = 0;
+  let failedCount = 0;
+  const items = rawItems.map(it => {
+    const base = it.title.trim().toLowerCase().replace(/\s+/g, " ");
+    let key = base;
+    for (let k = 2; seen.has(key); k++) key = `${base}#${k}`;
+    seen.add(key);
+    if (it.status === "done") doneCount++;
+    else if (it.status === "skipped") skippedCount++;
+    else if (it.status === "failed") failedCount++;
+    return { key, title: it.title, status: it.status };
+  });
+  return {
+    anchorStepIndex,
+    items,
+    doneCount,
+    totalCount: items.length - skippedCount,
+    skippedCount,
+    failedCount
+  };
+}
+
+function extractStepPlanFromRawStep(s, idx) {
+  if (extractToolNameFromRawStep(s) !== "update_steps") return null;
+  if (s.status === "CORTEX_STEP_STATUS_ERROR" || s.error?.shortError || s.errorMessage?.error?.shortError) return null;
+  const md = s.generic?.result?.stepRenderInfo?.markdown;
+  let parsed = parseStepPlanMarkdownWeb(md);
+  if (s.status === "CORTEX_STEP_STATUS_CLEARED") {
+    return finalizeStepPlanWeb(idx, parsed);
+  }
+  if (!parsed && s.generic?.args && "steps" in s.generic.args) {
+    parsed = parseStepPlanJsonWeb(s.generic.args.steps);
+  }
+  if (!parsed) {
+    const argsJson = s.metadata?.toolCall?.argumentsJson || s.toolCall?.argumentsJson || "";
+    if (argsJson) parsed = parseStepPlanJsonWeb(argsJson);
+  }
+  return finalizeStepPlanWeb(idx, parsed);
+}
+
+function extractFocusFromRawStep(s) {
+  if (extractToolNameFromRawStep(s) !== "update_focus") return "";
+  if (s.status === "CORTEX_STEP_STATUS_ERROR" || s.error?.shortError || s.errorMessage?.error?.shortError) return "";
+  const title = s.generic?.result?.stepRenderInfo?.title;
+  if (typeof title === "string" && title.trim()) return title.trim();
+  const argFocus = s.generic?.args?.focus;
+  if (argFocus !== undefined && argFocus !== null) {
+    let val = argFocus;
+    if (typeof val === "string") {
+      try { const unq = JSON.parse(val); if (typeof unq === "string") val = unq; } catch {}
+      if (val.trim()) return val.trim();
+    }
+  }
+  const argsJson = s.metadata?.toolCall?.argumentsJson || s.toolCall?.argumentsJson || "";
+  if (argsJson) {
+    try {
+      const parsed = JSON.parse(argsJson);
+      if (typeof parsed?.focus === "string" && parsed.focus.trim()) return parsed.focus.trim();
+    } catch {}
+  }
+  return "";
+}
+
+function stepCreatedTimestampWeb(s) {
+  return (s?.metadata?.createdAt || s?.metadata?.startedAt || s?.startedAt || "").trim();
+}
+
+function formatElapsedDurationWeb(ms) {
+  const secs = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(secs / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  const s = secs % 60;
+  if (h > 0) return `${h}h ${m}m ${s}s`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
+}
+
+let _focusElapsedIntervalId = null;
+function syncFocusElapsedTimers() {
+  const els = document.querySelectorAll(".focus-elapsed-timer[data-started-at]");
+  if (!els.length) {
+    if (_focusElapsedIntervalId) {
+      clearInterval(_focusElapsedIntervalId);
+      _focusElapsedIntervalId = null;
+    }
+    return;
+  }
+  const updateAll = () => {
+    const nodes = document.querySelectorAll(".focus-elapsed-timer[data-started-at]");
+    if (!nodes.length) {
+      if (_focusElapsedIntervalId) {
+        clearInterval(_focusElapsedIntervalId);
+        _focusElapsedIntervalId = null;
+      }
+      return;
+    }
+    const now = Date.now();
+    nodes.forEach(el => {
+      const ts = Number(el.getAttribute("data-started-at"));
+      if (Number.isFinite(ts) && ts > 0) {
+        el.textContent = formatElapsedDurationWeb(now - ts);
+      }
+    });
+  };
+  updateAll();
+  if (!_focusElapsedIntervalId) {
+    _focusElapsedIntervalId = setInterval(updateAll, 1000);
+  }
+}
+
 function groupSteps(steps) {
   if (!steps || !steps.length) return [];
 
   const items = [];
   let currentBatch = null;
+  let pendingFocus = "";
+  let pendingToolsStartedAt = "";
+  let turnPlan = null;
+  let turnPlanAnchorIdx = -1;
+  let turnStartItemIdx = 0;
 
   function flushBatch() {
     if (currentBatch && currentBatch.steps.length > 0) {
+      if (pendingFocus) currentBatch.focusText = pendingFocus;
+      if ((pendingFocus || turnPlan) && pendingToolsStartedAt) {
+        currentBatch.startedAt = pendingToolsStartedAt;
+      }
       items.push(currentBatch);
       currentBatch = null;
+      pendingToolsStartedAt = "";
     }
+  }
+
+  function insertTurnPlan() {
+    if (!turnPlan || !turnPlan.items || turnPlan.items.length === 0) return;
+    const planItem = {
+      type: "step_plan",
+      id: `item-step-plan-${turnPlan.anchorStepIndex}`,
+      index: turnPlan.anchorStepIndex,
+      stepPlan: turnPlan
+    };
+    let pos = items.length;
+    while (pos > turnStartItemIdx && items[pos - 1].type === "agent") {
+      pos--;
+    }
+    if (pos > turnStartItemIdx && items[pos - 1].type === "tools") {
+      pos--;
+    }
+    items.splice(pos, 0, planItem);
+    turnPlan = null;
+    turnPlanAnchorIdx = -1;
   }
 
   for (let i = 0; i < steps.length; i++) {
     const s = steps[i];
     const type = s.type || "";
+    const toolName = extractToolNameFromRawStep(s);
+
+    if (toolName === "update_steps") {
+      const parsedPlan = extractStepPlanFromRawStep(s, i);
+      if (parsedPlan) {
+        if (turnPlanAnchorIdx < 0) turnPlanAnchorIdx = i;
+        parsedPlan.anchorStepIndex = turnPlanAnchorIdx;
+        turnPlan = parsedPlan;
+      }
+      continue;
+    }
+
+    if (toolName === "update_focus") {
+      const f = extractFocusFromRawStep(s);
+      if (f) {
+        pendingFocus = f;
+        if (!pendingToolsStartedAt) pendingToolsStartedAt = stepCreatedTimestampWeb(s);
+      }
+      continue;
+    }
 
     if (type === "CORTEX_STEP_TYPE_USER_INPUT") {
       flushBatch();
+      insertTurnPlan();
+      pendingFocus = "";
+      pendingToolsStartedAt = "";
       const extracted = typeof extractUserInputTextAndSlashCommands === "function"
         ? extractUserInputTextAndSlashCommands(s.userInput)
         : { text: (s.userInput?.userResponse || s.userInput?.items?.[0]?.text || "").trim(), slashCommands: [] };
@@ -1339,6 +1552,7 @@ function groupSteps(steps) {
           step: s
         });
       }
+      turnStartItemIdx = items.length;
     } else if (type === "CORTEX_STEP_TYPE_PLANNER_RESPONSE") {
       const p = s.plannerResponse || {};
       const rawResp = (p.response || "").trim();
@@ -1347,6 +1561,7 @@ function groupSteps(steps) {
 
       if (resp) {
         flushBatch();
+        pendingFocus = "";
         const artList = s.artifacts ? [...s.artifacts] : [];
         items.push({
           type: "agent",
@@ -1497,6 +1712,7 @@ function groupSteps(steps) {
       }
 
       if (!currentBatch) {
+        if (!pendingToolsStartedAt) pendingToolsStartedAt = stepCreatedTimestampWeb(s);
         currentBatch = {
           type: "tools",
           id: `item-tools-${i}`,
@@ -1504,7 +1720,9 @@ function groupSteps(steps) {
           steps: [],
           toolNames: [],
           thinking: "",
-          thinkingDuration: ""
+          thinkingDuration: "",
+          focusText: "",
+          startedAt: ""
         };
       }
 
@@ -1533,11 +1751,19 @@ function groupSteps(steps) {
   }
 
   flushBatch();
+  insertTurnPlan();
+  items._activeFocus = pendingFocus;
+  items._activeFocusStartedAt = pendingFocus ? pendingToolsStartedAt : "";
   return items;
 }
 
-function getItemFingerprint(item, isRunning, isLastItem) {
+function getItemFingerprint(item, isRunning, isLastItem, isActivePlan = false) {
   if (!item) return "";
+  if (item.type === "step_plan") {
+    const sp = item.stepPlan || {};
+    const statusSig = (sp.items || []).map(it => `${it.key}:${it.status}`).join("|");
+    return `sp:${sp.anchorStepIndex || 0}:${isActivePlan ? 1 : 0}:${statusSig}`;
+  }
   if (item.type === "user") {
     const mediaLen = (item.media || []).length;
     const scKey = (item.slashCommands || []).map(c => c.name).join(",");
@@ -1554,7 +1780,7 @@ function getItemFingerprint(item, isRunning, isLastItem) {
     const active = (isRunning && isLastItem) ? "1" : "0";
     const thinkLen = (item.thinking || "").length;
     const lastStep = item.steps[item.steps.length - 1];
-    return `t:${item.steps.length}:${item.toolNames.join(",")}:${thinkLen}:${lastStep?.duration || ""}:${active}`;
+    return `t:${item.steps.length}:${item.toolNames.join(",")}:${thinkLen}:${item.focusText || ""}:${item.startedAt || ""}:${lastStep?.duration || ""}:${active}`;
   }
   if (item.type === "error") {
     return `e:${item.text.length}:${item.text.slice(-12)}`;
@@ -1720,7 +1946,113 @@ function buildWorkflowCardHtml(workflow) {
   `;
 }
 
-function generateItemHtml(item, isRunning, isLastItem) {
+function buildStepPlanStatusIconHtml(status, isRunning) {
+  if (status === "done") {
+    return `<span class="step-plan-icon done" aria-hidden="true"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9.5"></circle><path d="M8.5 12.4l2.3 2.3 4.8-5"></path></svg></span>`;
+  }
+  if (status === "failed") {
+    return `<span class="step-plan-icon failed" aria-hidden="true"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9.5"></circle><line x1="12" y1="8" x2="12" y2="12.5"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg></span>`;
+  }
+  if (status === "in_progress") {
+    if (isRunning) {
+      return `<span class="step-plan-icon in-progress" aria-hidden="true"><span class="step-plan-dot-spinner"><span></span><span></span><span></span><span></span></span></span>`;
+    }
+    return `<span class="step-plan-icon paused" aria-hidden="true"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9.5"></circle><line x1="10" y1="9" x2="10" y2="15"></line><line x1="14" y1="9" x2="14" y2="15"></line></svg></span>`;
+  }
+  if (status === "skipped") {
+    return `<span class="step-plan-icon skipped" aria-hidden="true"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9.5"></circle></svg></span>`;
+  }
+  return `<span class="step-plan-icon pending" aria-hidden="true"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9.5"></circle></svg></span>`;
+}
+
+function buildStepPlanCardHtml(plan, isActivePlan) {
+  if (!plan || !Array.isArray(plan.items) || plan.items.length === 0) return "";
+  const listHtml = `
+    <div class="step-plan-card">
+      <ol class="step-plan-list">
+        ${plan.items.map(it => {
+          const st = it.status || "pending";
+          return `
+            <li class="step-plan-item status-${escapeHtml(st)}">
+              ${buildStepPlanStatusIconHtml(st, isActivePlan)}
+              <span class="step-plan-title">${escapeHtml(it.title || "")}</span>
+            </li>
+          `;
+        }).join("")}
+      </ol>
+    </div>
+  `;
+  if (isActivePlan) {
+    return listHtml;
+  }
+  const done = Number(plan.doneCount) || 0;
+  const total = Number(plan.totalCount) || 0;
+  const failed = Number(plan.failedCount) || 0;
+  const skipped = Number(plan.skippedCount) || 0;
+  const r = 4.5;
+  const circ = 2 * Math.PI * r;
+  const ratio = total > 0 ? Math.max(0, Math.min(1, done / total)) : 0;
+  const parts = [];
+  const isEnglish = typeof isEn === "function" && isEn();
+  const isJapanese = typeof isJa === "function" && isJa();
+  if (total > 0) {
+    parts.push(isEnglish ? `${done}/${total} steps` : (isJapanese ? `${done}/${total} ステップ` : `${done}/${total} 步`));
+  }
+  if (failed > 0) {
+    parts.push(isEnglish ? `${failed} failed` : (isJapanese ? `${failed} 失敗` : `${failed} 失败`));
+  }
+  if (skipped > 0) {
+    parts.push(isEnglish ? `${skipped} skipped` : (isJapanese ? `${skipped} スキップ` : `${skipped} 跳过`));
+  }
+  const label = parts.join(" · ");
+  return `
+    <details class="step-plan-collapsible">
+      <summary class="step-plan-chip">
+        <svg class="step-plan-ring" width="13" height="13" viewBox="0 0 14 14" aria-hidden="true">
+          <circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" stroke-opacity="0.25" stroke-width="2"></circle>
+          <circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-dasharray="${(ratio * circ).toFixed(2)} ${circ.toFixed(2)}" transform="rotate(-90 7 7)"></circle>
+        </svg>
+        <span class="step-plan-chip-label">${escapeHtml(label)}</span>
+        <svg class="step-plan-chip-chevron" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"></polyline></svg>
+      </summary>
+      ${listHtml}
+    </details>
+  `;
+}
+
+function buildActiveFocusRowHtml(focusText, startedAt, thinkingHtml, stepItemsHtml, isExpandable) {
+  const startMs = startedAt ? Date.parse(startedAt) : NaN;
+  const timerHtml = Number.isFinite(startMs)
+    ? `<span class="focus-elapsed-timer" data-started-at="${startMs}">${escapeHtml(formatElapsedDurationWeb(Date.now() - startMs))}</span>`
+    : "";
+  const hasDetails = isExpandable && (Boolean(thinkingHtml) || Boolean(stepItemsHtml));
+  if (!hasDetails) {
+    return `
+      <div class="focus-tool-row static">
+        <span class="focus-tool-text">${escapeHtml(focusText)}</span>
+        ${timerHtml}
+      </div>
+    `;
+  }
+  return `
+    <details class="focus-tool-row">
+      <summary class="focus-tool-summary">
+        <span class="focus-tool-text">${escapeHtml(focusText)}</span>
+        ${timerHtml}
+        <svg class="focus-tool-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"></polyline></svg>
+      </summary>
+      <div class="tool-batch-expanded">
+        ${thinkingHtml}
+        ${stepItemsHtml}
+      </div>
+    </details>
+  `;
+}
+
+function generateItemHtml(item, isRunning, isLastItem, isActivePlan = false) {
+  if (item.type === "step_plan") {
+    return buildStepPlanCardHtml(item.stepPlan, isActivePlan);
+  }
   if (item.type === "error") {
     if (item.isOverflow || item.errorKind === "context_overflow") {
       return `
@@ -1860,8 +2192,25 @@ function generateItemHtml(item, isRunning, isLastItem) {
     const localizedNames = [...new Set((item.toolNames || []).filter(n => n !== "thinking").map(formatToolName))];
     const toolNamesStr = localizedNames.join(", ") + (localizedNames.length > 2 ? "..." : "");
     const liveThinking = (item.thinking || "").trim();
+    const thinkingHtml = liveThinking ? `<div class="p3-thinking-detail">${escapeHtml(liveThinking)}</div>` : "";
+    const stepItemsHtml = item.steps.filter(s => s.name !== "thinking").map(s => `
+      <div class="tool-step-item">
+        <div class="tool-step-left">
+          <svg class="tool-puzzle-icon" width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M20.5 11H19V7c0-1.1-.9-2-2-2h-4V3.5a2.5 2.5 0 0 0-5 0V5H4c-1.1 0-1.99.9-1.99 2v3.8H3.5c1.49 0 2.7 1.21 2.7 2.7s-1.21 2.7-2.7 2.7H2V20c0 1.1.9 2 2 2h3.8v-1.5c0-1.49 1.21-2.7 2.7-2.7s2.7 1.21 2.7 2.7V22H17c1.1 0 2-.9 2-2v-4h1.5a2.5 2.5 0 0 0 0-5z"></path>
+          </svg>
+          <span class="tool-step-name">${escapeHtml(formatToolName(s.name))}</span>
+          ${s.detail ? `<span class="tool-names" style="margin-left:6px;">${escapeHtml(s.detail)}</span>` : ""}
+        </div>
+        ${s.duration ? `<span class="p3-step-dur">${escapeHtml(s.duration)}</span>` : ""}
+      </div>
+    `).join("");
 
     if (isActive) {
+      const liveFocus = (item.focusText || "").trim();
+      if (liveFocus) {
+        return buildActiveFocusRowHtml(liveFocus, item.startedAt, thinkingHtml, stepItemsHtml, true);
+      }
       return `
         <div class="agent-thinking-card">
           <div class="agent-avatar">
@@ -1890,20 +2239,6 @@ function generateItemHtml(item, isRunning, isLastItem) {
         </div>
       `;
     }
-
-    const thinkingHtml = liveThinking ? `<div class="p3-thinking-detail">${escapeHtml(liveThinking)}</div>` : "";
-    const stepItemsHtml = item.steps.filter(s => s.name !== "thinking").map(s => `
-      <div class="tool-step-item">
-        <div class="tool-step-left">
-          <svg class="tool-puzzle-icon" width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M20.5 11H19V7c0-1.1-.9-2-2-2h-4V3.5a2.5 2.5 0 0 0-5 0V5H4c-1.1 0-1.99.9-1.99 2v3.8H3.5c1.49 0 2.7 1.21 2.7 2.7s-1.21 2.7-2.7 2.7H2V20c0 1.1.9 2 2 2h3.8v-1.5c0-1.49 1.21-2.7 2.7-2.7s2.7 1.21 2.7 2.7V22H17c1.1 0 2-.9 2-2v-4h1.5a2.5 2.5 0 0 0 0-5z"></path>
-          </svg>
-          <span class="tool-step-name">${escapeHtml(formatToolName(s.name))}</span>
-          ${s.detail ? `<span class="tool-names" style="margin-left:6px;">${escapeHtml(s.detail)}</span>` : ""}
-        </div>
-        ${s.duration ? `<span class="p3-step-dur">${escapeHtml(s.duration)}</span>` : ""}
-      </div>
-    `).join("");
 
     if (window.CompactModePrefs?.shouldCollapseTools?.()) {
       const totalOps = Math.max(toolCount, item.steps.length);
@@ -2033,6 +2368,44 @@ function renderMessages(steps, isRunning = false) {
 
   const lastItem = items[items.length - 1];
   const isAwaiting = isRunning && lastItem?.type !== "tools";
+  let activePlanId = null;
+  if (isRunning) {
+    let lastUserIdx = -1;
+    for (let i = items.length - 1; i >= 0; i--) {
+      if (items[i].type === "user") { lastUserIdx = i; break; }
+    }
+    for (let i = items.length - 1; i > lastUserIdx; i--) {
+      if (items[i].type === "agent") break;
+      if (items[i].type === "step_plan") {
+        activePlanId = items[i].id;
+        break;
+      }
+    }
+  }
+  const activeFocusText = (items._activeFocus || "").trim();
+  const activeFocusStartedAt = items._activeFocusStartedAt || "";
+  const buildThinkingIndicatorHtml = () => {
+    if (activeFocusText) {
+      return buildActiveFocusRowHtml(activeFocusText, activeFocusStartedAt, "", "", false);
+    }
+    return `
+      <div class="agent-avatar">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 2v4m0 12v4M4.93 4.93l2.83 2.83m8.48 8.48l2.83 2.83M2 12h4m12 0h4M4.93 19.07l2.83-2.83m8.48-8.48l2.83-2.83"></path>
+        </svg>
+      </div>
+      <div class="agent-thinking-body">
+        <div class="thinking-title-row">
+          <span>Agent 正在思考与执行</span>
+          <div class="activity-dots">
+            <span class="dot"></span>
+            <span class="dot"></span>
+            <span class="dot"></span>
+          </div>
+        </div>
+      </div>
+    `;
+  };
 
   const preDist = streamEl.scrollHeight - streamEl.scrollTop - streamEl.clientHeight;
   const wasNearBottom = (userIsNearBottom || preDist <= 120) && !isUserTouching;
@@ -2048,7 +2421,8 @@ function renderMessages(steps, isRunning = false) {
     for (let i = 0; i < items.length; i++) {
       const item = items[i];
       const isLastItem = (i === items.length - 1);
-      const fp = getItemFingerprint(item, isRunning, isLastItem);
+      const isActivePlan = item.type === "step_plan" && item.id === activePlanId;
+      const fp = getItemFingerprint(item, isRunning, isLastItem, isActivePlan);
 
       let rowClass = "message-row";
       if (item.type === "user") {
@@ -2063,6 +2437,8 @@ function renderMessages(steps, isRunning = false) {
         rowClass = "message-row subagent-row";
       } else if (item.type === "workflow") {
         rowClass = "message-row workflow-row";
+      } else if (item.type === "step_plan") {
+        rowClass = "message-row step-plan-row";
       }
 
       const newEl = document.createElement("div");
@@ -2070,31 +2446,16 @@ function renderMessages(steps, isRunning = false) {
       newEl.className = rowClass;
       newEl.setAttribute("data-fp", fp);
       if (item.index !== undefined) newEl.setAttribute("data-step-index", String(item.index));
-      newEl.innerHTML = generateItemHtml(item, isRunning, isLastItem);
+      newEl.innerHTML = generateItemHtml(item, isRunning, isLastItem, isActivePlan);
       fragment.appendChild(newEl);
     }
 
     if (isAwaiting) {
       const thinkingIndicator = document.createElement("div");
       thinkingIndicator.id = "agent-thinking-indicator";
-      thinkingIndicator.className = "agent-thinking-card";
-      thinkingIndicator.innerHTML = `
-        <div class="agent-avatar">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M12 2v4m0 12v4M4.93 4.93l2.83 2.83m8.48 8.48l2.83 2.83M2 12h4m12 0h4M4.93 19.07l2.83-2.83m8.48-8.48l2.83-2.83"></path>
-          </svg>
-        </div>
-        <div class="agent-thinking-body">
-          <div class="thinking-title-row">
-            <span>Agent 正在思考与执行</span>
-            <div class="activity-dots">
-              <span class="dot"></span>
-              <span class="dot"></span>
-              <span class="dot"></span>
-            </div>
-          </div>
-        </div>
-      `;
+      thinkingIndicator.className = activeFocusText ? "message-row focus-indicator-row" : "agent-thinking-card";
+      thinkingIndicator.setAttribute("data-focus-sig", `${activeFocusText}|${activeFocusStartedAt}`);
+      thinkingIndicator.innerHTML = buildThinkingIndicatorHtml();
       fragment.appendChild(thinkingIndicator);
     }
 
@@ -2116,7 +2477,8 @@ function renderMessages(steps, isRunning = false) {
     for (let i = 0; i < items.length; i++) {
       const item = items[i];
       const isLastItem = (i === items.length - 1);
-      const fp = getItemFingerprint(item, isRunning, isLastItem);
+      const isActivePlan = item.type === "step_plan" && item.id === activePlanId;
+      const fp = getItemFingerprint(item, isRunning, isLastItem, isActivePlan);
 
       let rowClass = "message-row";
       if (item.type === "user") {
@@ -2131,10 +2493,18 @@ function renderMessages(steps, isRunning = false) {
         rowClass = "message-row subagent-row";
       } else if (item.type === "workflow") {
         rowClass = "message-row workflow-row";
+      } else if (item.type === "step_plan") {
+        rowClass = "message-row step-plan-row";
       }
 
       let existingEl = document.getElementById(item.id);
       if (existingEl) {
+        // Keep DOM child order aligned if step_plan moved above a newer active tools batch
+        const expectedAtI = streamEl.children[i];
+        if (expectedAtI !== existingEl) {
+          streamEl.insertBefore(existingEl, expectedAtI || null);
+          hasDOMChanges = true;
+        }
         if (item.index !== undefined) existingEl.setAttribute("data-step-index", String(item.index));
         if (existingEl.getAttribute("data-fp") !== fp) {
           existingEl.setAttribute("data-fp", fp);
@@ -2169,7 +2539,7 @@ function renderMessages(steps, isRunning = false) {
             patchAgentBodyHtml(bodyEl, bodyHtml);
           } else {
             const wasOpen = existingEl.querySelector("details")?.open;
-            existingEl.innerHTML = generateItemHtml(item, isRunning, isLastItem);
+            existingEl.innerHTML = generateItemHtml(item, isRunning, isLastItem, isActivePlan);
             if (wasOpen) {
               const newDetails = existingEl.querySelector("details");
               if (newDetails) newDetails.open = true;
@@ -2185,43 +2555,32 @@ function renderMessages(steps, isRunning = false) {
         newEl.className = (item.type === "user" || (isRunning && item.type === "agent")) ? rowClass : (rowClass + " message-entering");
         newEl.setAttribute("data-fp", fp);
         if (item.index !== undefined) newEl.setAttribute("data-step-index", String(item.index));
-        newEl.innerHTML = generateItemHtml(item, isRunning, isLastItem);
+        newEl.innerHTML = generateItemHtml(item, isRunning, isLastItem, isActivePlan);
 
+        const expectedAtI = streamEl.children[i];
         const indicator = document.getElementById("agent-thinking-indicator");
-        if (indicator) {
-          streamEl.insertBefore(newEl, indicator);
-        } else {
-          streamEl.appendChild(newEl);
-        }
+        const refNode = expectedAtI || indicator || null;
+        streamEl.insertBefore(newEl, refNode);
         hasDOMChanges = true;
         changedEls.push(newEl);
       }
     }
 
     let thinkingIndicator = document.getElementById("agent-thinking-indicator");
+    const focusSig = `${activeFocusText}|${activeFocusStartedAt}`;
     if (isAwaiting) {
       if (!thinkingIndicator) {
         thinkingIndicator = document.createElement("div");
         thinkingIndicator.id = "agent-thinking-indicator";
-        thinkingIndicator.className = "agent-thinking-card";
-        thinkingIndicator.innerHTML = `
-          <div class="agent-avatar">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M12 2v4m0 12v4M4.93 4.93l2.83 2.83m8.48 8.48l2.83 2.83M2 12h4m12 0h4M4.93 19.07l2.83-2.83m8.48-8.48l2.83-2.83"></path>
-            </svg>
-          </div>
-          <div class="agent-thinking-body">
-            <div class="thinking-title-row">
-              <span>Agent 正在思考与执行</span>
-              <div class="activity-dots">
-                <span class="dot"></span>
-                <span class="dot"></span>
-                <span class="dot"></span>
-              </div>
-            </div>
-          </div>
-        `;
+        thinkingIndicator.className = activeFocusText ? "message-row focus-indicator-row" : "agent-thinking-card";
+        thinkingIndicator.setAttribute("data-focus-sig", focusSig);
+        thinkingIndicator.innerHTML = buildThinkingIndicatorHtml();
         streamEl.appendChild(thinkingIndicator);
+        hasDOMChanges = true;
+      } else if (thinkingIndicator.getAttribute("data-focus-sig") !== focusSig) {
+        thinkingIndicator.className = activeFocusText ? "message-row focus-indicator-row" : "agent-thinking-card";
+        thinkingIndicator.setAttribute("data-focus-sig", focusSig);
+        thinkingIndicator.innerHTML = buildThinkingIndicatorHtml();
         hasDOMChanges = true;
       }
     } else if (thinkingIndicator) {
@@ -2229,6 +2588,7 @@ function renderMessages(steps, isRunning = false) {
       hasDOMChanges = true;
     }
   }
+  syncFocusElapsedTimers();
 
   // Hydrate Mermaid, <agent-embed> & PR pills only within changed nodes (not the whole streamEl)
   if (hasDOMChanges) {

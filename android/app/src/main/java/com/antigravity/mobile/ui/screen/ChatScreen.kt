@@ -211,7 +211,26 @@ fun ChatScreen(
     val scrollToBottomTrigger by viewModel.scrollToBottomTrigger.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
     val colors = AntigravityTheme.colors
-    val shouldShowThinkingBubble = uiState.isAwaitingResponse || uiState.isRunning
+    val isStreamingOrRunning = uiState.isAwaitingResponse || uiState.isRunning
+    val lastMsg = uiState.messages.lastOrNull()
+    val hasActiveFocusToolTail = isStreamingOrRunning && lastMsg?.isTools == true && !lastMsg.focusText.isNullOrBlank()
+    val shouldShowThinkingBubble = isStreamingOrRunning && !hasActiveFocusToolTail
+    val activePlanId = remember(uiState.messages, isStreamingOrRunning) {
+        if (!isStreamingOrRunning) return@remember null
+        val lastUserIdx = uiState.messages.indexOfLast { it.isUser }
+        val tailStart = lastUserIdx + 1
+        if (tailStart >= uiState.messages.size) return@remember null
+        var found: String? = null
+        for (i in uiState.messages.lastIndex downTo tailStart) {
+            val m = uiState.messages[i]
+            if (m.isAgent) break
+            if (m.isStepPlan) {
+                found = m.id
+                break
+            }
+        }
+        found
+    }
     val coroutineScope = rememberCoroutineScope()
     var adaptiveScrollJob by remember { mutableStateOf<Job?>(null) }
     var isProgrammaticScrolling by remember { mutableStateOf(false) }
@@ -1727,6 +1746,8 @@ fun ChatScreen(
                                     ) {
                                         MessageBubble(
                                             message = msg,
+                                            isActiveToolBatch = isStreamingOrRunning && rawMsg.id == lastMsg?.id,
+                                            isActivePlan = rawMsg.id == activePlanId,
                                             onPlanClick = stableOnPlanClick,
                                             urlResolver = stableUrlResolver,
                                             onImageClick = stableOnImageClick,
@@ -1749,7 +1770,10 @@ fun ChatScreen(
                                 // Active Thinking Animation Card
                                 if (shouldShowThinkingBubble) {
                                     item(key = "agent_thinking_bubble") {
-                                        AgentThinkingBubble()
+                                        AgentThinkingBubble(
+                                            focusText = uiState.activeFocus,
+                                            startedAt = uiState.activeFocusStartedAt
+                                        )
                                     }
                                 }
 
@@ -3160,7 +3184,19 @@ private fun ChatEmptyStateView(title: String) {
 }
 
 @Composable
-private fun AgentThinkingBubble() {
+private fun AgentThinkingBubble(
+    focusText: String? = null,
+    startedAt: String? = null
+) {
+    val cleanFocus = focusText?.trim().orEmpty()
+    if (cleanFocus.isNotEmpty()) {
+        ActiveFocusToolRow(
+            focusText = cleanFocus,
+            startedAt = startedAt,
+            isExpandable = false
+        )
+        return
+    }
     val colors = AntigravityTheme.colors
 
     Row(

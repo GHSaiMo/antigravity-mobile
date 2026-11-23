@@ -50,6 +50,7 @@ func (p *Proxy) ParseTrajectoryDetails(rawResp *upstreamTrajectoryResp) Trajecto
 	hasError := finalStatus == "CASCADE_RUN_STATUS_ERROR"
 	suggestedResponses := extractSuggestedResponses(steps, lastUserInputIdx, finalStatus)
 	taskProgress := extractLatestTaskProgress(steps, lastUserInputIdx)
+	activePlan, activeFocus, activeFocusStartedAt := extractActiveTurnPlanAndFocus(steps, lastUserInputIdx)
 
 	return TrajectoryDetails{
 		CascadeID:          rawResp.Trajectory.CascadeID,
@@ -80,6 +81,9 @@ func (p *Proxy) ParseTrajectoryDetails(rawResp *upstreamTrajectoryResp) Trajecto
 		PendingInteraction: pendingInteraction,
 		SuggestedResponses: suggestedResponses,
 		TaskProgress:       taskProgress,
+		ActiveFocus:        activeFocus,
+		ActiveFocusStarted: activeFocusStartedAt,
+		ActivePlan:         activePlan,
 	}
 }
 
@@ -196,7 +200,15 @@ func buildTrajectoryMessages(steps []TrajectoryStep) ([]CascadeMessageItem, int)
 	var toolDetails []ToolDetailItem
 	var pendingThinking string
 	var pendingThinkingDuration string
+	var pendingFocus string
+	var pendingToolsStartedAt string
 	totalToolsCount := 0
+
+	// Per-turn live step checklist state (update_steps). One card per turn, updated in place.
+	var turnPlan *StepPlanItem
+	turnPlanAnchorIdx := -1
+	turnPlanTimestamp := ""
+	turnStartMsgIdx := 0
 
 	var turnArtifacts []ArtifactItem
 	seenArtifactURIs := make(map[string]bool)
@@ -225,6 +237,10 @@ func buildTrajectoryMessages(steps []TrajectoryStep) ([]CascadeMessageItem, int)
 		if pendingTools > 0 {
 			text = fmt.Sprintf("已思考并执行 %d 项操作", pendingTools)
 		}
+		toolsStartedAt := ""
+		if pendingFocus != "" || turnPlan != nil {
+			toolsStartedAt = pendingToolsStartedAt
+		}
 		item := CascadeMessageItem{
 			ID:               fmt.Sprintf("tools-%d", len(allMessages)),
 			Type:             "tools",
@@ -236,6 +252,8 @@ func buildTrajectoryMessages(steps []TrajectoryStep) ([]CascadeMessageItem, int)
 			ToolDetails:      toolDetails,
 			Thinking:         pendingThinking,
 			ThinkingDuration: pendingThinkingDuration,
+			FocusText:        pendingFocus,
+			StartedAt:        toolsStartedAt,
 		}
 		allMessages = append(allMessages, item)
 		pendingTools = 0
@@ -243,6 +261,47 @@ func buildTrajectoryMessages(steps []TrajectoryStep) ([]CascadeMessageItem, int)
 		toolDetails = nil
 		pendingThinking = ""
 		pendingThinkingDuration = ""
+		pendingToolsStartedAt = ""
+	}
+
+	// insertTurnPlan inserts the turn's latest StepPlanItem at the desktop-aligned slot:
+	// immediately before the trailing tools group (and before any trailing final agent reply)
+	// so it sits directly above the live focus/elapsed status line while running and collapses
+	// cleanly in-place when the turn finishes.
+	insertTurnPlan := func() {
+		if turnPlan == nil || len(turnPlan.Items) == 0 {
+			return
+		}
+		planCopy := *turnPlan
+		planCopy.Items = append([]StepPlanItemEntry(nil), turnPlan.Items...)
+		fallback := stepPlanFallbackText(&planCopy)
+		planMsg := CascadeMessageItem{
+			ID:        fmt.Sprintf("step-plan-%d", planCopy.AnchorStepIndex),
+			Type:      "step_plan",
+			Role:      "assistant",
+			Text:      fallback,
+			Content:   fallback,
+			StepPlan:  &planCopy,
+			Timestamp: turnPlanTimestamp,
+		}
+
+		pos := len(allMessages)
+		for pos > turnStartMsgIdx && allMessages[pos-1].Type == "agent" {
+			pos--
+		}
+		if pos > turnStartMsgIdx && allMessages[pos-1].Type == "tools" {
+			pos--
+		}
+		if pos >= len(allMessages) {
+			allMessages = append(allMessages, planMsg)
+		} else {
+			allMessages = append(allMessages, CascadeMessageItem{})
+			copy(allMessages[pos+1:], allMessages[pos:])
+			allMessages[pos] = planMsg
+		}
+		turnPlan = nil
+		turnPlanAnchorIdx = -1
+		turnPlanTimestamp = ""
 	}
 
 	for idx, s := range steps {
@@ -255,6 +314,9 @@ func buildTrajectoryMessages(steps []TrajectoryStep) ([]CascadeMessageItem, int)
 
 		if stepType == "CORTEX_STEP_TYPE_USER_INPUT" {
 			flushTools()
+			insertTurnPlan()
+			pendingFocus = ""
+			pendingToolsStartedAt = ""
 			turnArtifacts = nil
 			seenArtifactURIs = make(map[string]bool)
 			text, slashCommands := s.UserInput.ExtractTextAndSlashCommands()
@@ -353,6 +415,7 @@ func buildTrajectoryMessages(steps []TrajectoryStep) ([]CascadeMessageItem, int)
 					ClientMessageID: s.UserInput.ResolvedClientMessageID(),
 				})
 			}
+			turnStartMsgIdx = len(allMessages)
 		} else if stepType == "CORTEX_STEP_TYPE_PLANNER_RESPONSE" {
 			respText := ""
 			if s.PlannerResponse != nil {
@@ -366,11 +429,15 @@ func buildTrajectoryMessages(steps []TrajectoryStep) ([]CascadeMessageItem, int)
 					if td := strings.TrimSpace(s.PlannerResponse.ThinkingDuration); td != "" {
 						pendingThinkingDuration = td
 					}
+					if pendingToolsStartedAt == "" {
+						pendingToolsStartedAt = stepStartTimestamp(s)
+					}
 				}
 			}
 
 			if respText != "" {
 				flushTools()
+				pendingFocus = ""
 				modelID, modelName := generatorModelOf(s)
 
 				// Extract image URLs
@@ -481,7 +548,30 @@ func buildTrajectoryMessages(steps []TrajectoryStep) ([]CascadeMessageItem, int)
 		} else if stepType == "CORTEX_STEP_TYPE_SUGGESTED_RESPONSES" {
 			// 快捷回复建议不折进工具执行胶囊，统一挂载到 TrajectoryDetails.SuggestedResponses
 			continue
+		} else if isUpdateStepsStep(s) {
+			// 与桌面端一致：update_steps 原地更新本轮步骤清单卡片，不计入普通工具执行计数
+			if p := extractStepPlanFromStep(s, idx); p != nil {
+				if turnPlanAnchorIdx < 0 {
+					turnPlanAnchorIdx = idx
+					turnPlanTimestamp = s.Metadata.CreatedAt
+				}
+				p.AnchorStepIndex = turnPlanAnchorIdx
+				turnPlan = p
+			}
+			continue
+		} else if isUpdateFocusStep(s) {
+			// 与桌面端一致：update_focus 驱动实时状态摘要与计时，不计入普通工具执行计数
+			if f := extractFocusFromStep(s); f != "" {
+				pendingFocus = f
+				if pendingToolsStartedAt == "" {
+					pendingToolsStartedAt = stepStartTimestamp(s)
+				}
+			}
+			continue
 		} else if strings.HasPrefix(stepType, "CORTEX_STEP_TYPE_") && stepType != "CORTEX_STEP_TYPE_SYSTEM_MESSAGE" && stepType != "CORTEX_STEP_TYPE_ERROR_MESSAGE" {
+			if pendingToolsStartedAt == "" {
+				pendingToolsStartedAt = stepStartTimestamp(s)
+			}
 			pendingTools++
 			totalToolsCount++
 			name := extractToolNameFromStep(s)
@@ -497,6 +587,7 @@ func buildTrajectoryMessages(steps []TrajectoryStep) ([]CascadeMessageItem, int)
 	}
 
 	flushTools()
+	insertTurnPlan()
 
 	// If there are still unconsumed artifacts in this turn, attach them to the last agent message
 	if len(turnArtifacts) > 0 && len(allMessages) > 0 {
