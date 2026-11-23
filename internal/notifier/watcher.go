@@ -36,6 +36,8 @@ type Watcher struct {
 	notifier       *Notifier
 	knownSessions  map[string]*sessionTrackingState
 	hasInitialSync bool
+	initialSyncAt  time.Time
+	lastActivityAt time.Time
 	alertCh        chan func()
 }
 
@@ -46,6 +48,33 @@ func NewWatcher(p *proxy.Proxy, n *Notifier) *Watcher {
 		notifier:      n,
 		knownSessions: make(map[string]*sessionTrackingState),
 	}
+}
+
+// IdleSince reports the timestamp since which no Antigravity session on this host has been
+// running or advancing steps. It returns (_, false) if the watcher has not completed its
+// initial sync or if any session is currently running / waiting on a background task.
+func (w *Watcher) IdleSince() (time.Time, bool) {
+	if w == nil {
+		return time.Time{}, false
+	}
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	if !w.hasInitialSync {
+		return time.Time{}, false
+	}
+	for _, st := range w.knownSessions {
+		if st.lastStatus == "CASCADE_RUN_STATUS_RUNNING" || st.waitingForBackground {
+			return time.Time{}, false
+		}
+	}
+	since := w.initialSyncAt
+	if w.lastActivityAt.After(since) {
+		since = w.lastActivityAt
+	}
+	if since.IsZero() {
+		return time.Time{}, false
+	}
+	return since, true
 }
 
 // dispatchAlert dispatches high-priority state-transition notifications (Action / Proceed / Completed / Failed / EndSession)
@@ -255,6 +284,13 @@ func (w *Watcher) scanOnceWithMaxAge(summaryMaxAge time.Duration) int {
 			}
 		}
 		w.hasInitialSync = true
+		w.initialSyncAt = now
+		for _, st := range w.knownSessions {
+			if st.lastStatus == "CASCADE_RUN_STATUS_RUNNING" {
+				w.lastActivityAt = now
+				break
+			}
+		}
 		w.mu.Unlock()
 		for _, fn := range deferred {
 			_ = w.dispatchAlert(fn)
@@ -264,6 +300,7 @@ func (w *Watcher) scanOnceWithMaxAge(summaryMaxAge time.Duration) int {
 	w.mu.Unlock()
 
 	runningCount := 0
+	activitySeen := false
 	hasAlert := w.notifier.IsEnabled()
 	hasLive := w.notifier.HasLiveActivityTargets()
 
@@ -292,6 +329,13 @@ func (w *Watcher) scanOnceWithMaxAge(summaryMaxAge time.Duration) int {
 		wasWaitingBg := prev.waitingForBackground
 		prevRetries := prev.fetchRetryCount
 		cooldownUntil := prev.actionRetryAfter
+
+		if status == "CASCADE_RUN_STATUS_RUNNING" ||
+			(exists && steps > prevSteps) ||
+			(prevStatus == "CASCADE_RUN_STATUS_RUNNING" && status != "CASCADE_RUN_STATUS_RUNNING") ||
+			wasWaitingBg || hasSubagent {
+			activitySeen = true
+		}
 
 		needsDetail := (hasAlert || hasLive) &&
 			(status == "CASCADE_RUN_STATUS_RUNNING" ||
@@ -332,6 +376,13 @@ func (w *Watcher) scanOnceWithMaxAge(summaryMaxAge time.Duration) int {
 	}
 
 	if len(jobs) == 0 {
+		if runningCount > 0 || activitySeen {
+			w.mu.Lock()
+			if now.After(w.lastActivityAt) {
+				w.lastActivityAt = now
+			}
+			w.mu.Unlock()
+		}
 		return runningCount
 	}
 
@@ -570,6 +621,14 @@ func (w *Watcher) scanOnceWithMaxAge(summaryMaxAge time.Duration) int {
 		prev.lastSteps = steps
 		if title != "" && title != MsgUntitledSession {
 			prev.title = title
+		}
+		w.mu.Unlock()
+	}
+
+	if runningCount > 0 || activitySeen {
+		w.mu.Lock()
+		if now.After(w.lastActivityAt) {
+			w.lastActivityAt = now
 		}
 		w.mu.Unlock()
 	}

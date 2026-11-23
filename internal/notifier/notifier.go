@@ -231,47 +231,47 @@ func (n *Notifier) NotifyAction(cascadeID, title string, pi *proxy.PendingIntera
 		return nil
 	}
 
-	notifTitle := MsgTitleApproval
+	notifTitle := msgTitleApproval()
 	var notifBody string
 
 	switch pi.Type {
 	case "workflow_approval":
-		notifTitle = "⚠️ 动态工作流需审批"
+		notifTitle = msgTitleWorkflowApproval()
 		if pi.WorkflowApproval != nil && pi.WorkflowApproval.Description != "" {
-			notifBody = fmt.Sprintf("编排工作流申请执行：%s", truncateString(SanitizePushText(pi.WorkflowApproval.Description), 90))
+			notifBody = msgBodyWorkflowDesc(truncateString(SanitizePushText(pi.WorkflowApproval.Description), 90))
 		} else {
-			notifBody = fmt.Sprintf("动态工作流申请执行：%s", truncateString(SanitizePushText(pi.Title), 90))
+			notifBody = msgBodyWorkflowTitle(truncateString(SanitizePushText(pi.Title), 90))
 		}
 	case "permission":
 		actionLower := strings.ToLower(pi.Action)
 		cleanTarget := truncateString(SanitizePushText(pi.Target), 90)
 		if strings.Contains(actionLower, "command") || strings.Contains(actionLower, "run") {
-			notifBody = fmt.Sprintf(MsgBodyCommand, cleanTarget)
+			notifBody = msgBodyCommand(cleanTarget)
 		} else if strings.Contains(actionLower, "write") || strings.Contains(actionLower, "edit") {
-			notifBody = fmt.Sprintf(MsgBodyWriteFile, cleanTarget)
+			notifBody = msgBodyWriteFile(cleanTarget)
 		} else if strings.Contains(actionLower, "read") {
-			notifBody = fmt.Sprintf(MsgBodyReadFile, cleanTarget)
+			notifBody = msgBodyReadFile(cleanTarget)
 		} else if pi.Description != "" {
-			notifBody = fmt.Sprintf(MsgBodyApproval, truncateString(SanitizePushText(pi.Description), 90))
+			notifBody = msgBodyApproval(truncateString(SanitizePushText(pi.Description), 90))
 		} else {
-			notifBody = fmt.Sprintf(MsgBodyGenericAction, SanitizePushText(pi.Action), cleanTarget)
+			notifBody = msgBodyGenericAction(SanitizePushText(pi.Action), cleanTarget)
 		}
 	case "ask_question":
-		notifTitle = MsgTitleQuestion
-		notifBody = fmt.Sprintf(MsgBodyQuestion, truncateString(SanitizePushText(pi.Title), 90))
+		notifTitle = msgTitleQuestion()
+		notifBody = msgBodyQuestion(truncateString(SanitizePushText(pi.Title), 90))
 	case "run_command":
-		notifTitle = MsgTitleRunCommand
-		notifBody = fmt.Sprintf(MsgBodyCommand, truncateString(SanitizePushText(pi.Target), 90))
+		notifTitle = msgTitleRunCommand()
+		notifBody = msgBodyCommand(truncateString(SanitizePushText(pi.Target), 90))
 	case "file_permission":
-		notifTitle = MsgTitleFileAccess
-		notifBody = fmt.Sprintf(MsgBodyAccessFile, truncateString(SanitizePushText(pi.Target), 90))
+		notifTitle = msgTitleFileAccess()
+		notifBody = msgBodyAccessFile(truncateString(SanitizePushText(pi.Target), 90))
 	default:
-		notifBody = fmt.Sprintf(MsgBodyWaiting, truncateString(SanitizePushText(pi.Title), 90))
+		notifBody = msgBodyWaiting(truncateString(SanitizePushText(pi.Title), 90))
 	}
 
 	cleanSessionTitle := SanitizePushText(title)
 	if cleanSessionTitle != "" && cleanSessionTitle != MsgUntitledSession {
-		notifBody = fmt.Sprintf("【%s】%s", truncateString(cleanSessionTitle, 60), notifBody)
+		notifBody = formatSessionPrefix(truncateString(cleanSessionTitle, 60), notifBody)
 	}
 
 	payload := PushPayload{
@@ -304,12 +304,12 @@ func (n *Notifier) NotifyProceed(cascadeID, title string, totalSteps int) error 
 		return nil
 	}
 
-	notifTitle := MsgTitleProceed
+	notifTitle := msgTitleProceed()
 	displayTitle := title
 	if displayTitle == "" || displayTitle == MsgUntitledSession {
-		displayTitle = MsgDefaultPlan
+		displayTitle = msgDefaultPlan()
 	}
-	notifBody := fmt.Sprintf(MsgBodyProceed, displayTitle)
+	notifBody := msgBodyProceed(displayTitle)
 
 	payload := PushPayload{
 		Title:     notifTitle,
@@ -341,12 +341,12 @@ func (n *Notifier) NotifyCompleted(cascadeID, title string, totalSteps int) erro
 		return nil
 	}
 
-	notifTitle := MsgTitleCompleted
+	notifTitle := msgTitleCompleted()
 	displayTitle := title
 	if displayTitle == "" || displayTitle == MsgUntitledSession {
-		displayTitle = MsgDefaultTask
+		displayTitle = msgDefaultTask()
 	}
-	notifBody := fmt.Sprintf(MsgBodyCompleted, displayTitle, totalSteps)
+	notifBody := msgBodyCompleted(displayTitle, totalSteps)
 
 	payload := PushPayload{
 		Title:     notifTitle,
@@ -378,12 +378,12 @@ func (n *Notifier) NotifyFailed(cascadeID, title string, totalSteps int) error {
 		return nil
 	}
 
-	notifTitle := MsgTitleFailed
+	notifTitle := msgTitleFailed()
 	displayTitle := title
 	if displayTitle == "" || displayTitle == MsgUntitledSession {
-		displayTitle = MsgDefaultTask
+		displayTitle = msgDefaultTask()
 	}
-	notifBody := fmt.Sprintf(MsgBodyFailed, displayTitle)
+	notifBody := msgBodyFailed(displayTitle)
 
 	payload := PushPayload{
 		Title:     notifTitle,
@@ -416,10 +416,10 @@ func (n *Notifier) NotifyCockpitAlert(title, message string) error {
 	}
 
 	if title == "" {
-		title = MsgTitleCockpitOffline
+		title = msgTitleCockpitOffline()
 	}
 	if message == "" {
-		message = MsgBodyCockpitOffline
+		message = msgBodyCockpitOffline()
 	}
 
 	payload := PushPayload{

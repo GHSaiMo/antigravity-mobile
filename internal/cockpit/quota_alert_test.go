@@ -1,8 +1,11 @@
 package cockpit
 
 import (
+	"context"
+	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -165,9 +168,12 @@ func TestAlertRearmsAfterReset(t *testing.T) {
 	if len(h.sent) != 1 {
 		t.Fatalf("first cycle warn missing: %+v", h.sent)
 	}
-	// 重置：新的重置时间点，额度回满，随后又用到 18%
+	// 正常到期重置（推进到原定 reset 之后）：不应误报提前回满，新周期用到 18% 应再次提醒
 	h.reset = h.reset.Add(5 * time.Hour)
-	h.feed(1.00, 10*time.Minute)
+	h.feed(1.00, 4*time.Hour)
+	if len(h.sent) != 1 {
+		t.Fatalf("on-time reset must not trigger bonus_reset, got %+v", h.sent)
+	}
 	h.feed(0.18, 10*time.Minute)
 	if len(h.sent) != 2 {
 		t.Errorf("a new reset cycle must be able to alert again, got %d", len(h.sent))
@@ -309,5 +315,381 @@ func TestQuotaAlertConfigFromEnv(t *testing.T) {
 		if cfg.WarnFraction != c.wantW || cfg.CriticalFraction != c.wantC {
 			t.Errorf("warn=%q crit=%q => %.2f/%.2f, want %.2f/%.2f", c.warn, c.crit, cfg.WarnFraction, cfg.CriticalFraction, c.wantW, c.wantC)
 		}
+	}
+
+	t.Setenv("QUOTA_ALERT_BONUS_RESET_ENABLED", "0")
+	t.Setenv("QUOTA_ALERT_ANOMALY_ENABLED", "false")
+	cfg := QuotaAlertConfigFromEnv()
+	if !cfg.DisableBonusReset || !cfg.DisableAnomaly {
+		t.Errorf("expected bonus reset and anomaly disabled via env, got %+v", cfg)
+	}
+}
+
+func makeMultiBucketQuota(id, email string, updated time.Time, mutate func(*AccountQuota)) *CockpitQuotaResponse {
+	acc := AccountQuota{
+		ID:        id,
+		Email:     email,
+		IsCurrent: true,
+		UpdatedAt: updated.UnixMilli(),
+	}
+	if mutate != nil {
+		mutate(&acc)
+	}
+	return &CockpitQuotaResponse{CurrentAccount: &acc, Accounts: []AccountQuota{acc}}
+}
+
+func metricAt(frac float64, reset time.Time) *QuotaMetric {
+	return &QuotaMetric{
+		RemainingFraction: frac,
+		RemainingPercent:  frac * 100,
+		ResetTime:         reset.Format(time.RFC3339),
+	}
+}
+
+func TestAlertAllFiveBucketsAndWeeklyOmitsETA(t *testing.T) {
+	now := t0
+	reset5h := t0.Add(4 * time.Hour)
+	resetWeekly := t0.Add(3*24*time.Hour + 5*time.Hour)
+	var sent []QuotaAlert
+
+	a := newQuotaAlerter(QuotaAlertConfig{
+		WarnFraction: 0.20, CriticalFraction: 0.05,
+		Lang:   func() string { return "zh" },
+		Now:    func() time.Time { return now },
+		Notify: func(al QuotaAlert) { sent = append(sent, al) },
+	})
+
+	// 1. Weekly bucket drops steadily (4 samples) down to 18% -> must alert WITHOUT 60m ETA prediction, with day countdown
+	for _, f := range []float64{0.30, 0.26, 0.22, 0.18} {
+		now = now.Add(10 * time.Minute)
+		a.Observe(makeMultiBucketQuota("acc-1", "dev@example.com", now, func(acc *AccountQuota) {
+			acc.Gemini5h = metricAt(0.80, reset5h)
+			acc.GeminiWeekly = metricAt(f, resetWeekly)
+			acc.Claude5h = metricAt(0.90, reset5h)
+			acc.ClaudeWeekly = metricAt(0.90, resetWeekly)
+			acc.Gemini4Argon = metricAt(0.90, reset5h)
+		}), "")
+	}
+	if len(sent) != 1 || sent[0].Level != "warn" {
+		t.Fatalf("expected 1 weekly warn alert, got %+v", sent)
+	}
+	if !strings.Contains(sent[0].Title, "Gemini 周额度") || !strings.Contains(sent[0].Title, "18%") {
+		t.Errorf("unexpected weekly title: %q", sent[0].Title)
+	}
+	if strings.Contains(sent[0].Body, "预计") {
+		t.Errorf("weekly alert must not include 60m linear ETA: %q", sent[0].Body)
+	}
+	if !strings.Contains(sent[0].Body, "3d 4h") {
+		t.Errorf("weekly alert should display day+hour reset countdown: %q", sent[0].Body)
+	}
+
+	// 2. Claude 5h & Gemini 4 Argon simultaneously cross low thresholds -> aggregated into ONE push
+	now = now.Add(10 * time.Minute)
+	a.Observe(makeMultiBucketQuota("acc-1", "dev@example.com", now, func(acc *AccountQuota) {
+		acc.Gemini5h = metricAt(0.80, reset5h)
+		acc.GeminiWeekly = metricAt(0.17, resetWeekly)
+		acc.Claude5h = metricAt(0.15, reset5h)
+		acc.ClaudeWeekly = metricAt(0.90, resetWeekly)
+		acc.Gemini4Argon = metricAt(0.04, reset5h)
+	}), "")
+	if len(sent) != 2 {
+		t.Fatalf("expected 1 aggregated alert for simultaneous Claude 5h + Argon drop, got %+v", sent)
+	}
+	if sent[1].Level != "critical" || !strings.Contains(sent[1].Body, "Claude 5h") || !strings.Contains(sent[1].Body, "Gemini 4 Argon") {
+		t.Errorf("aggregated alert should escalate to critical and list both buckets: %+v", sent[1])
+	}
+
+	// 3. Claude Weekly on a FREE tier account (nil 5h pools)
+	now = now.Add(10 * time.Minute)
+	a.Observe(makeMultiBucketQuota("acc-free", "free@example.com", now, func(acc *AccountQuota) {
+		acc.SubscriptionTier = "FREE"
+		acc.ClaudeWeekly = metricAt(0.12, resetWeekly)
+	}), "")
+	if len(sent) != 3 || !strings.Contains(sent[2].Title, "Claude 周额度") {
+		t.Fatalf("expected Claude Weekly alert for FREE tier account, got %+v", sent)
+	}
+}
+
+func TestAlertLegacyStateFileCompatibility(t *testing.T) {
+	statePath := filepath.Join(t.TempDir(), "quota_alert_state.json")
+	reset := t0.Add(4 * time.Hour)
+	legacy := `{"acc-1|` + reset.Format(time.RFC3339) + `":{"level":"warn","reset_time":"` + reset.Format(time.RFC3339) + `"}}`
+	if err := os.WriteFile(statePath, []byte(legacy), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	var sent []QuotaAlert
+	now := t0.Add(10 * time.Minute)
+	a := newQuotaAlerter(QuotaAlertConfig{
+		WarnFraction: 0.20, CriticalFraction: 0.05,
+		StatePath: statePath,
+		Lang:      func() string { return "zh" },
+		Now:       func() time.Time { return now },
+		Notify:    func(al QuotaAlert) { sent = append(sent, al) },
+	})
+	a.Observe(quotaFor("acc-1", "a@x.com", 0.15, now, reset), "")
+	if len(sent) != 0 {
+		t.Fatalf("legacy state entry must suppress duplicate gemini_5h warn, got %+v", sent)
+	}
+}
+
+func TestAlertBonusResetEarlyRefillAndGuards(t *testing.T) {
+	statePath := filepath.Join(t.TempDir(), "state.json")
+	now := t0
+	reset5h := t0.Add(4 * time.Hour)
+	resetWeekly := t0.Add(5 * 24 * time.Hour)
+	var sent []QuotaAlert
+
+	a := newQuotaAlerter(QuotaAlertConfig{
+		WarnFraction: 0.20, CriticalFraction: 0.05,
+		StatePath: statePath,
+		Lang:      func() string { return "zh" },
+		Now:       func() time.Time { return now },
+		Notify:    func(al QuotaAlert) { sent = append(sent, al) },
+	})
+
+	// Initial reading: 5h at 18% (fires warn), weekly at 45%
+	now = now.Add(5 * time.Minute)
+	a.Observe(makeMultiBucketQuota("acc-1", "dev@example.com", now, func(acc *AccountQuota) {
+		acc.Gemini5h = metricAt(0.18, reset5h)
+		acc.GeminiWeekly = metricAt(0.45, resetWeekly)
+	}), "")
+	if len(sent) != 1 || sent[0].Level != "warn" {
+		t.Fatalf("expected initial warn, got %+v", sent)
+	}
+
+	// Official bonus reset 3h+ BEFORE scheduled reset: both pools jump to 100% -> ONE aggregated bonus_reset push!
+	now = now.Add(10 * time.Minute)
+	a.Observe(makeMultiBucketQuota("acc-1", "dev@example.com", now, func(acc *AccountQuota) {
+		acc.Gemini5h = metricAt(1.00, reset5h) // even if resetTime stays identical (in-place refill)
+		acc.GeminiWeekly = metricAt(1.00, resetWeekly.Add(24*time.Hour))
+	}), "")
+	if len(sent) != 2 || sent[1].Level != "bonus_reset" {
+		t.Fatalf("expected 1 aggregated bonus_reset alert, got %+v", sent)
+	}
+	if !strings.Contains(sent[1].Body, "Gemini 5h") || !strings.Contains(sent[1].Body, "Gemini 周额度") {
+		t.Errorf("aggregated bonus reset should list both pools: %q", sent[1].Body)
+	}
+
+	// After in-place refill (same resetTime), dropping to 18% again must re-arm warn!
+	now = now.Add(30 * time.Minute)
+	a.Observe(makeMultiBucketQuota("acc-1", "dev@example.com", now, func(acc *AccountQuota) {
+		acc.Gemini5h = metricAt(0.18, reset5h)
+		acc.GeminiWeekly = metricAt(0.90, resetWeekly.Add(24*time.Hour))
+	}), "")
+	if len(sent) != 3 || sent[2].Level != "warn" {
+		t.Fatalf("in-place refill must re-arm low-quota warn, got %+v", sent)
+	}
+
+	// Guard 1: Switching accounts (acc-1 18% -> acc-2 100%) must NOT fire bonus_reset
+	now = now.Add(5 * time.Minute)
+	a.Observe(makeMultiBucketQuota("acc-2", "other@example.com", now, func(acc *AccountQuota) {
+		acc.Gemini5h = metricAt(1.00, reset5h)
+	}), "")
+	if len(sent) != 3 {
+		t.Fatalf("switching accounts must never fire bonus_reset, got %+v", sent)
+	}
+
+	// Guard 2: Small jump (+15% from 0.85 -> 1.00) must NOT fire bonus_reset
+	now = now.Add(5 * time.Minute)
+	a.Observe(makeMultiBucketQuota("acc-2", "other@example.com", now, func(acc *AccountQuota) {
+		acc.Gemini5h = metricAt(0.85, reset5h)
+	}), "")
+	now = now.Add(5 * time.Minute)
+	a.Observe(makeMultiBucketQuota("acc-2", "other@example.com", now, func(acc *AccountQuota) {
+		acc.Gemini5h = metricAt(1.00, reset5h)
+	}), "")
+	if len(sent) != 3 {
+		t.Fatalf("small refill (+15%%) must not trigger bonus_reset, got %+v", sent)
+	}
+
+	// Guard 3: Refill within 20m of scheduled reset (on-time reset) must NOT fire bonus_reset
+	now = reset5h.Add(-15 * time.Minute)
+	a.Observe(makeMultiBucketQuota("acc-2", "other@example.com", now, func(acc *AccountQuota) {
+		acc.Gemini5h = metricAt(0.40, reset5h)
+	}), "")
+	now = reset5h.Add(-10 * time.Minute)
+	a.Observe(makeMultiBucketQuota("acc-2", "other@example.com", now, func(acc *AccountQuota) {
+		acc.Gemini5h = metricAt(1.00, reset5h.Add(5*time.Hour))
+	}), "")
+	if len(sent) != 3 {
+		t.Fatalf("refill near scheduled reset must not fire bonus_reset, got %+v", sent)
+	}
+}
+
+func TestAlertRapidDropAndIdleSilentBurn(t *testing.T) {
+	now := t0
+	reset5h := t0.Add(4 * time.Hour)
+	resetWeekly := t0.Add(5 * 24 * time.Hour)
+	var idleSince time.Time
+	idleOK := false
+	var sent []QuotaAlert
+
+	a := newQuotaAlerter(QuotaAlertConfig{
+		WarnFraction: 0.20, CriticalFraction: 0.05,
+		Lang:          func() string { return "zh" },
+		Now:           func() time.Time { return now },
+		HostIdleSince: func() (time.Time, bool) { return idleSince, idleOK },
+		Notify:        func(al QuotaAlert) { sent = append(sent, al) },
+	})
+
+	// 1. Active mode: Weekly drops 18% in 10 minutes (82% -> 64%) -> fires rapid drop anomaly
+	now = now.Add(5 * time.Minute)
+	a.Observe(makeMultiBucketQuota("acc-1", "dev@example.com", now, func(acc *AccountQuota) {
+		acc.Gemini5h = metricAt(0.95, reset5h)
+		acc.GeminiWeekly = metricAt(0.82, resetWeekly)
+	}), "")
+	now = now.Add(10 * time.Minute)
+	a.Observe(makeMultiBucketQuota("acc-1", "dev@example.com", now, func(acc *AccountQuota) {
+		acc.Gemini5h = metricAt(0.65, reset5h) // 30% drop on 5h is below 45% rapid threshold -> silent
+		acc.GeminiWeekly = metricAt(0.64, resetWeekly)
+	}), "")
+	if len(sent) != 1 || sent[0].Level != "anomaly" || !strings.Contains(sent[0].Title, "短时骤降") {
+		t.Fatalf("expected rapid drop anomaly for weekly -18%%, got %+v", sent)
+	}
+
+	// Cooldown guard: another rapid weekly drop 10m later must be suppressed (4h cooldown)
+	now = now.Add(10 * time.Minute)
+	a.Observe(makeMultiBucketQuota("acc-1", "dev@example.com", now, func(acc *AccountQuota) {
+		acc.Gemini5h = metricAt(0.60, reset5h)
+		acc.GeminiWeekly = metricAt(0.45, resetWeekly)
+	}), "")
+	if len(sent) != 1 {
+		t.Fatalf("rapid drop must obey 4h cooldown, got %+v", sent)
+	}
+
+	// 2. Idle guard: task ended at `now`, prev reading was captured BEFORE idleSince+2m -> must NOT false-alarm as idle burn
+	idleSince = now
+	idleOK = true
+	now = now.Add(25 * time.Minute) // host idle 25m, but prev sample was taken right at idleSince (not after idleSince+2m)
+	a.Observe(makeMultiBucketQuota("acc-1", "dev@example.com", now, func(acc *AccountQuota) {
+		acc.Gemini5h = metricAt(0.42, reset5h) // -18% from pre-idle sample
+		acc.GeminiWeekly = metricAt(0.45, resetWeekly)
+	}), "")
+	if len(sent) != 1 {
+		t.Fatalf("drop from pre-idle sample must not false-alarm as idle burn, got %+v", sent)
+	}
+
+	// 3. Confirmed idle silent burn: prev sample was ALREADY captured at idleSince+25m, now another 10m later 5h drops 18% -> fires!
+	now = now.Add(10 * time.Minute)
+	a.Observe(makeMultiBucketQuota("acc-1", "dev@example.com", now, func(acc *AccountQuota) {
+		acc.Gemini5h = metricAt(0.24, reset5h)
+		acc.GeminiWeekly = metricAt(0.45, resetWeekly)
+	}), "")
+	if len(sent) != 2 || sent[1].Level != "anomaly" || !strings.Contains(sent[1].Title, "空闲期") {
+		t.Fatalf("expected confirmed idle burn alert, got %+v", sent)
+	}
+}
+
+func TestAlertTrilingualLocalization(t *testing.T) {
+	reset5h := t0.Add(3 * time.Hour)
+	for _, tc := range []struct {
+		lang       string
+		wantWarn   string
+		wantBonus  string
+		wantRapid  string
+		wantIdle   string
+	}{
+		{"zh", "⚠️ Gemini 5h 额度仅剩 18%", "🎁 Gemini 5h 额度已提前回满", "⚡ Gemini 周额度短时骤降 20%", "🔍 空闲期检测到 Gemini 5h 额度下降"},
+		{"en", "⚠️ Gemini 5h quota down to 18%", "🎁 Gemini 5h quota refilled early", "⚡ Gemini Weekly quota dropped 20% rapidly", "🔍 Gemini 5h quota dropped while idle"},
+		{"ja", "⚠️ Gemini 5h クォータ残り 18%", "🎁 Gemini 5h クォータが予定より早く回復", "⚡ Gemini 週間クォータが短時間で 20% 急減", "🔍 アイドル中に Gemini 5h クォータが減少"},
+	} {
+		now := t0
+		idleSince := time.Time{}
+		idleOK := false
+		var sent []QuotaAlert
+		a := newQuotaAlerter(QuotaAlertConfig{
+			WarnFraction: 0.20, CriticalFraction: 0.05,
+			Lang:          func() string { return tc.lang },
+			Now:           func() time.Time { return now },
+			HostIdleSince: func() (time.Time, bool) { return idleSince, idleOK },
+			Notify:        func(al QuotaAlert) { sent = append(sent, al) },
+		})
+
+		// Warn
+		now = now.Add(5 * time.Minute)
+		a.Observe(makeMultiBucketQuota("acc-1", "dev@example.com", now, func(acc *AccountQuota) {
+			acc.Gemini5h = metricAt(0.18, reset5h)
+			acc.GeminiWeekly = metricAt(0.80, t0.Add(5*24*time.Hour))
+		}), "")
+
+		// Bonus reset
+		now = now.Add(5 * time.Minute)
+		a.Observe(makeMultiBucketQuota("acc-1", "dev@example.com", now, func(acc *AccountQuota) {
+			acc.Gemini5h = metricAt(1.00, reset5h.Add(5*time.Hour))
+			acc.GeminiWeekly = metricAt(0.80, t0.Add(5*24*time.Hour))
+		}), "")
+
+		// Rapid drop on weekly (-20%)
+		now = now.Add(5 * time.Minute)
+		a.Observe(makeMultiBucketQuota("acc-1", "dev@example.com", now, func(acc *AccountQuota) {
+			acc.Gemini5h = metricAt(0.90, reset5h.Add(5*time.Hour))
+			acc.GeminiWeekly = metricAt(0.60, t0.Add(5*24*time.Hour))
+		}), "")
+
+		// Idle burn on 5h (-20% after host idle 30m)
+		idleSince = now
+		idleOK = true
+		now = now.Add(25 * time.Minute)
+		a.Observe(makeMultiBucketQuota("acc-1", "dev@example.com", now, func(acc *AccountQuota) {
+			acc.Gemini5h = metricAt(0.90, reset5h.Add(5*time.Hour))
+			acc.GeminiWeekly = metricAt(0.60, t0.Add(5*24*time.Hour))
+		}), "")
+		now = now.Add(10 * time.Minute)
+		a.Observe(makeMultiBucketQuota("acc-1", "dev@example.com", now, func(acc *AccountQuota) {
+			acc.Gemini5h = metricAt(0.70, reset5h.Add(5*time.Hour))
+			acc.GeminiWeekly = metricAt(0.60, t0.Add(5*24*time.Hour))
+		}), "")
+
+		if len(sent) != 4 {
+			t.Fatalf("[%s] expected 4 alerts, got %d: %+v", tc.lang, len(sent), sent)
+		}
+		if sent[0].Title != tc.wantWarn {
+			t.Errorf("[%s] warn title = %q, want %q", tc.lang, sent[0].Title, tc.wantWarn)
+		}
+		if sent[1].Title != tc.wantBonus {
+			t.Errorf("[%s] bonus title = %q, want %q", tc.lang, sent[1].Title, tc.wantBonus)
+		}
+		if sent[2].Title != tc.wantRapid {
+			t.Errorf("[%s] rapid title = %q, want %q", tc.lang, sent[2].Title, tc.wantRapid)
+		}
+		if sent[3].Title != tc.wantIdle {
+			t.Errorf("[%s] idle title = %q, want %q", tc.lang, sent[3].Title, tc.wantIdle)
+		}
+	}
+}
+
+func TestStartQuotaAlerterUsesCustomFetchQuotaWithoutCockpit(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var notified atomic.Int32
+	done := make(chan QuotaAlert, 1)
+	reset := time.Now().Add(3 * time.Hour)
+
+	StartQuotaAlerter(ctx, QuotaAlertConfig{
+		WarnFraction:     0.20,
+		CriticalFraction: 0.05,
+		PollInterval:     20 * time.Millisecond,
+		Lang:             func() string { return "en" },
+		FetchQuota: func() (*CockpitQuotaResponse, string, error) {
+			return makeMultiBucketQuota("live:u@example.com", "u@example.com", time.Now(), func(acc *AccountQuota) {
+				acc.Gemini5h = metricAt(0.12, reset)
+			}), "u@example.com", nil
+		},
+		Notify: func(a QuotaAlert) {
+			if notified.Add(1) == 1 {
+				done <- a
+			}
+		},
+	})
+
+	select {
+	case a := <-done:
+		if a.Level != "warn" || !strings.Contains(a.Title, "Gemini 5h quota down to 12%") {
+			t.Errorf("unexpected alert from custom FetchQuota: %+v", a)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for StartQuotaAlerter custom FetchQuota alert")
 	}
 }

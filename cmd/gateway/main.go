@@ -349,10 +349,11 @@ func runGatewayServer(args []string) {
 	}
 
 	var pushSummary string
+	var watcher *notifier.Watcher
 	if notif.IsEnabled() || notif.CanActivateDynamically() {
 		p.SetNotificationSink(notif)
 
-		watcher := notifier.NewWatcher(p, notif)
+		watcher = notifier.NewWatcher(p, notif)
 		watcher.Start(watcherCtx)
 
 		var pushes []string
@@ -392,13 +393,44 @@ func runGatewayServer(args []string) {
 
 	cockpit.StartQuotaAutoRefresher(watcherCtx, 10*time.Minute, cockpitAlertFn)
 
-	// Gemini 5h low-quota alerts (≤20% warn, ≤5% critical; overridable via QUOTA_ALERT_*_PERCENT)
+	// Multi-bucket quota guardian: 5 buckets low-quota, official early bonus-reset, and rapid/idle anomaly alerts.
+	// Works with or without Cockpit Tools by polling FetchLiveQuota every 5 minutes (plus 30s Cockpit cache checks).
 	if notif != nil && !envDisabled("QUOTA_ALERT_ENABLED") {
 		alertCfg := cockpit.QuotaAlertConfigFromEnv()
 		alertCfg.StatePath = filepath.Join(config.GetDataDir(), "quota_alert_state.json")
 		alertCfg.LiveEmail = func() string {
 			email, _, _ := p.GetActiveUserStatus()
 			return email
+		}
+		const liveAlertPollEvery = 5 * time.Minute
+		var lastLiveFetch time.Time
+		alertCfg.FetchQuota = func() (*cockpit.CockpitQuotaResponse, string, error) {
+			now := time.Now()
+			if lastLiveFetch.IsZero() || now.Sub(lastLiveFetch) >= liveAlertPollEvery {
+				lastLiveFetch = now
+				var live *cockpit.AccountQuota
+				var liveEmail string
+				if port, token := p.ActiveUpstream(); port > 0 {
+					if acc, err := cockpit.FetchLiveQuota(cockpit.LiveQuotaClient(), fmt.Sprintf("https://127.0.0.1:%d", port), token); err == nil && acc != nil {
+						live = acc
+						liveEmail = acc.Email
+					}
+				}
+				if liveEmail == "" {
+					liveEmail, _, _ = p.GetActiveUserStatus()
+				}
+				resp, err := cockpit.BuildQuotaResponse(live, liveEmail)
+				return resp, liveEmail, err
+			}
+			if !cockpit.IsCockpitInstalled() {
+				return nil, "", nil
+			}
+			liveEmail, _, _ := p.GetActiveUserStatus()
+			resp, err := cockpit.GetQuotas(liveEmail)
+			return resp, liveEmail, err
+		}
+		if watcher != nil {
+			alertCfg.HostIdleSince = watcher.IdleSince
 		}
 		alertCfg.Notify = func(a cockpit.QuotaAlert) {
 			if err := notif.NotifyQuotaAlert(a.StateKey, a.Title, a.Body, a.Level == "critical"); err != nil {
@@ -864,7 +896,7 @@ func runHelpCmd() {
   -poll <秒数>            Antigravity 实例轮询间隔 (默认: 5秒)
   -ddns <域名/IP>         公网 DDNS 域名或固定 IP 地址
   -trust-lan=<true|false> 是否信任局域网免配对访问 (默认: false, 环境变量: MULTIGRAVITY_TRUST_LAN)
-  -lang <zh|en>           界面与终端语言 (默认: 自适应系统语言, 环境变量: MGY_LANG)
+  -lang <zh|en|ja>        界面与终端语言 (默认: 自适应系统语言, 环境变量: MGY_LANG)
   -open=<true|false>      启动时是否自动在默认浏览器打开主页 (默认: true, 无头系统自动跳过)
 `, Version)
 	} else {
@@ -892,7 +924,7 @@ Gateway Startup Flags (for mgy or mgy run):
   -poll <seconds>         Antigravity instance health check polling interval (default: 5s)
   -ddns <domain/IP>       Public DDNS domain or fixed IP address
   -trust-lan=<true|false> Trust LAN access without pairing code (default: false, env: MULTIGRAVITY_TRUST_LAN)
-  -lang <zh|en>           Interface and terminal language (default: auto-detect system locale, env: MGY_LANG)
+  -lang <zh|en|ja>        Interface and terminal language (default: auto-detect system locale, env: MGY_LANG)
   -open=<true|false>      Auto-open homepage in default browser on launch (default: true, skipped on headless)
 `, Version)
 	}

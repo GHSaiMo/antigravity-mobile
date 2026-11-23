@@ -396,3 +396,87 @@ func TestWatcherQueueFullRetainsStateForRetry(t *testing.T) {
 	}
 }
 
+func TestWatcherIdleSince(t *testing.T) {
+	var mu sync.Mutex
+	statusVal := "CASCADE_RUN_STATUS_IDLE"
+	stepCountVal := 2
+
+	mockUpstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		mu.Lock()
+		curStatus := statusVal
+		curSteps := stepCountVal
+		mu.Unlock()
+		if strings.HasSuffix(r.URL.Path, "/GetAllCascadeTrajectories") {
+			w.Write([]byte(`{
+				"trajectorySummaries": {
+					"cas_idle_track": {
+						"summary": "Idle tracking test",
+						"status": "` + curStatus + `",
+						"stepCount": ` + jsonNumber(curSteps) + `,
+						"lastModifiedTime": "2026-09-12T00:00:00Z"
+					}
+				}
+			}`))
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, "/GetCascadeTrajectory") {
+			w.Write([]byte(`{
+				"status": "` + curStatus + `",
+				"trajectory": {
+					"trajectoryId": "cas_idle_track",
+					"cascadeId": "cas_idle_track",
+					"steps": [
+						{"type": "CORTEX_STEP_TYPE_USER_INPUT", "status": "CORTEX_STEP_STATUS_DONE"},
+						{"type": "CORTEX_STEP_TYPE_PLANNER_RESPONSE", "status": "CORTEX_STEP_STATUS_DONE", "plannerResponse": {"response": "done"}}
+					]
+				}
+			}`))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer mockUpstream.Close()
+
+	port := mockUpstream.Listener.Addr().(*net.TCPAddr).Port
+	p := proxy.NewProxy(inspector.NewInspector(10 * time.Second))
+	p.SetTestUpstream(port, "test-token")
+	notif := NewNotifierWithSender(config.NotificationConfig{Enabled: true}, &mockSender{})
+	watcher := NewWatcher(p, notif)
+
+	// Before initial sync, host idle status must be unknown (false).
+	if _, ok := watcher.IdleSince(); ok {
+		t.Fatal("IdleSince must be false before initial sync")
+	}
+
+	// Initial sync with IDLE session -> now confirmed idle.
+	watcher.scanOnce()
+	since1, ok := watcher.IdleSince()
+	if !ok || since1.IsZero() {
+		t.Fatalf("expected valid IdleSince after idle initial sync, got (%v, %v)", since1, ok)
+	}
+
+	// Transition to RUNNING -> must report not idle.
+	time.Sleep(300 * time.Millisecond)
+	mu.Lock()
+	statusVal = "CASCADE_RUN_STATUS_RUNNING"
+	stepCountVal = 3
+	mu.Unlock()
+	watcher.scanOnce()
+	if _, ok := watcher.IdleSince(); ok {
+		t.Fatal("IdleSince must be false while a session is RUNNING")
+	}
+
+	// Transition back to IDLE -> IdleSince must advance past since1.
+	time.Sleep(300 * time.Millisecond)
+	mu.Lock()
+	statusVal = "CASCADE_RUN_STATUS_IDLE"
+	stepCountVal = 4
+	mu.Unlock()
+	watcher.scanOnce()
+	since2, ok := watcher.IdleSince()
+	if !ok || !since2.After(since1) {
+		t.Fatalf("expected IdleSince to advance after activity ended: since1=%v since2=%v ok=%v", since1, since2, ok)
+	}
+}
+
