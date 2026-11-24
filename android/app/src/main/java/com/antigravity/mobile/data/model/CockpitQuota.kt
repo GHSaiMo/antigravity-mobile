@@ -71,11 +71,11 @@ data class CockpitQuotaBucket(
 
             val deltaAbsStr = String.format(Locale.US, "%.1f%%", Math.abs(delta))
             val status = if (isOver) {
-                "消耗偏快 (-$deltaAbsStr)".loc
+                "消耗偏快 (-%s)".loc(deltaAbsStr)
             } else if (Math.abs(delta) <= 1.0) {
-                "匀速正常 (±$deltaAbsStr)".loc
+                "匀速正常 (±%s)".loc(deltaAbsStr)
             } else {
-                "节奏充裕 (+$deltaAbsStr)".loc
+                "节奏充裕 (+%s)".loc(deltaAbsStr)
             }
 
             WeeklyPaceInfo(

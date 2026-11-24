@@ -423,7 +423,7 @@ fun WorkflowTemplateSheet(
                     }
                 }
                 .onFailure { err ->
-                    syncError = "已保存本机缓存，网关同步失败：${err.message ?: "未知错误".loc}".loc
+                    syncError = "已保存本机缓存，网关同步失败：%s".loc(err.message ?: "未知错误".loc)
                 }
         }
     }
@@ -835,6 +835,7 @@ fun WorkflowTemplateSheet(
     if (showResetDialog) {
         AlertDialog(
             onDismissRequest = { showResetDialog = false },
+            containerColor = colors.surface,
             title = { Text("恢复默认模板".loc) },
             text = { Text("将恢复为系统初始的 4 个模板，当前自定义模板、快捷菜单配置和排序会被替换。".loc) },
             confirmButton = {
@@ -855,7 +856,7 @@ fun WorkflowTemplateSheet(
                                     onTemplatesChanged(partitioned)
                                 }
                                 .onFailure { err ->
-                                    syncError = "已重置本机列表，网关同步失败：${err.message ?: "未知错误".loc}".loc
+                                    syncError = "已重置本机列表，网关同步失败：%s".loc(err.message ?: "未知错误".loc)
                                 }
                         }
                     }
@@ -1022,7 +1023,9 @@ private fun WorkflowSectionHeader(
             text = title,
             fontSize = 13.5.sp,
             fontWeight = FontWeight.Bold,
-            color = colors.textPrimary
+            color = colors.textPrimary,
+            maxLines = 1,
+            softWrap = false
         )
         Box(
             modifier = Modifier
@@ -1037,13 +1040,14 @@ private fun WorkflowSectionHeader(
                 color = colors.textSecondary
             )
         }
-        Spacer(modifier = Modifier.weight(1f))
         Text(
             text = subtitle,
             fontSize = 11.sp,
             color = colors.textSecondary,
             maxLines = 1,
-            overflow = TextOverflow.Ellipsis
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.End,
+            modifier = Modifier.weight(1f)
         )
     }
 }

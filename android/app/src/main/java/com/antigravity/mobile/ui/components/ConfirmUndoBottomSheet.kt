@@ -177,7 +177,7 @@ fun ConfirmUndoBottomSheet(
             } else if (preview != null) {
                 if (preview.hasCodeChanges) {
                     Text(
-                        text = "代码回退变更 (${preview.files.size} 个文件)".loc,
+                        text = "代码回退变更 (%d 个文件)".loc(preview.files.size),
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
                         color = colors.textPrimary,

@@ -1,6 +1,7 @@
 package com.antigravity.mobile.data.service
 
 import com.antigravity.mobile.data.model.*
+import com.antigravity.mobile.ui.util.loc
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
@@ -41,7 +42,7 @@ private suspend fun Call.awaitP3(): Response = suspendCancellableCoroutine { con
 }
 
 internal suspend fun ApiClient.p3Get(path: String): Result<String> = withContext(Dispatchers.IO) {
-    val base = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
+    val base = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址".loc))
     try {
         val req = buildAuthorizedRequest("$base$path").get().build()
         okHttpClient.newCall(req).awaitP3().use { resp ->
@@ -55,7 +56,7 @@ internal suspend fun ApiClient.p3Get(path: String): Result<String> = withContext
 }
 
 internal suspend fun ApiClient.p3PostJson(path: String, payload: JsonObject): Result<String> = withContext(Dispatchers.IO) {
-    val base = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
+    val base = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址".loc))
     try {
         val req = buildAuthorizedRequest("$base$path")
             .post(payload.toString().toRequestBody(p3JsonMediaType))
@@ -122,7 +123,7 @@ suspend fun ApiClient.fetchLocalDirs(
     path: String? = null,
     showHidden: Boolean = false
 ): Result<LocalDirsResponse> = withContext(Dispatchers.IO) {
-    val base = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
+    val base = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址".loc))
     val params = mutableListOf<String>()
     if (!path.isNullOrBlank()) {
         params.add("path=${URLEncoder.encode(path.trim(), "UTF-8")}")
@@ -156,7 +157,7 @@ suspend fun ApiClient.createLocalDir(
     name: String? = null,
     path: String? = null
 ): Result<CreateLocalDirResponse> = withContext(Dispatchers.IO) {
-    val base = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
+    val base = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址".loc))
     val payload = buildJsonObject {
         if (!parentPath.isNullOrBlank()) put("parentPath", parentPath.trim())
         if (!name.isNullOrBlank()) put("name", name.trim())
@@ -192,7 +193,7 @@ suspend fun ApiClient.startCloneGitHubRepo(
     importExisting: Boolean = false,
     startSession: Boolean = false
 ): Result<CloneRepoResponse> = withContext(Dispatchers.IO) {
-    val base = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
+    val base = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址".loc))
     val payload = buildJsonObject {
         put("repoSlug", repoSlug.trim())
         if (!parentDir.isNullOrBlank()) put("parentDir", parentDir.trim())
@@ -227,7 +228,7 @@ suspend fun ApiClient.startCloneGitHubRepo(
 }
 
 suspend fun ApiClient.fetchCloneGitHubRepoStatus(jobId: String): Result<CloneRepoResponse> = withContext(Dispatchers.IO) {
-    val base = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
+    val base = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址".loc))
     val encoded = URLEncoder.encode(jobId.trim(), "UTF-8")
     try {
         val req = buildAuthorizedRequest("$base/gateway/projects/clone/status?jobId=$encoded").get().build()
@@ -263,7 +264,7 @@ suspend fun ApiClient.createProjectWorkspace(
     name: String? = null,
     startSession: Boolean = false
 ): Result<CreateProjectResponse> = withContext(Dispatchers.IO) {
-    val base = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
+    val base = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址".loc))
     val payload = buildJsonObject {
         put("path", path)
         if (!name.isNullOrBlank()) put("name", name)
@@ -516,7 +517,7 @@ suspend fun ApiClient.gitDiscardFile(cascadeId: String, path: String): Result<Un
 }
 
 suspend fun ApiClient.synthesizeNarrationAudio(text: String): Result<ByteArray> = withContext(Dispatchers.IO) {
-    val base = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
+    val base = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址".loc))
     try {
         val req = buildAuthorizedRequest("$base/gateway/narration")
             .post(buildJsonObject { put("text", text) }.toString().toRequestBody(p3JsonMediaType))
@@ -524,7 +525,7 @@ suspend fun ApiClient.synthesizeNarrationAudio(text: String): Result<ByteArray> 
         okHttpClient.newCall(req).awaitP3().use { resp ->
             val bytes = resp.body?.bytes()
             if (resp.isSuccessful && bytes != null && bytes.isNotEmpty()) Result.success(bytes)
-            else Result.failure(RuntimeException("语音合成失败: HTTP ${resp.code}"))
+            else Result.failure(RuntimeException("语音合成失败: HTTP %d".loc(resp.code)))
         }
     } catch (e: Exception) {
         Result.failure(e)

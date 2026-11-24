@@ -314,7 +314,7 @@ private fun SourceRatioSection(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "桌面端 Antigravity $desktopPct% · CLI $cliPct%".loc,
+                text = "桌面端 Antigravity %1\$d%% · CLI %2\$d%%".loc(desktopPct, cliPct),
                 fontSize = 11.5.sp,
                 fontWeight = FontWeight.Medium,
                 color = colors.textSecondary
@@ -502,7 +502,7 @@ private fun FooterSection(
             }
             val timeStr = timeFmt.format(Date(tokenHistory.updatedAtEpochMs))
             Text(
-                text = "本地数据扫描于 $timeStr".loc,
+                text = "本地数据扫描于 %s".loc(timeStr),
                 fontSize = 9.5.sp,
                 color = colors.textMuted
             )
@@ -558,6 +558,7 @@ fun TokenHistoryShareCardSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         sheetMaxWidth = androidx.compose.ui.unit.Dp.Unspecified,
+        containerColor = AntigravityTheme.colors.surface,
         shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
     ) {
         Column(

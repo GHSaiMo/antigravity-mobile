@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.components
 
+import com.antigravity.mobile.ui.util.L10n
 import com.antigravity.mobile.ui.util.loc
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
@@ -252,8 +253,10 @@ fun SwarmSheet(
                             text = {
                                 Text(
                                     text = "$title$countText",
-                                    fontSize = 13.5.sp,
-                                    fontWeight = if (selectedTab == index) FontWeight.SemiBold else FontWeight.Normal
+                                    fontSize = 13.sp,
+                                    fontWeight = if (selectedTab == index) FontWeight.SemiBold else FontWeight.Normal,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
                         )
@@ -375,7 +378,7 @@ private fun SwarmOverviewTab(
     var showDoneTasks by remember { mutableStateOf(false) }
     val expandedThreadIds = remember { mutableStateListOf<String>() }
 
-    val synth = remember(snap, filterMember) {
+    val synth = remember(snap, filterMember, L10n.currentLang) {
         SwarmHiveEngine.synthesize(snap, filterMember)
     }
     val runningItems = remember(synth.tasks) {
@@ -408,7 +411,7 @@ private fun SwarmOverviewTab(
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                         Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(SwarmColors.warnAmber(isDark)))
-                        Text("Swarm stalled — no agents working", color = SwarmColors.ink(isDark), fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                        Text("蜂群停滞 — 当前无智能体运行".loc, color = SwarmColors.ink(isDark), fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
                         Box(
                             modifier = Modifier
                                 .clip(CircleShape)
@@ -436,7 +439,7 @@ private fun SwarmOverviewTab(
                         .padding(horizontal = 14.dp, vertical = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Text("GOAL", color = SwarmColors.muted(isDark), fontSize = 11.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.6.sp)
+                    Text("目标".loc, color = SwarmColors.muted(isDark), fontSize = 11.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.6.sp)
                     if (synth.goalTitle.isNotBlank()) {
                         Text(synth.goalTitle, color = SwarmColors.ink(isDark), fontSize = 15.5.sp, fontWeight = FontWeight.SemiBold, lineHeight = 21.sp)
                     }
@@ -462,7 +465,7 @@ private fun SwarmOverviewTab(
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 8.dp)) {
                         Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(SwarmColors.accent(isDark)))
-                        Text("Running", color = SwarmColors.ink(isDark), fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold)
+                        Text("运行中".loc, color = SwarmColors.ink(isDark), fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold)
                         Text("${runningItems.size}", color = SwarmColors.muted(isDark), fontSize = 12.5.sp, fontFamily = FontFamily.Monospace)
                         Spacer(modifier = Modifier.weight(1f))
                         if (!synth.phaseLabel.isNullOrBlank()) {
@@ -491,12 +494,12 @@ private fun SwarmOverviewTab(
                                     Text(task.title, color = SwarmColors.ink(isDark), fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                                     if (task.rawState == "review") {
                                         Box(modifier = Modifier.clip(CircleShape).background(SwarmColors.accent(isDark).copy(alpha = 0.12f)).padding(horizontal = 6.5.dp, vertical = 2.dp)) {
-                                            Text("In review", color = SwarmColors.accent(isDark), fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                                            Text("审核中".loc, color = SwarmColors.accent(isDark), fontSize = 11.sp, fontWeight = FontWeight.Medium, maxLines = 1, softWrap = false)
                                         }
                                     }
                                     WorkerBeeChipsAndroid(owners = task.owners, synth = synth, snap = snap, onSelectConversation = onSelectConversation)
                                 }
-                                val sub = task.waitingOn?.let { "Waiting on @$it" } ?: (task.liveActivity ?: task.note)
+                                val sub = task.waitingOn?.let { "等待 @%s".loc(it) } ?: (task.liveActivity ?: task.note)
                                 if (sub.isNotBlank()) {
                                     Text(
                                         text = sub,
@@ -512,7 +515,7 @@ private fun SwarmOverviewTab(
 
                     if (extraRun > 0) {
                         Text(
-                            text = "+$extraRun more",
+                            text = "另外 +%d 项".loc(extraRun),
                             color = SwarmColors.muted(isDark),
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Medium,
@@ -547,21 +550,26 @@ private fun SwarmOverviewTab(
                             blocked = synth.blockedCount,
                             total = synth.totalTasksCount
                         )
-                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text("${synth.doneCount} of ${synth.totalTasksCount}", color = SwarmColors.ink(isDark), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                            Text("tasks done", color = SwarmColors.muted(isDark), fontSize = 13.sp)
-                        }
-                        Spacer(modifier = Modifier.weight(1f))
+                        Text(
+                            text = "已完成 %1\$d / %2\$d 项任务".loc(synth.doneCount, synth.totalTasksCount),
+                            color = SwarmColors.ink(isDark),
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
+                        )
                         if (synth.stuckCount > 0) {
-                            ProgressStatusDotLabel("${synth.stuckCount} stuck", SwarmColors.errorRed(isDark))
+                            ProgressStatusDotLabel("%d 项卡住".loc(synth.stuckCount), SwarmColors.errorRed(isDark))
                         } else if (synth.waitingChips.isNotEmpty()) {
                             ProgressStatusDotLabel(synth.waitingChips.first(), SwarmColors.warnAmber(isDark))
                         }
                         if (synth.reviewCount > 0) {
-                            ProgressStatusDotLabel("${synth.reviewCount} in review", SwarmColors.accent(isDark))
+                            ProgressStatusDotLabel("%d 项审核中".loc(synth.reviewCount), SwarmColors.accent(isDark))
                         }
                         if (synth.openThreadsCount > 0) {
-                            Text("${synth.openThreadsCount} ${if (synth.openThreadsCount == 1) "thread" else "threads"} open", color = SwarmColors.muted(isDark), fontSize = 12.sp, maxLines = 1)
+                            val threadsText = if (synth.openThreadsCount == 1) "1 个话题进行中".loc else "%d 个话题进行中".loc(synth.openThreadsCount)
+                            Text(threadsText, color = SwarmColors.muted(isDark), fontSize = 12.sp, maxLines = 1, softWrap = false)
                         }
                         Icon(
                             imageVector = if (showDoneTasks) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
@@ -576,7 +584,7 @@ private fun SwarmOverviewTab(
                             HorizontalDivider(thickness = 0.7.dp, color = SwarmColors.border(isDark))
                             Column(modifier = Modifier.padding(horizontal = 13.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                 if (doneItems.isEmpty()) {
-                                    Text("No tasks completed yet.", color = SwarmColors.muted(isDark), fontSize = 12.5.sp)
+                                    Text("暂无已完成的任务。".loc, color = SwarmColors.muted(isDark), fontSize = 12.5.sp)
                                 } else {
                                     doneItems.forEach { item ->
                                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -593,7 +601,7 @@ private fun SwarmOverviewTab(
                                 }
                                 if (queuedItems.isNotEmpty()) {
                                     HorizontalDivider(thickness = 0.6.dp, color = SwarmColors.border(isDark).copy(alpha = 0.6f), modifier = Modifier.padding(vertical = 2.dp))
-                                    Text("UP NEXT · ${queuedItems.size}", color = SwarmColors.muted(isDark), fontSize = 10.5.sp, fontWeight = FontWeight.SemiBold)
+                                    Text("${"待执行".loc} · ${queuedItems.size}", color = SwarmColors.muted(isDark), fontSize = 10.5.sp, fontWeight = FontWeight.SemiBold)
                                     queuedItems.take(6).forEach { item ->
                                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                             OverviewTaskIndicatorAndroid(SwarmTaskBucketState.QUEUED)
@@ -612,7 +620,7 @@ private fun SwarmOverviewTab(
         // 5. Threads Section
         if (synth.threads.isNotEmpty()) {
             item(key = "threads_header") {
-                Text("Threads", color = SwarmColors.ink(isDark), fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold)
+                Text("话题".loc, color = SwarmColors.ink(isDark), fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold)
             }
             items(synth.threads, key = { "th_${it.id}" }) { thread ->
                 val defaultOpen = thread.state == SwarmThreadState.NEEDS || thread.state == SwarmThreadState.WAITING || thread.state == SwarmThreadState.STUCK
@@ -681,7 +689,7 @@ private fun SwarmOverviewTab(
                     if (thread.now.isNotBlank()) {
                         Row(modifier = Modifier.padding(start = 16.dp, top = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             if (thread.state != SwarmThreadState.DONE) {
-                                Text("Now", color = SwarmColors.ink(isDark).copy(alpha = 0.85f), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                Text("当前动态".loc, color = SwarmColors.ink(isDark).copy(alpha = 0.85f), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                             }
                             Text(thread.now, color = SwarmColors.muted(isDark), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
@@ -703,7 +711,7 @@ private fun SwarmOverviewTab(
                                     )
                                     if (task.rawState == "review") {
                                         Box(modifier = Modifier.clip(CircleShape).background(SwarmColors.accent(isDark).copy(alpha = 0.12f)).padding(horizontal = 6.dp, vertical = 1.5.dp)) {
-                                            Text("In review", color = SwarmColors.accent(isDark), fontSize = 10.5.sp, fontWeight = FontWeight.Medium)
+                                            Text("审核中".loc, color = SwarmColors.accent(isDark), fontSize = 10.5.sp, fontWeight = FontWeight.Medium, maxLines = 1, softWrap = false)
                                         }
                                     }
                                     WorkerBeeChipsAndroid(task.owners, synth, snap, onSelectConversation)
@@ -732,7 +740,7 @@ private fun SwarmOverviewTab(
             val extraCrew = (crew.size - shownCrew.size).coerceAtLeast(0)
 
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("The team", color = SwarmColors.ink(isDark), fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold)
+                Text("团队成员".loc, color = SwarmColors.ink(isDark), fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold)
 
                 // Coordinator Card
                 Row(
@@ -751,7 +759,7 @@ private fun SwarmOverviewTab(
                 ) {
                     SwarmPixelBee(name = "coordinator", pose = coordPose, size = 54.dp)
                     Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text("Coordinator", color = SwarmColors.ink(isDark), fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                        Text("协调者".loc, color = SwarmColors.ink(isDark), fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                         if (!coord?.now.isNullOrBlank()) {
                             Text(coord!!.now, color = SwarmColors.muted(isDark), fontSize = 12.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
@@ -782,7 +790,7 @@ private fun SwarmOverviewTab(
                                     shape = RoundedCornerShape(10.dp)
                                 )
                             )
-                            Text("All", color = if (allSelected) SwarmColors.ink(isDark) else SwarmColors.muted(isDark), fontSize = 11.sp, fontWeight = if (allSelected) FontWeight.SemiBold else FontWeight.Normal)
+                            Text("全部".loc, color = if (allSelected) SwarmColors.ink(isDark) else SwarmColors.muted(isDark), fontSize = 11.sp, fontWeight = if (allSelected) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
 
                         shownCrew.forEach { member ->
@@ -1115,7 +1123,8 @@ private fun SwarmBoardTabNative(
                 OutlinedTextField(
                     value = search,
                     onValueChange = onSearchChange,
-                    placeholder = { Text("Search", fontSize = 13.5.sp, color = SwarmColors.faint(isDark)) },
+                    singleLine = true,
+                    placeholder = { Text("搜索".loc, fontSize = 13.5.sp, color = SwarmColors.faint(isDark)) },
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = Color.Transparent,
                         unfocusedBorderColor = Color.Transparent
@@ -1134,7 +1143,7 @@ private fun SwarmBoardTabNative(
                 ) {
                     Icon(
                         imageVector = Icons.Default.FilterList,
-                        contentDescription = "Filter",
+                        contentDescription = "筛选".loc,
                         tint = if (agentFilter == null) SwarmColors.muted(isDark) else SwarmColors.accent(isDark),
                         modifier = Modifier.size(17.dp)
                     )
@@ -1142,7 +1151,8 @@ private fun SwarmBoardTabNative(
 
                 DropdownMenu(
                     expanded = showFilterMenu,
-                    onDismissRequest = { showFilterMenu = false }
+                    onDismissRequest = { showFilterMenu = false },
+                    containerColor = SwarmColors.surfaceBg(isDark)
                 ) {
                     DropdownMenuItem(text = { Text("全部成员".loc) }, onClick = { onFilterChange(null); showFilterMenu = false })
                     DropdownMenuItem(text = { Text("仅看 @all 广播".loc) }, onClick = { onFilterChange("@all"); showFilterMenu = false })
@@ -1364,7 +1374,8 @@ private fun SwarmMembersTabNative(
             OutlinedTextField(
                 value = search,
                 onValueChange = onSearchChange,
-                placeholder = { Text("Search members", fontSize = 13.5.sp, color = SwarmColors.faint(isDark)) },
+                singleLine = true,
+                placeholder = { Text("搜索成员".loc, fontSize = 13.5.sp, color = SwarmColors.faint(isDark)) },
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = Color.Transparent,
                     unfocusedBorderColor = Color.Transparent
@@ -1400,7 +1411,7 @@ private fun SwarmMembersTabNative(
 
                 if (activeWorkers.isNotEmpty()) {
                     item(key = "hdr_active") {
-                        MemberGroupHeader(title = "ACTIVE", count = activeWorkers.size)
+                        MemberGroupHeader(title = "活跃".loc, count = activeWorkers.size)
                     }
                     items(activeWorkers, key = { it.name }) { m ->
                         MemberCardRow(
@@ -1418,7 +1429,7 @@ private fun SwarmMembersTabNative(
 
                 if (standbyWorkers.isNotEmpty()) {
                     item(key = "hdr_standby") {
-                        MemberGroupHeader(title = "STANDING BY", count = standbyWorkers.size)
+                        MemberGroupHeader(title = "待命".loc, count = standbyWorkers.size)
                     }
                     items(standbyWorkers, key = { it.name }) { m ->
                         MemberCardRow(
@@ -1445,7 +1456,11 @@ private fun SwarmMembersTabNative(
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
                             Text(
-                                text = "RETIRED",
+                                text = when (L10n.currentLang) {
+                                    L10n.AppLang.ZH -> "已退役"
+                                    L10n.AppLang.JA -> "終了済み"
+                                    L10n.AppLang.EN -> "RETIRED"
+                                },
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = SwarmColors.faint(isDark)
@@ -1588,10 +1603,10 @@ private fun MemberCardRow(
                     )
 
                     val statusLabel = when {
-                        isCoord -> if (isWorking) "Coordinator · Working" else "Coordinator"
-                        member.killed -> "Retired"
-                        isWorking -> "Working"
-                        isError -> "Error"
+                        isCoord -> if (isWorking) "${"协调者".loc} · ${"工作中".loc}" else "协调者".loc
+                        member.killed -> "已退役".loc
+                        isWorking -> "工作中".loc
+                        isError -> "错误".loc
                         else -> member.role.ifBlank { "worker" }
                     }
 
@@ -1698,7 +1713,7 @@ private fun MemberCardRow(
                 Spacer(modifier = Modifier.weight(1f))
 
                 if (member.unreadCount > 0) {
-                    Text("未读 ${member.unreadCount}".loc, fontSize = 11.sp, color = SwarmColors.faint(isDark))
+                    Text("未读 %d".loc(member.unreadCount), fontSize = 11.sp, color = SwarmColors.faint(isDark))
                 }
             }
         }

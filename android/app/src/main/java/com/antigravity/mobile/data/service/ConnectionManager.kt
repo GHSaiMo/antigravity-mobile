@@ -6,6 +6,7 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.util.Log
 import com.antigravity.mobile.data.model.PairingInfo
+import com.antigravity.mobile.ui.util.loc
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -210,17 +211,17 @@ class ConnectionManager(private val context: Context) {
         }
 
     fun describeEndpoint(urlString: String, cellular: Boolean = isCellular): String {
-        if (urlString.isBlank()) return if (cellular) "蜂窝网络" else "Wi-Fi"
+        if (urlString.isBlank()) return if (cellular) "蜂窝网络".loc else "Wi-Fi"
         val host = extractHost(urlString)
 
         val isLan = isLanHost(host)
         val isTailscale = isTailscaleHost(host)
 
         return when {
-            isLan -> "Wi-Fi 局域网直连"
-            isTailscale -> if (cellular) "蜂窝网络 (Tailscale)" else "Wi-Fi (Tailscale)"
-            urlString.startsWith("https://") -> if (cellular) "蜂窝网络 (专属公网 HTTPS)" else "Wi-Fi (专属公网 HTTPS)"
-            else -> if (cellular) "蜂窝网络 (公网直连)" else "Wi-Fi (公网直连)"
+            isLan -> "Wi-Fi 局域网直连".loc
+            isTailscale -> if (cellular) "蜂窝网络 (Tailscale)".loc else "Wi-Fi (Tailscale)".loc
+            urlString.startsWith("https://") -> if (cellular) "蜂窝网络 (专属公网 HTTPS)".loc else "Wi-Fi (专属公网 HTTPS)".loc
+            else -> if (cellular) "蜂窝网络 (公网直连)".loc else "Wi-Fi (公网直连)".loc
         }
     }
 
@@ -231,7 +232,7 @@ class ConnectionManager(private val context: Context) {
                 urlString = urlString,
                 isReachable = false,
                 latencyMs = 0,
-                errorMessage = "无效地址"
+                errorMessage = "无效地址".loc
             )
         }
         val targetUrl = if (!clean.startsWith("http://") && !clean.startsWith("https://")) {
@@ -277,7 +278,7 @@ class ConnectionManager(private val context: Context) {
                 urlString = urlString,
                 isReachable = false,
                 latencyMs = took,
-                errorMessage = e.message ?: "连接超时"
+                errorMessage = e.message ?: "连接超时".loc
             )
         }
     }
@@ -561,7 +562,7 @@ class ConnectionManager(private val context: Context) {
 
     suspend fun testGatewayStatus(baseUrl: String): Result<String> = withContext(Dispatchers.IO) {
         val clean = baseUrl.trim().trimEnd('/')
-        if (clean.isBlank()) return@withContext Result.failure(IllegalArgumentException("网关地址为空"))
+        if (clean.isBlank()) return@withContext Result.failure(IllegalArgumentException("网关地址为空".loc))
 
         val statusUrl = if (!clean.startsWith("http://") && !clean.startsWith("https://")) {
             "http://$clean/gateway/status"
@@ -592,7 +593,7 @@ class ConnectionManager(private val context: Context) {
                     } catch (_: Exception) {}
 
                     val ifaceDesc = describeEndpoint(clean)
-                    Result.success("连接成功:$pidInfo ${took}ms ($ifaceDesc)")
+                    Result.success("连接成功:%1\$s %2\$dms (%3\$s)".loc(pidInfo, took, ifaceDesc))
                 } else {
                     // Fallback to /healthz
                     val healthUrl = statusUrl.replace("/gateway/status", "/healthz")
@@ -611,18 +612,18 @@ class ConnectionManager(private val context: Context) {
                                 }
                             } catch (_: Exception) {}
                             val ifaceDesc = describeEndpoint(clean)
-                            Result.success("网关在线 (${took2}ms · $ifaceDesc)")
+                            Result.success("网关在线 (%1\$dms · %2\$s)".loc(took2, ifaceDesc))
                         } else {
-                            Result.failure(RuntimeException("网关响应异常 (HTTP ${resp.code})"))
+                            Result.failure(RuntimeException("网关响应异常 (HTTP %d)".loc(resp.code)))
                         }
                     }
                 }
             }
         } catch (e: Exception) {
             val took = System.currentTimeMillis() - start
-            val desc = e.message ?: "连接失败"
+            val desc = e.message ?: "连接失败".loc
             if (desc.contains("SSL") || desc.contains("cert")) {
-                Result.failure(RuntimeException("SSL握手失败，网关默认使用 HTTP 协议"))
+                Result.failure(RuntimeException("SSL握手失败，网关默认使用 HTTP 协议".loc))
             } else {
                 Result.failure(RuntimeException("$desc (${took}ms)"))
             }

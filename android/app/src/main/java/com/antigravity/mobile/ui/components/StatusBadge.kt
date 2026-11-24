@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.components
 
+import com.antigravity.mobile.ui.util.L10n
 import com.antigravity.mobile.ui.util.loc
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
@@ -105,23 +106,27 @@ fun StatusBadge(
         status.needsAction -> BadgeConfig(
             bg = colors.accentBlue.copy(alpha = 0.15f),
             fg = colors.accentBlue,
-            label = "Action required"
+            label = "待审批".loc
         )
         status.isError -> BadgeConfig(
             bg = colors.accentRed.copy(alpha = 0.15f),
             fg = colors.accentRed,
-            label = "Error"
+            label = "错误".loc
         )
         isRunningCommand -> BadgeConfig(
             bg = colors.accentGreen.copy(alpha = 0.15f),
             fg = colors.accentGreen,
-            label = "Running command",
+            label = when (L10n.currentLang) {
+                L10n.AppLang.ZH -> "运行命令"
+                L10n.AppLang.JA -> "コマンド実行中"
+                L10n.AppLang.EN -> "Running command"
+            },
             isTerminal = true
         )
         status.isRunning -> BadgeConfig(
             bg = colors.accentGreen.copy(alpha = 0.15f),
             fg = colors.accentGreen,
-            label = "Working"
+            label = "工作中".loc
         )
         else -> BadgeConfig(
             bg = colors.surfaceVariant,
@@ -151,7 +156,9 @@ fun StatusBadge(
                 text = config.label,
                 color = config.fg,
                 fontSize = 11.sp,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                softWrap = false
             )
         }
     }
@@ -168,10 +175,12 @@ fun DraftBadge(modifier: Modifier = Modifier) {
         contentAlignment = Alignment.Center
     ) {
         Text(
-            text = "DRAFT",
+            text = "草稿".loc,
             color = colors.accentYellow,
             fontSize = 11.sp,
-            fontWeight = FontWeight.Bold
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            softWrap = false
         )
     }
 }

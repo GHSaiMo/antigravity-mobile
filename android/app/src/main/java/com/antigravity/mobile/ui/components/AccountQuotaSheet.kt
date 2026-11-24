@@ -64,7 +64,7 @@ import java.util.*
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun AccountQuotaSheet(
     quotaData: CockpitQuotaResponse?,
@@ -249,7 +249,7 @@ fun AccountQuotaSheet(
                                     ShareImageUtils.saveBitmapToGallery(context, captureTokenHistoryBitmap())
                                 } catch (e: Throwable) {
                                     android.util.Log.e("AccountQuotaSheet", "Save token history failed", e)
-                                    Toast.makeText(context, "长图保存失败: ${e.localizedMessage}".loc, Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, "长图保存失败: %s".loc(e.localizedMessage ?: e.message.orEmpty()), Toast.LENGTH_SHORT).show()
                                 } finally {
                                     isSavingTokenHistory = false
                                 }
@@ -286,8 +286,11 @@ fun AccountQuotaSheet(
                     style = tightTextStyle,
                     color = colors.textPrimary,
                     textAlign = TextAlign.Center,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                     modifier = Modifier
                         .fillMaxWidth()
+                        .padding(horizontal = 48.dp)
                         .align(Alignment.Center)
                 )
 
@@ -374,7 +377,9 @@ fun AccountQuotaSheet(
                             fontSize = 13.sp,
                             fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium,
                             color = if (active) colors.textPrimary else colors.textSecondary,
-                            style = tightTextStyle
+                            style = tightTextStyle,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                 }
@@ -506,7 +511,8 @@ fun AccountQuotaSheet(
                                     text = "未检测到 Cockpit Tools".loc,
                                     color = colors.textSecondary,
                                     fontSize = 14.sp,
-                                    fontWeight = FontWeight.SemiBold
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier.weight(1f, fill = false).padding(end = 8.dp)
                                 )
                                 Box(
                                     modifier = Modifier
@@ -518,7 +524,9 @@ fun AccountQuotaSheet(
                                         text = "可选功能".loc,
                                         color = colors.textSecondary,
                                         fontSize = 10.sp,
-                                        fontWeight = FontWeight.Medium
+                                        fontWeight = FontWeight.Medium,
+                                        maxLines = 1,
+                                        softWrap = false
                                     )
                                 }
                             }
@@ -530,9 +538,10 @@ fun AccountQuotaSheet(
                                 lineHeight = 17.sp
                             )
 
-                            Row(
+                            FlowRow(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(14.dp)
+                                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
                                 Text(
                                     text = "复制 GitHub 链接".loc,
@@ -605,7 +614,7 @@ fun AccountQuotaSheet(
                 } else if (otherAccounts.isNotEmpty()) {
                     Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
                         Text(
-                            text = "备用账号 (${otherAccounts.size})".loc,
+                            text = "备用账号 (%d)".loc(otherAccounts.size),
                             color = colors.textSecondary,
                             fontSize = 13.sp,
                             lineHeight = 16.sp,
@@ -632,7 +641,7 @@ fun AccountQuotaSheet(
                     val date = Date(timestamp)
                     val timeFmt = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
                     Text(
-                        text = "配额数据更新于 ${timeFmt.format(date)}".loc,
+                        text = "配额数据更新于 %s".loc(timeFmt.format(date)),
                         color = colors.textMuted,
                         fontSize = 11.sp,
                         lineHeight = 14.sp,
@@ -695,7 +704,7 @@ fun AccountQuotaSheet(
             },
             text = {
                 Text(
-                    text = "切换到 ${if (isMasked) maskEmail(acc.email) else acc.email} 将关闭并重启电脑上的 Antigravity。".loc,
+                    text = "切换到 %s 将关闭并重启电脑上的 Antigravity。".loc(if (isMasked) maskEmail(acc.email) else acc.email),
                     color = colors.textSecondary,
                     fontSize = 14.sp
                 )
@@ -1358,8 +1367,20 @@ private fun PaceDetailRow(label: String, value: String, color: Color) {
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(text = label, fontSize = 12.sp, color = AntigravityTheme.colors.textSecondary)
-        Text(text = value, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = color)
+        Text(
+            text = label,
+            fontSize = 12.sp,
+            color = AntigravityTheme.colors.textSecondary,
+            modifier = Modifier.weight(1f).padding(end = 8.dp)
+        )
+        Text(
+            text = value,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = color,
+            maxLines = 1,
+            softWrap = false
+        )
     }
 }
 

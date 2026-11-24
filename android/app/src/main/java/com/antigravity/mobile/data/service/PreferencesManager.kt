@@ -1,6 +1,7 @@
 package com.antigravity.mobile.data.service
 
 import com.antigravity.mobile.data.model.ModelDefaults
+import com.antigravity.mobile.ui.util.loc
 import android.content.Context
 import android.content.SharedPreferences
 import android.util.Log
@@ -171,10 +172,10 @@ class PreferencesManager(context: Context) {
 
     val gatewayPlatformDisplayName: String
         get() = when (gatewayPlatform?.lowercase()) {
-            "windows", "win" -> "Windows 网关"
-            "darwin", "macos", "mac" -> "Mac 网关"
-            "linux" -> "Linux 网关"
-            else -> "电脑网关"
+            "windows", "win" -> "Windows 网关".loc
+            "darwin", "macos", "mac" -> "Mac 网关".loc
+            "linux" -> "Linux 网关".loc
+            else -> "电脑网关".loc
         }
 
     var gatewayBaseUrl: String?

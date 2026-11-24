@@ -79,12 +79,12 @@ internal object AutomationCronHelper {
                 if (m != null && h != null && m in 0..59 && h in 0..23 && dom == "*" && mon == "*") {
                     val hm = "%02d:%02d".format(h, m)
                     if (dow == "*") {
-                        base = "${"每天".loc} $hm"
+                        base = "每天 %s".loc(hm)
                     } else {
                         val d = dow.toIntOrNull()
                         if (d != null && d in 0..7) {
                             val names = listOf("周日", "周一", "周二", "周三", "周四", "周五", "周六", "周日")
-                            base = "${"每".loc}${names[d].loc} $hm"
+                            base = "每%1\$s %2\$s".loc(names[d].loc, hm)
                         }
                     }
                 }
@@ -98,7 +98,15 @@ private enum class AndroidSchedulePreset(val label: String) {
     HOURLY("每小时"),
     DAILY("每天"),
     WEEKLY("每周"),
-    CUSTOM("自定义")
+    CUSTOM("自定义");
+
+    fun localizedLabel(): String = when (this) {
+        WEEKLY -> when (com.antigravity.mobile.ui.util.L10n.currentLang) {
+            com.antigravity.mobile.ui.util.L10n.AppLang.JA -> "毎週"
+            else -> label.loc
+        }
+        else -> label.loc
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -263,7 +271,8 @@ fun AutomationDetailDialog(
                         }
                         DropdownMenu(
                             expanded = overflowExpanded,
-                            onDismissRequest = { overflowExpanded = false }
+                            onDismissRequest = { overflowExpanded = false },
+                            containerColor = colors.surface
                         ) {
                             DropdownMenuItem(
                                 text = { Text("重启任务".loc) },
@@ -440,7 +449,7 @@ fun AutomationDetailDialog(
                                     modifier = Modifier.size(15.dp)
                                 )
                                 Spacer(modifier = Modifier.width(3.dp))
-                                Text("立即运行".loc, fontSize = 12.sp)
+                                Text("立即运行".loc, fontSize = 12.sp, maxLines = 1, softWrap = false)
                             }
 
                             Spacer(modifier = Modifier.width(10.dp))
@@ -517,19 +526,36 @@ fun AutomationDetailDialog(
                         }
 
                         if (isEditingSchedule) {
-                            // Frequency preset chips
+                            // Frequency preset pills (compact so EN/JA labels never clip)
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
                                 AndroidSchedulePreset.entries.forEach { preset ->
                                     val selected = draftPreset == preset
-                                    FilterChip(
-                                        selected = selected,
-                                        onClick = { draftPreset = preset },
-                                        label = { Text(preset.label.loc, fontSize = 11.5.sp) },
-                                        modifier = Modifier.weight(1f)
-                                    )
+                                    Box(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(if (selected) colors.accentIndigo else colors.surfaceVariant)
+                                            .border(
+                                                width = if (selected) 0.dp else 0.5.dp,
+                                                color = if (selected) Color.Transparent else colors.border,
+                                                shape = RoundedCornerShape(8.dp)
+                                            )
+                                            .clickable { draftPreset = preset }
+                                            .padding(horizontal = 4.dp, vertical = 7.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = preset.localizedLabel(),
+                                            color = if (selected) Color.White else colors.textPrimary,
+                                            fontSize = 11.5.sp,
+                                            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
                                 }
                             }
 
@@ -554,7 +580,9 @@ fun AutomationDetailDialog(
                                                 text = lbl.loc,
                                                 color = if (sel) Color.White else colors.textPrimary,
                                                 fontSize = 11.sp,
-                                                fontWeight = FontWeight.Medium
+                                                fontWeight = FontWeight.Medium,
+                                                maxLines = 1,
+                                                softWrap = false
                                             )
                                         }
                                     }
@@ -608,7 +636,8 @@ fun AutomationDetailDialog(
                                 }
                                 DropdownMenu(
                                     expanded = modelMenuExpanded,
-                                    onDismissRequest = { modelMenuExpanded = false }
+                                    onDismissRequest = { modelMenuExpanded = false },
+                                    containerColor = colors.surface
                                 ) {
                                     DropdownMenuItem(
                                         text = { Text("默认模型".loc) },
@@ -854,8 +883,9 @@ fun AutomationDetailDialog(
     if (showDeleteConfirm) {
         AlertDialog(
             onDismissRequest = { showDeleteConfirm = false },
+            containerColor = colors.surface,
             title = { Text("确认删除定时任务？".loc) },
-            text = { Text("确定要删除定时任务「${sidecar.name}」吗？删除后将停止调度并移除该任务配置。".loc) },
+            text = { Text("确定要删除定时任务「%s」吗？删除后将停止调度并移除该任务配置。".loc(sidecar.name)) },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -882,6 +912,7 @@ fun AutomationDetailDialog(
     if (errorMessage != null) {
         AlertDialog(
             onDismissRequest = { errorMessage = null },
+            containerColor = colors.surface,
             title = { Text("操作失败".loc) },
             text = { Text(errorMessage.orEmpty()) },
             confirmButton = {
@@ -893,6 +924,7 @@ fun AutomationDetailDialog(
     if (showLogsDialog) {
         AlertDialog(
             onDismissRequest = { showLogsDialog = false },
+            containerColor = colors.surface,
             title = {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -977,9 +1009,9 @@ private fun DetailInfoRow(
         Text(
             text = label,
             color = colors.textSecondary,
-            fontSize = 13.sp
+            fontSize = 13.sp,
+            modifier = Modifier.padding(end = 8.dp)
         )
-        Spacer(modifier = Modifier.width(12.dp))
         Text(
             text = value,
             color = colors.textPrimary,
@@ -987,7 +1019,8 @@ private fun DetailInfoRow(
             fontFamily = if (monospace) FontFamily.Monospace else FontFamily.Default,
             fontWeight = FontWeight.Medium,
             maxLines = 2,
-            overflow = TextOverflow.Ellipsis
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f, fill = false)
         )
     }
 }

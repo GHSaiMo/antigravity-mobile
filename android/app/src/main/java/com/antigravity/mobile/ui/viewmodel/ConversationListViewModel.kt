@@ -743,7 +743,7 @@ class ConversationListViewModel(
             }.onFailure { err ->
                 Log.e("ConvListVM", "Failed to load projects: ${err.message}", err)
                 if (_projects.value.isEmpty()) {
-                    _projectsError.value = "拉取工作区失败: ${err.message ?: "网络或网关异常".loc}".loc
+                    _projectsError.value = "拉取工作区失败: %s".loc(err.message ?: "网络或网关异常".loc)
                 }
             }
             _isLoadingProjects.value = false

@@ -300,7 +300,7 @@ data class LocalDraftSession(
         val isPure = project.isPureChat
         val displayTitle = when {
             firstLine.isNotEmpty() -> if (firstLine.length > 36) firstLine.take(36) + "..." else firstLine
-            hasImages -> if (isPure) "[图片] 新对话".loc else "[图片] ${project.name}".loc
+            hasImages -> if (isPure) "[图片] 新对话".loc else "[图片] %s".loc(project.name)
             else -> if (isPure) "新对话".loc else project.name
         }
         val nowIso = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {

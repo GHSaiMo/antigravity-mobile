@@ -120,7 +120,7 @@ fun WeChatChatArchiveSheet(
                 isLoading = false
             }
         }.onFailure { err ->
-            errorMessage = "解析聊天记录失败：${err.localizedMessage ?: err.message ?: "未知错误".loc}".loc
+            errorMessage = "解析聊天记录失败：%s".loc(err.localizedMessage ?: err.message ?: "未知错误".loc)
             isLoading = false
         }
     }
@@ -170,7 +170,7 @@ fun WeChatChatArchiveSheet(
             dl.onSuccess { f ->
                 entryPreviewFile = f to fileName
             }.onFailure {
-                Toast.makeText(context, "打开媒体失败: ${it.message}".loc, Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "打开媒体失败: %s".loc(it.message.orEmpty()), Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -195,7 +195,7 @@ fun WeChatChatArchiveSheet(
                     saveFileToDownloads(context, file, item.fileName)
                 }
             }.onFailure {
-                Toast.makeText(context, "获取原始 ZIP 失败: ${it.message}".loc, Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "获取原始 ZIP 失败: %s".loc(it.message.orEmpty()), Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -266,7 +266,8 @@ fun WeChatChatArchiveSheet(
                             }
                             DropdownMenu(
                                 expanded = menuExpanded,
-                                onDismissRequest = { menuExpanded = false }
+                                onDismissRequest = { menuExpanded = false },
+                                containerColor = cardBg
                             ) {
                                 DropdownMenuItem(
                                     text = { Text(if (isSearching) "关闭搜索".loc else "搜索聊天记录".loc) },
@@ -633,7 +634,7 @@ private fun WeChatMessageRow(
                     }
 
                     "sticker" -> {
-                        val label = if (msg.text.isBlank()) "[动画表情]".loc else "[动画表情] ${msg.text}".loc
+                        val label = if (msg.text.isBlank()) "[动画表情]".loc else "[动画表情] %s".loc(msg.text)
                         Text(
                             text = label,
                             color = textMuted,

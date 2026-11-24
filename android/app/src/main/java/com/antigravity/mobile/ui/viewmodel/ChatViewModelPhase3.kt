@@ -44,7 +44,7 @@ internal fun ChatViewModel.trustCurrentProject(onDone: ((String) -> Unit)? = nul
         }.onFailure { err ->
             _uiState.value = _uiState.value.copy(
                 isUpdatingTrust = false,
-                attachmentNotice = "授予工作区信任失败: ${err.message}".loc
+                attachmentNotice = "授予工作区信任失败: %s".loc(err.message.orEmpty())
             )
         }
     }
@@ -54,9 +54,9 @@ internal fun ChatViewModel.setPermissionPreset(preset: String, onDone: ((String)
     viewModelScope.launch {
         apiClient.updatePermissionPreset(preset).onSuccess { st ->
             _uiState.value = _uiState.value.copy(permissionState = st)
-            onDone?.invoke("权限档位已切换为「${st.label}」".loc)
+            onDone?.invoke("权限档位已切换为「%s」".loc(st.label))
         }.onFailure { err ->
-            _uiState.value = _uiState.value.copy(attachmentNotice = "切换权限失败: ${err.message}".loc)
+            _uiState.value = _uiState.value.copy(attachmentNotice = "切换权限失败: %s".loc(err.message.orEmpty()))
         }
     }
 }
@@ -124,7 +124,7 @@ internal fun ChatViewModel.forkConversationAt(
                 _uiState.value = _uiState.value.copy(attachmentNotice = resp.error ?: "分叉未返回新会话".loc)
             }
         }.onFailure { err ->
-            _uiState.value = _uiState.value.copy(attachmentNotice = "分叉失败: ${err.message}".loc)
+            _uiState.value = _uiState.value.copy(attachmentNotice = "分叉失败: %s".loc(err.message.orEmpty()))
         }
     }
 }
@@ -136,7 +136,7 @@ internal fun ChatViewModel.sendTaskToBackground(stepIndex: Int, onNotice: (Strin
         apiClient.sendStepsToBackground(cid, listOf(stepIndex)).onSuccess { ok ->
             onNotice(if (ok) "已转入后台执行".loc else "当前上游版本暂不支持步骤级转后台".loc)
         }.onFailure { err ->
-            onNotice("转后台失败: ${err.message}".loc)
+            onNotice("转后台失败: %s".loc(err.message.orEmpty()))
         }
     }
 }
@@ -169,7 +169,7 @@ internal suspend fun ChatViewModel.startBtwAndOpen(
         ).getOrElse { err ->
             _uiState.value = _uiState.value.copy(
                 isStartingBtw = false,
-                attachmentNotice = "发起旁路快问失败: ${err.message}".loc
+                attachmentNotice = "发起旁路快问失败: %s".loc(err.message.orEmpty())
             )
             return false
         }
@@ -223,7 +223,7 @@ internal suspend fun ChatViewModel.startBtwAndOpen(
     } catch (e: Exception) {
         _uiState.value = _uiState.value.copy(
             isStartingBtw = false,
-            attachmentNotice = "发起旁路快问失败: ${e.message}".loc
+            attachmentNotice = "发起旁路快问失败: %s".loc(e.message.orEmpty())
         )
         false
     }

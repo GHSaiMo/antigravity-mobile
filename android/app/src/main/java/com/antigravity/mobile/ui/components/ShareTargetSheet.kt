@@ -73,9 +73,9 @@ fun ShareTargetSheet(
     }
 
     val headerLabel = when {
-        deliverable > 0 && hasSharedText -> "投递文本与 $deliverable 个文件到…".loc
+        deliverable > 0 && hasSharedText -> "投递文本与 %d 个文件到…".loc(deliverable)
         hasSharedText -> "投递分享文本到…".loc
-        else -> "投递 $deliverable 个文件到…".loc
+        else -> "投递 %d 个文件到…".loc(deliverable)
     }
 
     ModalBottomSheet(
@@ -86,7 +86,7 @@ fun ShareTargetSheet(
         shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
-        Column(modifier = Modifier.fillMaxWidth().fillMaxHeight(0.88f)) {
+        Column(modifier = Modifier.fillMaxWidth().fillMaxHeight(0.88f).navigationBarsPadding().imePadding()) {
             Row(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 10.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -94,9 +94,10 @@ fun ShareTargetSheet(
                 Text(
                     headerLabel,
                     fontSize = 18.sp, fontWeight = FontWeight.Bold, color = colors.textPrimary,
-                    modifier = Modifier.weight(1f)
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f).padding(end = 8.dp)
                 )
-                TextButton(onClick = onDiscard) { Text("全部丢弃".loc, color = colors.accentRed, fontSize = 13.sp) }
+                TextButton(onClick = onDiscard) { Text("全部丢弃".loc, color = colors.accentRed, fontSize = 13.sp, maxLines = 1, softWrap = false) }
             }
 
             if (hasSharedText) {
@@ -144,7 +145,7 @@ fun ShareTargetSheet(
                             Text(f.name, fontSize = 13.sp, color = colors.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             Text(
                                 f.rejectReason ?: if (com.antigravity.mobile.data.service.FileIconResolver.isWeChatChatArchive(f.name)) {
-                                    "微信聊天记录 · ${formatFileSize(f.size)}".loc
+                                    "微信聊天记录 · %s".loc(formatFileSize(f.size))
                                 } else {
                                     formatFileSize(f.size)
                                 },

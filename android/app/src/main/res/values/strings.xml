@@ -7,7 +7,7 @@
     <string name="stop">Stop</string>
     <string name="proceed">Proceed</string>
     <string name="approve">Approve</string>
-    <string name="reject">Reject</string>
+    <string name="reject">Deny</string>
     <string name="channel_task_status">Antigravity Task Notifications</string>
     <string name="channel_task_status_desc">Real-time status updates, tool calls, and completions for Agent tasks</string>
     <string name="channel_live_activity">Live Activity Notifications</string>

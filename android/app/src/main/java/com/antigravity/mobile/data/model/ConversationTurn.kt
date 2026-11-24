@@ -269,7 +269,7 @@ object ConversationTurnBuilder {
             if (combined.length > 48) combined.take(45) + "..." else combined
         } else if (attachedFiles.isNotEmpty()) {
             val firstFile = attachedFiles.first().name
-            if (attachedFiles.size == 1) "[附件: $firstFile]".loc else "[附件: $firstFile 等 ${attachedFiles.size} 个文件]".loc
+            if (attachedFiles.size == 1) "[附件: %s]".loc(firstFile) else "[附件: %1\$s 等 %2\$d 个文件]".loc(firstFile, attachedFiles.size)
         } else if (userMsg.effectiveImageDataList.isNotEmpty() || !validImageUrls.isNullOrEmpty()) {
             val count = maxOf(userMsg.effectiveImageDataList.size, validImageUrls?.size ?: 0)
             "[包含 $count 张图片]".loc
@@ -332,9 +332,9 @@ object ConversationTurnBuilder {
                         } else if (attachedFiles.isNotEmpty()) {
                             val firstFile = attachedFiles.first().name
                             if (attachedFiles.size == 1) {
-                                "[附件: $firstFile]".loc
+                                "[附件: %s]".loc(firstFile)
                             } else {
-                                "[附件: $firstFile 等 ${attachedFiles.size} 个文件]".loc
+                                "[附件: %1\$s 等 %2\$d 个文件]".loc(firstFile, attachedFiles.size)
                             }
                         } else if (userMsg.effectiveImageDataList.isNotEmpty() || !validImageUrls.isNullOrEmpty()) {
                             val count = maxOf(userMsg.effectiveImageDataList.size, validImageUrls?.size ?: 0)
@@ -436,8 +436,8 @@ object ConversationTurnBuilder {
         return when {
             date == today -> "今天".loc
             date == today.minusDays(1) -> "昨天".loc
-            date.year == today.year -> "${date.monthValue}月${date.dayOfMonth}日".loc
-            else -> "${date.year}年${date.monthValue}月${date.dayOfMonth}日".loc
+            date.year == today.year -> "%1\$d月%2\$d日".loc(date.monthValue, date.dayOfMonth)
+            else -> "%1\$d年%2\$d月%3\$d日".loc(date.year, date.monthValue, date.dayOfMonth)
         }
     }
 
@@ -522,7 +522,7 @@ object ConversationTurnBuilder {
                 if (currentDayTurns.size <= maxOf(chunkSize, 8)) {
                     val firstTurn = currentDayTurns.firstOrNull()?.turnIndex ?: 1
                     val lastTurn = currentDayTurns.lastOrNull()?.turnIndex ?: firstTurn
-                    val range = if (firstTurn == lastTurn) "第 ${firstTurn} 轮".loc else "第 ${firstTurn}–${lastTurn} 轮".loc
+                    val range = if (firstTurn == lastTurn) "第 ${firstTurn} 轮".loc else "第 %1\$d–%2\$d 轮".loc(firstTurn, lastTurn)
                     val title = "$label · $range"
                     dateChapters.add(
                         ConversationChapter(
@@ -543,8 +543,8 @@ object ConversationTurnBuilder {
                         val subTurns = currentDayTurns.subList(start, end)
                         val firstTurn = subTurns.firstOrNull()?.turnIndex ?: (start + 1)
                         val lastTurn = subTurns.lastOrNull()?.turnIndex ?: end
-                        val range = "第 ${firstTurn}–${lastTurn} 轮".loc
-                        val title = "$label (第 $subIdx 段) · $range".loc
+                        val range = "第 %1\$d–%2\$d 轮".loc(firstTurn, lastTurn)
+                        val title = "%1\$s (第 %2\$d 段) · %3\$s".loc(label, subIdx, range)
                         dateChapters.add(
                             ConversationChapter(
                                 id = "chapter-date-$chapterIdx-$subIdx",
@@ -580,7 +580,7 @@ object ConversationTurnBuilder {
 
         // 当总轮次不多时，直接作为一个主章节展示
         if (turns.size <= chunkSize) {
-            val range = if (turns.size == 1) "第 1 轮".loc else "第 1–${turns.size} 轮".loc
+            val range = if (turns.size == 1) "第 1 轮".loc else "第 %1\$d–%2\$d 轮".loc(1, turns.size)
             val dateLabel = turns.firstOrNull()?.timestamp?.let { parseTurnDate(it) }?.let { formatDateLabel(it) }
             val title = if (dateLabel != null) "$dateLabel · $range" else "全部轮次".loc
             return listOf(ConversationChapter("chapter-all", title, range, turns, dateLabel))
@@ -597,9 +597,9 @@ object ConversationTurnBuilder {
             val firstTurn = chunkTurns.firstOrNull()?.turnIndex ?: (startIndex + 1)
             val lastTurn = chunkTurns.lastOrNull()?.turnIndex ?: endIndex
 
-            val range = "第 ${firstTurn}–${lastTurn} 轮".loc
+            val range = "第 %1\$d–%2\$d 轮".loc(firstTurn, lastTurn)
             val chunkDate = chunkTurns.firstOrNull()?.timestamp?.let { parseTurnDate(it) }?.let { formatDateLabel(it) }
-            val title = if (chunkDate != null) "$chunkDate · 第 $chapterNum 章节 ($range)".loc else "第 $chapterNum 章节 ($range)".loc
+            val title = if (chunkDate != null) "%1\$s · 第 %2\$d 章节 (%3\$s)".loc(chunkDate, chapterNum, range) else "第 %1\$d 章节 (%2\$s)".loc(chapterNum, range)
 
             chapters.add(
                 ConversationChapter(

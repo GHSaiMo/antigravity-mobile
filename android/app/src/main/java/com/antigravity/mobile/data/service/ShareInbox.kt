@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
 import androidx.core.content.FileProvider
+import com.antigravity.mobile.ui.util.loc
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -96,8 +97,8 @@ object ShareInbox {
 
             // Cheap rejection before copying; the chat pipeline validates again against the draft.
             val reason = when {
-                declared > fileCap -> "文件超过 ${fileCap / 1024 / 1024}MB：$safeName"
-                isImage -> if (declared == 0L) "文件为空：$safeName" else null
+                declared > fileCap -> "文件超过 %1\$dMB：%2\$s".loc(fileCap / 1024 / 1024, safeName)
+                isImage -> if (declared == 0L) "文件为空：%s".loc(safeName) else null
                 else -> com.antigravity.mobile.data.service.AttachmentRules.validate(
                     safeName,
                     if (declared >= 0) declared else 1,
@@ -131,10 +132,10 @@ object ShareInbox {
             }
             val finalReason = when {
                 reason != null -> reason
-                exceededCap -> "文件超过 ${fileCap / 1024 / 1024}MB：$safeName"
-                copied < 0 -> "无法读取文件：$safeName"
-                copied == 0L -> "文件为空：$safeName"
-                isImage -> if (copied > fileCap) "文件超过 ${fileCap / 1024 / 1024}MB：$safeName" else null
+                exceededCap -> "文件超过 %1\$dMB：%2\$s".loc(fileCap / 1024 / 1024, safeName)
+                copied < 0 -> "无法读取文件：%s".loc(safeName)
+                copied == 0L -> "文件为空：%s".loc(safeName)
+                isImage -> if (copied > fileCap) "文件超过 %1\$dMB：%2\$s".loc(fileCap / 1024 / 1024, safeName) else null
                 else -> AttachmentRules.validate(safeName, copied, emptyList())
             }
             if (finalReason != null) {

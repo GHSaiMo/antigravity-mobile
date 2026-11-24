@@ -158,9 +158,9 @@ fun ConversationNavigatorSheet(
 
                 Column(modifier = Modifier.weight(1f)) {
                     val summaryText = if (chapters.size > 1) {
-                        "共 ${chapters.size} 个章节 · ${turns.size} 轮问答".loc
+                        "共 %1\$d 个章节 · %2\$d 轮问答".loc(chapters.size, turns.size)
                     } else {
-                        "共 ${turns.size} 轮问答步骤".loc
+                        "共 %d 轮问答步骤".loc(turns.size)
                     }
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text(

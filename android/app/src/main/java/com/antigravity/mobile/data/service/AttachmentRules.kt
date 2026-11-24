@@ -1,6 +1,7 @@
 package com.antigravity.mobile.data.service
 
 import com.antigravity.mobile.data.model.AttachmentFile
+import com.antigravity.mobile.ui.util.loc
 import java.util.Locale
 
 /**
@@ -48,15 +49,15 @@ object AttachmentRules {
 
     /** Returns a user-facing rejection reason, or null when the file may be attached. */
     fun validate(name: String, size: Long, existing: List<AttachmentFile>): String? {
-        if (name.isBlank()) return "文件名无效"
-        if (size <= 0) return "文件为空：$name"
+        if (name.isBlank()) return "文件名无效".loc
+        if (size <= 0) return "文件为空：%s".loc(name)
         val fileCap = if (isLargeMediaName(name)) MAX_MEDIA_FILE_BYTES else MAX_FILE_BYTES
-        if (size > fileCap) return "文件超过 ${fileCap / 1024 / 1024}MB：$name"
-        if (existing.size >= MAX_FILES_PER_MESSAGE) return "一条消息最多附带 $MAX_FILES_PER_MESSAGE 个文件"
+        if (size > fileCap) return "文件超过 %1\$dMB：%2\$s".loc(fileCap / 1024 / 1024, name)
+        if (existing.size >= MAX_FILES_PER_MESSAGE) return "一条消息最多附带 %d 个文件".loc(MAX_FILES_PER_MESSAGE)
         val hasMedia = isLargeMediaName(name) || existing.any { isLargeMediaName(it.name) }
         val totalCap = if (hasMedia) MAX_MEDIA_TOTAL_BYTES else MAX_TOTAL_BYTES
         if (existing.sumOf { it.size } + size > totalCap) {
-            return "附件总大小超过 ${totalCap / 1024 / 1024}MB"
+            return "附件总大小超过 %dMB".loc(totalCap / 1024 / 1024)
         }
         return null
     }

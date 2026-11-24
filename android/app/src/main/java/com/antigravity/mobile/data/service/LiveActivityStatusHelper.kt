@@ -1,5 +1,7 @@
 package com.antigravity.mobile.data.service
 
+import com.antigravity.mobile.ui.util.loc
+
 /**
  * Pure Kotlin status transition and notification formatting rules shared by
  * [LiveActivityNotificationManager], [AgentTaskForegroundService], and ChatViewModel.
@@ -86,11 +88,11 @@ object LiveActivityStatusHelper {
     }
 
     fun formatEndedSummary(finalStatus: String): String = when (finalStatus) {
-        "COMPLETED" -> "任务已完成"
-        "PROCEED" -> "方案已就绪，请审批"
-        "CANCELLED" -> "任务已终止"
-        "FAILED" -> "执行遇到错误"
-        else -> "执行已结束"
+        "COMPLETED" -> "任务已完成".loc
+        "PROCEED" -> "方案已就绪，请审批".loc
+        "CANCELLED" -> "任务已终止".loc
+        "FAILED" -> "执行遇到错误".loc
+        else -> "执行已结束".loc
     }
 
     /**
@@ -99,25 +101,28 @@ object LiveActivityStatusHelper {
      */
     fun formatCompletionAlert(finalStatus: String, title: String): Pair<String, String>? {
         val cleanTitle = title.trim().takeIf {
-            it.isNotBlank() && it != "未命名会话" && it != "会话详情" && it != "Agent 任务执行中"
+            it.isNotBlank() &&
+                it != "未命名会话" && it != "未命名会话".loc &&
+                it != "会话详情" && it != "会话详情".loc &&
+                it != "Agent 任务执行中" && it != "Agent 任务执行中".loc
         }
         return when (finalStatus) {
             "COMPLETED" -> {
-                val body = if (cleanTitle != null) "【$cleanTitle】已完成，点击查看详情。" else "任务已完成，点击查看详情。"
-                "🎉 Antigravity 任务已完成" to body
+                val body = if (cleanTitle != null) "【%s】已完成，点击查看详情。".loc(cleanTitle) else "任务已完成，点击查看详情。".loc
+                "🎉 Antigravity 任务已完成".loc to body
             }
             "PROCEED" -> {
-                val body = if (cleanTitle != null) "【$cleanTitle】方案已生成，点击查看或继续执行。" else "方案已生成，点击查看或继续执行。"
-                "📋 方案已就绪，请审批" to body
+                val body = if (cleanTitle != null) "【%s】方案已生成，点击查看或继续执行。".loc(cleanTitle) else "方案已生成，点击查看或继续执行。".loc
+                "📋 方案已就绪，请审批".loc to body
             }
             "FAILED" -> {
-                val body = if (cleanTitle != null) "【$cleanTitle】执行遇到错误，点击查看详情。" else "任务执行遇到错误，点击查看详情。"
-                "❌ Antigravity 任务执行失败" to body
+                val body = if (cleanTitle != null) "【%s】执行遇到错误，点击查看详情。".loc(cleanTitle) else "任务执行遇到错误，点击查看详情。".loc
+                "❌ Antigravity 任务执行失败".loc to body
             }
             "CANCELLED" -> null
             else -> {
-                val body = if (cleanTitle != null) "【$cleanTitle】执行已结束，点击查看详情。" else "任务执行已结束，点击查看详情。"
-                "Antigravity 任务已结束" to body
+                val body = if (cleanTitle != null) "【%s】执行已结束，点击查看详情。".loc(cleanTitle) else "任务执行已结束，点击查看详情。".loc
+                "Antigravity 任务已结束".loc to body
             }
         }
     }

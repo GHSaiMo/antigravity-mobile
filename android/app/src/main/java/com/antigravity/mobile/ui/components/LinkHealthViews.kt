@@ -144,7 +144,7 @@ fun LinkHealthDetailCard(snapshot: LinkSnapshot, onReconnect: () -> Unit, modifi
             }
         }
         Text(
-            text = "最近心跳 $beatText · 电脑端 $desktopText".loc,
+            text = "最近心跳 %1\$s · 电脑端 %2\$s".loc(beatText, desktopText),
             color = colors.textSecondary,
             fontSize = 12.sp
         )

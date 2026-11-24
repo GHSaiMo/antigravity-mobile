@@ -431,7 +431,7 @@ fun WorkflowStageCard(
                                         modifier = Modifier.size(11.dp)
                                     )
                                     Text(
-                                        text = if (isLogsExpanded) "收起日志输出".loc else "展开执行日志 (${currentLogs.size} 行)".loc,
+                                        text = if (isLogsExpanded) "收起日志输出".loc else "展开执行日志 (%d 行)".loc(currentLogs.size),
                                         color = colors.textSecondary,
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.SemiBold

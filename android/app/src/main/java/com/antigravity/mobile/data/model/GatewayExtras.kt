@@ -371,7 +371,7 @@ object ModelDefaults {
         modelId.contains("claude", ignoreCase = true) ||
             CLAUDE_ENUM_TOKENS.any { modelId.contains(it, ignoreCase = true) }
 
-    private val IGNORED_PICKER_TAGS = setOf("new", "fast", "notice", "提示".loc)
+    private val IGNORED_PICKER_TAGS = setOf("new", "fast", "notice", "提示", "ヒント")
 
     /** 内置/预设模型 ID → 统一展示名映射，避免离线、未拉取目录或切号过渡期露出小写裸 ID。 */
     val STATIC_DISPLAY_NAME_BY_ID: Map<String, String> = mapOf(

@@ -28,7 +28,8 @@ internal fun ImageActionMenu(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
+    val colors = com.antigravity.mobile.ui.theme.AntigravityTheme.colors
+    DropdownMenu(expanded = expanded, onDismissRequest = onDismiss, containerColor = colors.surface) {
         DropdownMenuItem(
             text = { Text("保存图片".loc) },
             leadingIcon = { Icon(Icons.Default.FileDownload, contentDescription = "保存图片".loc) },

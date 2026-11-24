@@ -79,7 +79,7 @@ internal fun ChatViewModel.addFilesFromUris(context: Context, uris: List<Uri>) {
                 -1L
             }
             if (copied < 0) {
-                target.delete(); rejected.add("无法读取文件：$name".loc); continue
+                target.delete(); rejected.add("无法读取文件：%s".loc(name)); continue
             }
             // Re-validate with the real size (the provider's declared size may be missing).
             AttachmentRules.validate(name, copied, existing)?.let {

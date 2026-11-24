@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.CallEnd
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -675,7 +676,7 @@ fun ChatScreen(
                         }
                     }
                     .addOnFailureListener { e ->
-                        android.widget.Toast.makeText(context, "启动文档扫描失败: ${e.localizedMessage ?: "服务不可用".loc}".loc, android.widget.Toast.LENGTH_SHORT).show()
+                        android.widget.Toast.makeText(context, "启动文档扫描失败: %s".loc(e.localizedMessage ?: "服务不可用".loc), android.widget.Toast.LENGTH_SHORT).show()
                     }
             } else {
                 android.widget.Toast.makeText(context, "无法获取界面上下文".loc, android.widget.Toast.LENGTH_SHORT).show()
@@ -1348,7 +1349,9 @@ fun ChatScreen(
                                         text = "旁路快问 · 回主会话".loc,
                                         fontSize = 10.sp,
                                         fontWeight = FontWeight.SemiBold,
-                                        color = colors.accentIndigo
+                                        color = colors.accentIndigo,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
                                     )
                                 }
                             }
@@ -1384,10 +1387,12 @@ fun ChatScreen(
                                         .padding(horizontal = 6.dp, vertical = 1.5.dp)
                                 ) {
                                     Text(
-                                        text = "第 $currentTurnIndex/${turns.size} 轮".loc,
+                                        text = "第 %1\$d/%2\$d 轮".loc(currentTurnIndex, turns.size),
                                         fontSize = 10.sp,
                                         fontWeight = FontWeight.SemiBold,
-                                        color = colors.accentIndigo
+                                        color = colors.accentIndigo,
+                                        maxLines = 1,
+                                        softWrap = false
                                     )
                                     Spacer(modifier = Modifier.width(2.dp))
                                     Icon(
@@ -1490,7 +1495,8 @@ fun ChatScreen(
 
                         DropdownMenu(
                             expanded = showPermissionMenu,
-                            onDismissRequest = { showPermissionMenu = false }
+                            onDismissRequest = { showPermissionMenu = false },
+                            containerColor = colors.surface
                         ) {
                             DropdownMenuItem(
                                 text = { Text("旁路快问".loc) },
@@ -1522,14 +1528,25 @@ fun ChatScreen(
                                 Triple("auto", "全自动".loc, "命令与编辑自动放行".loc)
                             ).forEach { (preset, label, _) ->
                                 val selected = uiState.permissionState.preset == preset
+                                val selectedTint = if (preset != "strict") Color(0xFFFF9F0A) else colors.accentIndigo
                                 DropdownMenuItem(
                                     text = {
                                         Text(
-                                            text = (if (selected) "✓ " else "   ") + label,
+                                            text = label,
                                             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
                                             color = if (selected && preset != "strict") Color(0xFFFF9F0A) else colors.textPrimary
                                         )
                                     },
+                                    trailingIcon = if (selected) {
+                                        {
+                                            Icon(
+                                                imageVector = Icons.Default.Check,
+                                                contentDescription = null,
+                                                tint = selectedTint,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        }
+                                    } else null,
                                     onClick = {
                                         showPermissionMenu = false
                                         viewModel.setPermissionPreset(preset) { msg -> phase3Notice = msg }
@@ -2736,7 +2753,9 @@ fun ChatScreen(
                                                 text = placeholderText,
                                                 color = colors.textMuted,
                                                 fontSize = 16.sp,
-                                                lineHeight = 22.sp
+                                                lineHeight = 22.sp,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
                                             )
                                         }
                                         innerTextField()
@@ -3174,7 +3193,7 @@ fun ChatScreen(
                         )
                     }
                     Text(
-                        text = "正在下载 ${uiState.downloadingDocumentName}...".loc,
+                        text = "正在下载 %s...".loc(uiState.downloadingDocumentName.orEmpty()),
                         color = colors.textPrimary,
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Medium,
@@ -3471,7 +3490,7 @@ private fun AgentThinkingBubble(
     focusText: String? = null,
     startedAt: String? = null
 ) {
-    val resolvedFocus = focusText?.trim().orEmpty().ifEmpty { "Working" }
+    val resolvedFocus = focusText?.trim().orEmpty().ifEmpty { "工作中".loc }
     ActiveFocusToolRow(
         focusText = resolvedFocus,
         startedAt = startedAt,

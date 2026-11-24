@@ -88,14 +88,16 @@ fun SubagentsCard(
                     }
                     Text(
                         text = when {
-                            singleOpenable != null -> "${singleOpenable.displayName} · 点按查看".loc
+                            singleOpenable != null -> "%s · 点按查看".loc(singleOpenable.displayName)
                             runningCount > 0 -> "$runningCount 个子代理运行中".loc
                             else -> "${items.size} 个子代理".loc
                         },
                         color = colors.textPrimary,
                         fontSize = 14.sp,
                         fontWeight = FontWeight.SemiBold,
-                        maxLines = 1
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
                     )
                     if (singleOpenable == null) {
                         Box(
@@ -253,8 +255,9 @@ private fun SubagentInfo(item: SubagentItem) {
 private fun ConfirmStopSubagentDialog(name: String, onConfirm: () -> Unit, onDismiss: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
+        containerColor = AntigravityTheme.colors.surface,
         title = { Text("关停子代理？".loc) },
-        text = { Text("「$name」正在进行的工作会被中断，已完成的内容会保留。".loc) },
+        text = { Text("「%s」正在进行的工作会被中断，已完成的内容会保留。".loc(name)) },
         confirmButton = {
             TextButton(onClick = onConfirm) { Text("关停".loc, color = AntigravityTheme.colors.accentRed) }
         },
@@ -373,8 +376,8 @@ fun SubagentGroupInlineCard(
     val runningCount = items.count { it.isRunning }
     val doneCount = items.count { !it.isRunning && !it.isGone }
     val statusSummary = when {
-        runningCount > 0 && doneCount > 0 -> "$runningCount 运行中 · $doneCount 已完成".loc
-        runningCount > 0 -> "$runningCount 运行中".loc
+        runningCount > 0 && doneCount > 0 -> "%1\$d 运行中 · %2\$d 已完成".loc(runningCount, doneCount)
+        runningCount > 0 -> "%d 运行中".loc(runningCount)
         else -> "全部已完成".loc
     }
 
@@ -407,7 +410,7 @@ fun SubagentGroupInlineCard(
             }
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(
-                    text = "并行启动 ${items.size} 个子代理".loc,
+                    text = "并行启动 %d 个子代理".loc(items.size),
                     color = colors.textPrimary,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Medium,

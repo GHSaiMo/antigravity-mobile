@@ -387,7 +387,7 @@ internal fun FrontmatterCard(
                     modifier = Modifier.size(14.dp)
                 )
                 Text(
-                    text = "YAML 配置 / 元数据 ($lineCount 行)".loc,
+                    text = "YAML 配置 / 元数据 (%d 行)".loc(lineCount),
                     color = colors.textSecondary,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Medium

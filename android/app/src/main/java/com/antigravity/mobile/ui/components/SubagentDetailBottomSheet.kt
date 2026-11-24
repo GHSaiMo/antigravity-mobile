@@ -75,6 +75,8 @@ fun SubagentDetailBottomSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .navigationBarsPadding()
+                .imePadding()
                 .padding(horizontal = 16.dp)
                 .padding(bottom = 32.dp)
                 .verticalScroll(rememberScrollState()),
@@ -151,7 +153,7 @@ fun SubagentDetailBottomSheet(
 
                         if ((subagent.stepCount ?: 0) > 0) {
                             Text(
-                                text = "• ${subagent.stepCount} 步".loc,
+                                text = "• %d 步".loc(subagent.stepCount ?: 0),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = colors.textSecondary
                             )
@@ -171,7 +173,10 @@ fun SubagentDetailBottomSheet(
                         Text(
                             text = "分配指令 (Initial Prompt)".loc,
                             style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                            color = colors.textSecondary
+                            color = colors.textSecondary,
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f).padding(end = 8.dp)
                         )
                         if (onAskBtw != null) {
                             OutlinedButton(
@@ -181,7 +186,7 @@ fun SubagentDetailBottomSheet(
                                 },
                                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
                             ) {
-                                Text("旁路快问".loc, fontSize = 11.sp, color = colors.accentIndigo)
+                                Text("旁路快问".loc, fontSize = 11.sp, color = colors.accentIndigo, maxLines = 1, softWrap = false)
                             }
                         }
                     }
@@ -222,8 +227,15 @@ fun SubagentDetailBottomSheet(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Text("智能体类型".loc, style = MaterialTheme.typography.bodySmall, color = colors.textSecondary)
-                            Text(subagent.typeName ?: "self", style = MaterialTheme.typography.bodySmall, color = colors.textPrimary)
+                            Text("智能体类型".loc, style = MaterialTheme.typography.bodySmall, color = colors.textSecondary, modifier = Modifier.padding(end = 8.dp))
+                            Text(
+                                text = subagent.typeName ?: "self",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = colors.textPrimary,
+                                maxLines = 1,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false)
+                            )
                         }
                         subagent.runtimeModel?.trim()?.takeIf { it.isNotEmpty() }?.let { rt ->
                             HorizontalDivider(color = colors.border.copy(alpha = 0.3f))
@@ -231,12 +243,15 @@ fun SubagentDetailBottomSheet(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                Text("实际模型".loc, style = MaterialTheme.typography.bodySmall, color = colors.textSecondary)
+                                Text("实际模型".loc, style = MaterialTheme.typography.bodySmall, color = colors.textSecondary, modifier = Modifier.padding(end = 8.dp))
                                 val suffix = subagent.requestedTierDisplay?.let { " (${"请求".loc}: $it)" } ?: ""
                                 Text(
                                     text = "$rt$suffix",
                                     style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
-                                    color = colors.textPrimary
+                                    color = colors.textPrimary,
+                                    maxLines = 1,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f, fill = false)
                                 )
                             }
                         }
@@ -245,11 +260,14 @@ fun SubagentDetailBottomSheet(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Text("会话 ID".loc, style = MaterialTheme.typography.bodySmall, color = colors.textSecondary)
+                            Text("会话 ID".loc, style = MaterialTheme.typography.bodySmall, color = colors.textSecondary, modifier = Modifier.padding(end = 8.dp))
                             Text(
                                 text = subagent.conversationId.ifBlank { "未生成".loc },
                                 style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
-                                color = colors.textPrimary
+                                color = colors.textPrimary,
+                                maxLines = 1,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false)
                             )
                         }
                     }
@@ -343,7 +361,7 @@ fun SubagentDetailBottomSheet(
                                     scope.launch {
                                         ApiClient.defaultInstance?.sendSubagentMessage(subagent.conversationId, txt)
                                             ?.onSuccess { actionNotice = "指示已送达子代理".loc }
-                                            ?.onFailure { actionNotice = "发送失败: ${it.message}".loc }
+                                            ?.onFailure { actionNotice = "发送失败: %s".loc(it.message.orEmpty()) }
                                     }
                                 }
                             }

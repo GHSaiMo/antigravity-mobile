@@ -305,7 +305,7 @@ internal fun ChatViewModel.confirmUndo() {
         }.onFailure { err ->
             _uiState.value = _uiState.value.copy(
                 isReverting = false,
-                undoErrorMessage = "撤回失败: ${err.message}".loc
+                undoErrorMessage = "撤回失败: %s".loc(err.message.orEmpty())
             )
         }
     }

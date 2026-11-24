@@ -97,7 +97,7 @@ object ShareImageUtils {
                 fos?.use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
                 toast(context, "已保存到相册".loc)
             } catch (e: Exception) {
-                toast(context, "保存失败: ${e.localizedMessage}".loc)
+                toast(context, "保存失败: %s".loc(e.localizedMessage ?: e.message.orEmpty()))
             }
         }
     }
@@ -138,7 +138,7 @@ object ShareImageUtils {
                 startShare(context, intent, "分享图片".loc)
             }
         } catch (e: Exception) {
-            toast(context, "分享失败: ${e.localizedMessage}".loc)
+            toast(context, "分享失败: %s".loc(e.localizedMessage ?: e.message.orEmpty()))
         }
     }
 
@@ -156,7 +156,7 @@ object ShareImageUtils {
                 Toast.makeText(context, "已拷贝图片".loc, Toast.LENGTH_SHORT).show()
             }
         } catch (e: Exception) {
-            toast(context, "拷贝失败: ${e.localizedMessage}".loc)
+            toast(context, "拷贝失败: %s".loc(e.localizedMessage ?: e.message.orEmpty()))
         }
     }
 

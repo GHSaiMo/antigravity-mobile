@@ -156,7 +156,11 @@ fun NewConversationSheet(
                     fontWeight = FontWeight.Bold,
                     color = colors.textPrimary,
                     textAlign = TextAlign.Center,
-                    modifier = Modifier.align(Alignment.Center)
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .padding(horizontal = 44.dp)
                 )
                 IconButton(
                     onClick = { activeSubPage = 2 },
@@ -186,13 +190,18 @@ fun NewConversationSheet(
                     text = "选择模式或工作区发起新会话".loc,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Medium,
-                    color = colors.textSecondary
+                    color = colors.textSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f).padding(end = 8.dp)
                 )
                 if (projects.isNotEmpty()) {
                     Text(
                         text = "${projects.size} 个工作区".loc,
                         fontSize = 12.sp,
-                        color = colors.textSecondary
+                        color = colors.textSecondary,
+                        maxLines = 1,
+                        softWrap = false
                     )
                 }
             }
@@ -445,6 +454,7 @@ fun NewConversationSheet(
     longPressedProject?.let { proj ->
         AlertDialog(
             onDismissRequest = { longPressedProject = null },
+            containerColor = colors.surface,
             title = { Text(proj.displayName) },
             text = { Text("选择工作区操作：".loc) },
             confirmButton = {

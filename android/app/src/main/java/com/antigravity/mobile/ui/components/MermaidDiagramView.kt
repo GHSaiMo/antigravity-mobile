@@ -535,7 +535,7 @@ private fun buildMermaidHtml(code: String, isDark: Boolean, isFullscreen: Boolea
               }
 
               if (typeof mermaid === 'undefined') {
-                reportError("未能加载 mermaid.min.js 引擎");
+                reportError("${"未能加载 mermaid.min.js 引擎".loc}");
                 return;
               }
 

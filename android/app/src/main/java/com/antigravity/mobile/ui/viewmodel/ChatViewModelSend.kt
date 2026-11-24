@@ -451,7 +451,7 @@ internal fun ChatViewModel.sendMessage(
                         hasObservedServerRunningForAwaiting = false
                         stopRunningFallbackPolling()
                         _uiState.value = _uiState.value.copy(
-                            errorMessage = "发送失败: ${err.message}".loc,
+                            errorMessage = "发送失败: %s".loc(err.message.orEmpty()),
                             isRunning = false,
                             isAwaitingResponse = false
                         )
@@ -519,7 +519,7 @@ internal fun ChatViewModel.sendMessage(
                 hasObservedServerRunningForAwaiting = false
                 stopRunningFallbackPolling()
                 _uiState.value = _uiState.value.copy(
-                    errorMessage = "创建会话失败: ${err.message}".loc,
+                    errorMessage = "创建会话失败: %s".loc(err.message.orEmpty()),
                     isRunning = false,
                     isAwaitingResponse = false
                 )
@@ -561,7 +561,7 @@ internal fun ChatViewModel.sendMessage(
             hasObservedServerRunningForAwaiting = false
             stopRunningFallbackPolling()
             _uiState.value = _uiState.value.copy(
-                errorMessage = "发送失败: ${err.message}".loc,
+                errorMessage = "发送失败: %s".loc(err.message.orEmpty()),
                 isRunning = false,
                 isAwaitingResponse = false
             )
@@ -668,7 +668,7 @@ internal fun ChatViewModel.ensureCascadeForVoiceCall(onReady: (String, String?, 
             onReady(newCascadeId, baseUrl, token)
         }.onFailure { err ->
             _uiState.value = _uiState.value.copy(
-                errorMessage = "无法启动实时语音会话：${err.message ?: "网络异常".loc}".loc
+                errorMessage = "无法启动实时语音会话：%s".loc(err.message ?: "网络异常".loc)
             )
         }
     }

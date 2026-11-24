@@ -229,7 +229,7 @@ internal fun ChatViewModel.prepareSession(
 
     val resolvedWs = workspaceName?.takeIf { it.isNotBlank() }
         ?: (if (resolvedDraftProject?.isPureChat == true) "Chat" else resolvedDraftProject?.name.orEmpty())
-    val defaultTitle = if (isDraft) (if (resolvedWs.isNotBlank() && resolvedWs != "Chat") resolvedWs else "新对话".loc) else "会话 $cascadeId".loc
+    val defaultTitle = if (isDraft) (if (resolvedWs.isNotBlank() && resolvedWs != "Chat") resolvedWs else "新对话".loc) else "会话 %s".loc(cascadeId)
 
     // Restore draft text and warm memory images immediately (zero disk I/O on Main)
     val savedDraftText = prefs?.getDraftText(cascadeId).orEmpty()
@@ -349,7 +349,7 @@ internal fun ChatViewModel.initSession(
     val shouldLoad = !isNewConversation && !isDraft
     val fallbackWs = (if (resolvedDraftProject?.isPureChat == true) "Chat" else resolvedDraftProject?.name) ?: _uiState.value.workspaceName
     val resolvedWs = workspaceName?.takeIf { it.isNotBlank() } ?: fallbackWs
-    val defaultTitle = if (isDraft) (if (resolvedWs.isNotBlank() && resolvedWs != "Chat") resolvedWs else "新对话".loc) else "会话 $cascadeId".loc
+    val defaultTitle = if (isDraft) (if (resolvedWs.isNotBlank() && resolvedWs != "Chat") resolvedWs else "新对话".loc) else "会话 %s".loc(cascadeId)
 
     if (isDifferentSession) {
         fetchJob?.cancel()

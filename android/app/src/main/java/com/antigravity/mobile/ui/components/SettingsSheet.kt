@@ -425,7 +425,7 @@ private fun SettingsPageHeader(
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = if (showBack) 68.dp else 0.dp)
+                .padding(horizontal = if (showBack) 96.dp else 0.dp)
         )
     }
 }
@@ -547,7 +547,7 @@ private fun MainSettingsContent(
         // MARK: - 1. 设备配对与鉴权 (1:1 iOS 对齐)
         SettingsSection(
             title = "设备配对".loc,
-            footer = "管理当前设备与 ${gatewayDesc}的配对状态。".loc
+            footer = "管理当前设备与 %s的配对状态。".loc(gatewayDesc)
         ) {
             Column(
                 modifier = Modifier
@@ -827,7 +827,8 @@ private fun MainSettingsContent(
                 permPrefs.edit().putString("cached_permission_preset", it.preset).apply()
             }
         }
-        val permissionOptions = remember(colors) {
+        val currentLang = L10n.currentLang
+        val permissionOptions = remember(colors, currentLang) {
             listOf(
                 PickerMenuOption("strict", "严格审批".loc, accentColor = colors.accentIndigo),
                 PickerMenuOption("sandbox", "离席沙箱放行".loc, accentColor = colors.accentOrange),
@@ -870,7 +871,7 @@ private fun MainSettingsContent(
                         .padding(horizontal = 16.dp, vertical = 14.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column {
+                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
                         Text(
                             text = "MCP 工具与技能看板".loc,
                             color = colors.textPrimary,
@@ -883,7 +884,6 @@ private fun MainSettingsContent(
                             fontSize = 11.5.sp
                         )
                     }
-                    Spacer(modifier = Modifier.weight(1f))
                     Icon(
                         imageVector = Icons.Default.ChevronRight,
                         contentDescription = null,
@@ -1007,7 +1007,8 @@ private fun MainSettingsContent(
                             L10n.AppLang.ZH -> "提醒内容"
                         },
                         color = colors.textPrimary,
-                        fontSize = 15.sp
+                        fontSize = 15.sp,
+                        modifier = Modifier.weight(1f, fill = false).padding(end = 8.dp)
                     )
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -1016,7 +1017,9 @@ private fun MainSettingsContent(
                         Text(
                             text = alertSummary,
                             color = colors.textSecondary,
-                            fontSize = 13.sp
+                            fontSize = 13.sp,
+                            maxLines = 1,
+                            softWrap = false
                         )
                         Icon(
                             imageVector = Icons.Default.ChevronRight,
@@ -1089,14 +1092,14 @@ private fun MainSettingsContent(
                 else -> "已关闭".loc
             }
         }
-        val compactSummary = remember(knowledgeMode, compactCollapseTools, compactCollapseTasks, compactHideHealthyContext) {
+        val compactSummary = remember(knowledgeMode, compactCollapseTools, compactCollapseTasks, compactHideHealthyContext, currentLang) {
             if (!knowledgeMode) "已关闭".loc
             else {
                 val activeCount = listOf(compactCollapseTools, compactCollapseTasks, compactHideHealthyContext).count { it }
-                "已开启 ($activeCount/3)".loc
+                "已开启 (%d/3)".loc(activeCount)
             }
         }
-        val fontScaleOptions = remember {
+        val fontScaleOptions = remember(currentLang) {
             listOf(
                 PickerMenuOption("compact", "紧凑 (90%)".loc),
                 PickerMenuOption("standard", "标准 (100%)".loc),
@@ -1139,7 +1142,8 @@ private fun MainSettingsContent(
                         text = "额度显示".loc,
                         color = colors.textPrimary,
                         fontSize = 15.sp,
-                        fontWeight = FontWeight.Medium
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.weight(1f, fill = false).padding(end = 8.dp)
                     )
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -1148,7 +1152,9 @@ private fun MainSettingsContent(
                         Text(
                             text = quotaDisplaySummary,
                             color = colors.textSecondary,
-                            fontSize = 14.sp
+                            fontSize = 14.sp,
+                            maxLines = 1,
+                            softWrap = false
                         )
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
@@ -1171,7 +1177,8 @@ private fun MainSettingsContent(
                         text = "精简模式".loc,
                         color = colors.textPrimary,
                         fontSize = 15.sp,
-                        fontWeight = FontWeight.Medium
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.weight(1f, fill = false).padding(end = 8.dp)
                     )
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -1180,7 +1187,9 @@ private fun MainSettingsContent(
                         Text(
                             text = compactSummary,
                             color = colors.textSecondary,
-                            fontSize = 14.sp
+                            fontSize = 14.sp,
+                            maxLines = 1,
+                            softWrap = false
                         )
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
@@ -1751,8 +1760,8 @@ private fun SettingsMenuPickerRow(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Column(modifier = Modifier.weight(1f, fill = false)) {
-                Text(text = label, color = colors.textPrimary, fontSize = 15.sp)
+            Column(modifier = Modifier.weight(1f, fill = false).padding(end = 8.dp)) {
+                Text(text = label, color = colors.textPrimary, fontSize = 15.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 if (!subtitle.isNullOrBlank()) {
                     Text(
                         text = subtitle,
@@ -1761,7 +1770,6 @@ private fun SettingsMenuPickerRow(
                     )
                 }
             }
-            Spacer(modifier = Modifier.width(8.dp))
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
                     text = selectedLabel,
@@ -1769,7 +1777,7 @@ private fun SettingsMenuPickerRow(
                     fontSize = 14.sp,
                     maxLines = 1,
                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                    modifier = Modifier.widthIn(max = 200.dp)
+                    modifier = Modifier.widthIn(max = 175.dp)
                 )
                 if (enabled) {
                     Icon(
@@ -1781,7 +1789,11 @@ private fun SettingsMenuPickerRow(
                 }
             }
         }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+            containerColor = colors.surface
+        ) {
             options.forEach { option ->
                 if (option.isGroupStart) {
                     HorizontalDivider(color = colors.separator.copy(alpha = 0.4f), thickness = 0.5.dp)
@@ -1926,7 +1938,8 @@ private fun ThemeModeSegmentedRow(
 ) {
     val colors = AntigravityTheme.colors
     val haptic = rememberHaptic()
-    val items = remember {
+    val currentLang = L10n.currentLang
+    val items = remember(currentLang) {
         listOf("system" to "跟随系统".loc, "light" to "浅色".loc, "dark" to "深色".loc)
     }
     Row(
@@ -1940,7 +1953,10 @@ private fun ThemeModeSegmentedRow(
             text = "外观模式".loc,
             color = colors.textPrimary,
             fontSize = 15.sp,
-            fontWeight = FontWeight.Medium
+            fontWeight = FontWeight.Medium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f, fill = false).padding(end = 8.dp)
         )
         Row(
             modifier = Modifier
@@ -1959,14 +1975,16 @@ private fun ThemeModeSegmentedRow(
                             haptic.light()
                             onSelectMode(id)
                         }
-                        .padding(horizontal = 10.dp, vertical = 5.dp),
+                        .padding(horizontal = 8.dp, vertical = 5.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
                         text = label,
                         color = if (selected) colors.textPrimary else colors.textSecondary,
-                        fontSize = 12.5.sp,
-                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium
+                        fontSize = 12.sp,
+                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                        maxLines = 1,
+                        softWrap = false
                     )
                 }
             }
@@ -2192,7 +2210,8 @@ private fun CompactModeSubpageContent(prefs: PreferencesManager) {
                     text = "开启精简模式".loc,
                     color = colors.textPrimary,
                     fontSize = 15.sp,
-                    fontWeight = FontWeight.Medium
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.weight(1f).padding(end = 8.dp)
                 )
                 Switch(
                     checked = knowledgeMode,
@@ -2298,7 +2317,8 @@ private fun QuotaDisplaySubpageContent(prefs: PreferencesManager) {
                     text = "额度匀速指标".loc,
                     color = colors.textPrimary,
                     fontSize = 15.sp,
-                    fontWeight = FontWeight.Medium
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.weight(1f).padding(end = 8.dp)
                 )
                 Switch(
                     checked = weeklyPaceCursor,
@@ -2336,7 +2356,8 @@ private fun QuotaDisplaySubpageContent(prefs: PreferencesManager) {
                         text = "显示余量".loc,
                         color = colors.textPrimary,
                         fontSize = 15.sp,
-                        fontWeight = FontWeight.Medium
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.weight(1f).padding(end = 8.dp)
                     )
                     Switch(
                         checked = enabled,
@@ -2367,7 +2388,8 @@ private fun QuotaDisplaySubpageContent(prefs: PreferencesManager) {
                         text = "余量窗口".loc,
                         color = colors.textPrimary,
                         fontSize = 15.sp,
-                        fontWeight = FontWeight.Medium
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.weight(1f, fill = false).padding(end = 8.dp)
                     )
                     Row(
                         modifier = Modifier

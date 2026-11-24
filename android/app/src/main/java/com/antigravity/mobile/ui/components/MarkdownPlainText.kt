@@ -54,8 +54,8 @@ object MarkdownPlainText {
                 is MarkdownBlock.Blockquote -> convert(block.content)
                 is MarkdownBlock.Paragraph -> inline(block.text)
                 is MarkdownBlock.Image -> block.alt.takeIf { it.isNotBlank() }
-                is MarkdownBlock.AgentEmbed -> "[交互组件: ${block.src.substringAfterLast('/')}]".loc
-                is MarkdownBlock.PluginCard -> "[推荐插件: ${block.pluginId}]".loc
+                is MarkdownBlock.AgentEmbed -> "[交互组件: %s]".loc(block.src.substringAfterLast('/'))
+                is MarkdownBlock.PluginCard -> "[推荐插件: %s]".loc(block.pluginId)
                 is MarkdownBlock.Carousel -> block.slides.joinToString("\n\n") { convert(it.content) }
             }
         }

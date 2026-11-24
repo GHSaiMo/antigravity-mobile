@@ -292,7 +292,7 @@ fun GitHubPRDetailBottomSheet(
             }
 
             item?.authorLogin?.takeIf { it.isNotBlank() }?.let { author ->
-                Text(text = "作者 @$author".loc, color = colors.textSecondary, fontSize = 13.sp)
+                Text(text = "作者 @%s".loc(author), color = colors.textSecondary, fontSize = 13.sp)
             }
 
             item?.body?.takeIf { it.isNotBlank() }?.let { body ->
@@ -485,9 +485,9 @@ fun BranchOriginBanner(
     val title = origin.parentTitle?.trim().orEmpty()
     val turn = origin.forkTurnNumber
     val originLabel = when {
-        title.isNotEmpty() && turn != null && turn > 0 -> "承接自「$title」第 $turn 轮".loc
-        title.isNotEmpty() -> "承接自「$title」".loc
-        turn != null && turn > 0 -> "承接自主会话第 $turn 轮".loc
+        title.isNotEmpty() && turn != null && turn > 0 -> "承接自「%1\$s」第 %2\$d 轮".loc(title, turn)
+        title.isNotEmpty() -> "承接自「%s」".loc(title)
+        turn != null && turn > 0 -> "承接自主会话第 %d 轮".loc(turn)
         else -> "承接自主会话上下文".loc
     }
     Column(
@@ -553,7 +553,9 @@ fun BranchOriginBanner(
                     text = if (isExpanded) "收起前文".loc else "展开前文".loc,
                     color = colors.accentIndigo,
                     fontSize = 11.5.sp,
-                    fontWeight = FontWeight.SemiBold
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    softWrap = false
                 )
             }
             if (origin.parentCascadeId.isNotBlank()) {
@@ -576,7 +578,9 @@ fun BranchOriginBanner(
                         text = "回主会话".loc,
                         color = colors.textPrimary,
                         fontSize = 11.5.sp,
-                        fontWeight = FontWeight.SemiBold
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        softWrap = false
                     )
                 }
             }
@@ -710,22 +714,32 @@ fun BtwSideQuestionBottomSheet(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Row(
+                                modifier = Modifier.weight(1f).padding(end = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(5.dp)
                             ) {
                                 Icon(Icons.Default.CallSplit, contentDescription = null, tint = colors.accentIndigo, modifier = Modifier.size(13.dp))
-                                Text("承接至所选消息的上下文".loc, color = colors.accentIndigo, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                Text(
+                                    "承接至所选消息的上下文".loc,
+                                    color = colors.accentIndigo,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
                             }
                             Text(
                                 text = "改用最新上下文".loc,
                                 color = colors.textSecondary,
                                 fontSize = 11.5.sp,
+                                maxLines = 1,
+                                softWrap = false,
                                 modifier = Modifier.clickable { useAnchorStep = false }
                             )
                         }
                         val preview = anchorPreview?.trim().orEmpty()
                         Text(
-                            text = if (preview.isNotEmpty()) preview else "将从 Step #$anchorStepIndex 处分叉，不携带后续消息。".loc,
+                            text = if (preview.isNotEmpty()) preview else "将从 Step #%d 处分叉，不携带后续消息。".loc(anchorStepIndex),
                             color = colors.textSecondary,
                             fontSize = 12.sp,
                             maxLines = 2,
@@ -744,7 +758,7 @@ fun BtwSideQuestionBottomSheet(
                     ) {
                         Icon(Icons.Default.CallSplit, contentDescription = null, tint = colors.accentIndigo, modifier = Modifier.size(15.dp))
                         Text(
-                            text = "基于「$parentTitle」当前上下文创建独立旁路分支，不打断主对话流，支持多轮追问。".loc,
+                            text = "基于「%s」当前上下文创建独立旁路分支，不打断主对话流，支持多轮追问。".loc(parentTitle),
                             color = colors.textSecondary,
                             fontSize = 12.5.sp
                         )
@@ -754,7 +768,7 @@ fun BtwSideQuestionBottomSheet(
                 if (branches.isNotEmpty()) {
                     Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
                         Text(
-                            text = "已有旁路分支 (${branches.size})".loc,
+                            text = "已有旁路分支 (%d)".loc(branches.size),
                             color = colors.textSecondary,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.SemiBold

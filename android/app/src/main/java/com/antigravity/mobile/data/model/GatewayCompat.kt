@@ -40,8 +40,8 @@ data class GatewayCompat(
     /** 首页顶部提示条文案。 */
     val bannerText: String
         get() {
-            val ver = version?.takeIf { it.isNotBlank() }?.let { "（$it）" } ?: ""
-            return "当前 Antigravity 版本$ver 与网关不兼容，部分基础功能可能无法使用。请升级网关（mgy）。".loc
+            val ver = version?.takeIf { it.isNotBlank() }?.let { " ($it)" } ?: ""
+            return "当前 Antigravity 版本%s 与网关不兼容，部分基础功能可能无法使用。请升级网关（mgy）。".loc(ver)
         }
 
     companion object {

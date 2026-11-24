@@ -342,39 +342,54 @@ fun McpSkillsSheet(
                         .padding(top = 12.dp)
                 ) {
 
-            // Tab Row
-            TabRow(
-                selectedTabIndex = selectedTab.index,
-                containerColor = colors.surface,
-                contentColor = colors.accentIndigo,
+            // Compact 5-Tab Row (avoids Material3 Tab's 16dp horizontal padding clipping EN/JA labels)
+            Row(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(8.dp))
+                    .fillMaxWidth()
                     .padding(bottom = 8.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(colors.surface),
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 McpSkillsTab.entries.forEach { tab ->
+                    val isSelected = selectedTab == tab
                     val tabText = if (tab == McpSkillsTab.TASKS && backgroundTasks.isNotEmpty()) {
                         "${tab.label}(${backgroundTasks.size})"
                     } else {
                         tab.label
                     }
-                    Tab(
-                        selected = selectedTab == tab,
-                        selectedContentColor = colors.accentIndigo,
-                        unselectedContentColor = colors.textSecondary,
-                        onClick = {
-                            haptic.light()
-                            selectedTab = tab
-                        },
-                        text = {
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable {
+                                haptic.light()
+                                selectedTab = tab
+                            },
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(42.dp)
+                                .padding(horizontal = 3.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
                             Text(
                                 text = tabText,
-                                fontWeight = if (selectedTab == tab) FontWeight.Bold else FontWeight.Normal,
-                                fontSize = 12.sp,
+                                color = if (isSelected) colors.accentIndigo else colors.textSecondary,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                fontSize = 11.5.sp,
                                 maxLines = 1,
-                                softWrap = false
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
-                    )
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(2.5.dp)
+                                .background(if (isSelected) colors.accentIndigo else Color.Transparent)
+                        )
+                    }
                 }
             }
 
@@ -450,7 +465,7 @@ fun McpSkillsSheet(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = "已配置 ${filteredServers.size} 个服务".loc,
+                                    text = "已配置 %d 个服务".loc(filteredServers.size),
                                     fontSize = 12.sp,
                                     color = colors.textMuted
                                 )
@@ -541,7 +556,7 @@ fun McpSkillsSheet(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = "🧠 Agent 记忆库与规则 (${filteredMemories.size})".loc,
+                                    text = "🧠 Agent 记忆库与规则 (%d)".loc(filteredMemories.size),
                                     fontSize = 14.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     color = colors.textPrimary,
@@ -665,7 +680,7 @@ fun McpSkillsSheet(
                         if (pluginProviders.isNotEmpty()) {
                             item(key = "plugin_providers_header") {
                                 Text(
-                                    text = "插件账号与认证状态 (${pluginProviders.size})".loc,
+                                    text = "插件账号与认证状态 (%d)".loc(pluginProviders.size),
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     color = colors.textSecondary,
@@ -687,13 +702,18 @@ fun McpSkillsSheet(
                                         text = prov.name.ifBlank { prov.id },
                                         color = colors.textPrimary,
                                         fontSize = 13.5.sp,
-                                        fontWeight = FontWeight.Medium
+                                        fontWeight = FontWeight.Medium,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f).padding(end = 8.dp)
                                     )
                                     Text(
                                         text = if (prov.signedIn) "已连接".loc else "未登录".loc,
                                         color = if (prov.signedIn) colors.accentGreen else colors.textSecondary,
                                         fontSize = 11.5.sp,
-                                        fontWeight = FontWeight.SemiBold
+                                        fontWeight = FontWeight.SemiBold,
+                                        maxLines = 1,
+                                        softWrap = false
                                     )
                                 }
                             }
@@ -702,7 +722,7 @@ fun McpSkillsSheet(
                         if (pluginPermissionGrants.isNotEmpty()) {
                             item(key = "plugin_grants_header") {
                                 Text(
-                                    text = "已授权插件权限 (${pluginPermissionGrants.size})".loc,
+                                    text = "已授权插件权限 (%d)".loc(pluginPermissionGrants.size),
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     color = colors.textSecondary,
@@ -794,7 +814,7 @@ fun McpSkillsSheet(
                         if (filteredPlugins.isNotEmpty()) {
                             item(key = "plugins_header") {
                                 Text(
-                                    text = "已安装 / 可用插件 (${filteredPlugins.size})".loc,
+                                    text = "已安装 / 可用插件 (%d)".loc(filteredPlugins.size),
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     color = colors.textSecondary,
@@ -888,18 +908,20 @@ fun McpSkillsSheet(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = "定时计划 (${filteredAutomations.size})".loc,
+                                    text = "定时计划 (%d)".loc(filteredAutomations.size),
                                     fontSize = 13.5.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     color = colors.textSecondary,
-                                    modifier = Modifier.padding(start = 2.dp)
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f, fill = false).padding(start = 2.dp, end = 8.dp)
                                 )
                                 FilledTonalButton(
                                     onClick = { showNewAutomationDialog = true },
                                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
                                     modifier = Modifier.height(30.dp)
                                 ) {
-                                    Text("+ 新建定时任务".loc, fontSize = 12.sp)
+                                    Text("+ 新建定时任务".loc, fontSize = 12.sp, maxLines = 1, softWrap = false)
                                 }
                             }
                         }
@@ -1107,7 +1129,7 @@ fun McpSkillsSheet(
                                         modifier = Modifier.size(18.dp)
                                     )
                                     Text(
-                                        text = "一键停止全部后台任务 (${filteredTasks.size})".loc,
+                                        text = "一键停止全部后台任务 (%d)".loc(filteredTasks.size),
                                         fontSize = 13.5.sp,
                                         fontWeight = FontWeight.SemiBold,
                                         color = colors.accentRed
@@ -1166,7 +1188,7 @@ fun McpSkillsSheet(
                         if (otherTasks.isNotEmpty()) {
                             item(key = "header_other_tasks") {
                                 Text(
-                                    text = if (currentConversationId != null) "其他会话任务 (${otherTasks.size})".loc else "正在运行的后台任务 (${otherTasks.size})".loc,
+                                    text = if (currentConversationId != null) "其他会话任务 (${otherTasks.size})".loc else "正在运行的后台任务 (%d)".loc(otherTasks.size),
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     color = colors.textSecondary,
@@ -1224,7 +1246,7 @@ fun McpSkillsSheet(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
-                    .navigationBarsPadding()
+                    .windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.ime))
                     .padding(bottom = 12.dp)
                     .shadow(
                         elevation = 6.dp,
@@ -1242,7 +1264,7 @@ fun McpSkillsSheet(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Search,
-                        contentDescription = "Search",
+                        contentDescription = "搜索".loc,
                         tint = colors.textSecondary,
                         modifier = Modifier.size(18.dp)
                     )
@@ -1266,7 +1288,9 @@ fun McpSkillsSheet(
                                         McpSkillsTab.TASKS -> "搜索命令、会话标题或工作区".loc
                                     },
                                     color = colors.textMuted,
-                                    fontSize = 14.5.sp
+                                    fontSize = 14.5.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
                             innerTextField()
@@ -1296,6 +1320,7 @@ fun McpSkillsSheet(
     viewingSkill?.let { skill ->
         AlertDialog(
             onDismissRequest = { viewingSkill = null },
+            containerColor = colors.surface,
             confirmButton = {
                 TextButton(onClick = { viewingSkill = null }) {
                     Text("关闭".loc, color = colors.accentIndigo)
@@ -1310,12 +1335,17 @@ fun McpSkillsSheet(
                         text = skill.name,
                         fontSize = 17.sp,
                         fontWeight = FontWeight.Bold,
-                        color = colors.textPrimary
+                        color = colors.textPrimary,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
                     )
                     Text(
                         text = skill.locationCategory,
                         fontSize = 10.5.sp,
                         color = if (skill.isBuiltin) colors.textSecondary else colors.accentIndigo,
+                        maxLines = 1,
+                        softWrap = false,
                         modifier = Modifier
                             .clip(RoundedCornerShape(4.dp))
                             .background(if (skill.isBuiltin) colors.surfaceVariant else colors.accentIndigo.copy(alpha = 0.12f))
@@ -1369,8 +1399,7 @@ fun McpSkillsSheet(
                         }
                     }
                 }
-            },
-            containerColor = colors.surface
+            }
         )
     }
 
@@ -1431,7 +1460,7 @@ fun McpSkillsSheet(
             title = { Text("确认删除记忆条目？".loc, fontSize = 16.sp, fontWeight = FontWeight.SemiBold) },
             text = {
                 Text(
-                    text = "确定要删除「${targetMem.title.ifBlank { targetMem.id }}」吗？这会移除对应的本地规则/记忆文件（并在 ~/.gemini/backups/deleted_memories 保留备份）。".loc,
+                    text = "确定要删除「%s」吗？这会移除对应的本地规则/记忆文件（并在 ~/.gemini/backups/deleted_memories 保留备份）。".loc(targetMem.title.ifBlank { targetMem.id }),
                     fontSize = 13.5.sp,
                     color = colors.textSecondary
                 )
@@ -1460,6 +1489,7 @@ fun McpSkillsSheet(
         var autoPrompt by remember { mutableStateOf("") }
         AlertDialog(
             onDismissRequest = { showNewAutomationDialog = false },
+            containerColor = colors.surface,
             title = { Text("新建定时自动化任务".loc, fontSize = 16.sp, fontWeight = FontWeight.SemiBold) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1505,8 +1535,7 @@ fun McpSkillsSheet(
             },
             dismissButton = {
                 TextButton(onClick = { showNewAutomationDialog = false }) { Text("取消".loc) }
-            },
-            containerColor = colors.surface
+            }
         )
     }
 
@@ -1652,7 +1681,7 @@ private fun McpServerCard(
             ) {
                 HorizontalDivider(color = colors.border.copy(alpha = 0.5f))
                 Text(
-                    text = "可用工具清单 (${server.toolCount})".loc,
+                    text = "可用工具清单 (%d)".loc(server.toolCount),
                     fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = colors.accentIndigo
@@ -1696,7 +1725,10 @@ private fun McpToolItem(
                 fontSize = 13.sp,
                 fontWeight = FontWeight.SemiBold,
                 fontFamily = FontFamily.Monospace,
-                color = colors.textPrimary
+                color = colors.textPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false)
             )
             if (params.isNotEmpty()) {
                 Spacer(modifier = Modifier.width(6.dp))
@@ -1704,6 +1736,8 @@ private fun McpToolItem(
                     text = "${params.size} 参数".loc,
                     fontSize = 10.sp,
                     color = colors.accentIndigo,
+                    maxLines = 1,
+                    softWrap = false,
                     modifier = Modifier
                         .clip(RoundedCornerShape(4.dp))
                         .background(colors.accentIndigo.copy(alpha = 0.12f))
@@ -1787,9 +1821,11 @@ private fun McpToolItem(
                                 param.defaultValue?.let { def ->
                                     Spacer(modifier = Modifier.weight(1f))
                                     Text(
-                                        text = "默认: $def".loc,
+                                        text = "默认: %s".loc(def),
                                         fontSize = 10.sp,
-                                        color = colors.textMuted
+                                        color = colors.textMuted,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
                                     )
                                 }
                             }
@@ -1832,13 +1868,18 @@ private fun SkillCard(
                 text = skill.name,
                 fontSize = 14.5.sp,
                 fontWeight = FontWeight.Bold,
-                color = colors.textPrimary
+                color = colors.textPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false)
             )
             Spacer(modifier = Modifier.width(6.dp))
             Text(
                 text = skill.locationCategory,
                 fontSize = 10.sp,
                 color = if (skill.isBuiltin) colors.textSecondary else colors.accentIndigo,
+                maxLines = 1,
+                softWrap = false,
                 modifier = Modifier
                     .clip(RoundedCornerShape(4.dp))
                     .background(if (skill.isBuiltin) colors.surfaceVariant else colors.accentIndigo.copy(alpha = 0.12f))
@@ -1925,6 +1966,8 @@ private fun GlobalBackgroundTaskCard(
                 fontSize = 10.5.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = badgeColor,
+                maxLines = 1,
+                softWrap = false,
                 modifier = Modifier
                     .clip(CircleShape)
                     .background(badgeColor.copy(alpha = 0.14f))
@@ -2018,7 +2061,9 @@ private fun GlobalBackgroundTaskCard(
                     text = "跳转会话 ›".loc,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Medium,
-                    color = colors.accentIndigo
+                    color = colors.accentIndigo,
+                    maxLines = 1,
+                    softWrap = false
                 )
             }
         }
@@ -2196,7 +2241,8 @@ private fun PluginCard(
                     fontSize = 14.5.sp,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false)
                 )
                 if (plugin.installed) {
                     Box(
@@ -2209,7 +2255,9 @@ private fun PluginCard(
                             text = if (plugin.enabled) "已启用".loc else "已停用".loc,
                             color = if (plugin.enabled) colors.accentGreen else colors.textSecondary,
                             fontSize = 10.5.sp,
-                            fontWeight = FontWeight.Medium
+                            fontWeight = FontWeight.Medium,
+                            maxLines = 1,
+                            softWrap = false
                         )
                     }
                 }
@@ -2225,7 +2273,7 @@ private fun PluginCard(
                     if (isInstalling) {
                         CircularProgressIndicator(modifier = Modifier.size(12.dp), strokeWidth = 1.5.dp)
                     } else {
-                        Text("安装".loc, fontSize = 11.5.sp)
+                        Text("安装".loc, fontSize = 11.5.sp, maxLines = 1, softWrap = false)
                     }
                 }
             } else if (onOpenSwarm != null) {
@@ -2234,7 +2282,7 @@ private fun PluginCard(
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
                     modifier = Modifier.height(28.dp)
                 ) {
-                    Text("打开看板".loc, fontSize = 11.5.sp)
+                    Text("打开看板".loc, fontSize = 11.5.sp, maxLines = 1, softWrap = false)
                 }
             }
         }
@@ -2309,7 +2357,9 @@ private fun AutomationCard(
                         text = if (isRunning) "运行中".loc else "已暂停".loc,
                         color = if (isRunning) colors.accentGreen else colors.textSecondary,
                         fontSize = 11.sp,
-                        fontWeight = FontWeight.Medium
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        softWrap = false
                     )
                 }
             }
@@ -2358,7 +2408,9 @@ private fun AutomationCard(
                             text = if (isRunning) "停止".loc else "启动".loc,
                             color = if (isRunning) colors.textPrimary else colors.accentIndigo,
                             fontSize = 11.5.sp,
-                            fontWeight = FontWeight.SemiBold
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            softWrap = false
                         )
                     }
                 }
@@ -2402,16 +2454,20 @@ private fun AutomationCard(
             ) {
                 if (isRunning && !sidecar.nextRunAt.isNullOrBlank()) {
                     Text(
-                        text = "下次: ${sidecar.nextRunAt}".loc,
+                        text = "下次: %s".loc(sidecar.nextRunAt),
                         color = colors.textSecondary,
-                        fontSize = 11.sp
+                        fontSize = 11.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
                 if (!sidecar.lastRunAt.isNullOrBlank()) {
                     Text(
-                        text = "上次: ${sidecar.lastRunAt}".loc,
+                        text = "上次: %s".loc(sidecar.lastRunAt),
                         color = colors.textMuted,
-                        fontSize = 11.sp
+                        fontSize = 11.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }

@@ -236,7 +236,7 @@ class ApiClient(
                     }
                     if (effectiveCode !in 200..299) {
                         val errMsg = respStr.ifBlank { "HTTP $effectiveCode" }
-                        lastException = RuntimeException("配对响应失败: $errMsg".loc)
+                        lastException = RuntimeException("配对响应失败: %s".loc(errMsg))
                         return@use
                     }
                     val pairResp = json.decodeFromString<PairResponse>(respStr)
@@ -359,7 +359,7 @@ class ApiClient(
 
             client.newCall(req).await().use { response ->
                 if (!response.isSuccessful) {
-                    return@withContext Result.failure(RuntimeException("获取会话列表失败 (${response.code})".loc))
+                    return@withContext Result.failure(RuntimeException("获取会话列表失败 (%d)".loc(response.code)))
                 }
                 val bodyStr = response.body?.string() ?: "{}"
                 val resp = json.decodeFromString<GetAllCascadeTrajectoriesResponse>(bodyStr)
@@ -409,7 +409,7 @@ class ApiClient(
             val req = buildAuthorizedRequest(url).get().build()
             client.newCall(req).await().use { response ->
                 if (!response.isSuccessful) {
-                    return@withContext Result.failure(RuntimeException("获取配额失败 (${response.code})".loc))
+                    return@withContext Result.failure(RuntimeException("获取配额失败 (%d)".loc(response.code)))
                 }
                 val bodyStr = response.body?.string() ?: "{}"
                 val quotaResp = json.decodeFromString<CockpitQuotaResponse>(bodyStr)
@@ -431,7 +431,7 @@ class ApiClient(
             val req = buildAuthorizedRequest(url).get().build()
             client.newCall(req).await().use { response ->
                 if (!response.isSuccessful) {
-                    return@withContext Result.failure(RuntimeException("获取 Token 历史失败 (${response.code})".loc))
+                    return@withContext Result.failure(RuntimeException("获取 Token 历史失败 (%d)".loc(response.code)))
                 }
                 val bodyStr = response.body?.string() ?: "{}"
                 val historyResp = json.decodeFromString<TokenHistoryResponse>(bodyStr)
@@ -453,7 +453,7 @@ class ApiClient(
             val req = buildAuthorizedRequest(url).post("{}".toRequestBody(jsonMediaType)).build()
             client.newCall(req).await().use { response ->
                 if (!response.isSuccessful) {
-                    return@withContext Result.failure(RuntimeException("刷新配额失败 (${response.code})".loc))
+                    return@withContext Result.failure(RuntimeException("刷新配额失败 (%d)".loc(response.code)))
                 }
                 val bodyStr = response.body?.string() ?: "{}"
                 val quotaResp = json.decodeFromString<CockpitQuotaResponse>(bodyStr)
@@ -481,7 +481,7 @@ class ApiClient(
                 if (response.isSuccessful) {
                     Result.success(Unit)
                 } else {
-                    Result.failure(RuntimeException("切换账号失败: HTTP ${response.code}".loc))
+                    Result.failure(RuntimeException("切换账号失败: HTTP %d".loc(response.code)))
                 }
             }
         } catch (e: Exception) {
@@ -502,7 +502,7 @@ class ApiClient(
                 if (!response.isSuccessful) {
                     val errMsg = response.body?.string()?.take(200) ?: ""
                     Log.e("ApiClient", "fetchProjects failed (${response.code}): $errMsg")
-                    return@withContext Result.failure(RuntimeException("获取工作区列表失败 (${response.code})".loc))
+                    return@withContext Result.failure(RuntimeException("获取工作区列表失败 (%d)".loc(response.code)))
                 }
                 val bodyStr = response.body?.string() ?: "[]"
                 val list = json.decodeFromString<List<ProjectItem>>(bodyStr)
@@ -551,7 +551,7 @@ class ApiClient(
                 if (response.isSuccessful) {
                     Result.success(Unit)
                 } else {
-                    Result.failure(RuntimeException("修改工作区备注失败: HTTP ${response.code}".loc))
+                    Result.failure(RuntimeException("修改工作区备注失败: HTTP %d".loc(response.code)))
                 }
             }
         } catch (e: Exception) {
@@ -585,7 +585,7 @@ class ApiClient(
 
             client.newCall(req).await().use { response ->
                 if (!response.isSuccessful) {
-                    return@withContext Result.failure(RuntimeException("创建会话失败: HTTP ${response.code}".loc))
+                    return@withContext Result.failure(RuntimeException("创建会话失败: HTTP %d".loc(response.code)))
                 }
                 val bodyStr = response.body?.string() ?: "{}"
                 val resObj = json.parseToJsonElement(bodyStr).jsonObject
@@ -622,7 +622,7 @@ class ApiClient(
                 if (response.isSuccessful) {
                     Result.success(Unit)
                 } else {
-                    Result.failure(RuntimeException("删除会话失败: HTTP ${response.code}".loc))
+                    Result.failure(RuntimeException("删除会话失败: HTTP %d".loc(response.code)))
                 }
             }
         } catch (e: Exception) {
@@ -654,7 +654,7 @@ class ApiClient(
                 if (response.isSuccessful) {
                     Result.success(Unit)
                 } else {
-                    Result.failure(RuntimeException("重命名会话失败: HTTP ${response.code}".loc))
+                    Result.failure(RuntimeException("重命名会话失败: HTTP %d".loc(response.code)))
                 }
             }
         } catch (e: Exception) {
@@ -686,7 +686,7 @@ class ApiClient(
                 if (response.isSuccessful) {
                     Result.success(Unit)
                 } else {
-                    Result.failure(RuntimeException("设置置顶状态失败: HTTP ${response.code}".loc))
+                    Result.failure(RuntimeException("设置置顶状态失败: HTTP %d".loc(response.code)))
                 }
             }
         } catch (e: Exception) {
@@ -725,7 +725,7 @@ class ApiClient(
                     return@withContext Result.success(cached.second)
                 }
                 if (!response.isSuccessful) {
-                    return@withContext Result.failure(RuntimeException("获取消息失败: HTTP ${response.code}".loc))
+                    return@withContext Result.failure(RuntimeException("获取消息失败: HTTP %d".loc(response.code)))
                 }
                 if (response.networkResponse?.code == 304 && cached != null) {
                     return@withContext Result.success(cached.second)
@@ -827,7 +827,7 @@ class ApiClient(
                 if (response.isSuccessful) {
                     Result.success(Unit)
                 } else {
-                    Result.failure(RuntimeException("发送失败: HTTP ${response.code}".loc))
+                    Result.failure(RuntimeException("发送失败: HTTP %d".loc(response.code)))
                 }
             }
         } catch (e: Exception) {
@@ -859,7 +859,7 @@ class ApiClient(
                 if (response.isSuccessful) {
                     Result.success(Unit)
                 } else {
-                    Result.failure(RuntimeException("删除队列消息失败: HTTP ${response.code}".loc))
+                    Result.failure(RuntimeException("删除队列消息失败: HTTP %d".loc(response.code)))
                 }
             }
         } catch (e: Exception) {
@@ -890,7 +890,7 @@ class ApiClient(
                 if (response.isSuccessful) {
                     Result.success(Unit)
                 } else {
-                    Result.failure(RuntimeException("取消失败: HTTP ${response.code}".loc))
+                    Result.failure(RuntimeException("取消失败: HTTP %d".loc(response.code)))
                 }
             }
         } catch (e: Exception) {
@@ -910,7 +910,7 @@ class ApiClient(
                 .build()
             client.newCall(req).await().use { response ->
                 if (response.isSuccessful) Result.success(Unit)
-                else Result.failure(RuntimeException("关停子代理失败: HTTP ${response.code}".loc))
+                else Result.failure(RuntimeException("关停子代理失败: HTTP %d".loc(response.code)))
             }
         } catch (e: Exception) {
             Result.failure(e)
@@ -942,7 +942,7 @@ class ApiClient(
                 if (response.isSuccessful) {
                     Result.success(Unit)
                 } else {
-                    Result.failure(RuntimeException("停止任务失败: HTTP ${response.code}".loc))
+                    Result.failure(RuntimeException("停止任务失败: HTTP %d".loc(response.code)))
                 }
             }
         } catch (e: Exception) {
@@ -993,7 +993,7 @@ class ApiClient(
                 if (response.isSuccessful) {
                     Result.success(Unit)
                 } else {
-                    Result.failure(RuntimeException("交互提交失败: HTTP ${response.code}".loc))
+                    Result.failure(RuntimeException("交互提交失败: HTTP %d".loc(response.code)))
                 }
             }
         } catch (e: Exception) {
@@ -1043,7 +1043,7 @@ class ApiClient(
                 if (response.isSuccessful) {
                     Result.success(Unit)
                 } else {
-                    Result.failure(RuntimeException("执行方案推进失败: HTTP ${response.code}".loc))
+                    Result.failure(RuntimeException("执行方案推进失败: HTTP %d".loc(response.code)))
                 }
             }
         } catch (e: Exception) {
@@ -1065,7 +1065,7 @@ class ApiClient(
             val req = buildAuthorizedRequest(url).get().build()
             client.newCall(req).await().use { response ->
                 if (!response.isSuccessful) {
-                    return@withContext Result.failure(RuntimeException("获取文件失败: HTTP ${response.code}".loc))
+                    return@withContext Result.failure(RuntimeException("获取文件失败: HTTP %d".loc(response.code)))
                 }
                 val bodyStr = response.body?.string() ?: "{}"
                 val fileResp = json.decodeFromString<FileContentResponse>(bodyStr)
@@ -1086,7 +1086,7 @@ class ApiClient(
             val req = buildAuthorizedRequest(url).get().build()
             client.newCall(req).await().use { response ->
                 if (!response.isSuccessful) {
-                    return@withContext Result.failure(RuntimeException("解析聊天记录失败: HTTP ${response.code}".loc))
+                    return@withContext Result.failure(RuntimeException("解析聊天记录失败: HTTP %d".loc(response.code)))
                 }
                 val bodyStr = response.body?.string() ?: "{}"
                 val parsed = json.decodeFromString<WeChatChatArchive>(bodyStr)
@@ -1253,7 +1253,7 @@ class ApiClient(
             try {
                 call.await().use { response ->
                     if (!response.isSuccessful) {
-                        return@withContext Result.failure(RuntimeException("下载文件失败: HTTP ${response.code}".loc))
+                        return@withContext Result.failure(RuntimeException("下载文件失败: HTTP %d".loc(response.code)))
                     }
                     val body = response.body ?: return@withContext Result.failure(RuntimeException("空响应体".loc))
                     val totalLength = body.contentLength()
@@ -1357,7 +1357,7 @@ class ApiClient(
             client.newCall(request).await().use { response ->
                 if (!response.isSuccessful) {
                     val errMsg = response.body?.string() ?: "HTTP ${response.code}"
-                    return@withContext Result.failure(RuntimeException("获取撤回预览失败: $errMsg".loc))
+                    return@withContext Result.failure(RuntimeException("获取撤回预览失败: %s".loc(errMsg)))
                 }
                 val respStr = response.body?.string() ?: ""
                 val preview = json.decodeFromString<RevertPreviewResponse>(respStr)
@@ -1385,7 +1385,7 @@ class ApiClient(
             client.newCall(request).await().use { response ->
                 if (!response.isSuccessful) {
                     val errMsg = response.body?.string() ?: "HTTP ${response.code}"
-                    return@withContext Result.failure(RuntimeException("执行撤回失败: $errMsg".loc))
+                    return@withContext Result.failure(RuntimeException("执行撤回失败: %s".loc(errMsg)))
                 }
                 Result.success(Unit)
             }
@@ -1578,7 +1578,7 @@ class ApiClient(
             client.newCall(req).await().use { response ->
                 val bodyStr = response.body?.string().orEmpty()
                 if (!response.isSuccessful) {
-                    return@withContext Result.failure(RuntimeException("获取提醒设置失败 (${response.code})"))
+                    return@withContext Result.failure(RuntimeException("获取提醒设置失败 (%d)".loc(response.code)))
                 }
                 Result.success(json.decodeFromString<AlertPreferencesPayload>(bodyStr))
             }
@@ -1599,7 +1599,7 @@ class ApiClient(
             client.newCall(req).await().use { response ->
                 val bodyStr = response.body?.string().orEmpty()
                 if (!response.isSuccessful) {
-                    return@withContext Result.failure(RuntimeException("保存提醒设置失败 (${response.code})"))
+                    return@withContext Result.failure(RuntimeException("保存提醒设置失败 (%d)".loc(response.code)))
                 }
                 Result.success(json.decodeFromString<AlertPreferencesPayload>(bodyStr))
             }
@@ -1629,7 +1629,7 @@ class ApiClient(
 
             client.newCall(req).await().use { response ->
                 if (!response.isSuccessful) {
-                    return@withContext Result.failure(RuntimeException("注册推送 Token 失败 (${response.code})".loc))
+                    return@withContext Result.failure(RuntimeException("注册推送 Token 失败 (%d)".loc(response.code)))
                 }
                 Result.success(Unit)
             }
@@ -1652,7 +1652,7 @@ class ApiClient(
 
             client.newCall(req).await().use { response ->
                 if (!response.isSuccessful) {
-                    return@withContext Result.failure(RuntimeException("获取 ws-ticket 失败 (${response.code})".loc))
+                    return@withContext Result.failure(RuntimeException("获取 ws-ticket 失败 (%d)".loc(response.code)))
                 }
                 val body = response.body?.string() ?: return@withContext Result.failure(RuntimeException("Empty body"))
                 val ticketResp = JsonConfig.instance.decodeFromString<WsTicketResponse>(body)
@@ -1970,7 +1970,7 @@ class ApiClient(
                 .build()
             client.newCall(request).await().use { response ->
                 if (response.isSuccessful) Result.success(Unit)
-                else Result.failure(RuntimeException("归档操作失败: HTTP ${response.code}".loc))
+                else Result.failure(RuntimeException("归档操作失败: HTTP %d".loc(response.code)))
             }
         } catch (e: Exception) {
             Result.failure(e)

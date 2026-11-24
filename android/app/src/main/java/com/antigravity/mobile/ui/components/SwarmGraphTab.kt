@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.components
 
+import com.antigravity.mobile.ui.util.L10n
 import com.antigravity.mobile.ui.util.loc
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
@@ -45,6 +46,7 @@ import com.antigravity.mobile.ui.theme.AntigravityTheme
 import kotlinx.coroutines.delay
 import kotlin.math.*
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SwarmGraphTab(
     snap: SwarmSnapshot,
@@ -103,9 +105,9 @@ fun SwarmGraphTab(
         }
     }
 
-    val synth = remember(snap) { SwarmHiveEngine.synthesize(snap) }
+    val synth = remember(snap, L10n.currentLang) { SwarmHiveEngine.synthesize(snap) }
     val replaySeq = if (replayIndex != null) (currentReplayMessage?.seq ?: 0) else null
-    val hiveModel = remember(snap, synth, replaySeq) {
+    val hiveModel = remember(snap, synth, replaySeq, L10n.currentLang) {
         SwarmHiveEngine.buildHiveMap(snap, synth, replaySeq)
     }
 
@@ -221,20 +223,20 @@ fun SwarmGraphTab(
             )
 
             // Hive Legend
-            Row(
+            FlowRow(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(14.dp),
-                verticalAlignment = Alignment.CenterVertically
+                verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Box(modifier = Modifier.width(16.dp).height(2.dp).clip(CircleShape).background(SwarmColors.liveGreen(isDark)))
-                    Text("Tasks done", fontSize = 11.5.sp, color = SwarmColors.muted(isDark))
+                    Text("已完成任务".loc, fontSize = 11.5.sp, color = SwarmColors.muted(isDark))
                 }
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Box(modifier = Modifier.width(16.dp).height(2.dp).clip(CircleShape).background(SwarmColors.accent(isDark).copy(alpha = 0.75f)))
-                    Text("Message just sent", fontSize = 11.5.sp, color = SwarmColors.muted(isDark))
+                    Text("刚发消息".loc, fontSize = 11.5.sp, color = SwarmColors.muted(isDark))
                 }
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                     Row(horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -242,7 +244,7 @@ fun SwarmGraphTab(
                         Box(modifier = Modifier.width(4.dp).height(2.dp).background(SwarmColors.warnAmber(isDark)))
                         Icon(Icons.Default.PlayArrow, contentDescription = null, tint = SwarmColors.warnAmber(isDark), modifier = Modifier.size(9.dp))
                     }
-                    Text("Waiting on", fontSize = 11.5.sp, color = SwarmColors.muted(isDark))
+                    Text("等待回复".loc, fontSize = 11.5.sp, color = SwarmColors.muted(isDark))
                 }
             }
 
@@ -494,7 +496,7 @@ private fun ReplayControlsBar(
         ) {
             if (currentMsg != null) {
                 Text(
-                    text = "$currentPos of $total · #${currentMsg.seq} · ${formatClock(currentMsg.time)}",
+                    text = "${"%1\$d / %2\$d".loc(currentPos, total)} · #${currentMsg.seq} · ${formatClock(currentMsg.time)}",
                     fontSize = 11.5.sp,
                     fontFamily = FontFamily.Monospace,
                     color = SwarmColors.muted(isDark),
@@ -506,15 +508,16 @@ private fun ReplayControlsBar(
                 val span = SwarmHiveEngine.formatSpanDuration(firstMsg?.time, lastMsg?.time)
                 Row(modifier = Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(3.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        text = "$total ${if (total == 1) "post" else "posts"}",
+                        text = if (total == 1) "1 条消息".loc else "%d 条消息".loc(total),
                         fontSize = 12.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = SwarmColors.ink(isDark),
-                        maxLines = 1
+                        maxLines = 1,
+                        softWrap = false
                     )
                     if (span != null) {
                         Text(
-                            text = "over $span",
+                            text = "耗时 %s".loc(span),
                             fontSize = 12.sp,
                             color = SwarmColors.muted(isDark),
                             maxLines = 1,
@@ -532,20 +535,22 @@ private fun ReplayControlsBar(
                     .padding(2.dp),
                 horizontalArrangement = Arrangement.spacedBy(2.dp)
             ) {
-                listOf("hive" to "Hive", "mentions" to "Mentions").forEach { (key, label) ->
+                listOf("hive" to "蜂巢".loc, "mentions" to "提及".loc).forEach { (key, label) ->
                     val sel = graphMode == key
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(6.dp))
                             .background(if (sel) SwarmColors.surfaceBg(isDark) else Color.Transparent)
                             .clickable { onGraphModeChange(key) }
-                            .padding(horizontal = 9.dp, vertical = 4.5.dp)
+                            .padding(horizontal = 8.dp, vertical = 4.5.dp)
                     ) {
                         Text(
                             text = label,
                             fontSize = 11.5.sp,
                             fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Medium,
-                            color = if (sel) SwarmColors.ink(isDark) else SwarmColors.muted(isDark)
+                            color = if (sel) SwarmColors.ink(isDark) else SwarmColors.muted(isDark),
+                            maxLines = 1,
+                            softWrap = false
                         )
                     }
                 }
@@ -563,16 +568,22 @@ private fun ReplayControlsBar(
                     horizontalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
                     Text(
-                        text = if (replayPacing == "even") "Even" else "Real-time",
+                        text = if (replayPacing == "even") "均匀".loc else "实时".loc,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Medium,
-                        color = SwarmColors.muted(isDark)
+                        color = SwarmColors.muted(isDark),
+                        maxLines = 1,
+                        softWrap = false
                     )
                     Icon(Icons.Default.KeyboardArrowDown, contentDescription = null, tint = SwarmColors.muted(isDark), modifier = Modifier.size(13.dp))
                 }
-                DropdownMenu(expanded = showPacingMenu, onDismissRequest = { showPacingMenu = false }) {
-                    DropdownMenuItem(text = { Text("Even pacing") }, onClick = { onPacingChange("even"); showPacingMenu = false })
-                    DropdownMenuItem(text = { Text("Real-time gaps") }, onClick = { onPacingChange("real"); showPacingMenu = false })
+                DropdownMenu(
+                    expanded = showPacingMenu,
+                    onDismissRequest = { showPacingMenu = false },
+                    containerColor = SwarmColors.surfaceBg(isDark)
+                ) {
+                    DropdownMenuItem(text = { Text("均匀节奏".loc, color = SwarmColors.ink(isDark)) }, onClick = { onPacingChange("even"); showPacingMenu = false })
+                    DropdownMenuItem(text = { Text("真实间隔".loc, color = SwarmColors.ink(isDark)) }, onClick = { onPacingChange("real"); showPacingMenu = false })
                 }
             }
 
@@ -593,13 +604,19 @@ private fun ReplayControlsBar(
                         fontSize = 11.sp,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Medium,
-                        color = SwarmColors.muted(isDark)
+                        color = SwarmColors.muted(isDark),
+                        maxLines = 1,
+                        softWrap = false
                     )
                     Icon(Icons.Default.KeyboardArrowDown, contentDescription = null, tint = SwarmColors.muted(isDark), modifier = Modifier.size(13.dp))
                 }
-                DropdownMenu(expanded = showSpeedMenu, onDismissRequest = { showSpeedMenu = false }) {
+                DropdownMenu(
+                    expanded = showSpeedMenu,
+                    onDismissRequest = { showSpeedMenu = false },
+                    containerColor = SwarmColors.surfaceBg(isDark)
+                ) {
                     listOf(0.5, 1.0, 2.0, 4.0, 8.0).forEach { sp ->
-                        DropdownMenuItem(text = { Text(speedFmt(sp)) }, onClick = { onSpeedChange(sp); showSpeedMenu = false })
+                        DropdownMenuItem(text = { Text(speedFmt(sp), color = SwarmColors.ink(isDark)) }, onClick = { onSpeedChange(sp); showSpeedMenu = false })
                     }
                 }
             }
@@ -939,12 +956,14 @@ private fun HiveHoneycombSectionAndroid(
                                     .width((rDp * 1.4f).dp)
                             ) {
                                 if (rDp >= 52f) {
-                                    Text("Coordinator", fontSize = if (rDp >= 80f) 12.sp else 11.sp, fontWeight = FontWeight.SemiBold, color = SwarmColors.ink(isDark))
+                                    Text("协调者".loc, fontSize = if (rDp >= 80f) 12.sp else 11.sp, fontWeight = FontWeight.SemiBold, color = SwarmColors.ink(isDark), maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 }
                                 Text(
-                                    text = if (hiveModel.coordinatorNeedsYou) "Needs you" else if (rDp >= 52f) "${hiveModel.allDone} of ${hiveModel.allTotal} done" else "${hiveModel.allDone}/${hiveModel.allTotal}",
+                                    text = if (hiveModel.coordinatorNeedsYou) "待你介入".loc else if (rDp >= 52f) "已完成 %1\$d/%2\$d".loc(hiveModel.allDone, hiveModel.allTotal) else "${hiveModel.allDone}/${hiveModel.allTotal}",
                                     fontSize = if (rDp >= 80f) 10.5.sp else 9.5.sp,
-                                    color = if (hiveModel.coordinatorNeedsYou) SwarmColors.warnAmber(isDark) else SwarmColors.muted(isDark)
+                                    color = if (hiveModel.coordinatorNeedsYou) SwarmColors.warnAmber(isDark) else SwarmColors.muted(isDark),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
                         }
@@ -1017,10 +1036,12 @@ private fun HiveHoneycombSectionAndroid(
                     }
                     if (clampedZoom > 1.01f) {
                         Text(
-                            text = "Fit",
+                            text = "自适应".loc,
                             fontSize = 10.5.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = SwarmColors.ink(isDark),
+                            maxLines = 1,
+                            softWrap = false,
                             modifier = Modifier.clickable { onZoomChange(1f) }.padding(horizontal = 5.dp)
                         )
                     }
@@ -1058,10 +1079,12 @@ private fun SelectedHiveCellCardAndroid(
                 }
             }
             Text(
-                text = if (cell.countOnly == null && cell.total > 0) "${cell.done} of ${cell.total} done" else "${cell.bees.size} ${if (cell.bees.size == 1) "bee" else "bees"}",
+                text = if (cell.countOnly == null && cell.total > 0) "已完成 %1\$d/%2\$d".loc(cell.done, cell.total) else if (cell.bees.size == 1) "1 只工蜂".loc else "%d 只工蜂".loc(cell.bees.size),
                 color = SwarmColors.muted(isDark),
                 fontSize = 11.5.sp,
-                fontFamily = FontFamily.Monospace
+                fontFamily = FontFamily.Monospace,
+                maxLines = 1,
+                softWrap = false
             )
             IconButton(onClick = onClose, modifier = Modifier.size(24.dp).clip(CircleShape).background(SwarmColors.fieldBg(isDark))) {
                 Icon(Icons.Default.Close, contentDescription = null, tint = SwarmColors.muted(isDark), modifier = Modifier.size(13.dp))
@@ -1069,20 +1092,20 @@ private fun SelectedHiveCellCardAndroid(
         }
 
         if (cell.bees.isEmpty()) {
-            Text("No one is on this thread yet.", color = SwarmColors.muted(isDark), fontSize = 12.5.sp)
+            Text("该话题下暂无成员。".loc, color = SwarmColors.muted(isDark), fontSize = 12.5.sp)
         } else {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 cell.bees.forEach { name ->
                     val sm = synth.members[name]
                     val st = hiveModel.beeStates[name] ?: SwarmHiveBeeState.IDLE
                     val stLabel = when (st) {
-                        SwarmHiveBeeState.WORKING -> "Working"
-                        SwarmHiveBeeState.WAIT -> hiveModel.beeWaitingOn[name]?.let { "Waiting on @$it" } ?: "Waiting"
-                        SwarmHiveBeeState.ISSUE -> "Stuck"
-                        SwarmHiveBeeState.DONE -> "Done"
-                        SwarmHiveBeeState.RETIRED -> "Retired"
-                        SwarmHiveBeeState.UNBORN -> "Not started"
-                        else -> "Resting"
+                        SwarmHiveBeeState.WORKING -> "工作中".loc
+                        SwarmHiveBeeState.WAIT -> hiveModel.beeWaitingOn[name]?.let { "等待 @%s".loc(it) } ?: "等待中".loc
+                        SwarmHiveBeeState.ISSUE -> "卡住".loc
+                        SwarmHiveBeeState.DONE -> "已完成".loc
+                        SwarmHiveBeeState.RETIRED -> "已退役".loc
+                        SwarmHiveBeeState.UNBORN -> "未开始".loc
+                        else -> "休眠中".loc
                     }
                     val stCol = when (st) {
                         SwarmHiveBeeState.WORKING -> SwarmColors.accent(isDark)

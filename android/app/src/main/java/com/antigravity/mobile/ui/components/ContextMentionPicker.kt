@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.components
 
+import com.antigravity.mobile.ui.util.L10n
 import com.antigravity.mobile.ui.util.loc
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -369,7 +370,11 @@ private fun mentionVisualStyle(type: String): MentionVisualStyle {
         else -> MentionVisualStyle(
             icon = Icons.Default.Description,
             accentColor = colors.accentIndigo,
-            tag = "文件".loc
+            tag = when (L10n.currentLang) {
+                L10n.AppLang.ZH -> "文件"
+                L10n.AppLang.JA -> "ファイル"
+                L10n.AppLang.EN -> "File"
+            }
         )
     }
 }

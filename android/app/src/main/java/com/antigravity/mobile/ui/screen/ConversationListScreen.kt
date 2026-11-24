@@ -490,7 +490,7 @@ fun ConversationListScreen(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
-                    .navigationBarsPadding()
+                    .windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.ime))
                     .padding(horizontal = 24.dp, vertical = 14.dp)
                     .clip(RoundedCornerShape(26.dp))
                     .background(colors.surface)
@@ -503,7 +503,7 @@ fun ConversationListScreen(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Search,
-                        contentDescription = "Search",
+                        contentDescription = "搜索".loc,
                         tint = colors.textSecondary,
                         modifier = Modifier.size(18.dp)
                     )
@@ -522,7 +522,7 @@ fun ConversationListScreen(
                         decorationBox = { innerTextField ->
                             if (searchQuery.isEmpty()) {
                                 val placeholderText = selectedWorkspaceFilter?.let {
-                                    "在「${it.displayName}」中搜索...".loc
+                                    "在「%s」中搜索...".loc(it.displayName)
                                 } ?: "搜索会话或工作区...".loc
                                 Text(
                                     text = placeholderText,
@@ -837,7 +837,7 @@ fun ConversationListScreen(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        text = "原文件夹：${project.name}".loc,
+                        text = "原文件夹：%s".loc(project.name),
                         fontSize = 12.5.sp,
                         color = colors.textSecondary
                     )
@@ -1063,12 +1063,13 @@ private fun ConversationListContent(
         }
     }
 
+    val navBottomPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     LazyColumn(
         state = listState,
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(
             top = topPadding + 4.dp,
-            bottom = 84.dp,
+            bottom = navBottomPadding + 92.dp,
             start = 16.dp,
             end = 16.dp
         ),
@@ -1179,7 +1180,9 @@ private fun ConversationListContent(
                         text = "管理 ›".loc,
                         fontSize = 11.5.sp,
                         fontWeight = FontWeight.SemiBold,
-                        color = colors.accentIndigo
+                        color = colors.accentIndigo,
+                        maxLines = 1,
+                        softWrap = false
                     )
                 }
             }
@@ -1249,7 +1252,9 @@ private fun ConversationListContent(
                             },
                             fontSize = 11.5.sp,
                             fontWeight = FontWeight.SemiBold,
-                            color = colors.accentOrange
+                            color = colors.accentOrange,
+                            maxLines = 1,
+                            softWrap = false
                         )
                     }
                 }
@@ -1285,8 +1290,8 @@ private fun ConversationListContent(
                     Spacer(modifier = Modifier.height(12.dp))
                     Text(
                         text = when {
-                            activeFilter != null && searchQuery.isNotEmpty() -> "在「${activeFilter.displayName}」中未找到匹配会话".loc
-                            activeFilter != null -> "「${activeFilter.displayName}」暂无会话".loc
+                            activeFilter != null && searchQuery.isNotEmpty() -> "在「%s」中未找到匹配会话".loc(activeFilter.displayName)
+                            activeFilter != null -> "「%s」暂无会话".loc(activeFilter.displayName)
                             searchQuery.isEmpty() -> "暂无会话".loc
                             else -> "未找到匹配会话".loc
                         },
@@ -1417,7 +1422,7 @@ private fun ConversationListContent(
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = "已归档会话 ($archivedCount)".loc,
+                        text = "已归档会话 (%d)".loc(archivedCount),
                         color = colors.textSecondary,
                         fontSize = 12.5.sp,
                         fontWeight = FontWeight.Medium
@@ -1590,7 +1595,7 @@ private fun WorkspaceFilterCapsule(
                 )
                 Icon(
                     imageVector = Icons.Default.KeyboardArrowDown,
-                    contentDescription = "Switch workspace".loc,
+                    contentDescription = "切换工作区".loc,
                     tint = colors.textSecondary,
                     modifier = Modifier.size(16.dp)
                 )
@@ -1604,7 +1609,7 @@ private fun WorkspaceFilterCapsule(
                 DropdownMenuItem(
                     text = {
                         Text(
-                            text = "全部会话 ($totalVisibleCount)".loc,
+                            text = "全部会话 (%d)".loc(totalVisibleCount),
                             color = colors.textPrimary,
                             fontSize = 14.sp
                         )
@@ -1670,10 +1675,12 @@ private fun WorkspaceFilterCapsule(
         }
 
         Text(
-            text = "${workspaceTotalCount} 个会话".loc,
+            text = if (workspaceTotalCount == 1) "1 个会话".loc else "%d 个会话".loc(workspaceTotalCount),
             fontSize = 11.5.sp,
             fontWeight = FontWeight.Medium,
-            color = colors.textSecondary
+            color = colors.textSecondary,
+            maxLines = 1,
+            softWrap = false
         )
 
         Icon(
@@ -1725,100 +1732,104 @@ private fun SwipeableConversationCard(
             .clip(RoundedCornerShape(14.dp)),
         contentAlignment = Alignment.Center
     ) {
-        // Background Left: iOS-style circular orange pin button (revealed by swiping right)
-        Box(
-            modifier = Modifier.matchParentSize(),
-            contentAlignment = Alignment.CenterStart
-        ) {
+        // Background Left: iOS-style circular orange pin button (only composed while swiping right)
+        if (offsetX.value > 0.5f) {
             Box(
-                modifier = Modifier
-                    .width(72.dp)
-                    .fillMaxHeight(),
-                contentAlignment = Alignment.Center
+                modifier = Modifier.matchParentSize(),
+                contentAlignment = Alignment.CenterStart
             ) {
                 Box(
                     modifier = Modifier
-                        .size(40.dp)
-                        .clip(CircleShape)
-                        .background(if (conversation.isPinned) colors.textMuted else colors.accentOrange)
-                        .clickable {
-                            haptic.medium()
-                            onSwipeClosed()
-                            coroutineScope.launch {
-                                offsetX.animateTo(0f, spring(stiffness = Spring.StiffnessMediumLow))
-                            }
-                            onPin()
-                        },
+                        .width(72.dp)
+                        .fillMaxHeight(),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.PushPin,
-                        contentDescription = if (conversation.isPinned) "Unpin" else "Pin",
-                        tint = Color.White,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-            }
-        }
-
-        // Background Right: archive + delete circular buttons (revealed by swiping left)
-        Box(
-            modifier = Modifier.matchParentSize(),
-            contentAlignment = Alignment.CenterEnd
-        ) {
-            Row(
-                modifier = Modifier
-                    .width(if (conversation.isDraft) 72.dp else 124.dp)
-                    .fillMaxHeight()
-                    .padding(horizontal = 10.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                if (!conversation.isDraft) {
                     Box(
                         modifier = Modifier
                             .size(40.dp)
                             .clip(CircleShape)
-                            .background(if (conversation.isArchived) colors.accentIndigo else Color(0xFF64748B))
+                            .background(if (conversation.isPinned) colors.textMuted else colors.accentOrange)
                             .clickable {
                                 haptic.medium()
                                 onSwipeClosed()
                                 coroutineScope.launch {
                                     offsetX.animateTo(0f, spring(stiffness = Spring.StiffnessMediumLow))
                                 }
-                                onArchive()
+                                onPin()
                             },
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            imageVector = if (conversation.isArchived) Icons.Default.Unarchive else Icons.Default.Archive,
-                            contentDescription = if (conversation.isArchived) "Unarchive" else "Archive",
+                            imageVector = Icons.Default.PushPin,
+                            contentDescription = if (conversation.isPinned) "取消置顶".loc else "置顶".loc,
                             tint = Color.White,
-                            modifier = Modifier.size(19.dp)
+                            modifier = Modifier.size(20.dp)
                         )
                     }
                 }
-                Box(
+            }
+        }
+
+        // Background Right: archive + delete circular buttons (only composed while swiping left)
+        if (offsetX.value < -0.5f) {
+            Box(
+                modifier = Modifier.matchParentSize(),
+                contentAlignment = Alignment.CenterEnd
+            ) {
+                Row(
                     modifier = Modifier
-                        .size(40.dp)
-                        .clip(CircleShape)
-                        .background(colors.accentRed)
-                        .clickable {
-                            haptic.medium()
-                            onSwipeClosed()
-                            coroutineScope.launch {
-                                offsetX.animateTo(0f, spring(stiffness = Spring.StiffnessMediumLow))
-                            }
-                            onDelete()
-                        },
-                    contentAlignment = Alignment.Center
+                        .width(if (conversation.isDraft) 72.dp else 124.dp)
+                        .fillMaxHeight()
+                        .padding(horizontal = 10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Delete,
-                        contentDescription = "Delete",
-                        tint = Color.White,
-                        modifier = Modifier.size(20.dp)
-                    )
+                    if (!conversation.isDraft) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(if (conversation.isArchived) colors.accentIndigo else Color(0xFF64748B))
+                                .clickable {
+                                    haptic.medium()
+                                    onSwipeClosed()
+                                    coroutineScope.launch {
+                                        offsetX.animateTo(0f, spring(stiffness = Spring.StiffnessMediumLow))
+                                    }
+                                    onArchive()
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = if (conversation.isArchived) Icons.Default.Unarchive else Icons.Default.Archive,
+                                contentDescription = if (conversation.isArchived) "取消归档".loc else "归档".loc,
+                                tint = Color.White,
+                                modifier = Modifier.size(19.dp)
+                            )
+                        }
+                    }
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(colors.accentRed)
+                            .clickable {
+                                haptic.medium()
+                                onSwipeClosed()
+                                coroutineScope.launch {
+                                    offsetX.animateTo(0f, spring(stiffness = Spring.StiffnessMediumLow))
+                                }
+                                onDelete()
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Delete,
+                            contentDescription = "删除".loc,
+                            tint = Color.White,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
                 }
             }
         }
@@ -1954,7 +1965,7 @@ fun ConversationCard(
                         onLongClick = onLongClick
                     ),
                 shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.cardColors(containerColor = colors.surface.copy(alpha = 0.92f))
+                colors = CardDefaults.cardColors(containerColor = colors.surface)
             ) {
                 Column(
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
@@ -1981,6 +1992,8 @@ fun ConversationCard(
                                 color = colors.accentIndigo,
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                softWrap = false,
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(999.dp))
                                     .background(colors.accentIndigo.copy(alpha = 0.12f))
@@ -2010,7 +2023,7 @@ fun ConversationCard(
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         val subLabel = if (!isAttachedBranchChild && !conversation.branchParentTitle.isNullOrBlank()) {
-                            "来自「${conversation.branchParentTitle}」".loc
+                            "来自「%s」".loc(conversation.branchParentTitle)
                         } else {
                             conversation.workspaceName
                         }
@@ -2076,7 +2089,7 @@ fun ConversationCard(
                     if (conversation.isPinned) {
                         Icon(
                             imageVector = Icons.Default.PushPin,
-                            contentDescription = "Pinned",
+                            contentDescription = "已置顶".loc,
                             tint = colors.accentOrange,
                             modifier = Modifier.size(14.dp)
                         )
@@ -2084,7 +2097,7 @@ fun ConversationCard(
                     if (conversation.nestingDepth > 0 || !conversation.parentConversationId.isNullOrBlank()) {
                         Icon(
                             imageVector = Icons.Default.SubdirectoryArrowRight,
-                            contentDescription = "Subagent",
+                            contentDescription = "子代理".loc,
                             tint = colors.accentIndigo,
                             modifier = Modifier.size(15.dp)
                         )
@@ -2094,7 +2107,8 @@ fun ConversationCard(
                             name = "coordinator",
                             pose = if (conversation.isSwarmWorking) SwarmBeePose.WORKING else SwarmBeePose.LANDED,
                             width = 22.dp,
-                            height = 18.dp
+                            height = 18.dp,
+                            contentDescription = "蜂群会话".loc
                         )
                     }
                     Text(
@@ -2125,7 +2139,7 @@ fun ConversationCard(
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(5.dp),
-                    modifier = Modifier.weight(1f, fill = false)
+                    modifier = Modifier.weight(1f, fill = false).padding(end = 8.dp)
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -2171,7 +2185,7 @@ fun ConversationCard(
 
                 val timeStr = conversation.relativeTimeString
                 val metaText = if (conversation.isDraft) {
-                    if (timeStr.isNotBlank()) "草稿 · $timeStr".loc else "草稿".loc
+                    if (timeStr.isNotBlank()) "草稿 · %s".loc(timeStr) else "草稿".loc
                 } else {
                     if (timeStr.isNotBlank()) "${conversation.stepCount} 步骤 · $timeStr".loc else "${conversation.stepCount} 步骤".loc
                 }
@@ -2179,7 +2193,9 @@ fun ConversationCard(
                 Text(
                     text = metaText,
                     color = colors.textSecondary,
-                    fontSize = 12.sp
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                    softWrap = false
                 )
             }
         }

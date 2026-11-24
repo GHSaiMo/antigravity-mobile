@@ -59,7 +59,7 @@ class AntigravityMessagingService : FirebaseMessagingService() {
 
         NotificationChannelManager.createNotificationChannels(applicationContext)
 
-        val title = remoteMessage.notification?.title ?: data["title"] ?: "Antigravity 任务通知"
+        val title = remoteMessage.notification?.title ?: data["title"] ?: "Antigravity 任务通知".loc
         val body = remoteMessage.notification?.body ?: data["body"] ?: ""
         val level = data["level"] ?: "active"
 

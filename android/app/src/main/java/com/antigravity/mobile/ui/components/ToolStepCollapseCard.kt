@@ -50,18 +50,19 @@ fun ToolStepCollapseCard(
     val colors = AntigravityTheme.colors
     val hasTools = toolCalls.isNotEmpty()
 
-    val uniqueToolNames = remember(toolCalls) {
+    val currentLang = com.antigravity.mobile.ui.util.L10n.currentLang
+    val uniqueToolNames = remember(toolCalls, currentLang) {
         toolCalls.map { ToolLocalization.localizedName(it.name.ifBlank { "action" }) }.distinct().joinToString(", ")
     }
 
-    val summaryText = remember(toolCalls, uniqueToolNames, thinkingText, thinkingDuration) {
+    val summaryText = remember(toolCalls, uniqueToolNames, thinkingText, thinkingDuration, currentLang) {
         when {
             !hasTools -> buildString {
                 append("💭 已深度思考".loc)
                 if (!thinkingDuration.isNullOrBlank()) append(" ($thinkingDuration)")
             }
-            uniqueToolNames.isNotBlank() -> "⚡ 已思考并执行 ${toolCalls.size} 项操作 ($uniqueToolNames)".loc
-            else -> "⚡ 已思考并执行 ${toolCalls.size} 项操作".loc
+            uniqueToolNames.isNotBlank() -> "⚡ 已思考并执行 %1\$d 项操作 (%2\$s)".loc(toolCalls.size, uniqueToolNames)
+            else -> "⚡ 已思考并执行 %d 项操作".loc(toolCalls.size)
         }
     }
 

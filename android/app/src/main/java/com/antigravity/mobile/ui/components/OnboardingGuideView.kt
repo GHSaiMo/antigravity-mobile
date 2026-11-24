@@ -242,14 +242,15 @@ fun OnboardingGuideView(
 
                             Box(
                                 modifier = Modifier
-                                    .width(66.dp)
+                                    .defaultMinSize(minWidth = 66.dp)
                                     .height(22.dp)
                                     .clip(RoundedCornerShape(5.dp))
                                     .background(
                                         if (isUnixCopied) colors.accentGreen.copy(alpha = 0.15f)
                                         else colors.accentBlue.copy(alpha = 0.12f)
                                     )
-                                    .clickable(onClick = { copyCommand(unixInstallCommand, true) }),
+                                    .clickable(onClick = { copyCommand(unixInstallCommand, true) })
+                                    .padding(horizontal = 7.dp),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Row(
@@ -334,14 +335,15 @@ fun OnboardingGuideView(
 
                             Box(
                                 modifier = Modifier
-                                    .width(66.dp)
+                                    .defaultMinSize(minWidth = 66.dp)
                                     .height(22.dp)
                                     .clip(RoundedCornerShape(5.dp))
                                     .background(
                                         if (isWinCopied) colors.accentGreen.copy(alpha = 0.15f)
                                         else colors.accentBlue.copy(alpha = 0.12f)
                                     )
-                                    .clickable(onClick = { copyCommand(winInstallCommand, false) }),
+                                    .clickable(onClick = { copyCommand(winInstallCommand, false) })
+                                    .padding(horizontal = 7.dp),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Row(
@@ -394,14 +396,15 @@ fun OnboardingGuideView(
 
                     // Clean mgy prompt without redundant copy button
                     Row(
-                        modifier = Modifier.padding(horizontal = 2.dp, vertical = 0.dp),
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 2.dp, vertical = 0.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(5.dp)
                     ) {
                         Text(
                             text = "若已安装网关，直接在终端执行".loc,
                             fontSize = 11.5.sp,
-                            color = colors.textMuted
+                            color = colors.textMuted,
+                            modifier = Modifier.weight(1f, fill = false)
                         )
                         Box(
                             modifier = Modifier
@@ -415,7 +418,9 @@ fun OnboardingGuideView(
                                 fontSize = 11.5.sp,
                                 fontFamily = FontFamily.Monospace,
                                 fontWeight = FontWeight.Bold,
-                                color = colors.accentIndigo
+                                color = colors.accentIndigo,
+                                maxLines = 1,
+                                softWrap = false
                             )
                         }
                     }
@@ -449,9 +454,9 @@ fun OnboardingGuideView(
                         text = "查看 GitHub 部署指南与下载".loc,
                         fontSize = 12.5.sp,
                         fontWeight = FontWeight.Medium,
-                        color = colors.accentBlue
+                        color = colors.accentBlue,
+                        modifier = Modifier.weight(1f).padding(end = 6.dp)
                     )
-                    Spacer(modifier = Modifier.weight(1f))
                     Icon(
                         painter = painterResource(id = R.drawable.ic_arrow_up_right),
                         contentDescription = null,
@@ -533,7 +538,9 @@ fun OnboardingGuideView(
                         text = "扫描电脑端配对二维码".loc,
                         fontSize = 14.5.sp,
                         fontWeight = FontWeight.SemiBold,
-                        color = Color.White
+                        color = Color.White,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                     )
                 }
             }

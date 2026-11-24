@@ -179,7 +179,7 @@ fun GitCommitSheet(
                                 enabled = !state.isWorking,
                                 modifier = Modifier.fillMaxWidth(),
                                 shape = RoundedCornerShape(12.dp)
-                            ) { Text(if (state.isWorking) "推送中...".loc else "推送 ${status.ahead} 个未推送的提交".loc) }
+                            ) { Text(if (state.isWorking) "推送中...".loc else "推送 %d 个未推送的提交".loc(status.ahead)) }
                         }
                         state.actionError?.let { Spacer(Modifier.height(8.dp)); NoticeRow(it, isError = true) }
                     } else {
@@ -227,13 +227,13 @@ fun GitCommitSheet(
                                 enabled = canCommit,
                                 modifier = Modifier.weight(1f),
                                 shape = RoundedCornerShape(12.dp)
-                            ) { Text("提交".loc) }
+                            ) { Text("提交".loc, maxLines = 1, overflow = TextOverflow.Ellipsis) }
                             FilledTonalButton(
                                 onClick = { onCommit(message, pathsArg, true) },
                                 enabled = canCommit,
                                 modifier = Modifier.weight(1f),
                                 shape = RoundedCornerShape(12.dp)
-                            ) { Text(if (state.isWorking) "处理中...".loc else "提交并推送".loc) }
+                            ) { Text(if (state.isWorking) "处理中...".loc else "提交并推送".loc, maxLines = 1, overflow = TextOverflow.Ellipsis) }
                         }
                     }
                 }
@@ -246,6 +246,7 @@ fun GitCommitSheet(
     if (showBranchDialog && status != null && cascadeId.isNotBlank()) {
         AlertDialog(
             onDismissRequest = { showBranchDialog = false },
+            containerColor = colors.surface,
             title = { Text("切换 / 新建分支".loc, fontSize = 16.sp, fontWeight = FontWeight.SemiBold) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -320,8 +321,9 @@ fun GitCommitSheet(
     discardTargetPath?.let { path ->
         AlertDialog(
             onDismissRequest = { discardTargetPath = null },
+            containerColor = colors.surface,
             title = { Text("丢弃文件改动？".loc, fontSize = 16.sp, fontWeight = FontWeight.SemiBold) },
-            text = { Text("确定丢弃 $path 的工作区改动？未跟踪文件也会被清理，此操作不可撤销。".loc, fontSize = 13.sp) },
+            text = { Text("确定丢弃 %s 的工作区改动？未跟踪文件也会被清理，此操作不可撤销。".loc(path), fontSize = 13.sp) },
             confirmButton = {
                 TextButton(onClick = {
                     val target = path
@@ -364,7 +366,7 @@ private fun BranchHeader(status: GitStatusResponse, onOpenBranches: (() -> Unit)
         }
         if (status.ahead > 0) Text("↑${status.ahead}", fontSize = 12.sp, color = colors.textSecondary, fontFamily = FontFamily.Monospace)
         if (status.behind > 0) Text("↓${status.behind}", fontSize = 12.sp, color = colors.accentOrange, fontFamily = FontFamily.Monospace)
-        if (status.upstream == null && !status.detached) Text("未设置上游".loc, fontSize = 11.sp, color = colors.textMuted)
+        if (status.upstream == null && !status.detached) Text("未设置上游".loc, fontSize = 11.sp, color = colors.textMuted, maxLines = 1, softWrap = false)
     }
 }
 
@@ -521,7 +523,7 @@ private fun ColumnScope.CommitDone(
     val err = pushError ?: state.actionError
     if (err != null) {
         Spacer(Modifier.height(8.dp))
-        NoticeRow("推送失败：$err".loc, isError = true)
+        NoticeRow("推送失败：%s".loc(err), isError = true)
         Spacer(Modifier.height(8.dp))
         OutlinedButton(onClick = onRetryPush, enabled = !state.isWorking, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
             Text(if (state.isWorking) "推送中...".loc else "重试推送".loc)

@@ -118,7 +118,7 @@ internal fun collapseAttemptErrors(list: List<GatewayMessageItem>): List<Gateway
             if (parsed.isAttempt && prevParsed.isAttempt && normalizeErrKey(prevParsed.baseError) == normalizeErrKey(parsed.baseError)) {
                 val newAttempt = maxOf(parsed.attempt, (last.attemptCount ?: prevParsed.attempt) + 1)
                 val maxAttempts = if (parsed.maxAttempts > 0) parsed.maxAttempts else (last.maxAttempts ?: 9)
-                val formatted = "${parsed.prefix} (attempt $newAttempt/$maxAttempts · 已重试 $newAttempt 次): ${parsed.baseError}".loc
+                val formatted = "%1\$s (attempt %2\$d/%3\$d · 已重试 %2\$d 次): %4\$s".loc(parsed.prefix, newAttempt, maxAttempts, parsed.baseError)
                 result[result.size - 1] = last.copy(
                     text = formatted,
                     content = formatted,
@@ -130,7 +130,7 @@ internal fun collapseAttemptErrors(list: List<GatewayMessageItem>): List<Gateway
             } else if (parsed.isAttempt && normalizeErrKey(lastText) == normalizeErrKey(parsed.baseError)) {
                 val newAttempt = maxOf(parsed.attempt, (last.attemptCount ?: 1) + 1)
                 val maxAttempts = if (parsed.maxAttempts > 0) parsed.maxAttempts else 9
-                val formatted = "${parsed.prefix} (attempt $newAttempt/$maxAttempts · 已重试 $newAttempt 次): ${parsed.baseError}".loc
+                val formatted = "%1\$s (attempt %2\$d/%3\$d · 已重试 %2\$d 次): %4\$s".loc(parsed.prefix, newAttempt, maxAttempts, parsed.baseError)
                 result[result.size - 1] = last.copy(
                     text = formatted,
                     content = formatted,
@@ -141,7 +141,7 @@ internal fun collapseAttemptErrors(list: List<GatewayMessageItem>): List<Gateway
                 continue
             } else if (!parsed.isAttempt && !prevParsed.isAttempt && normalizeErrKey(lastText) == normalizeErrKey(msgText)) {
                 val count = (last.attemptCount ?: 1) + 1
-                val formatted = "$msgText (已重试 $count 次)".loc
+                val formatted = "%1\$s (已重试 %2\$d 次)".loc(msgText, count)
                 result[result.size - 1] = last.copy(
                     text = formatted,
                     content = formatted,

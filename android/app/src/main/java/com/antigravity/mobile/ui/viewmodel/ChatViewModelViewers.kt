@@ -198,7 +198,7 @@ internal fun ChatViewModel.downloadAndPreviewDocument(uri: String, fileName: Str
             )
         }.onFailure { err ->
             _uiState.value = _uiState.value.copy(
-                errorMessage = "下载文档失败: ${err.message}".loc
+                errorMessage = "下载文档失败: %s".loc(err.message.orEmpty())
             )
         }
     }

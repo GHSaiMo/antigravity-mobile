@@ -55,15 +55,17 @@ fun QueuedMessagesCard(
         mutableStateOf(if (cascadeId.isNotEmpty()) queueExpandStateByCascade[cascadeId] ?: true else true)
     }
     val colors = AntigravityTheme.colors
-    val statusSubtitle = remember(hasActiveBackgroundWork, blockingWorkNames) {
+    val currentLang = com.antigravity.mobile.ui.util.L10n.currentLang
+    val statusSubtitle = remember(hasActiveBackgroundWork, blockingWorkNames, currentLang) {
         if (!hasActiveBackgroundWork) {
             "当前任务完成后自动发送".loc
         } else {
             val cleaned = blockingWorkNames.map { it.trim() }.filter { it.isNotEmpty() }
+            val sep = if (currentLang == com.antigravity.mobile.ui.util.L10n.AppLang.EN) ", " else "、"
             when {
                 cleaned.isEmpty() -> "后台任务运行中，完成后出列".loc
-                cleaned.size > 2 -> "等待 ${cleaned.take(2).joinToString("、")} 等${cleaned.size}项完成后出列".loc
-                else -> "等待 ${cleaned.joinToString("、")} 完成后出列".loc
+                cleaned.size > 2 -> "等待 %1\$s 等 %2\$d 项完成后出列".loc(cleaned.take(2).joinToString(sep), cleaned.size)
+                else -> "等待 %s 完成后出列".loc(cleaned.joinToString(sep))
             }
         }
     }
@@ -224,7 +226,7 @@ fun QueuedMessagesCard(
                                 ) {
                                     Icon(
                                         imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                                        contentDescription = "Send Now",
+                                        contentDescription = "立即发送".loc,
                                         tint = colors.accentIndigo,
                                         modifier = Modifier.size(16.dp)
                                     )
@@ -237,7 +239,7 @@ fun QueuedMessagesCard(
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.Edit,
-                                        contentDescription = "Edit",
+                                        contentDescription = "编辑".loc,
                                         tint = colors.textSecondary,
                                         modifier = Modifier.size(16.dp)
                                     )
@@ -250,7 +252,7 @@ fun QueuedMessagesCard(
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.Delete,
-                                        contentDescription = "Delete",
+                                        contentDescription = "删除".loc,
                                         tint = colors.accentRed,
                                         modifier = Modifier.size(16.dp)
                                     )

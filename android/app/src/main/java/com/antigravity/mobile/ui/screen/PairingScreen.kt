@@ -256,7 +256,7 @@ fun PairingScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Text("开启 HTTPS / SSL".loc, color = colors.textPrimary, fontSize = 14.sp)
+                            Text("开启 HTTPS / SSL".loc, color = colors.textPrimary, fontSize = 14.sp, modifier = Modifier.weight(1f).padding(end = 8.dp))
                             Switch(
                                 checked = ssl,
                                 onCheckedChange = { ssl = it }

@@ -836,7 +836,7 @@ internal fun PluginCardBlockView(
                     modifier = Modifier.size(16.dp)
                 )
                 Text(
-                    text = "推荐插件：$pluginId".loc,
+                    text = "推荐插件：%s".loc(pluginId),
                     color = colors.textPrimary,
                     fontSize = 13.5.sp,
                     fontWeight = FontWeight.Bold

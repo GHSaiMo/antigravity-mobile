@@ -132,7 +132,7 @@ class LiveActivityNotificationManager(
             cascadeId = targetCid,
             status = "RUNNING",
             stepCount = 1,
-            latestAction = "正在执行任务...",
+            latestAction = "正在执行任务...".loc,
             runningTaskCount = 0,
             hasPendingAction = false
         ).also { lastBuiltNotifications[targetCid] = it }
@@ -380,7 +380,7 @@ class LiveActivityNotificationManager(
         cascadeId: String,
         status: String = "RUNNING",
         stepCount: Int = 1,
-        latestAction: String = "正在执行任务...",
+        latestAction: String = "正在执行任务...".loc,
         runningTaskCount: Int = 0,
         hasPendingAction: Boolean = false,
         isOptimisticStart: Boolean = false,
@@ -403,7 +403,9 @@ class LiveActivityNotificationManager(
         isNotificationActive = true
         activeCascadeIds.add(cascadeId)
 
-        val cleanedTitle = title.trim().takeIf { it.isNotBlank() && it != "未命名会话" && it != "会话详情" }
+        val cleanedTitle = title.trim().takeIf {
+            it.isNotBlank() && it != "未命名会话" && it != "未命名会话".loc && it != "会话详情" && it != "会话详情".loc
+        }
         if (cleanedTitle != null) {
             cascadeTitles[cascadeId] = cleanedTitle
         }
@@ -473,7 +475,7 @@ class LiveActivityNotificationManager(
             lastActionNotifiedForCascade = cascadeId
             notifyAlert(
                 title = if (isHighRiskAction) "🚨 高危操作审批".loc else "⚠️ Antigravity 需要审批".loc,
-                body = "【$resolvedTitle】$actionText",
+                body = "【%1\$s】%2\$s".loc(resolvedTitle, actionText),
                 deeplink = "antigravity://cascade/$cascadeId?action=review",
                 isAction = true,
                 cascadeId = cascadeId,
@@ -513,7 +515,9 @@ class LiveActivityNotificationManager(
         lastBuiltNotifications.remove(targetCascadeId)
         consecutivePollFailures.remove(targetCascadeId)
         val cachedTitle = cascadeTitles.remove(targetCascadeId).orEmpty()
-        val resolvedTitle = title?.trim()?.takeIf { it.isNotBlank() && it != "未命名会话" && it != "会话详情" }
+        val resolvedTitle = title?.trim()?.takeIf {
+            it.isNotBlank() && it != "未命名会话" && it != "未命名会话".loc && it != "会话详情" && it != "会话详情".loc
+        }
             ?: cachedTitle
 
         if (activeCascadeId == targetCascadeId) {
@@ -638,7 +642,7 @@ class LiveActivityNotificationManager(
                         payload.hasError ||
                         LiveActivityStatusHelper.isStatusError(payload.status)
                     val resolvedTitle = payload.title?.takeIf {
-                        it.isNotBlank() && it != "未命名会话" && it != "会话详情"
+                        it.isNotBlank() && it != "未命名会话" && it != "未命名会话".loc && it != "会话详情" && it != "会话详情".loc
                     } ?: cascadeTitles[cid].orEmpty()
 
                     if (statusRunning) {
@@ -647,7 +651,7 @@ class LiveActivityNotificationManager(
                         val latestAction = when {
                             payload.pendingInteraction != null -> payload.pendingInteraction.prompt ?: "需要审批操作".loc
                             runningTasks.hasBlockingTasks -> runningTasks.blockingTasks.firstOrNull()?.displayCommand?.ifBlank { "正在执行后台任务...".loc } ?: "正在执行后台任务...".loc
-                            lastMsg?.toolCalls?.isNotEmpty() == true -> "正在执行: ".loc + ToolLocalization.localizedName(lastMsg.toolCalls.lastOrNull()?.name ?: "操作")
+                            lastMsg?.toolCalls?.isNotEmpty() == true -> "正在执行: ".loc + ToolLocalization.localizedName(lastMsg.toolCalls.lastOrNull()?.name ?: "操作".loc)
                             else -> "正在执行任务...".loc
                         }
                         val stepCount = maxOf(1, payload.totalSteps, msgs.count { !it.isUser })

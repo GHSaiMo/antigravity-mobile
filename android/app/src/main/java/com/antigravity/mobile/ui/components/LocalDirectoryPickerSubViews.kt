@@ -128,7 +128,9 @@ internal fun LocalDirectoryBrowserSection(
                     text = "新建目录".loc,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold,
-                    color = colors.accentBlue
+                    color = colors.accentBlue,
+                    maxLines = 1,
+                    softWrap = false
                 )
             }
         }
@@ -225,7 +227,9 @@ internal fun LocalDirectoryBrowserSection(
                             text = "上一级".loc,
                             fontSize = 11.5.sp,
                             fontWeight = FontWeight.Medium,
-                            color = colors.accentBlue
+                            color = colors.accentBlue,
+                            maxLines = 1,
+                            softWrap = false
                         )
                     }
                 }
@@ -407,11 +411,12 @@ internal fun LocalDirectoryBrowserSection(
     if (showNewFolderDialog) {
         AlertDialog(
             onDismissRequest = { showNewFolderDialog = false },
+            containerColor = colors.surface,
             title = { Text("新建本地目录".loc) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        text = "将在 ${state.currentDisplay.ifBlank { "~" }} 下新建目录，或输入 ~/... 完整路径".loc,
+                        text = "将在 %s 下新建目录，或输入 ~/... 完整路径".loc(state.currentDisplay.ifBlank { "~" }),
                         fontSize = 12.5.sp,
                         color = colors.textSecondary
                     )
@@ -639,7 +644,7 @@ internal fun CloneGitHubRepoSubView(
                         failures += 1
                         if (failures >= 6) {
                             phase = CloneUiPhase.Form
-                            errorMessage = "查询克隆进度失败: ${err.message}".loc
+                            errorMessage = "查询克隆进度失败: %s".loc(err.message.orEmpty())
                             return@launch
                         }
                     }
@@ -705,7 +710,7 @@ internal fun CloneGitHubRepoSubView(
                     }
                 },
                 onFailure = { err ->
-                    errorMessage = "克隆仓库失败: ${err.message}".loc
+                    errorMessage = "克隆仓库失败: %s".loc(err.message.orEmpty())
                 }
             )
         }
@@ -748,7 +753,11 @@ internal fun CloneGitHubRepoSubView(
                 fontWeight = FontWeight.Bold,
                 color = colors.textPrimary,
                 textAlign = TextAlign.Center,
-                modifier = Modifier.align(Alignment.Center)
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .padding(horizontal = 40.dp)
             )
         }
 
@@ -803,6 +812,7 @@ internal fun CloneGitHubRepoSubView(
                         ) {
                             if (parsedRepo != null) {
                                 Row(
+                                    modifier = Modifier.weight(1f).padding(end = 8.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                                 ) {
@@ -816,7 +826,9 @@ internal fun CloneGitHubRepoSubView(
                                         text = parsedRepo.slug,
                                         fontSize = 12.sp,
                                         fontWeight = FontWeight.Medium,
-                                        color = colors.accentGreen
+                                        color = colors.accentGreen,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
                                     )
                                 }
                                 Text(
@@ -824,6 +836,8 @@ internal fun CloneGitHubRepoSubView(
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Medium,
                                     color = colors.accentBlue,
+                                    maxLines = 1,
+                                    softWrap = false,
                                     modifier = Modifier.clickable { showFolderRename = !showFolderRename }
                                 )
                             } else if (repoInput.isNotBlank()) {
@@ -849,7 +863,7 @@ internal fun CloneGitHubRepoSubView(
                                     errorMessage = null
                                     conflictAlreadyClonedPath = null
                                 },
-                                label = { Text("目标文件夹名（默认 ${parsedRepo?.repoName ?: "仓库名"}）".loc) },
+                                label = { Text("目标文件夹名（默认 %s）".loc(parsedRepo?.repoName ?: "仓库名".loc)) },
                                 singleLine = true,
                                 shape = RoundedCornerShape(10.dp),
                                 modifier = Modifier.fillMaxWidth()
@@ -1309,7 +1323,11 @@ internal fun AddLocalWorkspaceSubView(
                 fontWeight = FontWeight.Bold,
                 color = colors.textPrimary,
                 textAlign = TextAlign.Center,
-                modifier = Modifier.align(Alignment.Center)
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .padding(horizontal = if (completedProject == null) 88.dp else 40.dp)
             )
             if (completedProject == null) {
                 Text(
@@ -1317,6 +1335,8 @@ internal fun AddLocalWorkspaceSubView(
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Medium,
                     color = colors.accentBlue,
+                    maxLines = 1,
+                    softWrap = false,
                     modifier = Modifier
                         .align(Alignment.CenterEnd)
                         .clickable {
@@ -1474,6 +1494,7 @@ internal fun AddLocalWorkspaceSubView(
     if (showManualDialog) {
         AlertDialog(
             onDismissRequest = { showManualDialog = false },
+            containerColor = colors.surface,
             title = { Text("输入本机目录路径".loc) },
             text = {
                 OutlinedTextField(

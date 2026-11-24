@@ -243,7 +243,7 @@ fun ChatViewModel.exportMarkdown(onReady: (title: String, markdown: String) -> U
                 }
             }
             .onFailure { err ->
-                _uiState.value = _uiState.value.copy(errorMessage = "导出失败: ${err.message}".loc)
+                _uiState.value = _uiState.value.copy(errorMessage = "导出失败: %s".loc(err.message.orEmpty()))
             }
     }
 }

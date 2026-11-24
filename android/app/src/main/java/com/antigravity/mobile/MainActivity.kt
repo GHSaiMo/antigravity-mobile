@@ -95,6 +95,8 @@ class MainActivity : ComponentActivity() {
         wsClient = StreamWebSocketClient(prefs, connectionManager)
         cacheManager = CacheManager(applicationContext)
         val documentCacheManager = com.antigravity.mobile.data.service.DocumentCacheManager(applicationContext)
+        // Refresh notification channels with current system locale on every activity creation
+        com.antigravity.mobile.data.service.NotificationChannelManager.createNotificationChannels(applicationContext)
         liveActivityManager = com.antigravity.mobile.data.service.LiveActivityNotificationManager.getOrCreate(
             context = applicationContext,
             prefs = prefs,
@@ -561,7 +563,7 @@ class MainActivity : ComponentActivity() {
             )
         } else if (route == "conversations") {
             val pillLabel = when {
-                files.isNotEmpty() && !sharedText.isNullOrBlank() -> "文本与 ${files.size} 个文件待投递 · 选择去向".loc
+                files.isNotEmpty() && !sharedText.isNullOrBlank() -> "文本与 %d 个文件待投递 · 选择去向".loc(files.size)
                 !sharedText.isNullOrBlank() -> "分享文本待投递 · 选择去向".loc
                 else -> "${files.size} 个文件待投递 · 选择去向".loc
             }
@@ -736,7 +738,7 @@ class MainActivity : ComponentActivity() {
         }
 
         val existing = conversationListViewModel.getConversation(cascadeId)
-        val title = existing?.title ?: "会话"
+        val title = existing?.title ?: "会话".loc
         val isNew = false
         val isUnread = false
         val status = existing?.status ?: com.antigravity.mobile.data.model.ConversationStatus.RUNNING

@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.components
 
+import com.antigravity.mobile.ui.util.L10n
 import com.antigravity.mobile.ui.util.loc
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
@@ -153,10 +154,15 @@ fun InteractionCard(
         else -> true
     }
 
+    val submitWord = when (L10n.currentLang) {
+        L10n.AppLang.ZH -> "提交"
+        L10n.AppLang.JA -> "送信"
+        L10n.AppLang.EN -> "Submit"
+    }
     val submitButtonLabel = if (isSingleMultiSelect && singleMultiSelectionCount > 0) {
-        "${"提交".loc} ($singleMultiSelectionCount)"
+        "$submitWord ($singleMultiSelectionCount)"
     } else {
-        "提交".loc
+        submitWord
     }
 
     val pg = interaction.permissionGrant
@@ -331,7 +337,7 @@ fun InteractionCard(
                     when {
                         hasMultipleQuestions -> {
                             Text(
-                                text = "需要确认规格 (${questions?.size} 个问题)".loc,
+                                text = "需要确认规格 (%d 个问题)".loc(questions?.size ?: 0),
                                 color = colors.textPrimary,
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.Bold,
@@ -509,7 +515,7 @@ fun InteractionCard(
                             }
 
                             Text(
-                                text = "操作: ${pg.action}".loc,
+                                text = "操作: %s".loc(pg.action),
                                 color = colors.textPrimary,
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Medium
@@ -519,7 +525,7 @@ fun InteractionCard(
                         if (!pg.repo.isNullOrBlank() || !pg.org.isNullOrBlank()) {
                             val repoText = if (!pg.org.isNullOrBlank() && !pg.repo.isNullOrBlank()) "${pg.org}/${pg.repo}" else (pg.repo ?: "")
                             Text(
-                                text = "仓库: $repoText".loc,
+                                text = "仓库: %s".loc(repoText),
                                 color = colors.textSecondary,
                                 fontSize = 11.5.sp,
                                 fontFamily = FontFamily.Monospace
@@ -528,7 +534,7 @@ fun InteractionCard(
 
                         if (!pg.branch.isNullOrBlank()) {
                             Text(
-                                text = "目标分支: ${pg.branch}".loc,
+                                text = "目标分支: %s".loc(pg.branch),
                                 color = colors.textSecondary,
                                 fontSize = 11.5.sp,
                                 fontFamily = FontFamily.Monospace
@@ -1348,11 +1354,11 @@ fun ProceedBanner(
             ) {
                 Icon(
                     imageVector = Icons.Default.PlayArrow,
-                    contentDescription = "Proceed",
+                    contentDescription = "继续执行".loc,
                     modifier = Modifier.size(16.dp)
                 )
                 Spacer(modifier = Modifier.width(4.dp))
-                Text("Proceed")
+                Text("继续执行".loc, maxLines = 1, softWrap = false)
             }
         }
     }

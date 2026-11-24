@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.antigravity.mobile.data.model.*
 import com.antigravity.mobile.ui.theme.AntigravityTheme
+import com.antigravity.mobile.ui.util.loc
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -161,7 +162,8 @@ fun SwarmPixelBeeSprite(
     dotBorderColor: Color? = null,
     isTilted: Boolean = false,
     isRetired: Boolean = false,
-    bobbing: Boolean = false
+    bobbing: Boolean = false,
+    contentDescription: String? = null
 ) {
     val isDark = AntigravityTheme.colors.isDark
     var frame by remember { mutableIntStateOf(0) }
@@ -204,7 +206,7 @@ fun SwarmPixelBeeSprite(
     ) {
         Image(
             bitmap = bitmap.asImageBitmap(),
-            contentDescription = null,
+            contentDescription = contentDescription,
             filterQuality = FilterQuality.None,
             colorFilter = grayscaleFilter,
             modifier = Modifier
@@ -684,7 +686,7 @@ object SwarmHiveEngine {
 
     private fun extractRoleHint(memberName: String, role: String, messages: List<SwarmBoardMessage>): String {
         if (memberName.equals("coordinator", ignoreCase = true) || role.equals("coordinator", ignoreCase = true)) {
-            return "Coordinator"
+            return "协调者".loc
         }
         val brief = messages.firstOrNull { m ->
             m.agent.equals("coordinator", ignoreCase = true) &&
@@ -767,7 +769,7 @@ object SwarmHiveEngine {
             }
 
             val roleTitle = when {
-                k == "coordinator" -> "Coordinator"
+                k == "coordinator" -> "协调者".loc
                 !planTasks[m.name].isNullOrBlank() -> planTasks[m.name]!!.trim()
                 else -> extractRoleHint(m.name, m.role, snap.messages)
             }
@@ -798,7 +800,7 @@ object SwarmHiveEngine {
                 name = "coordinator",
                 conversationId = snap.coordinatorId,
                 role = "coordinator",
-                title = "Coordinator",
+                title = "协调者".loc,
                 model = "",
                 status = "parked",
                 waitingOn = null,
@@ -922,12 +924,12 @@ object SwarmHiveEngine {
                 else -> SwarmThreadState.DONE
             }
             val statusLabel = when (tState) {
-                SwarmThreadState.NEEDS -> "Needs you"
-                SwarmThreadState.WAITING -> if (waiters.size == 1) "Waiting on @${waiters.first()}" else if (waiters.size > 1) "Waiting on ${waiters.size}" else "Waiting"
-                SwarmThreadState.STUCK -> "Stuck"
-                SwarmThreadState.RUNNING -> "Moving"
-                SwarmThreadState.QUEUED -> "Not started"
-                SwarmThreadState.DONE -> "Done"
+                SwarmThreadState.NEEDS -> "待你介入".loc
+                SwarmThreadState.WAITING -> if (waiters.size == 1) "等待 @%s".loc(waiters.first()) else if (waiters.size > 1) "等待 %d 人".loc(waiters.size) else "等待中".loc
+                SwarmThreadState.STUCK -> "卡住".loc
+                SwarmThreadState.RUNNING -> "推进中".loc
+                SwarmThreadState.QUEUED -> "未开始".loc
+                SwarmThreadState.DONE -> "已完成".loc
             }
             val derivedNow = explicitNow.ifBlank {
                 items.flatMap { it.owners }.mapNotNull { synthMembers[it] }
@@ -954,7 +956,7 @@ object SwarmHiveEngine {
         }
         val remaining = allTasks.filter { !usedIds.contains(it.id) }.filter(::matchesFilter)
         if (remaining.isNotEmpty() && rawSpecs.isNotEmpty()) {
-            buildThread("t-other", "Other", "", "", remaining)?.let { synthThreads.add(it) }
+            buildThread("t-other", "其他".loc, "", "", remaining)?.let { synthThreads.add(it) }
         }
         synthThreads.sortBy { it.state.ordinal }
 
@@ -969,7 +971,7 @@ object SwarmHiveEngine {
                 SwarmTaskBucketState.QUEUED -> totQue++
             }
         }
-        val waitingChips = waitMap.entries.sortedByDescending { it.value }.take(2).map { "${it.value} waiting on @${it.key}" }
+        val waitingChips = waitMap.entries.sortedByDescending { it.value }.take(2).map { "%1\$d 项等待 @%2\$s".loc(it.value, it.key) }
         val stuckCount = synthMembers.values.count { !it.killed && it.hasIssue }
         val openThreads = synthThreads.count { it.state != SwarmThreadState.DONE }
 
@@ -1184,19 +1186,19 @@ object SwarmHiveEngine {
             val rest = workers.filter { !homed.contains(it) }
             if (rest.isNotEmpty()) {
                 val doneRest = rest.count { beeStates[it] == SwarmHiveBeeState.DONE || beeStates[it] == SwarmHiveBeeState.RETIRED }
-                tempCells.add(TempCell("_other", "Other", "", emptyList(), rest.toMutableList(), doneRest, rest.size, null))
+                tempCells.add(TempCell("_other", "其他".loc, "", emptyList(), rest.toMutableList(), doneRest, rest.size, null))
             }
         } else {
             val buckets = listOf(
-                "Working" to setOf(SwarmHiveBeeState.WORKING),
-                "Waiting" to setOf(SwarmHiveBeeState.WAIT, SwarmHiveBeeState.ISSUE),
-                "Resting" to setOf(SwarmHiveBeeState.IDLE),
-                "Done" to setOf(SwarmHiveBeeState.DONE, SwarmHiveBeeState.RETIRED)
+                Triple("Working", "工作中".loc, setOf(SwarmHiveBeeState.WORKING)),
+                Triple("Waiting", "等待中".loc, setOf(SwarmHiveBeeState.WAIT, SwarmHiveBeeState.ISSUE)),
+                Triple("Resting", "休眠中".loc, setOf(SwarmHiveBeeState.IDLE)),
+                Triple("Done", "已完成".loc, setOf(SwarmHiveBeeState.DONE, SwarmHiveBeeState.RETIRED))
             )
-            for ((title, allowed) in buckets) {
+            for ((key, title, allowed) in buckets) {
                 val matched = workers.filter { allowed.contains(beeStates[it] ?: SwarmHiveBeeState.IDLE) }
                 if (matched.isNotEmpty()) {
-                    tempCells.add(TempCell("_$title", title, "", emptyList(), matched.toMutableList(), if (title == "Done") matched.size else 0, matched.size, matched.size))
+                    tempCells.add(TempCell("_$key", title, "", emptyList(), matched.toMutableList(), if (key == "Done") matched.size else 0, matched.size, matched.size))
                 }
             }
         }

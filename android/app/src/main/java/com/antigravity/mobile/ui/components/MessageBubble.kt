@@ -232,11 +232,11 @@ fun MessageBubble(
             }
         }
         val badgeText = when {
-            attemptInfo != null -> "ERROR · 尝试 ${attemptInfo.first}/${attemptInfo.second}".loc
+            attemptInfo != null -> "ERROR · 尝试 %1\$d/%2\$d".loc(attemptInfo.first, attemptInfo.second)
             else -> "ERROR"
         }
         val titleText = when {
-            attemptInfo != null && attemptInfo.first > 1 -> "执行遇到错误 (已重试 ${attemptInfo.first} 次)".loc
+            attemptInfo != null && attemptInfo.first > 1 -> "执行遇到错误 (已重试 %d 次)".loc(attemptInfo.first)
             else -> "执行遇到错误".loc
         }
 
@@ -371,7 +371,7 @@ fun MessageBubble(
                         modifier = Modifier.size(12.dp)
                     )
                     Text(
-                        text = if (!message.toolCalls.isNullOrEmpty()) "已完成 ${message.toolCalls.size} 项检索与命令操作".loc else "已完成深度思考".loc,
+                        text = if (!message.toolCalls.isNullOrEmpty()) "已完成 %d 项检索与命令操作".loc(message.toolCalls.size) else "已完成深度思考".loc,
                         color = colors.textSecondary,
                         fontSize = 11.5.sp
                     )
@@ -643,7 +643,8 @@ fun MessageBubble(
 
                     DropdownMenu(
                         expanded = showContextMenu,
-                        onDismissRequest = { showContextMenu = false }
+                        onDismissRequest = { showContextMenu = false },
+                        containerColor = colors.surface
                     ) {
                         if (cleanedVoiceText.isNotBlank()) {
                             DropdownMenuItem(
@@ -757,7 +758,8 @@ fun MessageBubble(
 
                     DropdownMenu(
                         expanded = showContextMenu,
-                        onDismissRequest = { showContextMenu = false }
+                        onDismissRequest = { showContextMenu = false },
+                        containerColor = colors.surface
                     ) {
                         DropdownMenuItem(
                             text = { Text("复制全文".loc) },
@@ -858,7 +860,8 @@ fun MessageBubble(
 
                     DropdownMenu(
                         expanded = showAgentMenu,
-                        onDismissRequest = { showAgentMenu = false }
+                        onDismissRequest = { showAgentMenu = false },
+                        containerColor = colors.surface
                     ) {
                         if (displayText.isNotBlank()) {
                             if (onInsertToParentClick != null) {
@@ -1227,7 +1230,7 @@ object VoiceTranscriptCleaner {
             if (roleMatch != null) {
                 finishCurrent()
                 val matched = roleMatch.groupValues[1].lowercase()
-                currentRole = if (matched in listOf("user", "human", "me", "用户".loc, "我".loc)) {
+                currentRole = if (matched in listOf("user", "human", "me", "用户", "我")) {
                     "用户: ".loc
                 } else {
                     "智能体: ".loc

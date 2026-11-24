@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.components
 
+import com.antigravity.mobile.ui.util.L10n
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -71,6 +72,21 @@ class VoiceTranscriptCleanerTest {
         val cleaned = VoiceTranscriptCleaner.clean(raw)
         val expected = "用户: 测试问题\n\n智能体: 测试回答"
         assertEquals(expected, cleaned)
+    }
+
+    @Test
+    fun testChineseRolesUnderEnglishLocale() {
+        try {
+            L10n.setLanguagePreference("en")
+            val raw = """
+                [12:30:05] 用户: "测试问题"
+                [12:30:10] 智能体: "测试回答"
+            """.trimIndent()
+            val cleaned = VoiceTranscriptCleaner.clean(raw)
+            assertEquals("User: 测试问题\n\nAgent: 测试回答", cleaned)
+        } finally {
+            L10n.setLanguagePreference("system")
+        }
     }
 
     @Test

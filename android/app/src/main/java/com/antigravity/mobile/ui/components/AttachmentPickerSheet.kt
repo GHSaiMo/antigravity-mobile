@@ -574,7 +574,7 @@ fun AttachmentPickerSheet(
                                                 modifier = Modifier.size(28.dp)
                                             )
                                             Spacer(Modifier.height(4.dp))
-                                            Text("文件".loc, color = colors.textPrimary, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                                            Text("文件".loc, color = colors.textPrimary, fontSize = 13.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                         }
                                     }
                                 }
@@ -599,7 +599,7 @@ fun AttachmentPickerSheet(
                                                 modifier = Modifier.size(28.dp)
                                             )
                                             Spacer(Modifier.height(4.dp))
-                                            Text("录音".loc, color = colors.textPrimary, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                                            Text("录音".loc, color = colors.textPrimary, fontSize = 13.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                         }
                                     }
                                 }
@@ -625,7 +625,7 @@ fun AttachmentPickerSheet(
                                                     modifier = Modifier.size(28.dp)
                                                 )
                                                 Spacer(Modifier.height(4.dp))
-                                                Text("文稿".loc, color = colors.textPrimary, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                                                Text("文稿".loc, color = colors.textPrimary, fontSize = 13.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                             }
                                         }
                                     }
@@ -651,7 +651,7 @@ fun AttachmentPickerSheet(
                                                 modifier = Modifier.size(28.dp)
                                             )
                                             Spacer(Modifier.height(4.dp))
-                                            Text("相机".loc, color = colors.textPrimary, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                                            Text("相机".loc, color = colors.textPrimary, fontSize = 13.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                         }
                                     }
                                 }
@@ -666,7 +666,7 @@ fun AttachmentPickerSheet(
                                         Column(
                                             modifier = Modifier
                                                 .fillMaxSize()
-                                                .padding(6.dp),
+                                                .padding(4.dp),
                                             horizontalAlignment = Alignment.CenterHorizontally,
                                             verticalArrangement = Arrangement.Center
                                         ) {
@@ -674,13 +674,16 @@ fun AttachmentPickerSheet(
                                                 imageVector = Icons.Default.PhotoLibrary,
                                                 contentDescription = null,
                                                 tint = colors.textSecondary,
-                                                modifier = Modifier.size(24.dp)
+                                                modifier = Modifier.size(22.dp)
                                             )
-                                            Spacer(Modifier.height(4.dp))
+                                            Spacer(Modifier.height(3.dp))
                                             Text(
                                                 "允许访问照片".loc,
                                                 color = colors.textSecondary,
                                                 fontSize = 11.sp,
+                                                lineHeight = 13.sp,
+                                                maxLines = 2,
+                                                overflow = TextOverflow.Ellipsis,
                                                 textAlign = TextAlign.Center
                                             )
                                         }
@@ -893,7 +896,7 @@ fun AttachmentPickerSheet(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        "添加 (${selected.size})".loc,
+                        "添加 (%d)".loc(selected.size),
                         color = Color.White,
                         fontSize = 16.sp,
                         fontWeight = FontWeight.SemiBold

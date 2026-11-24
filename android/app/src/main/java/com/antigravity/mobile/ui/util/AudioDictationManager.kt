@@ -74,7 +74,7 @@ class AudioDictationManager(private val apiClient: ApiClient) {
                 minBuf * 2
             )
         } catch (e: Exception) {
-            onError("无法访问麦克风: ${e.message}".loc)
+            onError("无法访问麦克风: %s".loc(e.message.orEmpty()))
             return
         }
 
@@ -130,7 +130,7 @@ class AudioDictationManager(private val apiClient: ApiClient) {
         try {
             record.startRecording()
         } catch (e: Exception) {
-            onError("启动录音失败: ${e.message}".loc)
+            onError("启动录音失败: %s".loc(e.message.orEmpty()))
             stop()
             return
         }

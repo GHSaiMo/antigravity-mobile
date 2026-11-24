@@ -186,7 +186,7 @@ fun TokenHistoryTabContent(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "桌面端 Antigravity $desktopPct% · CLI $cliPct%".loc,
+                text = "桌面端 Antigravity %1\$d%% · CLI %2\$d%%".loc(desktopPct, cliPct),
                 fontSize = 12.sp,
                 color = colors.textSecondary,
                 fontWeight = FontWeight.Medium
@@ -220,7 +220,7 @@ fun TokenHistoryTabContent(
                 }
             }
             Text(
-                text = "本地历史扫描于 ${timeFmt.format(Date(tokenHistory.updatedAtEpochMs))}".loc,
+                text = "本地历史扫描于 %s".loc(timeFmt.format(Date(tokenHistory.updatedAtEpochMs))),
                 fontSize = 11.sp,
                 color = colors.textMuted,
                 modifier = Modifier

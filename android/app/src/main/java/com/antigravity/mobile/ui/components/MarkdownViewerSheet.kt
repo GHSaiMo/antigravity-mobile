@@ -363,7 +363,7 @@ private suspend fun saveMarkdownToDownloads(context: Context, filename: String, 
             }
         } catch (e: Exception) {
             withContext(Dispatchers.Main) {
-                Toast.makeText(context, "保存失败: ${e.localizedMessage ?: e.message}".loc, Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "保存失败: %s".loc(e.localizedMessage ?: e.message.orEmpty()), Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -389,6 +389,6 @@ private fun shareMarkdown(context: Context, filename: String, content: String) {
         }
         com.antigravity.mobile.ui.util.ShareImageUtils.startShare(context, shareIntent, "分享Markdown文档".loc)
     } catch (e: Exception) {
-        Toast.makeText(context, "分享失败: ${e.message}".loc, Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, "分享失败: %s".loc(e.message.orEmpty()), Toast.LENGTH_SHORT).show()
     }
 }

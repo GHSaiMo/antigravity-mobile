@@ -720,7 +720,7 @@ private fun VideoDocumentViewer(file: File, colors: AppColors) {
                         DropdownMenu(
                             expanded = showSpeedMenu,
                             onDismissRequest = { showSpeedMenu = false },
-                            modifier = Modifier.background(colors.surface)
+                            containerColor = colors.surface
                         ) {
                             listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f).forEach { spd ->
                                 DropdownMenuItem(
@@ -895,7 +895,7 @@ private fun HtmlDocumentViewer(file: File, colors: AppColors = AntigravityTheme.
                 }
             } catch (e: Exception) {
                 PreparedHtmlDocument(
-                    html = "<html><body><pre>无法加载 HTML 预览</pre></body></html>",
+                    html = "<html><body><pre>${"无法加载 HTML 预览".loc}</pre></body></html>",
                     isMarp = false,
                     isGenerativeUi = false,
                     initialIsDark = initialIsDark
@@ -1268,7 +1268,7 @@ private fun PptxDocumentViewer(file: File, colors: AppColors) {
                             PptxSlide(
                                 slideNumber = slideNum,
                                 categoryBadge = categoryBadge,
-                                title = slideTitle ?: "幻灯片 $slideNum".loc,
+                                title = slideTitle ?: "幻灯片 %d".loc(slideNum),
                                 subtitle = subtitle,
                                 items = items,
                                 isDarkTheme = isDark
@@ -1315,7 +1315,7 @@ private fun PptxDocumentViewer(file: File, colors: AppColors) {
                     if (slide.bitmap != null) {
                         Image(
                             bitmap = slide.bitmap.asImageBitmap(),
-                            contentDescription = "幻灯片 ${slide.slideNumber}".loc,
+                            contentDescription = "幻灯片 %d".loc(slide.slideNumber),
                             contentScale = ContentScale.FillWidth,
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -1374,7 +1374,7 @@ private fun PptxDocumentViewer(file: File, colors: AppColors) {
 
                             // Slide Title
                             Text(
-                                text = slide.title ?: "幻灯片 ${slide.slideNumber}".loc,
+                                text = slide.title ?: "幻灯片 %d".loc(slide.slideNumber),
                                 color = titleColor,
                                 fontSize = 16.5.sp,
                                 fontWeight = FontWeight.Bold,
@@ -1421,7 +1421,7 @@ private fun PptxDocumentViewer(file: File, colors: AppColors) {
                                     }
                                     if (slide.items.size > 10) {
                                         Text(
-                                            text = "• 还有 ${slide.items.size - 10} 项演示内容...".loc,
+                                            text = "• 还有 %d 项演示内容...".loc(slide.items.size - 10),
                                             color = colors.textMuted,
                                             fontSize = 11.sp,
                                             modifier = Modifier.padding(top = 2.dp)
@@ -1441,7 +1441,7 @@ private fun PptxDocumentViewer(file: File, colors: AppColors) {
                     }
 
                     Text(
-                        text = "第 ${slide.slideNumber} / ${slides.size} 页".loc,
+                        text = "第 %1\$d / %2\$d 页".loc(slide.slideNumber, slides.size),
                         color = colors.textMuted,
                         fontSize = 11.5.sp,
                         modifier = Modifier.padding(top = 6.dp)
@@ -1584,7 +1584,7 @@ private fun PdfDocumentViewer(file: File, colors: AppColors) {
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(
-                    text = "共 ${activeHolder.pageCount} 页 · 按需懒加载".loc,
+                    text = "共 %d 页 · 按需懒加载".loc(activeHolder.pageCount),
                     color = colors.textSecondary,
                     fontSize = 12.sp
                 )
@@ -1636,7 +1636,7 @@ private fun PdfDocumentViewer(file: File, colors: AppColors) {
                             }
                         }
                         Text(
-                            text = "第 ${index + 1} / ${activeHolder.pageCount} 页".loc,
+                            text = "第 %1\$d / %2\$d 页".loc(index + 1, activeHolder.pageCount),
                             color = colors.textMuted,
                             fontSize = 11.sp,
                             modifier = Modifier.padding(top = 4.dp)
@@ -1660,7 +1660,7 @@ private fun TextDocumentViewer(file: File, colors: AppColors) {
                     for (line in seq) {
                         totalBytes += line.length * 2L
                         if (totalBytes > maxPreviewBytes) {
-                            result.add("... [文件过大，已截断后续内容预览] ...")
+                            result.add("... [文件过大，已截断后续内容预览] ...".loc)
                             break
                         }
                         result.add(line)
@@ -1668,7 +1668,7 @@ private fun TextDocumentViewer(file: File, colors: AppColors) {
                 }
                 if (result.isEmpty()) listOf("") else result
             } catch (e: Exception) {
-                listOf("无法读取文件内容: ${e.message}".loc)
+                listOf("无法读取文件内容: %s".loc(e.message.orEmpty()))
             }
         }
     }
@@ -1842,7 +1842,7 @@ private fun OfficeDocumentFallback(
         )
 
         Text(
-            text = "文件大小: $sizeStr".loc,
+            text = "文件大小: %s".loc(sizeStr),
             color = colors.textMuted,
             fontSize = 13.sp,
             modifier = Modifier.padding(top = 4.dp)
@@ -1915,7 +1915,7 @@ private fun openInExternalApp(context: Context, file: File) {
         }
         context.startActivity(Intent.createChooser(intent, "打开文件".loc))
     } catch (e: Exception) {
-        Toast.makeText(context, "未找到可打开此文件的应用: ${e.message}".loc, Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, "未找到可打开此文件的应用: %s".loc(e.message.orEmpty()), Toast.LENGTH_SHORT).show()
     }
 }
 
@@ -1935,7 +1935,7 @@ internal fun shareDocument(context: Context, file: File, title: String) {
         }
         com.antigravity.mobile.ui.util.ShareImageUtils.startShare(context, shareIntent, "分享文件".loc)
     } catch (e: Exception) {
-        Toast.makeText(context, "分享失败: ${e.message}".loc, Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, "分享失败: %s".loc(e.message.orEmpty()), Toast.LENGTH_SHORT).show()
     }
 }
 
@@ -1992,7 +1992,7 @@ suspend fun saveFileToDownloads(context: Context, file: File, displayName: Strin
                         isVideo -> "视频相册".loc
                         else -> "下载目录".loc
                     }
-                    Toast.makeText(context, "已保存到$destDesc".loc, Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "已保存到%s".loc(destDesc), Toast.LENGTH_SHORT).show()
                 }
             } else {
                 val targetDir = Environment.getExternalStoragePublicDirectory(
@@ -2010,12 +2010,12 @@ suspend fun saveFileToDownloads(context: Context, file: File, displayName: Strin
                         isVideo -> "视频相册".loc
                         else -> "下载目录".loc
                     }
-                    Toast.makeText(context, "已保存到$destDesc".loc, Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "已保存到%s".loc(destDesc), Toast.LENGTH_SHORT).show()
                 }
             }
         } catch (e: Exception) {
             withContext(Dispatchers.Main) {
-                Toast.makeText(context, "保存失败: ${e.localizedMessage ?: e.message}".loc, Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "保存失败: %s".loc(e.localizedMessage ?: e.message.orEmpty()), Toast.LENGTH_SHORT).show()
             }
         }
     }

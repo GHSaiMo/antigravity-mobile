@@ -231,6 +231,7 @@ fun MessageShareCardSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         sheetMaxWidth = androidx.compose.ui.unit.Dp.Unspecified,
+        containerColor = AntigravityTheme.colors.surface,
         shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
     ) {
         Column(

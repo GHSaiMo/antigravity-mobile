@@ -1,5 +1,6 @@
 package com.antigravity.mobile.data.service
 
+import com.antigravity.mobile.ui.util.L10n
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -154,20 +155,43 @@ class LiveActivityStatusHelperTest {
 
     @Test
     fun completionAlertFormattingHandlesCompletedProceedFailedAndCancelled() {
-        val completed = LiveActivityStatusHelper.formatCompletionAlert("COMPLETED", "修复安卓通知")
-        assertNotNull(completed)
-        assertEquals("🎉 Antigravity 任务已完成", completed!!.first)
-        assertEquals("【修复安卓通知】已完成，点击查看详情。", completed.second)
+        try {
+            L10n.setLanguagePreference("zh")
+            val completed = LiveActivityStatusHelper.formatCompletionAlert("COMPLETED", "修复安卓通知")
+            assertNotNull(completed)
+            assertEquals("🎉 Antigravity 任务已完成", completed!!.first)
+            assertEquals("【修复安卓通知】已完成，点击查看详情。", completed.second)
 
-        val proceed = LiveActivityStatusHelper.formatCompletionAlert("PROCEED", "重构方案")
-        assertNotNull(proceed)
-        assertEquals("📋 方案已就绪，请审批", proceed!!.first)
+            val proceed = LiveActivityStatusHelper.formatCompletionAlert("PROCEED", "重构方案")
+            assertNotNull(proceed)
+            assertEquals("📋 方案已就绪，请审批", proceed!!.first)
 
-        val failed = LiveActivityStatusHelper.formatCompletionAlert("FAILED", "编译任务")
-        assertNotNull(failed)
-        assertEquals("❌ Antigravity 任务执行失败", failed!!.first)
+            val failed = LiveActivityStatusHelper.formatCompletionAlert("FAILED", "编译任务")
+            assertNotNull(failed)
+            assertEquals("❌ Antigravity 任务执行失败", failed!!.first)
 
-        // User-cancelled tasks should not trigger a loud failure alert
-        assertNull(LiveActivityStatusHelper.formatCompletionAlert("CANCELLED", "任意任务"))
+            // User-cancelled tasks should not trigger a loud failure alert
+            assertNull(LiveActivityStatusHelper.formatCompletionAlert("CANCELLED", "任意任务"))
+
+            // English localization
+            L10n.setLanguagePreference("en")
+            val completedEn = LiveActivityStatusHelper.formatCompletionAlert("COMPLETED", "Fix Android")
+            assertNotNull(completedEn)
+            assertEquals("🎉 Antigravity Task Completed", completedEn!!.first)
+            assertEquals("[Fix Android] completed. Tap to view details.", completedEn.second)
+
+            val proceedEn = LiveActivityStatusHelper.formatCompletionAlert("PROCEED", "Refactor")
+            assertNotNull(proceedEn)
+            assertEquals("📋 Plan Ready for Approval", proceedEn!!.first)
+
+            // Japanese localization
+            L10n.setLanguagePreference("ja")
+            val completedJa = LiveActivityStatusHelper.formatCompletionAlert("COMPLETED", "Android修正")
+            assertNotNull(completedJa)
+            assertEquals("🎉 Antigravity タスク完了", completedJa!!.first)
+            assertEquals("「Android修正」が完了しました。タップして詳細を表示します。", completedJa.second)
+        } finally {
+            L10n.setLanguagePreference("system")
+        }
     }
 }

@@ -9,39 +9,42 @@ class L10nTest {
 
     @Test
     fun testLanguageDetectionAndSwitch() {
-        // 1. Follow system English
-        L10n.setLanguagePreference("system")
-        Locale.setDefault(Locale.US)
-        assertTrue("US locale should be detected as English", L10n.isEnglish)
-        assertEquals("Settings", "设置".loc)
-        assertEquals("Device Pairing", "设备配对".loc)
-        assertEquals("Conversations", "会话列表".loc)
-        assertEquals("Send", "发送".loc)
-        assertEquals("Stop", "停止".loc)
-        assertEquals("Run Terminal Command", "运行终端命令".loc)
+        val originalLocale = Locale.getDefault()
+        try {
+            // 1. Follow system English
+            L10n.setLanguagePreference("system")
+            Locale.setDefault(Locale.US)
+            assertTrue("US locale should be detected as English", L10n.isEnglish)
+            assertEquals("Settings", "设置".loc)
+            assertEquals("Device Pairing", "设备配对".loc)
+            assertEquals("Conversations", "会话列表".loc)
+            assertEquals("Send", "发送".loc)
+            assertEquals("Stop", "停止".loc)
+            assertEquals("Run Terminal Command", "运行终端命令".loc)
 
-        // 2. Follow system Chinese
-        Locale.setDefault(Locale.SIMPLIFIED_CHINESE)
-        assertFalse("Chinese locale should not be detected as English", L10n.isEnglish)
-        assertEquals("设置", "设置".loc)
-        assertEquals("设备配对", "设备配对".loc)
-        assertEquals("会话列表", "会话列表".loc)
-        assertEquals("发送", "发送".loc)
-        assertEquals("停止", "停止".loc)
+            // 2. Follow system Chinese
+            Locale.setDefault(Locale.SIMPLIFIED_CHINESE)
+            assertFalse("Chinese locale should not be detected as English", L10n.isEnglish)
+            assertEquals("设置", "设置".loc)
+            assertEquals("设备配对", "设备配对".loc)
+            assertEquals("会话列表", "会话列表".loc)
+            assertEquals("发送", "发送".loc)
+            assertEquals("停止", "停止".loc)
 
-        // 3. Force English even in Chinese locale
-        L10n.setLanguagePreference("en")
-        assertTrue("Forced English should be English", L10n.isEnglish)
-        assertEquals("Settings", "设置".loc)
+            // 3. Force English even in Chinese locale
+            L10n.setLanguagePreference("en")
+            assertTrue("Forced English should be English", L10n.isEnglish)
+            assertEquals("Settings", "设置".loc)
 
-        // 4. Force Chinese even in English locale
-        Locale.setDefault(Locale.US)
-        L10n.setLanguagePreference("zh")
-        assertFalse("Forced Chinese should not be English", L10n.isEnglish)
-        assertEquals("设置", "设置".loc)
-
-        // Reset to system
-        L10n.setLanguagePreference("system")
+            // 4. Force Chinese even in English locale
+            Locale.setDefault(Locale.US)
+            L10n.setLanguagePreference("zh")
+            assertFalse("Forced Chinese should not be English", L10n.isEnglish)
+            assertEquals("设置", "设置".loc)
+        } finally {
+            Locale.setDefault(originalLocale)
+            L10n.setLanguagePreference("system")
+        }
     }
 
     @Test
@@ -92,5 +95,75 @@ class L10nTest {
         assertEquals("5時間均等消費の基準", "5時間匀速应耗基准".loc)
 
         L10n.setLanguagePreference("system")
+    }
+
+    @Test
+    fun testFormattedTemplatesAndTerminologyAlignment() {
+        try {
+            L10n.setLanguagePreference("en")
+            assertEquals("System", "跟随系统".loc)
+            assertEquals("Swarm", "蜂群协同".loc)
+            assertEquals("Unpair", "解除配对".loc)
+            assertEquals("Manage Tasks", "管理后台任务".loc)
+            assertEquals("Schedule", "定时调度".loc)
+            assertEquals("Offline", "未连接".loc)
+            assertEquals("Deny", "拒绝".loc)
+            assertEquals("Deny", "拒绝执行".loc)
+            assertEquals("Approval", "待审批".loc)
+            assertEquals("Switch workspace", "切换工作区".loc)
+            assertEquals("3 of 5 done", "已完成 %1\$d/%2\$d".loc(3, 5))
+            assertEquals("Failed to load messages: HTTP 502", "获取消息失败: HTTP %d".loc(502))
+            assertEquals("File exceeds 20MB: demo.zip", "文件超过 %1\$dMB：%2\$s".loc(20, "demo.zip"))
+            assertEquals("2 waiting on @verifier", "%1\$d 项等待 @%2\$s".loc(2, "verifier"))
+            assertEquals("Post", "发板".loc)
+            assertEquals("Recents", "最近项目".loc)
+            assertEquals("Scan", "文稿".loc)
+            assertEquals("Allow Photos", "允许访问照片".loc)
+            assertEquals("1 background task running (1 daemon)", "1 个后台任务运行中（1 个常驻）".loc)
+            assertEquals("1 artifact", "1 个产物".loc)
+            assertEquals("1 task running", "1 个任务正在执行".loc)
+            assertEquals("1 chat", "1 个会话".loc)
+            assertEquals("Retired", "已退役".loc)
+            assertEquals("Swarm Session", "蜂群会话".loc)
+            assertEquals("Waiting for build (3 tasks) to finish", "等待 %1\$s 等 %2\$d 项完成后出列".loc("build", 3))
+            assertEquals("[Attachment: a.png (3 files)]", "[附件: %1\$s 等 %2\$d 个文件]".loc("a.png", 3))
+            assertFalse("No iOS mention in Android album permission text", "未获得相册权限，请在系统设置中开启".loc.contains("iOS"))
+            assertFalse("No iOS mention in Android alert sound text", "跟随 iOS 系统提示音".loc.contains("iOS"))
+            assertFalse("No iOS mention in Android photos permission prompt", "请在系统“设置”中允许 Multigravity 访问相册以保存图片。".loc.contains("iOS"))
+
+            L10n.setLanguagePreference("ja")
+            assertEquals("システム", "跟随系统".loc)
+            assertEquals("スウォーム連携", "蜂群协同".loc)
+            assertEquals("解除", "解除配对".loc)
+            assertEquals("タスク管理", "管理后台任务".loc)
+            assertEquals("スケジュール", "定时调度".loc)
+            assertEquals("オフライン", "未连接".loc)
+            assertEquals("拒否", "拒绝".loc)
+            assertEquals("実行を拒否", "拒绝执行".loc)
+            assertEquals("承認待ち", "待审批".loc)
+            assertEquals("ワークスペースを切替", "切换工作区".loc)
+            assertEquals("3/5 完了", "已完成 %1\$d/%2\$d".loc(3, 5))
+            assertEquals("メッセージの取得に失敗しました: HTTP 502", "获取消息失败: HTTP %d".loc(502))
+            assertEquals("ファイルが 20MB を超えています：demo.zip", "文件超过 %1\$dMB：%2\$s".loc(20, "demo.zip"))
+            assertEquals("2 件が @verifier 待ち", "%1\$d 项等待 @%2\$s".loc(2, "verifier"))
+            assertEquals("最近の項目", "最近项目".loc)
+            assertEquals("スキャン", "文稿".loc)
+            assertEquals("写真を許可", "允许访问照片".loc)
+            assertEquals("バックグラウンド", "转后台".loc)
+            assertEquals("クイックメニュー", "长按快捷菜单".loc)
+            assertEquals("終了", "已退役".loc)
+            assertEquals("スウォームセッション", "蜂群会话".loc)
+            assertEquals("[添付: a.png など 3 件]", "[附件: %1\$s 等 %2\$d 个文件]".loc("a.png", 3))
+            assertFalse("No iOS mention in JA album permission text", "未获得相册权限，请在系统设置中开启".loc.contains("iOS"))
+            assertFalse("No iOS mention in JA alert sound text", "跟随 iOS 系统提示音".loc.contains("iOS"))
+            assertFalse("No iOS mention in JA photos permission prompt", "请在系统“设置”中允许 Multigravity 访问相册以保存图片。".loc.contains("iOS"))
+
+            L10n.setLanguagePreference("zh")
+            assertEquals("获取消息失败: HTTP 502", "获取消息失败: HTTP %d".loc(502))
+            assertEquals("文件超过 20MB：demo.zip", "文件超过 %1\$dMB：%2\$s".loc(20, "demo.zip"))
+            assertEquals("2 项等待 @verifier", "%1\$d 项等待 @%2\$s".loc(2, "verifier"))
+        } finally {
+            L10n.setLanguagePreference("system")
+        }
     }
 }

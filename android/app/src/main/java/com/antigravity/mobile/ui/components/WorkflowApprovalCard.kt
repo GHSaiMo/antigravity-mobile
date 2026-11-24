@@ -147,14 +147,14 @@ fun WorkflowApprovalCard(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "预估执行阶段 (${phases.size})".loc,
+                            text = "预估执行阶段 (%d)".loc(phases.size),
                             style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
                             color = colors.textSecondary
                         )
                         val maxConc = approval.maxConcurrency ?: 1
                         if (maxConc > 1) {
                             Text(
-                                text = "最大并发: $maxConc".loc,
+                                text = "最大并发: %d".loc(maxConc),
                                 style = MaterialTheme.typography.labelSmall.copy(
                                     fontWeight = FontWeight.SemiBold,
                                     fontFamily = FontFamily.Monospace
