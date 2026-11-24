@@ -73,6 +73,7 @@ import kotlinx.coroutines.launch
 private enum class SettingsSubpage {
     MAIN,
     COMPACT,
+    QUOTA_DISPLAY,
     NOTIFICATION_ALERTS,
     TIPS;
 
@@ -80,6 +81,7 @@ private enum class SettingsSubpage {
         get() = when (this) {
             MAIN -> "设置".loc
             COMPACT -> "精简模式".loc
+            QUOTA_DISPLAY -> "额度显示".loc
             NOTIFICATION_ALERTS -> when (L10n.currentLang) {
                 L10n.AppLang.EN -> "Alert Types"
                 L10n.AppLang.JA -> "通知項目"
@@ -209,6 +211,7 @@ fun SettingsSheet(
                                 alertPrefs = alertPrefs,
                                 onThemeModeChange = onThemeModeChange,
                                 onOpenCompactSettings = { openSubpage(SettingsSubpage.COMPACT) },
+                                onOpenQuotaDisplay = { openSubpage(SettingsSubpage.QUOTA_DISPLAY) },
                                 onOpenNotificationAlerts = {
                                     openSubpage(SettingsSubpage.NOTIFICATION_ALERTS)
                                     if (prefs.isPaired()) {
@@ -257,6 +260,7 @@ fun SettingsSheet(
                             ) {
                                 when (currentSubpage) {
                                     SettingsSubpage.COMPACT -> CompactModeSubpageContent(prefs = prefs)
+                                    SettingsSubpage.QUOTA_DISPLAY -> QuotaDisplaySubpageContent(prefs = prefs)
                                     SettingsSubpage.NOTIFICATION_ALERTS -> NotificationAlertsSubpageContent(
                                         alertPrefs = alertPrefs,
                                         syncError = alertPrefsError,
@@ -434,6 +438,7 @@ private fun MainSettingsContent(
     alertPrefs: ApiClient.AlertPreferencesPayload,
     onThemeModeChange: (String) -> Unit,
     onOpenCompactSettings: () -> Unit,
+    onOpenQuotaDisplay: () -> Unit,
     onOpenNotificationAlerts: () -> Unit,
     onOpenTipsGuide: () -> Unit,
     onPromptUnpair: () -> Unit,
@@ -1067,12 +1072,23 @@ private fun MainSettingsContent(
         }
 
         // MARK: - 5. 外观与主题
-        var weeklyPaceCursor by remember { mutableStateOf(prefs.weeklyPaceCursorEnabled) }
+        val weeklyPaceCursor by prefs.weeklyPaceCursorFlow.collectAsState()
         val currentFontScale by prefs.fontSizeScaleFlow.collectAsState()
         val knowledgeMode by prefs.knowledgeModeFlow.collectAsState()
         val compactCollapseTools by prefs.compactCollapseToolsFlow.collectAsState()
         val compactCollapseTasks by prefs.compactCollapseTasksFlow.collectAsState()
         val compactHideHealthyContext by prefs.compactHideHealthyContextFlow.collectAsState()
+        val pickerQuotaEnabled by com.antigravity.mobile.data.service.ModelPickerQuotaCache.enabled.collectAsState()
+        val pickerQuotaWeekly by com.antigravity.mobile.data.service.ModelPickerQuotaCache.weekly.collectAsState()
+        val quotaDisplaySummary = run {
+            val window = if (pickerQuotaWeekly) "每周".loc else "5h"
+            when {
+                weeklyPaceCursor && pickerQuotaEnabled -> "${"匀速".loc} · $window"
+                weeklyPaceCursor -> "匀速游标".loc
+                pickerQuotaEnabled -> "${"余量".loc} · $window"
+                else -> "已关闭".loc
+            }
+        }
         val compactSummary = remember(knowledgeMode, compactCollapseTools, compactCollapseTasks, compactHideHealthyContext) {
             if (!knowledgeMode) "已关闭".loc
             else {
@@ -1089,7 +1105,7 @@ private fun MainSettingsContent(
         }
         SettingsSection(
             title = "外观与主题".loc,
-            footer = "选择全局浅色/深色/跟随系统外观；点进「精简模式」可自定义对话降噪选项。".loc
+            footer = "选择浅色、深色模式与界面字号缩放；点进「额度显示」与「精简模式」可自定义配额指示和对话降噪选项。".loc
         ) {
             Column(
                 modifier = Modifier
@@ -1114,39 +1130,33 @@ private fun MainSettingsContent(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                        .clickable { onOpenQuotaDisplay() }
+                        .padding(horizontal = 16.dp, vertical = 14.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Column(
-                        modifier = Modifier
-                            .weight(1f)
-                            .padding(end = 12.dp)
+                    Text(
+                        text = "额度显示".loc,
+                        color = colors.textPrimary,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         Text(
-                            text = "额度匀速指标".loc,
-                            color = colors.textPrimary,
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                        Text(
-                            text = "在额度条上显示均速基准刻度针".loc,
+                            text = quotaDisplaySummary,
                             color = colors.textSecondary,
-                            fontSize = 11.5.sp,
-                            lineHeight = 15.sp
+                            fontSize = 14.sp
+                        )
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                            contentDescription = null,
+                            tint = colors.textMuted,
+                            modifier = Modifier.size(18.dp)
                         )
                     }
-                    Switch(
-                        checked = weeklyPaceCursor,
-                        onCheckedChange = {
-                            weeklyPaceCursor = it
-                            prefs.weeklyPaceCursorEnabled = it
-                        },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = colors.surface,
-                            checkedTrackColor = colors.accentIndigo
-                        )
-                    )
                 }
                 HorizontalDivider(color = colors.separator.copy(alpha = 0.4f), thickness = 0.5.dp)
                 Row(
@@ -2247,6 +2257,148 @@ private fun CompactModeSubpageContent(prefs: PreferencesManager) {
                         prefs.compactHideHealthyContext = it
                     }
                 )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+    }
+}
+
+@Composable
+private fun QuotaDisplaySubpageContent(prefs: PreferencesManager) {
+    val colors = AntigravityTheme.colors
+    val haptic = rememberHaptic()
+    val weeklyPaceCursor by prefs.weeklyPaceCursorFlow.collectAsState()
+    val enabled by com.antigravity.mobile.data.service.ModelPickerQuotaCache.enabled.collectAsState()
+    val weekly by com.antigravity.mobile.data.service.ModelPickerQuotaCache.weekly.collectAsState()
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp, vertical = 14.dp)
+            .navigationBarsPadding(),
+        verticalArrangement = Arrangement.spacedBy(20.dp)
+    ) {
+        SettingsSection(
+            title = "配额条".loc,
+            footer = "在首页与配额条上显示时间均速基准刻度针。".loc
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(colors.surface)
+                    .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = "额度匀速指标".loc,
+                    color = colors.textPrimary,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Medium
+                )
+                Switch(
+                    checked = weeklyPaceCursor,
+                    onCheckedChange = {
+                        haptic.light()
+                        prefs.weeklyPaceCursorEnabled = it
+                    },
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = colors.surface,
+                        checkedTrackColor = colors.accentIndigo
+                    )
+                )
+            }
+        }
+
+        SettingsSection(
+            title = "模型选择器".loc,
+            footer = "长按模型胶囊上滑时，在每个模型行右侧显示所属额度池（Gemini / Claude）的剩余百分比，低于 20% 标红。".loc
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(colors.surface)
+                    .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "显示余量".loc,
+                        color = colors.textPrimary,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Switch(
+                        checked = enabled,
+                        onCheckedChange = {
+                            haptic.light()
+                            prefs.modelPickerQuotaEnabled = it
+                        },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = colors.surface,
+                            checkedTrackColor = colors.accentIndigo
+                        )
+                    )
+                }
+                HorizontalDivider(
+                    color = colors.separator.copy(alpha = 0.35f),
+                    thickness = 0.5.dp,
+                    modifier = Modifier.padding(start = 16.dp)
+                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .alpha(if (enabled) 1f else 0.48f)
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "余量窗口".loc,
+                        color = colors.textPrimary,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(9.dp))
+                            .background(colors.surfaceVariant)
+                            .padding(2.dp),
+                        horizontalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        listOf(false to "5h", true to "每周".loc).forEach { (isWeekly, label) ->
+                            val selected = weekly == isWeekly
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(7.dp))
+                                    .background(if (selected) colors.surface else Color.Transparent)
+                                    .clickable(enabled = enabled) {
+                                        haptic.light()
+                                        prefs.modelPickerQuotaWeekly = isWeekly
+                                    }
+                                    .padding(horizontal = 14.dp, vertical = 5.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = label,
+                                    color = if (selected) colors.textPrimary else colors.textSecondary,
+                                    fontSize = 12.5.sp,
+                                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium
+                                )
+                            }
+                        }
+                    }
+                }
             }
         }
 

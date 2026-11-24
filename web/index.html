@@ -46,7 +46,7 @@
   <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png?v=4" />
   <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png?v=4" />
   <link rel="manifest" href="/manifest.json" />
-  <link rel="stylesheet" href="/style.css?v=59" />
+  <link rel="stylesheet" href="/style.css?v=60" />
 </head>
 <body>
   <div id="app">
@@ -591,6 +591,13 @@
                 <option value="comfortable">舒适 (大字号)</option>
               </select>
             </div>
+            <button id="btn-open-quota-display-settings" class="ios-cell-button between settings-nav-row" type="button">
+              <span class="cell-label">额度显示</span>
+              <span class="settings-nav-trailing">
+                <span id="settings-quota-display-summary" class="cell-value">匀速 · 5h</span>
+                <svg class="settings-chevron" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+              </span>
+            </button>
             <button id="btn-open-compact-settings" class="ios-cell-button between settings-nav-row" type="button">
               <span class="cell-label">精简模式</span>
               <span class="settings-nav-trailing">
@@ -599,7 +606,7 @@
               </span>
             </button>
           </div>
-          <div class="settings-note" style="margin: 6px 4px 12px;">选择外观模式与界面字号缩放；点进「精简模式」可自定义对话降噪选项。</div>
+          <div class="settings-note" style="margin: 6px 4px 12px;">选择浅色、深色模式与界面字号缩放；点进「额度显示」与「精简模式」可自定义配额指示和对话降噪选项。</div>
 
           <!-- Section 3: 本地数据与缓存 -->
           <div class="ios-grouped-section">
@@ -657,6 +664,31 @@
                 <input type="checkbox" id="settings-compact-hide-healthy-ctx" class="ios-switch-input" />
               </label>
             </div>
+          </div>
+          <div id="settings-sub-quota-display" class="hidden">
+            <div class="quota-section-header" style="margin: 6px 4px 6px;">配额条</div>
+            <div class="ios-grouped-section">
+              <label class="ios-cell between" for="settings-weekly-pace-cursor" style="cursor: pointer;">
+                <span class="cell-label">额度匀速指标</span>
+                <input type="checkbox" id="settings-weekly-pace-cursor" class="ios-switch-input" checked />
+              </label>
+            </div>
+            <div class="settings-note" style="margin: 6px 4px 14px;">在首页与配额条上显示时间均速基准刻度针。</div>
+            <div class="quota-section-header" style="margin: 6px 4px 6px;">模型选择器</div>
+            <div class="ios-grouped-section">
+              <label class="ios-cell between" for="settings-picker-quota-enabled" style="cursor: pointer;">
+                <span class="cell-label">显示余量</span>
+                <input type="checkbox" id="settings-picker-quota-enabled" class="ios-switch-input" checked />
+              </label>
+              <div class="ios-cell between">
+                <span class="cell-label">余量窗口</span>
+                <div id="settings-picker-quota-seg" class="settings-segmented" role="radiogroup" aria-label="余量窗口">
+                  <button type="button" class="settings-seg-btn active" data-quota-window="5h" aria-pressed="true">5h</button>
+                  <button type="button" class="settings-seg-btn" data-quota-window="weekly" aria-pressed="false">每周</button>
+                </div>
+              </div>
+            </div>
+            <div class="settings-note" style="margin: 6px 4px 14px;">长按模型胶囊上滑时，在每个模型行右侧显示所属额度池（Gemini / Claude）的剩余百分比，低于 20% 标红。</div>
           </div>
           <div id="settings-sub-alerts" class="hidden">
             <div class="quota-section-header" style="margin: 6px 4px 6px;">任务与会话提醒</div>
@@ -1185,7 +1217,7 @@
     </div>
   </dialog>
 
-  <script defer src="/js/i18n.js?v=4"></script>
+  <script defer src="/js/i18n.js?v=5"></script>
   <script defer src="/js/e2ee.js?v=1"></script>
   <script defer src="/js/core.js?v=42"></script>
   <script defer src="/js/nav.js?v=48"></script>
@@ -1193,19 +1225,19 @@
   <script defer src="/js/chat.js?v=45"></script>
   <script defer src="/js/actions.js?v=39"></script>
   <script defer src="/js/media.js?v=37"></script>
-  <script defer src="/js/cockpit.js?v=34"></script>
+  <script defer src="/js/cockpit.js?v=35"></script>
   <script defer src="/js/scan.js?v=2"></script>
   <script defer src="/js/msgmenu.js?v=5"></script>
   <script defer src="/js/slash.js?v=3"></script>
   <script defer src="/js/workflows.js?v=2"></script>
   <script defer src="/js/changes.js?v=2"></script>
   <script defer src="/js/git.js?v=4"></script>
-  <script defer src="/js/models.js?v=2"></script>
+  <script defer src="/js/models.js?v=3"></script>
   <script defer src="/js/subagents.js?v=5"></script>
   <script defer src="/js/swarm.js?v=3"></script>
   <script defer src="/js/egg.js?v=1"></script>
   <script defer src="/js/phase3.js?v=5"></script>
-  <script defer src="/js/v233.js?v=6"></script>
+  <script defer src="/js/v233.js?v=7"></script>
   <!-- init.js 必须最后加载：它在执行时就会调用 initApp()，依赖前面所有脚本里的函数 -->
   <script defer src="/js/init.js?v=45"></script>
 </body>

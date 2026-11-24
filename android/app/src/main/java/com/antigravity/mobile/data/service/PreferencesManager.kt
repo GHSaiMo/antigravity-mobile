@@ -62,6 +62,27 @@ class PreferencesManager(context: Context) {
     private val _weeklyPaceCursorFlow = MutableStateFlow(weeklyPaceCursorEnabled)
     val weeklyPaceCursorFlow: StateFlow<Boolean> = _weeklyPaceCursorFlow.asStateFlow()
 
+    /** 长按模型选择器的行内是否显示对应额度池剩余百分比（默认开启） */
+    var modelPickerQuotaEnabled: Boolean
+        get() = prefs.getBoolean(KEY_MODEL_PICKER_QUOTA_ENABLED, true)
+        set(value) {
+            prefs.edit().putBoolean(KEY_MODEL_PICKER_QUOTA_ENABLED, value).apply()
+            ModelPickerQuotaCache.enabled.value = value
+        }
+
+    /** 模型选择器余量窗口：false = 5h（默认），true = Weekly */
+    var modelPickerQuotaWeekly: Boolean
+        get() = prefs.getBoolean(KEY_MODEL_PICKER_QUOTA_WEEKLY, false)
+        set(value) {
+            prefs.edit().putBoolean(KEY_MODEL_PICKER_QUOTA_WEEKLY, value).apply()
+            ModelPickerQuotaCache.weekly.value = value
+        }
+
+    private val modelPickerQuotaPrefsSynced: Unit = run {
+        ModelPickerQuotaCache.enabled.value = modelPickerQuotaEnabled
+        ModelPickerQuotaCache.weekly.value = modelPickerQuotaWeekly
+    }
+
     var selectedQuotaBucket: QuotaBucketKind
         get() = QuotaBucketKind.fromKey(prefs.getString(KEY_SELECTED_QUOTA_BUCKET, QuotaBucketKind.GEMINI_5H.key))
         set(value) {
@@ -1039,6 +1060,8 @@ class PreferencesManager(context: Context) {
         private const val KEY_LIVE_NOTIFICATIONS = "live_notifications"
         private const val KEY_ENABLE_VOICE_MODE = "enable_voice_mode"
         private const val KEY_WEEKLY_PACE_CURSOR = "weekly_pace_cursor"
+        private const val KEY_MODEL_PICKER_QUOTA_ENABLED = "model_picker_quota_enabled"
+        private const val KEY_MODEL_PICKER_QUOTA_WEEKLY = "model_picker_quota_weekly"
         private const val KEY_SELECTED_QUOTA_BUCKET = "selected_quota_bucket"
         private const val KEY_COCKPIT_EMAIL_MASKED = "cockpit_email_masked"
         private const val KEY_FCM_PUSH_TOKEN = "fcm_push_token"

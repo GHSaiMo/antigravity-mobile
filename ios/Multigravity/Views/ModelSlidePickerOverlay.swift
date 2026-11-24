@@ -348,6 +348,39 @@ public final class ModelSlidePickerState {
     }
 }
 
+/// 模型选择器行内余量的只读缓存：由首页额度拉取（`publishQuotaToWidget`）同步当前账号额度，零额外请求。
+@MainActor
+@Observable
+public final class ModelPickerQuotaCache {
+    public static let shared = ModelPickerQuotaCache()
+    public var account: CockpitAccountQuota? = nil
+
+    private init() {}
+
+    /// 返回该行对应额度池剩余百分比（0...100）；无数据或无法归属时返回 nil。
+    /// Gemini / Orchestrator 归 Gemini 池（Argon 若网关单独下发则用 Argon 桶），Claude 归 Claude 池。
+    public func remainingPercent(for row: ModelPickerRow, weekly: Bool) -> Double? {
+        guard let acc = account else { return nil }
+        let bucket: CockpitQuotaBucket?
+        switch row.providerKind {
+        case .claude:
+            bucket = weekly ? acc.claudeWeekly : (acc.claude5h ?? acc.claudeWeekly)
+        case .gemini, .orchestrator:
+            let isArgon = row.title.lowercased().contains("argon")
+                || row.variantsTopToBottom.contains { $0.id.lowercased().contains("argon") }
+            if isArgon, let argon = acc.gemini4Argon {
+                bucket = argon
+            } else {
+                bucket = weekly ? acc.geminiWeekly : (acc.gemini5h ?? acc.geminiWeekly)
+            }
+        case .other:
+            bucket = nil
+        }
+        guard let pct = bucket?.remainingPercent, pct.isFinite else { return nil }
+        return min(100, max(0, pct))
+    }
+}
+
 public extension ModelProviderKind {
     /// 厂商专属强调色（Gemini 蓝 / Claude 橙 / Orchestrator 石墨钛灰 / Other 青）。
     var accentColor: Color {
@@ -373,6 +406,12 @@ public struct ModelSlidePickerOverlay: View {
 
     private func accentColor(for kind: ModelProviderKind) -> Color {
         kind.accentColor
+    }
+
+    private func quotaPercent(for row: ModelPickerRow) -> Double? {
+        let settings = AppSettings.shared
+        guard settings.modelPickerQuotaEnabled else { return nil }
+        return ModelPickerQuotaCache.shared.remainingPercent(for: row, weekly: settings.modelPickerQuotaWeekly)
     }
 
     public var body: some View {
@@ -457,6 +496,17 @@ public struct ModelSlidePickerOverlay: View {
                             .lineLimit(1)
                             .minimumScaleFactor(0.8)
                         Spacer(minLength: 4)
+                        if let pct = quotaPercent(for: row) {
+                            let pctColor = pct < 20 ? Color.red : rowColor
+                            Text("\(Int(pct.rounded()))%")
+                                .font(.system(size: 10.5, weight: .semibold).monospacedDigit())
+                                .foregroundColor(pctColor.opacity(isHovered || isCurrentActive ? 1.0 : 0.85))
+                                .lineLimit(1)
+                                .fixedSize()
+                                .padding(.horizontal, 5)
+                                .frame(height: 16)
+                                .background(Capsule().fill(pctColor.opacity(0.12)))
+                        }
                         if row.hasSubmenu {
                             Image(systemName: "chevron.right")
                                 .font(.system(size: 10.5, weight: .semibold))

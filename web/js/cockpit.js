@@ -290,9 +290,14 @@ function calculateQuotaPace(title, bucket, tier) {
   };
 }
 
+const WEEKLY_PACE_CURSOR_KEY = "mgy.weeklyPaceCursorEnabled";
+function isWeeklyPaceCursorEnabled() {
+  try { return localStorage.getItem(WEEKLY_PACE_CURSOR_KEY) !== "0"; } catch (_) { return true; }
+}
+
 function renderPacedMetricBox(title, titleClass, bucket, tier, options = {}) {
   const { bucketKey = "", isSelectable = false, isSelected = false } = options;
-  const pace = calculateQuotaPace(title, bucket, tier);
+  const pace = isWeeklyPaceCursorEnabled() ? calculateQuotaPace(title, bucket, tier) : null;
   const remaining = bucket.remaining_percent || 0;
   const width = Math.min(100, Math.max(0, remaining));
   const statusClass = getQuotaStatusClass(remaining);

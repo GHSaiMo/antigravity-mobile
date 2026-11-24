@@ -444,6 +444,104 @@ function dismissWebModelPicker() {
   webPickerState = null;
 }
 
+// --- 模型选择器行内额度余量（复用行色胶囊，默认 5h，可在 设置 → 外观与主题 → 额度显示 中切换） ---
+const MODEL_PICKER_QUOTA_ENABLED_KEY = "mgy.modelPickerQuotaEnabled";
+const MODEL_PICKER_QUOTA_WEEKLY_KEY = "mgy.modelPickerQuotaWeekly";
+
+function isModelPickerQuotaEnabled() {
+  try { return localStorage.getItem(MODEL_PICKER_QUOTA_ENABLED_KEY) !== "0"; } catch (_) { return true; }
+}
+
+function isModelPickerQuotaWeekly() {
+  try { return localStorage.getItem(MODEL_PICKER_QUOTA_WEEKLY_KEY) === "1"; } catch (_) { return false; }
+}
+
+function modelPickerQuotaPercent(row) {
+  if (!isModelPickerQuotaEnabled()) return null;
+  const data = typeof currentCockpitQuotas !== "undefined" ? currentCockpitQuotas : null;
+  const acc = data && (data.current_account || (data.accounts && data.accounts[0]));
+  if (!acc) return null;
+  const weekly = isModelPickerQuotaWeekly();
+  const provider = String(row.provider || "");
+  let bucket = null;
+  if (provider === "claude") {
+    bucket = weekly ? acc.claude_weekly : (acc.claude_5h || acc.claude_weekly);
+  } else if (provider === "gemini" || provider === "orchestrator") {
+    const haystack = [row.title, ...(row.variants || []).map((v) => v.id)].join(" ").toLowerCase();
+    if (haystack.includes("argon") && acc.gemini_4_argon) {
+      bucket = acc.gemini_4_argon;
+    } else {
+      bucket = weekly ? acc.gemini_weekly : (acc.gemini_5h || acc.gemini_weekly);
+    }
+  }
+  if (!bucket || typeof bucket.remaining_percent !== "number") return null;
+  return Math.round(Math.min(100, Math.max(0, bucket.remaining_percent)));
+}
+
+function modelPickerQuotaPillHtml(row) {
+  const pct = modelPickerQuotaPercent(row);
+  if (pct === null) return "";
+  return `<span class="mp-quota${pct < 20 ? " is-low" : ""}">${pct}%</span>`;
+}
+
+function initQuotaDisplaySettings() {
+  const paceToggle = document.getElementById("settings-weekly-pace-cursor");
+  const toggle = document.getElementById("settings-picker-quota-enabled");
+  const seg = document.getElementById("settings-picker-quota-seg");
+  const summary = document.getElementById("settings-quota-display-summary");
+  const tr = (s) => (typeof t === "function" ? t(s) : s);
+  const paceEnabled = () => (typeof isWeeklyPaceCursorEnabled === "function" ? isWeeklyPaceCursorEnabled() : true);
+  const sync = () => {
+    const pace = paceEnabled();
+    const enabled = isModelPickerQuotaEnabled();
+    const weekly = isModelPickerQuotaWeekly();
+    if (paceToggle) paceToggle.checked = pace;
+    if (toggle) toggle.checked = enabled;
+    if (seg) {
+      seg.classList.toggle("compact-subpanel-disabled", !enabled);
+      seg.querySelectorAll(".settings-seg-btn").forEach((btn) => {
+        const active = (btn.getAttribute("data-quota-window") === "weekly") === weekly;
+        btn.classList.toggle("active", active);
+        btn.setAttribute("aria-pressed", active ? "true" : "false");
+        btn.disabled = !enabled;
+      });
+    }
+    if (summary) {
+      const win = weekly ? tr("每周") : "5h";
+      if (pace && enabled) summary.textContent = `${tr("匀速")} · ${win}`;
+      else if (pace) summary.textContent = tr("匀速游标");
+      else if (enabled) summary.textContent = `${tr("余量")} · ${win}`;
+      else summary.textContent = tr("已关闭");
+    }
+  };
+  paceToggle?.addEventListener("change", () => {
+    try { localStorage.setItem("mgy.weeklyPaceCursorEnabled", paceToggle.checked ? "1" : "0"); } catch (_) {}
+    sync();
+    if (typeof renderQuotaSheet === "function" && typeof currentCockpitQuotas !== "undefined" && currentCockpitQuotas) {
+      renderQuotaSheet(currentCockpitQuotas);
+    }
+  });
+  toggle?.addEventListener("change", () => {
+    try { localStorage.setItem(MODEL_PICKER_QUOTA_ENABLED_KEY, toggle.checked ? "1" : "0"); } catch (_) {}
+    sync();
+  });
+  seg?.querySelectorAll(".settings-seg-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      if (!isModelPickerQuotaEnabled()) return;
+      try { localStorage.setItem(MODEL_PICKER_QUOTA_WEEKLY_KEY, btn.getAttribute("data-quota-window") === "weekly" ? "1" : "0"); } catch (_) {}
+      sync();
+    });
+  });
+  window.addEventListener("mgy:languagechange", sync);
+  sync();
+}
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", initQuotaDisplaySettings);
+} else {
+  initQuotaDisplaySettings();
+}
+
 function openWebModelPicker(anchorEl) {
   if (typeof dismissWebWorkflowPicker === "function") dismissWebWorkflowPicker();
   const overlay = document.getElementById("model-picker-overlay");
@@ -534,6 +632,7 @@ function renderWebModelPicker() {
       <button type="button" class="${classes}" data-row-idx="${idx}">
         <span class="mp-check">${isActive ? "✓" : ""}</span>
         <span class="mp-title">${escapeHtml(displayTitle)}</span>
+        ${modelPickerQuotaPillHtml(row)}
         ${row.hasSubmenu ? '<span class="mp-arrow">›</span>' : ""}
       </button>
     `;

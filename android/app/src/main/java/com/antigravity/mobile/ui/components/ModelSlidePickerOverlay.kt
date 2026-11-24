@@ -62,6 +62,8 @@ import androidx.compose.ui.zIndex
 import com.antigravity.mobile.data.model.ModelDefaults
 import com.antigravity.mobile.data.model.ModelOption
 import com.antigravity.mobile.data.model.ModelVariant
+import com.antigravity.mobile.data.service.ModelPickerQuotaCache
+import androidx.compose.runtime.collectAsState
 import com.antigravity.mobile.ui.theme.AntigravityTheme
 import com.antigravity.mobile.ui.theme.modelProviderAccent
 import kotlin.math.floor
@@ -435,6 +437,9 @@ fun ModelSlidePickerOverlay(
     val colors = AntigravityTheme.colors
     val density = LocalDensity.current
     val haptic = LocalHapticFeedback.current
+    val quotaAccount by ModelPickerQuotaCache.account.collectAsState()
+    val quotaEnabled by ModelPickerQuotaCache.enabled.collectAsState()
+    val quotaWeekly by ModelPickerQuotaCache.weekly.collectAsState()
 
     AnimatedVisibility(
         visible = state.isPresented,
@@ -564,6 +569,27 @@ fun ModelSlidePickerOverlay(
                                     overflow = TextOverflow.Ellipsis,
                                     modifier = Modifier.weight(1f)
                                 )
+                                val pct = ModelPickerQuotaCache.remainingPercent(
+                                    account = quotaAccount,
+                                    providerKind = row.providerKind,
+                                    title = row.title,
+                                    variantIds = row.variantsTopToBottom.map { it.id },
+                                    weekly = quotaWeekly
+                                ).takeIf { quotaEnabled }
+                                if (pct != null) {
+                                    val pctColor = if (pct < 20.0) Color(0xFFE5484D) else rowColor
+                                    Text(
+                                        text = "${pct.roundToInt()}%",
+                                        fontSize = 10.5.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = pctColor.copy(alpha = if (isHovered || isCurrentActive) 1f else 0.85f),
+                                        maxLines = 1,
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(50))
+                                            .background(pctColor.copy(alpha = 0.12f))
+                                            .padding(horizontal = 5.dp, vertical = 1.dp)
+                                    )
+                                }
                                 if (row.hasSubmenu) {
                                     Icon(
                                         imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,

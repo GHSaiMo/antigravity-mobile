@@ -72,6 +72,8 @@ public final class AppSettings {
     private let enableVoiceModeKey = "antigravity.enable_voice_mode"
     private let weeklyPaceCursorKey = "antigravity.weekly_pace_cursor"
     private let selectedQuotaBucketKey = "antigravity.selected_quota_bucket"
+    private let modelPickerQuotaEnabledKey = "antigravity.model_picker_quota_enabled"
+    private let modelPickerQuotaWeeklyKey = "antigravity.model_picker_quota_weekly"
     private let themeModeKey = "antigravity.theme_mode"
     private let shareCardSkinKey = "antigravity.share_card_skin_id"
     private let tokenHistoryChartKey = "antigravity.token_history_chart_type"
@@ -276,6 +278,20 @@ public final class AppSettings {
         didSet {
             UserDefaults.standard.set(weeklyPaceCursorEnabled, forKey: weeklyPaceCursorKey)
             syncWidgetConfiguration()
+        }
+    }
+
+    /// 长按模型选择器的行内是否显示对应额度池剩余百分比（默认开启）
+    public var modelPickerQuotaEnabled: Bool {
+        didSet {
+            UserDefaults.standard.set(modelPickerQuotaEnabled, forKey: modelPickerQuotaEnabledKey)
+        }
+    }
+
+    /// 模型选择器余量窗口：false = 5h（默认），true = Weekly
+    public var modelPickerQuotaWeekly: Bool {
+        didSet {
+            UserDefaults.standard.set(modelPickerQuotaWeekly, forKey: modelPickerQuotaWeeklyKey)
         }
     }
 
@@ -882,6 +898,12 @@ public final class AppSettings {
         } else {
             self.weeklyPaceCursorEnabled = UserDefaults.standard.bool(forKey: weeklyPaceCursorKey)
         }
+        if UserDefaults.standard.object(forKey: modelPickerQuotaEnabledKey) == nil {
+            self.modelPickerQuotaEnabled = true
+        } else {
+            self.modelPickerQuotaEnabled = UserDefaults.standard.bool(forKey: modelPickerQuotaEnabledKey)
+        }
+        self.modelPickerQuotaWeekly = UserDefaults.standard.bool(forKey: modelPickerQuotaWeeklyKey)
         let savedQuotaBucket = UserDefaults.standard.string(forKey: selectedQuotaBucketKey) ?? QuotaBucketKind.gemini5h.rawValue
         self.selectedQuotaBucket = QuotaBucketKind(rawValue: savedQuotaBucket) ?? .gemini5h
         let rawThemeMode = UserDefaults.standard.string(forKey: themeModeKey) ?? "system"

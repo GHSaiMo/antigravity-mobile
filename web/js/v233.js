@@ -73,7 +73,7 @@
   }
 
   function openSettingsSubpage(kind) {
-    activeSettingsSubpage = kind === "compact" || kind === "alerts" ? kind : null;
+    activeSettingsSubpage = kind === "compact" || kind === "alerts" || kind === "quotaDisplay" ? kind : null;
     const headerMain = document.getElementById("settings-header-main");
     const headerSub = document.getElementById("settings-header-sub");
     const mainBody = document.getElementById("settings-main-body");
@@ -82,8 +82,10 @@
     const subAlerts = document.getElementById("settings-sub-alerts");
     const subTitle = document.getElementById("settings-sub-title");
 
+    const subQuotaDisplay = document.getElementById("settings-sub-quota-display");
     subCompact?.classList.add("hidden");
     subAlerts?.classList.add("hidden");
+    subQuotaDisplay?.classList.add("hidden");
 
     if (!activeSettingsSubpage) {
       headerMain?.classList.remove("hidden");
@@ -103,6 +105,9 @@
       if (subTitle) subTitle.textContent = typeof t === "function" ? t("提醒内容") : "提醒内容";
       subAlerts?.classList.remove("hidden");
       if (window.PushAlertPrefs?.refresh) window.PushAlertPrefs.refresh();
+    } else if (activeSettingsSubpage === "quotaDisplay") {
+      if (subTitle) subTitle.textContent = typeof t === "function" ? t("额度显示") : "额度显示";
+      subQuotaDisplay?.classList.remove("hidden");
     } else {
       if (subTitle) subTitle.textContent = typeof t === "function" ? t("精简模式") : "精简模式";
       subCompact?.classList.remove("hidden");
@@ -160,6 +165,7 @@
     });
     document.getElementById("btn-open-compact-settings")?.addEventListener("click", () => openSettingsSubpage("compact"));
     document.getElementById("btn-open-alerts-settings")?.addEventListener("click", () => openSettingsSubpage("alerts"));
+    document.getElementById("btn-open-quota-display-settings")?.addEventListener("click", () => openSettingsSubpage("quotaDisplay"));
     document.getElementById("btn-settings-sub-back")?.addEventListener("click", () => openSettingsSubpage(null));
     document.getElementById("btn-sheet-settings-close-sub")?.addEventListener("click", () => {
       openSettingsSubpage(null);

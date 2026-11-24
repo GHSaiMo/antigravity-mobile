@@ -318,7 +318,7 @@ public struct SettingsSheet: View {
                 // MARK: - 5. 外观与主题
                 Section(
                     header: Text("外观与主题"),
-                    footer: Text("选择浅色、深色模式与界面字号缩放；额度匀速指标独立控制首页与配额条上的时间均速游标；点进「精简模式」可自定义对话降噪选项。")
+                    footer: Text("选择浅色、深色模式与界面字号缩放；点进「额度显示」与「精简模式」可自定义配额指示和对话降噪选项。")
                 ) {
                     Picker("外观模式", selection: $settings.themeMode) {
                         Text("跟随系统").tag("system")
@@ -341,10 +341,17 @@ public struct SettingsSheet: View {
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
                     }
 
-                    Toggle("额度匀速指标", isOn: $settings.weeklyPaceCursorEnabled)
-                        .onChange(of: settings.weeklyPaceCursorEnabled) { _, _ in
-                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    NavigationLink {
+                        QuotaDisplaySettingsView()
+                    } label: {
+                        HStack {
+                            Text("额度显示")
+                            Spacer()
+                            Text(quotaDisplaySummary)
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
                         }
+                    }
 
                     NavigationLink {
                         CompactModeSettingsView()
@@ -634,6 +641,22 @@ public struct SettingsSheet: View {
         }
     }
 
+    private var quotaDisplaySummary: String {
+        let pace = settings.weeklyPaceCursorEnabled
+        let picker = settings.modelPickerQuotaEnabled
+        let window = settings.modelPickerQuotaWeekly ? String(localized: "每周") : "5h"
+        switch (pace, picker) {
+        case (true, true):
+            return "\(String(localized: "匀速")) · \(window)"
+        case (true, false):
+            return String(localized: "匀速游标")
+        case (false, true):
+            return "\(String(localized: "余量")) · \(window)"
+        case (false, false):
+            return String(localized: "已关闭")
+        }
+    }
+
     private var compactModeSummary: String {
         guard settings.isKnowledgeModeEnabled else { return String(localized: "已关闭") }
         let count = [
@@ -855,6 +878,55 @@ private struct NotificationSoundSettingsView: View {
         settings.notificationActionSound = soundId
         pushManager.previewNotificationSound(soundId)
         pushManager.syncPreferencesWithGateway()
+    }
+}
+
+// MARK: - 额度显示二级页
+
+private struct QuotaDisplaySettingsView: View {
+    @State private var settings = AppSettings.shared
+
+    var body: some View {
+        Form {
+            Section(
+                header: Text("配额条"),
+                footer: Text("在首页与配额条上显示时间均速基准刻度针。")
+            ) {
+                Toggle("额度匀速指标", isOn: $settings.weeklyPaceCursorEnabled)
+                    .onChange(of: settings.weeklyPaceCursorEnabled) { _, _ in
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    }
+            }
+
+            Section(
+                header: Text("模型选择器"),
+                footer: Text("长按模型胶囊上滑时，在每个模型行右侧显示所属额度池（Gemini / Claude）的剩余百分比，低于 20% 标红。")
+            ) {
+                Toggle("显示余量", isOn: $settings.modelPickerQuotaEnabled)
+                    .onChange(of: settings.modelPickerQuotaEnabled) { _, _ in
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    }
+
+                HStack {
+                    Text("余量窗口")
+                    Spacer()
+                    Picker("余量窗口", selection: $settings.modelPickerQuotaWeekly) {
+                        Text("5h").tag(false)
+                        Text("每周").tag(true)
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .frame(width: 140)
+                    .onChange(of: settings.modelPickerQuotaWeekly) { _, _ in
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    }
+                }
+                .disabled(!settings.modelPickerQuotaEnabled)
+                .opacity(settings.modelPickerQuotaEnabled ? 1.0 : 0.48)
+            }
+        }
+        .navigationTitle("额度显示")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
 
