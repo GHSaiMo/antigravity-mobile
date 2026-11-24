@@ -40,10 +40,10 @@ func realisticModels() map[string]upstreamModel {
 		"chat_20706":               {Model: "MODEL_CHAT_20706", IsInternal: true},
 		"claude-opus-4-6-thinking": {DisplayName: "Claude Opus 4.6 (Thinking)", Model: "MODEL_PLACEHOLDER_M26", ModelProvider: a, Recommended: true, Thinking: true, SupportsImages: true},
 		"claude-sonnet-4-6":        {DisplayName: "Claude Sonnet 4.6 (Thinking)", Model: "MODEL_PLACEHOLDER_M35", ModelProvider: a, Recommended: true},
-		"gemini-3.8-flash-high":    {DisplayName: "Gemini 3.8 Flash (High)", Model: "MODEL_PLACEHOLDER_M318", ModelProvider: g, Recommended: true},
-		"gemini-3.8-flash-medium":  {DisplayName: "Gemini 3.8 Flash (Medium)", Model: "MODEL_PLACEHOLDER_M319", ModelProvider: g, Recommended: true},
-		"gemini-3.8-flash-low":     {DisplayName: "Gemini 3.8 Flash (Low)", Model: "MODEL_PLACEHOLDER_M320", ModelProvider: g, Recommended: true},
-		"gemini-3.7-flash-high":    {DisplayName: "Gemini 3.7 Flash (High)", Model: "MODEL_PLACEHOLDER_M298", ModelProvider: g, Recommended: true, TagTitle: "Leaving Soon"},
+		"gemini-3.8-flash-high":    {DisplayName: "Gemini 3.8 Flash (High)", Model: "MODEL_PLACEHOLDER_M318", ModelProvider: g, Recommended: true, TagTitle: "Leaving Soon"},
+		"gemini-3.8-flash-medium":  {DisplayName: "Gemini 3.8 Flash (Medium)", Model: "MODEL_PLACEHOLDER_M319", ModelProvider: g, Recommended: true, TagTitle: "Leaving Soon"},
+		"gemini-3.8-flash-low":     {DisplayName: "Gemini 3.8 Flash (Low)", Model: "MODEL_PLACEHOLDER_M320", ModelProvider: g, Recommended: true, TagTitle: "Leaving Soon"},
+		"gemini-3.7-flash-high":    {DisplayName: "Gemini 3.7 Flash (High)", Model: "MODEL_PLACEHOLDER_M298", ModelProvider: g, Recommended: true, TagTitle: "Unavailable"},
 		"gemini-3.1-pro-high":      {DisplayName: "Gemini 3.1 Pro (High)", Model: "MODEL_PLACEHOLDER_M37", ModelProvider: g, Recommended: true},
 		"gemini-pro-agent":         {DisplayName: "Gemini 3.1 Pro (High)", Model: "MODEL_PLACEHOLDER_M16", ModelProvider: g, Recommended: true, TagTitle: "Leaving Soon"},
 		// 同一展示名下的旧 id：应该输给带真实版本号的 id
@@ -85,15 +85,21 @@ func TestBuildModelTables_CurationDedupeAndOrder(t *testing.T) {
 		t.Error("internal placeholder must not be resolvable")
 	}
 
-	// 「Leaving Soon」的 3.7 不提供选择；同名去重：Pro (High) 选 gemini-3.1-pro-high；Flash Lite 选 3.5 而不是 2.5
+	// 「Unavailable」的 3.7 不提供选择；「Leaving Soon」的 3.8 Flash 仍保留可选且剥离徽章；
+	// 同名去重：Pro (High) 选非 Leaving Soon 的 gemini-3.1-pro-high；Flash Lite 选 3.5 而不是 2.5
 	gemini := idsOf(options, "gemini")
 	want := []string{
 		"gemini-3.8-flash-high", "gemini-3.8-flash-medium", "gemini-3.8-flash-low", // 版本新→旧，同版本 High→Low
 		"gemini-3.5-flash-lite",
-		"gemini-3.1-pro-high", // 与 -agent 同名，-agent 带「Leaving Soon」被排除后留下这个
+		"gemini-3.1-pro-high", // 与 -agent 同名，-agent 带「Leaving Soon」且为 -agent 别名，输给 gemini-3.1-pro-high
 	}
 	if strings.Join(gemini, ",") != strings.Join(want, ",") {
 		t.Fatalf("gemini order/dedupe:\n got  %v\n want %v", gemini, want)
+	}
+	for _, o := range options {
+		if strings.HasPrefix(o.ID, "gemini-3.8-flash-") && o.Tag != "" {
+			t.Errorf("expected Leaving Soon tag stripped on %s, got %q", o.ID, o.Tag)
+		}
 	}
 	if got := idsOf(options, "claude"); len(got) != 2 || got[0] != "claude-opus-4-6-thinking" && got[1] != "claude-opus-4-6-thinking" {
 		t.Fatalf("claude options = %v", got)
@@ -376,7 +382,6 @@ func TestBuildModelTables_UsesVendorCuratedList(t *testing.T) {
 	curated := []string{
 		"gemini-3.8-flash-high",
 		"gemini-3.7-flash-high",
-		"gemini-pro-agent",
 		"claude-sonnet-4-6",
 		"claude-opus-4-6-thinking",
 		"gpt-oss-120b-medium",
@@ -390,10 +395,14 @@ func TestBuildModelTables_UsesVendorCuratedList(t *testing.T) {
 	for _, o := range options {
 		got = append(got, o.ID)
 	}
-	// 3.7 与 pro-agent 带「Leaving Soon」，gpt-oss-120b-medium 已屏蔽：即使官方列表里有也不提供选择
+	// 3.7 带「Unavailable」、gpt-oss-120b-medium 已屏蔽：即使官方列表里有也不提供选择；
+	// 3.8 Flash 带「Leaving Soon」但在下线前仍保留可选（且剥离 tag）
 	want := []string{"gemini-3.8-flash-high", "claude-sonnet-4-6", "claude-opus-4-6-thinking"}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("curated list:\n got  %v\n want %v", got, want)
+	}
+	if options[0].Tag != "" {
+		t.Errorf("expected Leaving Soon tag stripped on curated model, got %q", options[0].Tag)
 	}
 	// 被排除的 gpt-oss-120b-medium 仍可按 id 解析，避免历史会话显示异常
 	if _, ok := byID["gpt-oss-120b-medium"]; !ok {
@@ -403,11 +412,63 @@ func TestBuildModelTables_UsesVendorCuratedList(t *testing.T) {
 	if _, ok := byID["gemini-3.5-flash-lite"]; !ok {
 		t.Error("non-listed models must stay resolvable")
 	}
-	// 被排除的 Leaving Soon 模型仍可解析，旧会话还在用它时不会丢失
-	for _, id := range []string{"gemini-3.7-flash-high", "gemini-pro-agent"} {
-		if _, ok := byID[id]; !ok {
-			t.Errorf("%s must stay resolvable", id)
-		}
+	// 被排除的 Unavailable 模型仍可解析，旧会话还在用它时不会丢失
+	if _, ok := byID["gemini-3.7-flash-high"]; !ok {
+		t.Errorf("gemini-3.7-flash-high must stay resolvable")
+	}
+}
+
+func TestBuildModelTables_JioLeavingSoonFlashRetainedAndUnavailableExcluded(t *testing.T) {
+	resetLiveModels(t)
+	g := "MODEL_PROVIDER_GOOGLE"
+	a := "MODEL_PROVIDER_ANTHROPIC"
+	raw := map[string]upstreamModel{
+		"gemini-3.8-flash-high":    {DisplayName: "Gemini 3.8 Flash (High)", Model: "MODEL_PLACEHOLDER_M318", ModelProvider: g, Recommended: true, Thinking: true, TagTitle: "Leaving Soon"},
+		"gemini-3.8-flash-medium":  {DisplayName: "Gemini 3.8 Flash (Medium)", Model: "MODEL_PLACEHOLDER_M319", ModelProvider: g, Recommended: true, Thinking: true, TagTitle: "Leaving Soon"},
+		"gemini-3.8-flash-low":     {DisplayName: "Gemini 3.8 Flash (Low)", Model: "MODEL_PLACEHOLDER_M320", ModelProvider: g, Recommended: true, Thinking: true, TagTitle: "Leaving Soon"},
+		"gemini-3.1-pro-high":      {DisplayName: "Gemini 3.1 Pro (High)", Model: "MODEL_PLACEHOLDER_M37", ModelProvider: g, Recommended: true, TagTitle: "Unavailable"},
+		"claude-sonnet-4-6":        {DisplayName: "Claude Sonnet 4.6 (Thinking)", Model: "MODEL_PLACEHOLDER_M35", ModelProvider: a, Recommended: true, Thinking: true},
+		"claude-opus-4-6-thinking": {DisplayName: "Claude Opus 4.6 (Thinking)", Model: "MODEL_PLACEHOLDER_M26", ModelProvider: a, Recommended: true, Thinking: true},
+		"gpt-oss-120b-medium":      {DisplayName: "GPT-OSS 120B (Medium)", Model: "MODEL_OPENAI_GPT_OSS_120B_MEDIUM", ModelProvider: "MODEL_PROVIDER_OPENAI", Recommended: true, TagTitle: "Notice"},
+	}
+	curated := []string{
+		"gemini-3.8-flash-high",
+		"gemini-3.8-flash-medium",
+		"gemini-3.8-flash-low",
+		"gemini-3.1-pro-high",
+		"claude-sonnet-4-6",
+		"claude-opus-4-6-thinking",
+		"gpt-oss-120b-medium",
+	}
+
+	for _, tc := range []struct {
+		name    string
+		curated []string
+	}{
+		{name: "curated", curated: curated},
+		{name: "heuristic", curated: nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			opts, byID, byEnum := buildModelTables(raw, tc.curated)
+			gemini := idsOf(opts, "gemini")
+			wantGemini := "gemini-3.8-flash-high,gemini-3.8-flash-medium,gemini-3.8-flash-low"
+			if strings.Join(gemini, ",") != wantGemini {
+				t.Fatalf("gemini options = %v, want %s", gemini, wantGemini)
+			}
+			for _, o := range opts {
+				if o.Tag != "" {
+					t.Errorf("unexpected tag %q on %s", o.Tag, o.ID)
+				}
+			}
+			if _, ok := byID["gemini-3.1-pro-high"]; !ok {
+				t.Errorf("unavailable model must remain resolvable in byID")
+			}
+			liveModels.set(opts, byID, byEnum, "")
+			res, live := liveModels.snapshot()
+			if !live || res.Defaults["gemini"] != "gemini-3.8-flash-high" {
+				t.Fatalf("expected gemini default gemini-3.8-flash-high, got live=%v defaults=%v", live, res.Defaults)
+			}
+		})
 	}
 }
 

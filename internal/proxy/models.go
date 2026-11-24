@@ -144,10 +144,18 @@ func providerOf(modelProvider, id string) string {
 	}
 }
 
-// isLeavingSoon reports the vendor's "about to be removed" or unavailable label.
+// isUnavailableModelTag reports the vendor's hard-unavailable label.
+// Models with this tag stay resolvable by id/enum for old sessions, but are excluded from pickers.
+func isUnavailableModelTag(tag string) bool {
+	return strings.EqualFold(strings.TrimSpace(tag), "Unavailable")
+}
+
+// isLeavingSoon reports the vendor's deprecation warning badge ("Leaving Soon").
+// Unlike "Unavailable", these models are still selectable in Antigravity Desktop until their
+// sunset date (and may be the only Gemini models on Free/Jio tiers), so they stay selectable
+// with the redundant badge stripped.
 func isLeavingSoon(tag string) bool {
-	t := strings.TrimSpace(tag)
-	return strings.EqualFold(t, "Leaving Soon") || strings.EqualFold(t, "Unavailable")
+	return strings.EqualFold(strings.TrimSpace(tag), "Leaving Soon")
 }
 
 // isIgnoredModelTag reports redundant display badges (such as "Notice") that shouldn't appear in pickers.
@@ -244,14 +252,22 @@ func buildModelTables(raw map[string]upstreamModel, curatedIDs []string) (option
 	sort.Strings(ids)
 
 	bestByName := map[string]ModelOption{}
-	leavingSoon := map[string]bool{} // 厂商标了「Leaving Soon」的模型：仍可按 id 解析（旧会话还在用），但不再提供选择
+	unavailable := map[string]bool{} // 厂商标了「Unavailable」的模型：仍可按 id 解析（旧会话还在用），但不再提供选择
+	leavingSoon := map[string]bool{} // 厂商标了「Leaving Soon」的模型：下线前仍可选，但同名去重时让位于非 Leaving Soon 版本
+	candidateRank := func(id string) int {
+		r := legacyRank(id)
+		if leavingSoon[id] {
+			r += 10
+		}
+		return r
+	}
 	for _, id := range ids {
 		m := raw[id]
 		if m.DisplayName == "" || m.IsInternal || strings.HasPrefix(id, "chat_") {
 			continue
 		}
 		tag := strings.TrimSpace(m.TagTitle)
-		if isLeavingSoon(tag) || isIgnoredModelTag(tag) {
+		if isUnavailableModelTag(tag) || isLeavingSoon(tag) || isIgnoredModelTag(tag) {
 			tag = ""
 		}
 		opt := ModelOption{
@@ -265,6 +281,9 @@ func buildModelTables(raw map[string]upstreamModel, curatedIDs []string) (option
 			MaxTokens:      int64(m.MaxTokens),
 		}
 		byID[strings.ToLower(id)] = opt
+		if isUnavailableModelTag(m.TagTitle) {
+			unavailable[opt.ID] = true
+		}
 		if isLeavingSoon(m.TagTitle) {
 			leavingSoon[opt.ID] = true
 		}
@@ -275,10 +294,10 @@ func buildModelTables(raw map[string]upstreamModel, curatedIDs []string) (option
 			}
 		}
 		// 退役的 2.5 枚举会被 normalizeLegacyEnum 改映射到别的模型，列出来只会让用户选 A 跑 B
-		if !m.Recommended || isRetiredEnum(opt.Enum) || isLeavingSoon(m.TagTitle) || isExcludedPickerModel(opt.ID) {
+		if !m.Recommended || isRetiredEnum(opt.Enum) || unavailable[opt.ID] || isExcludedPickerModel(opt.ID) {
 			continue
 		}
-		if prev, ok := bestByName[opt.Name]; !ok || legacyRank(opt.ID) < legacyRank(prev.ID) {
+		if prev, ok := bestByName[opt.Name]; !ok || candidateRank(opt.ID) < candidateRank(prev.ID) {
 			bestByName[opt.Name] = opt
 		}
 	}
@@ -287,7 +306,7 @@ func buildModelTables(raw map[string]upstreamModel, curatedIDs []string) (option
 		seen := map[string]bool{}
 		for _, id := range curatedIDs {
 			opt, ok := byID[strings.ToLower(id)]
-			if !ok || seen[opt.ID] || isRetiredEnum(opt.Enum) || leavingSoon[opt.ID] || isExcludedPickerModel(opt.ID) {
+			if !ok || seen[opt.ID] || isRetiredEnum(opt.Enum) || unavailable[opt.ID] || isExcludedPickerModel(opt.ID) {
 				continue
 			}
 			seen[opt.ID] = true
