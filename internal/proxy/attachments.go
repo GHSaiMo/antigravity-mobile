@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"bytes"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -16,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -279,7 +281,13 @@ var (
 func inboxSizeScan(inbox string) int64 {
 	var total int64
 	_ = filepath.WalkDir(inbox, func(_ string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			if d.Name() == ".tmp" {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		if strings.Contains(d.Name(), "upload-") {
@@ -541,13 +549,178 @@ func attachmentLine(a Attachment) string {
 	return fmt.Sprintf("- %s (%s, %s)", a.Path, ext, humanSize(a.Size))
 }
 
+// stageNativeMediaForUpstream creates a per-send staged link/copy under <inbox>/.tmp/media-<rand>/<base>
+// so Antigravity Language Server can move media[].uri into brain/<cascadeID>/.user_uploaded/<base>
+// without removing the canonical file at <inbox>/<yyyy-MM>/<id16>-<name> referenced in the prompt text.
+func stageNativeMediaForUpstream(inbox string, a Attachment) string {
+	if inbox == "" || a.Path == "" {
+		return a.Path
+	}
+	var rnd [6]byte
+	if _, err := rand.Read(rnd[:]); err != nil {
+		return a.Path
+	}
+	stageDir := filepath.Join(inbox, ".tmp", "media-"+hex.EncodeToString(rnd[:]))
+	if err := os.MkdirAll(stageDir, 0o700); err != nil {
+		return a.Path
+	}
+	stagedPath := filepath.Join(stageDir, filepath.Base(a.Path))
+	// Prefer O(1) zero-copy hard link on Unix; fall back to file copy on Windows or cross-device errors.
+	if runtime.GOOS != "windows" {
+		if err := os.Link(a.Path, stagedPath); err == nil {
+			return stagedPath
+		}
+	}
+	if err := copyAttachmentFile(a.Path, stagedPath); err == nil {
+		return stagedPath
+	}
+	_ = os.RemoveAll(stageDir)
+	return a.Path
+}
+
+func copyAttachmentFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		_ = os.Remove(dst)
+		return err
+	}
+	return out.Close()
+}
+
+var attachmentLinePathRegex = regexp.MustCompile(`(?m)^-\s+(.+?)\s+\([^,()]*,\s*[^()]+\)\s*$`)
+
+// extractAttachmentIDsFromText finds canonical <id16>-<name> attachment IDs already formatted
+// inside an attachmentHeader block (e.g., when a queued message is resent via "Send Now").
+func extractAttachmentIDsFromText(text string) []string {
+	idx := strings.LastIndex(text, attachmentHeader)
+	if idx < 0 {
+		return nil
+	}
+	tail := text[idx+len(attachmentHeader):]
+	matches := attachmentLinePathRegex.FindAllStringSubmatch(tail, maxAttachmentsPerMsg)
+	if len(matches) == 0 {
+		return nil
+	}
+	seen := map[string]bool{}
+	var ids []string
+	for _, m := range matches {
+		if len(m) < 2 {
+			continue
+		}
+		base := filepath.Base(strings.TrimSpace(m[1]))
+		if len(base) <= attachmentIDLen+1 || base[attachmentIDLen] != '-' {
+			continue
+		}
+		id := base[:attachmentIDLen]
+		if !attachmentIDPattern.MatchString(id) || seen[id] {
+			continue
+		}
+		seen[id] = true
+		ids = append(ids, id)
+	}
+	return ids
+}
+
+func appendStagedNativeMedia(rawMap map[string]interface{}, inbox string, atts []Attachment) bool {
+	var smallAtts []Attachment
+	for _, a := range atts {
+		if supportsNativeAttachment(a) {
+			smallAtts = append(smallAtts, a)
+		}
+	}
+	if len(smallAtts) == 0 {
+		return false
+	}
+
+	var mediaList []interface{}
+	existingBases := map[string]bool{}
+	if existing, ok := rawMap["media"].([]interface{}); ok {
+		mediaList = existing
+		for _, item := range existing {
+			if m, ok := item.(map[string]interface{}); ok {
+				if u, ok := m["uri"].(string); ok && u != "" {
+					existingBases[filepath.Base(strings.TrimPrefix(u, "file://"))] = true
+				}
+			}
+		}
+	}
+
+	added := false
+	for _, a := range smallAtts {
+		base := filepath.Base(a.Path)
+		if existingBases[base] {
+			continue
+		}
+		mimeType := a.Mime
+		if mimeType == "" {
+			mimeType = "application/octet-stream"
+		}
+		mediaPath := stageNativeMediaForUpstream(inbox, a)
+		mediaList = append(mediaList, map[string]interface{}{
+			"uri":      "file://" + mediaPath,
+			"mimeType": mimeType,
+		})
+		existingBases[base] = true
+		added = true
+	}
+	if added {
+		rawMap["media"] = mediaList
+	}
+	return added
+}
+
 // applyAttachmentsToMessage consumes the "attachments" field of a SendUserCascadeMessage body and
 // appends the attachment block to both "text" and "items[0].text". It returns whether the body
 // was changed. The "attachments" key is always removed so it never reaches the language server.
 func applyAttachmentsToMessage(rawMap map[string]interface{}) (bool, error) {
+	inbox, _ := AttachmentInboxDir()
+
 	raw, present := rawMap["attachments"]
 	if !present {
-		return false, nil
+		// Fallback for "Send Now" / resent queued messages whose text already embeds the attachment
+		// block without the original attachments[] id list: re-attach staged native media when still in Inbox.
+		if inbox == "" {
+			return false, nil
+		}
+		var candidateTexts []string
+		if t, ok := rawMap["text"].(string); ok && strings.Contains(t, attachmentHeader) {
+			candidateTexts = append(candidateTexts, t)
+		}
+		if items, ok := rawMap["items"].([]interface{}); ok {
+			for _, it := range items {
+				if m, ok := it.(map[string]interface{}); ok {
+					if t, ok := m["text"].(string); ok && strings.Contains(t, attachmentHeader) {
+						candidateTexts = append(candidateTexts, t)
+					}
+				}
+			}
+		}
+		seenIDs := map[string]bool{}
+		var resolved []Attachment
+		for _, txt := range candidateTexts {
+			for _, id := range extractAttachmentIDsFromText(txt) {
+				if seenIDs[id] {
+					continue
+				}
+				seenIDs[id] = true
+				if a, ok := findAttachment(inbox, id); ok {
+					resolved = append(resolved, a)
+				}
+			}
+		}
+		if len(resolved) == 0 {
+			return false, nil
+		}
+		return appendStagedNativeMedia(rawMap, inbox, resolved), nil
 	}
 	delete(rawMap, "attachments")
 
@@ -571,33 +744,7 @@ func applyAttachmentsToMessage(rawMap map[string]interface{}) (bool, error) {
 		return true, nil
 	}
 
-	var smallAtts []Attachment
-	var largeAtts []Attachment
-	for _, a := range atts {
-		if supportsNativeAttachment(a) {
-			smallAtts = append(smallAtts, a)
-		} else {
-			largeAtts = append(largeAtts, a)
-		}
-	}
-
-	if len(smallAtts) > 0 {
-		var mediaList []interface{}
-		if existing, ok := rawMap["media"].([]interface{}); ok {
-			mediaList = existing
-		}
-		for _, a := range smallAtts {
-			mimeType := a.Mime
-			if mimeType == "" {
-				mimeType = "application/octet-stream"
-			}
-			mediaList = append(mediaList, map[string]interface{}{
-				"uri":      "file://" + a.Path,
-				"mimeType": mimeType,
-			})
-		}
-		rawMap["media"] = mediaList
-	}
+	appendStagedNativeMedia(rawMap, inbox, atts)
 
 	block := formatAttachmentBlock(atts)
 	appendBlock := func(s string) string {
@@ -642,13 +789,26 @@ func applyAttachmentsToMessage(rawMap map[string]interface{}) (bool, error) {
 }
 
 // CleanupInbox removes attachments older than ttl and prunes empty month directories.
-// It returns the number of files removed.
+// It also prunes stale or consumed upstream media staging directories under .tmp/.
+// It returns the number of expired attachment files removed.
 func CleanupInbox(inbox string, ttl time.Duration) int {
 	cutoff := time.Now().Add(-ttl)
+	tmpTTL := 6 * time.Hour
+	if ttl < tmpTTL {
+		tmpTTL = ttl
+	}
+	tmpCutoff := time.Now().Add(-tmpTTL)
+	tmpDir := filepath.Clean(filepath.Join(inbox, ".tmp"))
 	removed := 0
 	var bytesRemoved int64
 	_ = filepath.WalkDir(inbox, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			if filepath.Clean(path) == tmpDir {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		if info, err := d.Info(); err == nil && info.ModTime().Before(cutoff) {
@@ -660,9 +820,28 @@ func CleanupInbox(inbox string, ttl time.Duration) int {
 		}
 		return nil
 	})
-	if removed > 0 {
+	if bytesRemoved > 0 {
 		commitInboxBytes(inbox, -bytesRemoved, 0)
 		invalidateInboxSizeCache(inbox)
+	}
+	if tmpEntries, err := os.ReadDir(tmpDir); err == nil {
+		for _, e := range tmpEntries {
+			entryPath := filepath.Join(tmpDir, e.Name())
+			if e.IsDir() && strings.HasPrefix(e.Name(), "media-") {
+				if os.Remove(entryPath) == nil {
+					continue // pruned empty dir already consumed by upstream
+				}
+				if info, err := e.Info(); err == nil && info.ModTime().Before(tmpCutoff) {
+					_ = os.RemoveAll(entryPath)
+				}
+				continue
+			}
+			if !e.IsDir() {
+				if info, err := e.Info(); err == nil && info.ModTime().Before(tmpCutoff) {
+					_ = os.Remove(entryPath)
+				}
+			}
+		}
 	}
 	entries, _ := os.ReadDir(inbox)
 	for _, e := range entries {

@@ -104,6 +104,8 @@ public final class ChatViewModel {
     @ObservationIgnored private var _cachedChaptersKey: String = ""
     @ObservationIgnored private var _cachedChapters: [ConversationChapter] = []
     @ObservationIgnored private var draftSaveTask: Task<Void, Never>? = nil
+    @ObservationIgnored private var draftRestoreTask: Task<Void, Never>? = nil
+    @ObservationIgnored private var draftMutationGeneration: UInt64 = 0
     
     /// 当前会话按问答轮次自动聚合的结构列表（融合服务端全量目录索引与本地已加载消息）
     public var turns: [ConversationTurn] {
@@ -150,6 +152,7 @@ public final class ChatViewModel {
     public var inputText: String = "" {
         didSet {
             guard !isInitializing else { return }
+            markDraftMutated()
             scheduleDebouncedDraftSave()
         }
     }
@@ -196,7 +199,15 @@ public final class ChatViewModel {
         return true
     }
     
+    @MainActor
+    func markDraftMutated() {
+        draftMutationGeneration &+= 1
+        draftRestoreTask?.cancel()
+        draftRestoreTask = nil
+    }
+
     public func updateDraftImages(_ images: [Data]) {
+        markDraftMutated()
         self.selectedImageData = images
         if var updated = draftSession {
             updated.draftImages = images
@@ -209,6 +220,7 @@ public final class ChatViewModel {
     
     public func appendDraftImages(_ newImages: [Data]) {
         guard !newImages.isEmpty else { return }
+        markDraftMutated()
         var current = self.selectedImageData
         current.append(contentsOf: newImages)
         if current.count > 5 {
@@ -226,6 +238,7 @@ public final class ChatViewModel {
     
     public func removeDraftImage(at index: Int) {
         guard index < selectedImageData.count else { return }
+        markDraftMutated()
         selectedImageData.remove(at: index)
         if var updated = draftSession {
             updated.draftImages = selectedImageData
@@ -275,30 +288,34 @@ public final class ChatViewModel {
     
     @MainActor
     public func restoreDraftsIfNeeded() {
+        guard !isSending else { return }
         let key = draftKey
         guard !key.isEmpty else { return }
         let currentDraftSession = self.draftSession
-        
-        Task.detached(priority: .userInitiated) { [weak self, key, currentDraftSession] in
-            guard let self else { return }
-            var cachedImages = await CacheManager.shared.getDraftImagesAsync(for: key)
-            if cachedImages.isEmpty, let dSession = currentDraftSession, !dSession.draftImages.isEmpty {
-                cachedImages = dSession.draftImages
-                CacheManager.shared.saveDraftImages(key: key, images: cachedImages)
+        let capturedGen = self.draftMutationGeneration
+        draftRestoreTask?.cancel()
+        draftRestoreTask = Task { [weak self, key, currentDraftSession, capturedGen] in
+            let restored = await Task.detached(priority: .userInitiated) { () -> (images: [Data], draft: String, files: [DraftFile]) in
+                var cachedImages = await CacheManager.shared.getDraftImagesAsync(for: key)
+                if cachedImages.isEmpty, let dSession = currentDraftSession, !dSession.draftImages.isEmpty {
+                    cachedImages = dSession.draftImages
+                    CacheManager.shared.saveDraftImages(key: key, images: cachedImages)
+                }
+                let cachedDraft = CacheManager.shared.getDraft(for: key)
+                let resolvedDraft = !cachedDraft.isEmpty ? cachedDraft : (currentDraftSession?.draftText ?? "")
+                let savedFiles = DraftFileStore.shared.load(key: key)
+                return (cachedImages, resolvedDraft, savedFiles)
+            }.value
+            guard !Task.isCancelled, let self else { return }
+            guard !self.isSending, self.draftKey == key, self.draftMutationGeneration == capturedGen else { return }
+            if !restored.images.isEmpty && self.selectedImageData.isEmpty {
+                self.selectedImageData = restored.images
             }
-            let cachedDraft = CacheManager.shared.getDraft(for: key)
-            let resolvedDraft = !cachedDraft.isEmpty ? cachedDraft : (currentDraftSession?.draftText ?? "")
-            
-            await MainActor.run { [weak self] in
-                guard let self else { return }
-                guard self.draftKey == key else { return }
-                if !cachedImages.isEmpty && self.selectedImageData.isEmpty {
-                    self.selectedImageData = cachedImages
-                }
-                self.restoreDraftFiles()
-                if !resolvedDraft.isEmpty && self.inputText.isEmpty {
-                    self.inputText = resolvedDraft
-                }
+            if !restored.files.isEmpty {
+                self.applyRestoredDraftFiles(restored.files)
+            }
+            if !restored.draft.isEmpty && self.inputText.isEmpty {
+                self.inputText = restored.draft
             }
         }
     }
@@ -678,9 +695,7 @@ public final class ChatViewModel {
         }
         self.inputText = resolvedCacheManager.getDraft(for: cascadeId)
         self.isInitializing = false
-        if resolvedCacheManager.getMemoryDraftImages(for: cascadeId) == nil {
-            self.restoreDraftsIfNeeded()
-        }
+        self.restoreDraftsIfNeeded()
         
         // Instant restore from memory cache if warm; otherwise hydrate off-main-thread
         if let cached = memCachedSession {
@@ -808,9 +823,7 @@ public final class ChatViewModel {
         
         self.setupStreamClient()
         self.isInitializing = false
-        if memImgs == nil {
-            self.restoreDraftsIfNeeded()
-        }
+        self.restoreDraftsIfNeeded()
     }
     
     public init(
@@ -848,9 +861,7 @@ public final class ChatViewModel {
         
         self.setupStreamClient()
         self.isInitializing = false
-        if draftSession.draftImages.isEmpty && memImgs == nil {
-            self.restoreDraftsIfNeeded()
-        }
+        self.restoreDraftsIfNeeded()
     }
     
     @MainActor

@@ -286,16 +286,117 @@ extension ChatViewModel {
         // 本地选择即刻生效，在发送消息时统一提交到桌面网关
     }
     
+    /// Clears both in-memory and persisted draft inputs (text, images, files, slash, mentions)
+    /// synchronously when submitting the user's draft, preventing sent attachments from being
+    /// restored on re-entry or app foregrounding.
+    @MainActor
+    public func clearCurrentDraftForSubmission() {
+        markDraftMutated()
+        for task in fileUploadTasks.values {
+            task.cancel()
+        }
+        fileUploadTasks.removeAll()
+        let key = draftKey
+        inputText = ""
+        selectedImageData = []
+        selectedFiles = []
+        selectedSlashCommand = nil
+        selectedContextItems = []
+        suggestedResponses = []
+        if !key.isEmpty {
+            cacheManager.clearDraft(key: key)
+        }
+    }
+
+    @MainActor
+    private func restoreDraftAfterFailure(
+        targetDraftKey: String,
+        isCurrentSession: Bool,
+        text: String,
+        images: [Data],
+        files: [DraftFile],
+        slashOption: SlashCommandOption?,
+        contextItems: [ContextMentionItem]
+    ) {
+        if isCurrentSession {
+            markDraftMutated()
+            if !text.isEmpty {
+                let existing = self.inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+                self.inputText = existing.isEmpty ? text : "\(self.inputText)\n\(text)"
+            }
+            if !images.isEmpty {
+                var mergedImages = self.selectedImageData
+                mergedImages.append(contentsOf: images)
+                if mergedImages.count > 5 {
+                    mergedImages = Array(mergedImages.prefix(5))
+                }
+                self.selectedImageData = mergedImages
+            }
+            if !files.isEmpty {
+                let existingIds = Set(self.selectedFiles.map(\.id))
+                let missing = files.filter { !existingIds.contains($0.id) }
+                if !missing.isEmpty {
+                    self.selectedFiles.append(contentsOf: missing)
+                }
+                self.persistDraftFiles()
+            }
+            if self.selectedSlashCommand == nil, let slashOption {
+                self.selectedSlashCommand = slashOption
+            }
+            if !contextItems.isEmpty {
+                for item in contextItems where !self.selectedContextItems.contains(where: { $0.id == item.id && $0.label == item.label }) {
+                    self.selectedContextItems.append(item)
+                }
+            }
+            self.saveCurrentDraft(includeImages: true)
+            if !files.isEmpty {
+                NotificationCenter.default.post(name: .conversationDraftChanged, object: self.draftKey)
+            }
+        } else if !targetDraftKey.isEmpty {
+            if !text.isEmpty {
+                let saved = self.cacheManager.getDraft(for: targetDraftKey)
+                let merged = saved.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? text : "\(saved)\n\(text)"
+                self.cacheManager.saveDraft(key: targetDraftKey, text: merged)
+            }
+            if !images.isEmpty {
+                var savedImages = self.cacheManager.getDraftImages(for: targetDraftKey)
+                savedImages.append(contentsOf: images)
+                if savedImages.count > 5 {
+                    savedImages = Array(savedImages.prefix(5))
+                }
+                self.cacheManager.saveDraftImages(key: targetDraftKey, images: savedImages)
+            }
+            if !files.isEmpty {
+                let savedFiles = DraftFileStore.shared.load(key: targetDraftKey)
+                let existingIds = Set(savedFiles.map(\.id))
+                let mergedFiles = savedFiles + files.filter { !existingIds.contains($0.id) }
+                DraftFileStore.shared.save(key: targetDraftKey, files: mergedFiles)
+                NotificationCenter.default.post(name: .conversationDraftChanged, object: targetDraftKey)
+            }
+        }
+    }
+
     @discardableResult
     @MainActor
-    public func sendMessage(text customText: String? = nil, images: [Data]? = nil, files: [DraftFile]? = nil, slashCommand: String? = nil) async -> Bool {
+    public func sendMessage(
+        text customText: String? = nil,
+        images: [Data]? = nil,
+        files: [DraftFile]? = nil,
+        slashCommand: String? = nil,
+        slashOption: SlashCommandOption? = nil,
+        contextItems: [ContextMentionItem]? = nil,
+        clearsDraft: Bool = false
+    ) async -> Bool {
         guard !isSending else { return false }
+        let isDraftSend = clearsDraft || customText == nil
         let text = (customText ?? inputText).trimmingCharacters(in: .whitespacesAndNewlines)
-        let hasImages = (images != nil && !images!.isEmpty)
+        let sendImages = images ?? []
+        let hasImages = !sendImages.isEmpty
         let sendFiles = files ?? []
         let hasFiles = !sendFiles.isEmpty
         let hasSlash = !(slashCommand ?? "").isEmpty
-        let currentContextItems = self.selectedContextItems
+        let resolvedSlashOption = slashOption ?? (isDraftSend ? self.selectedSlashCommand : nil)
+        let currentContextItems = contextItems ?? self.selectedContextItems
         let hasContextItems = !currentContextItems.isEmpty
         guard (!text.isEmpty || hasImages || hasFiles || hasSlash || hasContextItems), let url = settings.serverURL else { return false }
         // The gateway appends the attachment block to the text; mirror it locally so optimistic
@@ -333,10 +434,13 @@ extension ChatViewModel {
             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
             let targetCascadeId = self.cascadeId
             let targetDraftKey = self.draftKey
+            if isDraftSend {
+                clearCurrentDraftForSubmission()
+            }
             if !displayText.isEmpty {
                 self.deletedQueueItemTombstones.removeAll(where: { $0.text == displayText })
             }
-            let mediaBase64 = images?.map { $0.base64EncodedString() }
+            let mediaBase64 = sendImages.isEmpty ? nil : sendImages.map { $0.base64EncodedString() }
             // 同一个 uuid 既做本地乐观条目的 id，也随消息发给网关（写进 tags），之后在服务端队列里按它精确对应
             let queueClientMsgId = UUID().uuidString
             let queueItem = QueuedMessageItem(
@@ -359,11 +463,6 @@ extension ChatViewModel {
                 self.queuedMessages.append(queueItem)
             }
             triggerScrollToBottom()
-            if customText == nil {
-                self.inputText = ""
-                self.selectedContextItems.removeAll()
-                cacheManager.clearDraft(key: targetDraftKey)
-            }
             
             // Persist to local cache immediately
             let persistQueueCache: @MainActor () -> Void = { [weak self] in
@@ -391,7 +490,7 @@ extension ChatViewModel {
             
             // Dispatch to server with deliveryStrategy = 2 (WHEN_IDLE).
             // Retry once on transient network drop using the same clientMessageId (gateway deduplicates);
-            // if still rejected/offline, drop the optimistic card and restore unsent text into input/draft.
+            // if still rejected/offline, drop the optimistic card and restore unsent draft safely.
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 let isTimeoutError: (Error) -> Bool = { err in
@@ -403,7 +502,7 @@ extension ChatViewModel {
                         cascadeId: targetCascadeId,
                         text: text,
                         model: currentEnum,
-                        images: images,
+                        images: hasImages ? sendImages : nil,
                         deliveryStrategy: 2,
                         cascadeConfigRaw: capturedConfigRaw,
                         clientMessageId: queueClientMsgId,
@@ -445,29 +544,29 @@ extension ChatViewModel {
                     return
                 }
 
-                // Hard delivery failure: remove phantom optimistic queue item & restore unsent text safely.
+                // Hard delivery failure: remove phantom optimistic queue item & restore unsent draft safely.
                 self.pendingOptimisticQueueItems.removeAll(where: { $0.id == queueItem.id })
-                if self.cascadeId == targetCascadeId {
+                let isSameSession = (self.cascadeId == targetCascadeId)
+                if isSameSession {
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
                         self.queuedMessages.removeAll(where: { $0.id == queueItem.id })
                     }
                     persistQueueCache()
-                    if customText == nil {
-                        if !text.isEmpty {
-                            let existing = self.inputText.trimmingCharacters(in: .whitespacesAndNewlines)
-                            self.inputText = existing.isEmpty ? text : "\(self.inputText)\n\(text)"
-                            self.cacheManager.saveDraft(key: targetDraftKey, text: self.inputText)
-                        }
-                        if self.selectedContextItems.isEmpty && hasContextItems {
-                            self.selectedContextItems = currentContextItems
-                        }
-                    }
+                }
+                if isDraftSend {
+                    self.restoreDraftAfterFailure(
+                        targetDraftKey: targetDraftKey,
+                        isCurrentSession: isSameSession,
+                        text: text,
+                        images: sendImages,
+                        files: sendFiles,
+                        slashOption: resolvedSlashOption,
+                        contextItems: currentContextItems
+                    )
+                }
+                if isSameSession {
                     self.errorMessage = String(localized: "排队消息发送失败，已恢复到输入框")
                     UINotificationFeedbackGenerator().notificationOccurred(.error)
-                } else if customText == nil && !text.isEmpty {
-                    let saved = self.cacheManager.getDraft(for: targetDraftKey)
-                    let merged = saved.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? text : "\(saved)\n\(text)"
-                    self.cacheManager.saveDraft(key: targetDraftKey, text: merged)
                 }
             }
             return true
@@ -486,6 +585,7 @@ extension ChatViewModel {
         }
         
         // Optimistic update with unique client message id
+        let targetDraftKey = self.draftKey
         let clientMessageId = UUID().uuidString
         let optId = "optimistic-\(clientMessageId)"
         let optSlashMentions: [SlashCommandMention]? = {
@@ -495,7 +595,7 @@ extension ChatViewModel {
             let icon = SlashCommandIconCatalog.resolveIcon(name: slash, icon: matched?.icon, kind: kind)
             return [SlashCommandMention(name: slash, icon: icon, kind: kind, definitionPath: matched?.definitionPath)]
         }()
-        messages.append(ChatMessage(id: optId, sender: .user, content: displayText, imageDataList: images ?? [], slashCommands: optSlashMentions, clientMessageId: clientMessageId))
+        messages.append(ChatMessage(id: optId, sender: .user, content: displayText, imageDataList: sendImages, slashCommands: optSlashMentions, clientMessageId: clientMessageId))
         triggerScrollToBottom()
         self.pendingOptimisticMessageId = optId
         self.isAwaitingResponse = true
@@ -504,12 +604,9 @@ extension ChatViewModel {
         self.canProceed = false
         self.hasError = false
         self.trajectoryErrorMessage = nil
-        inputText = ""
-        if customText == nil {
-            self.selectedContextItems.removeAll()
-            self.suggestedResponses.removeAll()
+        if isDraftSend {
+            clearCurrentDraftForSubmission()
         }
-        cacheManager.clearDraft(key: draftKey)
         errorMessage = nil
         
         if !cascadeId.isEmpty {
@@ -529,7 +626,7 @@ extension ChatViewModel {
                 let isPure = project.isPureChat
                 let pid = isPure ? "outside-of-project" : (project.rawId ?? (project.id != project.uri ? project.id : nil))
                 let wsUri = isPure ? "" : project.uri
-                let initialPrompt = (images == nil || images!.isEmpty) && !hasFiles && !hasSlash && !hasContextItems ? text : ""
+                let initialPrompt = !hasImages && !hasFiles && !hasSlash && !hasContextItems ? text : ""
                 let newCascadeId = try await apiClient.createCascade(
                     workspaceUri: wsUri,
                     prompt: initialPrompt,
@@ -558,6 +655,7 @@ extension ChatViewModel {
                 
                 self.cacheManager.clearDraft(key: newCascadeId)
                 self.cacheManager.clearDraftImages(key: newCascadeId)
+                DraftFileStore.shared.clear(key: newCascadeId)
                 self.originDraftId = nil
                 self.cascadeId = newCascadeId
                 self.draftSession = nil
@@ -586,12 +684,12 @@ extension ChatViewModel {
                     startPollingFallback()
                 }
                 
-                if (images?.isEmpty == false) || hasFiles || hasSlash || hasContextItems {
+                if hasImages || hasFiles || hasSlash || hasContextItems {
                     try await apiClient.sendMessage(
                         cascadeId: newCascadeId,
                         text: text,
                         model: activeModelEnum,
-                        images: images,
+                        images: hasImages ? sendImages : nil,
                         cascadeConfigRaw: cascadeConfigRaw,
                         clientMessageId: UUID().uuidString,
                         attachmentIds: attachmentIds,
@@ -610,7 +708,7 @@ extension ChatViewModel {
                     cascadeId: cascadeId,
                     text: text,
                     model: activeModelEnum,
-                    images: images,
+                    images: hasImages ? sendImages : nil,
                     cascadeConfigRaw: cascadeConfigRaw,
                     clientMessageId: clientMessageId,
                     attachmentIds: attachmentIds,
@@ -621,8 +719,6 @@ extension ChatViewModel {
                 // Allow upstream 250ms to register task and update state before first eager sync
                 try? await Task.sleep(nanoseconds: 250_000_000)
                 await self.loadMessages(isBackgroundPoll: true)
-                self.cacheManager.clearDraftImages(key: cascadeId)
-                DraftFileStore.shared.clear(key: cascadeId)
             }
             return true
         } catch {
@@ -639,7 +735,7 @@ extension ChatViewModel {
                 self.isAwaitingResponse = false
                 self.awaitingResponseSince = nil
                 self.isRunning = false
-                // Do NOT restore inputText: keep it empty so user won't duplicate send!
+                // Do NOT restore draft text/images/files: keep input empty so user won't duplicate send!
                 // Trigger background refresh after a short delay to check if server actually executed it
                 Task { [weak self] in
                     try? await Task.sleep(nanoseconds: 2_000_000_000)
@@ -654,11 +750,21 @@ extension ChatViewModel {
                     messages.removeAll(where: { $0.id == optId })
                     self.pendingOptimisticMessageId = nil
                 }
-                // Restore text so user does not lose their input on hard network failure
-                inputText = text
                 // If session was not yet created, preserve isNewConversation so the user stays in draft mode
-                if cascadeId.isEmpty && draftProject != nil {
+                if cascadeId.isEmpty && (draftProject != nil || draftSession != nil) {
                     isNewConversation = true
+                }
+                // Restore draft so user does not lose their input/attachments on hard network failure
+                if isDraftSend {
+                    restoreDraftAfterFailure(
+                        targetDraftKey: targetDraftKey,
+                        isCurrentSession: true,
+                        text: text,
+                        images: sendImages,
+                        files: sendFiles,
+                        slashOption: resolvedSlashOption,
+                        contextItems: currentContextItems
+                    )
                 }
             }
             stopPollingFallback()

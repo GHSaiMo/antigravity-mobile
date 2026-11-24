@@ -167,7 +167,7 @@ func TestSanitizeAttachmentName(t *testing.T) {
 }
 
 func TestApplySmallAttachmentUsesNativeMedia(t *testing.T) {
-	setupInbox(t)
+	inbox := setupInbox(t)
 	a := decodeAttachment(t, upload(t, "plan.md", []byte("# plan")))
 
 	msg := map[string]interface{}{
@@ -192,8 +192,48 @@ func TestApplySmallAttachmentUsesNativeMedia(t *testing.T) {
 		t.Fatalf("expected 1 media entry, got: %v", msg["media"])
 	}
 	mItem := media[0].(map[string]interface{})
-	if mItem["uri"] != "file://"+a.Path {
-		t.Errorf("expected uri file://%s, got %v", a.Path, mItem["uri"])
+	uri, _ := mItem["uri"].(string)
+	if !strings.HasPrefix(uri, "file://") {
+		t.Fatalf("expected file:// uri, got %v", uri)
+	}
+	stagedPath := strings.TrimPrefix(uri, "file://")
+	if stagedPath == a.Path {
+		t.Fatalf("media uri must be staged separately so upstream move cannot delete canonical Inbox file: %s", stagedPath)
+	}
+	if !strings.HasPrefix(stagedPath, filepath.Join(inbox, ".tmp", "media-")) || filepath.Base(stagedPath) != filepath.Base(a.Path) {
+		t.Fatalf("unexpected staged media path: %s (canonical=%s)", stagedPath, a.Path)
+	}
+	// Simulate Antigravity Language Server moving the staged media file into brain/<cid>/.user_uploaded/.
+	movedDest := filepath.Join(t.TempDir(), filepath.Base(stagedPath))
+	if err := os.Rename(stagedPath, movedDest); err != nil {
+		t.Fatalf("simulated upstream rename failed: %v", err)
+	}
+	// Canonical Inbox file referenced by the prompt text MUST remain intact and readable.
+	gotBytes, err := os.ReadFile(a.Path)
+	if err != nil || string(gotBytes) != "# plan" {
+		t.Fatalf("canonical Inbox file must stay intact after upstream move: err=%v data=%q", err, string(gotBytes))
+	}
+	// Re-sending a queued message via "Send Now" (text block only, no attachments[]) re-attaches staged native media.
+	resend := map[string]interface{}{
+		"cascadeId": "c1",
+		"text":      msg["text"],
+		"items":     []interface{}{map[string]interface{}{"text": msg["text"]}},
+	}
+	changedResend, err := applyAttachmentsToMessage(resend)
+	if err != nil || !changedResend {
+		t.Fatalf("resend changed=%v err=%v", changedResend, err)
+	}
+	resendMedia, ok := resend["media"].([]interface{})
+	if !ok || len(resendMedia) != 1 {
+		t.Fatalf("expected 1 re-hydrated media entry on resend, got %v", resend["media"])
+	}
+	if resend["text"] != msg["text"] {
+		t.Errorf("resend must not duplicate attachment text block: got %q", resend["text"])
+	}
+	// CleanupInbox must prune empty .tmp/media-* staging dirs left after upstream moves the file.
+	CleanupInbox(inbox, 30*24*time.Hour)
+	if _, err := os.Stat(filepath.Dir(stagedPath)); !os.IsNotExist(err) {
+		t.Errorf("empty staged media dir should be pruned by CleanupInbox: %s", filepath.Dir(stagedPath))
 	}
 }
 

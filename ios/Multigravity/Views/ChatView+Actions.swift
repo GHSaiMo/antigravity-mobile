@@ -18,9 +18,10 @@ extension ChatView {
         let images = viewModel.selectedImageData
         let files = viewModel.selectedFiles
         let slash = viewModel.selectedSlashCommand
+        let contextItems = viewModel.selectedContextItems
         let isSlashBtw = slash?.name.lowercased() == "btw"
         let isTypedBtw = slash == nil && (text == "/btw" || text.hasPrefix("/btw "))
-        if images.isEmpty && files.isEmpty && (isSlashBtw || isTypedBtw) {
+        if images.isEmpty && files.isEmpty && contextItems.isEmpty && (isSlashBtw || isTypedBtw) {
             let question = isSlashBtw ? text : String(text.dropFirst(4)).trimmingCharacters(in: .whitespacesAndNewlines)
             viewModel.inputText = ""
             viewModel.selectedSlashCommand = nil
@@ -36,24 +37,22 @@ extension ChatView {
             }
             return
         }
-        guard !text.isEmpty || !images.isEmpty || !files.isEmpty || slash != nil else { return }
+        guard !text.isEmpty || !images.isEmpty || !files.isEmpty || slash != nil || !contextItems.isEmpty else { return }
         // Files are uploaded in the background; wait until they have all reached the gateway.
         guard files.allSatisfy({ $0.isUploaded }) else { return }
+        guard viewModel.settings.serverURL != nil else { return }
         scrollHUD.hasUserInteracted = false
-        viewModel.inputText = ""
-        viewModel.selectedImageData = []
-        viewModel.selectedFiles = []
-        viewModel.selectedSlashCommand = nil
+        viewModel.clearCurrentDraftForSubmission()
         Task {
-            let success = await viewModel.sendMessage(text: text, images: images, files: files, slashCommand: slash?.name)
-            if !success {
-                if let slash { viewModel.selectedSlashCommand = slash }
-                if !images.isEmpty { viewModel.selectedImageData = images }
-                if !files.isEmpty {
-                    viewModel.selectedFiles = files
-                    viewModel.persistDraftFiles()
-                }
-            }
+            _ = await viewModel.sendMessage(
+                text: text,
+                images: images,
+                files: files,
+                slashCommand: slash?.name,
+                slashOption: slash,
+                contextItems: contextItems,
+                clearsDraft: true
+            )
         }
     }
     

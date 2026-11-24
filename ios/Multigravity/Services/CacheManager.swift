@@ -1103,7 +1103,7 @@ public final class CacheManager: @unchecked Sendable {
         UserDefaults.standard.removeObject(forKey: "ag_draft_date_\(key)")
         if key.hasPrefix("local_draft_") {
             ensureLocalDraftSessionsLoaded()
-            if !hasDraftImages(for: key) {
+            if !hasDraftImages(for: key) && !DraftFileStore.shared.hasFiles(for: key) {
                 memLocalDraftSessions?.removeValue(forKey: key)
                 persistDraftSessionsToDisk()
             } else if var session = memLocalDraftSessions?[key] {
@@ -1124,8 +1124,12 @@ public final class CacheManager: @unchecked Sendable {
     
     public func clearDraft(key: String) {
         guard !key.isEmpty else { return }
+        let hadFiles = DraftFileStore.shared.hasFiles(for: key)
         lock.lock()
-        let hadValue = (memDrafts[key] != nil) || (UserDefaults.standard.object(forKey: "ag_draft_\(key)") != nil) || hasDraftImages(for: key)
+        let hadValue = (memDrafts[key] != nil)
+            || (UserDefaults.standard.object(forKey: "ag_draft_\(key)") != nil)
+            || hasDraftImages(for: key)
+            || hadFiles
         memDrafts.removeValue(forKey: key)
         UserDefaults.standard.removeObject(forKey: "ag_draft_\(key)")
         memDraftDates.removeValue(forKey: key)
@@ -1278,11 +1282,18 @@ public final class CacheManager: @unchecked Sendable {
         guard !key.isEmpty else { return false }
         lock.lock()
         if let mem = memDraftImages[key] {
-            let count = mem.count
-            if count > 0 {
+            if !mem.isEmpty {
                 lock.unlock()
                 return true
             }
+            if key.hasPrefix("local_draft_") {
+                ensureLocalDraftSessionsLoaded()
+                let hasSessionImages = !(memLocalDraftSessions?[key]?.draftImages.isEmpty ?? true)
+                lock.unlock()
+                return hasSessionImages
+            }
+            lock.unlock()
+            return false
         }
         if key.hasPrefix("local_draft_") {
             ensureLocalDraftSessionsLoaded()
@@ -1306,7 +1317,7 @@ public final class CacheManager: @unchecked Sendable {
         guard !key.isEmpty else { return }
         lock.lock()
         let hadImages = !(memDraftImages[key]?.isEmpty ?? true)
-        memDraftImages.removeValue(forKey: key)
+        memDraftImages[key] = []
         if key.hasPrefix("local_draft_") {
             ensureLocalDraftSessionsLoaded()
             if var session = memLocalDraftSessions?[key] {

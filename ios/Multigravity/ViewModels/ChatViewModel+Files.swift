@@ -54,8 +54,11 @@ extension ChatViewModel {
         }
         
         if !accepted.isEmpty {
+            markDraftMutated()
             selectedFiles.append(contentsOf: accepted)
             persistDraftFiles()
+            cacheManager.recordDraftDate(key: key)
+            NotificationCenter.default.post(name: .conversationDraftChanged, object: key)
             for file in accepted { startUpload(fileId: file.id) }
         }
         if !rejected.isEmpty {
@@ -163,9 +166,11 @@ extension ChatViewModel {
         fileUploadTasks[fileId]?.cancel()
         fileUploadTasks[fileId] = nil
         guard let file = selectedFiles.first(where: { $0.id == fileId }) else { return }
+        markDraftMutated()
         selectedFiles.removeAll(where: { $0.id == fileId })
         try? FileManager.default.removeItem(at: DraftFileStore.shared.localURL(for: file, key: draftKey))
         persistDraftFiles()
+        NotificationCenter.default.post(name: .conversationDraftChanged, object: draftKey)
     }
     
     /// True when every attached file has been uploaded (or there are none).
@@ -180,9 +185,16 @@ extension ChatViewModel {
     /// Reloads a draft's files from storage and resumes any upload that is not already running.
     @MainActor
     public func restoreDraftFiles() {
+        guard !isSending else { return }
         let key = draftKey
         guard !key.isEmpty else { return }
         let saved = DraftFileStore.shared.load(key: key)
+        guard !saved.isEmpty else { return }
+        applyRestoredDraftFiles(saved)
+    }
+
+    @MainActor
+    func applyRestoredDraftFiles(_ saved: [DraftFile]) {
         guard !saved.isEmpty else { return }
         let inMemory = Dictionary(uniqueKeysWithValues: selectedFiles.map { ($0.id, $0) })
         let merged: [DraftFile] = saved.map { f in
