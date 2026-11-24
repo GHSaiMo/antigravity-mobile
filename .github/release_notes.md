@@ -1,4 +1,4 @@
-# 🚀 Multigravity v1.2.6
+# 🚀 Multigravity v1.2.7
 
 > 🎉 **Multigravity（反重力智能体移动伴侣）iOS 版现已正式上架 Apple App Store！**  
 > 无需本地编译或自签，前往 👉 **[App Store 下载 Multigravity](https://apps.apple.com/app/id6835508934)**（覆盖海外 174 个国家/地区，内置零配置**离线演示模式**）；也可加入 👉 **[TestFlight 公开测试](https://testflight.apple.com/join/YM7f4aSK)** 抢先体验最新构建。
@@ -13,59 +13,72 @@
 
 ## 🇨🇳 中文更新说明
 
+> ⚠️ **Android 升级提示（一次性签名迁移）**：自本版本起，Android 客户端启用全新独立私有安全签名（SHA-256: `79:D8:15:B5:05:C1:81:44:AE:72:E7:30:38:02:43:A6:5B:FD:C6:3D:5E:13:4E:77:70:EB:3D:90:2D:35:5C:A9`），并新增**应用内检查更新 & SHA-256 校验一键安装**（支持国内镜像兜底与 Obtainium 追踪）。  
+> **存量 `v1.2.6` 及更早版本的安卓用户**：本次升级请先**卸载旧版再安装新版**（打开后扫码 3 秒即可恢复配对）；完成本次切换后，未来所有版本将永久支持一键应用内覆盖升级（应用内更新弹窗也已提前内置此提示）。
+
 ### ✨ 核心亮点与新特性
 
-- 📋 **全端原生步骤计划卡片与实时计时器（Go / iOS / Android / Web / Live Activity）**：
-  - 代理层与 iOS / Android / PWA Web 全端新增桌面级对齐的**步骤计划卡片（Step Plan Card）**与**实时焦点计时器（Live Focus Timer）**，清晰呈现计划步骤进展与当前耗时，并同步透出至 iOS 灵动岛与锁屏 Live Activity；
-  - 修复 iOS 步骤计划与工具折叠面板展开时的裁剪层级，确保展开内容始终贴合标题栏下方不溢出。
-- 🛡️ **全 5 池智能额度守护、官方提前回满喜报、异常骤降预警与三语原生推送（Go 网关）**：
-  - 额度守护从单一 `Gemini 5h` 全面升级至全 5 池覆盖（**`Gemini 5h` / `Gemini Weekly` / `Claude 5h` / `Claude Weekly` / `Gemini 4 Argon`**），并直接接通无 Cockpit Tools 的本机 `FetchLiveQuota` 实时采样，未装 Cockpit 的新用户开箱即可生效；
-  - 新增**官方临时额度重置（Bonus Reset）喜报推送**（精准区分正常到期与提前回满，多池同轮回满自动合并为 1 条），以及**短时骤降 & 本机空闲期静默掉额预警**（结合 `Watcher.IdleSince()` 严防任务结束后的滞后误报）；
-  - 网关 CLI 与全部推送通知（审批 / 提问 / Proceed / 完成 / 失败 / 额度守护）全面升级为原生 **简体中文 / English / 日本語** 三语自适应（支持 `--lang ja`、`MGY_LANG=ja` 及 macOS / Windows / Linux 系统语言自动识别），并修复 VS Code / tmux / Git Bash 注入 `LANG=C.UTF-8` 时覆盖系统原生语言探测的问题。
-- 🧹 **过期锁屏审批状态核验与桌面已处理横幅静默撤回（Go / iOS / Android / APNs Worker）**：
-  - 当桌面端或另一设备已完成审批后，网关通过静默推送自动清除手机通知中心中已送达的过期审批横幅；
-  - 同步加固 iOS Live Activity 按钮与 Android 通知栏快捷操作的过期状态核验，避免误触过期锁屏审批请求。
-- 🔋 **宿主机任务期动态自动防休眠守护（macOS / Windows / Linux）**：
-  - 新增跨平台任务期按需防休眠守卫（macOS `caffeinate -i -w <pid>` / Windows `SetThreadExecutionState` / Linux `systemd-inhibit`），仅在存在活跃 Antigravity 会话时自动阻止宿主机空闲休眠（允许正常熄屏省电），全部任务空闲 2 分钟后自动释放，网关退出或异常终止零残留锁；支持 `-prevent-sleep=false` 或 `MGY_PREVENT_SLEEP=0` 关闭。
-- ⚡ **E2EE `bin2+flate` 压缩、多连接 Yamux 隧道池与全端下载/容错修复（Go / iOS / Android / Web）**：
-  - 全端新增 `bin2+flate` E2EE 载荷压缩与多连接并发 `yamux` 中继隧道池，大幅降低远程同步带宽占用与高并发请求排队延迟；Relay 服务端升级 `tunnelGroup` 多槽位自动故障顺延并关闭闲置流复用，彻底消除单槽位掉线或半关闭导致的 `POST 502`；
-  - iOS 会话事件流 WebSocket 全面切换至 E2EE `GatewayWebSocketTask` 传输，`RelayPool` 优选直连物理 RTT 进一步降低远程延迟；新增 E2EE 外层 `502 / 503 / 429` 与瞬时断链的静默重试及单飞 VPS 节点自动迁移（携带 `X-Client-Message-Id` 幂等保护，重试成功不弹误报横幅、不退回输入框）；同时修复 5G / 公网 Relay 下下载文档、导出微信归档附件与保存远端视频触发 `HTTP 426 e2ee_required` 的问题，并支持系统临时目录文件只读预览下载；
-  - Android 新增 `direct` / `play` 双渠道构建（直装版支持克制式应用内自更新并迁移至仓库外固定私有签名），在 E2EE 中继返回 `502 / 503` 时自动迁移健康节点并在路由切换时同步刷新额度与事件流，同时新增自定义 `MgyPullToRefreshIndicator` 修复下拉刷新收起后的阴影残留拖尾问题。
+- 🌍 **全端三语深度打磨、桌面工作台自动切语与按设备语言推送（Go / iOS / Android / Web）**：
+  - 桌面工作台（`/`）与扫码配对页新增基于浏览器 `Accept-Language` 的 **简体中文 / English / 日本語** 自动协商与侧栏底部原生语言切换器（`Auto / English / 日本語 / 简体中文`）：英文保留上游原生界面文案，日语新增桌面工作台本地化层与三语 RPC 配额汇总；
+  - PWA 移动网页版（`/?view=pwa`）在设置页恢复持久化手动语言切换，扩充 `1,930` 组英/日对称词条与动态 DOM / Toast / 对话框翻译，并严格跳过聊天消息正文与会话标题防止误译；
+  - Go 网关推送与 iOS Live Activity（审批 / 提问 / 完成 / 失败 / 额度守护）改为按**每台已配对移动设备上报的客户端语言**独立本地化，彻底清除锁屏实时活动中的硬编码中文；
+  - 完成 iOS 与 Android 全量中/英/日三语核对、长文案截断溢出与原生排版修复，语音排障引导气泡支持三语本地化且每设备仅触发一次。
+- 📱 **iPhone Duo 折叠形态原生适配与 iOS 流畅度革新（iOS）**：
+  - 全面适配 **iPhone Duo**（iOS 27.1+）合盖侧边竖轨与居中聊天标题、展开 342pt 比例双栏工作台以及 **Book 90° 半折物理折痕对齐**（`ReservedRegion(.division)`），通过 `ChatSessionStore` 在折叠 / 展开 / 旋转全过程无缝保留实时会话流与草稿；
+  - 引入原子化滚动钉选与 `Equatable` Markdown 块，彻底消除长回复流式输出时的下半屏闪烁；新增桌面图标 **主屏快捷操作（Home Screen Quick Actions）**与统一 Deep Link 路由、原生 App Store 评价提醒、取消归档平滑退出动画与折叠面板严格边界裁剪。
+- 🚀 **全面对齐 Antigravity 2.35.0 协议与核心交互升级（Go / iOS / Android / Web）**：
+  - 对齐 **Antigravity 2.35.0** RPC 基线：新增**会话归档与取消归档**、运行中轮次模型切换提示、插件权限撤销、队列阻塞原因标签、限定范围写入审批、Swarm 协作板分页、**运行中 Swarm 蜂群自动置顶 + 像素蜜蜂徽标**、子代理分组及真实运行模型解析、HTML 预览页内查找（Find in Page）与 `/btw` 搜索路由；同步上线历史预加载上限控制、内部会话文件只读保护与 Auto / Turbo 预设解耦；
+  - 用原生可展开 `Working` 进度行取代旧版思考气泡且默认折叠思考过程；重做 **`/btw` 旁问分支**；升级 **`ask_question` 多选交互**与标题徽标并修复第 5 选项问题；重做 **GitHub 仓库克隆**（本地目录选择器、原地新建目录、异步进度条与自动注册项目）；将 Orchestrator 变体收入 Neon / Carbon / Argon 子菜单并在模型选择器内直览池配额；保留 `Leaving Soon` 模型可选，仅过滤已不可用模型。
+- 🛡️ **高危审批 Diff 预检、收件箱置顶、停滞告警与锁屏快批（Go / iOS / Android / Web）**：
+  - 新增 **Agent Inbox 审批置顶**、任务长时间停滞告警与独立可定制**通知偏好子页**（支持精细化开关各类告警，缓存未命中审计默认转入后台静默模式）；
+  - 高危命令审批新增摘要头、紧凑可折叠代码 Diff 预览与醒目高危推送标题；新增 iOS 锁屏快捷审批按钮与高危锁屏审批防护，并修复排队消息在竞态下静默丢失的问题。
+- ⚡ **E2EE `req-bin2` 流式附件上传、双级高清图与配额精细化（Go / iOS / Android / Web）**：
+  - 全端升级 **E2EE `req-bin2` 流式附件上传**，提供真实上传进度反馈与幂等重试，修复 Inbox 附件在上游移动后丢失及 iOS 排队发送后草稿附件未清空的问题；
+  - 新增**双级图片预览**（解决缩略图锁定无法加载高清原图问题），并在 HTML / Generative UI 预览中完整注入主题 Token；
+  - 上下文指示器新增**会话 Token 汇总与压缩上限提示**，Token 历史满 1 小时自动刷新，合并 Gemini 池后自动抑制镜像 Argon 重复配额与重复告警，修复满额无 `resetTime` 误判与双端模型用量分布表对齐。
 - 📦 **全端版本号对齐**：
-  - Android `1.2.6`（Version Code `37`）；iOS `1.2.6`（Build `37`）；桌面/服务端网关 `mgy` `1.2.6`。
+  - Android `1.2.7`（Version Code `38`）；iOS `1.2.7`（Build `38`）；桌面/服务端网关 `mgy` `1.2.7`。
 
 ---
 
 ## 🇺🇸 English Release Notes
 
+> ⚠️ **Android Upgrade Notice (One-Time Signing Key Migration)**: Starting with this release, Android APKs are signed with a brand-new private release keystore (SHA-256: `79:D8:15:B5:05:C1:81:44:AE:72:E7:30:38:02:43:A6:5B:FD:C6:3D:5E:13:4E:77:70:EB:3D:90:2D:35:5C:A9`) and include a **built-in SHA-256 verified in-app updater** (plus Obtainium tracking).  
+> **Existing Android users on `v1.2.6` or earlier**: Please **uninstall the old app once and install this release** (re-pairing takes 3 seconds via QR scan). All future updates will support seamless in-place one-tap upgrades inside the app.
+
 ### ✨ Highlights & New Features
 
-- 📋 **Desktop-Parity Step Plan Card & Live Focus Timer (Go / iOS / Android / Web / Live Activity)**:
-  - Added native **Step Plan Cards** and a **Live Focus Timer** across the Go proxy, iOS, Android, and Web PWA — mirroring the desktop step checklist and live elapsed duration, and syncing active step progress directly into iOS Dynamic Island and Lock Screen Live Activities;
-  - Fixed iOS step plan and tool accordion expansion clipping so expanded content stays cleanly bounded beneath the header.
-- 🛡️ **5-Bucket Quota Guardian, Official Early Bonus-Reset Alerts, Anomaly Detection & Native Trilingual Push (Go Gateway)**:
-  - Expanded quota monitoring from `Gemini 5h` only to all 5 pools (**`Gemini 5h` / `Gemini Weekly` / `Claude 5h` / `Claude Weekly` / `Gemini 4 Argon`**), wired directly to `FetchLiveQuota` so users without Cockpit Tools receive full alerts out of the box;
-  - Added **early bonus-reset notifications** (aggregating multi-pool official refills into a single celebratory push while ignoring normal scheduled resets) plus **rapid-drop & host-idle silent burn alerts** backed by `Watcher.IdleSince()` to prevent post-task false positives;
-  - Upgraded gateway CLI locale detection and all push notification templates (approvals, questions, Proceed, completion, failures, and quota alerts) to native **English / 简体中文 / 日本語** (`--lang zh|en|ja`, `MGY_LANG`, and macOS / Windows / Linux auto-detection), deferring neutral POSIX locales (`C.UTF-8` / `POSIX` injected by VS Code / tmux / Git Bash) to OS UI language detection.
-- 🧹 **Stale Lock-Screen Approval Reconciliation & Silent Banner Dismissal (Go / iOS / Android / APNs Worker)**:
-  - When an approval is resolved on desktop or another device, the gateway automatically dispatches a silent push to dismiss stale delivered approval banners from mobile notification centers;
-  - Hardened stale-request reconciliation for both iOS Live Activity intents and Android notification action buttons to prevent blind or duplicate approvals.
-- 🔋 **Dynamic Task-Time Host Idle-Sleep Guard (macOS / Windows / Linux)**:
-  - Added cross-platform on-demand host sleep prevention (`caffeinate -i -w <pid>` on macOS, `SetThreadExecutionState` on a locked OS thread on Windows, and `systemd-inhibit` with pipe-EOF cleanup on Linux). Holds an idle-sleep assertion only while Antigravity sessions are active (still allowing display sleep), releases automatically 2 minutes after all sessions go idle, and leaves zero orphan locks on exit or crash (disable via `-prevent-sleep=false` or `MGY_PREVENT_SLEEP=0`).
-- ⚡ **E2EE `bin2+flate` Compression, Multi-Connection Yamux Pool & Relay Resilience (Go / iOS / Android / Web)**:
-  - Added `bin2+flate` E2EE payload compression and a multi-connection `yamux` relay tunnel pool across Go, iOS, Android, and Web to cut remote bandwidth and eliminate head-of-line latency; upgraded the Relay server to fail over across live sibling yamux slots without stale idle HTTP/1.1 keep-alive streams (eliminating single-slot `POST 502`), and enabled read-only preview/download for system temporary directory files;
-  - Routed iOS conversation events WebSockets through E2EE `GatewayWebSocketTask` and prioritized direct physical RTT in `RelayPool`; added transparent single-flight relay migration and silent retry on outer `502 / 503 / 429` and transient drops (safe via `X-Client-Message-Id` deduplication so recoverable glitches never flash error banners or roll back drafts), and fixed `HTTP 426 e2ee_required` on document downloads, archive exports, and video saves over public relays;
-  - Added `direct` / `play` Android distribution flavors (with a restrained in-app self-updater on `direct` and private release signing), automatic stale-relay migration on HTTP `502 / 503`, synchronized quota/events refresh on route changes, and a custom `MgyPullToRefreshIndicator` fixing pull-to-refresh shadow tail artifacts after retraction.
+- 🌍 **Full Trilingual Polish, Auto-Localized Desktop Workbench & Per-Device Push (Go / iOS / Android / Web)**:
+  - The Desktop Workbench (`/`) and pairing page now negotiate **English / 简体中文 / 日本語** automatically from browser `Accept-Language` and expose a subtle sidebar footer language selector (`Auto / English / 日本語 / 简体中文`), preserving authentic upstream English while adding a full Japanese desktop layer and trilingual RPC quota summary;
+  - The PWA Web Console (`/?view=pwa`) restores a persistent manual language picker in Settings with `1,930` symmetric EN/JA keys and dynamic DOM/toast/dialog translation while strictly shielding user/AI chat messages and titles from unintended translation;
+  - Gateway push notifications and iOS Live Activities (approvals, questions, completion, errors, and quota guardian) are now localized **per paired device's reported app language**, removing all hardcoded Chinese strings from Live Activities;
+  - Completed comprehensive zh/en/ja localization, layout overflow, and native UX audits across iOS and Android (plus once-per-install trilingual voice troubleshooting tips).
+- 📱 **Native iPhone Duo Foldable Adaptation & Smoother iOS Streaming (iOS)**:
+  - Full native **iPhone Duo** (iOS 27.1+) adaptation: cover display trailing vertical rail & centered chat title, unfolded 342pt dual-pane workspace, **90° Book posture physical hinge crease alignment** via `ReservedRegion(.division)`, and seamless live session/draft preservation across fold, unfold, and rotation via `ChatSessionStore`;
+  - Eliminated lower-screen streaming flicker via atomic scroll pinning and equatable Markdown blocks; added **Home Screen Quick Actions** & unified deep-link shortcuts, delight-triggered native App Store review prompts, smooth unarchive exit animations, and strict inline accordion clipping.
+- 🚀 **Antigravity 2.35.0 Protocol Alignment & Core Interaction Upgrades (Go / iOS / Android / Web)**:
+  - Aligned with the **Antigravity 2.35.0** RPC baseline: **conversation archiving**, running-turn model picker hints, plugin permission grant revocation, queue blocker labels, scoped write approvals, Swarm board paging, **running Swarm session bubbling to top with pixel bee badges**, subagent grouping & actual runtime model resolution, HTML preview Find-in-Page, and `/btw` search routing; plus capped history preload, internal session file protection, and decoupled Auto/Turbo presets;
+  - Replaced legacy thinking bubbles with a native expandable `Working` row and collapsed thinking disclosure by default; redesigned **`/btw` side-question branches**; added **`ask_question` multi-select**, title badges, and option 5 fix; redesigned **GitHub repo cloning** with a local directory picker, in-place mkdir, async progress, and automatic workspace registration; folded Orchestrator variants into Neon/Carbon/Argon submenus with inline pool quota in the model picker; kept `Leaving Soon` models selectable and filtered only unavailable ones.
+- 🛡️ **High-Risk Approval Diff Preview, Inbox Pinning, Stall Alerts & Lock-Screen Guard (Go / iOS / Android / Web)**:
+  - Added **Agent Inbox approval pinning**, task stall alerts, and a dedicated customizable **Notification Preferences** subpage (with prompt cache-miss auditing defaulted silently in the background);
+  - Added high-risk approval summaries, compact collapsible diff previews, distinct high-risk push titles, iOS lock-screen quick approval actions with high-risk guards, and protection against silent queued message loss.
+- ⚡ **Streaming E2EE `req-bin2` Uploads, Dual-Tier Image Previews & Quota Refinements (Go / iOS / Android / Web)**:
+  - Upgraded attachment uploads across Go, iOS, and Android to **streaming E2EE `req-bin2`** with real upload progress and idempotent retry, preserving Inbox attachments on upstream moves and clearing iOS draft files on queued sends;
+  - Added **dual-tier image previews** (fixing thumbnail lock-in) and full Generative UI theme token injection inside HTML previews and embeds;
+  - Added **session token summaries & compaction ceiling hints** to the context meter, 1-hour auto-refresh for token history, mirrored Argon quota/alert deduplication after Gemini pool merge, ready-state handling for full quotas without `resetTime`, and aligned mobile model usage breakdown sheets.
 - 📦 **Version Alignment**:
-  - Android `1.2.6` (Version Code `37`); iOS `1.2.6` (Build `37`); desktop/server gateway `mgy` `1.2.6`.
+  - Android `1.2.7` (Version Code `38`); iOS `1.2.7` (Build `38`); desktop/server gateway `mgy` `1.2.7`.
 
 ---
 
 ## 🇯🇵 日本語リリースノート
 
-- 📋 **デスクトップ同等のステップ計画カード＆リアルタイムタイマー（Go / iOS / Android / Web / Live Activity）**：全クライアントにネイティブの **Step Plan Card** と実行経過タイマーを追加し、進行中ステップを iOS Dynamic Island やロック画面ライブアクティビティにもリアルタイム反映。iOS 側のステップ計画・ツール折りたたみ展開時のヘッダー下クリッピングも修正しました。
-- 🛡️ **全 5 プール対応クォータ守護・公式早期リセット通知・異常急減アラート＆完全 3 言語プッシュ通知**：監視対象を **Gemini 5h / 週間・Claude 5h / 週間・Gemini 4 Argon** の全 5 プールへ拡張し、Cockpit Tools 未導入環境でも `FetchLiveQuota` でそのまま動作。予定より早い公式リセットのまとめ喜報通知、短時間急減・アイドル中消費アラート、および **日本語 / English / 简体中文** のネイティブプッシュ通知（`--lang ja` / `MGY_LANG=ja` / OS 自動判別）に対応し、VS Code / tmux 等が注入する `LANG=C.UTF-8` による誤判別も解消しました。
-- 🧹 **デスクトップ承認済みバナーの自動サイレント消去＆ロック画面承認の整合性強化**：デスクトップ側で承認が完了すると、スマートフォン側に届いた古い承認通知バナーをサイレントプッシュで自動消去し、期限切れボタンの誤操作を防ぎます。
-- 🔋 **アクティブ実行時限定のホスト自動スリープ防止（macOS / Windows / Linux）**：エージェント稼働中のみアイドルスリープを防止（画面オフは許可）し、全タスク完了から 2 分後に自動解除。プロセス終了時にもロックを残さない設計です（`MGY_PREVENT_SLEEP=0` で無効化可能）。
-- ⚡ **E2EE `bin2+flate` 圧縮・マルチ接続 Yamux プール＆リレー耐障害性強化**：Go / iOS / Android / Web 全端で E2EE 圧縮と複数接続 Yamux リレープールを導入し、リレーサーバー側も健全スロットへの自動フェイルオーバー＆アイドルストリーム廃止で単一スロット `POST 502` を解消。iOS では `502 / 503 / 429` 時のサイレント自動リトライと単一プローブによる VPS ノード自動切替（リトライ成功時はエラーバナーや入力欄への差し戻しなし）、リレー経由の `HTTP 426` ダウンロード修正、システム一時ディレクトリからの読み取り専用プレビュー／ダウンロード、Android の `direct` / `play` フレーバー＆アプリ内アップデート・`502 / 503` 自動フェイルオーバー・プルダウン残像修正を収録しました。
-- 📦 **バージョン統一**：iOS `1.2.6` (Build `37`) / Android `1.2.6` (Version Code `37`) / ゲートウェイ `mgy` `1.2.6`。
+> ⚠️ **Android アップグレードのご案内（初回のみの署名移行）**：本バージョンより Android APK は新しい独立プライベートリリース署名（SHA-256: `79:D8:15:B5:05:C1:81:44:AE:72:E7:30:38:02:43:A6:5B:FD:C6:3D:5E:13:4E:77:70:EB:3D:90:2D:35:5C:A9`）に切り替わり、**SHA-256 検証付きのアプリ内自動アップデート**（および Obtainium 追従）を搭載しました。  
+> **`v1.2.6` 以前の Android 版をご利用の方**：今回のみ一度**旧版をアンインストールしてから `v1.2.7` をインストール**してください（起動後 QR スキャン 3 秒で再ペアリング完了）。次回以降はアプリ内からワンタップで上書き更新できます。
+
+- 🌍 **全クライアント 3 言語完全磨き込み・デスクトップ Web 自動言語切替＆デバイス別言語プッシュ**：デスクトップワークベンチ（`/`）とペアリング画面がブラウザの `Accept-Language` に応じて **日本語 / English / 简体中文** を自動判別し、サイドバー下部に言語スイッチャーを追加（英語は公式原文を維持し、日本語ローカル層と 3 言語クォータ要約を新設）。PWA Web（`/?view=pwa`）でも設定画面から永続的な言語切替が可能になり（1,930 項目の日英対称辞書＋チャット本文保護）、ゲートウェイの APNs / FCM / Live Activity 通知も各端末のアプリ言語ごとに個別ローカライズされます。iOS・Android 全画面の 3 言語表記漏れ・はみ出し・音声トラブルシュート案内も一括修正しました。
+- 📱 **iPhone Duo 折りたたみネイティブ対応＆iOS ストリーミング刷新**：**iPhone Duo**（iOS 27.1+）のカバー画面縦レール・中央タイトル、展開時 342pt 2 ペイン作業台、**Book 90° 姿勢での物理折り目揃え**（`ReservedRegion(.division)`）、および開閉・回転時のライブセッション継続に対応。さらにアトミックなスクロール固定と `Equatable` Markdown ブロックによりストリーミング時の画面下部ちらつきを解消し、ホーム画面クイックアクションやディープリンク、滑らかなアーカイブ解除アニメーションも追加しました。
+- 🚀 **Antigravity 2.35.0 準拠＆コア操作の全面アップグレード**：**会話アーカイブ**、実行中ターンのモデル案内、プラグイン権限の取り消し、キュー待機理由ラベル、スコープ付き書き込み承認、Swarm ページング＆**稼働中 Swarm セッションの最上位表示＋ドット絵ミツバチバッジ**、サブエージェントの実稼働モデル表示、HTML ページ内検索（Find in Page）に対応。従来の思考バブルをネイティブな展開式 `Working` 行へ刷新し、`/btw` サイド質問ブランチ、`ask_question` 複数選択、ローカルディレクトリ選択＆フォルダ作成付き GitHub リポジトリクローン、モデル選択内のプール残量表示も搭載しました。
+- 🛡️ **高リスク承認 Diff プレビュー・受信トレイ固定・停滞アラート＆ロック画面クイック承認**：Agent Inbox の承認ピン留め、タスク停滞アラート、カテゴリ別**通知設定サブページ**を追加。高リスクコマンド承認には要約ヘッダーと折りたたみ式 Diff プレビュー、高リスク専用通知タイトル、iOS ロック画面クイック承認と誤操作ガードを備え、キュー送信メッセージの消失も防止します。
+- ⚡ **E2EE `req-bin2` ストリーミング添付アップロード＆クォータ／コンテキスト改善**：Go / iOS / Android 間で実進捗・冪等リトライ付きの E2EE ストリーミングアップロードへ移行し、2 段階高解像度画像プレビュー、Generative UI フルテーマトークン注入、コンテキストメーターのトークン集計＆圧縮上限ガイド、1 時間ごとのトークン履歴自動更新、Gemini プール統合後の重複 Argon 通知抑制を実装しました。
+- 📦 **バージョン統一**：iOS `1.2.7` (Build `38`) / Android `1.2.7` (Version Code `38`) / ゲートウェイ `mgy` `1.2.7`。

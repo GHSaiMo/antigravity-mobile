@@ -37,8 +37,8 @@ android {
         applicationId = "com.antigravity.mobile"
         minSdk = 26
         targetSdk = 34
-        versionCode = 37
-        versionName = "1.2.6"
+        versionCode = 38
+        versionName = "1.2.7"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

@@ -1288,9 +1288,9 @@ private fun MainSettingsContent(
                     @Suppress("DEPRECATION")
                     localContext.packageManager.getPackageInfo(localContext.packageName, 0)
                 }
-                packageInfo.versionName ?: "1.2.6"
+                packageInfo.versionName ?: "1.2.7"
             } catch (e: Exception) {
-                "1.2.6"
+                "1.2.7"
             }
         }
         val appUpdateState by AppUpdateInstaller.state.collectAsState()
