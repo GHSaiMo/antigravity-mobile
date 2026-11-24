@@ -101,8 +101,8 @@ data class SideQuestionCardItem(
     val turnCount: Int? = null,
     val createdAt: String? = null
 ) {
-    val isRunning: Boolean get() = status == "CASCADE_RUN_STATUS_RUNNING"
-    val isError: Boolean get() = status == "CASCADE_RUN_STATUS_ERROR"
+    val isRunning: Boolean get() = status == "running" || status == "CASCADE_RUN_STATUS_RUNNING"
+    val isError: Boolean get() = status == "error" || status == "CASCADE_RUN_STATUS_ERROR"
     val displayTitle: String
         get() = title?.trim()?.takeIf { it.isNotEmpty() }
             ?: question?.trim()?.takeIf { it.isNotEmpty() }

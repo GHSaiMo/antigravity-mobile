@@ -204,6 +204,7 @@ func buildTrajectoryMessages(steps []TrajectoryStep) ([]CascadeMessageItem, int)
 	var pendingThinkingDuration string
 	var pendingFocus string
 	var pendingToolsStartedAt string
+	preventToolMerge := false
 	totalToolsCount := 0
 
 	// Per-turn live step checklist state (update_steps). One card per turn, updated in place.
@@ -237,7 +238,7 @@ func buildTrajectoryMessages(steps []TrajectoryStep) ([]CascadeMessageItem, int)
 		}
 		// Antigravity 2.35 parity: merge adjacent tool/thinking sections when there was no
 		// intervening user-visible output between them instead of emitting duplicate capsules.
-		if len(allMessages) > 0 && allMessages[len(allMessages)-1].Type == "tools" {
+		if !preventToolMerge && len(allMessages) > 0 && allMessages[len(allMessages)-1].Type == "tools" {
 			prev := &allMessages[len(allMessages)-1]
 			prev.ToolCount += pendingTools
 			prev.ToolNames = append(prev.ToolNames, toolNames...)
@@ -292,6 +293,7 @@ func buildTrajectoryMessages(steps []TrajectoryStep) ([]CascadeMessageItem, int)
 			StartedAt:        toolsStartedAt,
 		}
 		allMessages = append(allMessages, item)
+		preventToolMerge = false
 		pendingTools = 0
 		toolNames = nil
 		toolDetails = nil
@@ -585,6 +587,19 @@ func buildTrajectoryMessages(steps []TrajectoryStep) ([]CascadeMessageItem, int)
 				ErrorKind:    errKind,
 				IsOverflow:   errKind == "context_overflow",
 			})
+			preventToolMerge = false
+		} else if stepType == "CORTEX_STEP_TYPE_SYSTEM_MESSAGE" {
+			if isSideQuestionBoundaryStep(s) {
+				flushTools()
+				insertTurnPlan()
+				pendingFocus = ""
+				pendingToolsStartedAt = ""
+				turnArtifacts = nil
+				seenArtifactURIs = make(map[string]bool)
+				preventToolMerge = true
+				turnStartMsgIdx = len(allMessages)
+			}
+			continue
 		} else if stepType == "CORTEX_STEP_TYPE_SUGGESTED_RESPONSES" {
 			// 快捷回复建议不折进工具执行胶囊，统一挂载到 TrajectoryDetails.SuggestedResponses
 			continue

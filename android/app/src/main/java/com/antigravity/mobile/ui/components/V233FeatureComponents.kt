@@ -621,7 +621,9 @@ fun BranchForkDivider(
                 text = "以上为共享前文 · 以下为旁路分支".loc,
                 color = colors.accentIndigo,
                 fontSize = 11.sp,
-                fontWeight = FontWeight.SemiBold
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                softWrap = false
             )
         }
         HorizontalDivider(modifier = Modifier.weight(1f), color = colors.accentIndigo.copy(alpha = 0.25f))

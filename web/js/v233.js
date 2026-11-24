@@ -611,12 +611,27 @@
 
     const forkStep = branchOrigin ? Number(branchOrigin.forkStepIndex) : -1;
     const isExpanded = branchOrigin ? !!sharedExpandedByCascade.get(cid) : false;
+    let firstBranchRowIdx = -1;
+    let lastSharedRowIdx = -1;
+    if (branchOrigin && Number.isFinite(forkStep) && forkStep >= 0) {
+      for (let i = 0; i < rows.length; i++) {
+        const rawStep = rows[i].getAttribute("data-step-index");
+        const stepIdx = rawStep !== null && rawStep !== "" && !Number.isNaN(Number(rawStep)) ? Number(rawStep) : null;
+        if (stepIdx !== null) {
+          if (stepIdx > forkStep) {
+            if (firstBranchRowIdx < 0) firstBranchRowIdx = i;
+          } else {
+            lastSharedRowIdx = i;
+          }
+        }
+      }
+    }
+    const branchSplitIdx = firstBranchRowIdx >= 0 ? firstBranchRowIdx : (lastSharedRowIdx >= 0 ? lastSharedRowIdx + 1 : 0);
     let firstPostForkMarked = false;
 
-    for (const row of rows) {
-      const rawStep = row.getAttribute("data-step-index");
-      const stepIdx = rawStep !== null && rawStep !== "" && !Number.isNaN(Number(rawStep)) ? Number(rawStep) : null;
-      const isSharedPrefix = !!(branchOrigin && stepIdx !== null && stepIdx <= forkStep);
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      const isSharedPrefix = !!(branchOrigin && branchSplitIdx > 0 && i < branchSplitIdx);
 
       row.classList.toggle("branch-shared-hidden", isSharedPrefix && !isExpanded);
       row.classList.toggle("branch-shared-prefix", isSharedPrefix && isExpanded);
@@ -710,8 +725,8 @@
         .map((c) => {
           const idEsc = escapeHtmlLocal(c.cascadeId || "");
           const titleEsc = escapeHtmlLocal(c.title || c.question || "旁路快问");
-          const isRunning = c.status === "CASCADE_RUN_STATUS_RUNNING";
-          const isError = c.status === "CASCADE_RUN_STATUS_ERROR";
+          const isRunning = c.status === "running" || c.status === "CASCADE_RUN_STATUS_RUNNING";
+          const isError = c.status === "error" || c.status === "CASCADE_RUN_STATUS_ERROR";
           const dotClass = isRunning ? "running" : isError ? "error" : "done";
           const preview = String(c.answerPreview || "").trim();
           const previewHtml = preview

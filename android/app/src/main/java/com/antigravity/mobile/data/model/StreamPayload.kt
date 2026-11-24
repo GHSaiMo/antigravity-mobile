@@ -154,6 +154,12 @@ data class GatewayMessageItem(
     val isAgent: Boolean
         get() = !isUser && !isTools && !isError && !isSubagent && !isWorkflow && !isStepPlan
 
+    val effectiveStepIndex: Int?
+        get() = stepIndex
+            ?: id.takeIf { it.startsWith("step-") }?.removePrefix("step-")?.toIntOrNull()
+            ?: stepPlan?.anchorStepIndex
+            ?: toolDetails?.mapNotNull { it.stepIndex }?.maxOrNull()
+
     val effectiveImageDataList: List<ByteArray>
         get() {
             if (imageDataList.isNotEmpty()) return imageDataList

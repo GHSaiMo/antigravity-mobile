@@ -27,9 +27,7 @@ extension ChatView {
             viewModel.selectedSlashCommand = nil
             isInputFocused = false
             if question.isEmpty || viewModel.isDraftConversation || viewModel.cascadeId.isEmpty {
-                btwAnchorStepIndex = nil
-                btwAnchorPreview = nil
-                showBtwSheet = true
+                btwSheetPresentation = BtwSheetPresentation()
             } else {
                 Task {
                     _ = await viewModel.startBtwAndOpen(question: question)

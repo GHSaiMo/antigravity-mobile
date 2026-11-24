@@ -10,7 +10,8 @@ data class ToolDetailItem(
     val name: String = "",
     val detail: String = "",
     val status: String = "",
-    val duration: String? = null
+    val duration: String? = null,
+    val stepIndex: Int? = null
 )
 
 @Serializable

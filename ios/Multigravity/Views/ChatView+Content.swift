@@ -134,9 +134,7 @@ extension ChatView {
                     await viewModel.stopSubagent(item)
                 },
                 onAskBtw: { quote in
-                    btwAnchorStepIndex = nil
-                    btwAnchorPreview = quote
-                    showBtwSheet = true
+                    btwSheetPresentation = BtwSheetPresentation(anchorStepIndex: nil, anchorPreview: quote)
                 }
             )
         }
@@ -557,23 +555,35 @@ extension ChatView {
         let branchOrigin = viewModel.branchOrigin
         let sideQuestionsMap = sideQuestionsByAnchorMessageId()
 
-        let sharedPrefixMessages: [ChatMessage] = {
-            guard let origin = branchOrigin else { return [] }
-            return viewModel.messages.filter { msg in
-                if let si = msg.effectiveStepIndex {
-                    return si <= origin.forkStepIndex
-                }
-                return false
+        // 按时间顺序连续切分共享前文与旁路分支，避免无 stepIndex 的工具摘要/旧缓存项泄漏到折叠区之外或打乱顺序。
+        let (sharedPrefixMessages, branchOnlyMessages): ([ChatMessage], [ChatMessage]) = {
+            guard let origin = branchOrigin, origin.forkStepIndex >= 0 else {
+                return ([], viewModel.messages)
             }
-        }()
-        let branchOnlyMessages: [ChatMessage] = {
-            guard let origin = branchOrigin else { return viewModel.messages }
-            return viewModel.messages.filter { msg in
-                if let si = msg.effectiveStepIndex {
-                    return si > origin.forkStepIndex
-                }
-                return true
+            let branchStepOf: (ChatMessage) -> Int? = { msg in
+                if let si = msg.effectiveStepIndex { return si }
+                if let toolStep = msg.toolDetails?.compactMap(\.stepIndex).max() { return toolStep }
+                if let anchor = msg.stepPlan?.anchorStepIndex { return anchor }
+                return nil
             }
+            var firstBranchIdx: Int? = nil
+            var lastSharedIdx: Int? = nil
+            for (idx, msg) in viewModel.messages.enumerated() {
+                guard let si = branchStepOf(msg) else { continue }
+                if si > origin.forkStepIndex {
+                    if firstBranchIdx == nil { firstBranchIdx = idx }
+                } else {
+                    lastSharedIdx = idx
+                }
+            }
+            if let split = firstBranchIdx {
+                return (Array(viewModel.messages[..<split]), Array(viewModel.messages[split...]))
+            }
+            if let lastShared = lastSharedIdx {
+                let split = lastShared + 1
+                return (Array(viewModel.messages[..<split]), Array(viewModel.messages[split...]))
+            }
+            return ([], viewModel.messages)
         }()
 
         messagesStack {
@@ -814,9 +824,7 @@ extension ChatView {
                 narrationPlayer.play(text: text, baseURL: AppSettings.shared.gatewayURL)
             },
             onAskBtw: { stepIdx, preview in
-                btwAnchorStepIndex = stepIdx
-                btwAnchorPreview = preview
-                showBtwSheet = true
+                btwSheetPresentation = BtwSheetPresentation(anchorStepIndex: stepIdx, anchorPreview: preview)
             },
             onOpenSideQuestion: { targetId in
                 NotificationCenter.default.post(name: .openConversationById, object: targetId)

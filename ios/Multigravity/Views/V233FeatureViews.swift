@@ -600,6 +600,7 @@ public struct BranchForkDividerView: View {
                         .lineLimit(1)
                         .minimumScaleFactor(0.78)
                 }
+                .fixedSize(horizontal: true, vertical: false)
                 .foregroundColor(.indigo)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 4)
@@ -607,6 +608,7 @@ public struct BranchForkDividerView: View {
                 .clipShape(Capsule())
             }
             .buttonStyle(.plain)
+            .layoutPriority(1)
 
             Rectangle()
                 .fill(Color.indigo.opacity(0.22))
@@ -651,6 +653,7 @@ public struct BtwSideQuestionSheet: View {
         self.existingBranches = existingBranches
         self.onOpenBranch = onOpenBranch
         self.onStartBranch = onStartBranch
+        self._useAnchorStep = State(initialValue: anchorStepIndex != nil)
     }
 
     private var effectiveBranches: [SideQuestionCardItem] {
@@ -801,7 +804,6 @@ public struct BtwSideQuestionSheet: View {
                 }
             }
             .onAppear {
-                useAnchorStep = (anchorStepIndex != nil)
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
                     isQuestionFocused = true
                 }

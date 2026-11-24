@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -197,6 +198,49 @@ func isSideQuestionTrajectoryMap(s map[string]interface{}, id string) bool {
 	return false
 }
 
+// isSideQuestionBoundaryStep reports whether a raw step is the upstream system message inserted
+// by Antigravity LS immediately after the inherited parent history of a /btw side question.
+func isSideQuestionBoundaryStep(s TrajectoryStep) bool {
+	if s.Type != "CORTEX_STEP_TYPE_SYSTEM_MESSAGE" || s.SystemMessage == nil {
+		return false
+	}
+	msg := strings.ToLower(strings.TrimSpace(firstNonEmpty(s.SystemMessage.Message, s.SystemMessage.Content)))
+	return strings.HasPrefix(msg, "above is the conversation history from the parent conversation")
+}
+
+// resolveSideQuestionForkStepIndex snaps a user-selected message stepIndex in the parent cascade
+// to a valid turn boundary required by Antigravity LS (fork.requireForkAtTurnBoundary rejects user
+// steps and mid-turn steps). Returns (snappedStep, useForkFrom):
+//   - If the selected message belongs to an earlier completed turn, useForkFrom is true and
+//     snappedStep is that turn's final non-user step (immediately preceding the next USER_INPUT).
+//   - If the selected message belongs to the latest turn (or no valid earlier boundary exists),
+//     useForkFrom is false so StartCascade uses baseTrajectoryIdentifier.cascadeId (matching desktop).
+func resolveSideQuestionForkStepIndex(steps []TrajectoryStep, requested int) (int, bool) {
+	n := len(steps)
+	if n == 0 {
+		return requested, requested >= 0
+	}
+	if requested < 0 {
+		return n - 1, false
+	}
+	if requested >= n-1 {
+		return n - 1, false
+	}
+	end := requested
+	for end+1 < n && steps[end+1].Type != "CORTEX_STEP_TYPE_USER_INPUT" {
+		end++
+	}
+	// If the chosen turn has no assistant/tool response at all (a bare USER_INPUT followed directly
+	// by another USER_INPUT), walk back to the preceding completed turn boundary.
+	for end >= 0 && steps[end].Type == "CORTEX_STEP_TYPE_USER_INPUT" {
+		end--
+	}
+	if end < 0 || end >= n-1 {
+		return n - 1, false
+	}
+	return end, true
+}
+
 // extractBranchOrigin inspects upstream parentReferences, side-question boundary system messages,
 // and in-memory tracker metadata to determine whether a trajectory is a /btw side question or fork branch.
 func extractBranchOrigin(rawResp *upstreamTrajectoryResp, steps []TrajectoryStep) *SideQuestionOrigin {
@@ -211,8 +255,10 @@ func extractBranchOrigin(rawResp *upstreamTrajectoryResp, steps []TrajectoryStep
 	hasForkRef := false
 	for i := len(rawResp.Trajectory.ParentReferences) - 1; i >= 0; i-- {
 		ref := rawResp.Trajectory.ParentReferences[i]
-		if (ref.ReferenceType == "CORTEX_TRAJECTORY_REFERENCE_TYPE_FORK" ||
-			ref.ReferenceType == "CORTEX_TRAJECTORY_REFERENCE_TYPE_THOUGHT_REWRITE") &&
+		isExplicitFork := ref.ReferenceType == "CORTEX_TRAJECTORY_REFERENCE_TYPE_FORK" ||
+			ref.ReferenceType == "CORTEX_TRAJECTORY_REFERENCE_TYPE_THOUGHT_REWRITE"
+		isSideFallbackRef := isSide && (ref.ReferenceType == "" || ref.ReferenceType == "CORTEX_TRAJECTORY_REFERENCE_TYPE_UNSPECIFIED")
+		if (isExplicitFork || isSideFallbackRef) &&
 			strings.TrimSpace(ref.ConversationID) != "" &&
 			strings.TrimSpace(ref.ConversationID) != cid {
 			parentID = strings.TrimSpace(ref.ConversationID)
@@ -239,14 +285,11 @@ func extractBranchOrigin(rawResp *upstreamTrajectoryResp, steps []TrajectoryStep
 	// context summary happens to discuss side questions).
 	if !hasForkRef && (isSide || rawResp.Trajectory.TrajectoryType == "") {
 		for idx, s := range steps {
-			if s.Type == "CORTEX_STEP_TYPE_SYSTEM_MESSAGE" && s.SystemMessage != nil {
-				msg := strings.ToLower(strings.TrimSpace(firstNonEmpty(s.SystemMessage.Message, s.SystemMessage.Content)))
-				if strings.HasPrefix(msg, "above is the conversation history from the parent conversation") {
-					isSide = true
-					forkStepIndex = idx - 1
-					hasForkRef = true
-					break
-				}
+			if isSideQuestionBoundaryStep(s) {
+				isSide = true
+				forkStepIndex = idx - 1
+				hasForkRef = true
+				break
 			}
 		}
 	}
@@ -301,6 +344,32 @@ func getCachedCascadeTitleAny(cascadeID string) string {
 	return ""
 }
 
+func messageBranchStepIndex(msg CascadeMessageItem) (int, bool) {
+	if msg.StepIndex != nil {
+		return *msg.StepIndex, true
+	}
+	if strings.HasPrefix(msg.ID, "step-") {
+		if n, err := strconv.Atoi(strings.TrimPrefix(msg.ID, "step-")); err == nil {
+			return n, true
+		}
+	}
+	if len(msg.ToolDetails) > 0 {
+		maxStep := -1
+		for _, td := range msg.ToolDetails {
+			if td.StepIndex > maxStep {
+				maxStep = td.StepIndex
+			}
+		}
+		if maxStep >= 0 {
+			return maxStep, true
+		}
+	}
+	if msg.StepPlan != nil && msg.StepPlan.AnchorStepIndex >= 0 {
+		return msg.StepPlan.AnchorStepIndex, true
+	}
+	return 0, false
+}
+
 // extractSideQuestionBranchMessages slices a side-question trajectory's parsed messages
 // so ONLY steps after forkStepIndex are returned (never leaking shared parent history).
 func extractSideQuestionBranchMessages(rawResp *upstreamTrajectoryResp, details TrajectoryDetails, entry BtwSideQuestionEntry) (forkStepIndex int, branchMsgs []CascadeMessageItem, question, thinking, answer, answerPreview string, turnCount int) {
@@ -313,9 +382,31 @@ func extractSideQuestionBranchMessages(rawResp *upstreamTrajectoryResp, details 
 		forkStepIndex = *entry.ForkStepIndex
 	}
 
-	for _, msg := range details.AllMessages {
+	startIdx := 0
+	if forkStepIndex >= 0 {
+		firstBranchIdx := -1
+		lastSharedIdx := -1
+		for idx, msg := range details.AllMessages {
+			if si, ok := messageBranchStepIndex(msg); ok {
+				if si > forkStepIndex {
+					if firstBranchIdx < 0 {
+						firstBranchIdx = idx
+					}
+				} else {
+					lastSharedIdx = idx
+				}
+			}
+		}
+		if firstBranchIdx >= 0 {
+			startIdx = firstBranchIdx
+		} else if lastSharedIdx >= 0 {
+			startIdx = lastSharedIdx + 1
+		}
+	}
+
+	for _, msg := range details.AllMessages[startIdx:] {
 		if forkStepIndex >= 0 {
-			if msg.StepIndex == nil || *msg.StepIndex <= forkStepIndex {
+			if si, ok := messageBranchStepIndex(msg); ok && si <= forkStepIndex {
 				continue
 			}
 		}
@@ -457,6 +548,7 @@ func (p *Proxy) handleBtwStart(w http.ResponseWriter, r *http.Request) {
 	}
 
 	parentID := strings.TrimSpace(req.ParentCascadeID)
+	port, token := p.ActiveUpstream()
 	startPayload := map[string]interface{}{
 		"source":         "CORTEX_TRAJECTORY_SOURCE_CASCADE_CLIENT",
 		"trajectoryType": "CORTEX_TRAJECTORY_TYPE_SIDE_QUESTION",
@@ -465,12 +557,23 @@ func (p *Proxy) handleBtwStart(w http.ResponseWriter, r *http.Request) {
 	if parentID != "" {
 		if req.StepIndex != nil && *req.StepIndex >= 0 {
 			si := *req.StepIndex
+			useForkFrom := true
+			if port > 0 {
+				if parentRaw, pErr := p.fetchUpstreamTrajectoryWithMaxAgeContext(r.Context(), parentID, port, token, 2*time.Second); pErr == nil && parentRaw != nil && len(parentRaw.Trajectory.Steps) > 0 {
+					si, useForkFrom = resolveSideQuestionForkStepIndex(parentRaw.Trajectory.Steps, si)
+				}
+			}
 			requestedForkStep = &si
-			startPayload["baseTrajectoryIdentifier"] = map[string]interface{}{
-				"forkFrom": map[string]interface{}{
-					"cascadeId": parentID,
-					"stepIndex": si,
-				},
+			if useForkFrom {
+				startPayload["baseTrajectoryIdentifier"] = map[string]interface{}{
+					"forkFrom": map[string]interface{}{
+						"cascadeId":     parentID,
+						"stepIndex":     si,
+						"referenceType": "CORTEX_TRAJECTORY_REFERENCE_TYPE_FORK",
+					},
+				}
+			} else {
+				startPayload["baseTrajectoryIdentifier"] = map[string]interface{}{"cascadeId": parentID}
 			}
 		} else {
 			startPayload["baseTrajectoryIdentifier"] = map[string]interface{}{"cascadeId": parentID}
@@ -495,7 +598,6 @@ func (p *Proxy) handleBtwStart(w http.ResponseWriter, r *http.Request) {
 	}
 	sideID := strings.TrimSpace(startRes.CascadeID)
 
-	port, token := p.ActiveUpstream()
 	// Best-effort resolve forkStepIndex before sending when stepIndex was not explicitly specified.
 	if requestedForkStep == nil && parentID != "" && port > 0 {
 		if preRaw, preErr := p.fetchUpstreamTrajectoryWithMaxAgeContext(r.Context(), sideID, port, token, 0); preErr == nil && preRaw != nil {

@@ -1904,12 +1904,15 @@ function groupSteps(steps) {
           currentBatch = {
             type: "tools",
             id: `item-tools-${i}`,
+            index: i,
             startIndex: i,
             steps: [],
             toolNames: [],
             thinking: "",
             thinkingDuration: ""
           };
+        } else {
+          currentBatch.index = i;
         }
         currentBatch.thinking = thinking;
         if (p.thinkingDuration) currentBatch.thinkingDuration = p.thinkingDuration;
@@ -2028,6 +2031,16 @@ function groupSteps(steps) {
         isOverflow: isOverflow,
         step: s
       });
+    } else if (type === "CORTEX_STEP_TYPE_SYSTEM_MESSAGE") {
+      const sysMsg = String(s.systemMessage?.message || s.systemMessage?.content || "").trim().toLowerCase();
+      if (sysMsg.startsWith("above is the conversation history from the parent conversation")) {
+        flushBatch();
+        insertTurnPlan();
+        pendingFocus = "";
+        pendingToolsStartedAt = "";
+        turnStartItemIdx = items.length;
+      }
+      continue;
     } else if (type.startsWith("CORTEX_STEP_TYPE_") && type !== "CORTEX_STEP_TYPE_SYSTEM_MESSAGE") {
       const rawName = type.replace("CORTEX_STEP_TYPE_", "").toLowerCase();
       let displayName = rawName;
@@ -2062,6 +2075,7 @@ function groupSteps(steps) {
         currentBatch = {
           type: "tools",
           id: `item-tools-${i}`,
+          index: i,
           startIndex: i,
           steps: [],
           toolNames: [],
@@ -2070,6 +2084,8 @@ function groupSteps(steps) {
           focusText: "",
           startedAt: ""
         };
+      } else {
+        currentBatch.index = i;
       }
 
       let stepDur = "";

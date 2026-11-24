@@ -192,10 +192,18 @@ internal suspend fun ChatViewModel.startBtwAndOpen(
         )
         onConversationUpdated?.invoke(newItem)
 
-        val anchorId = if (stepIndex != null) {
-            state.messages.lastOrNull { (it.stepIndex ?: -1) <= stepIndex }?.id ?: state.messages.lastOrNull()?.id
+        val targetAnchorStep = res.forkStepIndex ?: stepIndex
+        val anchorId = if (targetAnchorStep != null) {
+            state.messages.lastOrNull { m ->
+                val si = m.effectiveStepIndex
+                si != null && si <= targetAnchorStep && (m.isAgent || m.isUser)
+            }?.id ?: state.messages.lastOrNull { m ->
+                val si = m.effectiveStepIndex
+                si != null && si <= targetAnchorStep
+            }?.id ?: state.messages.lastOrNull { it.isAgent || it.isUser }?.id
+                ?: state.messages.lastOrNull()?.id
         } else {
-            state.messages.lastOrNull()?.id
+            state.messages.lastOrNull { it.isAgent || it.isUser }?.id ?: state.messages.lastOrNull()?.id
         }
         val optimisticCard = SideQuestionCardItem(
             cascadeId = res.cascadeId,

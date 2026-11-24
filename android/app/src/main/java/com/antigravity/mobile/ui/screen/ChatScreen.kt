@@ -1755,25 +1755,33 @@ fun ChatScreen(
                             }
 
                             val branchOrigin = uiState.branchOrigin
-                            val sharedPrefixMessages = remember(uiState.messages, branchOrigin) {
-                                if (branchOrigin == null) emptyList()
-                                else uiState.messages.filter { msg ->
-                                    val si = msg.stepIndex
-                                    si != null && si <= branchOrigin.forkStepIndex
-                                }
-                            }
-                            val branchOnlyMessages = remember(uiState.messages, branchOrigin) {
-                                if (branchOrigin == null) uiState.messages
-                                else uiState.messages.filter { msg ->
-                                    val si = msg.stepIndex
-                                    si == null || si > branchOrigin.forkStepIndex
+                            val (sharedPrefixMessages, branchOnlyMessages) = remember(uiState.messages, branchOrigin) {
+                                if (branchOrigin == null || branchOrigin.forkStepIndex < 0) {
+                                    emptyList<com.antigravity.mobile.data.model.GatewayMessageItem>() to uiState.messages
+                                } else {
+                                    var firstBranchIdx = -1
+                                    var lastSharedIdx = -1
+                                    for (idx in uiState.messages.indices) {
+                                        val si = uiState.messages[idx].effectiveStepIndex ?: continue
+                                        if (si > branchOrigin.forkStepIndex) {
+                                            if (firstBranchIdx < 0) firstBranchIdx = idx
+                                        } else {
+                                            lastSharedIdx = idx
+                                        }
+                                    }
+                                    val split = when {
+                                        firstBranchIdx >= 0 -> firstBranchIdx
+                                        lastSharedIdx >= 0 -> lastSharedIdx + 1
+                                        else -> 0
+                                    }
+                                    uiState.messages.subList(0, split) to uiState.messages.subList(split, uiState.messages.size)
                                 }
                             }
                             val sideQuestionsByMessageId = remember(uiState.sideQuestions, uiState.messages) {
                                 if (uiState.sideQuestions.isEmpty() || uiState.messages.isEmpty()) emptyMap()
                                 else {
                                     val loadedIds = uiState.messages.mapTo(HashSet(uiState.messages.size)) { it.id }
-                                    val firstLoadedStep = uiState.messages.mapNotNull { it.stepIndex }.minOrNull() ?: 0
+                                    val firstLoadedStep = uiState.messages.mapNotNull { it.effectiveStepIndex }.minOrNull() ?: 0
                                     val map = LinkedHashMap<String, MutableList<com.antigravity.mobile.data.model.SideQuestionCardItem>>()
                                     for (card in uiState.sideQuestions) {
                                         val anchorId = card.anchorMessageId
@@ -1784,9 +1792,9 @@ fun ChatScreen(
                                         val forkStep = card.forkStepIndex
                                         if (forkStep != null && forkStep >= firstLoadedStep) {
                                             val match = uiState.messages.lastOrNull { m ->
-                                                val si = m.stepIndex
+                                                val si = m.effectiveStepIndex
                                                 si != null && si <= forkStep && (m.isAgent || m.isUser)
-                                            } ?: uiState.messages.lastOrNull { (it.stepIndex ?: Int.MAX_VALUE) <= forkStep }
+                                            } ?: uiState.messages.lastOrNull { (it.effectiveStepIndex ?: Int.MAX_VALUE) <= forkStep }
                                             if (match != null) {
                                                 map.getOrPut(match.id) { mutableListOf() }.add(card)
                                                 continue

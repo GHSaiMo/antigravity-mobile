@@ -115,6 +115,18 @@ public struct SideQuestionOrigin: Codable, Sendable, Hashable {
     }
 }
 
+public struct BtwSheetPresentation: Identifiable, Hashable, Sendable {
+    public let id: UUID
+    public let anchorStepIndex: Int?
+    public let anchorPreview: String?
+
+    public init(id: UUID = UUID(), anchorStepIndex: Int? = nil, anchorPreview: String? = nil) {
+        self.id = id
+        self.anchorStepIndex = anchorStepIndex
+        self.anchorPreview = anchorPreview
+    }
+}
+
 public struct SideQuestionCardItem: Codable, Sendable, Identifiable, Hashable {
     public var id: String { cascadeId }
     public let cascadeId: String
@@ -129,11 +141,11 @@ public struct SideQuestionCardItem: Codable, Sendable, Identifiable, Hashable {
     public let createdAt: String?
 
     public var isRunning: Bool {
-        status == "CASCADE_RUN_STATUS_RUNNING"
+        status == "running" || status == "CASCADE_RUN_STATUS_RUNNING"
     }
 
     public var isError: Bool {
-        status == "CASCADE_RUN_STATUS_ERROR"
+        status == "error" || status == "CASCADE_RUN_STATUS_ERROR"
     }
 
     public var displayTitle: String {

@@ -271,8 +271,8 @@ func TestBtwSideQuestionLifecycleAndHiddenFromMainList(t *testing.T) {
 		t.Fatalf("btw/start failed: code=%d startType=%q body=%s", startRec.Code, startType, startRec.Body.String())
 	}
 	forkFrom, _ := startBase["forkFrom"].(map[string]interface{})
-	if forkFrom == nil || forkFrom["cascadeId"] != "main-conv" || forkFrom["stepIndex"] != float64(1) {
-		t.Fatalf("expected baseTrajectoryIdentifier.forkFrom(main-conv, 1), got: %+v", startBase)
+	if forkFrom == nil || forkFrom["cascadeId"] != "main-conv" || forkFrom["stepIndex"] != float64(1) || forkFrom["referenceType"] != "CORTEX_TRAJECTORY_REFERENCE_TYPE_FORK" {
+		t.Fatalf("expected baseTrajectoryIdentifier.forkFrom(main-conv, 1, FORK), got: %+v", startBase)
 	}
 	if !strings.Contains(sentParentMsg, "> #2E3440") || !strings.Contains(sentParentMsg, "What is Nord?") {
 		t.Fatalf("unexpected formatted btw prompt: %q", sentParentMsg)
@@ -411,5 +411,91 @@ func TestExtractBranchOriginDoesNotMisclassifyCompactedCascade(t *testing.T) {
 	}
 	if origin := extractBranchOrigin(raw, steps); origin != nil {
 		t.Fatalf("normal CASCADE with summary mentioning side question must not be classified as branch, got %+v", origin)
+	}
+}
+
+func TestBuildTrajectoryMessagesSetsStepIndexOnToolsAndRespectsBranchBoundary(t *testing.T) {
+	var rawSteps []TrajectoryStep
+	if err := json.Unmarshal([]byte(`[
+		{"type":"CORTEX_STEP_TYPE_USER_INPUT","userInput":{"items":[{"text":"Parent Q1"}]}},
+		{"type":"CORTEX_STEP_TYPE_RUN_COMMAND","runCommand":{"commandLine":"ls"}},
+		{"type":"CORTEX_STEP_TYPE_PLANNER_RESPONSE","plannerResponse":{"response":"Parent A1"}},
+		{"type":"CORTEX_STEP_TYPE_RUN_COMMAND","runCommand":{"commandLine":"pwd"}},
+		{"type":"CORTEX_STEP_TYPE_SYSTEM_MESSAGE","systemMessage":{"message":"Above is the conversation history from the parent conversation; what follows is a side question (/btw) branched from that conversation."}},
+		{"type":"CORTEX_STEP_TYPE_USER_INPUT","userInput":{"items":[{"text":"Side Q?"}]}},
+		{"type":"CORTEX_STEP_TYPE_RUN_COMMAND","runCommand":{"commandLine":"date"}},
+		{"type":"CORTEX_STEP_TYPE_PLANNER_RESPONSE","plannerResponse":{"response":"Side A"}}
+	]`), &rawSteps); err != nil {
+		t.Fatal(err)
+	}
+
+	msgs, totalTools := buildTrajectoryMessages(rawSteps)
+	if totalTools != 3 {
+		t.Fatalf("totalTools = %d, want 3", totalTools)
+	}
+	// Expect: user(0), tools(1), agent(2), tools(3), user(5), tools(6), agent(7)
+	if len(msgs) != 7 {
+		t.Fatalf("got %d messages, want 7: %+v", len(msgs), msgs)
+	}
+	wantTypes := []string{"user", "tools", "agent", "tools", "user", "tools", "agent"}
+	wantSteps := []int{0, 1, 2, 3, 5, 6, 7}
+	for i := range wantTypes {
+		if msgs[i].Type != wantTypes[i] {
+			t.Fatalf("msg[%d].Type = %q, want %q", i, msgs[i].Type, wantTypes[i])
+		}
+		gotStep, ok := messageBranchStepIndex(msgs[i])
+		if !ok || gotStep != wantSteps[i] {
+			t.Fatalf("messageBranchStepIndex(msg[%d]) = (%d, %v), want (%d, true)", i, gotStep, ok, wantSteps[i])
+		}
+	}
+
+	raw := &upstreamTrajectoryResp{}
+	raw.Trajectory.CascadeID = "side-tools-test"
+	raw.Trajectory.TrajectoryType = "CORTEX_TRAJECTORY_TYPE_SIDE_QUESTION"
+	raw.Trajectory.Steps = rawSteps
+	det := (&Proxy{}).ParseTrajectoryDetails(raw)
+	if det.BranchOrigin == nil || det.BranchOrigin.ForkStepIndex != 3 {
+		t.Fatalf("unexpected BranchOrigin: %+v", det.BranchOrigin)
+	}
+	_, branchMsgs, q, _, ans, _, turns := extractSideQuestionBranchMessages(raw, det, BtwSideQuestionEntry{})
+	if q != "Side Q?" || ans != "Side A" || turns != 1 {
+		t.Fatalf("unexpected branch summary: q=%q ans=%q turns=%d", q, ans, turns)
+	}
+	if len(branchMsgs) != 3 || branchMsgs[0].Type != "user" || branchMsgs[1].Type != "tools" || branchMsgs[2].Type != "agent" {
+		t.Fatalf("expected only post-fork messages [user, tools, agent], got %+v", branchMsgs)
+	}
+}
+
+func TestResolveSideQuestionForkStepIndexSnapsToTurnBoundary(t *testing.T) {
+	steps := []TrajectoryStep{
+		{Type: "CORTEX_STEP_TYPE_USER_INPUT"},       // 0: Turn 1 user
+		{Type: "CORTEX_STEP_TYPE_RUN_COMMAND"},      // 1: Turn 1 tool
+		{Type: "CORTEX_STEP_TYPE_PLANNER_RESPONSE"}, // 2: Turn 1 interim agent
+		{Type: "CORTEX_STEP_TYPE_RUN_COMMAND"},      // 3: Turn 1 tool
+		{Type: "CORTEX_STEP_TYPE_PLANNER_RESPONSE"}, // 4: Turn 1 end (boundary)
+		{Type: "CORTEX_STEP_TYPE_USER_INPUT"},       // 5: Turn 2 user
+		{Type: "CORTEX_STEP_TYPE_PLANNER_RESPONSE"}, // 6: Turn 2 end (tail)
+	}
+
+	cases := []struct {
+		name        string
+		requested   int
+		wantStep    int
+		wantForkObj bool
+	}{
+		{"turn1_user_snaps_to_turn1_end", 0, 4, true},
+		{"turn1_mid_agent_snaps_to_turn1_end", 2, 4, true},
+		{"turn1_end_stays_at_boundary", 4, 4, true},
+		{"latest_turn_user_uses_cascadeId", 5, 6, false},
+		{"latest_turn_tail_uses_cascadeId", 6, 6, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			gotStep, gotFork := resolveSideQuestionForkStepIndex(steps, tc.requested)
+			if gotStep != tc.wantStep || gotFork != tc.wantForkObj {
+				t.Fatalf("resolveSideQuestionForkStepIndex(%d) = (%d, %v), want (%d, %v)",
+					tc.requested, gotStep, gotFork, tc.wantStep, tc.wantForkObj)
+			}
+		})
 	}
 }

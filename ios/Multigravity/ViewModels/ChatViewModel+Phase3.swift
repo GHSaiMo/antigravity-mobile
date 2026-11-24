@@ -232,10 +232,18 @@ extension ChatViewModel {
             NotificationCenter.default.post(name: .conversationUpserted, object: newItem)
 
             let anchorId: String? = {
-                if let si = stepIndex, let match = messages.last(where: { ($0.effectiveStepIndex ?? -1) <= si }) {
-                    return match.id
+                if let si = res.forkStepIndex ?? stepIndex {
+                    if let match = messages.last(where: { msg in
+                        guard let msgStep = msg.effectiveStepIndex else { return false }
+                        return msgStep <= si && (msg.isAgent || msg.isUser)
+                    }) ?? messages.last(where: { msg in
+                        guard let msgStep = msg.effectiveStepIndex else { return false }
+                        return msgStep <= si
+                    }) {
+                        return match.id
+                    }
                 }
-                return messages.last?.id
+                return messages.last(where: { $0.isAgent || $0.isUser })?.id ?? messages.last?.id
             }()
             let optimisticCard = SideQuestionCardItem(
                 cascadeId: res.cascadeId,

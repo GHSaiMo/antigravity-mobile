@@ -44,9 +44,7 @@ public struct ChatView: View {
     @State var workflowPickerState = WorkflowSlidePickerState()
     @State var commitPickerState = CommitSlidePickerState()
     @State var selectedSubagentDetail: SubagentItem? = nil
-    @State var showBtwSheet: Bool = false
-    @State var btwAnchorStepIndex: Int? = nil
-    @State var btwAnchorPreview: String? = nil
+    @State var btwSheetPresentation: BtwSheetPresentation? = nil
     @State var showSharedBranchContext: Bool = false
     @State var selectedGitHubPRItem: IdentifiableURL? = nil
     @State var isSlashPickerDismissed: Bool = false
@@ -388,9 +386,7 @@ public struct ChatView: View {
                 }
                 Divider()
                 Button {
-                    btwAnchorStepIndex = nil
-                    btwAnchorPreview = nil
-                    showBtwSheet = true
+                    btwSheetPresentation = BtwSheetPresentation()
                 } label: {
                     Label("旁路快问", systemImage: "bubble.left.and.exclamationmark.bubble.right")
                 }
@@ -632,15 +628,12 @@ public struct ChatView: View {
                     viewModel.openInAppBrowser(url: browserURL)
                 }
             }
-            .sheet(isPresented: $showBtwSheet, onDismiss: {
-                btwAnchorStepIndex = nil
-                btwAnchorPreview = nil
-            }) {
+            .sheet(item: $btwSheetPresentation) { ctx in
                 BtwSideQuestionSheet(
                     parentCascadeId: viewModel.cascadeId,
                     parentTitle: viewModel.currentTitle,
-                    anchorStepIndex: btwAnchorStepIndex,
-                    anchorPreview: btwAnchorPreview,
+                    anchorStepIndex: ctx.anchorStepIndex,
+                    anchorPreview: ctx.anchorPreview,
                     existingBranches: viewModel.sideQuestions,
                     onOpenBranch: { targetId in
                         NotificationCenter.default.post(
@@ -831,9 +824,7 @@ public struct ChatView: View {
         shouldFocusInputAfterCaptureDismiss = false
         pendingLaunchActionTask?.cancel()
         pendingLaunchActionTask = nil
-        showBtwSheet = false
-        btwAnchorStepIndex = nil
-        btwAnchorPreview = nil
+        btwSheetPresentation = nil
         selectedSubagentDetail = nil
         selectedGitHubPRItem = nil
         previewDraftGallery = nil
