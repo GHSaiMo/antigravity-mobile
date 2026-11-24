@@ -387,7 +387,7 @@ private struct AutoTableLayout: Layout {
         if let w = proposal.width, w.isFinite, w > 0 {
             return w
         }
-        return max(UIScreen.main.bounds.width - 32, 280)
+        return 320
     }
 
     private func rowHeights(_ subviews: Subviews, widths: [CGFloat]) -> [CGFloat] {

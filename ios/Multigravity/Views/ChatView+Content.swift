@@ -78,6 +78,18 @@ extension ChatView {
                                 }
                             }
                         }
+                        .onChange(of: geometry.size.width) { oldWidth, newWidth in
+                            // When folding/unfolding iPhone Duo or toggling the split sidebar,
+                            // message bubbles re-wrap; keep the latest message anchored at bottom.
+                            if abs(newWidth - oldWidth) > 1,
+                               hasInitiallyAligned,
+                               scrollHUD.isNearBottom,
+                               !scrollHUD.hasUserInteracted {
+                                DispatchQueue.main.async {
+                                    scrollToBottom(proxy: proxy, animated: false)
+                                }
+                            }
+                        }
                     }
                 }
             }

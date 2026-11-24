@@ -3,8 +3,10 @@ import SwiftUI
 public struct ConversationListView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-    /// iPad: whether the conversation list column is shown next to the chat.
+    /// Wide screens (iPad / unfolded iPhone Duo landscape): whether the conversation list column is shown next to the chat.
     @State private var showSidebar = true
+    @State private var layoutGeometry = AdaptiveLayoutGeometry()
+    @State private var chatSessionStore = ChatSessionStore()
     @State private var settings = AppSettings.shared
     @State private var viewModel = ConversationListViewModel()
     @State private var showSettings = false
@@ -66,6 +68,12 @@ public struct ConversationListView: View {
     }
     
     public var body: some View {
+        applyLifecycleAndRoutingModifiers(
+            applySheetAndAlertModifiers(rootLayoutContent)
+        )
+    }
+
+    private var rootLayoutContent: some View {
         ZStack {
             if !settings.isPaired && !isPairingInProgress {
                 OnboardingGuideView(
@@ -84,7 +92,7 @@ public struct ConversationListView: View {
                     },
                     onEasterEggTap: handleEasterEggTap
                 )
-                // Keep the welcome page readable on wide iPad screens.
+                // Keep the welcome page readable on wide screens.
                 .frame(maxWidth: 640)
                 .frame(maxWidth: .infinity)
             } else if usesSplitLayout {
@@ -103,6 +111,16 @@ public struct ConversationListView: View {
                     .zIndex(999)
             }
         }
+        .onGeometryChange(for: AdaptiveLayoutGeometry.self) { proxy in
+            AdaptiveLayoutGeometry.measure(from: proxy)
+        } action: { newGeometry in
+            layoutGeometry = newGeometry
+        }
+    }
+
+    @ViewBuilder
+    private func applySheetAndAlertModifiers<Content: View>(_ content: Content) -> some View {
+        content
         .sheet(isPresented: $showManualInput) {
             ManualPairingSheet { info in
                 startPairing(info: info)
@@ -211,6 +229,11 @@ public struct ConversationListView: View {
                 Text(msg)
             }
         }
+    }
+
+    @ViewBuilder
+    private func applyLifecycleAndRoutingModifiers<Content: View>(_ content: Content) -> some View {
+        content
         .onAppear {
             viewModel.reloadFromCache()
             let openCount = UserDefaults.standard.integer(forKey: "conversation_list_open_count") + 1
@@ -345,25 +368,50 @@ public struct ConversationListView: View {
         .overlay(alignment: .bottom) {
             if !shareInbox.files.isEmpty && !shareInbox.showSheet && navigationPath.isEmpty && settings.isPaired {
                 // Sits above the bottom search capsule (centered), drawn with the native glass effect.
-                Button { shareInbox.showSheet = true } label: {
-                    Text("\(shareInbox.files.count) 个文件待投递 · 选择去向")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(.primary)
-                        .padding(.horizontal, 18)
-                        .padding(.vertical, 11)
-                        .glassEffect(.regular.interactive(), in: .capsule)
+                // When iPhone Duo places the search button in the vertical side bar, sit closer to the bottom edge.
+                SharePendingDeliveryPill(count: shareInbox.files.count) {
+                    shareInbox.showSheet = true
                 }
-                .buttonStyle(.plain)
-                .padding(.bottom, 76)
             }
         }
     }
     
-    // MARK: - Layout (iPhone stack / iPad split)
+    // MARK: - Layout (compact stack / wide split)
     
-    /// Regular width (iPad full screen, large Stage Manager windows) gets the two-column layout;
-    /// iPhone and compact iPad windows (Slide Over, narrow Split View) keep the push navigation.
-    private var usesSplitLayout: Bool { horizontalSizeClass == .regular }
+    /// Two-column split requires both a regular horizontal size class and enough width (>= 700 pt)
+    /// so sidebar + chat never crush on narrower regular canvases (such as iPhone Duo inner portrait 669 pt
+    /// or narrow multitasking windows).
+    private var usesSplitLayout: Bool {
+        horizontalSizeClass == .regular && (layoutGeometry.width == 0 || layoutGeometry.width >= 700)
+    }
+
+    private struct SplitColumnMetrics {
+        let sidebarWidth: CGFloat
+        let hingeGapWidth: CGFloat
+    }
+
+    private var splitColumnMetrics: SplitColumnMetrics {
+        let width = layoutGeometry.width
+        // iPhone Duo Book posture: align the split boundary to the active vertical fold division
+        // so the conversation list stays on the leading pane and the chat stays on the trailing pane.
+        if let division = layoutGeometry.verticalDivision,
+           division.minX >= 280,
+           (width - division.maxX) >= 340 {
+            return SplitColumnMetrics(
+                sidebarWidth: floor(division.minX),
+                hingeGapWidth: ceil(division.width)
+            )
+        }
+        guard width > 0 else {
+            return SplitColumnMetrics(sidebarWidth: 360, hingeGapWidth: 0)
+        }
+        // Keep exact 390 pt sidebar on wide iPads (>= 1020 pt); scale gracefully on iPhone Duo
+        // unfolded landscape (~951 pt -> 342 pt) and narrower iPad portraits (744–834 pt -> 320 pt).
+        let sidebar: CGFloat = width >= 1020
+            ? 390
+            : min(390, max(320, floor(width * 0.36)))
+        return SplitColumnMetrics(sidebarWidth: sidebar, hingeGapWidth: 0)
+    }
     
     private var selectedConversationID: String? { navigationPath.last?.id }
     
@@ -835,16 +883,27 @@ public struct ConversationListView: View {
             .background(NavigationBarTapHelper(onTap: handleEasterEggTap))
     }
     
-    /// iPad: the conversation list column is exactly the iPhone list (large title, native toolbar,
-    /// search); the chat sits beside it. The sidebar toggle lives in the chat column's top-left, right
-    /// of the list's "+" button, and stays in the same place when the list is collapsed.
+    /// Wide screens (iPad / unfolded iPhone Duo landscape): the conversation list column is the
+    /// same navigation page as compact mode (large title, native toolbar, search); the chat sits
+    /// beside it. On iOS 27.1+ (iPhone Duo), vertical bar mode is disabled in split layout so the
+    /// two side-by-side NavigationStacks keep unified horizontal top chrome and `sidebar.left` stays
+    /// anchored beside the sidebar rather than migrating to the far trailing edge.
     private var splitLayout: some View {
-        HStack(spacing: 0) {
+        let metrics = splitColumnMetrics
+        return HStack(spacing: 0) {
             if showSidebar {
                 NavigationStack { listWithChrome }
-                    .frame(width: 390)
+                    .frame(width: metrics.sidebarWidth)
                     .transition(.move(edge: .leading))
-                Divider().ignoresSafeArea()
+                if metrics.hingeGapWidth > 2 {
+                    ZStack {
+                        Color.clear
+                        Divider().ignoresSafeArea()
+                    }
+                    .frame(width: metrics.hingeGapWidth)
+                } else {
+                    Divider().ignoresSafeArea()
+                }
             }
             NavigationStack {
                 Group {
@@ -869,11 +928,16 @@ public struct ConversationListView: View {
                 }
             }
         }
+        .modifier(DisableVerticalToolbarIfAvailable())
     }
     
     @ViewBuilder
     private func chatDestination(for item: ConversationItem) -> some View {
-        ChatView(conversation: item, isNewConversation: item.isDraft || item.stepCount == 0)
+        ChatView(
+            conversation: item,
+            isNewConversation: item.isDraft || item.stepCount == 0,
+            sessionStore: chatSessionStore
+        )
             .id(item.id)
             .environment(\.isSplitDetail, usesSplitLayout)
             .onAppear {
@@ -2113,6 +2177,96 @@ private struct NavigationBarTapHelper: UIViewRepresentable {
 
 
 
+
+/// Quantized window geometry and optional active vertical fold division (iPhone Duo Book posture).
+private nonisolated struct AdaptiveLayoutGeometry: Equatable, Sendable {
+    var width: CGFloat = 0
+    var height: CGFloat = 0
+    var verticalDivision: CGRect? = nil
+
+    static func measure(from proxy: GeometryProxy) -> AdaptiveLayoutGeometry {
+        let w = proxy.size.width.rounded()
+        let h = proxy.size.height.rounded()
+        var divisionRect: CGRect? = nil
+        if #available(iOS 27.1, *) {
+            if let region = proxy.reservedRegions(kind: .division).first(where: { region in
+                region.isActive
+                    && region.frame.height > region.frame.width
+                    && region.frame.minX >= 280
+                    && (proxy.size.width - region.frame.maxX) >= 340
+            }) {
+                let f = region.frame
+                divisionRect = CGRect(
+                    x: f.origin.x.rounded(),
+                    y: f.origin.y.rounded(),
+                    width: f.size.width.rounded(),
+                    height: f.size.height.rounded()
+                )
+            }
+        }
+        return AdaptiveLayoutGeometry(width: w, height: h, verticalDivision: divisionRect)
+    }
+}
+
+/// Disables the iOS 27.1+ side vertical toolbar in two-column split layout so both side-by-side
+/// NavigationStacks share consistent horizontal top bars.
+private struct DisableVerticalToolbarIfAvailable: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 27.1, *) {
+            content.toolbarVerticalBehavior(.disabled)
+        } else {
+            content
+        }
+    }
+}
+
+/// Floating pill shown when files await delivery from the Share Extension.
+/// Adjusts bottom clearance when iPhone Duo moves search into the trailing vertical bar.
+private struct SharePendingDeliveryPill: View {
+    let count: Int
+    let action: () -> Void
+
+    var body: some View {
+        if #available(iOS 27.1, *) {
+            SharePendingDeliveryPillV27(count: count, action: action)
+        } else {
+            pillButton
+                .padding(.bottom, 76)
+        }
+    }
+
+    private var pillButton: some View {
+        Button(action: action) {
+            Text("\(count) 个文件待投递 · 选择去向")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(.primary)
+                .padding(.horizontal, 18)
+                .padding(.vertical, 11)
+                .glassEffect(.regular.interactive(), in: .capsule)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+@available(iOS 27.1, *)
+private struct SharePendingDeliveryPillV27: View {
+    @Environment(\.toolbarVerticalEdge) private var toolbarVerticalEdge
+    let count: Int
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text("\(count) 个文件待投递 · 选择去向")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(.primary)
+                .padding(.horizontal, 18)
+                .padding(.vertical, 11)
+                .glassEffect(.regular.interactive(), in: .capsule)
+        }
+        .buttonStyle(.plain)
+        .padding(.bottom, toolbarVerticalEdge != nil ? 16 : 76)
+    }
+}
 
 /// Row interactions: iPad (pointer / long press) gets a context menu, iPhone keeps long-press to rename.
 private struct RowActions: ViewModifier {

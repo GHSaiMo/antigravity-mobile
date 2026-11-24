@@ -9,6 +9,7 @@ final class SingleImagePreviewController: UIViewController, UIScrollViewDelegate
     let imageView = UIImageView()
     let spinner = UIActivityIndicatorView(style: .large)
     private var loadTask: Task<Void, Never>?
+    private var lastLayoutSize: CGSize = .zero
     
     init(item: IdentifiableImage, onSingleTap: @escaping () -> Void) {
         self.item = item
@@ -67,7 +68,17 @@ final class SingleImagePreviewController: UIViewController, UIScrollViewDelegate
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         spinner.center = CGPoint(x: view.bounds.midX, y: view.bounds.midY)
-        updateImageFrame()
+        let size = view.bounds.size
+        guard size.width > 0, size.height > 0 else { return }
+        if size != lastLayoutSize {
+            lastLayoutSize = size
+            if scrollView.zoomScale != 1.0 {
+                scrollView.setZoomScale(1.0, animated: false)
+            }
+            updateImageFrame()
+        } else if scrollView.zoomScale <= 1.01 {
+            updateImageFrame()
+        }
     }
     
     private func loadImage() {

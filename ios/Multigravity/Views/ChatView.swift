@@ -12,7 +12,7 @@ public struct ChatView: View {
     @State var hasInitiallyAligned = false
     /// 进入子代理等子页面再返回时，保持原滚动位置，不重新对齐到底部。
     @State var preserveScrollOnReturn = false
-    @State var scrollHUD = ChatScrollHUDState()
+    @State var scrollHUD: ChatScrollHUDState
     @State var currentViewportHeight: CGFloat = 0
     @State var cardToggleTrigger = 0
     /// 锁定当前会话列表容器类型（VStack vs LazyVStack），避免流式跨过阈值瞬间整棵子树与 WKWebView 被销毁重建。
@@ -61,14 +61,37 @@ public struct ChatView: View {
     let initialConversation: ConversationItem?
     let initialIsUnread: Bool
     let initialStatus: ConversationItem.ConversationStatus?
+    let sessionStore: ChatSessionStore
+    let sessionKey: String
+    let restoredFromSessionStore: Bool
     @State var hasAutoFocused = false
     @State var isViewAppeared = false
     @State var autoFocusTask: Task<Void, Never>? = nil
     
-    public init(conversation: ConversationItem, isNewConversation: Bool = false) {
+    public init(
+        conversation: ConversationItem,
+        isNewConversation: Bool = false,
+        sessionStore: ChatSessionStore? = nil
+    ) {
+        let resolvedStore = sessionStore ?? ChatSessionStore.shared
         self.initialConversation = conversation
         self.initialIsUnread = conversation.isUnread
         self.initialStatus = conversation.status
+        self.sessionStore = resolvedStore
+        self.sessionKey = conversation.id
+
+        if let retained = resolvedStore.peek(sessionKey: conversation.id) {
+            self.restoredFromSessionStore = true
+            self.shouldAutoFocus = false
+            _viewModel = State(initialValue: retained.viewModel)
+            _scrollHUD = State(initialValue: retained.scrollHUD)
+            _hasInitiallyAligned = State(initialValue: !retained.viewModel.messages.isEmpty || retained.scrollHUD.lastKnownVisibleMessageId != nil)
+            _useLazyMessagesStack = State(initialValue: Self.shouldUseLazyStack(for: retained.viewModel.messages))
+            return
+        }
+
+        self.restoredFromSessionStore = false
+        _scrollHUD = State(initialValue: ChatScrollHUDState())
         if conversation.isDraft {
             self.shouldAutoFocus = true
             if var draftSession = CacheManager.shared.getLocalDraftSession(id: conversation.id) {
@@ -143,21 +166,39 @@ public struct ChatView: View {
         return false
     }
     
-    public init(draftSession: LocalDraftSession) {
+    public init(draftSession: LocalDraftSession, sessionStore: ChatSessionStore? = nil) {
+        let resolvedStore = sessionStore ?? ChatSessionStore.shared
         self.initialConversation = nil
         self.initialIsUnread = false
         self.initialStatus = nil
-        self.shouldAutoFocus = true
-        _viewModel = State(initialValue: ChatViewModel(
-            draftSession: draftSession
-        ))
+        self.sessionStore = resolvedStore
+        self.sessionKey = draftSession.id
+        if let retained = resolvedStore.peek(sessionKey: draftSession.id) {
+            self.restoredFromSessionStore = true
+            self.shouldAutoFocus = false
+            _viewModel = State(initialValue: retained.viewModel)
+            _scrollHUD = State(initialValue: retained.scrollHUD)
+            _hasInitiallyAligned = State(initialValue: !retained.viewModel.messages.isEmpty || retained.scrollHUD.lastKnownVisibleMessageId != nil)
+        } else {
+            self.restoredFromSessionStore = false
+            self.shouldAutoFocus = true
+            _scrollHUD = State(initialValue: ChatScrollHUDState())
+            _viewModel = State(initialValue: ChatViewModel(
+                draftSession: draftSession
+            ))
+        }
     }
     
-    public init(draftProject: ProjectItem) {
+    public init(draftProject: ProjectItem, sessionStore: ChatSessionStore? = nil) {
+        let resolvedStore = sessionStore ?? ChatSessionStore.shared
         self.initialConversation = nil
         self.initialIsUnread = false
         self.initialStatus = nil
+        self.sessionStore = resolvedStore
+        self.sessionKey = ""
+        self.restoredFromSessionStore = false
         self.shouldAutoFocus = true
+        _scrollHUD = State(initialValue: ChatScrollHUDState())
         _viewModel = State(initialValue: ChatViewModel(
             draftProject: draftProject
         ))
@@ -362,6 +403,12 @@ public struct ChatView: View {
 
     private func runInitialChatTask() async {
         ChatViewModel.activeCascadeId = viewModel.cascadeId
+        if restoredFromSessionStore && (!viewModel.messages.isEmpty || viewModel.isDraftConversation) {
+            // Re-attached after a live container resize (e.g. folding/unfolding iPhone Duo):
+            // keep the live message stream and draft state intact without flashing a full reload.
+            viewModel.connectStream()
+            return
+        }
         if let url = AppSettings.shared.serverURL {
             Task { @MainActor in
                 await ModelCatalogStore.shared.refreshIfNeeded(settings: AppSettings.shared, baseURL: url)
@@ -880,6 +927,7 @@ public struct ChatView: View {
     }
 
     private func handleViewAppear() {
+        sessionStore.markMounted(sessionKey: sessionKey, viewModel: viewModel, scrollHUD: scrollHUD)
         isViewAppeared = true
         if !viewModel.cascadeId.isEmpty {
             PushNotificationManager.shared.clearDeliveredNotifications(for: viewModel.cascadeId)
@@ -893,7 +941,7 @@ public struct ChatView: View {
         if shouldAutoFocus && viewModel.pendingInteraction == nil {
             scheduleAutoFocus(delay: 0.45)
         }
-        if !viewModel.messages.isEmpty {
+        if !restoredFromSessionStore && !viewModel.messages.isEmpty {
             Task {
                 await viewModel.resumeActiveSession()
             }
@@ -902,15 +950,12 @@ public struct ChatView: View {
 
     private func handleViewDisappear() {
         isViewAppeared = false
-        if hasInitiallyAligned && !isSplitDetail {
+        let keepScrollOnSubpage = hasInitiallyAligned && !isSplitDetail
+        if keepScrollOnSubpage {
             // 压入子页面（如子代理会话）：保留滚动状态，返回时留在原位置
             preserveScrollOnReturn = true
         } else {
             hasInitiallyAligned = false
-            scrollHUD.hasUserInteracted = false
-            scrollHUD.isNearBottom = true
-            scrollHUD.messagesContentHeight = 0
-            scrollHUD.lastKnownVisibleMessageId = nil
             currentViewportHeight = 0
         }
         scrollHUD.isUserDragging = false
@@ -926,11 +971,24 @@ public struct ChatView: View {
         scrollHUD.stepperHideTask = nil
         autoFocusTask?.cancel()
         autoFocusTask = nil
-        if voiceCall.isInCall {
-            voiceCall.endCall()
-        }
         viewModel.saveCurrentDraft()
-        viewModel.disconnectStream()
+
+        let activeVM = viewModel
+        let activeHUD = scrollHUD
+        let voice = voiceCall
+        sessionStore.markUnmounted(sessionKey: sessionKey, viewModel: activeVM) {
+            if !keepScrollOnSubpage {
+                activeHUD.hasUserInteracted = false
+                activeHUD.isNearBottom = true
+                activeHUD.messagesContentHeight = 0
+                activeHUD.lastKnownVisibleMessageId = nil
+            }
+            if voice.isInCall {
+                voice.endCall()
+            }
+            activeVM.saveCurrentDraft()
+            activeVM.disconnectStream()
+        }
     }
 }
 

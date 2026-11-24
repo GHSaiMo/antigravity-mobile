@@ -102,42 +102,46 @@ public struct QRScannerView: View {
     }
     
     private var scannerOverlayView: some View {
-        VStack {
-            Spacer()
-            
-            // Viewfinder square
-            ZStack {
-                RoundedRectangle(cornerRadius: 16)
-                    .stroke(Color.white.opacity(0.8), lineWidth: 3)
-                    .frame(width: 250, height: 250)
+        GeometryReader { geometry in
+            let boxSize = min(250, max(160, min(geometry.size.width - 64, geometry.size.height - 170)))
+            VStack {
+                Spacer()
                 
-                // Corner accents
-                RoundedRectangle(cornerRadius: 16)
-                    .stroke(Color.indigo, lineWidth: 5)
-                    .frame(width: 250, height: 250)
-            }
-            
-            Text("对准电脑终端中的配对二维码")
-                .font(.system(size: 14, weight: .medium))
-                .foregroundColor(.white)
-                .padding(.top, 24)
-                .shadow(radius: 4)
-            
-            Spacer()
-            
-            Button(action: { showManualInput = true }) {
-                HStack {
-                    Image(systemName: "pencil.line")
-                    Text("手动输入或粘贴配对链接")
+                // Viewfinder square
+                ZStack {
+                    RoundedRectangle(cornerRadius: 16)
+                        .stroke(Color.white.opacity(0.8), lineWidth: 3)
+                        .frame(width: boxSize, height: boxSize)
+                    
+                    // Corner accents
+                    RoundedRectangle(cornerRadius: 16)
+                        .stroke(Color.indigo, lineWidth: 5)
+                        .frame(width: boxSize, height: boxSize)
                 }
-                .font(.system(size: 14, weight: .medium))
-                .foregroundColor(.white)
-                .padding(.horizontal, 20)
-                .padding(.vertical, 12)
-                .background(Color.white.opacity(0.2))
-                .cornerRadius(24)
+                
+                Text("对准电脑终端中的配对二维码")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(.white)
+                    .padding(.top, 20)
+                    .shadow(radius: 4)
+                
+                Spacer()
+                
+                Button(action: { showManualInput = true }) {
+                    HStack {
+                        Image(systemName: "pencil.line")
+                        Text("手动输入或粘贴配对链接")
+                    }
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 12)
+                    .background(Color.white.opacity(0.2))
+                    .cornerRadius(24)
+                }
+                .padding(.bottom, 24)
             }
-            .padding(.bottom, 32)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
     
@@ -193,7 +197,13 @@ final class QRScannerViewController: UIViewController, AVCaptureMetadataOutputOb
     
     private var captureSession: AVCaptureSession?
     private var previewLayer: AVCaptureVideoPreviewLayer?
+    private var rotationCoordinator: AVCaptureDevice.RotationCoordinator?
+    private var rotationObservation: NSKeyValueObservation?
     private var hasDetectedCode = false
+
+    deinit {
+        rotationObservation?.invalidate()
+    }
     
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -203,6 +213,9 @@ final class QRScannerViewController: UIViewController, AVCaptureMetadataOutputOb
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         previewLayer?.frame = view.bounds
+        if let angle = rotationCoordinator?.videoRotationAngleForHorizonLevelPreview {
+            applyPreviewRotation(angle)
+        }
     }
     
     override func viewWillAppear(_ animated: Bool) {
@@ -245,10 +258,28 @@ final class QRScannerViewController: UIViewController, AVCaptureMetadataOutputOb
         preview.videoGravity = .resizeAspectFill
         view.layer.addSublayer(preview)
         previewLayer = preview
+
+        let coordinator = AVCaptureDevice.RotationCoordinator(device: device, previewLayer: preview)
+        rotationCoordinator = coordinator
+        applyPreviewRotation(coordinator.videoRotationAngleForHorizonLevelPreview)
+        rotationObservation = coordinator.observe(\.videoRotationAngleForHorizonLevelPreview, options: [.new]) { [weak self] _, change in
+            guard let angle = change.newValue else { return }
+            DispatchQueue.main.async { [weak self] in
+                self?.applyPreviewRotation(angle)
+            }
+        }
         
         DispatchQueue.global(qos: .userInitiated).async {
             session.startRunning()
         }
+    }
+
+    private func applyPreviewRotation(_ angle: CGFloat) {
+        guard let connection = previewLayer?.connection,
+              connection.isVideoRotationAngleSupported(angle) else {
+            return
+        }
+        connection.videoRotationAngle = angle
     }
     
     func metadataOutput(_ output: AVCaptureMetadataOutput, didOutput metadataObjects: [AVMetadataObject], from connection: AVCaptureConnection) {

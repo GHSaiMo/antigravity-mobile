@@ -29,6 +29,7 @@ public struct DiffViewerSheet: View {
     public let file: RevertPreviewFile
     @Environment(\.dismiss) private var dismiss
     @State private var processedLines: [ProcessedDiffLine]
+    @State private var viewportWidth: CGFloat = 0
     
     public init(file: RevertPreviewFile) {
         self.file = file
@@ -87,7 +88,14 @@ public struct DiffViewerSheet: View {
                             }
                         }
                         .padding(.vertical, 4)
-                        .frame(minWidth: UIScreen.main.bounds.width, alignment: .leading)
+                        .frame(minWidth: viewportWidth > 0 ? viewportWidth : nil, alignment: .leading)
+                    }
+                    .onGeometryChange(for: CGFloat.self) { proxy in
+                        proxy.size.width.rounded()
+                    } action: { newWidth in
+                        if newWidth > 0 {
+                            viewportWidth = newWidth
+                        }
                     }
                     .background(Color(uiColor: .systemBackground))
                 }
@@ -181,7 +189,7 @@ public struct DiffViewerSheet: View {
         }
         .padding(.trailing, 12)
         .padding(.vertical, 2)
-        .frame(minWidth: UIScreen.main.bounds.width, maxWidth: .infinity, alignment: .leading)
+        .frame(minWidth: viewportWidth > 0 ? viewportWidth : nil, maxWidth: .infinity, alignment: .leading)
         .background(bgColor)
     }
     

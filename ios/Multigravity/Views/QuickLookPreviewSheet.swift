@@ -14,6 +14,7 @@ public struct QuickLookPreviewSheet: View {
     public let url: URL
     public let title: String
     public let onDismiss: () -> Void
+    @Environment(\.displayScale) private var displayScale
     @State private var isSavingPhoto: Bool = false
     @State private var isShowingDocumentPicker: Bool = false
     @State private var toastSuccessMessage: String? = nil
@@ -401,7 +402,7 @@ public struct QuickLookPreviewSheet: View {
         let request = QLThumbnailGenerator.Request(
             fileAt: targetURL,
             size: CGSize(width: 2048, height: 2048),
-            scale: UIScreen.main.scale,
+            scale: displayScale,
             representationTypes: .all
         )
         QLThumbnailGenerator.shared.generateBestRepresentation(for: request) { thumbnail, _ in

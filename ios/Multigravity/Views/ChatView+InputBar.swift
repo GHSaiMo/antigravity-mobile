@@ -376,8 +376,8 @@ private struct ChatFloatingSlashPopupHost: View {
            !viewModel.showMentionPicker,
            !isSlashPickerDismissed,
            let slashQuery = SlashCommandFilter.query(of: viewModel.inputText) {
-            let maxTotal = currentViewportHeight > 0 ? min(max(currentViewportHeight - 16, 200), 360) : 300
-            let maxList = max(maxTotal - 46, 154)
+            let maxTotal = currentViewportHeight > 0 ? min(max(currentViewportHeight - 12, 120), 360) : 300
+            let maxList = max(maxTotal - 46, 74)
             SlashCommandPickerView(
                 commands: SlashCommandFilter.filter(viewModel.slashCommands, query: slashQuery),
                 isLoading: viewModel.isLoadingSlashCommands,
@@ -788,9 +788,9 @@ private struct ChatFloatingMentionPopupHost: View {
     var body: some View {
         if viewModel.showMentionPicker {
             let maxTotal: CGFloat = currentViewportHeight > 0
-                ? min(max(currentViewportHeight - 12, 240), 500)
+                ? min(max(currentViewportHeight - 12, 168), 500)
                 : 380
-            let maxList = max(maxTotal - 96, 160)
+            let maxList = max(maxTotal - 96, 72)
             MentionPickerView(
                 viewModel: viewModel,
                 maxListHeight: maxList
@@ -815,8 +815,8 @@ private struct MentionPickerView: View {
     @State private var contentHeight: CGFloat = 0
 
     private var effectiveListHeight: CGFloat {
-        let clampedMax = max(maxListHeight, 160)
-        let minComfortable = min(200, clampedMax)
+        let clampedMax = max(maxListHeight, 72)
+        let minComfortable = min(160, clampedMax)
         let fallback = CGFloat(max(viewModel.mentionCandidates.count, 1)) * 68
         let measured = contentHeight > 0 ? contentHeight : fallback
         return min(max(measured, minComfortable), clampedMax)
@@ -914,7 +914,7 @@ private struct MentionPickerView: View {
                         .foregroundColor(.secondary)
                 }
                 .frame(maxWidth: .infinity)
-                .frame(height: min(200, max(maxListHeight, 160)))
+                .frame(height: min(200, max(maxListHeight, 72)))
             } else {
                 ScrollView(.vertical, showsIndicators: true) {
                     VStack(spacing: 0) {
