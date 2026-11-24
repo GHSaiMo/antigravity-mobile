@@ -33132,19 +33132,41 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Swipe left on any conversation to archive or delete it quickly."
+            "value": "Swipe left on any conversation to reveal quick delete."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "会話カードを左にスワイプすると、アーカイブや削除を素早く行えます。"
+            "value": "任意の会話を左へスワイプすると、削除ボタンが表示されます。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "向左轻扫任意会话，呼出快捷删除操作。"
+          }
+        }
+      }
+    },
+    "向左轻扫会话卡片可一键归档，保持列表清爽；在聚合模式下选择「已归档」，即可随时找到已归档的会话。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Swipe left on a conversation card to archive it and keep your list tidy. While filtered, select \"Archived\" to find your archived conversations."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "会話カードを左にスワイプするとワンタップでアーカイブでき、一覧をすっきり保てます。絞り込み中に「アーカイブ済み」を選ぶと、アーカイブした会話をいつでも見つけられます。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "向左轻扫会话卡片可一键归档，保持列表清爽；在聚合模式下选择「已归档」，即可随时找到已归档的会话。"
           }
         }
       }
@@ -33748,7 +33770,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Swipe Left on Chats"
+            "value": "Swipe Left on Card"
           }
         },
         "ja": {
@@ -33761,6 +33783,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "左滑会话卡片"
+          }
+        }
+      }
+    },
+    "左滑归档会话": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Swipe Left to Archive"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "左スワイプでアーカイブ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "左滑归档会话"
           }
         }
       }

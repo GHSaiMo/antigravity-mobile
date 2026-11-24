@@ -106,6 +106,16 @@ fun TipsAndGesturesSubpageContent() {
                 title = "点击左下角项目图标".loc,
                 desc = "精准轻按卡片左下角的文件夹或气泡图标，一键聚合筛选该项目的所有会话；在聚合模式下，点击「新建对话」即可直接在该项目里新建对话。".loc
             )
+            GuideDivider()
+            GuideRow(
+                icon = Icons.Default.Archive,
+                badgeColor = badgeColor(
+                    light = Color(0xFF64748B), // 浅色模式与左滑归档按钮一致的石板灰蓝
+                    dark = Color(0xFF5A6678) // 深色模式保持沉稳低饱和石板灰蓝
+                ),
+                title = "左滑归档会话".loc,
+                desc = "向左轻扫会话卡片可一键归档，保持列表清爽；在聚合模式下选择「已归档」，即可随时找到已归档的会话。".loc
+            )
         }
 
         // Section 2

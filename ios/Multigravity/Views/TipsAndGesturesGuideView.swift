@@ -69,6 +69,15 @@ public struct TipsAndGesturesGuideView: View {
                     title: String(localized: "点击左下角项目图标"),
                     description: String(localized: "精准轻按卡片左下角的文件夹或气泡图标，一键聚合筛选该项目的所有会话；在聚合模式下，点击「新建对话」即可直接在该项目里新建对话。")
                 )
+                TipRow(
+                    icon: "archivebox.fill",
+                    badgeColor: badgeColor(
+                        light: Color(red: 0.39, green: 0.45, blue: 0.55), // 浅色模式与左滑归档按钮一致的石板灰蓝
+                        dark: Color(red: 0.35, green: 0.40, blue: 0.47) // 深色模式保持沉稳低饱和石板灰蓝
+                    ),
+                    title: String(localized: "左滑归档会话"),
+                    description: String(localized: "向左轻扫会话卡片可一键归档，保持列表清爽；在聚合模式下选择「已归档」，即可随时找到已归档的会话。")
+                )
             }
 
             // 2. 对话与模型调度
