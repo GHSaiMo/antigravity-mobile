@@ -427,6 +427,8 @@ func isSafePathUnderRoots(path string, roots []string) bool {
 		"/.config/google-chrome/", "/.config/chromium/", "/.config/bravesoftware/", "/.mozilla/",
 		"/.azure/", "/.oci/", "/.terraform.d/", "/.password-store/", "/.local/share/keyrings/",
 		"/.cargo/", "/.gem/", "/.m2/", "/.gradle/", "/.config/pip/",
+		// Antigravity internal session connection & presence lock directories (contain LS port & CSRF token).
+		"/.gemini/antigravity/daemon/", "/.gemini/antigravity/presence/",
 	}
 	for _, sd := range sensitiveDirs {
 		sd = strings.ToLower(sd)
@@ -438,6 +440,8 @@ func isSafePathUnderRoots(path string, roots []string) bool {
 		"/.gemini/settings.json",
 		"/.gemini/config/config.json",
 		"/.gemini/antigravity/mcp_config.json",
+		"/.gemini/antigravity/antigravity_state.pbtxt",
+		"/.gemini/antigravity/agyhub_summaries_proto.pb",
 	} {
 		if strings.HasSuffix(slashPath, sf) {
 			return false
@@ -445,6 +449,9 @@ func isSafePathUnderRoots(path string, roots []string) bool {
 	}
 
 	base := strings.ToLower(filepath.Base(resolved))
+	if strings.HasPrefix(base, "mcp_config.json") {
+		return false
+	}
 	sensitiveNames := []string{
 		"id_rsa", "id_ed25519", "id_ecdsa", "id_dsa",
 		".env", ".envrc", ".git-credentials", ".gitconfig", ".netrc", ".dockercfg", ".npmrc", ".pypirc",

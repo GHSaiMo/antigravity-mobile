@@ -536,8 +536,9 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 	bodyBytes, cleanup, _ := readBodyToPool(r.Body, 5*1024*1024)
 	defer cleanup()
 
-	// P4: enforce the 4s budget via a context deadline instead of allocating a new http.Client per request.
-	listCtx, listCancel := context.WithTimeout(r.Context(), 4*time.Second)
+	// P4: enforce the 6s budget (raised from 4s for Antigravity 2.35+ unlimited local history)
+	// via a context deadline instead of allocating a new http.Client per request.
+	listCtx, listCancel := context.WithTimeout(r.Context(), 6*time.Second)
 	defer listCancel()
 
 	var rawMap map[string]json.RawMessage

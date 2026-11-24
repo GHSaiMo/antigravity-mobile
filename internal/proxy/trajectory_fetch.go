@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -227,11 +228,64 @@ func (p *Proxy) LoadTrajectory(cascadeID string, port int, token string) error {
 	return nil
 }
 
+// defaultMaxHistoricalSync bounds how many historical conversation DBs are eagerly
+// loaded into language_server memory on startup/reconnect. Antigravity 2.35.0 keeps
+// unlimited local history by default, so preloading only the newest sessions avoids
+// unbounded memory bloat and startup stalls; older sessions still load lazily on demand
+// via FetchTrajectory -> LoadTrajectory.
+const defaultMaxHistoricalSync = 200
+
+func maxHistoricalSyncLimit() int {
+	raw := strings.TrimSpace(os.Getenv("MGY_MAX_HISTORICAL_SYNC"))
+	if raw == "" {
+		return defaultMaxHistoricalSync
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 0 {
+		return defaultMaxHistoricalSync
+	}
+	return n
+}
+
 // SyncHistoricalTrajectories scans ~/.gemini/antigravity/conversations for historical session DBs
-// and loads valid sessions into upstream language_server memory so GetAllCascadeTrajectories returns them.
+// and eagerly preloads the most recent sessions (capped by MGY_MAX_HISTORICAL_SYNC, default 200)
+// into upstream language_server memory. Older sessions remain lazily loaded on demand via LoadTrajectory.
 func (p *Proxy) SyncHistoricalTrajectories(port int, token string) error {
 	if port == 0 {
 		return fmt.Errorf("upstream port not set")
+	}
+
+	// Single-flight coalescing per upstream port: if another goroutine is already syncing this port
+	// (e.g., updateUpstream + handleGetAllCascadeTrajectories racing on reconnect), wait for it.
+	defaultTrajCache.loadedCascadesMu.Lock()
+	if defaultTrajCache.syncingPort == port && defaultTrajCache.syncingDone != nil {
+		waitCh := defaultTrajCache.syncingDone
+		defaultTrajCache.loadedCascadesMu.Unlock()
+		<-waitCh
+		return nil
+	}
+	if port != defaultTrajCache.lastSyncedPort {
+		defaultTrajCache.loadedCascades = make(map[string]bool)
+		defaultTrajCache.lastSyncedPort = port
+	}
+	done := make(chan struct{})
+	defaultTrajCache.syncingPort = port
+	defaultTrajCache.syncingDone = done
+	defaultTrajCache.loadedCascadesMu.Unlock()
+
+	defer func() {
+		defaultTrajCache.loadedCascadesMu.Lock()
+		if defaultTrajCache.syncingDone == done {
+			defaultTrajCache.syncingPort = 0
+			defaultTrajCache.syncingDone = nil
+		}
+		defaultTrajCache.loadedCascadesMu.Unlock()
+		close(done)
+	}()
+
+	limit := maxHistoricalSyncLimit()
+	if limit == 0 {
+		return nil
 	}
 
 	home, err := os.UserHomeDir()
@@ -245,12 +299,12 @@ func (p *Proxy) SyncHistoricalTrajectories(port int, token string) error {
 		return err
 	}
 
-	var candidates []string
-	defaultTrajCache.loadedCascadesMu.Lock()
-	if port != defaultTrajCache.lastSyncedPort {
-		defaultTrajCache.loadedCascades = make(map[string]bool)
-		defaultTrajCache.lastSyncedPort = port
+	type historicalCandidate struct {
+		cascadeID string
+		modTime   time.Time
 	}
+	var candidates []historicalCandidate
+	defaultTrajCache.loadedCascadesMu.Lock()
 	for _, entry := range entries {
 		name := entry.Name()
 		if !strings.HasSuffix(name, ".db") {
@@ -277,7 +331,10 @@ func (p *Proxy) SyncHistoricalTrajectories(port int, token string) error {
 			continue
 		}
 
-		candidates = append(candidates, cascadeID)
+		candidates = append(candidates, historicalCandidate{
+			cascadeID: cascadeID,
+			modTime:   info.ModTime(),
+		})
 	}
 	defaultTrajCache.loadedCascadesMu.Unlock()
 
@@ -285,8 +342,28 @@ func (p *Proxy) SyncHistoricalTrajectories(port int, token string) error {
 		return nil
 	}
 
-	if verboseRPC {
-		slog.Info(fmt.Sprintf("[Proxy] Syncing %d historical trajectories into upstream language_server...", len(candidates)))
+	sort.Slice(candidates, func(i, j int) bool {
+		if !candidates[i].modTime.Equal(candidates[j].modTime) {
+			return candidates[i].modTime.After(candidates[j].modTime)
+		}
+		return candidates[i].cascadeID < candidates[j].cascadeID
+	})
+
+	totalCandidates := len(candidates)
+	if totalCandidates > limit {
+		skipped := candidates[limit:]
+		candidates = candidates[:limit]
+		// Mark deferred older sessions as processed for this port so repeated calls do not keep
+		// loading older batches; opening any of them still triggers on-demand LoadTrajectory.
+		defaultTrajCache.loadedCascadesMu.Lock()
+		for _, s := range skipped {
+			defaultTrajCache.loadedCascades[s.cascadeID] = true
+		}
+		defaultTrajCache.loadedCascadesMu.Unlock()
+		slog.Info("[Proxy] Capping eager historical trajectory sync to newest sessions; older sessions load on demand",
+			"syncing", limit, "total", totalCandidates)
+	} else if verboseRPC {
+		slog.Info(fmt.Sprintf("[Proxy] Syncing %d historical trajectories into upstream language_server...", totalCandidates))
 	}
 
 	concurrency := 2
@@ -295,8 +372,8 @@ func (p *Proxy) SyncHistoricalTrajectories(port int, token string) error {
 	}
 
 	workCh := make(chan string, len(candidates))
-	for _, cid := range candidates {
-		workCh <- cid
+	for _, cand := range candidates {
+		workCh <- cand.cascadeID
 	}
 	close(workCh)
 

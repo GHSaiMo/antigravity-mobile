@@ -68,6 +68,8 @@ type TrajectoryCache struct {
 	loadedCascades   map[string]bool
 	loadedCascadesMu sync.RWMutex
 	lastSyncedPort   int
+	syncingPort      int
+	syncingDone      chan struct{}
 
 	deletedCascades   map[string]time.Time
 	deletedCascadesMu sync.RWMutex

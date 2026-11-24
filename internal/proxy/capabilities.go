@@ -63,10 +63,10 @@ var Features = []Feature{
 	{ID: "worktree_fork", RPCs: []string{"ForkConversation", "CreateWorktree", "CheckoutWorktree", "GetWorktreeDiff", "DeleteWorktree", "CloneGitHubRepo"}},
 	{ID: "permissions", RPCs: []string{"GetPermissionSettings", "UpdatePermissionSettings"}},
 	{ID: "terminals", RPCs: []string{"ListTerminals", "CreateTerminal", "StreamTerminalOutput", "SendTerminalInput", "CloseTerminal", "SendStepsToBackground"}},
-	{ID: "subagent_collab", RPCs: []string{"SendAgentMessage", "GetAgentTeamMetadata", "SkipBrowserSubagent", "GetBrowserOpenConversation", "GetAllBrowserWhitelistedUrls", "AddToBrowserWhitelist"}},
+	{ID: "subagent_collab", RPCs: []string{"SendAgentMessage", "GetAgentTeamMetadata", "SkipBrowserSubagent"}},
 	{ID: "audio_narration", RPCs: []string{"StreamAudioTranscription", "SendAudioChunk", "EndAudioSession", "StartNarration", "SendNarrationTurn", "EndNarration"}},
 	{ID: "mcp_apps", RPCs: []string{"ToggleMcpServer", "RefreshMcpServers", "LaunchMcpApp", "GetMcpAppResource", "CallMcpAppTool"}},
-	{ID: "memories_rules", RPCs: []string{"GetAllRules", "GetCascadeMemories", "UpdateCascadeMemory", "DeleteCascadeMemory", "GetKnowledgeItems"}},
+	{ID: "memories_rules", RPCs: []string{"GetAllRules", "GetCascadeMemories", "DeleteCascadeMemory"}},
 	{ID: "git_discard", RPCs: []string{"DiscardFileChanges"}},
 	{ID: "workspace_trust", RPCs: []string{"GetProjectTrustStatus", "SetWorkspaceTrust"}},
 }

@@ -40,6 +40,7 @@ var hiddenSlashCommands = map[string]bool{
 	"migrate-workflows":  true,
 	"agy-customizations": true,
 	"antigravity-guide":  true,
+	"conversations":      true, // Antigravity 2.35 内置程序化对话管理 API 技能，非手机交互斜杠命令
 }
 
 // SlashCommandOption is one entry of the phone's "/" menu. modelFacingText is deliberately omitted

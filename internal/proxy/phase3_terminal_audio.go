@@ -413,15 +413,15 @@ func (p *Proxy) HandleBrowserSubagent(w http.ResponseWriter, r *http.Request) {
 			writeRPCError(w, http.StatusBadRequest, "缺少 url")
 			return
 		}
-		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
-		_, status, _ := p.callUpstreamRPC(ctx, "AddToBrowserWhitelist", map[string]interface{}{"url": targetURL})
-		cancel()
-		// Persist in local ~/.gemini/config/config.json browser allowlist as durable local fallback.
-		_ = appendLocalBrowserWhitelist(targetURL)
+		// Antigravity 2.35.0 removed AddToBrowserWhitelist RPC; persist directly to ~/.gemini/config/config.json.
+		if err := appendLocalBrowserWhitelist(targetURL); err != nil {
+			writeRPCError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
 		writeJSONStatus(w, http.StatusOK, map[string]interface{}{
 			"ok":     true,
 			"url":    targetURL,
-			"remote": status == http.StatusOK,
+			"remote": false,
 		})
 	default:
 		http.NotFound(w, r)

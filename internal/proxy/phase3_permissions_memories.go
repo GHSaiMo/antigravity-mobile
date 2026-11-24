@@ -17,15 +17,16 @@ var permissionConfigMu sync.Mutex
 
 // PermissionState represents the resolved permission preset and raw Antigravity userSettings flags.
 type PermissionState struct {
-	OK                       bool   `json:"ok"`
-	Preset                   string `json:"preset"` // "strict" | "sandbox" | "auto"
-	Label                    string `json:"label"`
-	IsUnlocked               bool   `json:"isUnlocked"`
-	PermissionPreset         string `json:"permissionPreset"`
-	AutoExecutionPolicy      string `json:"autoExecutionPolicy"`
-	NonWorkspaceFilePolicy   string `json:"nonWorkspaceFileAccessPolicy"`
-	EnableTerminalSandbox    bool   `json:"enableTerminalSandbox"`
-	Source                   string `json:"source"`
+	OK                     bool   `json:"ok"`
+	Preset                 string `json:"preset"`         // legacy 3-tier compat for shipped clients: "strict" | "sandbox" | "auto"
+	Mode                   string `json:"mode,omitempty"` // exact 4-tier upstream mode: "strict" | "default" | "auto" | "turbo"
+	Label                  string `json:"label"`
+	IsUnlocked             bool   `json:"isUnlocked"`
+	PermissionPreset       string `json:"permissionPreset"`
+	AutoExecutionPolicy    string `json:"autoExecutionPolicy"`
+	NonWorkspaceFilePolicy string `json:"nonWorkspaceFileAccessPolicy"`
+	EnableTerminalSandbox  bool   `json:"enableTerminalSandbox"`
+	Source                 string `json:"source"`
 }
 
 func resolveLocalGeminiConfigPath() string {
@@ -35,32 +36,57 @@ func resolveLocalGeminiConfigPath() string {
 
 func permissionPresetProfile(preset string) (label, upPreset, execPolicy, filePolicy string, sandbox bool) {
 	switch strings.ToLower(strings.TrimSpace(preset)) {
-	case "sandbox", "agent_permission_preset_default":
+	case "sandbox", "default", "agent_permission_preset_default":
 		return "离席沙箱放行", "AGENT_PERMISSION_PRESET_DEFAULT", "CASCADE_COMMANDS_AUTO_EXECUTION_AUTO", "FILE_ACCESS_POLICY_ASK", true
-	case "auto", "turbo", "agent_permission_preset_turbo", "agent_permission_preset_auto":
-		return "全自动", "AGENT_PERMISSION_PRESET_TURBO", "CASCADE_COMMANDS_AUTO_EXECUTION_TURBO", "FILE_ACCESS_POLICY_ALLOW", false
+	case "smart_auto", "auto_sandbox", "agent_permission_preset_auto":
+		// Antigravity Auto preset: terminal sandbox stays ON, outside-project reads auto-approved (2.35+), sensitive dirs protected.
+		return "智能自动 (沙箱)", "AGENT_PERMISSION_PRESET_AUTO", "CASCADE_COMMANDS_AUTO_EXECUTION_AUTO", "FILE_ACCESS_POLICY_ASK", true
+	case "auto", "turbo", "agent_permission_preset_turbo":
+		return "全自动 (Turbo)", "AGENT_PERMISSION_PRESET_TURBO", "CASCADE_COMMANDS_AUTO_EXECUTION_TURBO", "FILE_ACCESS_POLICY_ALLOW", false
 	default:
 		return "严格审批", "AGENT_PERMISSION_PRESET_REQUEST_REVIEW", "CASCADE_COMMANDS_AUTO_EXECUTION_OFF", "FILE_ACCESS_POLICY_ASK", true
 	}
 }
 
-func classifyPermissionPreset(upPreset, execPolicy, filePolicy string) (preset, label string, unlocked bool) {
+func classifyPermissionPreset(upPreset, execPolicy, filePolicy string) (preset, mode, label string, unlocked bool) {
 	p := strings.ToUpper(strings.TrimSpace(upPreset))
 	e := strings.ToUpper(strings.TrimSpace(execPolicy))
 	f := strings.ToUpper(strings.TrimSpace(filePolicy))
-	if p == "AGENT_PERMISSION_PRESET_TURBO" || p == "AGENT_PERMISSION_PRESET_AUTO" || e == "CASCADE_COMMANDS_AUTO_EXECUTION_TURBO" || f == "FILE_ACCESS_POLICY_ALLOW" {
-		return "auto", "全自动", true
+	switch p {
+	case "AGENT_PERMISSION_PRESET_TURBO":
+		return "auto", "turbo", "全自动 (Turbo)", true
+	case "AGENT_PERMISSION_PRESET_AUTO":
+		return "auto", "auto", "智能自动 (沙箱)", true
+	case "AGENT_PERMISSION_PRESET_DEFAULT":
+		return "sandbox", "default", "离席沙箱放行", true
+	case "AGENT_PERMISSION_PRESET_REQUEST_REVIEW":
+		return "strict", "strict", "严格审批", false
 	}
-	if p == "AGENT_PERMISSION_PRESET_DEFAULT" || e == "CASCADE_COMMANDS_AUTO_EXECUTION_AUTO" {
-		return "sandbox", "离席沙箱放行", true
+	if e == "CASCADE_COMMANDS_AUTO_EXECUTION_TURBO" || f == "FILE_ACCESS_POLICY_ALLOW" {
+		return "auto", "turbo", "全自动 (Turbo)", true
 	}
-	return "strict", "严格审批", false
+	if e == "CASCADE_COMMANDS_AUTO_EXECUTION_AUTO" {
+		return "sandbox", "default", "离席沙箱放行", true
+	}
+	return "strict", "strict", "严格审批", false
+}
+
+func defaultSandboxForUpstreamPreset(upPreset string) (bool, bool) {
+	switch strings.ToUpper(strings.TrimSpace(upPreset)) {
+	case "AGENT_PERMISSION_PRESET_TURBO":
+		return false, true
+	case "AGENT_PERMISSION_PRESET_AUTO", "AGENT_PERMISSION_PRESET_DEFAULT", "AGENT_PERMISSION_PRESET_REQUEST_REVIEW":
+		return true, true
+	default:
+		return false, false
+	}
 }
 
 func readLocalPermissionState() PermissionState {
 	state := PermissionState{
 		OK:                     true,
 		Preset:                 "strict",
+		Mode:                   "strict",
 		Label:                  "严格审批",
 		IsUnlocked:             false,
 		PermissionPreset:       "AGENT_PERMISSION_PRESET_REQUEST_REVIEW",
@@ -94,8 +120,10 @@ func readLocalPermissionState() PermissionState {
 	}
 	if v, ok := us["enableTerminalSandbox"].(bool); ok {
 		state.EnableTerminalSandbox = v
+	} else if defSandbox, ok := defaultSandboxForUpstreamPreset(state.PermissionPreset); ok {
+		state.EnableTerminalSandbox = defSandbox
 	}
-	state.Preset, state.Label, state.IsUnlocked = classifyPermissionPreset(
+	state.Preset, state.Mode, state.Label, state.IsUnlocked = classifyPermissionPreset(
 		state.PermissionPreset,
 		state.AutoExecutionPolicy,
 		state.NonWorkspaceFilePolicy,
@@ -139,10 +167,11 @@ func writeLocalPermissionPreset(preset string) (PermissionState, error) {
 		return PermissionState{}, err
 	}
 
-	canonical, _, unlocked := classifyPermissionPreset(upPreset, execPolicy, filePolicy)
+	canonical, mode, _, unlocked := classifyPermissionPreset(upPreset, execPolicy, filePolicy)
 	return PermissionState{
 		OK:                     true,
 		Preset:                 canonical,
+		Mode:                   mode,
 		Label:                  label,
 		IsUnlocked:             unlocked,
 		PermissionPreset:       upPreset,
@@ -165,10 +194,10 @@ func (p *Proxy) HandlePermissions(w http.ResponseWriter, r *http.Request) {
 			if err == nil && status == http.StatusOK && len(body) > 2 {
 				var up struct {
 					Settings *struct {
-						PermissionPreset         string `json:"permissionPreset"`
-						AutoExecutionPolicy      string `json:"autoExecutionPolicy"`
-						NonWorkspaceFilePolicy   string `json:"nonWorkspaceFileAccessPolicy"`
-						EnableTerminalSandbox    *bool  `json:"enableTerminalSandbox"`
+						PermissionPreset       string `json:"permissionPreset"`
+						AutoExecutionPolicy    string `json:"autoExecutionPolicy"`
+						NonWorkspaceFilePolicy string `json:"nonWorkspaceFileAccessPolicy"`
+						EnableTerminalSandbox  *bool  `json:"enableTerminalSandbox"`
 					} `json:"settings"`
 				}
 				if json.Unmarshal(body, &up) == nil && up.Settings != nil && up.Settings.PermissionPreset != "" {
@@ -177,8 +206,10 @@ func (p *Proxy) HandlePermissions(w http.ResponseWriter, r *http.Request) {
 					state.NonWorkspaceFilePolicy = firstNonEmpty(up.Settings.NonWorkspaceFilePolicy, state.NonWorkspaceFilePolicy)
 					if up.Settings.EnableTerminalSandbox != nil {
 						state.EnableTerminalSandbox = *up.Settings.EnableTerminalSandbox
+					} else if defSandbox, ok := defaultSandboxForUpstreamPreset(state.PermissionPreset); ok {
+						state.EnableTerminalSandbox = defSandbox
 					}
-					state.Preset, state.Label, state.IsUnlocked = classifyPermissionPreset(
+					state.Preset, state.Mode, state.Label, state.IsUnlocked = classifyPermissionPreset(
 						state.PermissionPreset, state.AutoExecutionPolicy, state.NonWorkspaceFilePolicy,
 					)
 					state.Source = "upstream+local"
@@ -196,12 +227,28 @@ func (p *Proxy) HandlePermissions(w http.ResponseWriter, r *http.Request) {
 
 	var req struct {
 		Preset string `json:"preset"`
+		Mode   string `json:"mode"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 64*1024)).Decode(&req); err != nil {
 		writeRPCError(w, http.StatusBadRequest, "无效的请求体")
 		return
 	}
-	state, err := writeLocalPermissionPreset(req.Preset)
+	target := strings.TrimSpace(req.Preset)
+	if m := strings.ToLower(strings.TrimSpace(req.Mode)); m != "" {
+		switch m {
+		case "auto":
+			target = "agent_permission_preset_auto"
+		case "turbo":
+			target = "agent_permission_preset_turbo"
+		case "default", "sandbox":
+			target = "agent_permission_preset_default"
+		case "strict", "request_review":
+			target = "agent_permission_preset_request_review"
+		default:
+			target = m
+		}
+	}
+	state, err := writeLocalPermissionPreset(target)
 	if err != nil {
 		writeRPCError(w, http.StatusInternalServerError, err.Error())
 		return
