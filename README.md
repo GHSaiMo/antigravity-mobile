@@ -27,7 +27,7 @@
 </p>
 
 <p align="center">
-  🌐 <b>官网</b>：<a href="https://mgy.jiuge.space">mgy.jiuge.space</a> &nbsp;·&nbsp; 🍎 <b>App Store</b>：<a href="https://apps.apple.com/app/id6835508934">iOS 正式版下载</a> &nbsp;·&nbsp; 🧪 <b>TestFlight</b>：<a href="https://testflight.apple.com/join/YM7f4aSK">公开测试通道</a> &nbsp;·&nbsp; 📦 <a href="https://github.com/GHSaiMo/antigravity-mobile/releases/latest">最新版 v1.2.6</a> &nbsp;·&nbsp; 𝕏 <a href="https://x.com/MultigravityApp">@MultigravityApp</a> &nbsp;·&nbsp; 💬 <a href="#wechat-group">微信用户群</a>
+  🌐 <b>官网</b>：<a href="https://mgy.jiuge.space">mgy.jiuge.space</a> &nbsp;·&nbsp; 🍎 <b>App Store</b>：<a href="https://apps.apple.com/app/id6835508934">iOS 正式版下载</a> &nbsp;·&nbsp; 🧪 <b>TestFlight</b>：<a href="https://testflight.apple.com/join/YM7f4aSK">公开测试通道</a> &nbsp;·&nbsp; 📦 <a href="https://github.com/GHSaiMo/antigravity-mobile/releases/latest">最新版 v1.2.6</a> &nbsp;·&nbsp; 𝕏 <a href="https://x.com/MultigravityApp">@MultigravityApp</a> &nbsp;·&nbsp; 💬 <a href="#wechat-group">微信用户群</a> &nbsp;·&nbsp; ☕ <a href="#sponsor">赞助支持</a>
 </p>
 
 > 🎉 **反重力智能体移动伴侣 iOS 版现已正式上架 Apple App Store！**  
@@ -209,6 +209,21 @@ make test           # 运行 Go 单元与集成测试
 
 <p align="center">
   <img src="images/wechat_group.jpg" alt="mgy 微信用户群二维码" width="260" />
+</p>
+
+---
+
+<a id="sponsor"></a>
+## ☕ 赞助与支持
+
+**Multigravity** 坚持免费开源、无广告且核心功能不设付费墙。如果它确实提升了你的日常开发效率，欢迎请作者喝杯咖啡——所有赞赏将优先用于分摊以下长期运维开支：
+
+- 🌐 **多地域零知识中继节点 (`mgy-relay`)** 与服务器带宽费用
+- 🔔 **APNs / 推送服务** 与官网域名运维
+- 🍎 **Apple Developer 开发者年费**（用于 iOS App Store 正式分发与 TestFlight 公测）
+
+<p align="center">
+  <img src="images/wechat_sponsor.jpg" alt="微信赞赏码" width="240" />
 </p>
 
 ---

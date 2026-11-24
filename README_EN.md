@@ -27,7 +27,7 @@
 </p>
 
 <p align="center">
-  🌐 <b>Website</b>: <a href="https://mgy.jiuge.space/en.html">mgy.jiuge.space/en.html</a> &nbsp;·&nbsp; 🍎 <b>App Store</b>: <a href="https://apps.apple.com/app/id6835508934">Download for iOS</a> &nbsp;·&nbsp; 🧪 <b>TestFlight</b>: <a href="https://testflight.apple.com/join/YM7f4aSK">Public Beta</a> &nbsp;·&nbsp; 📦 <a href="https://github.com/GHSaiMo/antigravity-mobile/releases/latest">Latest Release v1.2.6</a> &nbsp;·&nbsp; 𝕏 <a href="https://x.com/MultigravityApp">@MultigravityApp</a> &nbsp;·&nbsp; 💬 <a href="#wechat-group">WeChat Group</a>
+  🌐 <b>Website</b>: <a href="https://mgy.jiuge.space/en.html">mgy.jiuge.space/en.html</a> &nbsp;·&nbsp; 🍎 <b>App Store</b>: <a href="https://apps.apple.com/app/id6835508934">Download for iOS</a> &nbsp;·&nbsp; 🧪 <b>TestFlight</b>: <a href="https://testflight.apple.com/join/YM7f4aSK">Public Beta</a> &nbsp;·&nbsp; 📦 <a href="https://github.com/GHSaiMo/antigravity-mobile/releases/latest">Latest Release v1.2.6</a> &nbsp;·&nbsp; 𝕏 <a href="https://x.com/MultigravityApp">@MultigravityApp</a> &nbsp;·&nbsp; 💬 <a href="#wechat-group">WeChat Group</a> &nbsp;·&nbsp; ☕ <a href="#sponsor">Sponsor</a>
 </p>
 
 > 🎉 **Multigravity for iOS is officially available on the Apple App Store!**  
@@ -209,6 +209,21 @@ Scan the QR code below to join the **mgy WeChat User Group** for discussions, fe
 
 <p align="center">
   <img src="images/wechat_group.jpg" alt="mgy WeChat User Group QR Code" width="260" />
+</p>
+
+---
+
+<a id="sponsor"></a>
+## ☕ Sponsor & Support
+
+**Multigravity** is completely free, open-source, ad-free, and has no paywalls on core features. If it saves you time in your daily workflow, consider buying the author a coffee via WeChat Pay — all sponsorships go directly toward covering ongoing infrastructure costs:
+
+- 🌐 **Multi-region zero-knowledge relay pool (`mgy-relay`)** & VPS bandwidth
+- 🔔 **APNs / push notification relay** & website domain hosting
+- 🍎 **Apple Developer Program annual membership** (for official iOS App Store & TestFlight distribution)
+
+<p align="center">
+  <img src="images/wechat_sponsor.jpg" alt="WeChat Sponsor QR Code" width="240" />
 </p>
 
 ---

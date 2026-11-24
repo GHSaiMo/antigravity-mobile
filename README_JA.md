@@ -27,7 +27,7 @@
 </p>
 
 <p align="center">
-  🌐 <b>公式サイト</b>：<a href="https://mgy.jiuge.space/ja.html">mgy.jiuge.space/ja.html</a> &nbsp;·&nbsp; 🍎 <b>App Store</b>：<a href="https://apps.apple.com/app/id6835508934">iOS 正式版をダウンロード</a> &nbsp;·&nbsp; 🧪 <b>TestFlight</b>：<a href="https://testflight.apple.com/join/YM7f4aSK">パブリックベータ</a> &nbsp;·&nbsp; 📦 <a href="https://github.com/GHSaiMo/antigravity-mobile/releases/latest">最新リリース v1.2.6</a> &nbsp;·&nbsp; 𝕏 <a href="https://x.com/MultigravityApp">@MultigravityApp</a> &nbsp;·&nbsp; 💬 <a href="#wechat-group">WeChat ユーザーグループ</a>
+  🌐 <b>公式サイト</b>：<a href="https://mgy.jiuge.space/ja.html">mgy.jiuge.space/ja.html</a> &nbsp;·&nbsp; 🍎 <b>App Store</b>：<a href="https://apps.apple.com/app/id6835508934">iOS 正式版をダウンロード</a> &nbsp;·&nbsp; 🧪 <b>TestFlight</b>：<a href="https://testflight.apple.com/join/YM7f4aSK">パブリックベータ</a> &nbsp;·&nbsp; 📦 <a href="https://github.com/GHSaiMo/antigravity-mobile/releases/latest">最新リリース v1.2.6</a> &nbsp;·&nbsp; 𝕏 <a href="https://x.com/MultigravityApp">@MultigravityApp</a> &nbsp;·&nbsp; 💬 <a href="#wechat-group">WeChat ユーザーグループ</a> &nbsp;·&nbsp; ☕ <a href="#sponsor">スポンサー</a>
 </p>
 
 > 🎉 **Multigravity for iOS が Apple App Store にて正式公開されました！**  
@@ -209,6 +209,21 @@ make test           # Go のユニットテストおよび結合テストを実�
 
 <p align="center">
   <img src="images/wechat_group.jpg" alt="mgy WeChat ユーザーグループ QR コード" width="260" />
+</p>
+
+---
+
+<a id="sponsor"></a>
+## ☕ スポンサー・支援
+
+**Multigravity** は完全無料・オープンソース・広告なしで、主要機能にペイウォールを設けていません。日々の開発効率向上に役立っていれば、WeChat Pay の投げ銭コードからコーヒー一杯ご馳走いただけると嬉しいです。いただいたご支援は以下の継続的な運用コストに優先的に充当します：
+
+- 🌐 **マルチリージョン・ゼロ知識リレーノード (`mgy-relay`)** およびサーバー帯域費
+- 🔔 **APNs / プッシュ通知リレー** および公式サイト・ドメイン運用費
+- 🍎 **Apple Developer Program 年間メンバーシップ費**（iOS App Store 正式配信・TestFlight パブリックベータ維持のため）
+
+<p align="center">
+  <img src="images/wechat_sponsor.jpg" alt="WeChat スポンサー QR コード" width="240" />
 </p>
 
 ---
