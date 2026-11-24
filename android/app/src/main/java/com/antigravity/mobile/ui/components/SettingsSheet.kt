@@ -974,8 +974,9 @@ private fun MainSettingsContent(
                 HorizontalDivider(color = colors.border.copy(alpha = 0.5f))
                 val alertSummary = remember(alertPrefs, L10n.currentLang) {
                     val count = alertPrefs.enabledCount
+                    val total = alertPrefs.visibleTotalCount
                     when {
-                        count == 6 -> when (L10n.currentLang) {
+                        count == total -> when (L10n.currentLang) {
                             L10n.AppLang.EN -> "All On"
                             L10n.AppLang.JA -> "すべてオン"
                             L10n.AppLang.ZH -> "全部开启"
@@ -986,9 +987,9 @@ private fun MainSettingsContent(
                             L10n.AppLang.ZH -> "全部关闭"
                         }
                         else -> when (L10n.currentLang) {
-                            L10n.AppLang.EN -> "$count/6 On"
-                            L10n.AppLang.JA -> "$count/6 オン"
-                            L10n.AppLang.ZH -> "已开 $count/6"
+                            L10n.AppLang.EN -> "$count/$total On"
+                            L10n.AppLang.JA -> "$count/$total オン"
+                            L10n.AppLang.ZH -> "已开 $count/$total"
                         }
                     }
                 }
@@ -2065,33 +2066,27 @@ private fun NotificationAlertsSubpageContent(
                         onToggle("task_stall", it)
                     }
                 )
-                HorizontalDivider(
-                    color = colors.separator.copy(alpha = 0.35f),
-                    thickness = 0.5.dp,
-                    modifier = Modifier.padding(start = 16.dp)
-                )
-                CompactSubpageToggleRow(
-                    title = t("缓存连续未命中", "Repeated Cache Misses", "キャッシュ連続ミス"),
-                    subtitle = if (alertPrefs.isCacheMissShadow) {
-                        t(
-                            "影子审计模式 · 仅后台记录并生成报告，不推送提醒",
-                            "Shadow audit · background report only, no push alerts",
-                            "シャドウ監査 · バックグラウンド記録のみ（通知なし）"
-                        )
-                    } else {
-                        t(
+                if (alertPrefs.isCacheMissLive) {
+                    HorizontalDivider(
+                        color = colors.separator.copy(alpha = 0.35f),
+                        thickness = 0.5.dp,
+                        modifier = Modifier.padding(start = 16.dp)
+                    )
+                    CompactSubpageToggleRow(
+                        title = t("缓存连续未命中", "Repeated Cache Misses", "キャッシュ連続ミス"),
+                        subtitle = t(
                             "长任务连续 3 步大上下文未命中缓存时提醒",
                             "Notify after 3 consecutive large-context cache misses",
                             "大コンテキストで3ステップ連続キャッシュ未命中時に通知"
-                        )
-                    },
-                    checked = alertPrefs.cacheMiss,
-                    enabled = true,
-                    onCheckedChange = {
-                        haptic.light()
-                        onToggle("cache_miss", it)
-                    }
-                )
+                        ),
+                        checked = alertPrefs.cacheMiss,
+                        enabled = true,
+                        onCheckedChange = {
+                            haptic.light()
+                            onToggle("cache_miss", it)
+                        }
+                    )
+                }
             }
         }
 

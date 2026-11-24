@@ -102,7 +102,14 @@ func (n *Notifier) IsCacheMissMonitoringActive() bool {
 	if n == nil {
 		return false
 	}
-	return CacheMissAlertMode() != CacheMissModeOff && n.AlertPreferences().CacheMiss
+	switch CacheMissAlertMode() {
+	case CacheMissModeShadow:
+		return true
+	case CacheMissModeLive:
+		return n.AlertPreferences().CacheMiss
+	default:
+		return false
+	}
 }
 
 // SetAlertPreferencesStore attaches a persistent preference store to the notifier.
@@ -668,7 +675,10 @@ func (n *Notifier) ObserveCacheMiss(obs CacheMissObservation) error {
 	}
 	obs.CascadeID = strings.TrimSpace(obs.CascadeID)
 	mode := CacheMissAlertMode()
-	if mode == CacheMissModeOff || !n.AlertPreferences().CacheMiss || obs.CascadeID == "" {
+	if mode == CacheMissModeOff || obs.CascadeID == "" {
+		return nil
+	}
+	if mode == CacheMissModeLive && !n.AlertPreferences().CacheMiss {
 		return nil
 	}
 	obs.Mode = mode
@@ -713,7 +723,10 @@ func (n *Notifier) FinalizeCacheMissSession(cascadeID, terminalStatus string, to
 func (n *Notifier) NotifyCacheMissAlert(cascadeID, title string, streak int, missTokens int64) error {
 	cascadeID = strings.TrimSpace(cascadeID)
 	mode := CacheMissAlertMode()
-	if mode == CacheMissModeOff || !n.AlertPreferences().CacheMiss || cascadeID == "" {
+	if mode == CacheMissModeOff || cascadeID == "" {
+		return nil
+	}
+	if mode == CacheMissModeLive && !n.AlertPreferences().CacheMiss {
 		return nil
 	}
 	if streak < cacheMissAlertMinStreak || missTokens < cacheMissAlertMinTokens {

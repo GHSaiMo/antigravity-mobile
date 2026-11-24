@@ -15,8 +15,6 @@ public struct GatewayAlertPreferences: Codable, Equatable, Sendable {
     public var quotaAnomaly: Bool
     public var stallMinutes: Int
 
-    public static let totalCount = 6
-
     public static let defaultValue = GatewayAlertPreferences(
         taskCompletion: true,
         taskStall: true,
@@ -28,12 +26,20 @@ public struct GatewayAlertPreferences: Codable, Equatable, Sendable {
         stallMinutes: 8
     )
 
-    public var isCacheMissShadow: Bool {
-        cacheMissMode.lowercased() != "live"
+    public var isCacheMissLive: Bool {
+        cacheMissMode.lowercased() == "live"
+    }
+
+    public var visibleTotalCount: Int {
+        isCacheMissLive ? 6 : 5
     }
 
     public var enabledCount: Int {
-        [taskCompletion, taskStall, cacheMiss, quotaLow, quotaBonusReset, quotaAnomaly].filter { $0 }.count
+        var flags = [taskCompletion, taskStall, quotaLow, quotaBonusReset, quotaAnomaly]
+        if isCacheMissLive {
+            flags.append(cacheMiss)
+        }
+        return flags.filter { $0 }.count
     }
 
     public mutating func apply(key: String, value: Bool) {
@@ -164,13 +170,14 @@ public final class PushNotificationManager: NSObject {
 
     public var alertPreferencesSummary: String {
         let count = alertPreferences.enabledCount
-        if count == GatewayAlertPreferences.totalCount {
+        let total = alertPreferences.visibleTotalCount
+        if count == total {
             return String(localized: "全部开启")
         }
         if count == 0 {
             return String(localized: "全部关闭")
         }
-        return String(localized: "已开 \(count)/\(GatewayAlertPreferences.totalCount)")
+        return String(localized: "已开 \(count)/\(total)")
     }
 
     /// Cascade currently visible on screen; foreground notifications for this exact cascade are suppressed

@@ -715,14 +715,14 @@ private struct NotificationAlertsSettingsView: View {
                     key: "task_stall",
                     isOn: pushManager.alertPreferences.taskStall
                 )
-                alertToggleRow(
-                    title: String(localized: "缓存连续未命中"),
-                    subtitle: pushManager.alertPreferences.isCacheMissShadow
-                        ? String(localized: "影子审计模式 · 仅后台记录并生成报告，不推送提醒")
-                        : String(localized: "长任务连续 3 步大上下文未命中缓存时提醒"),
-                    key: "cache_miss",
-                    isOn: pushManager.alertPreferences.cacheMiss
-                )
+                if pushManager.alertPreferences.isCacheMissLive {
+                    alertToggleRow(
+                        title: String(localized: "缓存连续未命中"),
+                        subtitle: String(localized: "长任务连续 3 步大上下文未命中缓存时提醒"),
+                        key: "cache_miss",
+                        isOn: pushManager.alertPreferences.cacheMiss
+                    )
+                }
             }
 
             Section(

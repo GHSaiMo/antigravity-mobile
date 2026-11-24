@@ -2517,7 +2517,8 @@ code.inline-code, .markdown-body code:not(.code-block-pre code) {
   color: var(--ios-label);
 }
 
-.ios-cell:last-child {
+.ios-cell:last-child,
+.ios-cell:has(+ .ios-cell.hidden:last-child) {
   border-bottom: none;
 }
 

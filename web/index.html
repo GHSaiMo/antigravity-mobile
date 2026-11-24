@@ -46,7 +46,7 @@
   <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png?v=4" />
   <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png?v=4" />
   <link rel="manifest" href="/manifest.json" />
-  <link rel="stylesheet" href="/style.css?v=61" />
+  <link rel="stylesheet" href="/style.css?v=62" />
 </head>
 <body>
   <div id="app">
@@ -570,7 +570,7 @@
               </span>
             </button>
           </div>
-          <div class="settings-note" style="margin: 6px 4px 12px;">自定义网关推送提醒类别（任务卡死、缓存未命中、额度重置与异常骤降等），跨设备实时生效。</div>
+          <div class="settings-note" style="margin: 6px 4px 12px;">自定义网关推送提醒类别（任务完成、长任务卡死、额度重置与异常骤降等），跨设备实时生效。</div>
 
           <!-- 外观与主题 -->
           <div class="quota-section-header" style="margin: 14px 4px 6px;">外观与主题</div>
@@ -707,10 +707,10 @@
                 </div>
                 <input type="checkbox" id="settings-alert-task-stall" data-alert-key="task_stall" class="ios-switch-input" checked />
               </label>
-              <label class="ios-cell between compact-subcell-page" for="settings-alert-cache-miss" style="cursor: pointer;">
+              <label id="settings-alert-cache-miss-row" class="ios-cell between compact-subcell-page hidden" for="settings-alert-cache-miss" style="cursor: pointer;">
                 <div class="compact-subtext">
                   <span class="cell-label">缓存连续未命中</span>
-                  <span id="settings-alert-cache-miss-desc" class="compact-subdesc">影子审计模式 · 仅后台记录并生成报告，不推送提醒</span>
+                  <span id="settings-alert-cache-miss-desc" class="compact-subdesc">长任务连续 3 步大上下文未命中缓存时提醒</span>
                 </div>
                 <input type="checkbox" id="settings-alert-cache-miss" data-alert-key="cache_miss" class="ios-switch-input" checked />
               </label>
@@ -1217,7 +1217,7 @@
     </div>
   </dialog>
 
-  <script defer src="/js/i18n.js?v=5"></script>
+  <script defer src="/js/i18n.js?v=6"></script>
   <script defer src="/js/e2ee.js?v=1"></script>
   <script defer src="/js/core.js?v=42"></script>
   <script defer src="/js/nav.js?v=49"></script>
@@ -1239,6 +1239,6 @@
   <script defer src="/js/phase3.js?v=5"></script>
   <script defer src="/js/v233.js?v=7"></script>
   <!-- init.js 必须最后加载：它在执行时就会调用 initApp()，依赖前面所有脚本里的函数 -->
-  <script defer src="/js/init.js?v=45"></script>
+  <script defer src="/js/init.js?v=46"></script>
 </body>
 </html>

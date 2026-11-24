@@ -1553,11 +1553,21 @@ class ApiClient(
         @kotlinx.serialization.SerialName("quota_anomaly") val quotaAnomaly: Boolean = true,
         @kotlinx.serialization.SerialName("stall_minutes") val stallMinutes: Int = 8
     ) {
-        val isCacheMissShadow: Boolean
-            get() = !cacheMissMode.equals("live", ignoreCase = true)
+        val isCacheMissLive: Boolean
+            get() = cacheMissMode.equals("live", ignoreCase = true)
+
+        val visibleTotalCount: Int
+            get() = if (isCacheMissLive) 6 else 5
 
         val enabledCount: Int
-            get() = listOf(taskCompletion, taskStall, cacheMiss, quotaLow, quotaBonusReset, quotaAnomaly).count { it }
+            get() = buildList {
+                add(taskCompletion)
+                add(taskStall)
+                if (isCacheMissLive) add(cacheMiss)
+                add(quotaLow)
+                add(quotaBonusReset)
+                add(quotaAnomaly)
+            }.count { it }
 
         fun withUpdated(key: String, value: Boolean): AlertPreferencesPayload = when (key) {
             "task_completion" -> copy(taskCompletion = value)

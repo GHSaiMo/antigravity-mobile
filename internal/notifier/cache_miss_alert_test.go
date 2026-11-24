@@ -114,15 +114,30 @@ func TestCacheMissAlertModeAndPreferenceOff(t *testing.T) {
 		t.Fatalf("expected legacy false -> mode=off, got %q", got)
 	}
 
-	// AlertPreferences.CacheMiss=false pauses shadow auditing even in shadow mode
+	// Shadow mode is purely for background developer statistics and is hidden from user alert options,
+	// so AlertPreferences.CacheMiss=false must NOT pause background shadow auditing (nor send pushes).
 	t.Setenv("CACHE_MISS_ALERT_ENABLED", "")
-	nPaused, sPaused := newQuotaTestNotifier()
-	_, _ = nPaused.UpdateAlertPreferences(AlertPreferencesPatch{CacheMiss: boolPtr(false)})
-	if err := nPaused.NotifyCacheMissAlert("cas-paused", "Demo", 4, 200000); err != nil {
+	nShadow, sShadow := newQuotaTestNotifier()
+	_, _ = nShadow.UpdateAlertPreferences(AlertPreferencesPatch{CacheMiss: boolPtr(false)})
+	if err := nShadow.NotifyCacheMissAlert("cas-shadow-stat", "Demo", 4, 200000); err != nil {
 		t.Fatal(err)
 	}
-	if len(sPaused.sent) != 0 || nPaused.CacheMissAuditor().Summary().TotalEpisodes != 0 {
-		t.Fatalf("disabling AlertPreferences.CacheMiss should pause shadow auditing")
+	if len(sShadow.sent) != 0 {
+		t.Fatalf("shadow mode must never send push alerts, got %d", len(sShadow.sent))
+	}
+	if nShadow.CacheMissAuditor().Summary().TotalEpisodes != 1 {
+		t.Fatalf("shadow mode should keep collecting background statistics independently of user alert toggle")
+	}
+
+	// In explicit live mode, AlertPreferences.CacheMiss=false disables user-facing push alerts
+	t.Setenv("CACHE_MISS_ALERT_MODE", "live")
+	nLiveOff, sLiveOff := newQuotaTestNotifier()
+	_, _ = nLiveOff.UpdateAlertPreferences(AlertPreferencesPatch{CacheMiss: boolPtr(false)})
+	if err := nLiveOff.NotifyCacheMissAlert("cas-live-off", "Demo", 4, 200000); err != nil {
+		t.Fatal(err)
+	}
+	if len(sLiveOff.sent) != 0 || nLiveOff.CacheMissAuditor().Summary().TotalEpisodes != 0 {
+		t.Fatalf("disabling AlertPreferences.CacheMiss in live mode should suppress live cache-miss alerts")
 	}
 }
 

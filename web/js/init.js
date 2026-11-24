@@ -384,20 +384,30 @@ function initApp() {
   const syncAlertPrefsUI = (errorText = "") => {
     const rawLang = (document.documentElement.getAttribute("data-lang") || navigator.language || "zh").toLowerCase();
     const lang = rawLang.startsWith("ja") ? "ja" : rawLang.startsWith("en") ? "en" : "zh";
+    const isCacheMissLive = String(currentAlertPrefs.cache_miss_mode || "shadow").toLowerCase() === "live";
+    const cacheMissRow = document.getElementById("settings-alert-cache-miss-row");
+    if (cacheMissRow) {
+      cacheMissRow.classList.toggle("hidden", !isCacheMissLive);
+    }
+    const visibleAlertKeys = isCacheMissLive
+      ? alertKeys
+      : alertKeys.filter((k) => k !== "cache_miss");
     let enabled = 0;
     for (const k of alertKeys) {
-      if (currentAlertPrefs[k] !== false) enabled++;
       const el = document.querySelector(`#settings-sub-alerts input[data-alert-key="${k}"]`);
       if (el) el.checked = currentAlertPrefs[k] !== false;
     }
+    for (const k of visibleAlertKeys) {
+      if (currentAlertPrefs[k] !== false) enabled++;
+    }
     const summaryEl = document.getElementById("settings-alerts-summary");
     if (summaryEl) {
-      if (enabled === alertKeys.length) {
+      if (enabled === visibleAlertKeys.length) {
         summaryEl.textContent = lang === "en" ? "All On" : lang === "ja" ? "すべてオン" : "全部开启";
       } else if (enabled === 0) {
         summaryEl.textContent = lang === "en" ? "All Off" : lang === "ja" ? "すべてオフ" : "全部关闭";
       } else {
-        summaryEl.textContent = lang === "en" ? `${enabled}/${alertKeys.length} On` : lang === "ja" ? `${enabled}/${alertKeys.length} オン` : `已开 ${enabled}/${alertKeys.length}`;
+        summaryEl.textContent = lang === "en" ? `${enabled}/${visibleAlertKeys.length} On` : lang === "ja" ? `${enabled}/${visibleAlertKeys.length} オン` : `已开 ${enabled}/${visibleAlertKeys.length}`;
       }
     }
     const stallDesc = document.getElementById("settings-alert-stall-desc");
@@ -412,18 +422,12 @@ function initApp() {
     }
     const cacheMissDesc = document.getElementById("settings-alert-cache-miss-desc");
     if (cacheMissDesc) {
-      const isLive = String(currentAlertPrefs.cache_miss_mode || "shadow").toLowerCase() === "live";
-      cacheMissDesc.textContent = isLive
-        ? (lang === "en"
-            ? "Notify after 3 consecutive large-context cache misses"
-            : lang === "ja"
-              ? "大コンテキストで3ステップ連続キャッシュ未命中時に通知"
-              : "长任务连续 3 步大上下文未命中缓存时提醒")
-        : (lang === "en"
-            ? "Shadow audit · background report only, no push alerts"
-            : lang === "ja"
-              ? "シャドウ監査 · バックグラウンド記録のみ（通知なし）"
-              : "影子审计模式 · 仅后台记录并生成报告，不推送提醒");
+      cacheMissDesc.textContent =
+        lang === "en"
+          ? "Notify after 3 consecutive large-context cache misses"
+          : lang === "ja"
+            ? "大コンテキストで3ステップ連続キャッシュ未命中時に通知"
+            : "长任务连续 3 步大上下文未命中缓存时提醒";
     }
     const footerEl = document.getElementById("settings-alerts-footer");
     if (footerEl) {

@@ -937,7 +937,7 @@ func (a *CacheMissShadowAuditor) renderMarkdownLocked(now time.Time) string {
 
 	b.WriteString("## 7. 模式控制说明\n\n")
 	b.WriteString("- **默认影子审计（当前推荐）**：无需额外配置（或 `CACHE_MISS_ALERT_MODE=shadow`），同时静默**手机推送弹窗**与**聊天页顶部 Context 胶囊的橙色未命中角标**（仅保留只读缓存命中率明细），后台持续收集样本并自动刷新本报告。\n")
-	b.WriteString("- **彻底静默关闭**：在 `~/.multigravity/.env` 设置 `CACHE_MISS_ALERT_MODE=off`（或在移动端「设置 → 提醒内容」关闭「缓存连续未命中」开关暂停后台审计）。\n")
+	b.WriteString("- **彻底静默关闭**：在 `~/.multigravity/.env` 设置 `CACHE_MISS_ALERT_MODE=off` 并重启网关即可停止后台审计（影子审计模式仅用于后台统计，不展示在客户端「提醒内容」选项中）。\n")
 	b.WriteString("- **仅在观察达标后转为实推**：设置 `CACHE_MISS_ALERT_MODE=live` 并重启网关，即可同步恢复推送与客户端橙色胶囊未命中角标。\n")
 
 	return b.String()
