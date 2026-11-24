@@ -21,8 +21,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -251,135 +253,140 @@ private fun ModelUsageBreakdownSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         sheetMaxWidth = Dp.Unspecified,
-        containerColor = colors.background,
-        shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
+        containerColor = Color.Transparent,
+        shape = RectangleShape,
         tonalElevation = 0.dp,
-        dragHandle = {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 8.dp, bottom = 10.dp),
-                contentAlignment = Alignment.Center
+        dragHandle = null,
+        contentWindowInsets = { WindowInsets(0, 0, 0, 0) },
+        modifier = Modifier
+            .fillMaxWidth()
+            .fillMaxHeight()
+    ) {
+        TallSheetBody(containerColor = colors.background, onDismiss = onDismiss) {
+            Column(
+                modifier = Modifier.fillMaxSize()
             ) {
+                // Floating grab handle hinting pull-down dismissal (matching AccountQuotaSheet / other tall sheets)
                 Box(
                     modifier = Modifier
-                        .size(width = 38.dp, height = 5.dp)
-                        .clip(CircleShape)
-                        .background(colors.textMuted.copy(alpha = 0.35f))
-                )
-            }
-        },
-        contentWindowInsets = { WindowInsets(0, 0, 0, 0) },
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp)
-                .padding(bottom = 24.dp)
-                .navigationBarsPadding(),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+                        .fillMaxWidth()
+                        .padding(top = 8.dp, bottom = 10.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(width = 38.dp, height = 5.dp)
+                            .clip(CircleShape)
+                            .background(colors.textMuted.copy(alpha = 0.35f))
+                    )
+                }
+
                 Text(
                     text = "模型用量明细".loc,
-                    fontSize = 16.sp,
+                    fontSize = 17.sp,
                     fontWeight = FontWeight.Bold,
-                    color = colors.textPrimary
+                    color = colors.textPrimary,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp)
+                        .padding(bottom = 12.dp)
                 )
-                Text(
-                    text = "${models.size} 款模型".loc,
-                    fontSize = 12.sp,
-                    fontFamily = FontFamily.Monospace,
-                    color = colors.textSecondary
-                )
-            }
 
-            models.forEachIndexed { idx, item ->
-                val pct = item.total * 100.0 / grandTotal.toDouble()
-                val dotColor = when (idx % 4) {
-                    0 -> colors.accentBlue
-                    1 -> Color(0xFF22C55E)
-                    2 -> Color(0xFFF59E0B)
-                    else -> Color(0xFFA855F7)
-                }
-                val hasDetail = item.input > 0L || item.output > 0L || item.cacheRead > 0L || item.thinking > 0L
+                HorizontalDivider(thickness = 0.5.dp, color = colors.border)
+
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(colors.surface)
-                        .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
-                        .padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                        .weight(1f)
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 16.dp)
+                        .padding(top = 12.dp, bottom = 24.dp)
+                        .navigationBarsPadding(),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(7.dp)
-                                .clip(CircleShape)
-                                .background(dotColor)
-                        )
-                        Text(
-                            text = item.model,
-                            fontSize = 12.5.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = colors.textPrimary,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f)
-                        )
-                        Text(
-                            text = formatTokensCompact(item.total),
-                            fontSize = 12.sp,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Bold,
-                            color = colors.accentBlue
-                        )
-                        Text(
-                            text = String.format(Locale.US, "%.1f%%", pct),
-                            fontSize = 11.sp,
-                            fontFamily = FontFamily.Monospace,
-                            color = colors.textSecondary
-                        )
-                    }
-
-                    if (hasDetail) {
-                        HorizontalDivider(thickness = 0.5.dp, color = colors.border)
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            InspectorMetric("Input", formatTokensCompact(item.input))
-                            InspectorMetric("Cache Hit", formatTokensCompact(item.cacheRead))
-                            InspectorMetric("Output", formatTokensCompact(item.output))
-                            InspectorMetric("Thinking", formatTokensCompact(item.thinking))
+                    models.forEachIndexed { idx, item ->
+                        val pct = item.total * 100.0 / grandTotal.toDouble()
+                        val dotColor = when (idx % 4) {
+                            0 -> colors.accentBlue
+                            1 -> Color(0xFF22C55E)
+                            2 -> Color(0xFFF59E0B)
+                            else -> Color(0xFFA855F7)
                         }
-                        if (item.steps > 0 || item.costUsd > 0.0) {
+                        val hasDetail = item.input > 0L || item.output > 0L || item.cacheRead > 0L || item.thinking > 0L
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(colors.surface)
+                                .border(0.5.dp, colors.border, RoundedCornerShape(12.dp))
+                                .padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                Text(
-                                    text = "${item.steps} 轮采样".loc,
-                                    fontSize = 10.5.sp,
-                                    color = colors.textMuted
+                                Box(
+                                    modifier = Modifier
+                                        .size(7.dp)
+                                        .clip(CircleShape)
+                                        .background(dotColor)
                                 )
                                 Text(
-                                    text = String.format(Locale.US, "$%.3f", item.costUsd),
-                                    fontSize = 10.5.sp,
+                                    text = item.model,
+                                    fontSize = 12.5.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = colors.textPrimary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Text(
+                                    text = formatTokensCompact(item.total),
+                                    fontSize = 12.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.Bold,
+                                    color = colors.accentBlue
+                                )
+                                Text(
+                                    text = String.format(Locale.US, "%.1f%%", pct),
+                                    fontSize = 11.sp,
                                     fontFamily = FontFamily.Monospace,
                                     color = colors.textSecondary
                                 )
+                            }
+
+                            if (hasDetail) {
+                                HorizontalDivider(thickness = 0.5.dp, color = colors.border)
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    InspectorMetric("Input", formatTokensCompact(item.input))
+                                    InspectorMetric("Cache Hit", formatTokensCompact(item.cacheRead))
+                                    InspectorMetric("Output", formatTokensCompact(item.output))
+                                    InspectorMetric("Thinking", formatTokensCompact(item.thinking))
+                                }
+                                if (item.steps > 0 || item.costUsd > 0.0) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text(
+                                            text = "${item.steps} 轮采样".loc,
+                                            fontSize = 10.5.sp,
+                                            color = colors.textMuted
+                                        )
+                                        Text(
+                                            text = String.format(Locale.US, "$%.3f", item.costUsd),
+                                            fontSize = 10.5.sp,
+                                            fontFamily = FontFamily.Monospace,
+                                            color = colors.textSecondary
+                                        )
+                                    }
+                                }
                             }
                         }
                     }

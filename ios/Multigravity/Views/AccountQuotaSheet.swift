@@ -443,7 +443,7 @@ public struct AccountQuotaSheet: View {
                     let allModels = history.resolvedModelSummary
                     if !allModels.isEmpty {
                         ModelUsageBreakdownSheet(models: allModels)
-                            .presentationDetents([.medium, .large])
+                            .presentationDetents([.large])
                             .presentationDragIndicator(.visible)
                     }
                 }
@@ -1406,13 +1406,6 @@ private struct ModelUsageBreakdownSheet: View {
             .background(Color(uiColor: .systemGroupedBackground))
             .navigationTitle("模型用量明细")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Text("\(models.count) 款模型")
-                        .font(.system(size: 12, design: .monospaced))
-                        .foregroundColor(.secondary)
-                }
-            }
         }
     }
 
