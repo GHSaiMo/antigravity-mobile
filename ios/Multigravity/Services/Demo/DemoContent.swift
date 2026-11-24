@@ -50,7 +50,7 @@ extension DemoGateway {
             Project(
                 id: "proj-deploy",
                 name: "deploy-scripts",
-                alias: Self.t("部署脚本", "Deploy Scripts", "デプロイスクリプト"),
+                alias: Self.t("部署脚本", "Deploy Scripts", "デプロイ管理"),
                 workspaceUri: "file:///Users/demo/Projects/deploy-scripts",
                 path: "/Users/demo/Projects/deploy-scripts",
                 isWorkspace: true
@@ -611,7 +611,7 @@ extension DemoGateway {
         let c17CmdApproval = Conversation(
             id: "demo-0017-cmd-approval",
             title: Self.t("生产集群灰度发布与缓存清理", "Canary rollout & Redis TTL cleanup", "本番カナリア配信とRedisキャッシュ掃除"),
-            workspaceName: Self.t("部署脚本", "Deploy Scripts", "デプロイスクリプト"),
+            workspaceName: Self.t("部署脚本", "Deploy Scripts", "デプロイ管理"),
             workspaceUri: "file:///Users/demo/Projects/deploy-scripts",
             status: "CASCADE_RUN_STATUS_RUNNING",
             duration: Self.t("等待审批", "Needs Approval", "承認待ち"),
@@ -1845,7 +1845,7 @@ extension DemoGateway {
         let c13WorkflowApproval = Conversation(
             id: "demo-0013-wf-approval",
             title: Self.t("发布前自动化回归与灰度审批", "Pre-release canary pipeline approval", "リリース前カナリア検証ワークフロー承認"),
-            workspaceName: Self.t("部署脚本", "Deploy Scripts", "デプロイスクリプト"),
+            workspaceName: Self.t("部署脚本", "Deploy Scripts", "デプロイ管理"),
             workspaceUri: "file:///Users/demo/Projects/deploy-scripts",
             status: "CASCADE_RUN_STATUS_RUNNING",
             duration: Self.t("等待审批", "Awaiting Approval", "承認待ち"),
@@ -1950,7 +1950,7 @@ extension DemoGateway {
         let c14Running = Conversation(
             id: "demo-0014-running",
             title: Self.t("本地 HMR 守护进程与竞态测试", "Local HMR dev server & race suite", "ローカルHMR常駐サーバーとレース検証"),
-            workspaceName: Self.t("部署脚本", "Deploy Scripts", "デプロイスクリプト"),
+            workspaceName: Self.t("部署脚本", "Deploy Scripts", "デプロイ管理"),
             workspaceUri: "file:///Users/demo/Projects/deploy-scripts",
             status: "CASCADE_RUN_STATUS_RUNNING",
             duration: Self.t("运行中", "Running", "実行中"),
@@ -2689,7 +2689,7 @@ extension DemoGateway {
                     "lastPostSeq": 4,
                     "workspace": "/Users/demo/.gemini/antigravity/worktrees/swarm-backend",
                     "workspaceMode": "share",
-                    "roleWorker": true,
+                    "roleWorker": false,
                     "unreadCount": 1,
                     "isCurrent": false
                 ],
@@ -2710,7 +2710,7 @@ extension DemoGateway {
                     "lastPostSeq": 3,
                     "workspace": "/Users/demo/.gemini/antigravity/worktrees/swarm-ios-ui",
                     "workspaceMode": "share",
-                    "roleWorker": true,
+                    "roleWorker": false,
                     "unreadCount": 1,
                     "isCurrent": false
                 ],
@@ -2730,7 +2730,7 @@ extension DemoGateway {
                     "posts": 1,
                     "lastPostSeq": 6,
                     "workspaceMode": "inherit",
-                    "roleWorker": true,
+                    "roleWorker": false,
                     "unreadCount": 0,
                     "isCurrent": false
                 ]

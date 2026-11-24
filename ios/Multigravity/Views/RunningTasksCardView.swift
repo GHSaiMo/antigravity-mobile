@@ -63,12 +63,14 @@ public struct RunningTasksCardView: View {
                                 .font(.system(size: 11, weight: .semibold))
                             Text(showTerminalPanel ? String(localized: "收起终端") : String(localized: "终端交互"))
                                 .font(.system(size: 11, weight: .medium))
+                                .lineLimit(1)
                         }
                         .foregroundColor(showTerminalPanel ? .white : .indigo)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
                         .background(showTerminalPanel ? Color.indigo : Color.indigo.opacity(0.12))
                         .clipShape(Capsule())
+                        .fixedSize(horizontal: true, vertical: false)
                     }
                     .buttonStyle(.plain)
                 } else if items.count == 1, let singleTask = items.first {
@@ -203,13 +205,16 @@ public struct RunningTasksCardView: View {
                     } label: {
                         Text("转后台")
                             .font(.system(size: 10.5, weight: .semibold))
+                            .lineLimit(1)
                             .foregroundColor(.indigo)
                             .padding(.horizontal, 7)
                             .padding(.vertical, 3.5)
                             .background(Color.indigo.opacity(0.12))
                             .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                            .fixedSize(horizontal: true, vertical: false)
                     }
                     .buttonStyle(.plain)
+                    .layoutPriority(1)
                 }
                 
                 // Stop Task Button
@@ -226,6 +231,8 @@ public struct RunningTasksCardView: View {
                         .foregroundColor(.red.opacity(0.9))
                 }
                 .buttonStyle(.plain)
+                .fixedSize()
+                .layoutPriority(2)
                 .accessibilityLabel("终止任务")
                 .help("终止任务")
             }

@@ -21,28 +21,29 @@ public struct SwarmBannerView: View {
                     size: 28
                 )
 
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 6) {
-                        Text(brief.title.isEmpty ? String(localized: "蜂群协同 (Swarm)") : brief.title)
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundColor(.primary)
-                            .lineLimit(1)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(brief.title.isEmpty ? String(localized: "蜂群协同 (Swarm)") : brief.title)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(.primary)
+                        .lineLimit(1)
 
-                        if !brief.phase.isEmpty {
-                            Text(brief.phase)
-                                .font(.system(size: 10, weight: .bold))
-                                .foregroundColor(SwarmTheme.accent)
-                                .padding(.horizontal, 5)
-                                .padding(.vertical, 1.5)
-                                .background(SwarmTheme.accent.opacity(0.12))
-                                .clipShape(Capsule())
-                        }
+                    if !brief.phase.isEmpty {
+                        Text(brief.phase)
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundColor(SwarmTheme.accent)
+                            .lineLimit(1)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 1.5)
+                            .background(SwarmTheme.accent.opacity(0.12))
+                            .clipShape(Capsule())
                     }
 
                     HStack(spacing: 6) {
                         Text("\(brief.workingCount)/\(brief.totalMembers) 活跃")
                             .font(.system(size: 11))
                             .foregroundColor(.secondary)
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
 
                         Text("·")
                             .font(.system(size: 11))
@@ -51,6 +52,8 @@ public struct SwarmBannerView: View {
                         Text("#\(brief.latestSeq) 看板")
                             .font(.system(size: 11))
                             .foregroundColor(.secondary)
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
 
                         if !brief.headline.isEmpty {
                             Text("· \(brief.headline)")
@@ -61,7 +64,7 @@ public struct SwarmBannerView: View {
                     }
                 }
 
-                Spacer()
+                Spacer(minLength: 4)
 
                 if brief.attentionCount > 0 {
                     HStack(spacing: 3) {
@@ -69,12 +72,14 @@ public struct SwarmBannerView: View {
                             .font(.system(size: 10))
                         Text("\(brief.attentionCount) 待关注")
                             .font(.system(size: 11, weight: .medium))
+                            .lineLimit(1)
                     }
                     .foregroundColor(SwarmTheme.warnAmber)
                     .padding(.horizontal, 7)
                     .padding(.vertical, 3)
                     .background(SwarmTheme.warnAmber.opacity(0.12))
                     .clipShape(Capsule())
+                    .fixedSize(horizontal: true, vertical: false)
                 }
 
                 Image(systemName: "chevron.right")

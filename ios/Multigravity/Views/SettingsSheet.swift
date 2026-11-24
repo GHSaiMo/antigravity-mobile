@@ -276,7 +276,11 @@ public struct SettingsSheet: View {
                             }
                     }
 
-                    Toggle("灵动岛与实时活动", isOn: $settings.enableLiveActivities)
+                    Toggle(isOn: $settings.enableLiveActivities) {
+                        Text("灵动岛与实时活动")
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.84)
+                    }
                         .onChange(of: settings.enableLiveActivities) { _, enabled in
                             UIImpactFeedbackGenerator(style: .light).impactOccurred()
                             if !enabled {
@@ -303,11 +307,13 @@ public struct SettingsSheet: View {
                     } label: {
                         HStack {
                             Text("通知提示音")
-                            Spacer()
+                                .layoutPriority(1)
+                            Spacer(minLength: 8)
                             Text(notificationSoundSummary)
                                 .font(.subheadline)
                                 .foregroundColor(.secondary)
                                 .lineLimit(1)
+                                .minimumScaleFactor(0.8)
                         }
                     }
                 }
@@ -1031,30 +1037,66 @@ extension SettingsSheet {
             }
             return items.isEmpty ? nil : (key, items)
         }
-        Picker(selection: selection) {
-            if !all.contains(where: { $0.id == selection.wrappedValue }) {
-                Text(modelCatalog.resolvedDisplayName(forID: selection.wrappedValue)).tag(selection.wrappedValue)
+        let selectedDisplayLabel: String = {
+            if let opt = all.first(where: { $0.id == selection.wrappedValue }) {
+                return ModelDefaultsLogic.formatPickerLabel(name: opt.name, tag: opt.tag)
             }
-            ForEach(groups, id: \.key) { group in
-                Section(providerSectionTitle(group.key)) {
-                    ForEach(group.items) { option in
-                        let label = ModelDefaultsLogic.formatPickerLabel(name: option.name, tag: option.tag)
-                        Text(label).tag(option.id)
-                    }
-                }
-            }
-        } label: {
+            return modelCatalog.resolvedDisplayName(forID: selection.wrappedValue)
+        }()
+
+        HStack(spacing: 8) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
                 if let subtitle {
                     Text(subtitle)
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
             }
+            .layoutPriority(1)
+
+            Spacer(minLength: 8)
+
+            Menu {
+                if !all.contains(where: { $0.id == selection.wrappedValue }) {
+                    Button {
+                        selection.wrappedValue = selection.wrappedValue
+                    } label: {
+                        Label(modelCatalog.resolvedDisplayName(forID: selection.wrappedValue), systemImage: "checkmark")
+                    }
+                }
+                ForEach(groups, id: \.key) { group in
+                    Section(providerSectionTitle(group.key)) {
+                        ForEach(group.items) { option in
+                            let label = ModelDefaultsLogic.formatPickerLabel(name: option.name, tag: option.tag)
+                            Button {
+                                selection.wrappedValue = option.id
+                            } label: {
+                                if selection.wrappedValue == option.id {
+                                    Label(label, systemImage: "checkmark")
+                                } else {
+                                    Text(label)
+                                }
+                            }
+                        }
+                    }
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    Text(selectedDisplayLabel)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(.secondary.opacity(0.75))
+                }
+                .contentShape(Rectangle())
+            }
+            .disabled(all.isEmpty)
         }
-        .pickerStyle(.menu)
-        .disabled(all.isEmpty)
     }
 }
 

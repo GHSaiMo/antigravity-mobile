@@ -474,9 +474,11 @@ struct CloneGitHubRepoView: View {
                                         showFolderRename.toggle()
                                     }
                                 } label: {
-                                    Text(showFolderRename ? "收起目录名" : "自定义目录名")
+                                    Text(showFolderRename ? String(localized: "收起目录名") : String(localized: "自定义目录名"))
                                         .font(.system(size: 11.5, weight: .medium))
                                         .foregroundColor(.accentColor)
+                                        .lineLimit(1)
+                                        .fixedSize(horizontal: true, vertical: false)
                                 }
                                 .buttonStyle(.plain)
                             } else if !repoInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -615,7 +617,7 @@ struct CloneGitHubRepoView: View {
                             Image(systemName: "arrow.down.circle.fill")
                                 .font(.system(size: 16))
                         }
-                        Text(isSubmitting ? "正在启动克隆…" : "确认并克隆")
+                        Text(isSubmitting ? String(localized: "正在启动克隆…") : String(localized: "确认并克隆"))
                             .font(.system(size: 15.5, weight: .semibold))
                     }
                     .foregroundColor(.white)
@@ -710,7 +712,7 @@ struct CloneGitHubRepoView: View {
             }
 
             VStack(spacing: 6) {
-                Text(alreadyExists ? "已导入 Antigravity 项目列表" : "克隆完成，已加入项目列表")
+                Text(alreadyExists ? String(localized: "已导入 Antigravity 项目列表") : String(localized: "克隆完成，已加入项目列表"))
                     .font(.system(size: 18, weight: .bold))
                     .foregroundColor(.primary)
                     .multilineTextAlignment(.center)
@@ -1089,7 +1091,7 @@ struct AddLocalWorkspaceView: View {
                         Image(systemName: "plus.circle.fill")
                             .font(.system(size: 16))
                     }
-                    Text(isSubmitting ? "正在添加工作区…" : "添加当前目录为工作区")
+                    Text(isSubmitting ? String(localized: "正在添加工作区…") : String(localized: "添加当前目录为工作区"))
                         .font(.system(size: 15.5, weight: .semibold))
                 }
                 .foregroundColor(.white)
@@ -1117,7 +1119,7 @@ struct AddLocalWorkspaceView: View {
                     .foregroundColor(.green)
             }
             VStack(spacing: 6) {
-                Text(completedAlreadyExists ? "工作区已在项目列表中" : "已添加到 Antigravity 项目列表")
+                Text(completedAlreadyExists ? String(localized: "工作区已在项目列表中") : String(localized: "已添加到 Antigravity 项目列表"))
                     .font(.system(size: 18, weight: .bold))
                 Text(project.path)
                     .font(.system(size: 12, design: .monospaced))

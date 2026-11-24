@@ -388,7 +388,7 @@ public enum ConversationTurnBuilder {
             return combined
         }
         if let files = parsed?.files, !files.isEmpty {
-            let firstFile = files.first?.name ?? String(localized: "文件")
+            let firstFile = files.first?.name ?? String(localized: "file.singular", defaultValue: "文件")
             if files.count == 1 {
                 return String(localized: "[附件: \(firstFile)]")
             } else {
@@ -449,7 +449,7 @@ public enum ConversationTurnBuilder {
                         return combined
                     }
                     if let files = parsed?.files, !files.isEmpty {
-                        let firstFile = files.first?.name ?? String(localized: "文件")
+                        let firstFile = files.first?.name ?? String(localized: "file.singular", defaultValue: "文件")
                         if files.count == 1 {
                             return String(localized: "[附件: \(firstFile)]")
                         } else {

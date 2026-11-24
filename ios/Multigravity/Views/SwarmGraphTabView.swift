@@ -8,16 +8,30 @@ struct SwarmGraphTabView: View {
     enum GraphMode: String, CaseIterable {
         case hive = "Hive"
         case mentions = "Mentions"
+
+        var localizedTitle: String {
+            switch self {
+            case .hive: return String(localized: "Hive")
+            case .mentions: return String(localized: "Mentions")
+            }
+        }
     }
 
     enum ReplayPacing: String, CaseIterable {
         case even = "Even pacing"
         case realtime = "Real-time gaps"
 
+        var localizedTitle: String {
+            switch self {
+            case .even: return String(localized: "Even pacing")
+            case .realtime: return String(localized: "Real-time gaps")
+            }
+        }
+
         var shortLabel: String {
             switch self {
-            case .even: return "Even"
-            case .realtime: return "Real-time"
+            case .even: return String(localized: "Even")
+            case .realtime: return String(localized: "Real-time")
             }
         }
     }
@@ -310,10 +324,11 @@ struct SwarmGraphTabView: View {
                         .font(.system(size: 11.5, weight: .medium, design: .rounded))
                         .foregroundColor(SwarmTheme.muted)
                         .lineLimit(1)
+                        .minimumScaleFactor(0.82)
                 } else {
                     let span = SwarmHelpers.formatSpanDuration(from: allMessages.first?.time, to: allMessages.last?.time)
                     HStack(spacing: 3) {
-                        Text("\(total) \(total == 1 ? "post" : "posts")")
+                        Text(total == 1 ? String(localized: "1 post") : String(localized: "\(total) posts"))
                             .font(.system(size: 12, weight: .semibold))
                             .foregroundColor(SwarmTheme.ink)
                         if let span {
@@ -323,6 +338,7 @@ struct SwarmGraphTabView: View {
                         }
                     }
                     .lineLimit(1)
+                    .minimumScaleFactor(0.82)
                 }
 
                 Spacer(minLength: 4)
@@ -337,8 +353,10 @@ struct SwarmGraphTabView: View {
                                 graphMode = mode
                             }
                         }) {
-                            Text(mode.rawValue)
+                            Text(mode.localizedTitle)
                                 .font(.system(size: 11.5, weight: selected ? .semibold : .medium))
+                                .lineLimit(1)
+                                .fixedSize(horizontal: true, vertical: false)
                                 .foregroundColor(selected ? SwarmTheme.ink : SwarmTheme.muted)
                                 .padding(.horizontal, 9)
                                 .padding(.vertical, 4.5)
@@ -360,7 +378,7 @@ struct SwarmGraphTabView: View {
                     ForEach(ReplayPacing.allCases, id: \.rawValue) { p in
                         Button(action: { replayPacing = p }) {
                             HStack {
-                                Text(p.rawValue)
+                                Text(p.localizedTitle)
                                 if replayPacing == p { Image(systemName: "checkmark") }
                             }
                         }
@@ -369,9 +387,11 @@ struct SwarmGraphTabView: View {
                     HStack(spacing: 3) {
                         Text(replayPacing.shortLabel)
                             .font(.system(size: 11.5, weight: .medium))
+                            .lineLimit(1)
                         Image(systemName: "chevron.down")
                             .font(.system(size: 8.5, weight: .semibold))
                     }
+                    .fixedSize(horizontal: true, vertical: false)
                     .foregroundColor(SwarmTheme.muted)
                     .padding(.horizontal, 7)
                     .padding(.vertical, 5)
@@ -641,7 +661,7 @@ struct SwarmGraphTabView: View {
                                     }
                                     Text(hiveModel.coordinatorNeedsYou
                                          ? String(localized: "Needs you")
-                                         : (r >= 52 ? "\(hiveModel.allDone) of \(hiveModel.allTotal) done" : "\(hiveModel.allDone)/\(hiveModel.allTotal)"))
+                                         : (r >= 52 ? String(localized: "\(hiveModel.allDone) of \(hiveModel.allTotal) done") : "\(hiveModel.allDone)/\(hiveModel.allTotal)"))
                                         .font(.system(size: r >= 80 ? 11 : 9.5, weight: hiveModel.coordinatorNeedsYou ? .semibold : .regular, design: .rounded))
                                         .foregroundColor(hiveModel.coordinatorNeedsYou ? SwarmTheme.warnAmber : SwarmTheme.muted)
                                 }
@@ -947,6 +967,8 @@ struct SwarmGraphTabView: View {
         }
         .font(.system(size: 11.5))
         .foregroundColor(SwarmTheme.muted)
+        .lineLimit(1)
+        .minimumScaleFactor(0.8)
     }
 
     private func selectedHiveCellCard(cell: SwarmHiveCell, hiveModel: SwarmHiveMapModel, synth: SwarmSynthesizedModel) -> some View {
@@ -963,7 +985,9 @@ struct SwarmGraphTabView: View {
                     }
                 }
                 Spacer()
-                Text(cell.countOnly == nil && cell.total > 0 ? "\(cell.done) of \(cell.total) done" : "\(cell.bees.count) \(cell.bees.count == 1 ? "bee" : "bees")")
+                Text(cell.countOnly == nil && cell.total > 0
+                     ? String(localized: "\(cell.done) of \(cell.total) done")
+                     : (cell.bees.count == 1 ? String(localized: "1 bee") : String(localized: "\(cell.bees.count) bees")))
                     .font(.system(size: 11.5, design: .monospaced))
                     .foregroundColor(SwarmTheme.muted)
                     .padding(.top, 2)
@@ -992,15 +1016,15 @@ struct SwarmGraphTabView: View {
                         let st = hiveModel.beeStates[name] ?? .idle
                         let statusText: String = {
                             switch st {
-                            case .working: return "Working"
+                            case .working: return String(localized: "Working")
                             case .wait:
-                                if let w = hiveModel.beeWaitingOn[name] { return "Waiting on @\(w)" }
-                                return "Waiting"
-                            case .issue: return "Stuck"
-                            case .done: return "Done"
-                            case .retired: return "Retired"
-                            case .unborn: return "Not started"
-                            default: return "Resting"
+                                if let w = hiveModel.beeWaitingOn[name] { return String(localized: "Waiting on @\(w)") }
+                                return String(localized: "Waiting")
+                            case .issue: return String(localized: "Stuck")
+                            case .done: return String(localized: "Done")
+                            case .retired: return String(localized: "Retired")
+                            case .unborn: return String(localized: "Not started")
+                            default: return String(localized: "Resting")
                             }
                         }()
                         let statusColor: Color = {

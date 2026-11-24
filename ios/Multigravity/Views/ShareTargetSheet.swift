@@ -105,7 +105,7 @@ struct ShareTargetSheet: View {
                         FileTypeBadge(fileName: f.name, size: 56)
                         VStack(alignment: .leading, spacing: 4) {
                             Text(f.name).font(.system(size: 15, weight: .medium)).lineLimit(2)
-                            Text(f.rejectReason ?? (FileIconResolver.isWeChatChatArchive(f.name) ? "微信聊天记录 · \(formatFileSize(f.size))" : formatFileSize(f.size)))
+                            Text(f.rejectReason ?? (FileIconResolver.isWeChatChatArchive(f.name) ? String(localized: "微信聊天记录 · \(formatFileSize(f.size))") : formatFileSize(f.size)))
                                 .font(.system(size: 12))
                                 .foregroundColor(f.rejectReason == nil ? .secondary : .red)
                                 .lineLimit(2)
@@ -167,7 +167,7 @@ struct ShareTargetSheet: View {
                         targetRow(
                             icon: "bubble.left",
                             title: c.title,
-                            subtitle: [c.workspaceName, c.status == .running ? String(localized: "运行中") : nil]
+                            subtitle: [c.isPureChat ? String(localized: "Chat") : c.workspaceName, c.status == .running ? String(localized: "运行中") : nil]
                                 .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "),
                             tint: .indigo
                         ) { onSelectConversation(c) }

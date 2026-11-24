@@ -657,6 +657,7 @@ public struct ConversationListView: View {
                     .font(.system(size: 12, weight: .medium))
                     .foregroundColor(.primary)
                     .lineLimit(1)
+                    .minimumScaleFactor(0.85)
                     .contentTransition(.numericText())
                     .animation(.spring(response: 0.35, dampingFraction: 0.8), value: count)
                     .animation(.spring(response: 0.35, dampingFraction: 0.8), value: daemonCount)
@@ -666,9 +667,12 @@ public struct ConversationListView: View {
                 HStack(spacing: 3) {
                     Text("管理")
                         .font(.system(size: 11.5, weight: .semibold))
+                        .lineLimit(1)
                     Image(systemName: "chevron.right")
                         .font(.system(size: 9.5, weight: .bold))
                 }
+                .fixedSize(horizontal: true, vertical: false)
+                .layoutPriority(1)
                 .foregroundColor(.indigo)
             }
             .padding(.horizontal, 12)
@@ -698,6 +702,7 @@ public struct ConversationListView: View {
                     .font(.system(size: 12, weight: .medium))
                     .foregroundColor(.primary)
                     .lineLimit(1)
+                    .minimumScaleFactor(0.85)
                     .contentTransition(.numericText())
 
                 Spacer(minLength: 4)
@@ -706,10 +711,13 @@ public struct ConversationListView: View {
                     Text("查看")
                         .font(.system(size: 11.5, weight: .semibold))
                         .foregroundColor(.orange)
+                        .lineLimit(1)
                     Image(systemName: "chevron.right")
                         .font(.system(size: 9.5, weight: .bold))
                         .foregroundColor(.orange.opacity(0.85))
                 }
+                .fixedSize(horizontal: true, vertical: false)
+                .layoutPriority(1)
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
@@ -828,6 +836,8 @@ public struct ConversationListView: View {
             Text(String(localized: "\(totalCount) 个会话"))
                 .font(.system(size: 11.5, weight: .medium))
                 .foregroundColor(.secondary)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
                 .contentTransition(.numericText())
 
             Button {
@@ -1379,13 +1389,14 @@ public struct ConversationListView: View {
                     .lineLimit(3)
             }
             let isSide = hit.result.isSideQuestion == true || hit.item.isSideQuestion
+            let displayWs = hit.item.isPureChat ? String(localized: "Chat") : hit.item.workspaceName
             let metaText: String = {
-                if isSide && !hit.item.workspaceName.isEmpty {
-                    return "↳ /btw · \(hit.item.workspaceName)"
+                if isSide && !displayWs.isEmpty {
+                    return "↳ /btw · \(displayWs)"
                 } else if isSide {
                     return "↳ /btw"
                 } else {
-                    return hit.item.workspaceName
+                    return displayWs
                 }
             }()
             if !metaText.isEmpty {
@@ -1658,6 +1669,8 @@ public struct ConversationListView: View {
 
                     Text("旁路")
                         .font(.system(size: 10, weight: .semibold))
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
                         .foregroundColor(.indigo)
                         .padding(.horizontal, 5)
                         .padding(.vertical, 1.5)
@@ -1675,6 +1688,8 @@ public struct ConversationListView: View {
                     if item.status.needsAction {
                         Text("Action")
                             .font(.system(size: 10.5, weight: .bold))
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
                             .foregroundColor(.blue)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
@@ -1683,6 +1698,8 @@ public struct ConversationListView: View {
                     } else if item.status.isError {
                         Text("Error")
                             .font(.system(size: 10.5, weight: .bold))
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
                             .foregroundColor(.red)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
@@ -1694,7 +1711,9 @@ public struct ConversationListView: View {
                                 .controlSize(.mini)
                                 .tint(.green)
                             Text("Working")
+                                .lineLimit(1)
                         }
+                        .fixedSize(horizontal: true, vertical: false)
                         .font(.system(size: 10.5, weight: .bold))
                         .foregroundColor(.green)
                         .padding(.horizontal, 6)
@@ -1704,6 +1723,8 @@ public struct ConversationListView: View {
                     } else if hasDraft {
                         Text("DRAFT")
                             .font(.system(size: 10, weight: .bold))
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
                             .foregroundColor(.yellow)
                             .padding(.horizontal, 5)
                             .padding(.vertical, 2)
@@ -1723,8 +1744,8 @@ public struct ConversationListView: View {
                             .foregroundColor(.secondary)
                             .lineLimit(1)
                     } else {
-                        Text(item.workspaceName)
-                            .font(.system(size: 11.5, design: .monospaced))
+                        Text(item.isPureChat ? String(localized: "Chat") : item.workspaceName)
+                            .font(.system(size: 11.5, design: item.isPureChat ? .default : .monospaced))
                             .foregroundColor(.secondary)
                             .lineLimit(1)
                     }
@@ -1735,6 +1756,8 @@ public struct ConversationListView: View {
                         Text(item.relativeTimeString)
                             .font(.system(size: 11.5))
                             .foregroundColor(.secondary)
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
                     }
                 }
             }
@@ -1785,6 +1808,7 @@ public struct ConversationListView: View {
                         width: 22,
                         height: 18
                     )
+                    .fixedSize()
                     .padding(.top, 0.5)
                     .accessibilityLabel(String(localized: "蜂群会话"))
                 }
@@ -1795,11 +1819,14 @@ public struct ConversationListView: View {
                     .truncationMode(.tail)
                     .foregroundColor(.primary)
                 
-                Spacer()
+                Spacer(minLength: 4)
                 
                 if item.status.needsAction {
                     Text("Action required")
                         .font(.system(size: 11, weight: .bold))
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
+                        .layoutPriority(1)
                         .foregroundColor(.blue)
                         .padding(.horizontal, 7)
                         .padding(.vertical, 3)
@@ -1808,6 +1835,9 @@ public struct ConversationListView: View {
                 } else if item.status.isError {
                     Text("Error")
                         .font(.system(size: 11, weight: .bold))
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
+                        .layoutPriority(1)
                         .foregroundColor(.red)
                         .padding(.horizontal, 7)
                         .padding(.vertical, 3)
@@ -1825,7 +1855,10 @@ public struct ConversationListView: View {
                                 .tint(.green)
                         }
                         Text(label)
+                            .lineLimit(1)
                     }
+                    .fixedSize(horizontal: true, vertical: false)
+                    .layoutPriority(1)
                     .font(.system(size: 11, weight: .bold))
                     .foregroundColor(.green)
                     .padding(.horizontal, 7)
@@ -1838,7 +1871,10 @@ public struct ConversationListView: View {
                             .fill(Color.red)
                             .frame(width: 6, height: 6)
                         Text("录音中")
+                            .lineLimit(1)
                     }
+                    .fixedSize(horizontal: true, vertical: false)
+                    .layoutPriority(1)
                     .font(.system(size: 11, weight: .bold))
                     .foregroundColor(.red)
                     .padding(.horizontal, 7)
@@ -1848,6 +1884,9 @@ public struct ConversationListView: View {
                 } else if hasDraft {
                     Text("DRAFT")
                         .font(.system(size: 11, weight: .bold))
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
+                        .layoutPriority(1)
                         .foregroundColor(.yellow)
                         .padding(.horizontal, 7)
                         .padding(.vertical, 3)
@@ -1869,6 +1908,7 @@ public struct ConversationListView: View {
             
             HStack {
                 HStack(spacing: 4) {
+                    let displayWs = item.isPureChat ? String(localized: "Chat") : item.workspaceName
                     Button {
                         toggleWorkspaceFilter(for: item)
                     } label: {
@@ -1882,10 +1922,10 @@ public struct ConversationListView: View {
                     .buttonStyle(.borderless)
                     .padding(.vertical, -6)
                     .padding(.horizontal, -5)
-                    .accessibilityLabel(String(localized: "筛选 \(item.workspaceName) 的会话"))
+                    .accessibilityLabel(String(localized: "筛选 \(displayWs) 的会话"))
 
-                    Text(item.workspaceName)
-                        .font(.system(size: 12, design: .monospaced))
+                    Text(displayWs)
+                        .font(.system(size: 12, design: item.isPureChat ? .default : .monospaced))
                         .lineLimit(1)
                         .allowsHitTesting(false)
 
@@ -1895,27 +1935,35 @@ public struct ConversationListView: View {
                 }
                 .foregroundColor(.secondary)
                 
-                Spacer()
+                Spacer(minLength: 6)
                 
                 if item.isDraft || (item.stepCount == 0 && hasDraft) {
                     if !item.relativeTimeString.isEmpty {
                         Text("草稿 • \(item.relativeTimeString)")
                             .font(.system(size: 12))
                             .foregroundColor(.secondary)
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
                     } else {
                         Text("草稿")
                             .font(.system(size: 12))
                             .foregroundColor(.secondary)
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
                     }
                 } else {
                     if !item.relativeTimeString.isEmpty {
                         Text("\(item.stepCount) 步骤 • \(item.relativeTimeString)")
                             .font(.system(size: 12))
                             .foregroundColor(.secondary)
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
                     } else {
                         Text("\(item.stepCount) 步骤")
                             .font(.system(size: 12))
                             .foregroundColor(.secondary)
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
                     }
                 }
             }

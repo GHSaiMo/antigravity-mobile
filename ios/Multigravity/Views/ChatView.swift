@@ -1130,6 +1130,7 @@ struct ContextRingCapsuleView: View {
     var hasPendingInteraction: Bool = false
     let onTap: () -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorScheme) private var colorScheme
     @State private var isPulsing = false
 
     private var clampedPct: Double {
@@ -1149,9 +1150,17 @@ struct ContextRingCapsuleView: View {
     }
 
     private var ringColor: Color {
-        if meter.isOverflow == true || clampedPct >= 90 { return .red }
-        if clampedPct >= 70 || hasCacheWarning { return .orange }
-        return .green
+        if meter.isOverflow == true || clampedPct >= 90 {
+            return colorScheme == .light ? Color(red: 0.78, green: 0.12, blue: 0.12) : .red
+        }
+        if clampedPct >= 70 || hasCacheWarning {
+            return colorScheme == .light ? Color(red: 0.76, green: 0.38, blue: 0.0) : .orange
+        }
+        return colorScheme == .light ? Color(red: 0.08, green: 0.52, blue: 0.22) : .green
+    }
+
+    private var accentWarningColor: Color {
+        colorScheme == .light ? Color(red: 0.76, green: 0.38, blue: 0.0) : .orange
     }
 
     private func syncPulseAnimation() {
@@ -1171,7 +1180,7 @@ struct ContextRingCapsuleView: View {
             HStack(spacing: 4) {
                 ZStack {
                     Circle()
-                        .stroke(ringColor.opacity(0.22), lineWidth: 2)
+                        .stroke(ringColor.opacity(colorScheme == .light ? 0.26 : 0.22), lineWidth: 2)
                     Circle()
                         .trim(from: 0, to: clampedPct / 100.0)
                         .stroke(ringColor, style: StrokeStyle(lineWidth: 2, lineCap: .round))
@@ -1186,11 +1195,11 @@ struct ContextRingCapsuleView: View {
                 if meter.isCacheMissStreak {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .font(.system(size: 8.5, weight: .semibold))
-                        .foregroundColor(.orange)
+                        .foregroundColor(accentWarningColor)
                 } else if staleIdleMinutes != nil {
                     Image(systemName: "snowflake")
                         .font(.system(size: 8.5, weight: .semibold))
-                        .foregroundColor(.orange)
+                        .foregroundColor(accentWarningColor)
                 }
 
                 if let tps = meter.tokensPerSecond, tps > 0.1,
@@ -1198,18 +1207,18 @@ struct ContextRingCapsuleView: View {
                     HStack(spacing: 1) {
                         Image(systemName: "bolt.fill")
                             .font(.system(size: 8.5))
-                            .foregroundColor(.orange)
+                            .foregroundColor(accentWarningColor)
                         Text(String(format: "%.0f t/s", tps))
                             .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                            .foregroundColor(.secondary)
+                            .foregroundColor(colorScheme == .light ? .primary.opacity(0.75) : .secondary)
                     }
                 }
             }
             .padding(.horizontal, 6)
             .padding(.vertical, 1.5)
-            .background(ringColor.opacity(0.12))
+            .background(ringColor.opacity(colorScheme == .light ? 0.14 : 0.12))
             .overlay(
-                Capsule().stroke(ringColor.opacity(0.35), lineWidth: 0.6)
+                Capsule().stroke(ringColor.opacity(colorScheme == .light ? 0.42 : 0.35), lineWidth: 0.6)
             )
             .clipShape(Capsule())
             .opacity(shouldPulse && isPulsing ? 0.55 : 1.0)
@@ -1349,13 +1358,13 @@ struct ContextAuditSheetView: View {
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundColor(.secondary)
                     HStack {
-                        auditCell("Input", AccountQuotaSheet.formatTokensCompact(meter.inputTokens ?? 0))
+                        auditCell(String(localized: "Input"), AccountQuotaSheet.formatTokensCompact(meter.inputTokens ?? 0))
                         Spacer()
-                        auditCell("Cache Hit", cacheHitDisplay, valueColor: cacheHitValueColor)
+                        auditCell(String(localized: "Cache Hit"), cacheHitDisplay, valueColor: cacheHitValueColor)
                         Spacer()
-                        auditCell("Output", AccountQuotaSheet.formatTokensCompact(meter.outputTokens ?? 0))
+                        auditCell(String(localized: "Output"), AccountQuotaSheet.formatTokensCompact(meter.outputTokens ?? 0))
                         Spacer()
-                        auditCell("Thinking", AccountQuotaSheet.formatTokensCompact(meter.thinkingTokens ?? 0))
+                        auditCell(String(localized: "Thinking"), AccountQuotaSheet.formatTokensCompact(meter.thinkingTokens ?? 0))
                     }
 
                     if meter.hasSessionTotals {
@@ -1373,13 +1382,13 @@ struct ContextAuditSheetView: View {
                             }
                         }
                         HStack {
-                            auditCell("Input", AccountQuotaSheet.formatTokensCompact(meter.sessionInputTokens ?? 0))
+                            auditCell(String(localized: "Input"), AccountQuotaSheet.formatTokensCompact(meter.sessionInputTokens ?? 0))
                             Spacer()
-                            auditCell("Cache Hit", sessionCacheHitDisplay)
+                            auditCell(String(localized: "Cache Hit"), sessionCacheHitDisplay)
                             Spacer()
-                            auditCell("Output", AccountQuotaSheet.formatTokensCompact(meter.sessionOutputTokens ?? 0))
+                            auditCell(String(localized: "Output"), AccountQuotaSheet.formatTokensCompact(meter.sessionOutputTokens ?? 0))
                             Spacer()
-                            auditCell("Thinking", AccountQuotaSheet.formatTokensCompact(meter.sessionThinkingTokens ?? 0))
+                            auditCell(String(localized: "Thinking"), AccountQuotaSheet.formatTokensCompact(meter.sessionThinkingTokens ?? 0))
                         }
                     }
                 }
@@ -1424,6 +1433,8 @@ struct ContextAuditSheetView: View {
                             HStack(spacing: 6) {
                                 CompactChevronsIcon(size: 8, weight: .bold)
                                 Text("一键压缩")
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.8)
                             }
                             .font(.system(size: 13, weight: .semibold))
                             .frame(maxWidth: .infinity)
@@ -1438,6 +1449,8 @@ struct ContextAuditSheetView: View {
                     }) {
                         Label("开启新会话", systemImage: "plus.circle")
                             .font(.system(size: 13, weight: .semibold))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 8)
                     }
@@ -1535,6 +1548,8 @@ private struct ChatToolbarPrincipalView: View {
                                 .font(.system(size: 8.5, weight: .bold))
                             Text("旁路快问 · 回主会话")
                                 .font(.system(size: 10, weight: .semibold))
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.82)
                         }
                         .foregroundColor(.indigo)
                         .padding(.horizontal, 7)
@@ -1572,6 +1587,8 @@ private struct ChatToolbarPrincipalView: View {
                             Text("第 \(scrollHUD.currentVisibleTurnIndex)/\(viewModel.turns.count) 轮")
                                 .font(.system(size: 10, weight: .semibold))
                                 .foregroundColor(.indigo)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.85)
                             Image(systemName: "chevron.down")
                                 .font(.system(size: 7.5, weight: .bold))
                                 .foregroundColor(.indigo.opacity(0.8))

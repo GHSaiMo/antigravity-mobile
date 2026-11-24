@@ -170,7 +170,9 @@ public struct ConversationNavigatorSheet: View {
                             .font(.system(size: 10, weight: .semibold))
                         Text(allCollapsed ? String(localized: "展开全部") : String(localized: "折叠全部"))
                             .font(.system(size: 12, weight: .medium))
+                            .lineLimit(1)
                     }
+                    .fixedSize(horizontal: true, vertical: false)
                     .foregroundColor(.indigo)
                     .padding(.horizontal, 9)
                     .padding(.vertical, 5)
@@ -178,6 +180,7 @@ public struct ConversationNavigatorSheet: View {
                     .clipShape(Capsule())
                 }
                 .buttonStyle(.plain)
+                .layoutPriority(1)
             }
         }
         .padding(.horizontal, 14)
@@ -303,6 +306,7 @@ public struct ConversationNavigatorSheet: View {
                         if containsCurrent {
                             Text("当前")
                                 .font(.system(size: 10, weight: .semibold))
+                                .lineLimit(1)
                                 .foregroundColor(.white)
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 2)
@@ -312,6 +316,7 @@ public struct ConversationNavigatorSheet: View {
                         if containsActive {
                             Text("进行中")
                                 .font(.system(size: 10, weight: .semibold))
+                                .lineLimit(1)
                                 .foregroundColor(.blue)
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 2)
@@ -321,6 +326,7 @@ public struct ConversationNavigatorSheet: View {
                         if containsError {
                             Text("异常")
                                 .font(.system(size: 10, weight: .semibold))
+                                .lineLimit(1)
                                 .foregroundColor(.orange)
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 2)
@@ -330,12 +336,15 @@ public struct ConversationNavigatorSheet: View {
                         
                         Text("\(chapter.turns.count) 轮")
                             .font(.system(size: 11, weight: .medium))
+                            .lineLimit(1)
                             .foregroundColor(.secondary)
                             .padding(.horizontal, 7)
                             .padding(.vertical, 2)
                             .background(Color(uiColor: .tertiarySystemGroupedBackground))
                             .clipShape(Capsule())
                     }
+                    .fixedSize(horizontal: true, vertical: false)
+                    .layoutPriority(1)
                     
                     Image(systemName: "chevron.right")
                         .font(.system(size: 11, weight: .semibold))
@@ -451,6 +460,8 @@ public struct ConversationNavigatorSheet: View {
                 HStack(alignment: .center, spacing: 8) {
                     Text("第 \(turn.turnIndex) 轮")
                         .font(.system(size: 11.5, weight: .semibold))
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
                         .foregroundColor(isCurrent ? .white : .indigo)
                         .padding(.horizontal, 7)
                         .padding(.vertical, 2.5)
@@ -464,7 +475,7 @@ public struct ConversationNavigatorSheet: View {
                             .lineLimit(1)
                     }
                     
-                    Spacer()
+                    Spacer(minLength: 4)
                     
                     if turn.isActive {
                         HStack(spacing: 4) {
@@ -473,14 +484,18 @@ public struct ConversationNavigatorSheet: View {
                             Text("处理中")
                                 .font(.system(size: 11, weight: .medium))
                                 .foregroundColor(.blue)
+                                .lineLimit(1)
                         }
+                        .fixedSize(horizontal: true, vertical: false)
                     } else if turn.hasError {
                         HStack(spacing: 3) {
                             Image(systemName: "exclamationmark.triangle.fill")
                                 .font(.system(size: 10))
                             Text("异常")
                                 .font(.system(size: 11, weight: .medium))
+                                .lineLimit(1)
                         }
+                        .fixedSize(horizontal: true, vertical: false)
                         .foregroundColor(.orange)
                     }
                     
@@ -529,6 +544,8 @@ public struct ConversationNavigatorSheet: View {
                                     .font(.system(size: 9.5))
                                 Text("\(turn.artifacts.count) 个产物")
                                     .font(.system(size: 10.5, weight: .medium))
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.85)
                             }
                             .foregroundColor(.teal)
                             .padding(.horizontal, 6)
@@ -543,6 +560,8 @@ public struct ConversationNavigatorSheet: View {
                                     .font(.system(size: 9))
                                 Text("\(turn.totalTools) 次工具调用")
                                     .font(.system(size: 10.5, weight: .medium))
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.85)
                             }
                             .foregroundColor(.green)
                             .padding(.horizontal, 6)

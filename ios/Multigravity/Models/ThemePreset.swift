@@ -200,8 +200,8 @@ public enum ThemePresetCatalog {
 
     public static let defaultDark = ThemePreset(
         id: "default-dark",
-        name: "深色",
-        description: "经典暗黑极客渐变",
+        name: String(localized: "深色"),
+        description: String(localized: "经典暗黑极客渐变"),
         isDark: true,
         isDefaultStyle: true,
         bgHex: "#0F121C",
@@ -224,8 +224,8 @@ public enum ThemePresetCatalog {
 
     public static let defaultLight = ThemePreset(
         id: "default-light",
-        name: "浅色",
-        description: "极简纸白与柔和灰卡片",
+        name: String(localized: "浅色"),
+        description: String(localized: "极简纸白与柔和灰卡片"),
         isDark: false,
         isDefaultStyle: true,
         bgHex: "#FCFCFA",
@@ -252,7 +252,7 @@ public enum ThemePresetCatalog {
         makePreset(
             id: "solarized-light",
             name: "Solarized Light",
-            description: "经典低眩光暖沙纸张",
+            description: String(localized: "经典低眩光暖沙纸张"),
             isDark: false,
             bgHex: "#FAF4E5",
             bgEndHex: "#F2E9D4",
@@ -274,7 +274,7 @@ public enum ThemePresetCatalog {
         makePreset(
             id: "nord",
             name: "Nord",
-            description: "极地冰蓝冷调暗色",
+            description: String(localized: "极地冰蓝冷调暗色"),
             isDark: true,
             bgHex: "#2E3440",
             bgEndHex: "#242933",
@@ -300,7 +300,7 @@ public enum ThemePresetCatalog {
         makePreset(
             id: "tokyo-night",
             name: "Tokyo Night",
-            description: "东京夜色深靛蓝与霓虹蓝",
+            description: String(localized: "东京夜色深靛蓝与霓虹蓝"),
             isDark: true,
             bgHex: "#1A1B26",
             bgEndHex: "#13141D",
@@ -322,7 +322,7 @@ public enum ThemePresetCatalog {
         makePreset(
             id: "catppuccin-dark",
             name: "Catppuccin",
-            description: "Macchiato 柔和粉紫暮色",
+            description: String(localized: "Macchiato 柔和粉紫暮色"),
             isDark: true,
             bgHex: "#24273A",
             bgEndHex: "#1B1E2E",
@@ -344,7 +344,7 @@ public enum ThemePresetCatalog {
         makePreset(
             id: "everforest-dark",
             name: "Everforest",
-            description: "松林暗绿与柔光暖字",
+            description: String(localized: "松林暗绿与柔光暖字"),
             isDark: true,
             bgHex: "#2D353B",
             bgEndHex: "#232A2E",

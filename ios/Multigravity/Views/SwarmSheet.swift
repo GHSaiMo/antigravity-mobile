@@ -161,50 +161,53 @@ public struct SwarmSheet: View {
         let boardCount = snapshot?.messages.filter { !$0.text.hasPrefix("[channel]") }.count ?? 0
         let memberCount = snapshot?.members.filter { !$0.roleWorker && !SwarmHelpers.isRoleWorker(name: $0.name, role: $0.role) }.count ?? 0
 
-        return HStack(spacing: 20) {
-            ForEach(Tab.allCases) { tab in
-                let isSelected = (selectedTab == tab)
-                let countText: String? = {
-                    switch tab {
-                    case .board where boardCount > 0: return "\(boardCount)"
-                    case .members where memberCount > 0: return "\(memberCount)"
-                    default: return nil
-                    }
-                }()
-
-                Button(action: {
-                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                    withAnimation(.easeInOut(duration: 0.16)) {
-                        selectedTab = tab
-                    }
-                }) {
-                    VStack(spacing: 10) {
-                        HStack(spacing: 4) {
-                            Text(tab.localizedTitle)
-                                .font(.system(size: 14, weight: isSelected ? .semibold : .medium))
-                                .foregroundColor(isSelected ? SwarmTheme.ink : SwarmTheme.muted)
-
-                            if let countText {
-                                Text(countText)
-                                    .font(.system(size: 12.5, weight: .regular, design: .monospaced))
-                                    .foregroundColor(isSelected ? SwarmTheme.muted : SwarmTheme.faint)
-                            }
+        return ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 20) {
+                ForEach(Tab.allCases) { tab in
+                    let isSelected = (selectedTab == tab)
+                    let countText: String? = {
+                        switch tab {
+                        case .board where boardCount > 0: return "\(boardCount)"
+                        case .members where memberCount > 0: return "\(memberCount)"
+                        default: return nil
                         }
+                    }()
 
-                        Rectangle()
-                            .fill(isSelected ? SwarmTheme.accent : Color.clear)
-                            .frame(height: 2)
-                            .clipShape(Capsule())
+                    Button(action: {
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        withAnimation(.easeInOut(duration: 0.16)) {
+                            selectedTab = tab
+                        }
+                    }) {
+                        VStack(spacing: 10) {
+                            HStack(spacing: 4) {
+                                Text(tab.localizedTitle)
+                                    .font(.system(size: 14, weight: isSelected ? .semibold : .medium))
+                                    .foregroundColor(isSelected ? SwarmTheme.ink : SwarmTheme.muted)
+                                    .lineLimit(1)
+
+                                if let countText {
+                                    Text(countText)
+                                        .font(.system(size: 12.5, weight: .regular, design: .monospaced))
+                                        .foregroundColor(isSelected ? SwarmTheme.muted : SwarmTheme.faint)
+                                        .lineLimit(1)
+                                }
+                            }
+                            .fixedSize(horizontal: true, vertical: false)
+
+                            Rectangle()
+                                .fill(isSelected ? SwarmTheme.accent : Color.clear)
+                                .frame(height: 2)
+                                .clipShape(Capsule())
+                        }
+                        .padding(.horizontal, 2)
                     }
-                    .padding(.horizontal, 2)
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
             }
-
-            Spacer()
+            .padding(.horizontal, 16)
+            .padding(.top, 4)
         }
-        .padding(.horizontal, 16)
-        .padding(.top, 4)
     }
 
     // MARK: - Overview Tab (Goal, Running, Progress Ring, Threads, The Team + Feedback)
@@ -377,15 +380,15 @@ public struct SwarmSheet: View {
 
                                 HStack(spacing: 8) {
                                     if synth.stuckCount > 0 {
-                                        progressStatusChip(text: "\(synth.stuckCount) stuck", color: SwarmTheme.errorRed)
+                                        progressStatusChip(text: String(localized: "\(synth.stuckCount) stuck"), color: SwarmTheme.errorRed)
                                     } else if let waitFirst = synth.waitingChips.first {
                                         progressStatusChip(text: waitFirst, color: SwarmTheme.warnAmber)
                                     }
                                     if synth.reviewCount > 0 {
-                                        progressStatusChip(text: "\(synth.reviewCount) in review", color: SwarmTheme.accent)
+                                        progressStatusChip(text: String(localized: "\(synth.reviewCount) in review"), color: SwarmTheme.accent)
                                     }
                                     if synth.openThreadsCount > 0 {
-                                        Text("\(synth.openThreadsCount) \(synth.openThreadsCount == 1 ? "thread" : "threads") open")
+                                        Text(synth.openThreadsCount == 1 ? String(localized: "1 thread open") : String(localized: "\(synth.openThreadsCount) threads open"))
                                             .font(.system(size: 12))
                                             .foregroundColor(SwarmTheme.muted)
                                             .lineLimit(1)
@@ -1275,7 +1278,7 @@ public struct SwarmSheet: View {
                         // ACTIVE group
                         if !activeWorkers.isEmpty {
                             VStack(alignment: .leading, spacing: 8) {
-                                memberSectionHeader(title: "ACTIVE", count: activeWorkers.count)
+                                memberSectionHeader(title: String(localized: "ACTIVE"), count: activeWorkers.count)
                                 ForEach(activeWorkers) { m in
                                     memberRow(m, snap: snap, highlightedCard: true)
                                 }
@@ -1286,7 +1289,7 @@ public struct SwarmSheet: View {
                         // STANDING BY group
                         if !standbyWorkers.isEmpty {
                             VStack(alignment: .leading, spacing: 6) {
-                                memberSectionHeader(title: "STANDING BY", count: standbyWorkers.count)
+                                memberSectionHeader(title: String(localized: "STANDING BY"), count: standbyWorkers.count)
                                 ForEach(standbyWorkers) { m in
                                     memberRow(m, snap: snap, highlightedCard: false)
                                 }
@@ -1390,30 +1393,39 @@ public struct SwarmSheet: View {
                 )
 
                 VStack(alignment: .leading, spacing: 3) {
-                    // Header line: @name + status/role + right model · #seq
+                    // Header line: @name + status/role + Current badge
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
                         Text("@\(member.name)")
                             .font(.system(size: 13.5, weight: .semibold))
                             .foregroundColor(member.killed ? SwarmTheme.faint : SwarmTheme.ink)
                             .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
+                            .layoutPriority(2)
 
                         if isCoord {
-                            Text(isWorking ? "Coordinator · Working" : "Coordinator")
+                            Text(isWorking ? String(localized: "Coordinator · Working") : String(localized: "Coordinator"))
                                 .font(.system(size: 12, weight: .medium))
                                 .foregroundColor(isWorking ? SwarmTheme.accent : SwarmTheme.muted)
                                 .lineLimit(1)
+                                .minimumScaleFactor(0.85)
                         } else if member.killed {
                             Text("Retired")
                                 .font(.system(size: 11.5, weight: .medium))
                                 .foregroundColor(SwarmTheme.faint)
+                                .lineLimit(1)
+                                .fixedSize(horizontal: true, vertical: false)
                         } else if isWorking {
                             Text("Working")
                                 .font(.system(size: 12, weight: .semibold))
                                 .foregroundColor(SwarmTheme.accent)
+                                .lineLimit(1)
+                                .fixedSize(horizontal: true, vertical: false)
                         } else if isError {
                             Text("Error")
                                 .font(.system(size: 12, weight: .semibold))
                                 .foregroundColor(SwarmTheme.errorRed)
+                                .lineLimit(1)
+                                .fixedSize(horizontal: true, vertical: false)
                         } else {
                             Text(roleHint)
                                 .font(.system(size: 12))
@@ -1425,26 +1437,30 @@ public struct SwarmSheet: View {
                             Text("当前")
                                 .font(.system(size: 10, weight: .semibold))
                                 .foregroundColor(SwarmTheme.infoBlue)
+                                .lineLimit(1)
+                                .fixedSize(horizontal: true, vertical: false)
+                                .layoutPriority(1)
                                 .padding(.horizontal, 5)
                                 .padding(.vertical, 1)
                                 .background(SwarmTheme.infoBlue.opacity(0.12))
                                 .clipShape(Capsule())
                         }
 
-                        Spacer(minLength: 4)
+                        Spacer(minLength: 0)
+                    }
 
-                        let metaText: String = {
-                            var parts: [String] = []
-                            if !shortModel.isEmpty { parts.append(shortModel) }
-                            if let seq = lastPost?.seq { parts.append("#\(seq)") }
-                            return parts.joined(separator: " · ")
-                        }()
-                        if !metaText.isEmpty {
-                            Text(metaText)
-                                .font(.system(size: 11, design: .monospaced))
-                                .foregroundColor(SwarmTheme.faint)
-                                .lineLimit(1)
-                        }
+                    // Model & latest board post sequence on its own compact metadata line
+                    let metaText: String = {
+                        var parts: [String] = []
+                        if !shortModel.isEmpty { parts.append(shortModel) }
+                        if let seq = lastPost?.seq { parts.append("#\(seq)") }
+                        return parts.joined(separator: " · ")
+                    }()
+                    if !metaText.isEmpty {
+                        Text(metaText)
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundColor(SwarmTheme.faint)
+                            .lineLimit(1)
                     }
 
                     // For active workers, show brief ownership line above activity (matching screenshot 2)
@@ -1475,7 +1491,9 @@ public struct SwarmSheet: View {
                             }
                             Text("催促 / 唤醒")
                                 .font(.system(size: 11.5, weight: .semibold))
+                                .lineLimit(1)
                         }
+                        .fixedSize(horizontal: true, vertical: false)
                         .foregroundColor(SwarmTheme.accent)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 5)
@@ -1494,7 +1512,9 @@ public struct SwarmSheet: View {
                                 Image(systemName: "arrow.up.right.square").font(.system(size: 10.5))
                                 Text("进入子会话")
                                     .font(.system(size: 11.5, weight: .semibold))
+                                    .lineLimit(1)
                             }
+                            .fixedSize(horizontal: true, vertical: false)
                             .foregroundColor(SwarmTheme.infoBlue)
                             .padding(.horizontal, 10)
                             .padding(.vertical, 5)

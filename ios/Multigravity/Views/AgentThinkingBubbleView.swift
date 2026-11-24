@@ -14,7 +14,7 @@ public struct AgentThinkingBubbleView: View {
         if let focus = focusText?.trimmingCharacters(in: .whitespacesAndNewlines), !focus.isEmpty {
             return focus
         }
-        return "Working"
+        return String(localized: "Working")
     }
 
     public var body: some View {

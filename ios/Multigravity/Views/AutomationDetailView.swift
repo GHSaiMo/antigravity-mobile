@@ -137,6 +137,8 @@ struct AutomationDetailView: View {
                     // Status + Toggle + Run Now
                     HStack(spacing: 10) {
                         statusBadge
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
 
                         Spacer()
 
@@ -152,7 +154,9 @@ struct AutomationDetailView: View {
                                 }
                                 Text("立即运行")
                                     .font(.system(size: 13, weight: .semibold))
+                                    .lineLimit(1)
                             }
+                            .fixedSize(horizontal: true, vertical: false)
                             .padding(.horizontal, 12)
                             .padding(.vertical, 6)
                             .background(sidecar.isRunning ? Color.indigo.opacity(0.14) : Color.secondary.opacity(0.1))
@@ -484,7 +488,7 @@ struct AutomationDetailView: View {
                     .font(.system(size: 13))
                     .foregroundColor(.secondary)
             } else if let next = sidecar.nextRunAt, !next.isEmpty {
-                Text(next)
+                Text(AutomationCronHelper.formatTimestamp(next))
                     .font(.system(size: 12.5, design: .monospaced))
                     .foregroundColor(.primary)
             } else {
@@ -503,7 +507,7 @@ struct AutomationDetailView: View {
                     .font(.system(size: 13.5))
                     .foregroundColor(.secondary)
                 Spacer()
-                Text(last)
+                Text(AutomationCronHelper.formatTimestamp(last))
                     .font(.system(size: 12.5, design: .monospaced))
                     .foregroundColor(.secondary)
             }
@@ -851,6 +855,45 @@ struct AutomationDetailView: View {
 }
 
 enum AutomationCronHelper {
+    private static let isoFractional: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }()
+
+    private static let isoPlain: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime]
+        return f
+    }()
+
+    private static let sqlParser: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        return f
+    }()
+
+    private static let compactDisplay: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = .autoupdatingCurrent
+        f.dateFormat = "MM/dd HH:mm"
+        return f
+    }()
+
+    /// Formats ISO-8601 UTC or SQL timestamps into compact local `MM/dd HH:mm` for cron cards & details.
+    static func formatTimestamp(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return raw }
+        if let date = isoFractional.date(from: trimmed)
+            ?? isoPlain.date(from: trimmed)
+            ?? sqlParser.date(from: trimmed) {
+            return compactDisplay.string(from: date)
+        }
+        return trimmed
+    }
+
     static func splitTimeZone(_ raw: String) -> (timeZone: String?, cron: String) {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         let prefixes = ["CRON_TZ=", "TZ="]
@@ -886,7 +929,16 @@ enum AutomationCronHelper {
                 if dow == "*" {
                     base = String(localized: "每天 \(hm)")
                 } else if let d = Int(dow), (0...7).contains(d) {
-                    let names = ["周日", "周一", "周二", "周三", "周四", "周五", "周六", "周日"]
+                    let names = [
+                        String(localized: "周日"),
+                        String(localized: "周一"),
+                        String(localized: "周二"),
+                        String(localized: "周三"),
+                        String(localized: "周四"),
+                        String(localized: "周五"),
+                        String(localized: "周六"),
+                        String(localized: "周日")
+                    ]
                     base = String(localized: "每\(names[d]) \(hm)")
                 }
             }

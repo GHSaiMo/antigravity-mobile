@@ -780,8 +780,10 @@ struct AgentLockScreenView: View {
                         .cornerRadius(3)
                 }
                 
-                Text(displayedTask.isWaiting ? "等待" : "运行中")
+                Text(displayedTask.isWaiting ? String(localized: "等待") : String(localized: "运行中"))
                     .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
                     .foregroundColor(
                         displayedTask.isWaiting
                             ? (isDark ? Color(red: 1.0, green: 0.70, blue: 0.40) : Color(red: 0.78, green: 0.28, blue: 0.0))

@@ -13,7 +13,7 @@ public final class ConversationListViewModel {
         public var displayName: String {
             switch self {
             case .chat:
-                return "Chat"
+                return String(localized: "Chat")
             case .workspace(let name):
                 return name
             case .archived:

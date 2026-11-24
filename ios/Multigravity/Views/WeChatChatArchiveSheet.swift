@@ -175,7 +175,7 @@ public struct WeChatChatArchiveSheet: View {
                                 Image(systemName: isSearching ? "magnifyingglass" : "bubble.left.and.bubble.right")
                                     .font(.system(size: 32))
                                     .foregroundColor(textMuted)
-                                Text(isSearching ? "没有匹配的聊天记录" : "聊天记录为空")
+                                Text(isSearching ? String(localized: "没有匹配的聊天记录") : String(localized: "聊天记录为空"))
                                     .font(.system(size: 14))
                                     .foregroundColor(textMuted)
                             }
@@ -236,7 +236,7 @@ public struct WeChatChatArchiveSheet: View {
         .sheet(isPresented: $showDocumentExporter) {
             if let zipURL = downloadedZipURL {
                 DocumentExporterRepresentable(url: zipURL) { _ in
-                    showToast("已保存原压缩包")
+                    showToast(String(localized: "已保存原压缩包"))
                 }
             }
         }
@@ -312,7 +312,7 @@ public struct WeChatChatArchiveSheet: View {
             Spacer(minLength: 4)
 
             VStack(spacing: 1.5) {
-                Text(archive?.title ?? "群聊的聊天记录")
+                Text(archive?.title ?? String(localized: "群聊的聊天记录"))
                     .font(.system(size: 16.5, weight: .semibold))
                     .foregroundColor(textPrimary)
                     .lineLimit(1)
@@ -338,13 +338,13 @@ public struct WeChatChatArchiveSheet: View {
                         if !isSearching { searchQuery = "" }
                     }
                 } label: {
-                    Label(isSearching ? "关闭搜索" : "搜索聊天记录", systemImage: "magnifyingglass")
+                    Label(isSearching ? String(localized: "关闭搜索") : String(localized: "搜索聊天记录"), systemImage: "magnifyingglass")
                 }
 
                 Button {
                     Task { await loadArchive(forceRefresh: true) }
                 } label: {
-                    Label(isRefreshing ? "正在刷新..." : "重新拉取", systemImage: "arrow.clockwise")
+                    Label(isRefreshing ? String(localized: "正在刷新...") : String(localized: "重新拉取"), systemImage: "arrow.clockwise")
                 }
                 .disabled(isRefreshing || isLoading)
 
@@ -352,7 +352,7 @@ public struct WeChatChatArchiveSheet: View {
                     Button {
                         UIPasteboard.general.string = raw
                         UINotificationFeedbackGenerator().notificationOccurred(.success)
-                        showToast("已复制全部聊天记录")
+                        showToast(String(localized: "已复制全部聊天记录"))
                     } label: {
                         Label("复制全部文本", systemImage: "doc.on.doc")
                     }
@@ -361,7 +361,7 @@ public struct WeChatChatArchiveSheet: View {
                 Button {
                     Task { await downloadAndExportOriginalZip() }
                 } label: {
-                    Label(isDownloadingZip ? "正在下载压缩包..." : "保存原始 ZIP", systemImage: "square.and.arrow.down")
+                    Label(isDownloadingZip ? String(localized: "正在下载压缩包...") : String(localized: "保存原始 ZIP"), systemImage: "square.and.arrow.down")
                 }
                 .disabled(isDownloadingZip)
 
@@ -452,7 +452,7 @@ public struct WeChatChatArchiveSheet: View {
                 Button {
                     UIPasteboard.general.string = copyable
                     UINotificationFeedbackGenerator().notificationOccurred(.success)
-                    showToast("已复制")
+                    showToast(String(localized: "已复制"))
                 } label: {
                     Label("复制内容", systemImage: "doc.on.doc")
                 }
@@ -461,7 +461,7 @@ public struct WeChatChatArchiveSheet: View {
                 let block = "\(msg.sender)  \(msg.timestamp)\n\(copyable)"
                 UIPasteboard.general.string = block
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
-                showToast("已复制含时间与发送者")
+                showToast(String(localized: "已复制含时间与发送者"))
             } label: {
                 Label("复制完整记录", systemImage: "text.quote")
             }
@@ -504,13 +504,13 @@ public struct WeChatChatArchiveSheet: View {
                         baseURL: baseURL,
                         refreshToken: mediaRefreshToken,
                         placeholderBg: cardBg,
-                        failureLabel: msg.mediaName ?? "图片加载失败",
+                        failureLabel: msg.mediaName ?? String(localized: "图片加载失败"),
                         textMuted: textMuted
                     )
                 }
                 .buttonStyle(.plain)
             } else {
-                missingImageBox(label: "图片")
+                missingImageBox(label: String(localized: "图片"))
             }
 
         case "video":
@@ -558,17 +558,17 @@ public struct WeChatChatArchiveSheet: View {
                 }
                 .buttonStyle(.plain)
             } else {
-                placeholderTag(icon: "video.slash", title: "[视频]", subtitle: "未随记录导出")
+                placeholderTag(icon: "video.slash", title: String(localized: "[视频]"), subtitle: String(localized: "未随记录导出"))
             }
 
         case "missing_image":
-            missingImageBox(label: "未随记录导出")
+            missingImageBox(label: String(localized: "未随记录导出"))
 
         case "missing_video":
-            placeholderTag(icon: "video.slash", title: "[视频]", subtitle: "未随记录导出")
+            placeholderTag(icon: "video.slash", title: String(localized: "[视频]"), subtitle: String(localized: "未随记录导出"))
 
         case "sticker":
-            let label = msg.text.isEmpty ? "[动画表情]" : "[动画表情] \(msg.text)"
+            let label = msg.text.isEmpty ? String(localized: "[动画表情]") : String(localized: "[动画表情] \(msg.text)")
             Text(label)
                 .font(.system(size: 14))
                 .foregroundColor(textMuted)
@@ -691,9 +691,9 @@ public struct WeChatChatArchiveSheet: View {
         guard let baseURL else {
             if archive == nil {
                 isLoading = false
-                errorMessage = "未连接到网关服务器"
+                errorMessage = String(localized: "未连接到网关服务器")
             } else {
-                showToast("未连接到网关服务器")
+                showToast(String(localized: "未连接到网关服务器"))
             }
             return
         }
@@ -717,13 +717,13 @@ public struct WeChatChatArchiveSheet: View {
             isLoading = false
             if forceRefresh {
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
-                showToast("已刷新聊天记录")
+                showToast(String(localized: "已刷新聊天记录"))
             }
         } catch {
             if archive != nil && forceRefresh {
-                showToast("刷新失败：\(error.localizedDescription)")
+                showToast(String(localized: "刷新失败：\(error.localizedDescription)"))
             } else {
-                errorMessage = "解析聊天记录失败：\(error.localizedDescription)"
+                errorMessage = String(localized: "解析聊天记录失败：\(error.localizedDescription)")
                 isLoading = false
             }
         }
@@ -736,7 +736,7 @@ public struct WeChatChatArchiveSheet: View {
             let (localURL, _) = try await apiClient.downloadFile(uri: url.absoluteString, cascadeId: cascadeId, baseURL: baseURL)
             previewEntryURL = IdentifiableURL(url: localURL)
         } catch {
-            showToast("打开附件失败")
+            showToast(String(localized: "打开附件失败"))
         }
     }
 
@@ -749,7 +749,7 @@ public struct WeChatChatArchiveSheet: View {
             downloadedZipURL = localURL
             showDocumentExporter = true
         } catch {
-            showToast("下载原始 ZIP 失败")
+            showToast(String(localized: "下载原始 ZIP 失败"))
         }
     }
 

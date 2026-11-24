@@ -153,7 +153,7 @@ public struct TokenHistoryShareCardView: View {
             kpiCell(title: String(localized: "今日消耗"), value: AccountQuotaSheet.formatTokensCompact(s.todayTokens), sub: String(localized: "\(s.activeDays) 活跃日"))
             kpiCell(title: String(localized: "近 7 日"), value: AccountQuotaSheet.formatTokensCompact(s.last7dTokens), sub: String(localized: "\(s.totalSteps) 轮采样"))
             kpiCell(title: String(localized: "累计总 Token"), value: AccountQuotaSheet.formatTokensCompact(s.totalTokens), sub: "IDE \(AccountQuotaSheet.formatTokensCompact(s.desktopTokens)) · CLI \(AccountQuotaSheet.formatTokensCompact(s.cliTokens))")
-            kpiCell(title: String(localized: "API 折算"), value: String(format: "$%.2f", s.estimatedCostUsd), sub: String(format: "≈ ¥%.1f", s.estimatedCostCny))
+            kpiCell(title: String(localized: "API 折算"), value: AccountQuotaSheet.formatUSD(s.estimatedCostUsd), sub: AccountQuotaSheet.formatSecondaryCost(cny: s.estimatedCostCny))
         }
     }
 
@@ -273,13 +273,13 @@ public struct TokenHistoryShareCardView: View {
             }
             Divider().overlay(cardBorderColor)
             HStack {
-                inspectorCell("Input", AccountQuotaSheet.formatTokensCompact(record.input))
+                inspectorCell(String(localized: "Input"), AccountQuotaSheet.formatTokensCompact(record.input))
                 Spacer()
-                inspectorCell("Cache Hit", AccountQuotaSheet.formatTokensCompact(record.cacheRead))
+                inspectorCell(String(localized: "Cache Hit"), AccountQuotaSheet.formatTokensCompact(record.cacheRead))
                 Spacer()
-                inspectorCell("Output", AccountQuotaSheet.formatTokensCompact(record.output))
+                inspectorCell(String(localized: "Output"), AccountQuotaSheet.formatTokensCompact(record.output))
                 Spacer()
-                inspectorCell("Thinking", AccountQuotaSheet.formatTokensCompact(record.thinking))
+                inspectorCell(String(localized: "Thinking"), AccountQuotaSheet.formatTokensCompact(record.thinking))
             }
             if !allDayModels.isEmpty {
                 Divider().overlay(cardBorderColor)

@@ -70,9 +70,21 @@
     "%lld 个任务": {
       "localizations": {
         "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld tasks"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld task"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld tasks"
+                }
+              }
+            }
           }
         },
         "ja": {
@@ -92,9 +104,21 @@
     "%lld 任务": {
       "localizations": {
         "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld tasks"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld task"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld tasks"
+                }
+              }
+            }
           }
         },
         "ja": {
@@ -400,9 +424,21 @@
     "任务已完成 · 共 %lld 步": {
       "localizations": {
         "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Completed · %lld steps"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Completed · %lld step"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Completed · %lld steps"
+                }
+              }
+            }
           }
         },
         "ja": {
@@ -598,9 +634,21 @@
     "共 %lld 个会话": {
       "localizations": {
         "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld conversations"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld conversation"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld conversations"
+                }
+              }
+            }
           }
         },
         "ja": {
@@ -686,9 +734,21 @@
     "另有 %lld 个任务在队列中...": {
       "localizations": {
         "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld more tasks in queue..."
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld more task in queue..."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld more tasks in queue..."
+                }
+              }
+            }
           }
         },
         "ja": {
@@ -2044,6 +2104,99 @@
           "stringUnit": {
             "state": "translated",
             "value": "ordersテーブル無停止複合インデックス移行"
+          }
+        }
+      }
+    },
+    "%lld%%": {
+      "shouldTranslate": false
+    },
+    "+%lld": {
+      "shouldTranslate": false
+    },
+    "--": {
+      "shouldTranslate": false
+    },
+    "Cascade ID": {
+      "shouldTranslate": false
+    },
+    "Demo": {
+      "shouldTranslate": false
+    },
+    "Expected Step Index": {
+      "shouldTranslate": false
+    },
+    "Multigravity": {
+      "shouldTranslate": false
+    },
+    "PRO": {
+      "shouldTranslate": false
+    },
+    "ULTRA": {
+      "shouldTranslate": false
+    },
+    "等待": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "待機"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等待"
+          }
+        }
+      }
+    },
+    "操作失败，请重试": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Action failed, please retry"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "操作に失敗しました。再試行してください"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "操作失败，请重试"
+          }
+        }
+      }
+    },
+    "已在其他设备处理，继续执行中": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resolved on another device, continuing..."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "他のデバイスで処理済み、実行を継続中"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已在其他设备处理，继续执行中"
           }
         }
       }

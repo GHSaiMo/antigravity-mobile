@@ -300,10 +300,13 @@ public struct McpSkillsSheet: View {
                             Text(server.spec.serverName)
                                 .font(.system(size: 16, weight: .bold))
                                 .foregroundColor(.primary)
+                                .lineLimit(1)
                             
                             if let ver = server.serverInfo?.version, !ver.isEmpty {
                                 Text("v\(ver)")
                                     .font(.system(size: 11, design: .monospaced))
+                                    .lineLimit(1)
+                                    .fixedSize(horizontal: true, vertical: false)
                                     .padding(.horizontal, 5)
                                     .padding(.vertical, 1.5)
                                     .background(Color(.secondarySystemBackground))
@@ -311,7 +314,7 @@ public struct McpSkillsSheet: View {
                                     .foregroundColor(.secondary)
                             }
                             
-                            Spacer()
+                            Spacer(minLength: 4)
                             
                             HStack(spacing: 4) {
                                 Circle()
@@ -319,8 +322,11 @@ public struct McpSkillsSheet: View {
                                     .frame(width: 7, height: 7)
                                 Text(server.statusTitle)
                                     .font(.system(size: 11.5, weight: .medium))
+                                    .lineLimit(1)
                                     .foregroundColor(server.isReady ? .green : .orange)
                             }
+                            .fixedSize(horizontal: true, vertical: false)
+                            .layoutPriority(1)
                             .padding(.horizontal, 7)
                             .padding(.vertical, 3)
                             .background(server.isReady ? Color.green.opacity(0.1) : Color.orange.opacity(0.1))
@@ -812,24 +818,10 @@ public struct McpSkillsSheet: View {
                         HStack(alignment: .center, spacing: 8) {
                             Text(plugin.name)
                                 .font(.system(size: 15, weight: .bold))
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.9)
 
-                            if plugin.installed {
-                                Text(plugin.enabled ? String(localized: "已启用") : String(localized: "已停用"))
-                                    .font(.system(size: 11, weight: .medium))
-                                    .foregroundColor(plugin.enabled ? .green : .secondary)
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 2)
-                                    .background((plugin.enabled ? Color.green : Color.secondary).opacity(0.12))
-                                    .clipShape(Capsule())
-                            }
-
-                            if let ver = plugin.version, !ver.isEmpty {
-                                Text("v\(ver)")
-                                    .font(.system(size: 10.5, design: .monospaced))
-                                    .foregroundColor(.secondary)
-                            }
-
-                            Spacer()
+                            Spacer(minLength: 8)
 
                             if !plugin.installed {
                                 Button(action: { installPlugin(plugin.id) }) {
@@ -838,9 +830,12 @@ public struct McpSkillsSheet: View {
                                     } else {
                                         Text("安装")
                                             .font(.system(size: 12, weight: .semibold))
+                                            .lineLimit(1)
                                     }
                                 }
                                 .buttonStyle(.borderedProminent)
+                                .fixedSize(horizontal: true, vertical: false)
+                                .layoutPriority(1)
                                 .disabled(installingPluginIds.contains(plugin.id))
                             } else if (plugin.id.lowercased() == "swarm" || plugin.name.lowercased() == "swarm"),
                                       hasActiveSwarm,
@@ -851,14 +846,40 @@ public struct McpSkillsSheet: View {
                                 }) {
                                     Text("打开看板")
                                         .font(.system(size: 12, weight: .semibold))
+                                        .lineLimit(1)
                                 }
                                 .buttonStyle(.borderedProminent)
+                                .fixedSize(horizontal: true, vertical: false)
+                                .layoutPriority(1)
                             }
                         }
 
-                        Text(plugin.id)
-                            .font(.system(size: 11, design: .monospaced))
-                            .foregroundColor(.secondary)
+                        HStack(spacing: 6) {
+                            if plugin.installed {
+                                Text(plugin.enabled ? String(localized: "已启用") : String(localized: "已停用"))
+                                    .font(.system(size: 10.5, weight: .medium))
+                                    .lineLimit(1)
+                                    .fixedSize(horizontal: true, vertical: false)
+                                    .foregroundColor(plugin.enabled ? .green : .secondary)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 1.5)
+                                    .background((plugin.enabled ? Color.green : Color.secondary).opacity(0.12))
+                                    .clipShape(Capsule())
+                            }
+
+                            if let ver = plugin.version, !ver.isEmpty {
+                                Text("v\(ver)")
+                                    .font(.system(size: 10.5, design: .monospaced))
+                                    .foregroundColor(.secondary)
+                                    .fixedSize(horizontal: true, vertical: false)
+                            }
+
+                            Text(plugin.id)
+                                .font(.system(size: 11, design: .monospaced))
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
 
                         if !plugin.description.isEmpty {
                             Text(plugin.description)
@@ -951,29 +972,33 @@ public struct McpSkillsSheet: View {
                         VStack(alignment: .leading, spacing: 6) {
                             HStack(alignment: .center, spacing: 8) {
                                 VStack(alignment: .leading, spacing: 4) {
-                                    HStack(spacing: 6) {
-                                        Text(sidecar.name)
-                                            .font(.system(size: 15, weight: .bold))
-                                            .lineLimit(1)
+                                    Text(sidecar.name)
+                                        .font(.system(size: 15, weight: .bold))
+                                        .lineLimit(2)
+                                        .fixedSize(horizontal: false, vertical: true)
 
+                                    HStack(spacing: 6) {
                                         Text(sidecar.isRunning ? String(localized: "运行中") : String(localized: "已暂停"))
-                                            .font(.system(size: 11, weight: .medium))
+                                            .font(.system(size: 10.5, weight: .medium))
+                                            .lineLimit(1)
+                                            .fixedSize(horizontal: true, vertical: false)
+                                            .layoutPriority(1)
                                             .foregroundColor(sidecar.isRunning ? .green : .secondary)
                                             .padding(.horizontal, 6)
-                                            .padding(.vertical, 2)
+                                            .padding(.vertical, 1.5)
                                             .background((sidecar.isRunning ? Color.green : Color.secondary).opacity(0.12))
                                             .clipShape(Capsule())
-                                    }
 
-                                    if let cron = sidecar.cronExpression, !cron.isEmpty {
-                                        HStack(spacing: 4) {
-                                            Image(systemName: "clock")
-                                                .font(.system(size: 10))
-                                            Text(AutomationCronHelper.humanSummary(cron))
-                                                .font(.system(size: 11.5))
-                                                .lineLimit(1)
+                                        if let cron = sidecar.cronExpression, !cron.isEmpty {
+                                            HStack(spacing: 3) {
+                                                Image(systemName: "clock")
+                                                    .font(.system(size: 10))
+                                                Text(AutomationCronHelper.humanSummary(cron))
+                                                    .font(.system(size: 11.5))
+                                                    .lineLimit(1)
+                                            }
+                                            .foregroundColor(.secondary)
                                         }
-                                        .foregroundColor(.secondary)
                                     }
                                 }
                                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -1007,6 +1032,7 @@ public struct McpSkillsSheet: View {
                                         } else {
                                             Text(sidecar.isRunning ? String(localized: "停止") : String(localized: "启动"))
                                                 .font(.system(size: 12, weight: .semibold))
+                                                .lineLimit(1)
                                         }
                                     }
                                     .padding(.horizontal, 10)
@@ -1014,6 +1040,7 @@ public struct McpSkillsSheet: View {
                                     .background(sidecar.isRunning ? Color.secondary.opacity(0.14) : Color.indigo.opacity(0.14))
                                     .foregroundColor(sidecar.isRunning ? .primary : .indigo)
                                     .clipShape(Capsule())
+                                    .fixedSize(horizontal: true, vertical: false)
                                 }
                                 .buttonStyle(.borderless)
                                 .disabled(managingAutomationNames.contains(sidecar.id))
@@ -1028,16 +1055,20 @@ public struct McpSkillsSheet: View {
 
                             VStack(alignment: .leading, spacing: 4) {
                                 if sidecar.nextRunAt?.isEmpty == false || sidecar.lastRunAt?.isEmpty == false {
-                                    HStack(spacing: 8) {
+                                    HStack(spacing: 10) {
                                         if sidecar.isRunning, let next = sidecar.nextRunAt, !next.isEmpty {
-                                            Text("下次: \(next)")
+                                            Text("下次: \(AutomationCronHelper.formatTimestamp(next))")
                                                 .font(.system(size: 11))
                                                 .foregroundColor(.secondary)
+                                                .lineLimit(1)
+                                                .minimumScaleFactor(0.85)
                                         }
                                         if let last = sidecar.lastRunAt, !last.isEmpty {
-                                            Text("上次: \(last)")
+                                            Text("上次: \(AutomationCronHelper.formatTimestamp(last))")
                                                 .font(.system(size: 11))
                                                 .foregroundColor(.secondary.opacity(0.8))
+                                                .lineLimit(1)
+                                                .minimumScaleFactor(0.85)
                                         }
                                     }
                                 }
@@ -1083,7 +1114,7 @@ public struct McpSkillsSheet: View {
                                         .foregroundColor(.primary)
                                     Spacer()
                                     if !ev.timestamp.isEmpty {
-                                        Text(ev.timestamp)
+                                        Text(AutomationCronHelper.formatTimestamp(ev.timestamp))
                                             .font(.system(size: 11))
                                             .foregroundColor(.secondary)
                                     }
@@ -1241,6 +1272,8 @@ public struct McpSkillsSheet: View {
 
                 Text(badgeTitle)
                     .font(.system(size: 10.5, weight: .semibold))
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
                     .foregroundColor(badgeColor)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
@@ -1255,6 +1288,8 @@ public struct McpSkillsSheet: View {
                 if let elapsed = task.elapsedText {
                     Text(elapsed)
                         .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
                         .foregroundColor(.secondary)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
@@ -1315,9 +1350,12 @@ public struct McpSkillsSheet: View {
                         HStack(spacing: 2) {
                             Text("跳转会话")
                                 .font(.system(size: 11, weight: .medium))
+                                .lineLimit(1)
                             Image(systemName: "chevron.right")
                                 .font(.system(size: 9.5, weight: .bold))
                         }
+                        .fixedSize(horizontal: true, vertical: false)
+                        .layoutPriority(1)
                         .foregroundColor(.indigo)
                     }
                 }
@@ -1354,6 +1392,8 @@ public struct McpSkillsSheet: View {
                                     .font(.system(size: 11))
                                 Text(isCopied ? String(localized: "已复制命令") : String(localized: "复制命令"))
                                     .font(.system(size: 11.5, weight: .medium))
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.85)
                             }
                             .foregroundColor(isCopied ? .green : .secondary)
                         }
@@ -1374,6 +1414,8 @@ public struct McpSkillsSheet: View {
                                         .font(.system(size: 11))
                                     Text(isLogExpanded ? String(localized: "收起终端日志") : String(localized: "查看最新终端日志"))
                                         .font(.system(size: 11.5, weight: .medium))
+                                        .lineLimit(1)
+                                        .minimumScaleFactor(0.85)
                                 }
                                 .foregroundColor(.indigo)
                             }
@@ -1381,7 +1423,7 @@ public struct McpSkillsSheet: View {
                         }
 
                         if isLogExpanded {
-                            Spacer()
+                            Spacer(minLength: 4)
                             Button {
                                 UIImpactFeedbackGenerator(style: .light).impactOccurred()
                                 Task { await fetchTaskLog(task) }
@@ -1391,7 +1433,9 @@ public struct McpSkillsSheet: View {
                                         .font(.system(size: 10.5, weight: .semibold))
                                     Text("刷新")
                                         .font(.system(size: 11, weight: .medium))
+                                        .lineLimit(1)
                                 }
+                                .fixedSize(horizontal: true, vertical: false)
                                 .foregroundColor(.secondary)
                             }
                             .buttonStyle(.plain)

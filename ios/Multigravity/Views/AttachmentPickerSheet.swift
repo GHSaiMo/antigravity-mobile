@@ -351,6 +351,7 @@ struct AttachmentPickerSheet: View {
     let onFilesPicked: ([URL]) -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
     @StateObject private var photos = RecentPhotosModel()
     @State private var selected: [String] = []                // PHAsset.localIdentifier, in selection order
     @State private var selectedAssetMap: [String: PHAsset] = [:] // Preserves PHAsset references across album switches
@@ -716,6 +717,7 @@ struct AttachmentPickerSheet: View {
     
     private var permissionTile: some View {
         let isDenied = photos.authorization == .denied || photos.authorization == .restricted
+        let tint: Color = colorScheme == .dark ? Color(red: 0.58, green: 0.60, blue: 1.0) : .indigo
         return Button {
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
             if photos.authorization == .notDetermined {
@@ -726,20 +728,23 @@ struct AttachmentPickerSheet: View {
         } label: {
             VStack(spacing: 4) {
                 Image(systemName: isDenied ? "gearshape" : "photo.on.rectangle")
-                    .font(.system(size: 22))
+                    .font(.system(size: 26, weight: .regular))
+                    .frame(height: 32)
                 Text(isDenied ? String(localized: "开启相册权限") : String(localized: "访问最近照片"))
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.system(size: 13, weight: .medium))
                     .multilineTextAlignment(.center)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.76)
                     .padding(.horizontal, 4)
             }
-            .foregroundColor(.indigo)
+            .foregroundColor(tint)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color.indigo.opacity(0.08))
+            .background(Color.indigo.opacity(colorScheme == .dark ? 0.16 : 0.08))
             .aspectRatio(1, contentMode: .fit)
             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .stroke(Color.indigo.opacity(0.22), lineWidth: 1)
+                    .stroke(Color.indigo.opacity(colorScheme == .dark ? 0.36 : 0.22), lineWidth: 1)
             )
         }
         .buttonStyle(.plain)

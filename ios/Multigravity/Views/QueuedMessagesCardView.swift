@@ -52,7 +52,9 @@ public struct QueuedMessagesCardView: View {
         if cleaned.isEmpty {
             return String(localized: "后台任务运行中，完成后出列")
         }
-        let head = cleaned.prefix(2).joined(separator: "、")
+        let lang = (Bundle.main.preferredLocalizations.first ?? Locale.preferredLanguages.first ?? "en").lowercased()
+        let sep = (lang.hasPrefix("zh") || lang.hasPrefix("ja")) ? "、" : ", "
+        let head = cleaned.prefix(2).joined(separator: sep)
         if cleaned.count > 2 {
             return String(localized: "等待 \(head) 等\(cleaned.count)项完成后出列")
         }

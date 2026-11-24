@@ -678,6 +678,17 @@ enum SwarmHelpers {
                 out = String(out.dropLast(suffix.count))
             }
         }
+        let lower = out.lowercased()
+        if lower == "gemini-pro-orchestrator-neon" {
+            return "Orchestrator Neon"
+        }
+        if lower.hasPrefix("gemini-pro-orchestrator-") {
+            let suffix = out.dropFirst("gemini-pro-orchestrator-".count)
+            return "Orch · \(suffix.capitalized)"
+        }
+        if lower == "gemini-pro-orchestrator" {
+            return "Orchestrator"
+        }
         return out
     }
 
@@ -725,7 +736,7 @@ enum SwarmHelpers {
 
     static func extractRoleHint(for memberName: String, role: String, messages: [SwarmBoardMessage]) -> String {
         if memberName == "coordinator" || role == "coordinator" {
-            return "Coordinator"
+            return String(localized: "Coordinator")
         }
         // Look at earliest brief from coordinator mentioning this member
         if let brief = messages.first(where: { m in
@@ -778,13 +789,15 @@ enum SwarmHelpers {
               let d1 = parseDate(startRaw), let d2 = parseDate(endRaw) else { return nil }
         let sec = max(0, Int(d2.timeIntervalSince(d1).rounded()))
         if sec <= 0 { return nil }
-        if sec < 60 { return "\(sec)s" }
+        if sec < 60 { return String(localized: "\(sec)秒") }
         let mins = sec / 60
         let rem = sec % 60
-        if mins < 60 { return rem > 0 ? "\(mins)m \(rem)s" : "\(mins)m" }
+        if mins < 60 {
+            return rem > 0 ? String(localized: "\(mins)分\(rem)秒") : String(localized: "\(mins)分")
+        }
         let hrs = mins / 60
         let remMins = mins % 60
-        return remMins > 0 ? "\(hrs)h \(remMins)m" : "\(hrs)h"
+        return remMins > 0 ? String(localized: "\(hrs)小时\(remMins)分") : String(localized: "\(hrs)小时")
     }
 }
 
@@ -1047,7 +1060,7 @@ enum SwarmHiveEngine {
             }()
 
             let roleTitle: String = {
-                if k == "coordinator" { return "Coordinator" }
+                if k == "coordinator" { return String(localized: "Coordinator") }
                 if let pt = planTasks[m.name]?.trimmingCharacters(in: .whitespacesAndNewlines), !pt.isEmpty {
                     return pt
                 }
@@ -1082,7 +1095,7 @@ enum SwarmHiveEngine {
                 name: "coordinator",
                 conversationId: snap.coordinatorId,
                 role: "coordinator",
-                title: "Coordinator",
+                title: String(localized: "Coordinator"),
                 model: "",
                 status: "parked",
                 waitingOn: nil,
@@ -1230,13 +1243,13 @@ enum SwarmHiveEngine {
                 case .needs: return String(localized: "待你确认")
                 case .waiting:
                     if waiters.count == 1, let only = waiters.first {
-                        return "Waiting on @\(only)"
+                        return String(localized: "Waiting on @\(only)")
                     }
-                    return waiters.count > 1 ? "Waiting on \(waiters.count)" : "Waiting"
-                case .stuck: return "Stuck"
-                case .running: return "Moving"
-                case .queued: return "Not started"
-                case .done: return "Done"
+                    return waiters.count > 1 ? String(localized: "Waiting on \(waiters.count)") : String(localized: "Waiting")
+                case .stuck: return String(localized: "Stuck")
+                case .running: return String(localized: "Moving")
+                case .queued: return String(localized: "Not started")
+                case .done: return String(localized: "Done")
                 }
             }()
             let derivedNow: String = {
@@ -1282,7 +1295,7 @@ enum SwarmHiveEngine {
 
         let remaining = allTasks.filter { !usedIds.contains($0.id) }.filter(matchesFilter)
         if !remaining.isEmpty, !rawSpecs.isEmpty {
-            if let otherTh = buildThread(id: "t-other", title: "Other", goal: "", explicitNow: "", items: remaining) {
+            if let otherTh = buildThread(id: "t-other", title: String(localized: "Other"), goal: "", explicitNow: "", items: remaining) {
                 synthThreads.append(otherTh)
             }
         }
@@ -1315,7 +1328,7 @@ enum SwarmHiveEngine {
             }
         }
 
-        let waitingChips = waitMap.sorted { $0.value > $1.value }.prefix(2).map { "\($0.value) waiting on @\($0.key)" }
+        let waitingChips = waitMap.sorted { $0.value > $1.value }.prefix(2).map { String(localized: "\($0.value) waiting on @\($0.key)") }
         let stuckCount = synthMembers.values.filter { !$0.killed && $0.hasIssue }.count
         let openThreads = synthThreads.filter { $0.state != .done }.count
         let needsYouCount = askByMember["coordinator"] != nil ? 1 : 0
@@ -1585,20 +1598,20 @@ enum SwarmHiveEngine {
             let rest = workers.filter { !homed.contains($0) }
             if !rest.isEmpty {
                 let doneRest = rest.filter { beeStates[$0] == .done || beeStates[$0] == .retired }.count
-                tempCells.append(TempCell(id: "_other", title: "Other", goal: "", ws: [], bees: rest, done: doneRest, total: rest.count, countOnly: nil))
+                tempCells.append(TempCell(id: "_other", title: String(localized: "Other"), goal: "", ws: [], bees: rest, done: doneRest, total: rest.count, countOnly: nil))
             }
         } else {
-            let buckets: [(String, (SwarmHiveBeeState) -> Bool)] = [
-                ("Working", { $0 == .working }),
-                ("Waiting", { $0 == .wait || $0 == .issue }),
-                ("Resting", { $0 == .idle }),
-                ("Done", { $0 == .done || $0 == .retired })
+            let buckets: [(String, String, (SwarmHiveBeeState) -> Bool)] = [
+                ("Working", String(localized: "Working"), { $0 == .working }),
+                ("Waiting", String(localized: "Waiting"), { $0 == .wait || $0 == .issue }),
+                ("Resting", String(localized: "Resting"), { $0 == .idle }),
+                ("Done", String(localized: "Done"), { $0 == .done || $0 == .retired })
             ]
-            for (title, pred) in buckets {
+            for (bucketKey, title, pred) in buckets {
                 let matched = workers.filter { pred(beeStates[$0] ?? .idle) }
                 if !matched.isEmpty {
                     tempCells.append(TempCell(
-                        id: "_\(title)",
+                        id: "_\(bucketKey)",
                         title: title,
                         goal: "",
                         ws: [],

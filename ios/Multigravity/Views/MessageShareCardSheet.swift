@@ -534,6 +534,7 @@ struct MessageShareCardSheet: View {
                         Text(theme.label)
                             .font(.system(size: 14, weight: .semibold))
                             .lineLimit(1)
+                            .minimumScaleFactor(0.85)
                         Image(systemName: "chevron.up.chevron.down")
                             .font(.system(size: 11, weight: .semibold))
                             .foregroundColor(.secondary)
@@ -544,7 +545,7 @@ struct MessageShareCardSheet: View {
                 .buttonStyle(.plain)
                 .glassEffect(.regular.interactive(), in: .capsule)
 
-                Spacer()
+                Spacer(minLength: 8)
 
                 if canIncludeQuestion {
                     Button {
@@ -553,6 +554,8 @@ struct MessageShareCardSheet: View {
                     } label: {
                         Label("包含提问", systemImage: includeQuestion ? "checkmark.circle.fill" : "circle")
                             .font(.system(size: 15, weight: .semibold))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.82)
                             .padding(.horizontal, 16)
                             .frame(height: 44)
                     }

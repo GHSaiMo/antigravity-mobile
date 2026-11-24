@@ -30,8 +30,8 @@ public struct QuotaStatusBarView: View {
     
     private var titleText: String {
         switch resolvedKind {
-        case .gemini5h: return "Gemini · 5h"
-        case .claude5h: return "Claude · 5h"
+        case .gemini5h: return String(localized: "Gemini · 5h")
+        case .claude5h: return String(localized: "Claude · 5h")
         case .geminiWeekly: return "Gemini"
         case .claudeWeekly: return "Claude"
         }
@@ -90,16 +90,30 @@ public struct QuotaStatusBarView: View {
             if let clock = formattedResetClockTime {
                 return clock
             }
-            if let friendly = bucket?.resetFriendly, friendly == "已就绪" || friendly == "未知" {
-                return friendly
+            if let friendly = bucket?.resetFriendly {
+                if friendly == "已就绪" || friendly == "就绪" {
+                    return String(localized: "已就绪")
+                }
+                if friendly == "未知" {
+                    return String(localized: "未知")
+                }
+                if friendly == "配额充足" {
+                    return String(localized: "配额充足")
+                }
             }
             return nil
         }
         guard let friendly = bucket?.resetFriendly, !friendly.isEmpty else {
             return nil
         }
-        if friendly == "已就绪" || friendly == "未知" {
-            return friendly
+        if friendly == "已就绪" || friendly == "就绪" {
+            return String(localized: "已就绪")
+        }
+        if friendly == "未知" {
+            return String(localized: "未知")
+        }
+        if friendly == "配额充足" {
+            return String(localized: "配额充足")
         }
         if let clock = formattedResetClockTime {
             return "\(friendly) \(clock)"

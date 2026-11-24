@@ -1024,7 +1024,7 @@ private struct MentionPickerView: View {
         case "conversation":
             return ("bubble.left.and.bubble.right.fill", .teal, String(localized: "会话"))
         default:
-            return ("doc.text.fill", .indigo, String(localized: "文件"))
+            return ("doc.text.fill", .indigo, String(localized: "file.singular", defaultValue: "文件"))
         }
     }
 }

@@ -115,7 +115,7 @@ struct DraftFileChipView: View {
     
     private var subtitle: String {
         let sizeText = formatFileSize(file.size)
-        let prefix = FileIconResolver.isWeChatChatArchive(file.name) ? "微信聊天记录 · \(sizeText)" : sizeText
+        let prefix = FileIconResolver.isWeChatChatArchive(file.name) ? String(localized: "微信聊天记录 · \(sizeText)") : sizeText
         switch file.state {
         case .failed:
             return String(localized: "上传失败，点按重试")
@@ -193,7 +193,7 @@ struct MessageFileCardView: View {
     let onTap: () -> Void
     
     private var typeLabel: String {
-        FileIconResolver.isWeChatChatArchive(file.name) ? "微信聊天记录" : file.ext.uppercased()
+        FileIconResolver.isWeChatChatArchive(file.name) ? String(localized: "微信聊天记录") : file.ext.uppercased()
     }
     
     var body: some View {

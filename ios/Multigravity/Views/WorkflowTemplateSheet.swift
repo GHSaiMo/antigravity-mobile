@@ -623,6 +623,8 @@ public struct WorkflowTemplateSheet: View {
             Text(title)
                 .font(.system(size: 13.5, weight: .bold))
                 .foregroundColor(.primary)
+                .lineLimit(1)
+                .layoutPriority(1)
             Text("\(count)")
                 .font(.system(size: 11.5, weight: .semibold))
                 .foregroundColor(.secondary)
@@ -630,11 +632,13 @@ public struct WorkflowTemplateSheet: View {
                 .padding(.vertical, 1)
                 .background(Color(uiColor: .tertiarySystemFill))
                 .clipShape(Capsule())
+                .layoutPriority(1)
             Spacer(minLength: 8)
             Text(subtitle)
                 .font(.system(size: 11))
                 .foregroundColor(.secondary)
                 .lineLimit(1)
+                .minimumScaleFactor(0.8)
         }
         .padding(.horizontal, 2)
     }

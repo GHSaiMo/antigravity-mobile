@@ -131,7 +131,7 @@ public struct AccountQuotaSheet: View {
                             }
                         }
                     }) {
-                        Label(copiedFeedbackText == "github" ? "已复制链接" : "复制 GitHub 链接",
+                        Label(copiedFeedbackText == "github" ? String(localized: "已复制链接") : String(localized: "复制 GitHub 链接"),
                               systemImage: copiedFeedbackText == "github" ? "checkmark" : "link")
                             .font(.system(size: 12, weight: .medium))
                     }
@@ -147,7 +147,7 @@ public struct AccountQuotaSheet: View {
                             }
                         }
                     }) {
-                        Label(copiedFeedbackText == "cmd" ? "已复制命令" : "复制 mgy cockpit 命令",
+                        Label(copiedFeedbackText == "cmd" ? String(localized: "已复制命令") : String(localized: "复制 mgy cockpit 命令"),
                               systemImage: copiedFeedbackText == "cmd" ? "checkmark" : "terminal")
                             .font(.system(size: 12, weight: .medium))
                     }
@@ -159,7 +159,7 @@ public struct AccountQuotaSheet: View {
                     }
                 }) {
                     HStack(spacing: 4) {
-                        Text(isCockpitGuideExpanded ? "收起配置步骤" : "查看详细配置步骤")
+                        Text(isCockpitGuideExpanded ? String(localized: "收起配置步骤") : String(localized: "查看详细配置步骤"))
                             .font(.system(size: 11, weight: .medium))
                         Image(systemName: isCockpitGuideExpanded ? "chevron.up" : "chevron.down")
                             .font(.system(size: 10, weight: .semibold))
@@ -495,6 +495,8 @@ public struct AccountQuotaSheet: View {
                     .lineLimit(1)
                 
                 tierBadge(for: acc.subscriptionTier)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .layoutPriority(1)
                 
                 Spacer(minLength: 4)
                 
@@ -511,6 +513,8 @@ public struct AccountQuotaSheet: View {
                         } else {
                             Text("切换")
                                 .font(.system(size: 11, weight: .semibold))
+                                .lineLimit(1)
+                                .fixedSize(horizontal: true, vertical: false)
                                 .foregroundColor(.white)
                                 .padding(.horizontal, 10)
                                 .padding(.vertical, 4)
@@ -519,6 +523,7 @@ public struct AccountQuotaSheet: View {
                         }
                     }
                     .buttonStyle(.plain)
+                    .layoutPriority(1)
                     .disabled(switchingAccountId != nil)
                 }
             }
@@ -734,10 +739,11 @@ public struct AccountQuotaSheet: View {
         let paceInfo = isPaceSupported ? bucket?.calculatePaceForTitle(title, tier: tier) : nil
         let showCursor = isPaceSupported && AppSettings.shared.weeklyPaceCursorEnabled && paceInfo != nil
         
+        let displayTitle = Self.localizedMetricTitle(title)
         VStack(alignment: .leading, spacing: isSpecial ? 5 : 4) {
             HStack(spacing: 5) {
                 if isCarbon {
-                    Text(title)
+                    Text(displayTitle)
                         .font(.system(size: 11.5, weight: .semibold))
                         .foregroundStyle(
                             LinearGradient(
@@ -748,7 +754,7 @@ public struct AccountQuotaSheet: View {
                         )
                         .lineLimit(1)
                 } else {
-                    Text(title)
+                    Text(displayTitle)
                         .font(.system(size: isSpecial ? 11.5 : 11, weight: isSpecial ? .semibold : .medium))
                         .foregroundColor(isArgon ? argonAccent : .secondary)
                         .lineLimit(1)
@@ -822,7 +828,7 @@ public struct AccountQuotaSheet: View {
             let displayText = resetCountdownDisplay(for: bucket)
             Text(displayText)
                 .font(.system(size: 9.5))
-                .foregroundColor(displayText == "配额充足" ? .secondary.opacity(0.6) : .secondary)
+                .foregroundColor(displayText == String(localized: "配额充足") ? .secondary.opacity(0.6) : .secondary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.75)
         }
@@ -907,11 +913,48 @@ public struct AccountQuotaSheet: View {
             }
             if isPaceSupported, let info = paceInfo {
                 UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                paceDetailItem = WeeklyPaceDetailItem(title: title, info: info)
+                paceDetailItem = WeeklyPaceDetailItem(title: displayTitle, info: info)
             }
         }
     }
     
+    static func localizedMetricTitle(_ raw: String) -> String {
+        switch raw {
+        case "Gemini · Weekly": return String(localized: "Gemini · Weekly")
+        case "Claude · Weekly": return String(localized: "Claude · Weekly")
+        case "Gemini · 5h": return String(localized: "Gemini · 5h")
+        case "Claude · 5h": return String(localized: "Claude · 5h")
+        default: return raw
+        }
+    }
+
+    private static let usdFormatter: NumberFormatter = {
+        let f = NumberFormatter()
+        f.numberStyle = .decimal
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.usesGroupingSeparator = true
+        f.minimumFractionDigits = 2
+        f.maximumFractionDigits = 2
+        return f
+    }()
+
+    static func formatUSD(_ amount: Double) -> String {
+        let formatted = usdFormatter.string(from: NSNumber(value: amount)) ?? String(format: "%.2f", amount)
+        return "$\(formatted)"
+    }
+
+    static func formatSecondaryCost(cny: Double) -> String {
+        let lang = (Bundle.main.preferredLocalizations.first ?? Locale.preferredLanguages.first ?? "en").lowercased()
+        if lang.hasPrefix("zh") {
+            let formatted = usdFormatter.string(from: NSNumber(value: (cny * 10).rounded() / 10))
+            if let formatted, formatted.hasSuffix("0") {
+                return "≈ ¥\(String(formatted.dropLast()))"
+            }
+            return String(format: "≈ ¥%.1f", cny)
+        }
+        return String(localized: "API 估算 (USD)")
+    }
+
     private func resetCountdownDisplay(for bucket: CockpitQuotaBucket?) -> String {
         guard let friendly = bucket?.resetFriendly, !friendly.isEmpty else {
             return String(localized: "配额充足")
@@ -990,20 +1033,17 @@ private struct WeeklyPaceDetailSheet: View {
             VStack(alignment: .leading, spacing: 16) {
                 // 状态卡片
                 VStack(alignment: .leading, spacing: 6) {
-                    HStack(spacing: 8) {
-                        Circle()
-                            .fill(item.info.isOverPacing ? Color.orange : Color.green)
-                            .frame(width: 8, height: 8)
-                        Text(item.info.isOverPacing ? String(localized: "⚠️ 消耗偏快 (超速透支)") : String(localized: "✅ 节奏健康 (额度充裕)"))
-                            .font(.system(size: 15, weight: .bold))
-                            .foregroundColor(item.info.isOverPacing ? .orange : .green)
-                    }
+                    Text(item.info.isOverPacing ? String(localized: "⚠️ 消耗偏快 (超速透支)") : String(localized: "✅ 节奏健康 (额度充裕)"))
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundColor(item.info.isOverPacing ? .orange : .green)
+                        .fixedSize(horizontal: false, vertical: true)
                     Text(item.info.isOverPacing
                          ? String(localized: "当前额度已消耗 \(String(format: "%.1f%%", item.info.usedPercent))，快于 \(item.info.windowLabel)时间匀速基准线 (\(String(format: "%.1f%%", item.info.expectedUsedPercent)))。若保持此速率可能在周期结束前提前耗尽。")
                          : String(localized: "当前额度已消耗 \(String(format: "%.1f%%", item.info.usedPercent))，低于或符合 \(item.info.windowLabel)时间匀速基准线 (\(String(format: "%.1f%%", item.info.expectedUsedPercent)))。剩余额度充足，无需担心断粮。"))
                         .font(.system(size: 13))
                         .foregroundColor(.secondary)
                         .lineSpacing(2)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 .padding(14)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -1082,7 +1122,7 @@ extension AccountQuotaSheet {
                     tokenKpiCard(title: String(localized: "今日消耗"), value: Self.formatTokensCompact(s.todayTokens), sub: String(localized: "\(s.activeDays) 活跃日"))
                     tokenKpiCard(title: String(localized: "近 7 日"), value: Self.formatTokensCompact(s.last7dTokens), sub: String(localized: "\(s.totalSteps) 轮采样"))
                     tokenKpiCard(title: String(localized: "累计总 Token"), value: Self.formatTokensCompact(s.totalTokens), sub: "IDE \(Self.formatTokensCompact(s.desktopTokens)) · CLI \(Self.formatTokensCompact(s.cliTokens))")
-                    tokenKpiCard(title: String(localized: "API 折算"), value: String(format: "$%.2f", s.estimatedCostUsd), sub: String(format: "≈ ¥%.1f", s.estimatedCostCny))
+                    tokenKpiCard(title: String(localized: "API 折算"), value: Self.formatUSD(s.estimatedCostUsd), sub: Self.formatSecondaryCost(cny: s.estimatedCostCny))
                 }
 
                 let totalSrc = max(Int64(1), s.desktopTokens + s.cliTokens)
@@ -1207,13 +1247,13 @@ extension AccountQuotaSheet {
             }
             Divider()
             HStack {
-                inspectorCell("Input", Self.formatTokensCompact(record.input))
+                inspectorCell(String(localized: "Input"), Self.formatTokensCompact(record.input))
                 Spacer()
-                inspectorCell("Cache Hit", Self.formatTokensCompact(record.cacheRead))
+                inspectorCell(String(localized: "Cache Hit"), Self.formatTokensCompact(record.cacheRead))
                 Spacer()
-                inspectorCell("Output", Self.formatTokensCompact(record.output))
+                inspectorCell(String(localized: "Output"), Self.formatTokensCompact(record.output))
                 Spacer()
-                inspectorCell("Thinking", Self.formatTokensCompact(record.thinking))
+                inspectorCell(String(localized: "Thinking"), Self.formatTokensCompact(record.thinking))
             }
             if !allDayModels.isEmpty {
                 Divider()
@@ -1374,13 +1414,13 @@ private struct ModelUsageBreakdownSheet: View {
                             if hasDetail {
                                 Divider()
                                 HStack {
-                                    detailCell("Input", AccountQuotaSheet.formatTokensCompact(item.input))
+                                    detailCell(String(localized: "Input"), AccountQuotaSheet.formatTokensCompact(item.input))
                                     Spacer()
-                                    detailCell("Cache Hit", AccountQuotaSheet.formatTokensCompact(item.cacheRead))
+                                    detailCell(String(localized: "Cache Hit"), AccountQuotaSheet.formatTokensCompact(item.cacheRead))
                                     Spacer()
-                                    detailCell("Output", AccountQuotaSheet.formatTokensCompact(item.output))
+                                    detailCell(String(localized: "Output"), AccountQuotaSheet.formatTokensCompact(item.output))
                                     Spacer()
-                                    detailCell("Thinking", AccountQuotaSheet.formatTokensCompact(item.thinking))
+                                    detailCell(String(localized: "Thinking"), AccountQuotaSheet.formatTokensCompact(item.thinking))
                                 }
                                 if item.steps > 0 || item.costUsd > 0 {
                                     HStack {

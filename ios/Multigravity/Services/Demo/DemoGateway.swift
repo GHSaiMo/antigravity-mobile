@@ -19,12 +19,16 @@ final class DemoGateway: @unchecked Sendable {
 
     static let shared = DemoGateway()
 
+    private static var activeLanguageCode: String {
+        (Bundle.main.preferredLocalizations.first ?? Locale.preferredLanguages.first ?? "en").lowercased()
+    }
+
     static var isZH: Bool {
-        Locale.preferredLanguages.first?.hasPrefix("zh") == true
+        activeLanguageCode.hasPrefix("zh")
     }
 
     static var isJA: Bool {
-        Locale.preferredLanguages.first?.hasPrefix("ja") == true
+        activeLanguageCode.hasPrefix("ja")
     }
 
     static func t(_ zh: String, _ en: String) -> String {
@@ -466,7 +470,7 @@ final class DemoGateway: @unchecked Sendable {
             "recommendedDirs": [
                 ["path": defaultDir, "name": "Projects", "displayPath": "~/Projects", "projectCount": existingPaths.count, "isDefault": true, "exists": true],
                 ["path": "/Users/demo/Websites", "name": "Websites", "displayPath": "~/Websites", "projectCount": 1, "isDefault": false, "exists": true],
-                ["path": home, "name": "主目录 (~)", "displayPath": "~", "projectCount": 0, "isDefault": false, "exists": true]
+                ["path": home, "name": Self.t("主目录 (~)", "Home (~)", "ホーム (~)"), "displayPath": "~", "projectCount": 0, "isDefault": false, "exists": true]
             ],
             "entries": subEntries
         ]
@@ -1153,7 +1157,7 @@ final class DemoGateway: @unchecked Sendable {
             return nil
         }
 
-        if conversations[idx].title == "新对话" || conversations[idx].title == "New Chat", !trimmed.isEmpty {
+        if conversations[idx].title == "新对话" || conversations[idx].title == "New Chat" || conversations[idx].title == "新規チャット", !trimmed.isEmpty {
             conversations[idx].title = String(trimmed.prefix(24))
         }
 

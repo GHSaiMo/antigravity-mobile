@@ -26,19 +26,31 @@ public struct NewConversationSheet: View {
         _isLoading = State(initialValue: cached.isEmpty)
     }
     
+    private var workspaceProjects: [ProjectItem] {
+        projects.filter { !$0.isPureChat }
+    }
+
+    private var pureChatSessionCount: Int {
+        projects.first(where: { $0.isPureChat })?.sessionCount ?? 0
+    }
+
     public var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
                 // Header description
-                HStack {
+                HStack(spacing: 8) {
                     Text("选择模式或工作区发起新会话")
                         .font(.system(size: 13, weight: .medium))
                         .foregroundColor(.secondary)
-                    Spacer()
-                    if !projects.isEmpty {
-                        Text("\(projects.count) 个工作区")
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.85)
+                    Spacer(minLength: 4)
+                    if !workspaceProjects.isEmpty {
+                        Text("\(workspaceProjects.count) 个工作区")
                             .font(.system(size: 12))
                             .foregroundColor(.secondary)
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
                     }
                 }
                 .padding(.horizontal, 20)
@@ -69,7 +81,7 @@ public struct NewConversationSheet: View {
                     LazyVStack(spacing: 9) {
                         chatCard
                         
-                        if isLoading && projects.isEmpty {
+                        if isLoading && workspaceProjects.isEmpty {
                             VStack(spacing: 12) {
                                 ProgressView()
                                     .scaleEffect(1.0)
@@ -80,7 +92,7 @@ public struct NewConversationSheet: View {
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 28)
                         } else {
-                            ForEach(projects) { project in
+                            ForEach(workspaceProjects) { project in
                                 projectCard(for: project)
                             }
                         }
@@ -187,19 +199,32 @@ public struct NewConversationSheet: View {
                             .foregroundColor(.primary)
                             .lineLimit(1)
                         
-                        Text("新对话")
-                            .font(.system(size: 10.5, weight: .semibold))
-                            .foregroundColor(.indigo)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Color.indigo.opacity(0.12))
-                            .clipShape(Capsule())
-                            .lineLimit(1)
-                            .fixedSize(horizontal: true, vertical: false)
-                            .layoutPriority(1)
+                        if pureChatSessionCount > 0 {
+                            Text("\(pureChatSessionCount) 会话")
+                                .font(.system(size: 10.5, weight: .semibold))
+                                .foregroundColor(.indigo)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Color.indigo.opacity(0.12))
+                                .clipShape(Capsule())
+                                .lineLimit(1)
+                                .fixedSize(horizontal: true, vertical: false)
+                                .layoutPriority(1)
+                        } else {
+                            Text("新对话")
+                                .font(.system(size: 10.5, weight: .semibold))
+                                .foregroundColor(.indigo)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Color.indigo.opacity(0.12))
+                                .clipShape(Capsule())
+                                .lineLimit(1)
+                                .fixedSize(horizontal: true, vertical: false)
+                                .layoutPriority(1)
+                        }
                     }
                     
-                    Text("新对话 · 不关联任何工作区")
+                    Text("不关联任何工作区")
                         .font(.system(size: 11.5))
                         .foregroundColor(.secondary)
                         .lineLimit(1)

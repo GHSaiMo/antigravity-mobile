@@ -78,12 +78,17 @@ public struct WorkflowApprovalCardView: View {
                     Text("Agent 申请执行多智能体 Python 编排脚本")
                         .font(.system(size: 11.5))
                         .foregroundColor(.secondary)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 
                 Spacer()
                 
                 Text("安全确认")
                     .font(.system(size: 11, weight: .semibold))
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .layoutPriority(1)
                     .foregroundColor(.indigo)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 3)
@@ -136,6 +141,7 @@ public struct WorkflowApprovalCardView: View {
                                     Text(p)
                                         .font(.system(size: 11.5, weight: .medium))
                                         .foregroundColor(.primary)
+                                        .lineLimit(1)
                                 }
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 5)
@@ -143,6 +149,7 @@ public struct WorkflowApprovalCardView: View {
                                 .cornerRadius(8)
                             }
                         }
+                        .padding(.trailing, 4)
                     }
                 }
             }
@@ -295,6 +302,9 @@ public struct WorkflowApprovalCardView: View {
                     }) {
                         Text("本会话始终允许")
                             .font(.system(size: 12, weight: .medium))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.72)
+                            .padding(.horizontal, 6)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 8)
                             .background(Color(uiColor: .tertiarySystemFill))
@@ -310,6 +320,9 @@ public struct WorkflowApprovalCardView: View {
                     }) {
                         Text("拒绝执行")
                             .font(.system(size: 12, weight: .medium))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.72)
+                            .padding(.horizontal, 6)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 8)
                             .background(Color.red.opacity(0.12))
@@ -327,6 +340,9 @@ public struct WorkflowApprovalCardView: View {
                     }) {
                         Text(showFeedbackInput ? String(localized: "收起反馈") : String(localized: "补充反馈打回"))
                             .font(.system(size: 12, weight: .medium))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.72)
+                            .padding(.horizontal, 6)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 8)
                             .background(Color(uiColor: .tertiarySystemFill))

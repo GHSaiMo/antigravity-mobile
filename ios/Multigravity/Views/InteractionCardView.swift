@@ -141,10 +141,11 @@ public struct InteractionCardView: View {
     }
 
     private var submitButtonTitle: String {
+        let submit = String(localized: "interaction.submit", defaultValue: "提交")
         if isSingleMultiSelect && singleMultiSelectionCount > 0 {
-            return "\(String(localized: "提交")) (\(singleMultiSelectionCount))"
+            return "\(submit) (\(singleMultiSelectionCount))"
         }
-        return String(localized: "提交")
+        return submit
     }
 
     private var singleQuestionTitle: String {
@@ -358,13 +359,13 @@ public struct InteractionCardView: View {
     }
 
     private func badgeText(for option: InteractionOption, in options: [InteractionOption], index: Int) -> String {
+        let nonWriteIn = options.filter { $0.id != "__write_in__" }
+        let isNumeric = !nonWriteIn.isEmpty && nonWriteIn.allSatisfy { Int($0.id) != nil }
         if option.id == "__write_in__" {
-            let nonWriteIn = options.filter { $0.id != "__write_in__" }
-            let isNumeric = !nonWriteIn.isEmpty && nonWriteIn.allSatisfy { Int($0.id) != nil }
-            if isNumeric {
-                return "\(index + 1)"
-            }
-            return "✎"
+            return isNumeric ? "\(index + 1)" : "✎"
+        }
+        if isNumeric {
+            return "\(index + 1)"
         }
         return option.id
     }
@@ -558,9 +559,11 @@ public struct InteractionCardView: View {
                     HStack(spacing: 4) {
                         Text(isExpanded ? String(localized: "收起") : String(localized: "展开"))
                             .font(.system(size: 11.5, weight: .medium))
+                            .lineLimit(1)
                         Image(systemName: isExpanded ? "chevron.down" : "chevron.up")
                             .font(.system(size: 11, weight: .semibold))
                     }
+                    .fixedSize(horizontal: true, vertical: false)
                     .foregroundColor(.secondary)
                     .padding(.horizontal, 9)
                     .padding(.vertical, 5)
@@ -568,6 +571,7 @@ public struct InteractionCardView: View {
                     .clipShape(Capsule())
                 }
                 .buttonStyle(.plain)
+                .layoutPriority(1)
                 .help(isExpanded ? String(localized: "收起为半屏") : String(localized: "一键全屏"))
             }
         }

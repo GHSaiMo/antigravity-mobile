@@ -359,11 +359,14 @@ public struct WorkspaceTrustBanner: View {
                 } else {
                     Text("信任工作区")
                         .font(.system(size: 12, weight: .semibold))
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
                 }
             }
             .buttonStyle(.borderedProminent)
             .tint(.orange)
             .controlSize(.small)
+            .layoutPriority(1)
             .disabled(isUpdating)
         }
         .padding(.horizontal, 12)
@@ -412,6 +415,8 @@ public struct SideQuestionInlineCardsSection: View {
                                         .foregroundColor(.indigo)
                                     Text("旁路快问")
                                         .font(.system(size: 10.5, weight: .semibold))
+                                        .lineLimit(1)
+                                        .fixedSize(horizontal: true, vertical: false)
                                         .foregroundColor(.indigo)
                                     Text("·")
                                         .font(.system(size: 10.5))
@@ -514,6 +519,7 @@ public struct BranchOriginBannerView: View {
                     .font(.system(size: 11.5))
                     .foregroundColor(.secondary)
                     .lineLimit(1)
+                    .minimumScaleFactor(0.82)
 
                 Spacer(minLength: 4)
 
@@ -526,7 +532,9 @@ public struct BranchOriginBannerView: View {
                             .font(.system(size: 9.5, weight: .bold))
                         Text(isExpanded ? String(localized: "收起前文") : String(localized: "展开前文"))
                             .font(.system(size: 11.5, weight: .semibold))
+                            .lineLimit(1)
                     }
+                    .fixedSize(horizontal: true, vertical: false)
                     .foregroundColor(.indigo)
                     .padding(.horizontal, 9)
                     .padding(.vertical, 4)
@@ -534,6 +542,7 @@ public struct BranchOriginBannerView: View {
                     .clipShape(Capsule())
                 }
                 .buttonStyle(.plain)
+                .layoutPriority(1)
 
                 if !origin.parentCascadeId.isEmpty {
                     Button {
@@ -545,7 +554,9 @@ public struct BranchOriginBannerView: View {
                                 .font(.system(size: 9.5, weight: .bold))
                             Text("回主会话")
                                 .font(.system(size: 11.5, weight: .semibold))
+                                .lineLimit(1)
                         }
+                        .fixedSize(horizontal: true, vertical: false)
                         .foregroundColor(.primary)
                         .padding(.horizontal, 9)
                         .padding(.vertical, 4)
@@ -553,6 +564,7 @@ public struct BranchOriginBannerView: View {
                         .clipShape(Capsule())
                     }
                     .buttonStyle(.plain)
+                    .layoutPriority(1)
                 }
             }
         }
@@ -585,6 +597,8 @@ public struct BranchForkDividerView: View {
                         .font(.system(size: 10, weight: .semibold))
                     Text("以上为共享前文 · 以下为旁路分支")
                         .font(.system(size: 11, weight: .semibold))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.78)
                 }
                 .foregroundColor(.indigo)
                 .padding(.horizontal, 10)

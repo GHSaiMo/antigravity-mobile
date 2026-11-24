@@ -104,9 +104,13 @@ public struct OnboardingGuideView: View {
                                     Text("体验演示模式（无需连接电脑）")
                                         .font(.system(size: 14.5, weight: .semibold))
                                         .foregroundColor(.primary)
+                                        .multilineTextAlignment(.leading)
+                                        .fixedSize(horizontal: false, vertical: true)
                                     Text("离线预览完整会话、任务流、终端与项目切换")
                                         .font(.system(size: 11.5))
                                         .foregroundColor(.secondary)
+                                        .multilineTextAlignment(.leading)
+                                        .fixedSize(horizontal: false, vertical: true)
                                 }
                                 Spacer()
                                 Image(systemName: "chevron.right")
@@ -180,9 +184,12 @@ public struct OnboardingGuideView: View {
                                                 .frame(width: 13, height: 13)
                                             Text(isUnixCopied ? String(localized: "已复制") : String(localized: "一键复制"))
                                                 .font(.system(size: 11, weight: .semibold))
+                                                .lineLimit(1)
                                         }
+                                        .fixedSize(horizontal: true, vertical: false)
                                         .foregroundColor(isUnixCopied ? .green : .blue)
-                                        .frame(width: 70, height: 24)
+                                        .padding(.horizontal, 8)
+                                        .frame(minWidth: 70, minHeight: 24)
                                         .background(
                                             RoundedRectangle(cornerRadius: 6, style: .continuous)
                                                 .fill(isUnixCopied ? Color.green.opacity(0.12) : Color.blue.opacity(0.1))
@@ -234,9 +241,12 @@ public struct OnboardingGuideView: View {
                                                 .frame(width: 13, height: 13)
                                             Text(isWinCopied ? String(localized: "已复制") : String(localized: "一键复制"))
                                                 .font(.system(size: 11, weight: .semibold))
+                                                .lineLimit(1)
                                         }
+                                        .fixedSize(horizontal: true, vertical: false)
                                         .foregroundColor(isWinCopied ? .green : .blue)
-                                        .frame(width: 70, height: 24)
+                                        .padding(.horizontal, 8)
+                                        .frame(minWidth: 70, minHeight: 24)
                                         .background(
                                             RoundedRectangle(cornerRadius: 6, style: .continuous)
                                                 .fill(isWinCopied ? Color.green.opacity(0.12) : Color.blue.opacity(0.1))
@@ -391,6 +401,11 @@ public struct OnboardingGuideView: View {
                 .padding(.bottom, 24)
                 .frame(maxWidth: .infinity)
                 .frame(minHeight: geometry.size.height)
+            }
+            .safeAreaInset(edge: .top, spacing: 0) {
+                Color(uiColor: .systemBackground)
+                    .frame(height: 0.5)
+                    .background(Color(uiColor: .systemBackground).ignoresSafeArea(edges: .top))
             }
         }
     }

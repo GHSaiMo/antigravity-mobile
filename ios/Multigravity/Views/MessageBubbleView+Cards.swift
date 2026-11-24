@@ -8,7 +8,7 @@ extension MessageBubbleView {
             if let focus = message.focusText?.trimmingCharacters(in: .whitespacesAndNewlines), !focus.isEmpty {
                 return focus
             }
-            return "Working"
+            return String(localized: "Working")
         }()
         let resolvedFallbackTools = !tools.isEmpty ? tools : (count > 0 ? Array(repeating: "tool_call", count: count) : [])
         ActiveFocusToolRowView(
@@ -126,6 +126,8 @@ extension MessageBubbleView {
                         HStack(spacing: 5) {
                             CompactChevronsIcon(size: 7.5, weight: .bold)
                             Text("一键压缩 /compact")
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.78)
                         }
                         .font(.system(size: 12, weight: .semibold))
                         .frame(maxWidth: .infinity)
@@ -138,6 +140,8 @@ extension MessageBubbleView {
                     Button(action: onStartNewSession) {
                         Text("开启新会话")
                             .font(.system(size: 12, weight: .semibold))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.78)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 7)
                     }
