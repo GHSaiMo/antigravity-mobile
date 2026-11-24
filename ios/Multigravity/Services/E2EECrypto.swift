@@ -29,10 +29,13 @@ public final class E2EECrypto: Sendable {
 
     public static let deviceHeader = "X-Mgy-E2EE-Device"
     public static let acceptEncHeader = "X-Mgy-E2EE-Enc"
+    public static let capsHeader = "X-Mgy-E2EE-Caps"
+    public static let binaryRequestCap = "req-bin2"
     public static let supportedEncValue = "bin2,flate"
     private static let pairSalt = Data("mgy-e2ee-pair-v1".utf8)
 
     private let e2eeRequiredHostsLock = OSAllocatedUnfairLock(initialState: Set<String>())
+    private let binaryRequestHostsLock = OSAllocatedUnfairLock(initialState: Set<String>())
     private let upgradeInFlightLock = OSAllocatedUnfairLock(initialState: false)
     private let lastUpgradeAttemptLock = OSAllocatedUnfairLock(initialState: Date.distantPast)
 
@@ -78,6 +81,38 @@ public final class E2EECrypto: Sendable {
         let clean = NetworkTransport.extractHost(from: host)
         guard !clean.isEmpty else { return }
         e2eeRequiredHostsLock.withLock { _ = $0.insert(clean) }
+    }
+
+    public func markHostSupportsBinaryRequest(_ host: String) {
+        let clean = NetworkTransport.extractHost(from: host)
+        guard !clean.isEmpty else { return }
+        binaryRequestHostsLock.withLock { _ = $0.insert(clean) }
+    }
+
+    public func clearHostBinaryRequestSupport(_ host: String) {
+        let clean = NetworkTransport.extractHost(from: host)
+        guard !clean.isEmpty else { return }
+        binaryRequestHostsLock.withLock { _ = $0.remove(clean) }
+    }
+
+    public func supportsBinaryRequest(host: String) -> Bool {
+        let clean = NetworkTransport.extractHost(from: host)
+        guard !clean.isEmpty else { return false }
+        return binaryRequestHostsLock.withLock { $0.contains(clean) }
+    }
+
+    /// Passively discovers optional gateway E2EE capabilities (e.g. `req-bin2`) from outer HTTP responses.
+    public func observeServerCapabilities(from response: HTTPURLResponse, url: URL?) {
+        guard let rawCaps = response.value(forHTTPHeaderField: Self.capsHeader), !rawCaps.isEmpty else {
+            return
+        }
+        guard let host = (url ?? response.url)?.host, !host.isEmpty else {
+            return
+        }
+        let tokens = rawCaps.split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+        if tokens.contains(Self.binaryRequestCap) {
+            markHostSupportsBinaryRequest(host)
+        }
     }
 
     public func isRelayHost(_ host: String) -> Bool {
@@ -198,13 +233,30 @@ public final class E2EECrypto: Sendable {
         let b: String?
     }
 
+    private struct InnerHTTPReqMeta: Encodable {
+        let m: String
+        let p: String
+        let h: [String: String]?
+    }
+
     private struct InnerHTTPResponse: Decodable {
         let s: Int
         let h: [String: String]?
         let b: String?
     }
 
-    public func wrapHTTPRequest(_ request: URLRequest) throws -> (outerRequest: URLRequest, deviceID: String, key: Data) {
+    public struct WrappedHTTPRequest: Sendable {
+        public let outerRequest: URLRequest
+        public let deviceID: String
+        public let key: Data
+        public let usedBinaryFrame: Bool
+    }
+
+    private func buildEncryptedRequestFrame(
+        _ request: URLRequest,
+        bodyData: Data?,
+        forceLegacyJSON: Bool
+    ) throws -> (outerRequest: URLRequest, cipherFrame: Data, deviceID: String, key: Data, usedBinaryFrame: Bool) {
         guard let url = request.url,
               let scheme = url.scheme,
               let host = url.host,
@@ -226,14 +278,35 @@ public final class E2EECrypto: Sendable {
             headers["Authorization"] = "Bearer \(token)"
         }
 
-        let bodyB64: String? = request.httpBody.flatMap { $0.isEmpty ? nil : $0.base64EncodedString() }
-        let inner = InnerHTTPRequest(
-            m: (request.httpMethod ?? "GET").uppercased(),
-            p: pathWithQuery,
-            h: headers.isEmpty ? nil : headers,
-            b: bodyB64
-        )
-        let plainBytes = try JSONEncoder().encode(inner)
+        let method = (request.httpMethod ?? "GET").uppercased()
+        let nonEmptyBody = (bodyData?.isEmpty == false) ? bodyData : nil
+        let useBinary = !forceLegacyJSON && nonEmptyBody != nil && supportsBinaryRequest(host: host)
+
+        let plainBytes: Data
+        if useBinary, let rawBody = nonEmptyBody {
+            let meta = InnerHTTPReqMeta(
+                m: method,
+                p: pathWithQuery,
+                h: headers.isEmpty ? nil : headers
+            )
+            let metaData = try JSONEncoder().encode(meta)
+            var frame = Data(capacity: 1 + 4 + metaData.count + rawBody.count)
+            frame.append(0x01) // FrameTypeBinRaw: [0x01][u32 BE metaLen][metaJSON][rawBody]
+            var metaLenBE = UInt32(metaData.count).bigEndian
+            withUnsafeBytes(of: &metaLenBE) { frame.append(contentsOf: $0) }
+            frame.append(metaData)
+            frame.append(rawBody)
+            plainBytes = frame
+        } else {
+            let bodyB64: String? = nonEmptyBody?.base64EncodedString()
+            let inner = InnerHTTPRequest(
+                m: method,
+                p: pathWithQuery,
+                h: headers.isEmpty ? nil : headers,
+                b: bodyB64
+            )
+            plainBytes = try JSONEncoder().encode(inner)
+        }
         let cipherFrame = try Self.encrypt(key: key, plaintext: plainBytes, aad: Self.frameAAD(deviceID: deviceID, direction: "c2s"))
 
         var outerComps = URLComponents()
@@ -251,8 +324,57 @@ public final class E2EECrypto: Sendable {
         outerReq.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
         outerReq.setValue(deviceID, forHTTPHeaderField: Self.deviceHeader)
         outerReq.setValue(Self.supportedEncValue, forHTTPHeaderField: Self.acceptEncHeader)
+        return (outerReq, cipherFrame, deviceID, key, useBinary)
+    }
+
+    public func wrapHTTPRequestDetailed(
+        _ request: URLRequest,
+        forceLegacyJSON: Bool = false
+    ) throws -> WrappedHTTPRequest {
+        var (outerReq, cipherFrame, deviceID, key, usedBinary) = try buildEncryptedRequestFrame(
+            request,
+            bodyData: request.httpBody,
+            forceLegacyJSON: forceLegacyJSON
+        )
         outerReq.httpBody = cipherFrame
-        return (outerReq, deviceID, key)
+        return WrappedHTTPRequest(
+            outerRequest: outerReq,
+            deviceID: deviceID,
+            key: key,
+            usedBinaryFrame: usedBinary
+        )
+    }
+
+    public func wrapHTTPRequest(_ request: URLRequest) throws -> (outerRequest: URLRequest, deviceID: String, key: Data) {
+        let wrapped = try wrapHTTPRequestDetailed(request)
+        return (wrapped.outerRequest, wrapped.deviceID, wrapped.key)
+    }
+
+    /// Encrypts a local file into a temporary E2EE RPC envelope file ready for chunked streaming upload,
+    /// releasing raw and encrypted buffers from memory before network transmission starts.
+    public func wrapFileUploadToTempFile(
+        _ request: URLRequest,
+        fileURL: URL,
+        forceLegacyJSON: Bool = false
+    ) throws -> (outerRequest: URLRequest, tempFileURL: URL, deviceID: String, key: Data, usedBinaryFrame: Bool) {
+        let tempURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("mgy-e2ee-up-\(UUID().uuidString).bin")
+        var result: (URLRequest, String, Data, Bool)?
+        try autoreleasepool {
+            let fileData = try Data(contentsOf: fileURL)
+            let built = try buildEncryptedRequestFrame(
+                request,
+                bodyData: fileData,
+                forceLegacyJSON: forceLegacyJSON
+            )
+            try built.cipherFrame.write(to: tempURL, options: .atomic)
+            result = (built.outerRequest, built.deviceID, built.key, built.usedBinaryFrame)
+        }
+        guard let built = result else {
+            try? FileManager.default.removeItem(at: tempURL)
+            throw E2EEError.encryptionFailed
+        }
+        return (built.0, tempURL, built.1, built.2, built.3)
     }
 
     /// Decompresses RFC 1951 raw deflate data using Apple's native Compression framework (`.zlib`).

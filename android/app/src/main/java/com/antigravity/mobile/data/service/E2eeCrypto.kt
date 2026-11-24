@@ -8,12 +8,14 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Protocol
 import okhttp3.Request
+import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import okio.Buffer
+import okio.BufferedSink
 import okio.ByteString
 import okio.ByteString.Companion.toByteString
 import org.json.JSONObject
@@ -53,6 +55,8 @@ object E2eeCrypto {
     private const val TAG = "E2eeCrypto"
     const val HEADER_DEVICE_ID = "X-Mgy-E2EE-Device"
     const val HEADER_ACCEPT_ENC = "X-Mgy-E2EE-Enc"
+    const val HEADER_CAPS = "X-Mgy-E2EE-Caps"
+    const val CAP_REQ_BIN2 = "req-bin2"
     const val SUPPORTED_ENC = "bin2,flate"
     const val FRAME_BIN_RAW: Byte = 0x01
     const val FRAME_BIN_FLATE: Byte = 0x02
@@ -84,6 +88,7 @@ object E2eeCrypto {
     }
     private val secureRandom = SecureRandom()
     private val e2eeRequiredHosts = ConcurrentHashMap.newKeySet<String>()
+    private val binaryRequestHosts = ConcurrentHashMap.newKeySet<String>()
     private val upgradeInFlight = AtomicBoolean(false)
     private val lastUpgradeAttemptMs = AtomicLong(0L)
 
@@ -97,6 +102,32 @@ object E2eeCrypto {
         val clean = ConnectionManager.extractHost(host)
         if (clean.isNotEmpty()) {
             e2eeRequiredHosts.add(clean)
+        }
+    }
+
+    fun markHostSupportsBinaryRequest(host: String) {
+        val clean = ConnectionManager.extractHost(host)
+        if (clean.isNotEmpty()) {
+            binaryRequestHosts.add(clean)
+        }
+    }
+
+    fun clearHostBinaryRequestSupport(host: String) {
+        val clean = ConnectionManager.extractHost(host)
+        if (clean.isNotEmpty()) {
+            binaryRequestHosts.remove(clean)
+        }
+    }
+
+    fun supportsBinaryRequest(host: String): Boolean {
+        val clean = ConnectionManager.extractHost(host)
+        return clean.isNotEmpty() && binaryRequestHosts.contains(clean)
+    }
+
+    fun observeServerCapabilities(response: Response, host: String) {
+        val rawCaps = response.header(HEADER_CAPS) ?: return
+        if (rawCaps.split(',').any { it.trim().equals(CAP_REQ_BIN2, ignoreCase = true) }) {
+            markHostSupportsBinaryRequest(host)
         }
     }
 
@@ -362,6 +393,9 @@ object E2eeCrypto {
     }
 }
 
+/** Optional OkHttp Request tag carrying a wire-level upload progress callback (0f..0.95f). */
+class E2eeUploadProgressTag(val onProgress: (Float) -> Unit)
+
 /**
  * Transparent OkHttp interceptor that encrypts outgoing HTTP requests targeting E2EE relay hosts
  * into `POST /api/v1/e2ee/rpc` and decrypts responses back into normal OkHttp `Response` objects.
@@ -377,9 +411,10 @@ class E2eeTransportInterceptor(
         val original = chain.request()
         val url = original.url
         if (E2eeCrypto.shouldEncrypt(url.scheme, url.host, url.encodedPath, prefs)) {
-            return executeEncrypted(chain, original)
+            return executeEncrypted(chain, original, forceLegacyJson = false)
         }
         val resp = chain.proceed(original)
+        E2eeCrypto.observeServerCapabilities(resp, url.host)
         if (resp.code == 426 &&
             E2eeCrypto.isReady(prefs) &&
             url.isHttps &&
@@ -389,12 +424,16 @@ class E2eeTransportInterceptor(
         ) {
             resp.close()
             E2eeCrypto.markHostRequiresE2ee(url.host)
-            return executeEncrypted(chain, original)
+            return executeEncrypted(chain, original, forceLegacyJson = false)
         }
         return resp
     }
 
-    private fun executeEncrypted(chain: Interceptor.Chain, original: Request): Response {
+    private fun executeEncrypted(
+        chain: Interceptor.Chain,
+        original: Request,
+        forceLegacyJson: Boolean
+    ): Response {
         val deviceId = prefs.deviceId?.trim()?.takeIf { it.isNotEmpty() }
             ?: throw IOException("E2EE device_id missing")
         val key = E2eeCrypto.decodeDeviceKey(prefs)
@@ -423,13 +462,13 @@ class E2eeTransportInterceptor(
             }
         }
 
-        var bodyB64: String? = null
+        var rawBodyBytes: ByteArray? = null
         original.body?.let { reqBody ->
             val buf = Buffer()
             reqBody.writeTo(buf)
-            val rawBytes = buf.readByteArray()
-            if (rawBytes.isNotEmpty()) {
-                bodyB64 = Base64.encodeToString(rawBytes, Base64.NO_WRAP)
+            val bytes = buf.readByteArray()
+            if (bytes.isNotEmpty()) {
+                rawBodyBytes = bytes
             }
             reqBody.contentType()?.toString()?.let { ct ->
                 if (!headersJson.has("Content-Type")) {
@@ -438,18 +477,60 @@ class E2eeTransportInterceptor(
             }
         }
 
-        val innerJson = JSONObject().apply {
-            put("m", original.method.uppercase())
-            put("p", pathWithQuery)
-            if (headersJson.length() > 0) put("h", headersJson)
-            if (bodyB64 != null) put("b", bodyB64)
+        val useBinaryFrame = !forceLegacyJson && rawBodyBytes != null && E2eeCrypto.supportsBinaryRequest(url.host)
+        val plaintext: ByteArray = if (useBinaryFrame) {
+            val metaJson = JSONObject().apply {
+                put("m", original.method.uppercase())
+                put("p", pathWithQuery)
+                if (headersJson.length() > 0) put("h", headersJson)
+            }.toString().toByteArray(Charsets.UTF_8)
+            val body = rawBodyBytes!!
+            ByteArray(1 + 4 + metaJson.size + body.size).also { frame ->
+                frame[0] = E2eeCrypto.FRAME_BIN_RAW
+                val metaLen = metaJson.size
+                frame[1] = ((metaLen ushr 24) and 0xFF).toByte()
+                frame[2] = ((metaLen ushr 16) and 0xFF).toByte()
+                frame[3] = ((metaLen ushr 8) and 0xFF).toByte()
+                frame[4] = (metaLen and 0xFF).toByte()
+                System.arraycopy(metaJson, 0, frame, 5, metaLen)
+                System.arraycopy(body, 0, frame, 5 + metaLen, body.size)
+            }
+        } else {
+            val innerJson = JSONObject().apply {
+                put("m", original.method.uppercase())
+                put("p", pathWithQuery)
+                if (headersJson.length() > 0) put("h", headersJson)
+                rawBodyBytes?.let { put("b", Base64.encodeToString(it, Base64.NO_WRAP)) }
+            }
+            innerJson.toString().toByteArray(Charsets.UTF_8)
         }
 
         val cipherFrame = E2eeCrypto.encrypt(
             key = key,
-            plaintext = innerJson.toString().toByteArray(Charsets.UTF_8),
+            plaintext = plaintext,
             aad = E2eeCrypto.frameAad(deviceId, "c2s")
         )
+
+        val progressTag = original.tag(E2eeUploadProgressTag::class.java)
+        val outerBody: RequestBody = if (progressTag != null && cipherFrame.isNotEmpty()) {
+            object : RequestBody() {
+                override fun contentType() = octetMediaType
+                override fun contentLength() = cipherFrame.size.toLong()
+                override fun writeTo(sink: BufferedSink) {
+                    val total = cipherFrame.size.toLong()
+                    var offset = 0
+                    val chunkSize = 32 * 1024
+                    while (offset < cipherFrame.size) {
+                        val len = minOf(chunkSize, cipherFrame.size - offset)
+                        sink.write(cipherFrame, offset, len)
+                        offset += len
+                        progressTag.onProgress(((offset.toFloat() / total) * 0.95f).coerceIn(0f, 0.95f))
+                    }
+                }
+            }
+        } else {
+            cipherFrame.toRequestBody(octetMediaType)
+        }
 
         val outerUrl = url.newBuilder()
             .encodedPath("/api/v1/e2ee/rpc")
@@ -459,13 +540,27 @@ class E2eeTransportInterceptor(
             .url(outerUrl)
             .header(E2eeCrypto.HEADER_DEVICE_ID, deviceId)
             .header(E2eeCrypto.HEADER_ACCEPT_ENC, E2eeCrypto.SUPPORTED_ENC)
-            .post(cipherFrame.toRequestBody(octetMediaType))
+            .post(outerBody)
             .build()
 
         val outerResp = chain.proceed(outerReq)
         if (outerResp.code != 200) {
+            if (useBinaryFrame && !forceLegacyJson && outerResp.code == 400) {
+                val snippet = try {
+                    outerResp.peekBody(256).string().lowercase()
+                } catch (_: Exception) {
+                    ""
+                }
+                if (snippet.contains("invalid_inner_request")) {
+                    outerResp.close()
+                    E2eeCrypto.clearHostBinaryRequestSupport(url.host)
+                    return executeEncrypted(chain, original, forceLegacyJson = true)
+                }
+            }
             return outerResp
         }
+        E2eeCrypto.observeServerCapabilities(outerResp, url.host)
+        progressTag?.onProgress(0.95f)
         val encBytes = outerResp.body?.bytes() ?: ByteArray(0)
         val protocol = outerResp.protocol
         outerResp.close()

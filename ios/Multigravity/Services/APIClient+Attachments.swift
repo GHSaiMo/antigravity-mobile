@@ -29,10 +29,18 @@ extension APIClient {
         let response: URLResponse
         if !isDemoEndpoint, E2EECrypto.shared.shouldEncrypt(url: endpoint) {
             do {
-                request.httpBody = try Data(contentsOf: fileURL)
-                onProgress?(0.25)
-                (data, response) = try await transport.send(request: request)
-                onProgress?(0.95)
+                (data, response) = try await transport.uploadOverE2EE(
+                    request: request,
+                    fileURL: fileURL,
+                    onProgress: onProgress,
+                    streamUpload: { outerReq, encFileURL, progressHandler in
+                        try await Self.uploadViaStreamedURLSessionRaw(
+                            request: outerReq,
+                            fileURL: encFileURL,
+                            onProgress: progressHandler
+                        )
+                    }
+                )
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
@@ -94,10 +102,18 @@ extension APIClient {
            !NetworkTransport.isLocalOrPrivateHost(host) {
             E2EECrypto.shared.markHostRequiresE2EE(host)
             do {
-                request.httpBody = try Data(contentsOf: fileURL)
-                onProgress?(0.25)
-                (finalData, finalResponse) = try await transport.send(request: request)
-                onProgress?(0.95)
+                (finalData, finalResponse) = try await transport.uploadOverE2EE(
+                    request: request,
+                    fileURL: fileURL,
+                    onProgress: onProgress,
+                    streamUpload: { outerReq, encFileURL, progressHandler in
+                        try await Self.uploadViaStreamedURLSessionRaw(
+                            request: outerReq,
+                            fileURL: encFileURL,
+                            onProgress: progressHandler
+                        )
+                    }
+                )
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
@@ -132,6 +148,27 @@ extension APIClient {
         fileURL: URL,
         onProgress: (@Sendable (Double) -> Void)?
     ) async throws -> (Data, URLResponse) {
+        do {
+            return try await uploadViaStreamedURLSessionRaw(
+                request: request,
+                fileURL: fileURL,
+                onProgress: onProgress
+            )
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch let apiErr as APIError {
+            throw apiErr
+        } catch {
+            throw APIError.networkError(error.localizedDescription)
+        }
+    }
+
+    /// Raw-error variant of `uploadViaStreamedURLSession` that preserves `URLError` for transport-level retries.
+    private static func uploadViaStreamedURLSessionRaw(
+        request: URLRequest,
+        fileURL: URL,
+        onProgress: (@Sendable (Double) -> Void)?
+    ) async throws -> (Data, URLResponse) {
         let totalBytes = ((try? FileManager.default.attributesOfItem(atPath: fileURL.path))?[.size] as? NSNumber)?.int64Value ?? 0
         guard totalBytes > 0 else {
             return try await uploadViaDemoURLSession(request: request, fileURL: fileURL, onProgress: onProgress)
@@ -145,20 +182,16 @@ extension APIClient {
         
         let reporter = UploadProgressReporter(onProgress: onProgress)
         let delegate = UploadProgressDelegate(reporter: reporter)
-        let streamer: BoundedFileUploadStream
-        do {
-            streamer = try BoundedFileUploadStream(
-                fileURL: fileURL,
-                totalBytes: totalBytes,
-                pipeBufferSize: 16 * 1024,
-                readChunkSize: 32 * 1024,
-                reporter: reporter
-            )
-        } catch {
-            throw APIError.networkError(error.localizedDescription)
-        }
+        let streamer = try BoundedFileUploadStream(
+            fileURL: fileURL,
+            totalBytes: totalBytes,
+            pipeBufferSize: 16 * 1024,
+            readChunkSize: 32 * 1024,
+            reporter: reporter
+        )
         
         var streamedRequest = request
+        streamedRequest.httpBody = nil
         streamedRequest.setValue("\(totalBytes)", forHTTPHeaderField: "Content-Length")
         streamedRequest.httpBodyStream = streamer.inputStream
         
@@ -169,16 +202,10 @@ extension APIClient {
         }
         
         streamer.start()
-        do {
-            return try await withTaskCancellationHandler {
-                try await session.data(for: streamedRequest, delegate: delegate)
-            } onCancel: {
-                streamer.cancel()
-            }
-        } catch is CancellationError {
-            throw CancellationError()
-        } catch {
-            throw APIError.networkError(error.localizedDescription)
+        return try await withTaskCancellationHandler {
+            try await session.data(for: streamedRequest, delegate: delegate)
+        } onCancel: {
+            streamer.cancel()
         }
     }
     

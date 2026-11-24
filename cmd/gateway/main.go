@@ -1650,8 +1650,10 @@ func buildRouterWithWSAddr(
 			"platform": runtime.GOOS,
 		}
 		if pk := authHandler.E2EEPubKey(); pk != "" {
+			w.Header().Set(e2ee.HeaderE2EECaps, e2ee.SupportedCaps)
 			resp["e2ee"] = true
 			resp["e2ee_pub"] = pk
+			resp["e2ee_caps"] = []string{e2ee.SupportedCaps}
 		}
 		writeJSON(w, http.StatusOK, resp)
 	})

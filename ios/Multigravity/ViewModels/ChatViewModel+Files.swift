@@ -111,23 +111,43 @@ extension ChatViewModel {
                 )
                 guard !Task.isCancelled else { return }
                 await MainActor.run {
-                    self?.updateFile(fileId, persist: true) {
-                        $0.state = .done
-                        $0.progress = 1
-                        $0.attachmentId = uploaded.id
-                        $0.line = uploaded.line
-                        $0.error = nil
+                    if let self {
+                        self.updateFile(fileId, persist: true) {
+                            $0.state = .done
+                            $0.progress = 1
+                            $0.attachmentId = uploaded.id
+                            $0.line = uploaded.line
+                            $0.error = nil
+                        }
+                        self.fileUploadTasks[fileId] = nil
+                    } else {
+                        // Persist completion even if the user left this chat and the ViewModel was deallocated,
+                        // preventing redundant re-uploads when returning to the conversation.
+                        DraftFileStore.shared.updateFile(key: key, fileId: fileId) {
+                            $0.state = .done
+                            $0.progress = 1
+                            $0.attachmentId = uploaded.id
+                            $0.line = uploaded.line
+                            $0.error = nil
+                        }
                     }
-                    self?.fileUploadTasks[fileId] = nil
                 }
             } catch {
                 guard !Task.isCancelled else { return }
+                let message = error.localizedDescription
                 await MainActor.run {
-                    self?.updateFile(fileId, persist: true) {
-                        $0.state = .failed
-                        $0.error = error.localizedDescription
+                    if let self {
+                        self.updateFile(fileId, persist: true) {
+                            $0.state = .failed
+                            $0.error = message
+                        }
+                        self.fileUploadTasks[fileId] = nil
+                    } else {
+                        DraftFileStore.shared.updateFile(key: key, fileId: fileId) {
+                            $0.state = .failed
+                            $0.error = message
+                        }
                     }
-                    self?.fileUploadTasks[fileId] = nil
                 }
             }
         }

@@ -39,6 +39,26 @@ public final class DraftFileStore: @unchecked Sendable {
             try? data.write(to: meta, options: .atomic)
         }
     }
+
+    /// Atomically updates a single file record inside `meta.json` if that draft and file still exist.
+    /// Safe to invoke after a `ChatViewModel` has been deallocated so completed uploads survive leaving a chat.
+    @discardableResult
+    public func updateFile(key: String, fileId: String, _ transform: (inout DraftFile) -> Void) -> Bool {
+        guard !key.isEmpty else { return false }
+        lock.lock(); defer { lock.unlock() }
+        let dir = directory(for: key)
+        let meta = dir.appendingPathComponent("meta.json")
+        guard let data = try? Data(contentsOf: meta),
+              var files = try? JSONDecoder().decode([DraftFile].self, from: data),
+              let idx = files.firstIndex(where: { $0.id == fileId }) else {
+            return false
+        }
+        transform(&files[idx])
+        if let encoded = try? JSONEncoder().encode(files) {
+            try? encoded.write(to: meta, options: .atomic)
+        }
+        return true
+    }
     
     /// Loads a draft's files. Entries that were not fully uploaded and whose local copy is gone are dropped.
     public func load(key: String) -> [DraftFile] {

@@ -19,6 +19,10 @@ const (
 	HeaderDeviceID = "X-Mgy-E2EE-Device"
 	// HeaderAcceptEnc advertises client-supported E2EE inner response framing/compression (e.g. "bin2,flate").
 	HeaderAcceptEnc = "X-Mgy-E2EE-Enc"
+	// HeaderE2EECaps advertises optional gateway E2EE capabilities (e.g. "req-bin2").
+	HeaderE2EECaps = "X-Mgy-E2EE-Caps"
+	// SupportedCaps is the comma-separated capability list advertised by this gateway.
+	SupportedCaps = "req-bin2"
 
 	// Inner binary v2 response framing markers (never collide with legacy JSON '{' = 0x7b).
 	FrameTypeBinRaw   byte = 0x01 // [0x01][u32 BE metaLen][metaJSON][rawBody]
@@ -72,6 +76,63 @@ func headerContainsToken(raw, token string) bool {
 		}
 	}
 	return false
+}
+
+// InnerHTTPReqMeta is the JSON metadata header inside Binary v2 E2EE requests (without base64 body).
+type InnerHTTPReqMeta struct {
+	Method  string            `json:"m"`
+	Path    string            `json:"p"`
+	Headers map[string]string `json:"h,omitempty"`
+}
+
+func decodeInnerHTTPRequest(plainBytes []byte) (method, path string, headers map[string]string, body []byte, errStatus int, errCode string) {
+	if len(plainBytes) == 0 {
+		return "", "", nil, nil, http.StatusBadRequest, "invalid_inner_request"
+	}
+	first := plainBytes[0]
+	if first == FrameTypeBinRaw || first == FrameTypeBinFlate {
+		var unpacked []byte
+		if first == FrameTypeBinFlate {
+			fr := flate.NewReader(bytes.NewReader(plainBytes[1:]))
+			var err error
+			unpacked, err = io.ReadAll(io.LimitReader(fr, maxEncryptedRPCBytes+1))
+			_ = fr.Close()
+			if err != nil {
+				return "", "", nil, nil, http.StatusBadRequest, "invalid_inner_request"
+			}
+			if len(unpacked) > maxEncryptedRPCBytes {
+				return "", "", nil, nil, http.StatusRequestEntityTooLarge, "payload_too_large"
+			}
+		} else {
+			unpacked = plainBytes[1:]
+		}
+		if len(unpacked) < 4 {
+			return "", "", nil, nil, http.StatusBadRequest, "invalid_inner_request"
+		}
+		metaLen := binary.BigEndian.Uint32(unpacked[:4])
+		if metaLen < 2 || uint64(4)+uint64(metaLen) > uint64(len(unpacked)) {
+			return "", "", nil, nil, http.StatusBadRequest, "invalid_inner_request"
+		}
+		var meta InnerHTTPReqMeta
+		if err := json.Unmarshal(unpacked[4:4+metaLen], &meta); err != nil {
+			return "", "", nil, nil, http.StatusBadRequest, "invalid_inner_request"
+		}
+		return meta.Method, meta.Path, meta.Headers, unpacked[4+metaLen:], 0, ""
+	}
+
+	var inner InnerHTTPRequest
+	if err := json.Unmarshal(plainBytes, &inner); err != nil {
+		return "", "", nil, nil, http.StatusBadRequest, "invalid_inner_request"
+	}
+	var innerBody []byte
+	if inner.BodyB64 != "" {
+		var err error
+		innerBody, err = base64.StdEncoding.DecodeString(inner.BodyB64)
+		if err != nil {
+			return "", "", nil, nil, http.StatusBadRequest, "invalid_inner_body_b64"
+		}
+	}
+	return inner.Method, inner.Path, inner.Headers, innerBody, 0, ""
 }
 
 // InnerHTTPMeta is the JSON metadata header inside Binary v2 E2EE responses (without base64 body).
@@ -216,39 +277,30 @@ func (h *Handler) HandleRPC(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var inner InnerHTTPRequest
-	if err := json.Unmarshal(plainBytes, &inner); err != nil {
-		writeE2EEError(w, http.StatusBadRequest, "invalid_inner_request")
+	innerMethod, innerPath, innerHeaders, innerBody, errStatus, errCode := decodeInnerHTTPRequest(plainBytes)
+	if errCode != "" {
+		writeE2EEError(w, errStatus, errCode)
 		return
 	}
-	if !strings.HasPrefix(inner.Path, "/") || strings.HasPrefix(inner.Path, "//") || strings.HasPrefix(inner.Path, "/api/v1/e2ee/") {
+	if !strings.HasPrefix(innerPath, "/") || strings.HasPrefix(innerPath, "//") || strings.HasPrefix(innerPath, "/api/v1/e2ee/") {
 		writeE2EEError(w, http.StatusBadRequest, "invalid_inner_path")
 		return
 	}
-	if inner.Method == "" {
-		inner.Method = http.MethodGet
-	}
-
-	var innerBody []byte
-	if inner.BodyB64 != "" {
-		innerBody, err = base64.StdEncoding.DecodeString(inner.BodyB64)
-		if err != nil {
-			writeE2EEError(w, http.StatusBadRequest, "invalid_inner_body_b64")
-			return
-		}
+	if innerMethod == "" {
+		innerMethod = http.MethodGet
 	}
 
 	// Build inner request WITHOUT relayTransportKey so inner middleware executes normally,
 	// while preserving external Host / RemoteAddr / CF-Connecting-IP for strict auth & rate-limit checks.
 	innerCtx := context.WithoutCancel(r.Context())
-	innerReq, err := http.NewRequestWithContext(innerCtx, strings.ToUpper(inner.Method), "http://"+r.Host+inner.Path, bytes.NewReader(innerBody))
+	innerReq, err := http.NewRequestWithContext(innerCtx, strings.ToUpper(innerMethod), "http://"+r.Host+innerPath, bytes.NewReader(innerBody))
 	if err != nil {
 		writeE2EEError(w, http.StatusBadRequest, "build_inner_request_failed")
 		return
 	}
 	innerReq.Host = r.Host
 	innerReq.RemoteAddr = r.RemoteAddr
-	for k, v := range inner.Headers {
+	for k, v := range innerHeaders {
 		// Prevent inner GzipHandler from emitting pre-compressed bytes that synthetic
 		// client-side HTTP responses (URLSession / OkHttp / fetch) would not auto-inflate.
 		if strings.EqualFold(strings.TrimSpace(k), "Accept-Encoding") {
@@ -306,6 +358,7 @@ func (h *Handler) HandleRPC(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set(HeaderE2EECaps, SupportedCaps)
 	w.Header().Set("Content-Length", strconv.Itoa(len(respEnc)))
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(respEnc)

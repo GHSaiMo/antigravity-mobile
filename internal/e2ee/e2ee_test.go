@@ -419,3 +419,144 @@ func TestE2EE_Bin2Flate_HTTP_And_WebSocket(t *testing.T) {
 		t.Fatalf("ws inflated mismatch: err=%v len=%d want=%d", err, len(wsUnpacked), len(bigBody))
 	}
 }
+
+func TestE2EE_Bin2Request_RawAndFlateAndMalformed(t *testing.T) {
+	gwID, _ := GenerateIdentity()
+	cliID, _ := GenerateIdentity()
+	shared, _ := gwID.ECDH(cliID.PublicKeyB64())
+	salt, _ := RandomBytes(16)
+	devID := "dev_e2ee_bin2_req"
+	devToken := "tok_bin2_req_123"
+	devKey := DeriveDeviceKey(shared, salt, devID)
+
+	var gotFileName string
+	var gotBody []byte
+	var gotContentLength int64
+
+	innerMux := http.NewServeMux()
+	innerMux.HandleFunc("/api/v1/attachments", func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer "+devToken {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		gotFileName = r.Header.Get("X-File-Name")
+		gotContentLength = r.ContentLength
+		var err error
+		gotBody, err = io.ReadAll(r.Body)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"att_bin2_ok"}`))
+	})
+
+	h := &Handler{
+		Identity: gwID,
+		LookupKey: func(id string) ([]byte, bool) {
+			if id == devID {
+				return devKey, true
+			}
+			return nil, false
+		},
+		ValidateToken: func(raw string) (string, bool) {
+			if raw == devToken {
+				return devID, true
+			}
+			return "", false
+		},
+		InnerHandler: innerMux,
+	}
+
+	outerMux := http.NewServeMux()
+	outerMux.HandleFunc("/api/v1/e2ee/rpc", h.HandleRPC)
+	outerSrv := httptest.NewServer(outerMux)
+	defer outerSrv.Close()
+
+	// 1. Binary v2 raw request (0x01) with arbitrary ZIP/binary bytes (zero base64 inflation)
+	zipPayload := append([]byte{0x50, 0x4b, 0x03, 0x04, 0x00, 0xff, 0xfe, 0x80}, bytes.Repeat([]byte{0xab, 0xcd, 0xef, 0x01}, 4096)...)
+	metaJSON, err := json.Marshal(InnerHTTPReqMeta{
+		Method: "POST",
+		Path:   "/api/v1/attachments",
+		Headers: map[string]string{
+			"Authorization": "Bearer " + devToken,
+			"Content-Type":  "application/octet-stream",
+			"X-File-Name":   "wechat_record.zip",
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal meta: %v", err)
+	}
+	rawFrame := make([]byte, 1+4+len(metaJSON)+len(zipPayload))
+	rawFrame[0] = FrameTypeBinRaw
+	binary.BigEndian.PutUint32(rawFrame[1:5], uint32(len(metaJSON)))
+	copy(rawFrame[5:5+len(metaJSON)], metaJSON)
+	copy(rawFrame[5+len(metaJSON):], zipPayload)
+
+	encReq, err := Encrypt(devKey, rawFrame, FrameAAD(devID, "c2s"))
+	if err != nil {
+		t.Fatalf("encrypt raw bin2 req: %v", err)
+	}
+	req, _ := http.NewRequest(http.MethodPost, outerSrv.URL+"/api/v1/e2ee/rpc", bytes.NewReader(encReq))
+	req.Header.Set(HeaderDeviceID, devID)
+	req.Header.Set(HeaderAcceptEnc, "bin2,flate")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("do bin2 raw req: %v", err)
+	}
+	encResp, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", resp.StatusCode, string(encResp))
+	}
+	if !headerContainsToken(resp.Header.Get(HeaderE2EECaps), SupportedCaps) {
+		t.Fatalf("expected %s header containing %q, got %q", HeaderE2EECaps, SupportedCaps, resp.Header.Get(HeaderE2EECaps))
+	}
+	if gotFileName != "wechat_record.zip" || gotContentLength != int64(len(zipPayload)) || !bytes.Equal(gotBody, zipPayload) {
+		t.Fatalf("inner request mismatch: fileName=%q contentLen=%d bodyLen=%d want=%d", gotFileName, gotContentLength, len(gotBody), len(zipPayload))
+	}
+
+	// 2. Binary v2 flate-compressed request (0x02)
+	compBody, ok := deflateRaw(rawFrame[1:])
+	if !ok {
+		t.Fatalf("expected repetitive payload to compress")
+	}
+	flateFrame := append([]byte{FrameTypeBinFlate}, compBody...)
+	encFlate, err := Encrypt(devKey, flateFrame, FrameAAD(devID, "c2s"))
+	if err != nil {
+		t.Fatalf("encrypt flate bin2 req: %v", err)
+	}
+	gotBody = nil
+	req2, _ := http.NewRequest(http.MethodPost, outerSrv.URL+"/api/v1/e2ee/rpc", bytes.NewReader(encFlate))
+	req2.Header.Set(HeaderDeviceID, devID)
+	resp2, err := http.DefaultClient.Do(req2)
+	if err != nil {
+		t.Fatalf("do bin2 flate req: %v", err)
+	}
+	resp2.Body.Close()
+	if resp2.StatusCode != http.StatusOK || !bytes.Equal(gotBody, zipPayload) {
+		t.Fatalf("bin2 flate request failed: status=%d bodyMatch=%v", resp2.StatusCode, bytes.Equal(gotBody, zipPayload))
+	}
+
+	// 3. Malformed bin2 frames must fail cleanly with HTTP 400
+	malformed := [][]byte{
+		{FrameTypeBinRaw},
+		{FrameTypeBinRaw, 0, 0, 0, 99, '{', '}'},
+		{FrameTypeBinRaw, 0, 0, 0, 1, '{'},
+		{FrameTypeBinRaw, 0, 0, 0, 4, 'n', 'o', 'p', 'e'},
+		{FrameTypeBinFlate, 0xff, 0xff, 0xff},
+	}
+	for i, bad := range malformed {
+		encBad, _ := Encrypt(devKey, bad, FrameAAD(devID, "c2s"))
+		badReq, _ := http.NewRequest(http.MethodPost, outerSrv.URL+"/api/v1/e2ee/rpc", bytes.NewReader(encBad))
+		badReq.Header.Set(HeaderDeviceID, devID)
+		badResp, err := http.DefaultClient.Do(badReq)
+		if err != nil {
+			t.Fatalf("malformed[%d] do: %v", i, err)
+		}
+		badResp.Body.Close()
+		if badResp.StatusCode != http.StatusBadRequest {
+			t.Fatalf("malformed[%d]: expected 400, got %d", i, badResp.StatusCode)
+		}
+	}
+}

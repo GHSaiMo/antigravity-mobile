@@ -247,6 +247,7 @@ class ConnectionManager(private val context: Context) {
             targetClient.newCall(req).execute().use { resp ->
                 val took = System.currentTimeMillis() - start
                 if (resp.isSuccessful) {
+                    E2eeCrypto.observeServerCapabilities(resp, resp.request.url.host)
                     val body = resp.body?.string() ?: ""
                     var platform: String? = null
                     try {
@@ -575,6 +576,7 @@ class ConnectionManager(private val context: Context) {
             httpClient.newCall(req).execute().use { resp ->
                 val took = System.currentTimeMillis() - start
                 if (resp.isSuccessful) {
+                    E2eeCrypto.observeServerCapabilities(resp, resp.request.url.host)
                     val body = resp.body?.string() ?: ""
                     var pidInfo = ""
                     try {
@@ -598,6 +600,7 @@ class ConnectionManager(private val context: Context) {
                     httpClient.newCall(healthReq).execute().use { hResp ->
                         val took2 = System.currentTimeMillis() - start
                         if (hResp.isSuccessful) {
+                            E2eeCrypto.observeServerCapabilities(hResp, hResp.request.url.host)
                             val hBody = hResp.body?.string() ?: ""
                             try {
                                 val hJson = JSONObject(hBody)

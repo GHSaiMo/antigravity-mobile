@@ -1676,6 +1676,14 @@ class ApiClient(
         val baseUrl = currentBaseUrl?.trim()?.trimEnd('/')
             ?: return@withContext Result.failure(IllegalStateException("未配置网关地址".loc))
         try {
+            val uploadUrl = "$baseUrl/api/v1/attachments"
+            val parsedUploadUrl = runCatching { java.net.URI(uploadUrl) }.getOrNull()
+            val willEncryptE2ee = parsedUploadUrl != null && E2eeCrypto.shouldEncrypt(
+                parsedUploadUrl.scheme ?: "",
+                parsedUploadUrl.host ?: "",
+                parsedUploadUrl.rawPath ?: "/api/v1/attachments",
+                prefs
+            )
             val total = file.length()
             val body = object : okhttp3.RequestBody() {
                 override fun contentType() = "application/octet-stream".toMediaType()
@@ -1689,13 +1697,18 @@ class ApiClient(
                             if (n == -1L) break
                             sink.write(buf, n)
                             written += n
-                            if (total > 0) onProgress((written.toFloat() / total).coerceIn(0f, 1f))
+                            // When E2EE wraps the request into an in-memory buffer first, defer progress to
+                            // E2eeUploadProgressTag so progress tracks actual encrypted wire transmission.
+                            if (!willEncryptE2ee && total > 0) {
+                                onProgress(((written.toFloat() / total) * 0.95f).coerceIn(0f, 0.95f))
+                            }
                         }
                     }
                 }
             }
-            val request = buildAuthorizedRequest("$baseUrl/api/v1/attachments")
+            val request = buildAuthorizedRequest(uploadUrl)
                 .header("X-File-Name", android.net.Uri.encode(displayName))
+                .tag(E2eeUploadProgressTag::class.java, E2eeUploadProgressTag(onProgress))
                 .post(body)
                 .build()
             val uploadClient = client.newBuilder()
@@ -2110,7 +2123,8 @@ class RouteFailoverInterceptor(
         val method = request.method.uppercase()
         if (method == "GET" || method == "HEAD") return true
         val path = request.url.encodedPath
-        return path.endsWith("/GetAllCascadeTrajectories") ||
+        return path.endsWith("/api/v1/attachments") ||
+            path.endsWith("/GetAllCascadeTrajectories") ||
             path.endsWith("/GetCascadeTrajectory") ||
             path.endsWith("/GetCascadeTrajectorySteps") ||
             path.endsWith("/GetAuthStatus") ||
