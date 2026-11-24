@@ -528,9 +528,14 @@ extension ChatViewModel {
     
     @MainActor
     func updateProceedState(canProceed: Bool, artifactUri: String?) {
-        self.canProceed = canProceed
-        self.proceedArtifactUri = artifactUri
-        if canProceed, let uri = artifactUri, !uri.isEmpty {
+        let changed = (self.canProceed != canProceed) || (self.proceedArtifactUri != artifactUri)
+        if self.canProceed != canProceed {
+            self.canProceed = canProceed
+        }
+        if self.proceedArtifactUri != artifactUri {
+            self.proceedArtifactUri = artifactUri
+        }
+        if changed, canProceed, let uri = artifactUri, !uri.isEmpty {
             self.prefetchMarkdownArtifact(uri: uri)
         }
     }

@@ -22,6 +22,7 @@ extension EnvironmentValues {
 
 public struct MarkdownContentView: View {
     public let content: String
+    public let isStreaming: Bool
     public let onImageTap: ((URL) -> Void)?
     let blocks: [MarkdownBlock]
     
@@ -37,90 +38,34 @@ public struct MarkdownContentView: View {
         isShareExport ? .standard : AppSettings.shared.fontSizeScale
     }
     
-    public init(content: String, onImageTap: ((URL) -> Void)? = nil) {
+    public init(content: String, isStreaming: Bool = false, onImageTap: ((URL) -> Void)? = nil) {
         self.content = content
+        self.isStreaming = isStreaming
         self.onImageTap = onImageTap
-        self.blocks = MarkdownBlockCache.shared.blocks(for: content)
+        let effectiveContent = isStreaming ? StreamingMarkdownStabilizer.stabilize(content) : content
+        self.blocks = MarkdownBlockCache.shared.blocks(for: effectiveContent, cacheExactResult: !isStreaming)
     }
     
     public var body: some View {
+        let activeFontScale = fontScale
+        let bodyScale = activeFontScale.bodyScale
+        let codeScale = activeFontScale.codeScale
         VStack(alignment: .leading, spacing: 10) {
             ForEach(blocks) { block in
-                switch block {
-                case .frontmatter(_, let rawContent, let lineCount):
-                    FrontmatterCollapseView(content: rawContent, lineCount: lineCount)
-                    
-                case .heading(_, let level, let text):
-                    headingView(level: level, text: text)
-                    
-                case .divider:
-                    Divider()
-                        .background(Color.secondary.opacity(0.3))
-                        .padding(.vertical, 4)
-                    
-                case .codeBlock(_, let lang, let code):
-                    if lang.trimmingCharacters(in: .whitespaces).lowercased() == "mermaid" {
-                        if isShareExport {
-                            shareExportPlaceholder(String(localized: "Mermaid 图表，请在 App 中查看"))
-                        } else {
-                            MermaidDiagramView(code: code)
-                        }
-                    } else if isShareExport {
-                        let lines = code.split(separator: "\n", omittingEmptySubsequences: false).count
-                        shareExportPlaceholder(String(localized: "代码块（\(lines) 行），请在 App 中查看"))
-                    } else {
-                        codeBlockView(lang: lang, code: code)
-                    }
-                    
-                case .table(_, let headers, let rows, let alignments):
-                    let columns = max(headers.count, rows.map(\.count).max() ?? 0)
-                    if isShareExport && (columns >= 4 || rows.count > 12) {
-                        shareExportPlaceholder(String(localized: "表格（\(rows.count) 行 × \(columns) 列），请在 App 中查看"))
-                    } else {
-                        tableView(headers: headers, rows: rows, alignments: alignments)
-                    }
-                    
-                case .list(_, let items):
-                    listView(items: items)
-                    
-                case .orderedList(_, let startIndex, let items):
-                    orderedListView(startIndex: startIndex, items: items)
-                    
-                case .alert(_, let type, let alertContent):
-                    alertView(type: type, content: alertContent)
-                    
-                case .blockquote(_, let quoteContent):
-                    blockquoteView(content: quoteContent)
-                    
-                case .paragraph(_, let text):
-                    paragraphView(text: text, size: 15 * fontScale.bodyScale)
-                    
-                case .image(_, let alt, let url):
-                    markdownImageView(alt: alt, urlString: url)
-                    
-                case .agentEmbed(_, let src):
-                    if isShareExport {
-                        shareExportPlaceholder(String(localized: "交互内容，请在 App 中查看"))
-                    } else {
-                        AgentEmbedView(src: src)
-                    }
-
-                case .pluginCard(_, let catalogId):
-                    if isShareExport {
-                        shareExportPlaceholder(String(localized: "推荐插件：\(catalogId)，请在 App 中查看"))
-                    } else {
-                        PluginCardBlockView(catalogId: catalogId, conversationId: currentCascadeId)
-                    }
-                    
-                case .carousel(_, let slides):
-                    if isShareExport {
-                        shareExportPlaceholder(String(localized: "图片轮播（\(slides.count) 张），请在 App 中查看"))
-                    } else {
-                        MarkdownCarouselView(slides: slides, onImageTap: { url in
-                            handleImageTap(url: url)
-                        })
-                    }
+                EquatableMarkdownBlock(
+                    block: block,
+                    bodyScale: bodyScale,
+                    codeScale: codeScale,
+                    colorScheme: colorScheme,
+                    isShareExport: isShareExport,
+                    shareCardUseNord: shareCardUseNord,
+                    shareCardThemeID: shareCardThemeID,
+                    currentCascadeId: currentCascadeId,
+                    markdownAvailableWidth: markdownAvailableWidth
+                ) {
+                    renderBlock(block, bodyScale: bodyScale)
                 }
+                .equatable()
             }
         }
         .fullScreenCover(item: $internalPreviewImage) { item in
@@ -128,6 +73,116 @@ public struct MarkdownContentView: View {
                 .presentationBackground(.clear)
                 .ignoresSafeArea()
         }
+    }
+
+    @ViewBuilder
+    private func renderBlock(_ block: MarkdownBlock, bodyScale: CGFloat) -> some View {
+        switch block {
+        case .frontmatter(_, let rawContent, let lineCount):
+            FrontmatterCollapseView(content: rawContent, lineCount: lineCount)
+            
+        case .heading(_, let level, let text):
+            headingView(level: level, text: text)
+            
+        case .divider:
+            Divider()
+                .background(Color.secondary.opacity(0.3))
+                .padding(.vertical, 4)
+            
+        case .codeBlock(_, let lang, let code):
+            if lang.trimmingCharacters(in: .whitespaces).lowercased() == "mermaid" {
+                if isShareExport {
+                    shareExportPlaceholder(String(localized: "Mermaid 图表，请在 App 中查看"))
+                } else {
+                    MermaidDiagramView(code: code)
+                }
+            } else if isShareExport {
+                let lines = code.split(separator: "\n", omittingEmptySubsequences: false).count
+                shareExportPlaceholder(String(localized: "代码块（\(lines) 行），请在 App 中查看"))
+            } else {
+                codeBlockView(lang: lang, code: code)
+            }
+            
+        case .table(_, let headers, let rows, let alignments):
+            let columns = max(headers.count, rows.map(\.count).max() ?? 0)
+            if isShareExport && (columns >= 4 || rows.count > 12) {
+                shareExportPlaceholder(String(localized: "表格（\(rows.count) 行 × \(columns) 列），请在 App 中查看"))
+            } else {
+                tableView(headers: headers, rows: rows, alignments: alignments)
+            }
+            
+        case .list(_, let items):
+            listView(items: items)
+            
+        case .orderedList(_, let startIndex, let items):
+            orderedListView(startIndex: startIndex, items: items)
+            
+        case .alert(_, let type, let alertContent):
+            alertView(type: type, content: alertContent)
+            
+        case .blockquote(_, let quoteContent):
+            blockquoteView(content: quoteContent)
+            
+        case .paragraph(_, let text):
+            paragraphView(text: text, size: 15 * bodyScale)
+            
+        case .image(_, let alt, let url):
+            markdownImageView(alt: alt, urlString: url)
+            
+        case .agentEmbed(_, let src):
+            if isShareExport {
+                shareExportPlaceholder(String(localized: "交互内容，请在 App 中查看"))
+            } else {
+                AgentEmbedView(src: src)
+            }
+
+        case .pluginCard(_, let catalogId):
+            if isShareExport {
+                shareExportPlaceholder(String(localized: "推荐插件：\(catalogId)，请在 App 中查看"))
+            } else {
+                PluginCardBlockView(catalogId: catalogId, conversationId: currentCascadeId)
+            }
+            
+        case .carousel(_, let slides):
+            if isShareExport {
+                shareExportPlaceholder(String(localized: "图片轮播（\(slides.count) 张），请在 App 中查看"))
+            } else {
+                MarkdownCarouselView(slides: slides, onImageTap: { url in
+                    handleImageTap(url: url)
+                })
+            }
+        }
+    }
+}
+
+/// 通过 `Equatable` 隔离单个 Markdown 块：流式吐字时，上方已完成的表格、引用块、代码块、标题与段落
+/// 全部跳过 SwiftUI body 重求值与 AutoTableLayout 重测，仅重绘末尾正在增长的单个块。
+private struct EquatableMarkdownBlock<Content: View>: View, Equatable {
+    let block: MarkdownBlock
+    let bodyScale: CGFloat
+    let codeScale: CGFloat
+    let colorScheme: ColorScheme
+    let isShareExport: Bool
+    let shareCardUseNord: Bool?
+    let shareCardThemeID: String?
+    let currentCascadeId: String?
+    let markdownAvailableWidth: CGFloat?
+    @ViewBuilder let content: () -> Content
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.block == rhs.block
+            && lhs.bodyScale == rhs.bodyScale
+            && lhs.codeScale == rhs.codeScale
+            && lhs.colorScheme == rhs.colorScheme
+            && lhs.isShareExport == rhs.isShareExport
+            && lhs.shareCardUseNord == rhs.shareCardUseNord
+            && lhs.shareCardThemeID == rhs.shareCardThemeID
+            && lhs.currentCascadeId == rhs.currentCascadeId
+            && lhs.markdownAvailableWidth == rhs.markdownAvailableWidth
+    }
+
+    var body: some View {
+        content()
     }
 }
 

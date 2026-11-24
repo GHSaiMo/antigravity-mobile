@@ -67,7 +67,7 @@ extension MessageBubbleView {
             }
 
             if !message.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                MarkdownContentView(content: message.content, onImageTap: { url in
+                MarkdownContentView(content: message.content, isStreaming: isStreaming, onImageTap: { url in
                     previewGallery = ImageGalleryData(url: url)
                 })
                 InlineGitHubPRPillsSection(content: message.content)

@@ -47,17 +47,19 @@ extension ChatViewModel {
     }
     
     func handleStreamPayload(_ payload: StreamUpdatePayload) {
-        if let steps = payload.totalSteps {
+        if let steps = payload.totalSteps, self.stepCount != steps {
             self.stepCount = steps
         }
-        if let tools = payload.totalTools {
+        if let tools = payload.totalTools, self.totalTools != tools {
             self.totalTools = tools
         }
-        if let dur = payload.duration {
+        if let dur = payload.duration, self.duration != dur {
             self.duration = dur
         }
         if let cfg = payload.cascadeConfigRaw, !cfg.isEmpty {
-            self.cascadeConfigRaw = cfg
+            if self.cascadeConfigRaw != cfg {
+                self.cascadeConfigRaw = cfg
+            }
             if self.hasUserManuallySelectedModel {
                 self.updateCascadeConfigRawModel(self.activeModelEnum, modelName: self.activeModel)
             }
@@ -65,7 +67,7 @@ extension ChatViewModel {
         ModelCatalogStore.shared.updateDesktopActiveModel(payload.desktopActiveModel, name: payload.desktopActiveModelName)
         let isDraft = self.isDraftConversation
         let hasSessionModel = payload.activeModel?.isEmpty == false
-        if hasSessionModel {
+        if hasSessionModel && !self.hasResolvedSessionModel {
             self.hasResolvedSessionModel = true
         }
         let alignedModel = hasSessionModel
@@ -80,14 +82,30 @@ extension ChatViewModel {
                 self.syncModel(from: alignedModel)
             }
         }
-        if !self.hasUserManuallySelectedModel, let name = alignedName, !name.isEmpty { self.activeModelName = name }
-        if let started = payload.startedAt, !started.isEmpty { self.startedAt = started }
-        if let cm = payload.contextMeter { self.contextMeter = cm }
-        if let ws = payload.workspaceUri, !ws.isEmpty { self.workspaceUri = ws }
-        if let suggestions = payload.suggestedResponses { self.suggestedResponses = suggestions }
-        self.activeFocus = payload.activeFocus
-        self.activeFocusStartedAt = payload.activeFocusStartedAt
-        self.activePlan = payload.activePlan
+        if !self.hasUserManuallySelectedModel, let name = alignedName, !name.isEmpty, self.activeModelName != name {
+            self.activeModelName = name
+        }
+        if let started = payload.startedAt, !started.isEmpty, self.startedAt != started {
+            self.startedAt = started
+        }
+        if let cm = payload.contextMeter, self.contextMeter != cm {
+            self.contextMeter = cm
+        }
+        if let ws = payload.workspaceUri, !ws.isEmpty, self.workspaceUri != ws {
+            self.workspaceUri = ws
+        }
+        if let suggestions = payload.suggestedResponses, self.suggestedResponses != suggestions {
+            self.suggestedResponses = suggestions
+        }
+        if self.activeFocus != payload.activeFocus {
+            self.activeFocus = payload.activeFocus
+        }
+        if self.activeFocusStartedAt != payload.activeFocusStartedAt {
+            self.activeFocusStartedAt = payload.activeFocusStartedAt
+        }
+        if self.activePlan != payload.activePlan {
+            self.activePlan = payload.activePlan
+        }
         if let origin = payload.branchOrigin, self.branchOrigin != origin {
             self.branchOrigin = origin
         }
@@ -228,11 +246,11 @@ extension ChatViewModel {
             } else {
                 self.mergeIncomingMessages(mergedParsedMessages)
                 if self.messages.contains(where: { self.extractStepIndex(from: $0) == 0 }) {
-                    self.hasMore = false
-                    self.nextOffset = 0
+                    if self.hasMore { self.hasMore = false }
+                    if self.nextOffset != 0 { self.nextOffset = 0 }
                 } else if let hm = payload.hasMore, !self.isLoadingOlder && !hasExpandedHistory {
-                    self.hasMore = hm
-                    if let no = payload.nextOffset {
+                    if self.hasMore != hm { self.hasMore = hm }
+                    if let no = payload.nextOffset, self.nextOffset != no {
                         self.nextOffset = no
                     }
                 }
@@ -248,26 +266,27 @@ extension ChatViewModel {
         let statusString: String
         let isStreamError: Bool
         if payload.status == "CASCADE_RUN_STATUS_RUNNING" {
-            self.isRunning = true
-            self.hasError = false
-            self.trajectoryErrorMessage = nil
+            if !self.isRunning { self.isRunning = true }
+            if self.hasError { self.hasError = false }
+            if self.trajectoryErrorMessage != nil { self.trajectoryErrorMessage = nil }
             isStreamError = false
             statusString = "CASCADE_RUN_STATUS_RUNNING"
         } else {
             isStreamError = payload.hasError == true || payload.status == "CASCADE_RUN_STATUS_ERROR" || latestEndedInError
-            self.hasError = isStreamError
+            if self.hasError != isStreamError { self.hasError = isStreamError }
             if isStreamError {
-                self.trajectoryErrorMessage = payload.errorMessage ?? latestTurn.last(where: { $0.isError })?.content
-                self.isRunning = false
-                self.isAwaitingResponse = false
+                let errMsg = payload.errorMessage ?? latestTurn.last(where: { $0.isError })?.content
+                if self.trajectoryErrorMessage != errMsg { self.trajectoryErrorMessage = errMsg }
+                if self.isRunning { self.isRunning = false }
+                if self.isAwaitingResponse { self.isAwaitingResponse = false }
                 self.awaitingResponseSince = nil
                 statusString = "CASCADE_RUN_STATUS_ERROR"
             } else {
                 statusString = payload.status ?? (previouslyRunning ? "CASCADE_RUN_STATUS_RUNNING" : "CASCADE_RUN_STATUS_DONE")
                 if statusString == "CASCADE_RUN_STATUS_RUNNING" {
-                    self.isRunning = true
+                    if !self.isRunning { self.isRunning = true }
                 } else if !self.isAwaitingResponse {
-                    self.isRunning = false
+                    if self.isRunning { self.isRunning = false }
                 }
             }
         }
@@ -291,7 +310,7 @@ extension ChatViewModel {
                     self.isAwaitingResponse = false
                     self.awaitingResponseSince = nil
                     if statusString != "CASCADE_RUN_STATUS_RUNNING" {
-                        self.isRunning = false
+                        if self.isRunning { self.isRunning = false }
                         if let cp = payload.canProceed {
                             self.updateProceedState(canProceed: cp, artifactUri: payload.proceedArtifactUri)
                         }
@@ -300,7 +319,7 @@ extension ChatViewModel {
                 } else if statusString != "CASCADE_RUN_STATUS_RUNNING" && !subsequent.isEmpty {
                     self.isAwaitingResponse = false
                     self.awaitingResponseSince = nil
-                    self.isRunning = false
+                    if self.isRunning { self.isRunning = false }
                 } else if !self.isRunning && previouslyRunning {
                     if let since = awaitingResponseSince {
                         let elapsed = Date().timeIntervalSince(since)
@@ -315,10 +334,10 @@ extension ChatViewModel {
         
         
         if self.isRunning {
-            if let pi = payload.pendingInteraction {
+            if let pi = payload.pendingInteraction, self.pendingInteraction != pi {
                 self.pendingInteraction = pi
             }
-        } else {
+        } else if self.pendingInteraction != nil {
             self.pendingInteraction = nil
         }
         
@@ -327,17 +346,22 @@ extension ChatViewModel {
         let newSubagents = payload.subagents ?? []
         if newSubagents != self.subagents { self.subagents = newSubagents }
         if let swarm = payload.swarm {
-            self.swarmBrief = swarm
-        } else if payload.isFullSnapshot == true {
+            if self.swarmBrief != swarm { self.swarmBrief = swarm }
+        } else if payload.isFullSnapshot == true, self.swarmBrief != nil {
             self.swarmBrief = nil
         }
         let newParent = payload.parentConversationId?.trimmingCharacters(in: .whitespacesAndNewlines)
-        self.parentConversationId = (newParent?.isEmpty == false) ? newParent : nil
-        self.subagentRole = payload.subagentRole
+        let normalizedParent = (newParent?.isEmpty == false) ? newParent : nil
+        if self.parentConversationId != normalizedParent {
+            self.parentConversationId = normalizedParent
+        }
+        if self.subagentRole != payload.subagentRole {
+            self.subagentRole = payload.subagentRole
+        }
         
         if let tasks = payload.runningTasks {
-            self.runningTasks = tasks
-        } else if !self.isRunning && !self.isAwaitingResponse {
+            if self.runningTasks != tasks { self.runningTasks = tasks }
+        } else if !self.isRunning && !self.isAwaitingResponse && !self.runningTasks.isEmpty {
             self.runningTasks = []
         }
         
@@ -385,7 +409,9 @@ extension ChatViewModel {
                 return .idle
             }
         }()
-        self.initialConversationStatus = convStatus
+        if self.initialConversationStatus != convStatus {
+            self.initialConversationStatus = convStatus
+        }
         cacheManager.updateConversationStatus(cascadeId: cascadeId, status: convStatus)
     }
     

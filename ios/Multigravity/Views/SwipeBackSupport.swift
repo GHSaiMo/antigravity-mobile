@@ -63,7 +63,9 @@ struct SwipeBackEnabler: UIViewRepresentable {
     
     func updateUIView(_ uiView: SwipeBackHookView, context: Context) {
         uiView.coordinator = context.coordinator
-        uiView.configure()
+        if context.coordinator.navigationController == nil {
+            uiView.configure()
+        }
     }
     
     class Coordinator: NSObject, UIGestureRecognizerDelegate {

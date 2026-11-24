@@ -6,6 +6,7 @@ public struct MessageBubbleView: View {
     public let message: ChatMessage
     public let isActiveToolBatch: Bool
     public let isActivePlan: Bool
+    public let isStreaming: Bool
     public let onUndo: ((ChatMessage) -> Void)?
     let onExportMarkdown: (() -> Void)?
     let onCompact: (() -> Void)?
@@ -27,6 +28,7 @@ public struct MessageBubbleView: View {
         message: ChatMessage,
         isActiveToolBatch: Bool = false,
         isActivePlan: Bool = false,
+        isStreaming: Bool = false,
         onUndo: ((ChatMessage) -> Void)? = nil,
         onExportMarkdown: (() -> Void)? = nil,
         onCompact: (() -> Void)? = nil,
@@ -42,6 +44,7 @@ public struct MessageBubbleView: View {
         self.message = message
         self.isActiveToolBatch = isActiveToolBatch
         self.isActivePlan = isActivePlan
+        self.isStreaming = isStreaming
         self.onUndo = onUndo
         self.onExportMarkdown = onExportMarkdown
         self.onCompact = onCompact

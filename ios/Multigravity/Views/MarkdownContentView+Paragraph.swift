@@ -1,14 +1,14 @@
 import SwiftUI
 
-extension MarkdownContentView {
-    // MARK: - Plan Link Segmentation & Paragraph Flow
-    
-    @ViewBuilder
-    func paragraphView(text: String, size: CGFloat = 15) -> some View {
-        let cleanText = Self.replaceHtmlBreaks(in: text).trimmingCharacters(in: .whitespacesAndNewlines)
-        let segments = Self.parsePlanSegments(cleanText)
+struct EquatableMarkdownParagraphView: View, Equatable {
+    let text: String
+    let size: CGFloat
+
+    var body: some View {
+        let cleanText = MarkdownContentView.replaceHtmlBreaks(in: text).trimmingCharacters(in: .whitespacesAndNewlines)
+        let segments = MarkdownContentView.parsePlanSegments(cleanText)
         if segments.count <= 1 && (segments.first?.isPlanButton != true) {
-            Self.renderRichText(cleanText, size: size)
+            MarkdownContentView.renderRichText(cleanText, size: size)
                 .font(.system(size: size))
                 .lineSpacing(3)
                 .fixedSize(horizontal: false, vertical: true)
@@ -19,7 +19,7 @@ extension MarkdownContentView {
                     case .text(_, let content):
                         let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
                         if !trimmed.isEmpty {
-                            Self.renderRichText(trimmed, size: size)
+                            MarkdownContentView.renderRichText(trimmed, size: size)
                                 .font(.system(size: size))
                                 .lineSpacing(3)
                         }
@@ -29,6 +29,15 @@ extension MarkdownContentView {
                 }
             }
         }
+    }
+}
+
+extension MarkdownContentView {
+    // MARK: - Plan Link Segmentation & Paragraph Flow
+    
+    @ViewBuilder
+    func paragraphView(text: String, size: CGFloat = 15) -> some View {
+        EquatableMarkdownParagraphView(text: text, size: size)
     }
     
     static let planRegex = try? NSRegularExpression(

@@ -189,7 +189,8 @@ extension MarkdownContentView {
                         .font(.system(size: (parsed.marker != nil ? 14.5 : 14) * bodyScale, weight: .bold))
                         .foregroundColor(parsed.isChecked ? .blue : .secondary)
                         .padding(.top, 2)
-                    paragraphView(text: parsed.content, size: 15 * bodyScale)
+                    EquatableMarkdownParagraphView(text: parsed.content, size: 15 * bodyScale)
+                        .equatable()
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
@@ -208,7 +209,8 @@ extension MarkdownContentView {
                         .font(.system(size: 13.5 * bodyScale, weight: .semibold, design: .monospaced))
                         .foregroundColor(.secondary)
                         .padding(.top, 2)
-                    paragraphView(text: displayContent, size: 15 * bodyScale)
+                    EquatableMarkdownParagraphView(text: displayContent, size: 15 * bodyScale)
+                        .equatable()
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }

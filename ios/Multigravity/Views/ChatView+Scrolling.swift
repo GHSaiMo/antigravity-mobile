@@ -76,7 +76,22 @@ extension ChatView {
         
         // 当内容总高度小于等于视口可用高度时，所有消息均完整在可视区域内。
         // 此时强行向底部锚点滚动会促使 UIScrollView 产生负偏移越界，触发橡皮筋反弹、抖动与闪烁漂移。
-        if scrollHUD.messagesContentHeight > 0 && currentViewportHeight > 0 && scrollHUD.messagesContentHeight <= currentViewportHeight {
+        if let sv = scrollHUD.underlyingScrollView {
+            let minY = -sv.adjustedContentInset.top
+            let maxY = max(minY, sv.contentSize.height - sv.bounds.height + sv.adjustedContentInset.bottom)
+            if maxY <= minY + 1 {
+                return
+            }
+            if !animated && !useLazyMessagesStack {
+                if abs(sv.contentOffset.y - maxY) >= 0.5 {
+                    CATransaction.begin()
+                    CATransaction.setDisableActions(true)
+                    sv.contentOffset = CGPoint(x: sv.contentOffset.x, y: maxY)
+                    CATransaction.commit()
+                }
+                return
+            }
+        } else if scrollHUD.messagesContentHeight > 0 && currentViewportHeight > 0 && scrollHUD.messagesContentHeight <= currentViewportHeight {
             return
         }
         
@@ -123,15 +138,44 @@ extension ChatView {
         performAdaptiveCardScroll(proxy: proxy)
     }
     
-    /// 流式文本每播放一小段后调用：用户没有手动翻看时，无动画贴底，避免动画叠加造成的抖动。
+    /// 流式文本增长时的兜底跟随：正常情况下由 `ChatScrollBottomPinner` 在 `UIScrollView.contentSize`
+    /// 变化的同一个 CoreAnimation 帧内同步贴底（零延迟、零回弹）；此处仅在无法挂接底层 ScrollView 时回退。
     func followStreamGrowth(proxy: ScrollViewProxy) {
+        if scrollHUD.underlyingScrollView != nil { return }
         guard hasInitiallyAligned, !scrollHUD.isUserDragging else { return }
         guard scrollHUD.isNearBottom || !scrollHUD.hasUserInteracted else { return }
         let now = Date()
-        guard now.timeIntervalSince(scrollHUD.lastFollowScrollAt) >= 0.06 else { return }
+        guard now.timeIntervalSince(scrollHUD.lastFollowScrollAt) >= 0.08 else { return }
         scrollHUD.lastFollowScrollAt = now
-        DispatchQueue.main.async {
-            scrollToBottom(proxy: proxy, animated: false)
+        scrollToBottom(proxy: proxy, animated: false)
+    }
+
+    /// 兜底校准：若 SwiftUI HostingScrollView 在布局结束后把偏移留在距底 (2, 140] 之间，同步对齐到底部。
+    func pinStreamBottomIfDrifted() {
+        guard hasInitiallyAligned,
+              !preserveScrollOnReturn,
+              !scrollHUD.hasUserInteracted,
+              !scrollHUD.isUserDragging,
+              !scrollHUD.isScrollMoving,
+              viewModel.isRunning || viewModel.isAwaitingResponse || scrollHUD.isPacingActive,
+              let sv = scrollHUD.underlyingScrollView,
+              !sv.isTracking,
+              !sv.isDragging,
+              !sv.isDecelerating,
+              sv.refreshControl?.isRefreshing != true else {
+            return
+        }
+        let boundsH = sv.bounds.height
+        guard boundsH > 0, sv.contentSize.height > 0 else { return }
+        let minY = -sv.adjustedContentInset.top
+        let maxY = max(minY, sv.contentSize.height - boundsH + sv.adjustedContentInset.bottom)
+        guard maxY > minY + 1 else { return }
+        let dist = maxY - sv.contentOffset.y
+        if dist > 2 && dist <= 140 {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            sv.contentOffset = CGPoint(x: sv.contentOffset.x, y: maxY)
+            CATransaction.commit()
         }
     }
     

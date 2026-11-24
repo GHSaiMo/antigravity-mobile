@@ -197,6 +197,13 @@ extension ChatView {
                 .environment(\.markdownAvailableWidth, agentMarkdownWidth)
                 .frame(width: resolvedListWidth)
                 .frame(maxWidth: .infinity)
+                .background(
+                    ChatScrollBottomPinner(
+                        scrollHUD: scrollHUD,
+                        canPin: hasInitiallyAligned && !preserveScrollOnReturn,
+                        isStreamRunning: viewModel.isRunning || viewModel.isAwaitingResponse
+                    )
+                )
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .coordinateSpace(name: "ChatScrollViewSpace")
@@ -286,10 +293,11 @@ extension ChatView {
                 let vh = geo.containerSize.height
                 let ch = geo.contentSize.height
                 let offsetY = geo.contentOffset.y
-                let dist = ch - (offsetY + vh)
+                let bottomInset = geo.contentInsets.bottom
+                let dist = (ch + bottomInset) - (offsetY + vh)
                 let qDist = (dist / 16).rounded() * 16
                 let qOffsetY = (offsetY / 16).rounded() * 16
-                let overshoot: CGFloat = (ch > vh) ? (offsetY + vh - ch) : 0
+                let overshoot: CGFloat = (ch > vh) ? max(0, -dist) : 0
                 let qOvershoot: CGFloat = overshoot > 64 ? (overshoot / 16).rounded() * 16 : 0
                 return ChatScrollMetrics(
                     quantizedDistanceFromBottom: qDist,
@@ -298,9 +306,13 @@ extension ChatView {
                     contentHeight: ch.rounded(),
                     overshoot: qOvershoot
                 )
-            } action: { _, metrics in
+            } action: { oldMetrics, metrics in
+                let contentGrew = oldMetrics.contentHeight > 0 && metrics.contentHeight > oldMetrics.contentHeight + 0.5
                 if metrics.contentHeight > 0 && abs(scrollHUD.messagesContentHeight - metrics.contentHeight) > 1 {
                     scrollHUD.messagesContentHeight = metrics.contentHeight
+                }
+                if contentGrew {
+                    pinStreamBottomIfDrifted()
                 }
                 let prevOffsetY = scrollHUD.lastQuantizedOffsetY
                 if prevOffsetY >= 0 {
@@ -504,14 +516,14 @@ extension ChatView {
         return viewModel.messages.isEmpty && viewModel.stepCount == 0
     }
     
-    /// 消息极少且内容轻量时用普通 VStack；超长会话使用带 `.scrollTargetLayout()` 锚点保护的 LazyVStack，
+    /// 消息极少且内容轻量时用普通 VStack（不挂 scrollTargetLayout，避免流式增长时与底部贴合争抢锚点）；
+    /// 超长会话使用带 `.scrollTargetLayout()` 锚点保护的 LazyVStack，
     /// 使上方未渲染超长气泡在向上回滚实例化时保持当前阅读行视觉位置稳定不乱跳。
     /// 通过锁存的 `useLazyMessagesStack` 控制容器身份，绝不在流式输出跨过阈值瞬间切换容器。
     @ViewBuilder
     func messagesStack<C: View>(@ViewBuilder _ content: () -> C) -> some View {
         if !useLazyMessagesStack {
             VStack(spacing: 8) { content() }
-                .scrollTargetLayout()
         } else {
             LazyVStack(spacing: 8) { content() }
                 .scrollTargetLayout()
@@ -770,6 +782,7 @@ extension ChatView {
             canExport: canExport,
             attachedSideQuestions: attachedSideQuestions,
             canInsertToParent: canInsertToParent,
+            scrollHUD: scrollHUD,
             onFollowStreamGrowth: { followStreamGrowth(proxy: proxy) },
             onUndo: { msg in viewModel.requestUndo(for: msg) },
             onExportMarkdown: { viewModel.exportMarkdown() },
@@ -1237,6 +1250,7 @@ private struct EquatableMessageRow: View, Equatable {
     let canExport: Bool
     let attachedSideQuestions: [SideQuestionCardItem]
     let canInsertToParent: Bool
+    let scrollHUD: ChatScrollHUDState
     let onFollowStreamGrowth: () -> Void
     let onUndo: (ChatMessage) -> Void
     let onExportMarkdown: () -> Void
@@ -1263,11 +1277,12 @@ private struct EquatableMessageRow: View, Equatable {
     }
 
     var body: some View {
-        let bubble: (ChatMessage) -> MessageBubbleView = { msg in
+        let bubble: (ChatMessage, Bool) -> MessageBubbleView = { msg, streaming in
             MessageBubbleView(
                 message: msg,
                 isActiveToolBatch: isActive,
                 isActivePlan: isActivePlan,
+                isStreaming: streaming,
                 onUndo: canRevert ? onUndo : nil,
                 onExportMarkdown: canExport ? onExportMarkdown : nil,
                 onCompact: onCompact,
@@ -1284,10 +1299,17 @@ private struct EquatableMessageRow: View, Equatable {
         VStack(alignment: .leading, spacing: 2) {
             Group {
                 if message.isAgent {
-                    // 流式文本按稳定速度播放，并在播放过程中平滑跟随到底部
-                    PacedAgentRow(message: message, onGrow: onFollowStreamGrowth, content: bubble)
+                    // 流式文本按稳定速度播放，并在播放过程中由底层 UIScrollView 同步贴底
+                    PacedAgentRow(
+                        message: message,
+                        isActive: isActive,
+                        scrollHUD: scrollHUD,
+                        onGrow: onFollowStreamGrowth
+                    ) { pacedMessage, isStreaming in
+                        bubble(pacedMessage, isStreaming)
+                    }
                 } else {
-                    bubble(message)
+                    bubble(message, false)
                 }
             }
             if !attachedSideQuestions.isEmpty {

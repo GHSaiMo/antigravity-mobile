@@ -162,10 +162,14 @@ extension ChatViewModel {
             fullList.append(opt)
         }
         
-        self.messages = fullList
+        if self.messages != fullList {
+            self.messages = fullList
+        }
         let hasEarliest = fullList.contains(where: { self.extractStepIndex(from: $0) == 0 })
-        self.hasMore = hasEarliest ? false : hasMore
-        self.nextOffset = hasEarliest ? 0 : nextOffset
+        let resolvedHasMore = hasEarliest ? false : hasMore
+        let resolvedNextOffset = hasEarliest ? 0 : nextOffset
+        if self.hasMore != resolvedHasMore { self.hasMore = resolvedHasMore }
+        if self.nextOffset != resolvedNextOffset { self.nextOffset = resolvedNextOffset }
         if self.pendingOptimisticMessageId == nil {
             self.knownServerMessageIds = Set(fullList.map(\.id))
         }
@@ -298,7 +302,9 @@ extension ChatViewModel {
             return true
         }
         
-        self.messages = base
+        if self.messages != base {
+            self.messages = base
+        }
         if self.pendingOptimisticMessageId == nil {
             self.knownServerMessageIds = Set(base.map(\.id))
         }
