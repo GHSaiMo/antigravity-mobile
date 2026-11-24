@@ -855,7 +855,7 @@ function renderConversationList(summaries, { forceReorder = false } = {}) {
         ? `<span class="conv-branch-tag">⑂ ${typeof t === "function" ? t("旁路") : "旁路"}</span>`
         : "";
       const subMetaHtml = isSideQuestion && !hasVisibleParent && item.branchParentTitle
-        ? `<span class="ws-name">${typeof t === "function" ? t("来自") : "来自"}「${escapeHtml(item.branchParentTitle)}」</span>`
+        ? `<span class="ws-name">${typeof t === "function" ? t("来自") : "来自"}「<span data-i18n-skip="1">${escapeHtml(item.branchParentTitle)}</span>」</span>`
         : `${wsName === "Chat"
             ? `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
@@ -863,7 +863,7 @@ function renderConversationList(summaries, { forceReorder = false } = {}) {
             : `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
               </svg>`}
-          <span class="ws-name">${escapeHtml(wsName)}</span>${formatConvPrBadge(item)}`;
+          <span class="ws-name" data-i18n-skip="1">${escapeHtml(wsName)}</span>${formatConvPrBadge(item)}`;
       const rightMetaHtml = isSideQuestion ? escapeHtml(timeStr) : `${stepCount} ${stepLabel} • ${timeStr}`;
 
       const isArchived = Boolean(item.annotations?.archived);
@@ -890,7 +890,7 @@ function renderConversationList(summaries, { forceReorder = false } = {}) {
           </div>
           <div class="conv-card" data-id="${idEsc}" data-title="${escapeHtml(title)}">
             <div class="conv-card-top">
-              <div class="conv-title">${pinIconHtml}${swarmBeeHtml}${branchPillHtml}${escapeHtml(title)}</div>
+              <div class="conv-title">${pinIconHtml}${swarmBeeHtml}${branchPillHtml}<span data-i18n-skip="1">${escapeHtml(title)}</span></div>
               ${badgeHtml}
             </div>
             <div class="conv-card-bottom">

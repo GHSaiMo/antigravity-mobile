@@ -206,6 +206,15 @@ class MainActivity : ComponentActivity() {
         }
         checkNotificationPermission()
 
+        // Re-sync cached FCM token & current device language with the paired gateway on launch
+        // so system locale switches take effect for server-generated push notifications.
+        val cachedFcmToken = prefs.fcmPushToken
+        if (prefs.isPaired() && !cachedFcmToken.isNullOrBlank()) {
+            lifecycleScope.launch(Dispatchers.IO) {
+                apiClient.registerPushToken(cachedFcmToken)
+            }
+        }
+
         // Handle DeepLink if opened from URL
         handleDeepLink(intent)
 

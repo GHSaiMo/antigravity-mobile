@@ -479,7 +479,7 @@ func runGatewayServer(args []string) {
 			alertCfg.HostIdleSince = watcher.IdleSince
 		}
 		alertCfg.Notify = func(a cockpit.QuotaAlert) {
-			if err := notif.NotifyQuotaAlertWithLevel(a.Level, a.StateKey, a.Title, a.Body); err != nil {
+			if err := notif.NotifyQuotaAlertLocalized(a.Level, a.StateKey, a.Title, a.Body, a.Localize); err != nil {
 				slog.Warn("[QuotaAlert] push failed", "err", err)
 			}
 		}
@@ -1290,6 +1290,7 @@ func buildRouterWithWSAddr(
 			LiveActivitiesEnabled *bool  `json:"live_activities_enabled"`
 			SoundComplete         string `json:"sound_complete"`
 			SoundAction           string `json:"sound_action"`
+			Lang                  string `json:"lang"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
@@ -1366,6 +1367,9 @@ func buildRouterWithWSAddr(
 				writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 				return
 			}
+			if strings.TrimSpace(req.Lang) != "" {
+				_ = store.UpdateLanguage(deviceID, req.Lang)
+			}
 
 			slog.Info(fmt.Sprintf("[PushToken] 📱 Registered iOS %s token (%s)", tokenType, config.RedactFCMKey(pushToken)),
 				"device_id", deviceID, "env", req.APNSEnv)
@@ -1399,13 +1403,14 @@ func buildRouterWithWSAddr(
 		fcmOwnerMu.Unlock()
 
 		if sink, ok := p.NotificationSink().(*notifier.Notifier); ok && sink != nil {
-			sink.UpdateFCMDeviceToken(pushToken)
+			sink.UpdateFCMDeviceTokenWithLang(pushToken, req.Lang)
 		} else {
 			cfg := config.GetNotificationConfig()
 			cfg.FCMDeviceToken = pushToken
 			cfg.FCMEnabled = true
 			cfg.Enabled = true
 			newNotif := notifier.NewNotifier(cfg)
+			newNotif.UpdateFCMDeviceLang(req.Lang)
 			p.SetNotificationSink(newNotif)
 		}
 
@@ -1688,7 +1693,7 @@ func buildRouterWithWSAddr(
 	// Dedicated direct endpoints for Desktop and PWA
 	rootMux.HandleFunc("GET /desktop", func(w http.ResponseWriter, r *http.Request) {
 		if !authHandler.RequestAuthorized(r) {
-			serveDesktopPairingPage(w)
+			serveDesktopPairingPage(w, r)
 			return
 		}
 		p.HandleDesktopIndex(w, r)
@@ -1747,7 +1752,7 @@ func buildRouterWithWSAddr(
 
 		if viewMode == "desktop" {
 			if !authHandler.RequestAuthorized(r) {
-				serveDesktopPairingPage(w)
+				serveDesktopPairingPage(w, r)
 				return
 			}
 			p.HandleDesktopIndex(w, r)

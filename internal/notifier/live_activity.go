@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"antigravity-mobile/internal/i18n"
 	"antigravity-mobile/internal/proxy"
 )
 
@@ -228,8 +229,15 @@ func (d *LiveActivityDispatcher) IsActive() bool {
 	return d != nil && d.enabled && d.client != nil && d.client.HasLiveActivityTargets()
 }
 
-// BuildContentState builds a compact (< 1.5 KB) LiveActivityContentState from TrajectoryDetails.
+// BuildContentState builds a compact (< 1.5 KB) LiveActivityContentState from TrajectoryDetails
+// using the gateway's active language.
 func BuildContentState(details *proxy.TrajectoryDetails, now time.Time) LiveActivityContentState {
+	return BuildContentStateForLang(details, now, i18n.GetLang())
+}
+
+// BuildContentStateForLang builds a compact (< 1.5 KB) LiveActivityContentState localized for lang ("zh"/"en"/"ja").
+func BuildContentStateForLang(details *proxy.TrajectoryDetails, now time.Time, lang string) LiveActivityContentState {
+	resolvedLang := i18n.ResolveLang(lang)
 	title := strings.TrimSpace(SanitizePushText(details.Title))
 	if title == "" {
 		title = "Multigravity Agent"
@@ -280,7 +288,7 @@ func BuildContentState(details *proxy.TrajectoryDetails, now time.Time) LiveActi
 			tTitle = strings.TrimSpace(t.ToolName)
 		}
 		if tTitle == "" {
-			tTitle = "后台任务"
+			tTitle = msgDefaultTaskFor(resolvedLang)
 		}
 		tTitle = truncateString(SanitizePushText(tTitle), 40)
 		tCmd := truncateString(SanitizePushText(strings.TrimSpace(t.CommandLine)), 60)
@@ -298,7 +306,7 @@ func BuildContentState(details *proxy.TrajectoryDetails, now time.Time) LiveActi
 		}
 	}
 
-	latestAction := SanitizePushText(buildLatestActionSummary(details, activeTaskTitle))
+	latestAction := SanitizePushText(buildLatestActionSummaryForLang(details, activeTaskTitle, resolvedLang))
 
 	stepCount := details.TotalSteps
 	if stepCount < 1 {
@@ -321,7 +329,8 @@ func BuildContentState(details *proxy.TrajectoryDetails, now time.Time) LiveActi
 	}
 }
 
-func buildLatestActionSummary(details *proxy.TrajectoryDetails, activeTaskTitle string) string {
+func buildLatestActionSummaryForLang(details *proxy.TrajectoryDetails, activeTaskTitle, lang string) string {
+	resolvedLang := i18n.ResolveLang(lang)
 	if pi := details.PendingInteraction; pi != nil {
 		target := strings.TrimSpace(SanitizePushText(pi.Target))
 		summary := target
@@ -329,12 +338,12 @@ func buildLatestActionSummary(details *proxy.TrajectoryDetails, activeTaskTitle 
 			summary = strings.TrimSpace(SanitizePushText(pi.Title))
 		}
 		if summary == "" {
-			return "等待用户审批操作"
+			return i18n.T3For(resolvedLang, "等待用户审批操作", "Waiting for approval", "承認待ちです")
 		}
-		return "待审批: " + truncateString(summary, 80)
+		return i18n.Sprintf3For(resolvedLang, "待审批: %s", "Approval: %s", "承認待ち: %s", truncateString(summary, 80))
 	}
 	if details.CanProceed {
-		return "方案待确认，可点击 Proceed"
+		return i18n.T3For(resolvedLang, "方案待确认，可点击 Proceed", "Plan ready — tap Proceed", "計画を確認して Proceed")
 	}
 	if activeTaskTitle != "" {
 		return activeTaskTitle
@@ -360,9 +369,9 @@ func buildLatestActionSummary(details *proxy.TrajectoryDetails, activeTaskTitle 
 		}
 	}
 	if details.TotalSteps > 0 {
-		return fmt.Sprintf("正在执行第 %d 步...", details.TotalSteps)
+		return i18n.Sprintf3For(resolvedLang, "正在执行第 %d 步...", "Running step %d...", "ステップ %d を実行中...", details.TotalSteps)
 	}
-	return "Agent 正在执行..."
+	return i18n.T3For(resolvedLang, "Agent 正在执行...", "Agent is working...", "Agent が実行中...")
 }
 
 func buildPlanOrFocusSummary(details *proxy.TrajectoryDetails) string {
@@ -494,13 +503,18 @@ func (d *LiveActivityDispatcher) SyncFromDetails(ctx context.Context, details *p
 		priority = 10
 	}
 
+	defaultLang := i18n.GetLang()
 	for _, target := range toSend {
+		targetState := state
+		if resolved := i18n.ResolveLang(target.Lang); resolved != defaultLang {
+			targetState = BuildContentStateForLang(details, now, resolved)
+		}
 		req := APNsLiveActivityRequest{
 			Event:        "update",
 			Priority:     priority,
 			Timestamp:    now.Unix(),
 			StaleDate:    now.Add(liveActivityStaleTTL).Unix(),
-			ContentState: state,
+			ContentState: targetState,
 		}
 		if target.IsStart {
 			// Persist Push-to-Start guard before network send so a concurrent gateway restart never re-starts this run.
@@ -509,14 +523,14 @@ func (d *LiveActivityDispatcher) SyncFromDetails(ctx context.Context, details *p
 			req.Priority = 10
 			req.AttributesType = "AgentActivityAttributes"
 			req.Attributes = &LiveActivityAttributes{
-				ConversationTitle: state.ConversationTitle,
+				ConversationTitle: targetState.ConversationTitle,
 				CascadeID:         cascadeID,
 			}
 			// Apple liveactivitiesd strictly requires an aps.alert dictionary on event="start" (Push-to-Start);
 			// omit Sound so starting a Live Activity stays silent and only completion/action alerts chime.
 			req.Alert = &APNsLiveActivityAlert{
-				Title: state.ConversationTitle,
-				Body:  state.LatestAction,
+				Title: targetState.ConversationTitle,
+				Body:  targetState.LatestAction,
 			}
 			req.InputPushToken = true
 		}
@@ -589,6 +603,21 @@ func (d *LiveActivityDispatcher) EndSession(ctx context.Context, cascadeID, titl
 	d.sendEnd(ctx, cascadeID, title, finalStatus, stepCount, summary, now, false)
 }
 
+func liveActivityEndSummary(lang, finalStatus string, quiet bool) string {
+	resolved := i18n.ResolveLang(lang)
+	if quiet {
+		return i18n.T3For(resolved, "已让位给需要处理的会话", "Yielded to a session needing attention", "対応が必要なセッションに切替え")
+	}
+	switch finalStatus {
+	case "FAILED":
+		return i18n.T3For(resolved, "执行遇到错误", "Execution error", "実行エラー")
+	case "CANCELLED":
+		return i18n.T3For(resolved, "任务已终止", "Task stopped", "タスク停止")
+	default:
+		return i18n.T3For(resolved, "任务已完成", "Task completed", "タスク完了")
+	}
+}
+
 // sendEnd pushes an "end" event to every device holding an update token for cascadeID.
 // quiet=true dismisses immediately (used when a card is evicted by the cap).
 func (d *LiveActivityDispatcher) sendEnd(ctx context.Context, cascadeID, title, finalStatus string, stepCount int, _ string, now time.Time, quiet bool) {
@@ -597,16 +626,8 @@ func (d *LiveActivityDispatcher) sendEnd(ctx context.Context, cascadeID, title, 
 		return
 	}
 
-	summary := "任务已完成"
-	switch finalStatus {
-	case "FAILED":
-		summary = "执行遇到错误"
-	case "CANCELLED":
-		summary = "任务已终止"
-	}
 	dismissDelay := time.Duration(liveActivityEndDismissDelaySec) * time.Second
 	if quiet {
-		summary = "已让位给需要处理的会话"
 		dismissDelay = 0
 	}
 	title = SanitizePushText(title)
@@ -617,18 +638,18 @@ func (d *LiveActivityDispatcher) sendEnd(ctx context.Context, cascadeID, title, 
 		stepCount = 1
 	}
 
-	finalState := LiveActivityContentState{
-		ConversationTitle: truncateString(title, 40),
-		Status:            finalStatus,
-		StepCount:         stepCount,
-		LatestAction:      summary,
-		RunningTaskCount:  0,
-		RunningTasks:      []LiveActivityTaskSnapshot{},
-		HasPendingAction:  false,
-		LastUpdated:       float64(now.Unix()),
-	}
-
+	truncatedTitle := truncateString(title, 40)
 	for _, target := range targets {
+		finalState := LiveActivityContentState{
+			ConversationTitle: truncatedTitle,
+			Status:            finalStatus,
+			StepCount:         stepCount,
+			LatestAction:      liveActivityEndSummary(target.Lang, finalStatus, quiet),
+			RunningTaskCount:  0,
+			RunningTasks:      []LiveActivityTaskSnapshot{},
+			HasPendingAction:  false,
+			LastUpdated:       float64(now.Unix()),
+		}
 		req := APNsLiveActivityRequest{
 			Event:         "end",
 			Priority:      10,

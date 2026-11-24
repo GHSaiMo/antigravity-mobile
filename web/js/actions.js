@@ -131,7 +131,7 @@ async function sendMessage() {
         slashState.cascadeId = null;
         if (typeof renderSlashChip === "function") renderSlashChip();
       }
-      alert("创建会话失败: " + err.message);
+      alert(typeof t === "function" ? t("创建会话失败: " + err.message) : "创建会话失败: " + err.message);
       if (streamEl) {
         streamEl.innerHTML = `
           <div class="chat-empty-state">
@@ -154,7 +154,7 @@ async function sendMessage() {
   }
 
   if (!activeCascadeId) {
-    alert("请先选择或新建一个会话");
+    alert(typeof t === "function" ? t("请先选择或新建一个会话") : "请先选择或新建一个会话");
     return;
   }
 
@@ -317,7 +317,7 @@ async function sendMessage() {
       connectStreamWs(activeCascadeId);
     }
   } catch (err) {
-    alert("发送失败: " + err.message);
+    alert(typeof t === "function" ? t("发送失败: " + err.message) : "发送失败: " + err.message);
     const tempEl = document.getElementById(tempId);
     if (tempEl) tempEl.remove();
     if (sentSlash) {
@@ -380,7 +380,7 @@ async function handleProceed() {
       connectStreamWs(activeCascadeId);
     }
   } catch (err) {
-    alert("确认方案失败: " + err.message);
+    alert(typeof t === "function" ? t("确认方案失败: " + err.message) : "确认方案失败: " + err.message);
     if (thinkingIndicator) thinkingIndicator.remove();
     updateProceedButton(true);
     currentCanProceed = true;
@@ -402,7 +402,7 @@ async function handleContinue() {
 
 async function cancelCurrentTask() {
   if (!activeCascadeId) return;
-  if (!confirm("确定要终止当前 Agent 任务吗？")) return;
+  if (!confirm(typeof t === "function" ? t("确定要终止当前 Agent 任务吗？") : "确定要终止当前 Agent 任务吗？")) return;
   currentCanProceed = false;
   updateProceedButton(false);
   updatePendingInteraction(null, false);
@@ -421,7 +421,7 @@ async function cancelCurrentTask() {
     }
     updateChatControls(false);
   } catch (err) {
-    alert("取消任务失败: " + err.message);
+    alert(typeof t === "function" ? t("取消任务失败: " + err.message) : "取消任务失败: " + err.message);
   }
 }
 
@@ -973,7 +973,7 @@ function renderNewProjectsList(projects) {
         startDraftSession({ isPure: true, name: "新对话", path: "", uri: "", rawId: "outside-of-project" });
       } else if (mode === "custom") {
         const defaultPath = (projects && projects.length > 0 && projects[0].path) ? projects[0].path : "/home/jiuzai";
-        const customPath = prompt("请输入 NAS 工作区目录路径 (例如 /home/jiuzai 或 /vol1/1000):", defaultPath);
+        const customPath = prompt(typeof t === "function" ? t("请输入 NAS 工作区目录路径 (例如 /home/jiuzai 或 /vol1/1000):") : "请输入 NAS 工作区目录路径 (例如 /home/jiuzai 或 /vol1/1000):", defaultPath);
         if (customPath && customPath.trim()) {
           const trimmed = customPath.trim();
           const folderName = trimmed.split("/").filter(Boolean).pop() || trimmed;
@@ -1177,7 +1177,7 @@ async function submitPairing() {
 }
 
 async function unpairDevice() {
-  if (confirm("确定要解除当前设备的配对绑定吗？")) {
+  if (confirm(typeof t === "function" ? t("确定要解除当前设备的配对绑定吗？") : "确定要解除当前设备的配对绑定吗？")) {
     try {
       await fetch("/api/v1/auth/logout", { method: "POST" });
     } catch (_) {
@@ -1236,10 +1236,14 @@ async function clearWebCache() {
     const paired = localStorage.getItem("agy_paired");
     const deviceId = localStorage.getItem("agy_device_id");
     const deviceKey = localStorage.getItem("agy_device_key");
+    const savedLang = localStorage.getItem("antigravity_language");
+    const savedTheme = localStorage.getItem("antigravity_theme");
     localStorage.clear();
     if (deviceKey) localStorage.setItem("agy_device_key", deviceKey);
     if (paired) localStorage.setItem("agy_paired", paired);
     if (deviceId) localStorage.setItem("agy_device_id", deviceId);
+    if (savedLang) localStorage.setItem("antigravity_language", savedLang);
+    if (savedTheme) localStorage.setItem("antigravity_theme", savedTheme);
   } catch (_) {}
 
   try {
@@ -1291,12 +1295,12 @@ async function createConversation() {
   const prompt = document.getElementById("new-prompt").value.trim();
 
   if (!ws) {
-    alert("请选择或输入目标工作区路径");
+    alert(typeof t === "function" ? t("请选择或输入目标工作区路径") : "请选择或输入目标工作区路径");
     return;
   }
 
   if (!prompt) {
-    alert("请输入首条指令");
+    alert(typeof t === "function" ? t("请输入首条指令") : "请输入首条指令");
     return;
   }
 
@@ -1330,7 +1334,7 @@ async function createConversation() {
     navigateTo("#c=" + cascadeId);
     await loadConversations();
   } catch (err) {
-    alert("创建会话失败: " + err.message);
+    alert(typeof t === "function" ? t("创建会话失败: " + err.message) : "创建会话失败: " + err.message);
   } finally {
     if (createBtn) {
       createBtn.textContent = "开始执行";

@@ -66,7 +66,8 @@ type QuotaAlert struct {
 	Level    string // "warn" | "critical" | "bonus_reset" | "anomaly"
 	Title    string
 	Body     string
-	StateKey string // 唯一去重键，通知端可据此再去重
+	StateKey string                                   // 唯一去重键，通知端可据此再去重
+	Localize func(lang string) (title, body string)   // 可选按目标设备语言重算文案
 }
 
 // QuotaAlertConfig configures the alerter.
@@ -575,7 +576,13 @@ func (a *quotaAlerter) Observe(q *CockpitQuotaResponse, liveEmail string) {
 			}
 		}
 		stateDirty = true
-		toSend = append(toSend, buildLowQuotaAlert(lang, acc, lowHits, now))
+		hitsCopy := append([]lowQuotaHit(nil), lowHits...)
+		alert := buildLowQuotaAlert(lang, acc, hitsCopy, now)
+		alert.Localize = func(targetLang string) (string, string) {
+			loc := buildLowQuotaAlert(i18n.ResolveLang(targetLang), acc, hitsCopy, now)
+			return loc.Title, loc.Body
+		}
+		toSend = append(toSend, alert)
 	}
 
 	// 组装官方提前回满喜报（多池同轮回满强制聚合为 1 条）
@@ -588,7 +595,13 @@ func (a *quotaAlerter) Observe(q *CockpitQuotaResponse, liveEmail string) {
 			}
 		}
 		stateDirty = true
-		toSend = append(toSend, buildBonusResetAlert(lang, acc, bonusHits, now))
+		hitsCopy := append([]bonusResetHit(nil), bonusHits...)
+		alert := buildBonusResetAlert(lang, acc, hitsCopy, now)
+		alert.Localize = func(targetLang string) (string, string) {
+			loc := buildBonusResetAlert(i18n.ResolveLang(targetLang), acc, hitsCopy, now)
+			return loc.Title, loc.Body
+		}
+		toSend = append(toSend, alert)
 	}
 
 	// 组装空闲期掉额告警（同轮多池聚合为 1 条）
@@ -601,7 +614,13 @@ func (a *quotaAlerter) Observe(q *CockpitQuotaResponse, liveEmail string) {
 			}
 		}
 		stateDirty = true
-		toSend = append(toSend, buildAnomalyAlert(lang, acc, "idle", idleHits, now))
+		hitsCopy := append([]anomalyHit(nil), idleHits...)
+		alert := buildAnomalyAlert(lang, acc, "idle", hitsCopy, now)
+		alert.Localize = func(targetLang string) (string, string) {
+			loc := buildAnomalyAlert(i18n.ResolveLang(targetLang), acc, "idle", hitsCopy, now)
+			return loc.Title, loc.Body
+		}
+		toSend = append(toSend, alert)
 	}
 
 	// 组装短时异常骤降告警（同轮多池聚合为 1 条）
@@ -614,7 +633,13 @@ func (a *quotaAlerter) Observe(q *CockpitQuotaResponse, liveEmail string) {
 			}
 		}
 		stateDirty = true
-		toSend = append(toSend, buildAnomalyAlert(lang, acc, "rapid", rapidHits, now))
+		hitsCopy := append([]anomalyHit(nil), rapidHits...)
+		alert := buildAnomalyAlert(lang, acc, "rapid", hitsCopy, now)
+		alert.Localize = func(targetLang string) (string, string) {
+			loc := buildAnomalyAlert(i18n.ResolveLang(targetLang), acc, "rapid", hitsCopy, now)
+			return loc.Title, loc.Body
+		}
+		toSend = append(toSend, alert)
 	}
 
 	if stateDirty {

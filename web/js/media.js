@@ -3287,13 +3287,13 @@ window.installPluginFromCard = async function(pluginId) {
       body: JSON.stringify({ pluginId, cascadeId, autoResume: true })
     });
     if (res.ok) {
-      alert("插件已成功安装！已自动为您继续对话。");
+      alert(typeof t === "function" ? t("插件已成功安装！已自动为您继续对话。") : "插件已成功安装！已自动为您继续对话。");
     } else {
       const err = await res.json().catch(() => ({}));
-      alert("安装失败: " + (err.error || "未知错误"));
+      alert(typeof t === "function" ? t("安装失败: " + (err.error || t("未知错误"))) : "安装失败: " + (err.error || "未知错误"));
     }
   } catch (e) {
-    alert("请求出错: " + e.message);
+    alert(typeof t === "function" ? t("请求出错: " + e.message) : "请求出错: " + e.message);
   }
 };
 

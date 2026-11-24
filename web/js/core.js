@@ -506,8 +506,9 @@ function handleFilesSelected(files) {
       : 50 * 1024 * 1024;
     if (file.size > maxBytes) {
       const limitMB = Math.round(maxBytes / (1024 * 1024));
-      if (typeof showToast === "function") showToast(`「${file.name}」超过 ${limitMB} MB 上传上限`, 3200);
-      else alert(`「${file.name}」超过 ${limitMB} MB 上传上限`);
+      const overMsg = `「${file.name}」超过 ${limitMB} MB 上传上限`;
+      if (typeof showToast === "function") showToast(overMsg, 3200);
+      else alert(typeof t === "function" ? t(overMsg) : overMsg);
       continue;
     }
 

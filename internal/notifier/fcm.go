@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"antigravity-mobile/internal/config"
+	"antigravity-mobile/internal/i18n"
 )
 
 // FCMNotification represents the visible notification card in Android notification center.
@@ -39,6 +40,7 @@ type FCMClient struct {
 	endpoint    string
 	serverKey   string
 	deviceToken string
+	deviceLang  string
 	iconURL     string
 	client      *http.Client
 }
@@ -74,6 +76,24 @@ func (f *FCMClient) DeviceToken() string {
 	return f.deviceToken
 }
 
+// SetDeviceLang records the preferred notification language ("zh", "en", or "ja") for the Android device.
+func (f *FCMClient) SetDeviceLang(lang string) {
+	norm := i18n.NormalizeLang(lang)
+	if norm == "" {
+		return
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.deviceLang = norm
+}
+
+// DeviceLang returns the registered Android device's preferred notification language (or "" if unset).
+func (f *FCMClient) DeviceLang() string {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	return f.deviceLang
+}
+
 // ServerKey returns the configured server key.
 func (f *FCMClient) ServerKey() string {
 	f.mu.RLock()
@@ -94,6 +114,7 @@ func (f *FCMClient) Send(ctx context.Context, payload PushPayload) error {
 	endpoint := f.endpoint
 	serverKey := f.serverKey
 	deviceToken := f.deviceToken
+	deviceLang := f.deviceLang
 	iconURL := f.iconURL
 	f.mu.RUnlock()
 
@@ -137,8 +158,20 @@ func (f *FCMClient) Send(ctx context.Context, payload PushPayload) error {
 			icon = iconURL
 		}
 
-		cleanTitle := truncateString(SanitizePushText(payload.Title), 120)
-		cleanBody := truncateString(SanitizePushText(payload.Body), 240)
+		rawTitle := payload.Title
+		rawBody := payload.Body
+		if payload.Localize != nil && deviceLang != "" {
+			if locTitle, locBody := payload.Localize(deviceLang); locTitle != "" || locBody != "" {
+				if locTitle != "" {
+					rawTitle = locTitle
+				}
+				if locBody != "" {
+					rawBody = locBody
+				}
+			}
+		}
+		cleanTitle := truncateString(SanitizePushText(rawTitle), 120)
+		cleanBody := truncateString(SanitizePushText(rawBody), 240)
 		logLabel = cleanTitle
 
 		fcmMsg = FCMPayload{

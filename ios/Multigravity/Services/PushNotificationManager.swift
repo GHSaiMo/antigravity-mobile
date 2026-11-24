@@ -357,6 +357,7 @@ public final class PushNotificationManager: NSObject {
                     "live_activities_enabled": settings.enableLiveActivities,
                     "sound_complete": settings.notificationCompleteSound,
                     "sound_action": settings.notificationActionSound,
+                    "lang": Self.currentLanguageCode,
                     "device_id": settings.deviceID ?? ""
                 ]
             )
@@ -550,6 +551,15 @@ public final class PushNotificationManager: NSObject {
 
     // MARK: - Networking Helpers
 
+    private static var currentLanguageCode: String {
+        let raw = (Bundle.main.preferredLocalizations.first ?? Locale.preferredLanguages.first ?? "en")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        if raw.hasPrefix("zh") { return "zh" }
+        if raw.hasPrefix("ja") { return "ja" }
+        return "en"
+    }
+
     private func uploadToken(
         baseURL: URL,
         tokenType: String,
@@ -558,7 +568,8 @@ public final class PushNotificationManager: NSObject {
         force: Bool
     ) async {
         let settings = AppSettings.shared
-        let signature = "\(baseURL.absoluteString)|\(tokenType)|\(token)|\(Self.apnsEnvironment)|\(settings.enablePushNotifications)|\(settings.enableLiveActivities)|\(settings.notificationCompleteSound)|\(settings.notificationActionSound)"
+        let langCode = Self.currentLanguageCode
+        let signature = "\(baseURL.absoluteString)|\(tokenType)|\(token)|\(Self.apnsEnvironment)|\(settings.enablePushNotifications)|\(settings.enableLiveActivities)|\(settings.notificationCompleteSound)|\(settings.notificationActionSound)|\(langCode)"
 
         if !force {
             switch tokenType {
@@ -579,7 +590,8 @@ public final class PushNotificationManager: NSObject {
             "token": token,
             "apns_env": Self.apnsEnvironment,
             "notifications_enabled": settings.enablePushNotifications,
-            "live_activities_enabled": settings.enableLiveActivities
+            "live_activities_enabled": settings.enableLiveActivities,
+            "lang": langCode
         ]
         if tokenType == "alert" {
             body["sound_complete"] = settings.notificationCompleteSound

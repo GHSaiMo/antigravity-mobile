@@ -9,6 +9,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"antigravity-mobile/internal/i18n"
 )
 
 // Localization of server-sent display text. The language server returns quota groups,
@@ -114,26 +116,92 @@ func translateRPCText(s string) (string, bool) {
 	return "", false
 }
 
-// LocalizeRPCResponse translates the display strings of an allowlisted unary JSON RPC response.
-func LocalizeRPCResponse(path string, body []byte) []byte {
-	if !isL10nRPCPath(path) || len(body) == 0 || len(body) > 1<<20 {
+var l10nRPCExactJa = map[string]string{
+	"Gemini Models":             "Gemini モデル",
+	"Claude and GPT models":     "Claude・GPT モデル",
+	"Weekly Limit Remaining":    "週間残りクォータ",
+	"Five Hour Limit Remaining": "5時間残りクォータ",
+	"Notice":                    "お知らせ",
+	"Within each group, models share a weekly limit and a 5-hour limit. Quota is consumed proportionally to the cost of the tokens. Thus, limits will last longer with shorter tasks or using more cost-effective models. The 5-hour limit smooths out aggregate demand to fairly distribute global capacity across all users, while your weekly limit is tied directly to your individual tier.": "各グループ内のモデルは週間枠と 5 時間枠を共有します。クォータはトークンコストに応じて消費されるため、短いタスクや軽量モデルを使うほど長持ちします。5 時間枠は全体の需要を平準化するためのもので、週間枠はご利用プランに直接紐づきます。",
+}
+
+var jaDurUnit = map[string]string{"day": "日", "hour": "時間", "minute": "分", "second": "秒"}
+
+func jaDuration(s string) string {
+	s = reDurUnit.ReplaceAllStringFunc(s, func(m string) string {
+		sub := reDurUnit.FindStringSubmatch(m)
+		return sub[1] + jaDurUnit[sub[2]]
+	})
+	return strings.NewReplacer(", and ", " ", ", ", " ", " and ", " ").Replace(s)
+}
+
+func jaDate(s string) string {
+	if m := reEnDate.FindStringSubmatch(s); m != nil {
+		if mon, ok := enMonths[m[1]]; ok {
+			return m[3] + "年" + mon + "月" + m[2] + "日"
+		}
+	}
+	return s
+}
+
+func translateRPCTextJa(s string) (string, bool) {
+	if ja, ok := l10nRPCExactJa[s]; ok {
+		return ja, true
+	}
+	if m := reQuotaUsed.FindStringSubmatch(s); m != nil {
+		amount := map[string]string{"some": "一部", "all": "すべて"}[m[1]]
+		kind := map[string]string{"weekly": "週間", "5-hour": "5時間"}[m[2]]
+		return kind + "枠の" + amount + "を使用しました。" + jaDuration(m[3]) + "後に完全リセットされます。", true
+	}
+	if m := reQuotaGroup.FindStringSubmatch(s); m != nil {
+		return "このグループのモデル：" + m[1], true
+	}
+	if m := reModelAvail.FindStringSubmatch(s); m != nil {
+		return m[1] + " は有料 Pro / Ultra プランで利用可能になりました。" + jaDate(m[2]) + "以降、現在のプランではサードパーティモデルを利用できなくなります。", true
+	}
+	if m := reModelRemove.FindStringSubmatch(s); m != nil {
+		return m[1] + " は " + jaDate(m[2]) + "に Antigravity から削除されます。", true
+	}
+	return "", false
+}
+
+// LocalizeRPCResponseForLang translates display strings of an allowlisted unary JSON RPC response
+// for lang ("zh" | "ja" | "en"). English passes upstream text through verbatim.
+func LocalizeRPCResponseForLang(path string, body []byte, lang string) []byte {
+	norm := i18n.NormalizeLang(lang)
+	if norm == i18n.LangEn || !isL10nRPCPath(path) || len(body) == 0 || len(body) > 1<<20 {
 		return body
 	}
 	return reRPCTextField.ReplaceAllFunc(body, func(m []byte) []byte {
 		sub := reRPCTextField.FindSubmatch(m)
-		zh, ok := translateRPCText(string(sub[2]))
+		var translated string
+		var ok bool
+		if norm == i18n.LangJa {
+			translated, ok = translateRPCTextJa(string(sub[2]))
+		} else {
+			translated, ok = translateRPCText(string(sub[2]))
+		}
 		if !ok {
 			return m
 		}
-		return []byte(string(sub[1]) + zh + string(sub[3]))
+		return []byte(string(sub[1]) + translated + string(sub[3]))
 	})
+}
+
+// LocalizeRPCResponse translates the display strings of an allowlisted unary JSON RPC response into Chinese.
+func LocalizeRPCResponse(path string, body []byte) []byte {
+	return LocalizeRPCResponseForLang(path, body, i18n.LangZh)
 }
 
 const maxL10nRPCBodyBytes = 1 << 20
 
-// localizeRPCResponse rewrites resp.Body in place with translated display strings.
+// localizeRPCResponse rewrites resp.Body in place with translated display strings matching the request language.
 func localizeRPCResponse(resp *http.Response) error {
 	if resp == nil || resp.Body == nil {
+		return nil
+	}
+	lang := ResolveDesktopLang(resp.Request)
+	if lang == i18n.LangEn {
 		return nil
 	}
 	reqPath := ""
@@ -185,9 +253,9 @@ func localizeRPCResponse(resp *http.Response) error {
 
 	var out []byte
 	if ct := resp.Header.Get("Content-Type"); strings.Contains(ct, "connect+") || strings.Contains(ct, "grpc") {
-		out = localizeConnectEnvelopes(reqPath, raw)
+		out = localizeConnectEnvelopesForLang(reqPath, raw, lang)
 	} else {
-		out = LocalizeRPCResponse(reqPath, raw)
+		out = LocalizeRPCResponseForLang(reqPath, raw, lang)
 	}
 	resp.Body = io.NopCloser(bytes.NewReader(out))
 	resp.ContentLength = int64(len(out))
@@ -195,11 +263,16 @@ func localizeRPCResponse(resp *http.Response) error {
 	return nil
 }
 
-// localizeConnectEnvelopes translates an enveloped body (Connect streaming / grpc-web, e.g.
-// application/grpc-web+json):
-// a sequence of frames [flags:1][length:4 big-endian][payload]. Each payload is rewritten
-// and its length prefix recomputed; a malformed body is returned untouched.
+// localizeConnectEnvelopes translates an enveloped body into Chinese (backward-compatible helper).
 func localizeConnectEnvelopes(path string, body []byte) []byte {
+	return localizeConnectEnvelopesForLang(path, body, i18n.LangZh)
+}
+
+// localizeConnectEnvelopesForLang translates an enveloped body (Connect streaming / grpc-web) for lang.
+func localizeConnectEnvelopesForLang(path string, body []byte, lang string) []byte {
+	if i18n.NormalizeLang(lang) == i18n.LangEn {
+		return body
+	}
 	var out []byte
 	for pos := 0; pos < len(body); {
 		if len(body)-pos < 5 {
@@ -213,7 +286,7 @@ func localizeConnectEnvelopes(path string, body []byte) []byte {
 		// only plain data frames (flags 0); compressed frames and the grpc-web/Connect trailer
 		// frame (flag 0x80 / 0x02) are passed through
 		if body[pos] == 0 {
-			payload = LocalizeRPCResponse(path, payload)
+			payload = LocalizeRPCResponseForLang(path, payload, lang)
 		}
 		var hdr [5]byte
 		hdr[0] = body[pos]

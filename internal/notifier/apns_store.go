@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"antigravity-mobile/internal/i18n"
 )
 
 const (
@@ -34,6 +36,7 @@ type PushDeviceRecord struct {
 	LiveActivitiesEnabled bool              `json:"live_activities_enabled"`
 	SoundComplete         string            `json:"sound_complete,omitempty"`
 	SoundAction           string            `json:"sound_action,omitempty"`
+	Lang                  string            `json:"lang,omitempty"`
 	UpdatedAt             time.Time         `json:"updated_at"`
 }
 
@@ -44,6 +47,7 @@ type APNsAlertTarget struct {
 	Env           string
 	SoundComplete string
 	SoundAction   string
+	Lang          string
 }
 
 // APNsLiveActivityTarget identifies a registered iOS device Live Activity token (update or push-to-start).
@@ -52,6 +56,7 @@ type APNsLiveActivityTarget struct {
 	CascadeID string
 	Token     string
 	Env       string
+	Lang      string
 	IsStart   bool
 }
 
@@ -346,6 +351,27 @@ func (s *PushDeviceStore) UpdateSoundPreferences(deviceID, soundComplete, soundA
 	return s.saveLocked()
 }
 
+// UpdateLanguage records the preferred notification language ("zh", "en", or "ja") for a paired iOS device.
+func (s *PushDeviceStore) UpdateLanguage(deviceID, lang string) error {
+	deviceID = strings.TrimSpace(deviceID)
+	norm := i18n.NormalizeLang(lang)
+	if deviceID == "" || norm == "" {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	rec, ok := s.devices[deviceID]
+	if !ok {
+		return nil
+	}
+	if rec.Lang == norm {
+		return nil
+	}
+	rec.Lang = norm
+	rec.UpdatedAt = time.Now()
+	return s.saveLocked()
+}
+
 // RemoveLiveActivityToken deletes a specific cascade's Live Activity update token (e.g. after end or 410).
 func (s *PushDeviceStore) RemoveLiveActivityToken(deviceID, cascadeID string) {
 	s.mu.Lock()
@@ -496,6 +522,7 @@ func (s *PushDeviceStore) ListAlertTargets() []APNsAlertTarget {
 				Env:           normalizeAPNSEnv(rec.APNSEnv),
 				SoundComplete: rec.SoundComplete,
 				SoundAction:   rec.SoundAction,
+				Lang:          i18n.NormalizeLang(rec.Lang),
 			})
 		}
 	}
@@ -520,12 +547,14 @@ func (s *PushDeviceStore) ListLiveActivityTargetsAt(cascadeID string, includeSta
 			continue
 		}
 		env := normalizeAPNSEnv(rec.APNSEnv)
+		lang := i18n.NormalizeLang(rec.Lang)
 		if tok := rec.ActivityTokens[cascadeID]; tok != "" {
 			out = append(out, APNsLiveActivityTarget{
 				DeviceID:  rec.DeviceID,
 				CascadeID: cascadeID,
 				Token:     tok,
 				Env:       env,
+				Lang:      lang,
 				IsStart:   false,
 			})
 		} else if includeStart && rec.PushToStartToken != "" {
@@ -537,6 +566,7 @@ func (s *PushDeviceStore) ListLiveActivityTargetsAt(cascadeID string, includeSta
 				CascadeID: cascadeID,
 				Token:     rec.PushToStartToken,
 				Env:       env,
+				Lang:      lang,
 				IsStart:   true,
 			})
 		}

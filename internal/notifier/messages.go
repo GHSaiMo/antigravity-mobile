@@ -40,128 +40,191 @@ const (
 	MsgDefaultTask     = "后台任务"
 )
 
-func msgTitleApproval() string {
-	return i18n.T3(MsgTitleApproval, "⚠️ Antigravity Approval Needed", "⚠️ Antigravity 承認が必要です")
+func msgTitleApprovalFor(lang string) string {
+	return i18n.T3For(i18n.ResolveLang(lang), MsgTitleApproval, "⚠️ Antigravity Approval Needed", "⚠️ Antigravity 承認が必要です")
 }
 
-func msgTitleHighRiskApproval() string {
-	return i18n.T3("🚨 高危操作审批", "🚨 High-Risk Approval", "🚨 高リスク操作の承認")
+func msgTitleApproval() string { return msgTitleApprovalFor("") }
+
+func msgTitleHighRiskApprovalFor(lang string) string {
+	return i18n.T3For(i18n.ResolveLang(lang), "🚨 高危操作审批", "🚨 High-Risk Approval", "🚨 高リスク操作の承認")
 }
 
-func msgTitleWorkflowApproval() string {
-	return i18n.T3("⚠️ 动态工作流需审批", "⚠️ Workflow Approval Needed", "⚠️ ワークフローの承認が必要です")
+func msgTitleHighRiskApproval() string { return msgTitleHighRiskApprovalFor("") }
+
+func msgTitleWorkflowApprovalFor(lang string) string {
+	return i18n.T3For(i18n.ResolveLang(lang), "⚠️ 动态工作流需审批", "⚠️ Workflow Approval Needed", "⚠️ ワークフローの承認が必要です")
 }
 
-func msgTitleQuestion() string {
-	return i18n.T3(MsgTitleQuestion, "❓ Antigravity Question", "❓ Antigravity からの質問")
+func msgTitleWorkflowApproval() string { return msgTitleWorkflowApprovalFor("") }
+
+func msgTitleQuestionFor(lang string) string {
+	return i18n.T3For(i18n.ResolveLang(lang), MsgTitleQuestion, "❓ Antigravity Question", "❓ Antigravity からの質問")
 }
 
-func msgTitleRunCommand() string {
-	return i18n.T3(MsgTitleRunCommand, "⚠️ Confirm Terminal Command", "⚠️ コマンド実行の確認")
+func msgTitleQuestion() string { return msgTitleQuestionFor("") }
+
+func msgTitleRunCommandFor(lang string) string {
+	return i18n.T3For(i18n.ResolveLang(lang), MsgTitleRunCommand, "⚠️ Confirm Terminal Command", "⚠️ コマンド実行の確認")
 }
 
-func msgTitleFileAccess() string {
-	return i18n.T3(MsgTitleFileAccess, "⚠️ File Access Approval", "⚠️ 外部ファイルアクセスの承認")
+func msgTitleRunCommand() string { return msgTitleRunCommandFor("") }
+
+func msgTitleFileAccessFor(lang string) string {
+	return i18n.T3For(i18n.ResolveLang(lang), MsgTitleFileAccess, "⚠️ File Access Approval", "⚠️ 外部ファイルアクセスの承認")
 }
 
-func msgTitleProceed() string {
-	return i18n.T3(MsgTitleProceed, "📋 Plan Ready to Proceed", "📋 計画の確認待ち")
+func msgTitleFileAccess() string { return msgTitleFileAccessFor("") }
+
+func msgTitleProceedFor(lang string) string {
+	return i18n.T3For(i18n.ResolveLang(lang), MsgTitleProceed, "📋 Plan Ready to Proceed", "📋 計画の確認待ち")
 }
 
-func msgTitleCompleted() string {
-	return i18n.T3(MsgTitleCompleted, "🎉 Antigravity Task Completed", "🎉 Antigravity タスク完了")
+func msgTitleProceed() string { return msgTitleProceedFor("") }
+
+func msgTitleCompletedFor(lang string) string {
+	return i18n.T3For(i18n.ResolveLang(lang), MsgTitleCompleted, "🎉 Antigravity Task Completed", "🎉 Antigravity タスク完了")
 }
 
-func msgTitleFailed() string {
-	return i18n.T3(MsgTitleFailed, "❌ Antigravity Task Failed", "❌ Antigravity タスク失敗")
+func msgTitleCompleted() string { return msgTitleCompletedFor("") }
+
+func msgTitleFailedFor(lang string) string {
+	return i18n.T3For(i18n.ResolveLang(lang), MsgTitleFailed, "❌ Antigravity Task Failed", "❌ Antigravity タスク失敗")
 }
 
-func msgTitleCockpitOffline() string {
-	return i18n.T3(MsgTitleCockpitOffline, "⚠️ Cockpit Tools Offline", "⚠️ Cockpit Tools 起動失敗")
+func msgTitleFailed() string { return msgTitleFailedFor("") }
+
+func msgTitleCockpitOfflineFor(lang string) string {
+	return i18n.T3For(i18n.ResolveLang(lang), MsgTitleCockpitOffline, "⚠️ Cockpit Tools Offline", "⚠️ Cockpit Tools 起動失敗")
 }
 
-func msgBodyWorkflowDesc(desc string) string {
-	return i18n.Sprintf3("编排工作流申请执行：%s", "Workflow requests execution: %s", "ワークフロー実行リクエスト: %s", desc)
+func msgTitleCockpitOffline() string { return msgTitleCockpitOfflineFor("") }
+
+func msgBodyWorkflowDescFor(lang, desc string) string {
+	return i18n.Sprintf3For(i18n.ResolveLang(lang), "编排工作流申请执行：%s", "Workflow requests execution: %s", "ワークフロー実行リクエスト: %s", desc)
 }
 
-func msgBodyWorkflowTitle(title string) string {
-	return i18n.Sprintf3("动态工作流申请执行：%s", "Workflow requests approval: %s", "ワークフロー承認待ち: %s", title)
+func msgBodyWorkflowDesc(desc string) string { return msgBodyWorkflowDescFor("", desc) }
+
+func msgBodyWorkflowTitleFor(lang, title string) string {
+	return i18n.Sprintf3For(i18n.ResolveLang(lang), "动态工作流申请执行：%s", "Workflow requests approval: %s", "ワークフロー承認待ち: %s", title)
 }
 
-func msgBodyCommand(target string) string {
-	return i18n.Sprintf3(MsgBodyCommand, "Agent wants to run command: %s", "Agent がコマンド実行を要求: %s", target)
+func msgBodyWorkflowTitle(title string) string { return msgBodyWorkflowTitleFor("", title) }
+
+func msgBodyCommandFor(lang, target string) string {
+	return i18n.Sprintf3For(i18n.ResolveLang(lang), MsgBodyCommand, "Agent wants to run command: %s", "Agent がコマンド実行を要求: %s", target)
 }
 
-func msgBodyWriteFile(target string) string {
-	return i18n.Sprintf3(MsgBodyWriteFile, "Agent wants to edit file: %s", "Agent がファイル編集を要求: %s", target)
+func msgBodyCommand(target string) string { return msgBodyCommandFor("", target) }
+
+func msgBodyWriteFileFor(lang, target string) string {
+	return i18n.Sprintf3For(i18n.ResolveLang(lang), MsgBodyWriteFile, "Agent wants to edit file: %s", "Agent がファイル編集を要求: %s", target)
 }
 
-func msgBodyReadFile(target string) string {
-	return i18n.Sprintf3(MsgBodyReadFile, "Agent wants to read file: %s", "Agent が外部ファイル閲覧を要求: %s", target)
+func msgBodyWriteFile(target string) string { return msgBodyWriteFileFor("", target) }
+
+func msgBodyReadFileFor(lang, target string) string {
+	return i18n.Sprintf3For(i18n.ResolveLang(lang), MsgBodyReadFile, "Agent wants to read file: %s", "Agent が外部ファイル閲覧を要求: %s", target)
 }
 
-func msgBodyApproval(desc string) string {
-	return i18n.Sprintf3(MsgBodyApproval, "Agent requests approval: %s", "Agent が承認を要求: %s", desc)
+func msgBodyReadFile(target string) string { return msgBodyReadFileFor("", target) }
+
+func msgBodyApprovalFor(lang, desc string) string {
+	return i18n.Sprintf3For(i18n.ResolveLang(lang), MsgBodyApproval, "Agent requests approval: %s", "Agent が承認を要求: %s", desc)
+}
+
+func msgBodyApproval(desc string) string { return msgBodyApprovalFor("", desc) }
+
+func msgBodyGenericActionFor(lang, action, target string) string {
+	return i18n.Sprintf3For(i18n.ResolveLang(lang), MsgBodyGenericAction, "Agent requests %s: %s", "Agent が %s 操作を要求: %s", action, target)
 }
 
 func msgBodyGenericAction(action, target string) string {
-	return i18n.Sprintf3(MsgBodyGenericAction, "Agent requests %s: %s", "Agent が %s 操作を要求: %s", action, target)
+	return msgBodyGenericActionFor("", action, target)
 }
 
-func msgBodyQuestion(q string) string {
-	return i18n.Sprintf3(MsgBodyQuestion, "Agent asked a question: %s", "Agent から質問があります: %s", q)
+func msgBodyQuestionFor(lang, q string) string {
+	return i18n.Sprintf3For(i18n.ResolveLang(lang), MsgBodyQuestion, "Agent asked a question: %s", "Agent から質問があります: %s", q)
 }
 
-func msgBodyAccessFile(target string) string {
-	return i18n.Sprintf3(MsgBodyAccessFile, "Agent wants to access file: %s", "Agent が外部ファイルアクセスを要求: %s", target)
+func msgBodyQuestion(q string) string { return msgBodyQuestionFor("", q) }
+
+func msgBodyAccessFileFor(lang, target string) string {
+	return i18n.Sprintf3For(i18n.ResolveLang(lang), MsgBodyAccessFile, "Agent wants to access file: %s", "Agent が外部ファイルアクセスを要求: %s", target)
 }
 
-func msgBodyWaiting(title string) string {
-	return i18n.Sprintf3(MsgBodyWaiting, "Agent is waiting for you: %s", "Agent が操作を待っています: %s", title)
+func msgBodyAccessFile(target string) string { return msgBodyAccessFileFor("", target) }
+
+func msgBodyWaitingFor(lang, title string) string {
+	return i18n.Sprintf3For(i18n.ResolveLang(lang), MsgBodyWaiting, "Agent is waiting for you: %s", "Agent が操作を待っています: %s", title)
 }
 
-func msgBodyProceed(plan string) string {
-	return i18n.Sprintf3(MsgBodyProceed, "\"%s\" is ready — tap Proceed to continue.", "「%s」の計画が完了しました。Proceed をタップして続行してください。", plan)
+func msgBodyWaiting(title string) string { return msgBodyWaitingFor("", title) }
+
+func msgBodyProceedFor(lang, plan string) string {
+	return i18n.Sprintf3For(i18n.ResolveLang(lang), MsgBodyProceed, "\"%s\" is ready — tap Proceed to continue.", "「%s」の計画が完了しました。Proceed をタップして続行してください。", plan)
 }
 
-func msgBodyCompleted(task string, steps int) string {
-	return i18n.Sprintf3(MsgBodyCompleted, "\"%s\" finished (%d steps).", "「%s」が完了しました（全 %d ステップ）。", task, steps)
+func msgBodyProceed(plan string) string { return msgBodyProceedFor("", plan) }
+
+func msgBodyCompletedFor(lang, task string, steps int) string {
+	return i18n.Sprintf3For(i18n.ResolveLang(lang), MsgBodyCompleted, "\"%s\" finished (%d steps).", "「%s」が完了しました（全 %d ステップ）。", task, steps)
 }
 
-func msgBodyFailed(task string) string {
-	return i18n.Sprintf3(MsgBodyFailed, "\"%s\" encountered an error or was stopped.", "「%s」でエラーが発生したか停止されました。", task)
+func msgBodyCompleted(task string, steps int) string { return msgBodyCompletedFor("", task, steps) }
+
+func msgBodyFailedFor(lang, task string) string {
+	return i18n.Sprintf3For(i18n.ResolveLang(lang), MsgBodyFailed, "\"%s\" encountered an error or was stopped.", "「%s」でエラーが発生したか停止されました。", task)
 }
 
-func msgBodyCockpitOffline() string {
-	return i18n.T3(
+func msgBodyFailed(task string) string { return msgBodyFailedFor("", task) }
+
+func msgBodyCockpitOfflineFor(lang string) string {
+	return i18n.T3For(
+		i18n.ResolveLang(lang),
 		MsgBodyCockpitOffline,
 		"Cockpit Tools could not be reached after 2 relaunch attempts (127.0.0.1:18081); auto-refresh paused.",
 		"Cockpit Tools に2回再起動を試みましたが接続できません (127.0.0.1:18081)。自動更新を一時停止しました。",
 	)
 }
 
-func msgDefaultPlan() string {
-	return i18n.T3(MsgDefaultPlan, "Implementation Plan", "実装計画")
+func msgBodyCockpitOffline() string { return msgBodyCockpitOfflineFor("") }
+
+func msgDefaultPlanFor(lang string) string {
+	return i18n.T3For(i18n.ResolveLang(lang), MsgDefaultPlan, "Implementation Plan", "実装計画")
 }
 
-func msgDefaultTask() string {
-	return i18n.T3(MsgDefaultTask, "Background Task", "バックグラウンドタスク")
+func msgDefaultPlan() string { return msgDefaultPlanFor("") }
+
+func msgDefaultTaskFor(lang string) string {
+	return i18n.T3For(i18n.ResolveLang(lang), MsgDefaultTask, "Background Task", "バックグラウンドタスク")
+}
+
+func msgDefaultTask() string { return msgDefaultTaskFor("") }
+
+func formatSessionPrefixFor(lang, sessionTitle, body string) string {
+	return i18n.Sprintf3For(i18n.ResolveLang(lang), "【%s】%s", "[%s] %s", "【%s】%s", sessionTitle, body)
 }
 
 func formatSessionPrefix(sessionTitle, body string) string {
-	return i18n.Sprintf3("【%s】%s", "[%s] %s", "【%s】%s", sessionTitle, body)
+	return formatSessionPrefixFor("", sessionTitle, body)
 }
 
-func msgTitleCacheMissAlert() string {
-	return i18n.T3(
+func msgTitleCacheMissAlertFor(lang string) string {
+	return i18n.T3For(
+		i18n.ResolveLang(lang),
 		"⚠️ 缓存连续未命中预警",
 		"⚠️ Prompt Cache Miss Alert",
 		"⚠️ キャッシュ連続ミス警告",
 	)
 }
 
-func msgBodyCacheMissAlert(streak int, tokensText string) string {
-	return i18n.Sprintf3(
+func msgTitleCacheMissAlert() string { return msgTitleCacheMissAlertFor("") }
+
+func msgBodyCacheMissAlertFor(lang string, streak int, tokensText string) string {
+	return i18n.Sprintf3For(
+		i18n.ResolveLang(lang),
 		"连续 %d 步未命中缓存（累计重算 %s 输入），可能正在加速消耗周额度，建议查看或及时中断。",
 		"%d consecutive cache misses (%s uncached input) — weekly quota may drain faster. Check or interrupt if needed.",
 		"%d ステップ連続でキャッシュ未命中（再計算入力 %s）。週間クォータを急消費している可能性があります。",
@@ -170,21 +233,33 @@ func msgBodyCacheMissAlert(streak int, tokensText string) string {
 	)
 }
 
-func msgTitleStallAlert() string {
-	return i18n.T3(
+func msgBodyCacheMissAlert(streak int, tokensText string) string {
+	return msgBodyCacheMissAlertFor("", streak, tokensText)
+}
+
+func msgTitleStallAlertFor(lang string) string {
+	return i18n.T3For(
+		i18n.ResolveLang(lang),
 		"⏳ 任务长时间无进展",
 		"⏳ Task Appears Stalled",
 		"⏳ タスクが停止している可能性",
 	)
 }
 
-func msgBodyStallAlert(stalledMinutes int) string {
-	return i18n.Sprintf3(
+func msgTitleStallAlert() string { return msgTitleStallAlertFor("") }
+
+func msgBodyStallAlertFor(lang string, stalledMinutes int) string {
+	return i18n.Sprintf3For(
+		i18n.ResolveLang(lang),
 		"已连续 %d 分钟无新输出或步骤推进，可能已卡住，点击查看或中止。",
 		"No new output or step progress for %d min — it may be stuck. Tap to inspect or stop.",
 		"%d 分間新しい出力やステップの進行がありません。確認または停止してください。",
 		stalledMinutes,
 	)
+}
+
+func msgBodyStallAlert(stalledMinutes int) string {
+	return msgBodyStallAlertFor("", stalledMinutes)
 }
 
 func formatCompactTokens(n int64) string {

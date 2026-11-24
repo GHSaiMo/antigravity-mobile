@@ -113,6 +113,15 @@ func T3For(lang, zh, en, ja string) string {
 	}
 }
 
+// ResolveLang returns the normalized language ("zh", "en", or "ja") if lang is valid,
+// otherwise falling back to the gateway's active language.
+func ResolveLang(lang string) string {
+	if n := normalizeLang(lang); n != "" {
+		return n
+	}
+	return GetLang()
+}
+
 // Sprintf formats according to the active language's format string.
 func Sprintf(zhFmt, enFmt string, a ...any) string {
 	if IsZh() {
@@ -124,6 +133,11 @@ func Sprintf(zhFmt, enFmt string, a ...any) string {
 // Sprintf3 formats according to the active language's trilingual format string.
 func Sprintf3(zhFmt, enFmt, jaFmt string, a ...any) string {
 	return fmt.Sprintf(T3(zhFmt, enFmt, jaFmt), a...)
+}
+
+// Sprintf3For formats according to an explicit language code ("zh", "en", or "ja").
+func Sprintf3For(lang, zhFmt, enFmt, jaFmt string, a ...any) string {
+	return fmt.Sprintf(T3For(lang, zhFmt, enFmt, jaFmt), a...)
 }
 
 // NormalizeLang normalizes a locale string (e.g. "ja_JP.UTF-8", "zh-CN", "en_US") into "zh", "en", "ja", or "".

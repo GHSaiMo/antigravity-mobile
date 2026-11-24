@@ -185,11 +185,22 @@ func (c *APNsRelayClient) Send(ctx context.Context, payload PushPayload) error {
 				errCh <- ctx.Err()
 				return
 			}
+			targetTitle := cleanTitle
+			targetBody := cleanBody
+			if payload.Localize != nil && t.Lang != "" {
+				locTitle, locBody := payload.Localize(t.Lang)
+				if locTitle != "" {
+					targetTitle = truncateString(SanitizePushText(locTitle), 80)
+				}
+				if locBody != "" {
+					targetBody = truncateString(SanitizePushText(locBody), 240)
+				}
+			}
 			req := APNsRelayAlertRequest{
 				DeviceToken:       t.Token,
 				Env:               t.Env,
-				Title:             cleanTitle,
-				Body:              cleanBody,
+				Title:             targetTitle,
+				Body:              targetBody,
 				Sound:             resolveAlertSound(t, payload),
 				InterruptionLevel: interruption,
 				ThreadID:          "multigravity",
@@ -212,7 +223,7 @@ func (c *APNsRelayClient) Send(ctx context.Context, payload PushPayload) error {
 				errCh <- fmt.Errorf("apns alert rejected (%d %s)", resp.Status, resp.Reason)
 				return
 			}
-			slog.Info(fmt.Sprintf("[APNs] 🚀 推送成功: %s", cleanTitle), "device_id", t.DeviceID, "env", t.Env)
+			slog.Info(fmt.Sprintf("[APNs] 🚀 推送成功: %s", targetTitle), "device_id", t.DeviceID, "env", t.Env)
 		}(target)
 	}
 

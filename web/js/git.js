@@ -311,7 +311,12 @@ async function openGitBranchPicker() {
     const branches = Array.isArray(data.branches) ? data.branches : [];
     const cur = data.current || gitState.status?.branch || "";
     const listText = branches.slice(0, 15).map((b, i) => `${i + 1}. ${b === cur ? "* " : "  "}${b}`).join("\n");
-    const raw = prompt(`当前分支: ${cur}\n\n可选分支:\n${listText}\n\n输入序号或分支名切换，或输入 +新分支名 创建并切换：`);
+    const branchPrompt = window.I18n?.isEn?.()
+      ? `Current branch: ${cur}\n\nAvailable branches:\n${listText}\n\nEnter a number or branch name to switch, or +new-branch to create & switch:`
+      : (window.I18n?.isJa?.()
+          ? `現在のブランチ: ${cur}\n\n選択可能なブランチ:\n${listText}\n\n番号またはブランチ名を入力して切替、+新ブランチ名 で作成して切替：`
+          : `当前分支: ${cur}\n\n可选分支:\n${listText}\n\n输入序号或分支名切换，或输入 +新分支名 创建并切换：`);
+    const raw = prompt(branchPrompt);
     if (!raw || !raw.trim()) return;
     let trimmed = raw.trim();
     let create = false;
@@ -338,7 +343,7 @@ async function openGitBranchPicker() {
 
 async function discardGitFile(path) {
   if (!activeCascadeId || !path || gitState.working) return;
-  if (!confirm(`确定丢弃对「${path}」的所有未提交修改？此操作不可撤销。`)) return;
+  if (!confirm(typeof t === "function" ? t(`确定丢弃对「${path}」的所有未提交修改？此操作不可撤销。`) : `确定丢弃对「${path}」的所有未提交修改？此操作不可撤销。`)) return;
   gitState.working = true;
   gitState.actionError = "";
   renderGitSheet();

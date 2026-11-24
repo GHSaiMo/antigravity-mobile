@@ -1625,10 +1625,16 @@ class ApiClient(
     suspend fun registerPushToken(token: String, platform: String = "android"): Result<Unit> = withContext(Dispatchers.IO) {
         val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址".loc))
         val url = "$baseUrl/api/v1/device/push-token"
+        val langCode = when (com.antigravity.mobile.ui.util.L10n.currentLang) {
+            com.antigravity.mobile.ui.util.L10n.AppLang.ZH -> "zh"
+            com.antigravity.mobile.ui.util.L10n.AppLang.JA -> "ja"
+            com.antigravity.mobile.ui.util.L10n.AppLang.EN -> "en"
+        }
         val payload = buildJsonObject {
             put("platform", platform)
             put("token", token)
             put("fcm_token", token)
+            put("lang", langCode)
             prefs.deviceId?.let { put("device_id", it) }
         }
 

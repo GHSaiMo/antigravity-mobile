@@ -232,6 +232,15 @@ function initApp() {
     });
   }
 
+  // Language Selector in Settings (supports system / zh-CN / en / ja)
+  const langSelect = document.getElementById("settings-language-select");
+  if (langSelect && window.I18n) {
+    langSelect.value = window.I18n.getPreference ? window.I18n.getPreference() : "system";
+    langSelect.addEventListener("change", (e) => {
+      window.I18n.setLanguage(e.target.value);
+    });
+  }
+
   // Font Size Scale in Settings (Antigravity 2.31+)
   const fontSelect = document.getElementById("settings-font-size-scale");
   const savedFontScale = localStorage.getItem("antigravity_font_scale") || "default";
@@ -325,6 +334,18 @@ function initApp() {
 
   window.addEventListener("mgy:languagechange", () => {
     syncCompactUI();
+    if (langSelect && window.I18n?.getPreference) {
+      langSelect.value = window.I18n.getPreference();
+    }
+    if (typeof syncAlertPrefsUI === "function") {
+      syncAlertPrefsUI();
+    }
+    if (typeof updateModelSwitchUI === "function") {
+      updateModelSwitchUI();
+    }
+    if (typeof updateQuotaDisplaySummary === "function") {
+      updateQuotaDisplaySummary();
+    }
   });
 
   const applyCompactLiveEffects = () => {
@@ -482,7 +503,7 @@ function initApp() {
         syncAlertPrefsUI();
       } catch (_) {
         currentAlertPrefs = prev;
-        syncAlertPrefsUI("同步失败，请检查网关连接");
+        syncAlertPrefsUI(typeof t === "function" ? t("同步失败，请检查网关连接") : "同步失败，请检查网关连接");
       }
     },
   };

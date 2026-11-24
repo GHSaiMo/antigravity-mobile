@@ -17,7 +17,8 @@ function showToast(message, ms = 1800) {
     el.setAttribute("role", "status");
     document.body.appendChild(el);
   }
-  el.textContent = message;
+  const text = typeof message === "string" ? message : String(message ?? "");
+  el.textContent = typeof t === "function" ? t(text) : text;
   el.classList.add("show");
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => el.classList.remove("show"), ms);

@@ -85,7 +85,7 @@ const SubagentManager = {
 
   async stop(conversationId) {
     if (!conversationId) return;
-    if (!confirm("关停这个子代理？\n它正在进行的工作会被中断，已完成的内容会保留。")) return;
+    if (!confirm(typeof t === "function" ? t("关停这个子代理？\n它正在进行的工作会被中断，已完成的内容会保留。") : "关停这个子代理？\n它正在进行的工作会被中断，已完成的内容会保留。")) return;
     triggerHaptic("medium");
     // 乐观收起：立刻从运行列表里去掉
     const prev = this.list;

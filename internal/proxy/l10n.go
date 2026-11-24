@@ -3,6 +3,8 @@ package proxy
 import (
 	"bytes"
 	"regexp"
+
+	"antigravity-mobile/internal/i18n"
 )
 
 // Gateway-level localization of the desktop workbench bundle (main.js).
@@ -263,8 +265,10 @@ func translateStringLiterals(data []byte) []byte {
 	return append(out, data[last:]...)
 }
 
-// LocalizeMainJS performs zero-runtime-overhead static localization on main.js.
-func LocalizeMainJS(data []byte) []byte {
+// PatchMainJS applies essential non-language runtime patches to upstream main.js
+// (stripping blocking Google Fonts imports, eliminating the 30s session-switch stream GC stall,
+// and neutralizing web onboarding redirect traps) while leaving UI copy in pristine native English.
+func PatchMainJS(data []byte) []byte {
 	// Strip blocking Google Fonts stylesheet imports to eliminate 15-30s browser render lock.
 	// Replace the entire @import statement with a self-contained closed CSS comment so it never
 	// leaves an unclosed `/*` that would swallow subsequent SVG <style> rules (e.g. Mermaid vars).
@@ -294,11 +298,30 @@ func LocalizeMainJS(data []byte) []byte {
 	data = bytes.ReplaceAll(data, []byte("q=!p?.length||p.includes(2)"), []byte("q=!1"))
 	data = bytes.ReplaceAll(data, []byte("hasOnboardingScreens:f"), []byte("hasOnboardingScreens:!1"))
 	data = reOnboardingFeature.ReplaceAll(data, []byte("onboarding:{feature:{enabled:!1,screens:[]}"))
+	return data
+}
 
+// LocalizeMainJSForLang applies PatchMainJS and optional static UI localization for lang ("zh" | "en" | "ja").
+// English ("en") returns patched native upstream English without text rewriting.
+func LocalizeMainJSForLang(data []byte, lang string) []byte {
+	data = PatchMainJS(data)
 	if l10nDisabled("bundle") {
 		return data
 	}
-	// Patches match raw upstream text, so they run before the literal pass.
-	data = applyL10nPatches(data)
-	return translateStringLiterals(data)
+	switch i18n.NormalizeLang(lang) {
+	case i18n.LangZh:
+		// Patches match raw upstream text, so they run before the literal pass.
+		data = applyL10nPatches(data)
+		return translateStringLiterals(data)
+	case i18n.LangJa:
+		data = applyL10nPatchesJa(data)
+		return translateStringLiteralsJa(data)
+	default:
+		return data
+	}
+}
+
+// LocalizeMainJS performs zero-runtime-overhead static Chinese localization on main.js.
+func LocalizeMainJS(data []byte) []byte {
+	return LocalizeMainJSForLang(data, i18n.LangZh)
 }

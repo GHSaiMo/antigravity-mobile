@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"antigravity-mobile/internal/i18n"
 )
 
 // IsDesktopStaticPath checks if a path belongs to upstream desktop workbench static assets.
@@ -38,21 +40,23 @@ type desktopStaticCacheItem struct {
 const maxDesktopStaticCacheEntries = 256
 
 type desktopStaticFlight struct {
-	done chan struct{}
-	item *desktopStaticCacheItem
+	done   chan struct{}
+	item   *desktopStaticCacheItem
 	status int
-	body []byte
-	err  error
+	body   []byte
+	err    error
 }
 
 var (
-	desktopStaticCacheMu     sync.RWMutex
-	desktopStaticCache       = make(map[string]*desktopStaticCacheItem)
-	desktopStaticFlightsMu   sync.Mutex
-	desktopStaticFlights     = make(map[string]*desktopStaticFlight)
+	desktopStaticCacheMu   sync.RWMutex
+	desktopStaticCache     = make(map[string]*desktopStaticCacheItem)
+	desktopRawMainJS       []byte
+	desktopRawMainJSPort   int
+	desktopStaticFlightsMu sync.Mutex
+	desktopStaticFlights   = make(map[string]*desktopStaticFlight)
 
 	desktopIndexCacheMu    sync.RWMutex
-	desktopIndexCacheHTML  []byte
+	desktopIndexCacheHTML  = make(map[string][]byte)
 	desktopIndexCachePort  int
 	desktopIndexCacheToken string
 
@@ -64,17 +68,17 @@ var (
 	reDesktopFavicon        = regexp.MustCompile(`(?s)<link\s+(?:[^"'<>]|"[^"]*"|'[^']*')*rel=["'](?:shortcut\s+)?icon["'](?:[^"'<>]|"[^"]*"|'[^']*')*/?\s*>`)
 )
 
-func putDesktopStaticCache(path string, item *desktopStaticCacheItem) {
+func putDesktopStaticCache(key string, item *desktopStaticCacheItem) {
 	desktopStaticCacheMu.Lock()
 	if len(desktopStaticCache) >= maxDesktopStaticCacheEntries {
 		for k := range desktopStaticCache {
-			if k != "/main.js" {
+			if !strings.HasPrefix(k, "/main.js") {
 				delete(desktopStaticCache, k)
 				break
 			}
 		}
 	}
-	desktopStaticCache[path] = item
+	desktopStaticCache[key] = item
 	desktopStaticCacheMu.Unlock()
 }
 
@@ -82,17 +86,37 @@ func putDesktopStaticCache(path string, item *desktopStaticCacheItem) {
 func ClearDesktopStaticCache() {
 	desktopStaticCacheMu.Lock()
 	desktopStaticCache = make(map[string]*desktopStaticCacheItem)
+	desktopRawMainJS = nil
+	desktopRawMainJSPort = 0
 	desktopStaticCacheMu.Unlock()
 
 	desktopIndexCacheMu.Lock()
-	desktopIndexCacheHTML = nil
+	desktopIndexCacheHTML = make(map[string][]byte)
 	desktopIndexCachePort = 0
 	desktopIndexCacheToken = ""
 	desktopIndexCacheMu.Unlock()
 }
 
-// WarmupDesktopStatic proactively caches and localizes main.js in memory
-// so the user experiences instantaneous zero-latency page loads on desktop.
+func buildMainJSVariant(rawUpstream []byte, lang string) *desktopStaticCacheItem {
+	localized := localizeMainJSCheckedForLang(rawUpstream, lang)
+	h := sha256.Sum256(localized)
+	etag := fmt.Sprintf(`W/"%x-%s"`, h[:8], lang)
+
+	var gzBuf bytes.Buffer
+	gw, _ := gzip.NewWriterLevel(&gzBuf, gzip.BestSpeed)
+	_, _ = gw.Write(localized)
+	_ = gw.Close()
+
+	return &desktopStaticCacheItem{
+		contentType: "application/javascript; charset=utf-8",
+		etag:        etag,
+		rawBody:     localized,
+		gzipBody:    gzBuf.Bytes(),
+	}
+}
+
+// WarmupDesktopStatic proactively caches upstream main.js in memory and pre-builds the
+// active gateway language variant so desktop page loads have near-zero latency.
 func (p *Proxy) WarmupDesktopStatic(port int, token string) {
 	if port == 0 || p.mediumClient == nil {
 		return
@@ -124,24 +148,15 @@ func (p *Proxy) WarmupDesktopStatic(port int, token string) {
 		return
 	}
 
-	rawBytes = localizeMainJSChecked(rawBytes)
-	h := sha256.Sum256(rawBytes)
-	etag := fmt.Sprintf(`W/"%x"`, h[:8])
+	desktopStaticCacheMu.Lock()
+	desktopRawMainJS = rawBytes
+	desktopRawMainJSPort = port
+	desktopStaticCacheMu.Unlock()
 
-	var gzBuf bytes.Buffer
-	gw, _ := gzip.NewWriterLevel(&gzBuf, gzip.BestSpeed)
-	_, _ = gw.Write(rawBytes)
-	_ = gw.Close()
-
-	item := &desktopStaticCacheItem{
-		contentType: "application/javascript; charset=utf-8",
-		etag:        etag,
-		rawBody:     rawBytes,
-		gzipBody:    gzBuf.Bytes(),
-	}
-
-	putDesktopStaticCache("/main.js", item)
-	slog.Info(fmt.Sprintf("[Proxy] ⚡ Pre-warmed localized desktop main.js (%d KB gzip)", gzBuf.Len()/1024))
+	defaultLang := i18n.GetLang()
+	item := buildMainJSVariant(rawBytes, defaultLang)
+	putDesktopStaticCache("/main.js:"+defaultLang, item)
+	slog.Info(fmt.Sprintf("[Proxy] ⚡ Pre-warmed desktop main.js [%s] (%d KB gzip)", defaultLang, len(item.gzipBody)/1024))
 
 	// Proactively pre-warm GetAuthStatus and GetCascadeNuxes in background so initial desktop load has 0ms latency
 	go func() {
@@ -209,8 +224,7 @@ func (p *Proxy) WarmupDesktopStatic(port int, token string) {
 }
 
 // desktopStaticCacheControl lets browsers keep static assets for a day, except main.js: its
-// content changes whenever the localization dictionaries change, so it is revalidated on every
-// load (a conditional GET answered with 304 + ETag is cheap).
+// content changes whenever the localization dictionaries or selected language change.
 func desktopStaticCacheControl(path string) string {
 	if path == "/main.js" {
 		return "no-cache"
@@ -219,7 +233,7 @@ func desktopStaticCacheControl(path string) string {
 }
 
 // HandleDesktopStatic serves desktop static assets with in-memory caching, pre-compressed gzip,
-// gateway-level zero-runtime-overhead Chinese translation for main.js, and conditional 304 validation.
+// per-language desktop bundle localization (zh / en / ja), and conditional 304 validation.
 func (p *Proxy) HandleDesktopStatic(w http.ResponseWriter, r *http.Request) {
 	p.mu.RLock()
 	port := p.activePort
@@ -232,13 +246,21 @@ func (p *Proxy) HandleDesktopStatic(w http.ResponseWriter, r *http.Request) {
 	}
 
 	path := r.URL.Path
+	lang := ""
+	cacheKey := path
+	if path == "/main.js" {
+		lang = ResolveDesktopLang(r)
+		cacheKey = "/main.js:" + lang
+	}
 
 	desktopStaticCacheMu.RLock()
-	item := desktopStaticCache[path]
+	item := desktopStaticCache[cacheKey]
+	cachedRawMain := desktopRawMainJS
+	cachedRawPort := desktopRawMainJSPort
 	desktopStaticCacheMu.RUnlock()
 
 	if item == nil {
-		flightKey := fmt.Sprintf("%d:%s", port, path)
+		flightKey := fmt.Sprintf("%d:%s", port, cacheKey)
 		desktopStaticFlightsMu.Lock()
 		fl, inFlight := desktopStaticFlights[flightKey]
 		if !inFlight {
@@ -253,6 +275,16 @@ func (p *Proxy) HandleDesktopStatic(w http.ResponseWriter, r *http.Request) {
 					desktopStaticFlightsMu.Unlock()
 					close(fl.done)
 				}()
+
+				// Fast path for /main.js: if raw upstream bundle is already cached in memory for this port,
+				// derive the requested language variant locally without re-fetching from upstream.
+				if path == "/main.js" && cachedRawPort == port && len(cachedRawMain) > 0 {
+					built := buildMainJSVariant(cachedRawMain, lang)
+					putDesktopStaticCache(cacheKey, built)
+					fl.item = built
+					fl.status = http.StatusOK
+					return
+				}
 
 				targetURL := fmt.Sprintf("https://127.0.0.1:%d%s", port, path)
 				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -286,15 +318,25 @@ func (p *Proxy) HandleDesktopStatic(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 
+				if path == "/main.js" {
+					desktopStaticCacheMu.Lock()
+					desktopRawMainJS = rawBytes
+					desktopRawMainJSPort = port
+					desktopStaticCacheMu.Unlock()
+
+					built := buildMainJSVariant(rawBytes, lang)
+					putDesktopStaticCache(cacheKey, built)
+					fl.item = built
+					fl.status = http.StatusOK
+					return
+				}
+
 				cType := resp.Header.Get("Content-Type")
 				if cType == "" {
 					cType = "application/javascript; charset=utf-8"
 				}
-				if path == "/main.js" {
-					rawBytes = localizeMainJSChecked(rawBytes)
-				}
 				etag := resp.Header.Get("Etag")
-				if etag == "" || path == "/main.js" {
+				if etag == "" {
 					h := sha256.Sum256(rawBytes)
 					etag = fmt.Sprintf(`W/"%x"`, h[:8])
 				}
@@ -310,7 +352,7 @@ func (p *Proxy) HandleDesktopStatic(w http.ResponseWriter, r *http.Request) {
 					rawBody:     rawBytes,
 					gzipBody:    gzBuf.Bytes(),
 				}
-				putDesktopStaticCache(path, built)
+				putDesktopStaticCache(cacheKey, built)
 				fl.item = built
 				fl.status = http.StatusOK
 			}()
@@ -343,6 +385,9 @@ func (p *Proxy) HandleDesktopStatic(w http.ResponseWriter, r *http.Request) {
 	if match := r.Header.Get("If-None-Match"); match != "" && (match == item.etag || match == "*") {
 		w.Header().Set("ETag", item.etag)
 		w.Header().Set("Cache-Control", desktopStaticCacheControl(path))
+		if path == "/main.js" {
+			w.Header().Set("Vary", "Accept-Encoding, Cookie, Accept-Language")
+		}
 		w.WriteHeader(http.StatusNotModified)
 		return
 	}
@@ -350,7 +395,11 @@ func (p *Proxy) HandleDesktopStatic(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", item.contentType)
 	w.Header().Set("ETag", item.etag)
 	w.Header().Set("Cache-Control", desktopStaticCacheControl(path))
-	w.Header().Set("Vary", "Accept-Encoding")
+	if path == "/main.js" {
+		w.Header().Set("Vary", "Accept-Encoding, Cookie, Accept-Language")
+	} else {
+		w.Header().Set("Vary", "Accept-Encoding")
+	}
 
 	if strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") && len(item.gzipBody) > 0 {
 		w.Header().Set("Content-Encoding", "gzip")
@@ -364,9 +413,262 @@ func (p *Proxy) HandleDesktopStatic(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func desktopConnectingSplashHTML(lang string) []byte {
+	htmlLang := "en"
+	title := "Starting Multigravity..."
+	heading := "Connecting to Multigravity Agent Service..."
+	sub := "The workbench will load automatically once language_server starts"
+	switch i18n.NormalizeLang(lang) {
+	case i18n.LangZh:
+		htmlLang = "zh-CN"
+		title = "Multigravity 启动中..."
+		heading = "正在连接 Multigravity 智能体服务..."
+		sub = "language_server 启动后将自动载入工作台"
+	case i18n.LangJa:
+		htmlLang = "ja"
+		title = "Multigravity を起動中..."
+		heading = "Multigravity エージェントサービスに接続中..."
+		sub = "language_server の起動後にワークベンチを自動で読み込みます"
+	}
+	return []byte(fmt.Sprintf(`<!DOCTYPE html>
+<html lang="%s">
+<head>
+  <meta charset="UTF-8">
+  <title>%s</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico?v=4" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png?v=4" />
+  <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png?v=4" />
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png?v=4" />
+  <style>
+    body { background: #131313; color: #e2e8f0; font-family: -apple-system, BlinkMacSystemFont, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+    .spinner { width: 36px; height: 36px; border: 3px solid rgba(255,255,255,0.1); border-top-color: #38bdf8; border-radius: 50%%; animation: spin 0.8s linear infinite; margin-bottom: 16px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div class="spinner"></div>
+  <h2>%s</h2>
+  <p style="color: #94a3b8; font-size: 14px;">%s</p>
+  <script>setTimeout(() => location.reload(), 2000);</script>
+</body>
+</html>`, htmlLang, title, heading, sub))
+}
+
+func desktopTextInterceptorJS(lang string) string {
+	switch i18n.NormalizeLang(lang) {
+	case i18n.LangZh:
+		return `      // High-performance O(1) text node and attribute interceptor for dynamic Chinese strings
+      (() => {
+        const dict = {
+          "Ask anything, @ to mention, / for actions": "输入任意内容，@ 提及，/ 触发指令",
+          "Ask anything, @ to mention": "输入任意内容，@ 提及",
+          ", / for actions": "，/ 触发指令",
+          "No Model Selected": "未选择模型",
+          "No Models Available": "无可用模型",
+          "No models are available for your current project or organization.": "当前项目或组织暂无可用模型。",
+          "No Project": "无项目",
+          "Main Agent": "主智能体",
+          "Conversations": "所有会话",
+          "Workspaces": "工作区",
+          "New Conversation": "新建会话",
+          "New Workspace": "新建工作区",
+          "Thinking...": "思考中...",
+          "No conversations yet": "暂无会话",
+          "Pin": "置顶",
+          "Unpin": "取消置顶",
+          "Delete": "删除",
+          "Rename": "重命名"
+        };
+        const origCreateText = document.createTextNode.bind(document);
+        document.createTextNode = function(text) {
+          if (typeof text === 'string') {
+            const tr = text.trim();
+            if (dict[tr]) {
+              text = text.replace(tr, dict[tr]);
+            }
+          }
+          return origCreateText(text);
+        };
+        const origSetAttr = Element.prototype.setAttribute;
+        Element.prototype.setAttribute = function(name, val) {
+          if (typeof val === 'string' && (name === 'placeholder' || name === 'title' || name === 'aria-label')) {
+            const tr = val.trim();
+            if (dict[tr]) {
+              val = val.replace(tr, dict[tr]);
+            }
+          }
+          return origSetAttr.call(this, name, val);
+        };
+      })();`
+	case i18n.LangJa:
+		return `      // High-performance O(1) text node and attribute interceptor for dynamic Japanese strings
+      (() => {
+        const dict = {
+          "Ask anything, @ to mention, / for actions": "何でも質問、@ でメンション、/ でコマンド",
+          "Ask anything, @ to mention": "何でも質問、@ でメンション",
+          ", / for actions": "、/ でコマンド",
+          "No Model Selected": "モデル未選択",
+          "No Models Available": "利用可能なモデルがありません",
+          "No models are available for your current project or organization.": "現在のプロジェクトまたは組織で利用可能なモデルがありません。",
+          "No Project": "プロジェクトなし",
+          "Main Agent": "メインエージェント",
+          "Conversations": "会話一覧",
+          "Workspaces": "ワークスペース",
+          "New Conversation": "新しい会話",
+          "New Workspace": "新規ワークスペース",
+          "Thinking...": "思考中...",
+          "No conversations yet": "会話はまだありません",
+          "Pin": "ピン留め",
+          "Unpin": "ピン留め解除",
+          "Delete": "削除",
+          "Rename": "名前を変更"
+        };
+        const origCreateText = document.createTextNode.bind(document);
+        document.createTextNode = function(text) {
+          if (typeof text === 'string') {
+            const tr = text.trim();
+            if (dict[tr]) {
+              text = text.replace(tr, dict[tr]);
+            }
+          }
+          return origCreateText(text);
+        };
+        const origSetAttr = Element.prototype.setAttribute;
+        Element.prototype.setAttribute = function(name, val) {
+          if (typeof val === 'string' && (name === 'placeholder' || name === 'title' || name === 'aria-label')) {
+            const tr = val.trim();
+            if (dict[tr]) {
+              val = val.replace(tr, dict[tr]);
+            }
+          }
+          return origSetAttr.call(this, name, val);
+        };
+      })();`
+	default:
+		return ""
+	}
+}
+
+func desktopLangSwitcherJS(lang, pref string) string {
+	autoLabel := "Auto"
+	ariaLabel := "Language"
+	switch i18n.NormalizeLang(lang) {
+	case i18n.LangZh:
+		autoLabel = "自动"
+		ariaLabel = "界面语言"
+	case i18n.LangJa:
+		autoLabel = "自動"
+		ariaLabel = "表示言語"
+	}
+	return fmt.Sprintf(`      // Subtle native-matching Desktop Workbench language selector (sidebar footer next to Settings)
+      (() => {
+        const currentPref = %q;
+        const autoLabel = %q;
+        const ariaLabel = %q;
+        const settingsRe = /^(Settings|系统设置|設定)$/;
+        function mountLangControl() {
+          if (document.getElementById("mgy-desktop-lang-select")) return true;
+          const btns = document.querySelectorAll(".bg-sidebar button");
+          let settingsBtn = null;
+          for (let i = btns.length - 1; i >= 0; i--) {
+            const txt = (btns[i].textContent || "").trim();
+            if (settingsRe.test(txt)) {
+              settingsBtn = btns[i];
+              break;
+            }
+          }
+          if (!settingsBtn || !settingsBtn.parentElement) return false;
+          const parent = settingsBtn.parentElement;
+          const row = document.createElement("div");
+          row.id = "mgy-desktop-footer-row";
+          row.style.cssText = "display:flex;align-items:center;gap:4px;width:100%%;";
+          parent.insertBefore(row, settingsBtn);
+          row.appendChild(settingsBtn);
+          settingsBtn.style.flex = "1 1 auto";
+          settingsBtn.style.minWidth = "0";
+          settingsBtn.style.width = "auto";
+
+          const sel = document.createElement("select");
+          sel.id = "mgy-desktop-lang-select";
+          sel.setAttribute("aria-label", ariaLabel);
+          sel.title = ariaLabel;
+          sel.style.cssText = "flex:0 0 auto;background:transparent;color:inherit;opacity:0.72;border:none;border-radius:6px;padding:4px 4px;font-size:12px;cursor:pointer;outline:none;max-width:78px;";
+          const opts = [
+            ["auto", autoLabel],
+            ["en", "English"],
+            ["ja", "日本語"],
+            ["zh", "简体中文"]
+          ];
+          opts.forEach(([v, l]) => {
+            const o = document.createElement("option");
+            o.value = v;
+            o.textContent = l;
+            sel.appendChild(o);
+          });
+          sel.value = currentPref;
+          sel.addEventListener("mouseenter", () => { sel.style.opacity = "1"; });
+          sel.addEventListener("mouseleave", () => { sel.style.opacity = "0.72"; });
+          sel.addEventListener("change", () => {
+            const v = sel.value || "auto";
+            if (v === "auto") {
+              document.cookie = "mgy_lang=; Path=/; Max-Age=0; SameSite=Lax";
+              try { localStorage.removeItem("antigravity_language"); } catch (_) {}
+            } else {
+              document.cookie = "mgy_lang=" + v + "; Path=/; Max-Age=31536000; SameSite=Lax";
+              try { localStorage.setItem("antigravity_language", v === "zh" ? "zh-CN" : v); } catch (_) {}
+            }
+            const u = new URL(location.href);
+            u.searchParams.delete("lang");
+            location.replace(u.toString());
+          });
+          row.appendChild(sel);
+          return true;
+        }
+        function start() {
+          if (mountLangControl()) return;
+          const obs = new MutationObserver(() => {
+            if (mountLangControl()) obs.disconnect();
+          });
+          obs.observe(document.documentElement, { childList: true, subtree: true });
+        }
+        if (document.readyState === "loading") {
+          document.addEventListener("DOMContentLoaded", start);
+        } else {
+          start();
+        }
+      })();`, pref, autoLabel, ariaLabel)
+}
+
 // HandleDesktopIndex serves the official desktop web index.html with live CSRF injection,
-// fast memory caching, and seamless iPad/tablet detection redirect.
+// per-language localization (zh / en / ja), fast memory caching, and tablet detection redirect.
 func (p *Proxy) HandleDesktopIndex(w http.ResponseWriter, r *http.Request) {
+	lang := ResolveDesktopLang(r)
+	pref := ResolveDesktopLangPref(r)
+
+	// Persist explicit ?lang= override in cookie so subsequent /main.js and RPC calls stay aligned.
+	if q := strings.TrimSpace(r.URL.Query().Get("lang")); q != "" {
+		isSecure := r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
+		if pref == "auto" {
+			http.SetCookie(w, &http.Cookie{
+				Name:     DesktopLangCookieName,
+				Value:    "",
+				Path:     "/",
+				MaxAge:   -1,
+				SameSite: http.SameSiteLaxMode,
+				Secure:   isSecure,
+			})
+		} else {
+			http.SetCookie(w, &http.Cookie{
+				Name:     DesktopLangCookieName,
+				Value:    pref,
+				Path:     "/",
+				MaxAge:   86400 * 365,
+				SameSite: http.SameSiteLaxMode,
+				Secure:   isSecure,
+			})
+		}
+	}
+
 	p.mu.RLock()
 	port := p.activePort
 	token := p.activeToken
@@ -374,29 +676,9 @@ func (p *Proxy) HandleDesktopIndex(w http.ResponseWriter, r *http.Request) {
 
 	if port == 0 {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Vary", "Cookie, Accept-Language")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-  <meta charset="UTF-8">
-  <title>Multigravity 启动中...</title>
-  <link rel="icon" type="image/x-icon" href="/favicon.ico?v=4" />
-  <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png?v=4" />
-  <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png?v=4" />
-  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png?v=4" />
-  <style>
-    body { background: #131313; color: #e2e8f0; font-family: -apple-system, BlinkMacSystemFont, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
-    .spinner { width: 36px; height: 36px; border: 3px solid rgba(255,255,255,0.1); border-top-color: #38bdf8; border-radius: 50%; animation: spin 0.8s linear infinite; margin-bottom: 16px; }
-    @keyframes spin { to { transform: rotate(360deg); } }
-  </style>
-</head>
-<body>
-  <div class="spinner"></div>
-  <h2>正在连接 Multigravity 智能体服务...</h2>
-  <p style="color: #94a3b8; font-size: 14px;">language_server 启动后将自动载入工作台</p>
-  <script>setTimeout(() => location.reload(), 2000);</script>
-</body>
-</html>`))
+		_, _ = w.Write(desktopConnectingSplashHTML(lang))
 		return
 	}
 
@@ -405,25 +687,29 @@ func (p *Proxy) HandleDesktopIndex(w http.ResponseWriter, r *http.Request) {
 		effectiveToken = "headless-csrf-token"
 	}
 
-	// Fast path: serve cached transformed HTML if upstream port and token are unchanged
-	desktopIndexCacheMu.RLock()
-	if desktopIndexCachePort == port && desktopIndexCacheToken == token && len(desktopIndexCacheHTML) > 0 {
-		cachedBytes := desktopIndexCacheHTML
-		desktopIndexCacheMu.RUnlock()
+	cacheKey := lang + "|" + pref
 
-		http.SetCookie(w, &http.Cookie{
-			Name:     "csrfToken",
-			Value:    effectiveToken,
-			Path:     "/",
-			SameSite: http.SameSiteLaxMode,
-			Secure:   r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https"),
-		})
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
-		w.Header().Set("Content-Length", strconv.Itoa(len(cachedBytes)))
-		w.WriteHeader(http.StatusOK)
-		w.Write(cachedBytes)
-		return
+	// Fast path: serve cached transformed HTML if upstream port, token, lang, and pref are unchanged
+	desktopIndexCacheMu.RLock()
+	if desktopIndexCachePort == port && desktopIndexCacheToken == token {
+		if cachedBytes, ok := desktopIndexCacheHTML[cacheKey]; ok && len(cachedBytes) > 0 {
+			desktopIndexCacheMu.RUnlock()
+
+			http.SetCookie(w, &http.Cookie{
+				Name:     "csrfToken",
+				Value:    effectiveToken,
+				Path:     "/",
+				SameSite: http.SameSiteLaxMode,
+				Secure:   r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https"),
+			})
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+			w.Header().Set("Vary", "Cookie, Accept-Language")
+			w.Header().Set("Content-Length", strconv.Itoa(len(cachedBytes)))
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write(cachedBytes)
+			return
+		}
 	}
 	desktopIndexCacheMu.RUnlock()
 
@@ -470,25 +756,35 @@ func (p *Proxy) HandleDesktopIndex(w http.ResponseWriter, r *http.Request) {
 	// 3. Align page title
 	htmlStr = reDesktopTitle.ReplaceAllString(htmlStr, "<title>Multigravity</title>")
 
-	// 4. Update html lang="en" to lang="zh-CN"
-	htmlStr = strings.Replace(htmlStr, `<html lang="en">`, `<html lang="zh-CN">`, 1)
+	// 4. Set <html lang="..."> matching resolved Desktop Web Console language
+	htmlLang := "en"
+	manifestHref := "/manifest-en.json"
+	switch lang {
+	case i18n.LangZh:
+		htmlLang = "zh-CN"
+		manifestHref = "/manifest.json"
+	case i18n.LangJa:
+		htmlLang = "ja"
+		manifestHref = "/manifest-ja.json"
+	}
+	htmlStr = strings.Replace(htmlStr, `<html lang="en">`, fmt.Sprintf(`<html lang="%s">`, htmlLang), 1)
 
 	// 5. Remove blocking external preconnect links to Google font & gstatic CDNs
 	htmlStr = reDesktopPreconnect.ReplaceAllString(htmlStr, "")
 	htmlStr = reDesktopFontPreconnect.ReplaceAllString(htmlStr, "")
 
-	// 6. Cache-busting version parameter on script and stylesheet links to defeat stale browser disk cache
-	htmlStr = strings.ReplaceAll(htmlStr, `src="/main.js"`, fmt.Sprintf(`src="/main.js?v=%s"`, desktopAssetVersion))
+	// 6. Cache-busting + language-keyed query parameters on static assets
+	htmlStr = strings.ReplaceAll(htmlStr, `src="/main.js"`, fmt.Sprintf(`src="/main.js?v=%s&lang=%s"`, desktopAssetVersion, lang))
 	htmlStr = strings.ReplaceAll(htmlStr, `src="/prism_bundle.js"`, fmt.Sprintf(`src="/prism_bundle.js?v=%s"`, desktopAssetVersion))
 	htmlStr = strings.ReplaceAll(htmlStr, `href="/jetbox.css"`, fmt.Sprintf(`href="/jetbox.css?v=%s"`, desktopAssetVersion))
 	htmlStr = strings.ReplaceAll(htmlStr, `href="/compiled_tailwind.css"`, fmt.Sprintf(`href="/compiled_tailwind.css?v=%s"`, desktopAssetVersion))
 
-	// 7. Icons, metadata, tablet detection, telemetry stub, and O(1) text node interceptor
+	// 7. Icons, metadata, tablet detection, telemetry stub, language-specific interceptor, and subtle switcher
 	multigravityIconsMeta := `    <link rel="icon" type="image/x-icon" href="/favicon.ico?v=4" />
     <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png?v=4" />
     <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png?v=4" />
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png?v=4" />
-    <link rel="manifest" href="/manifest.json" />
+    <link rel="manifest" href="` + manifestHref + `" />
     <meta name="apple-mobile-web-app-title" content="Multigravity" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -551,49 +847,7 @@ func (p *Proxy) HandleDesktopIndex(w http.ResponseWriter, r *http.Request) {
           };
         }
       })();
-      // High-performance O(1) text node and attribute interceptor for dynamic strings
-      (() => {
-        const dict = {
-          "Ask anything, @ to mention, / for actions": "输入任意内容，@ 提及，/ 触发指令",
-          "Ask anything, @ to mention": "输入任意内容，@ 提及",
-          ", / for actions": "，/ 触发指令",
-          "No Model Selected": "未选择模型",
-          "No Models Available": "无可用模型",
-          "No models are available for your current project or organization.": "当前项目或组织暂无可用模型。",
-          "No Project": "无项目",
-          "Main Agent": "主智能体",
-          "Conversations": "所有会话",
-          "Workspaces": "工作区",
-          "New Conversation": "新建会话",
-          "New Workspace": "新建工作区",
-          "Thinking...": "思考中...",
-          "No conversations yet": "暂无会话",
-          "Pin": "置顶",
-          "Unpin": "取消置顶",
-          "Delete": "删除",
-          "Rename": "重命名"
-        };
-        const origCreateText = document.createTextNode.bind(document);
-        document.createTextNode = function(text) {
-          if (typeof text === 'string') {
-            const tr = text.trim();
-            if (dict[tr]) {
-              text = text.replace(tr, dict[tr]);
-            }
-          }
-          return origCreateText(text);
-        };
-        const origSetAttr = Element.prototype.setAttribute;
-        Element.prototype.setAttribute = function(name, val) {
-          if (typeof val === 'string' && (name === 'placeholder' || name === 'title' || name === 'aria-label')) {
-            const tr = val.trim();
-            if (dict[tr]) {
-              val = val.replace(tr, dict[tr]);
-            }
-          }
-          return origSetAttr.call(this, name, val);
-        };
-      })();
+` + desktopTextInterceptorJS(lang) + "\n" + desktopLangSwitcherJS(lang, pref) + `
     </script>
     <script>` + desktopThemePresetFixJS + desktopRPCMuxJS + `</script>`
 	if reDesktopFavicon.MatchString(htmlStr) {
@@ -604,14 +858,18 @@ func (p *Proxy) HandleDesktopIndex(w http.ResponseWriter, r *http.Request) {
 
 	htmlBytes := []byte(htmlStr)
 	desktopIndexCacheMu.Lock()
-	desktopIndexCachePort = port
-	desktopIndexCacheToken = token
-	desktopIndexCacheHTML = htmlBytes
+	if desktopIndexCachePort != port || desktopIndexCacheToken != token {
+		desktopIndexCacheHTML = make(map[string][]byte)
+		desktopIndexCachePort = port
+		desktopIndexCacheToken = token
+	}
+	desktopIndexCacheHTML[cacheKey] = htmlBytes
 	desktopIndexCacheMu.Unlock()
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	w.Header().Set("Vary", "Cookie, Accept-Language")
 	w.Header().Set("Content-Length", strconv.Itoa(len(htmlBytes)))
 	w.WriteHeader(http.StatusOK)
-	w.Write(htmlBytes)
+	_, _ = w.Write(htmlBytes)
 }

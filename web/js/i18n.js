@@ -1714,7 +1714,252 @@
     "已取消": "Cancelled",
     "已导出": "Exported",
     "正在导出…": "Exporting…",
-    "输出": "Output"
+    "输出": "Output",
+    "界面语言": "Language",
+    "跟随浏览器": "Follow Browser",
+    "匀速 · 5h": "Even Pace · 5h",
+    "本会话累计": "Session total",
+    "旁路快问（独立分支）": "Side Question (Isolated Branch)",
+    "基于当前上下文创建独立旁路分支，不打断主对话流，支持多轮追问。": "Start an isolated side branch from the current context without interrupting the main chat.",
+    "输入旁路问题（/btw）…": "Ask a side question (/btw)…",
+    "⑂ 承接至所选消息的上下文": "⑂ Context up to selected message",
+    "改用最新上下文": "Use latest context",
+    "⑂ 旁路快问": "⑂ Side Question",
+    "/btw 旁问": "/btw Ask",
+    "↵ 插入主对话": "↵ Insert into Main Chat",
+    "← 返回列表": "← Back to List",
+    "+ 新建目录": "+ New Folder",
+    "+ 新建终端": "+ New Terminal",
+    "‹ 上一级": "‹ Up",
+    "· 上次": "· Last",
+    "· 下次": "· Next",
+    "· 点击查看 ›": "· Tap to view ›",
+    "· 高清长图": "· HD Long Image",
+    "（下轮生效）": " (applies next turn)",
+    "[图片] 未随记录导出": "[Image] Not exported with chat archive",
+    "[视频] 未随记录导出": "[Video] Not exported with chat archive",
+    "⚡ 催促唤醒": "⚡ Nudge",
+    "📌 当前要点": "📌 Key Highlights",
+    "Agent 记忆与规则库 (Memories & Rules)": "Agent Memories & Rules",
+    "Cron (如 0 9 * * *)": "Cron (e.g. 0 9 * * *)",
+    "Cron 表达式（支持 CRON_TZ=... 前缀）": "Cron expression (supports CRON_TZ=... prefix)",
+    "GitHub 仓库地址": "GitHub Repository URL",
+    "owner/repo 或 https://github.com/...": "owner/repo or https://github.com/...",
+    "Worktree 创建失败:": "Worktree creation failed:",
+    "一句话说明这个模板适合什么场景": "Brief summary of when to use this template",
+    "下载原始 ZIP": "Download Original ZIP",
+    "丢弃": "Discard",
+    "主题色": "Accent Color",
+    "交互控制台": "Interactive Console",
+    "从该步骤分叉新会话？\n点击「确定」将在独立 Git Worktree 创建分叉（失败可取消改普通分叉）；或请用 Worktree 参数。": "Fork a new chat from this step?\nClick OK to create an isolated Git Worktree fork (or Cancel for a standard fork).",
+    "任务已暂停": "Task Paused",
+    "会话 ID:": "Session ID:",
+    "会话上下文超出模型上限": "Conversation context exceeds model limit",
+    "使用中": "Active",
+    "例如：并发安全审计": "e.g., Parallel Security Audit",
+    "保存": "Save",
+    "保存修改": "Save Changes",
+    "信任设置失败:": "Failed to trust workspace:",
+    "停止": "Stop",
+    "克隆失败": "Clone failed",
+    "克隆完成，已加入项目列表": "Clone complete — added to projects",
+    "克隆完成后会自动加入 Antigravity 项目列表": "Automatically added to Antigravity projects once cloned",
+    "克隆目标路径": "Clone Destination Path",
+    "全局": "Global",
+    "全部已完成": "All completed",
+    "全部资源": "All Resources",
+    "关停这个子代理？\n它正在进行的工作会被中断，已完成的内容会保留。": "Stop this sub-agent?\nIts in-progress work will be interrupted; completed work will be kept.",
+    "分叉": "Fork",
+    "分叉失败": "Fork failed",
+    "切换账号失败:": "Failed to switch account:",
+    "创建中…": "Creating…",
+    "创建失败:": "Creation failed:",
+    "创建并启用": "Create & Enable",
+    "创建本地目录失败": "Failed to create local folder",
+    "删除附件": "Remove attachment",
+    "副标题 / 说明（可选）": "Subtitle / Notes (Optional)",
+    "加载中…": "Loading…",
+    "加载日志失败:": "Failed to load logs:",
+    "加载更早消息": "Load Earlier Messages",
+    "正在加载更早消息...": "Loading earlier messages...",
+    "协作图 (Graph)": "Graph",
+    "协作提及关系拓扑": "Collaboration Mention Graph",
+    "发起 /btw 失败": "Failed to start /btw",
+    "取消克隆": "Cancel Clone",
+    "取消归档": "Unarchive",
+    "可从已有项目目录选择，浏览子目录，或新建本地目录": "Pick an existing project folder, browse subdirectories, or create a new folder",
+    "同步失败，请检查网关连接": "Sync failed. Check gateway connection.",
+    "向协调员 / Narrator 纠偏反馈": "Send feedback to Coordinator / Narrator",
+    "回主会话": "Back to Main Chat",
+    "图标": "Icon",
+    "图片预览": "Image Preview",
+    "图表解析错误": "Diagram Parse Error",
+    "处理中…": "Processing…",
+    "复制代码": "Copy Code",
+    "复制全部文本": "Copy All Text",
+    "安装失败:": "Install failed:",
+    "展开前文": "Show Shared Context",
+    "收起前文": "Hide Shared Context",
+    "工作中": "Working",
+    "工作区已在项目列表中": "Workspace is already in Projects",
+    "已保存修改": "Changes saved",
+    "已保存到本机缓存，网关同步失败：": "Saved locally, but gateway sync failed: ",
+    "已信任当前工作区": "Workspace trusted",
+    "已催促": "Nudged",
+    "已共享前文上下文（默认折叠）": "Shared context attached (collapsed by default)",
+    "已展开共享前文": "Showing shared context",
+    "已创建 Worktree:": "Created Worktree:",
+    "已创建定时任务": "Scheduled task created",
+    "已取消克隆": "Clone cancelled",
+    "已取消归档": "Unarchived",
+    "已启动定时任务": "Scheduled task started",
+    "已暂停定时任务": "Scheduled task paused",
+    "已回退显示缩略图": "Fell back to thumbnail",
+    "已导入 Antigravity 项目列表": "Imported into Antigravity Projects",
+    "已添加到 Antigravity 项目列表": "Added to Antigravity Projects",
+    "已归档会话": "Archived chat",
+    "已授权": "Granted",
+    "已撤销插件授权": "Plugin permission revoked",
+    "已新建并选中目录": "Created and selected folder",
+    "已选中已有目录": "Selected existing folder",
+    "已暂停": "Paused",
+    "已触发立即执行": "Immediate run triggered",
+    "已重启任务": "Task restarted",
+    "已重置本机列表，网关同步失败：": "Reset local list, but gateway sync failed: ",
+    "开启后，长按底部 Workflow 按钮即可上滑快速选择此模板": "When enabled, long-press the Workflow button and slide up to quick-pick this template",
+    "引用片段": "Quoted snippet",
+    "归档会话": "Archive Chat",
+    "归档操作失败": "Archive action failed",
+    "当前目录下暂无子文件夹，可直接选用此目录或点击「+ 新建目录」": "No subfolders here. Select this folder directly or tap \"+ New Folder\".",
+    "当前选定目录": "Selected Directory",
+    "微信聊天记录": "WeChat Chat History",
+    "思考中": "Thinking",
+    "恢复默认将清空自定义模板，确定吗？": "Restoring defaults will clear custom templates. Continue?",
+    "恢复默认模板列表": "Restore Default Templates",
+    "手输路径": "Enter Path",
+    "打开": "Open",
+    "执行中": "Running",
+    "执行中...": "Running...",
+    "执行异常": "Error",
+    "执行指令（Prompt）": "Prompt",
+    "执行模型": "Model",
+    "承接自主会话上下文": "Branched from main session context",
+    "报错/卡住": "Error / Stalled",
+    "拖拽排序": "Drag to reorder",
+    "拖至此区域置顶": "Drag here to pin",
+    "按住下方模板左侧 ≡ 手柄拖拽至此": "Hold the ≡ handle on a template below and drag here",
+    "按住拖拽排序或跨区移动": "Drag to reorder or move across sections",
+    "授权中…": "Authorizing…",
+    "推送中…": "Pushing…",
+    "插件已成功安装！已自动为您继续对话。": "Plugin installed! Resuming conversation automatically.",
+    "搜索中…": "Searching…",
+    "搜索群成员或聊天内容...": "Search members or messages...",
+    "搜索聊天记录": "Search Chat History",
+    "撤销": "Revoke",
+    "撤销失败:": "Revoke failed:",
+    "操作": "Actions",
+    "操作失败:": "Action failed:",
+    "支持 owner/repo、HTTPS 或 git@github.com 地址": "Supports owner/repo, HTTPS, or git@github.com URLs",
+    "支持任意提示词或 /workflow、/plan 等斜杠命令，可用 [占位符] 提示自己补充参数": "Supports any prompt or slash command (/workflow, /plan, etc.). Use [placeholders] for parameters.",
+    "收起目录名": "Hide folder name",
+    "自定义目录名": "Custom folder name",
+    "放大查看": "Zoom In",
+    "新增模板": "New Template",
+    "旁路": "Side",
+    "来自": "From ",
+    "无 Pull Request 描述正文": "No Pull Request description",
+    "无法加载图片": "Unable to load image",
+    "日志": "Logs",
+    "智能体": "Agent",
+    "暂无已归档会话": "No archived conversations",
+    "暂无成员信息": "No member info",
+    "暂无提及记录": "No mention activity yet",
+    "暂无日志输出": "No log output yet",
+    "暂无活跃上游终端": "No active upstream terminals",
+    "暂无活跃蜂群数据": "No active swarm data",
+    "暂无浏览器截图": "No browser screenshot yet",
+    "暂无运行记录": "No run history yet",
+    "暂未配置 · 点击进入编辑后将下方模板拖入此处": "Not configured · Tap Edit and drag templates here",
+    "更多": "More",
+    "来自 Antigravity 官方 / 社区插件市场。安装后自动为您续接对话。": "From the Antigravity official / community marketplace. Conversation resumes automatically after install.",
+    "查询克隆进度失败:": "Failed to check clone progress:",
+    "查询进度失败": "Failed to query progress",
+    "模板内容（点选后直接填充到输入框）": "Template Content (fills composer on tap)",
+    "正在克隆仓库…": "Cloning repository…",
+    "正在启动克隆…": "Starting clone…",
+    "正在添加工作区…": "Adding workspace…",
+    "正在渲染图表...": "Rendering diagram...",
+    "正在独立生成回复…": "Generating side reply…",
+    "正在读取 Git 状态…": "Reading Git status…",
+    "正在读取本机目录…": "Reading local folder…",
+    "正在读取蜂群状态...": "Loading swarm status...",
+    "正在载入清晰预览...": "Loading HD preview...",
+    "正在连接 GitHub 并克隆仓库…": "Connecting to GitHub and cloning…",
+    "每周五 08:00": "Fridays 08:00",
+    "每天 09:00": "Daily 09:00",
+    "每天 23:00": "Daily 23:00",
+    "每小时": "Hourly",
+    "注意": "Notice",
+    "浏览器实时画面": "Live Browser View",
+    "浏览或新建本机文件夹": "Browse or Create Local Folder",
+    "消息板 (Board)": "Board",
+    "消息板暂无内容": "Board is empty",
+    "添加当前目录为工作区": "Add Current Folder as Workspace",
+    "现在可以在「新建会话」工作区列表中随时选用该项目": "You can now select this project anytime under New Conversation",
+    "目标目录已存在，请更换目录或修改文件夹名": "Target folder already exists. Choose another path or folder name.",
+    "直接导入到 Antigravity 项目列表": "Import Directly into Antigravity Projects",
+    "短按编辑 · 左滑删除": "Tap to edit · Swipe left to delete",
+    "确定要终止此后台任务吗？": "Stop this background task?",
+    "确认并克隆": "Confirm & Clone",
+    "空闲/等待": "Idle / Waiting",
+    "立即开启新会话": "Start New Chat Now",
+    "立即运行失败:": "Run now failed:",
+    "等待中": "Waiting",
+    "综述 (Overview)": "Overview",
+    "编辑模式下按住左侧 ≡ 手柄，可把模板拖进下方「长按快捷菜单」。": "In edit mode, drag the ≡ handle to move templates into the Quick Menu below.",
+    "网关未返回有效的克隆任务 ID": "Gateway did not return a valid clone task ID",
+    "若当前浏览器内核不支持直接解码 .amr，请点下方链接下载播放；网关已完整支持 200 MB 音频上传与识别。": "If your browser cannot play .amr directly, use the link below to download; the gateway supports up to 200 MB audio uploads.",
+    "蜂群": "Swarm",
+    "蜂群会话": "Swarm Session",
+    "蜂群看板": "Swarm Board",
+    "规划中": "Planning",
+    "让 Agent 写提交信息并提交": "Let Agent Write Commit Message & Commit",
+    "设置失败": "Failed to save setting",
+    "该目录已存在同一 GitHub 仓库": "This GitHub repository already exists in that folder",
+    "详情": "Details",
+    "请先进入一个会话后再使用 /btw": "Open a conversation before using /btw",
+    "请填写 Cron 表达式和执行指令": "Please enter a Cron expression and prompt",
+    "请求出错:": "Request error:",
+    "读取本机目录失败": "Failed to read local directory",
+    "跳转查看": "Open Chat",
+    "转入后台": "Send to Background",
+    "输入反馈（例如：先聚焦完成登录模块...）": "Enter feedback (e.g., focus on the login module first...)",
+    "输入电脑本地目录路径 (如 ~/Projects/my-app)：": "Enter a local folder path on your computer (e.g. ~/Projects/my-app):",
+    "运行中 · 切换下轮生效": "Running · Applies next turn",
+    "运行日志 (sidecar.log)": "Runtime Log (sidecar.log)",
+    "返回全部": "Back to All",
+    "返回工作区列表": "Back to Workspaces",
+    "进入目标目录后点击底部按钮，即可将其加入项目列表": "Navigate to the target folder and tap the button below to add it",
+    "选择本机存放目录": "Choose Local Destination Folder",
+    "重启": "Restart",
+    "重启失败:": "Restart failed:",
+    "长图": "Long",
+    "长按 Workflow 按钮，上滑秒选模板": "Long-press Workflow and slide up to pick a template",
+    "项目": "Project",
+    "默认模型": "Default Model",
+    "• 若需管理多个 Antigravity 账号并在控制台/手机上一键切号，可配合开源工具 Cockpit Tools 与网关联动。": "• To manage multiple Antigravity accounts and switch with one tap, link the open-source Cockpit Tools helper.",
+    "1. 下载安装：从": "1. Install: Download Cockpit Tools from ",
+    "下载 Cockpit Tools 桌面端并登录备用账号；": " and sign in to your backup accounts;",
+    "2. 网关联动：在网关宿主机终端运行": "2. Link Gateway: Run ",
+    "，按回车一键开启 HTTP 报表服务与 Token 并重启；": " on the gateway host and press Enter to enable the HTTP status server & restart;",
+    "3. 页面刷新：刷新配额面板，即可在此处查看所有账号额度并自由切换。": "3. Refresh: Reload the quota panel to view and switch between all accounts.",
+    "确定要解除当前设备的配对绑定吗？": "Unpair this device from the gateway?",
+    "确定要终止当前 Agent 任务吗？": "Stop the current Agent task?",
+    "请选择或输入目标工作区路径": "Please select or enter a workspace path",
+    "请输入首条指令": "Please enter your first prompt",
+    "请先选择或新建一个会话": "Please select or create a conversation first",
+    "请先启动任务": "Start the task first",
+    "请输入 NAS 工作区目录路径 (例如 /home/jiuzai 或 /vol1/1000):": "Enter the NAS workspace path (e.g. /home/user or /vol1/1000):"
   };
 
   const DICT_JA = {
@@ -3417,7 +3662,252 @@
     "已取消": "キャンセルしました",
     "已导出": "エクスポートしました",
     "正在导出…": "エクスポート中…",
-    "输出": "出力"
+    "输出": "出力",
+    "界面语言": "表示言語",
+    "跟随浏览器": "ブラウザに合わせる",
+    "匀速 · 5h": "均等ペース · 5h",
+    "本会话累计": "セッション累計",
+    "旁路快问（独立分支）": "サイド質問（独立ブランチ）",
+    "基于当前上下文创建独立旁路分支，不打断主对话流，支持多轮追问。": "現在のコンテキストから独立ブランチを作成し、メイン会話を中断せずに質問できます。",
+    "输入旁路问题（/btw）…": "サイド質問を入力（/btw）…",
+    "⑂ 承接至所选消息的上下文": "⑂ 選択したメッセージまでのコンテキスト",
+    "改用最新上下文": "最新コンテキストを使用",
+    "⑂ 旁路快问": "⑂ サイド質問",
+    "/btw 旁问": "/btw 質問",
+    "↵ 插入主对话": "↵ メイン会話に挿入",
+    "← 返回列表": "← 一覧へ戻る",
+    "+ 新建目录": "+ 新規フォルダ",
+    "+ 新建终端": "+ 新規ターミナル",
+    "‹ 上一级": "‹ 上へ",
+    "· 上次": "· 前回",
+    "· 下次": "· 次回",
+    "· 点击查看 ›": "· タップして表示 ›",
+    "· 高清长图": "· 高画質ロング画像",
+    "（下轮生效）": "（次のターンから適用）",
+    "[图片] 未随记录导出": "[画像] 履歴に含まれていません",
+    "[视频] 未随记录导出": "[動画] 履歴に含まれていません",
+    "⚡ 催促唤醒": "⚡ 催促・起動",
+    "📌 当前要点": "📌 現在のハイライト",
+    "Agent 记忆与规则库 (Memories & Rules)": "Agent メモリとルール",
+    "Cron (如 0 9 * * *)": "Cron (例: 0 9 * * *)",
+    "Cron 表达式（支持 CRON_TZ=... 前缀）": "Cron 式（CRON_TZ=... 接頭辞対応）",
+    "GitHub 仓库地址": "GitHub リポジトリ URL",
+    "owner/repo 或 https://github.com/...": "owner/repo または https://github.com/...",
+    "Worktree 创建失败:": "Worktree の作成に失敗しました:",
+    "一句话说明这个模板适合什么场景": "このテンプレートの用途を簡潔に説明",
+    "下载原始 ZIP": "元の ZIP をダウンロード",
+    "丢弃": "破棄",
+    "主题色": "アクセントカラー",
+    "交互控制台": "インタラクティブコンソール",
+    "从该步骤分叉新会话？\n点击「确定」将在独立 Git Worktree 创建分叉（失败可取消改普通分叉）；或请用 Worktree 参数。": "このステップから新しい会話をフォークしますか？\n「OK」で独立した Git Worktree を作成（キャンセルで通常フォーク）。",
+    "任务已暂停": "タスク一時停止中",
+    "会话 ID:": "セッション ID:",
+    "会话上下文超出模型上限": "会話のコンテキストがモデル上限を超えました",
+    "使用中": "使用中",
+    "例如：并发安全审计": "例：並列セキュリティ監査",
+    "保存": "保存",
+    "保存修改": "変更を保存",
+    "信任设置失败:": "信頼設定に失敗しました:",
+    "停止": "停止",
+    "克隆失败": "クローンに失敗しました",
+    "克隆完成，已加入项目列表": "クローン完了・プロジェクト一覧に追加済み",
+    "克隆完成后会自动加入 Antigravity 项目列表": "クローン完了後、自動で Antigravity プロジェクトに追加されます",
+    "克隆目标路径": "クローン先パス",
+    "全局": "グローバル",
+    "全部已完成": "すべて完了",
+    "全部资源": "すべてのリソース",
+    "关停这个子代理？\n它正在进行的工作会被中断，已完成的内容会保留。": "このサブエージェントを停止しますか？\n実行中の作業は中断されますが、完了済みの内容は保持されます。",
+    "分叉": "フォーク",
+    "分叉失败": "フォークに失敗しました",
+    "切换账号失败:": "アカウント切替に失敗しました:",
+    "创建中…": "作成中…",
+    "创建失败:": "作成に失敗しました:",
+    "创建并启用": "作成して有効化",
+    "创建本地目录失败": "ローカルフォルダの作成に失敗しました",
+    "删除附件": "添付ファイルを削除",
+    "副标题 / 说明（可选）": "サブタイトル / 説明（任意）",
+    "加载中…": "読み込み中…",
+    "加载日志失败:": "ログの読み込みに失敗しました:",
+    "加载更早消息": "以前のメッセージを読み込む",
+    "正在加载更早消息...": "以前のメッセージを読み込み中...",
+    "协作图 (Graph)": "グラフ",
+    "协作提及关系拓扑": "メンション連携グラフ",
+    "发起 /btw 失败": "/btw の開始に失敗しました",
+    "取消克隆": "クローンをキャンセル",
+    "取消归档": "アーカイブ解除",
+    "可从已有项目目录选择，浏览子目录，或新建本地目录": "既存フォルダの選択、サブフォルダの参照、または新規作成ができます",
+    "同步失败，请检查网关连接": "同期に失敗しました。接続を確認してください。",
+    "向协调员 / Narrator 纠偏反馈": "コーディネーター / Narrator にフィードバックを送信",
+    "回主会话": "メイン会話へ戻る",
+    "图标": "アイコン",
+    "图片预览": "画像プレビュー",
+    "图表解析错误": "図表の解析エラー",
+    "处理中…": "処理中…",
+    "复制代码": "コードをコピー",
+    "复制全部文本": "すべてコピー",
+    "安装失败:": "インストール失敗:",
+    "展开前文": "共有コンテキストを表示",
+    "收起前文": "共有コンテキストを隠す",
+    "工作中": "作業中",
+    "工作区已在项目列表中": "このワークスペースは既に登録済みです",
+    "已保存修改": "変更を保存しました",
+    "已保存到本机缓存，网关同步失败：": "ローカルに保存しましたが、ゲートウェイ同期に失敗しました：",
+    "已信任当前工作区": "現在のワークスペースを信頼しました",
+    "已催促": "催促しました",
+    "已共享前文上下文（默认折叠）": "前文コンテキストを共有中（既定で折りたたみ）",
+    "已展开共享前文": "共有コンテキストを展開中",
+    "已创建 Worktree:": "Worktree を作成しました:",
+    "已创建定时任务": "スケジュールタスクを作成しました",
+    "已取消克隆": "クローンをキャンセルしました",
+    "已取消归档": "アーカイブを解除しました",
+    "已启动定时任务": "スケジュールタスクを開始しました",
+    "已暂停定时任务": "スケジュールタスクを一時停止しました",
+    "已回退显示缩略图": "サムネイル表示に切り替えました",
+    "已导入 Antigravity 项目列表": "Antigravity プロジェクトに取り込みました",
+    "已添加到 Antigravity 项目列表": "Antigravity プロジェクトに追加しました",
+    "已归档会话": "会話をアーカイブしました",
+    "已授权": "許可済み",
+    "已撤销插件授权": "プラグイン権限を取り消しました",
+    "已新建并选中目录": "フォルダを作成して選択しました",
+    "已选中已有目录": "既存フォルダを選択しました",
+    "已暂停": "一時停止",
+    "已触发立即执行": "即時実行を開始しました",
+    "已重启任务": "タスクを再起動しました",
+    "已重置本机列表，网关同步失败：": "ローカル一覧をリセットしましたが、ゲートウェイ同期に失敗しました：",
+    "开启后，长按底部 Workflow 按钮即可上滑快速选择此模板": "オンにすると、下部の Workflow ボタン長押し＋上スワイプで素早く選択できます",
+    "引用片段": "引用スニペット",
+    "归档会话": "アーカイブ",
+    "归档操作失败": "アーカイブ操作に失敗しました",
+    "当前目录下暂无子文件夹，可直接选用此目录或点击「+ 新建目录」": "サブフォルダがありません。このフォルダを選択するか「+ 新規フォルダ」をタップしてください。",
+    "当前选定目录": "選択中のディレクトリ",
+    "微信聊天记录": "WeChat チャット履歴",
+    "思考中": "思考中",
+    "恢复默认将清空自定义模板，确定吗？": "デフォルトに戻すとカスタムテンプレートが消去されます。よろしいですか？",
+    "恢复默认模板列表": "デフォルトテンプレートに戻す",
+    "手输路径": "パスを手入力",
+    "打开": "開く",
+    "执行中": "実行中",
+    "执行中...": "実行中...",
+    "执行异常": "実行エラー",
+    "执行指令（Prompt）": "プロンプト",
+    "执行模型": "モデル",
+    "承接自主会话上下文": "メイン会話のコンテキストから分岐",
+    "报错/卡住": "エラー / 停止",
+    "拖拽排序": "ドラッグして並び替え",
+    "拖至此区域置顶": "ここにドラッグしてピン留め",
+    "按住下方模板左侧 ≡ 手柄拖拽至此": "下のテンプレートの ≡ ハンドルをここへドラッグ",
+    "按住拖拽排序或跨区移动": "ドラッグして並び替え・セクション移動",
+    "授权中…": "認証中…",
+    "推送中…": "プッシュ中…",
+    "插件已成功安装！已自动为您继续对话。": "プラグインをインストールしました！会話を自動で続行します。",
+    "搜索中…": "検索中…",
+    "搜索群成员或聊天内容...": "メンバーやメッセージを検索...",
+    "搜索聊天记录": "チャット履歴を検索",
+    "撤销": "取り消し",
+    "撤销失败:": "取り消しに失敗しました:",
+    "操作": "操作",
+    "操作失败:": "操作に失敗しました:",
+    "支持 owner/repo、HTTPS 或 git@github.com 地址": "owner/repo、HTTPS、git@github.com URL に対応",
+    "支持任意提示词或 /workflow、/plan 等斜杠命令，可用 [占位符] 提示自己补充参数": "任意のプロンプトや /workflow・/plan などのコマンドに対応。[プレースホルダー] も使えます。",
+    "收起目录名": "フォルダ名を隠す",
+    "自定义目录名": "フォルダ名を指定",
+    "放大查看": "拡大表示",
+    "新增模板": "新規テンプレート",
+    "旁路": "サイド",
+    "来自": "元会話: ",
+    "无 Pull Request 描述正文": "Pull Request の説明はありません",
+    "无法加载图片": "画像を読み込めませんでした",
+    "日志": "ログ",
+    "智能体": "エージェント",
+    "暂无已归档会话": "アーカイブ済みの会話はありません",
+    "暂无成员信息": "メンバー情報はありません",
+    "暂无提及记录": "メンション履歴はまだありません",
+    "暂无日志输出": "ログ出力はまだありません",
+    "暂无活跃上游终端": "稼働中のターミナルはありません",
+    "暂无活跃蜂群数据": "稼働中のスウォームデータはありません",
+    "暂无浏览器截图": "ブラウザスクリーンショットはまだありません",
+    "暂无运行记录": "実行履歴はまだありません",
+    "暂未配置 · 点击进入编辑后将下方模板拖入此处": "未設定 · 編集をタップして下のテンプレートをドラッグ",
+    "更多": "その他",
+    "来自 Antigravity 官方 / 社区插件市场。安装后自动为您续接对话。": "Antigravity 公式 / コミュニティマーケットプレイス提供。インストール後に自動で会話を再開します。",
+    "查询克隆进度失败:": "クローン進捗の取得に失敗:",
+    "查询进度失败": "進捗の取得に失敗しました",
+    "模板内容（点选后直接填充到输入框）": "テンプレート内容（タップで入力欄へ挿入）",
+    "正在克隆仓库…": "リポジトリをクローン中…",
+    "正在启动克隆…": "クローンを開始中…",
+    "正在添加工作区…": "ワークスペースを追加中…",
+    "正在渲染图表...": "図表をレンダリング中...",
+    "正在独立生成回复…": "独立した回答を生成中…",
+    "正在读取 Git 状态…": "Git ステータスを読み込み中…",
+    "正在读取本机目录…": "ローカルディレクトリを読み込み中…",
+    "正在读取蜂群状态...": "スウォーム状態を読み込み中...",
+    "正在载入清晰预览...": "高画質プレビューを読み込み中...",
+    "正在连接 GitHub 并克隆仓库…": "GitHub に接続してクローン中…",
+    "每周五 08:00": "毎週金曜 08:00",
+    "每天 09:00": "毎日 09:00",
+    "每天 23:00": "毎日 23:00",
+    "每小时": "毎時",
+    "注意": "注意",
+    "浏览器实时画面": "ブラウザライブ画面",
+    "浏览或新建本机文件夹": "ローカルフォルダを参照・作成",
+    "消息板 (Board)": "ボード",
+    "消息板暂无内容": "ボードにメッセージはありません",
+    "添加当前目录为工作区": "現在のフォルダをワークスペースに追加",
+    "现在可以在「新建会话」工作区列表中随时选用该项目": "「新規会話」のワークスペース一覧からいつでも選択できます",
+    "目标目录已存在，请更换目录或修改文件夹名": "指定フォルダは既に存在します。別のパスまたは名前を指定してください。",
+    "直接导入到 Antigravity 项目列表": "Antigravity プロジェクトへ直接インポート",
+    "短按编辑 · 左滑删除": "タップで編集 · 左スワイプで削除",
+    "确定要终止此后台任务吗？": "このバックグラウンドタスクを停止しますか？",
+    "确认并克隆": "確認してクローン",
+    "空闲/等待": "待機中",
+    "立即开启新会话": "今すぐ新規会話を開始",
+    "立即运行失败:": "即時実行に失敗しました:",
+    "等待中": "待機中",
+    "综述 (Overview)": "概要",
+    "编辑模式下按住左侧 ≡ 手柄，可把模板拖进下方「长按快捷菜单」。": "編集モードで左の ≡ ハンドルをドラッグして、下のクイックメニューへ配置できます。",
+    "网关未返回有效的克隆任务 ID": "ゲートウェイから有効なクローンタスク ID が返されませんでした",
+    "若当前浏览器内核不支持直接解码 .amr，请点下方链接下载播放；网关已完整支持 200 MB 音频上传与识别。": "ブラウザが .amr 再生に非対応の場合は下のリンクからダウンロードできます（最大 200 MB の音声アップロードに対応）。",
+    "蜂群": "スウォーム",
+    "蜂群会话": "スウォーム会話",
+    "蜂群看板": "スウォームボード",
+    "规划中": "計画中",
+    "让 Agent 写提交信息并提交": "Agent にコミットメッセージ作成とコミットを任せる",
+    "设置失败": "設定の保存に失敗しました",
+    "该目录已存在同一 GitHub 仓库": "同じ GitHub リポジトリがこのフォルダに既に存在します",
+    "详情": "詳細",
+    "请先进入一个会话后再使用 /btw": "/btw を使う前に会話を開いてください",
+    "请填写 Cron 表达式和执行指令": "Cron 式とプロンプトを入力してください",
+    "请求出错:": "リクエストエラー:",
+    "读取本机目录失败": "ローカルディレクトリの読み込みに失敗しました",
+    "跳转查看": "会話を開く",
+    "转入后台": "バックグラウンドへ",
+    "输入反馈（例如：先聚焦完成登录模块...）": "フィードバックを入力（例：まずログイン機能に集中して…）",
+    "输入电脑本地目录路径 (如 ~/Projects/my-app)：": "PC のローカルフォルダパスを入力（例: ~/Projects/my-app）：",
+    "运行中 · 切换下轮生效": "実行中 · 次のターンから適用",
+    "运行日志 (sidecar.log)": "実行ログ (sidecar.log)",
+    "返回全部": "すべてに戻る",
+    "返回工作区列表": "ワークスペース一覧へ戻る",
+    "进入目标目录后点击底部按钮，即可将其加入项目列表": "対象フォルダを開いて下部ボタンをタップするとプロジェクトに追加されます",
+    "选择本机存放目录": "保存先ローカルフォルダを選択",
+    "重启": "再起動",
+    "重启失败:": "再起動に失敗しました:",
+    "长图": "ロング",
+    "长按 Workflow 按钮，上滑秒选模板": "Workflow ボタンを長押しし、上にスワイプしてテンプレートを選択",
+    "项目": "プロジェクト",
+    "默认模型": "デフォルトモデル",
+    "• 若需管理多个 Antigravity 账号并在控制台/手机上一键切号，可配合开源工具 Cockpit Tools 与网关联动。": "• 複数の Antigravity アカウントを管理・ワンタップ切替するには、オープンソースの Cockpit Tools を連携できます。",
+    "1. 下载安装：从": "1. インストール：",
+    "下载 Cockpit Tools 桌面端并登录备用账号；": " から Cockpit Tools デスクトップ版をダウンロードし、予備アカウントにログインします；",
+    "2. 网关联动：在网关宿主机终端运行": "2. ゲートウェイ連携：ホスト端末で ",
+    "，按回车一键开启 HTTP 报表服务与 Token 并重启；": " を実行し、Enter で HTTP ステータスサービスを有効化して再起動します；",
+    "3. 页面刷新：刷新配额面板，即可在此处查看所有账号额度并自由切换。": "3. 更新：クォータパネルを再読み込みすると、すべてのアカウント残量を確認・切替できます。",
+    "确定要解除当前设备的配对绑定吗？": "この端末のペアリングを解除しますか？",
+    "确定要终止当前 Agent 任务吗？": "現在の Agent タスクを停止しますか？",
+    "请选择或输入目标工作区路径": "ワークスペースパスを選択または入力してください",
+    "请输入首条指令": "最初のプロンプトを入力してください",
+    "请先选择或新建一个会话": "先に会話を選択または新規作成してください",
+    "请先启动任务": "先にタスクを開始してください",
+    "请输入 NAS 工作区目录路径 (例如 /home/jiuzai 或 /vol1/1000):": "NAS ワークスペースのパスを入力してください（例: /home/user または /vol1/1000）："
   };
 
   const DYNAMIC_RULES_EN = [
@@ -3475,8 +3965,98 @@
     [/^共\s*(\d+)\s*条聊天记录$/, "$1 messages in total"],
     [/^仅显示前\s*(\d+)\s*行，共\s*(\d+)\s*行$/, "Showing first $1 of $2 lines"],
     [/^已完成\s*(\d+)\s*项检索与命令操作$/, "Completed $1 searches & commands"],
+    [/^📄\s*已完成\s*(\d+)\s*项检索与命令操作$/, "📄 Completed $1 searches & commands"],
     [/^已执行\s*(\d+)\s*项操作$/, "Executed $1 actions"],
-    [/^配额数据更新于\s*(.+)$/, "Quotas updated at $1"]
+    [/^配额数据更新于\s*(.+)$/, "Quotas updated at $1"],
+    [/^\[(\d+)\s*个附件\]$/, "[$1 attachments]"],
+    [/^\[(\d+)\s*张图片\]$/, "[$1 images]"],
+    [/^(\d+)\s*会话$/, "$1 chats"],
+    [/^(\d+)\s*步$/, "$1 steps"],
+    [/^加载失败:\s*(.+)$/, "Load failed: $1"],
+    [/^加载会话失败:\s*(.+)$/, "Failed to load conversation: $1"],
+    [/^配对失败\s*\(HTTP\s*(\d+)\)$/, "Pairing failed (HTTP $1)"],
+    [/^请求失败\s*\(HTTP\s*(\d+)\)$/, "Request failed (HTTP $1)"],
+    [/^查看\s*Python\s*编排脚本\s*\((\d+)\s*行\)$/, "View Python orchestration script ($1 lines)"],
+    [/^需要确认规格\s*\((\d+)\s*个问题\)$/, "Clarification needed ($1 questions)"],
+    [/^并发智能体矩阵\s*\((\d+)\)$/, "Parallel Agent Matrix ($1)"],
+    [/^查看执行日志\s*\((\d+)\s*条\)$/, "View execution logs ($1)"],
+    [/^(\d+)\s*运行中\s*·\s*(\d+)\s*已完成$/, "$1 running · $2 done"],
+    [/^(\d+)\s*运行中$/, "$1 running"],
+    [/^并行启动\s*(\d+)\s*个子代理$/, "Launched $1 sub-agents in parallel"],
+    [/^🧠\s*Agent\s*思考过程\s*\((\d+)\s*字符\)$/, "🧠 Agent Thought Process ($1 chars)"],
+    [/^💭\s*已深度思考\s*\((.+)\)$/, "💭 Deep thought ($1)"],
+    [/^💭\s*已深度思考$/, "💭 Deep thought"],
+    [/^⚡\s*已思考并执行\s*(\d+)\s*项操作$/, "⚡ Thought & executed $1 actions"],
+    [/^点击复制命令:\s*(.+)$/, "Click to copy command: $1"],
+    [/^等待\s*(.+?)\s*等(\d+)项完成后出列$/, "Waiting for $1 and $2 items before sending"],
+    [/^等待\s*(.+?)\s*完成后出列$/, "Waiting for $1 before sending"],
+    [/^桌面端:\s*(.+)$/, "Desktop: $1"],
+    [/^CLI\s*端:\s*(.+)$/, "CLI: $1"],
+    [/^当前模型:\s*(.+?)\s*·\s*短按快切首选\/次选\s*·\s*长按\/右键手选模型$/, "Current model: $1 · Tap to toggle favorites · Long-press/right-click to pick"],
+    [/^「(.+)」超过\s*(\d+)\s*MB\s*上传上限$/, "\"$1\" exceeds the $2 MB upload limit"],
+    [/^上传失败:\s*(.+)$/, "Upload failed: $1"],
+    [/^推送失败：(.+)$/, "Push failed: $1"],
+    [/^加载交互组件失败:\s*(.+)$/, "Failed to load interactive widget: $1"],
+    [/^⚙️\s*已自动隐藏文档配置与样式\s*\((\d+)行\)$/, "⚙️ Auto-hidden document config & styles ($1 lines)"],
+    [/^⚙️\s*已自动隐藏\s*Marp\s*演示配置与样式\s*\((\d+)行\)$/, "⚙️ Auto-hidden Marp slide config & styles ($1 lines)"],
+    [/^🧩\s*推荐插件：(.+)$/, "🧩 Recommended Plugin: $1"],
+    [/^⚙️\s*已自动隐藏样式代码\s*\((\d+)行\)$/, "⚙️ Auto-hidden style code ($1 lines)"],
+    [/^已归档会话\s*\((\d+)\)\s*›$/, "Archived Chats ($1) ›"],
+    [/^已归档会话\s*\((\d+)\)$/, "Archived Chats ($1)"],
+    [/^权限档位已切换为「(.+)」（下轮生效）$/, "Permission changed to \"$1\" (applies next turn)"],
+    [/^工具与任务\s*\((.+?)，长按\/右键快切权限\)$/, "Tools & Tasks ($1 — long-press/right-click to switch)"],
+    [/^Agent\s*执行权限预设（下轮生效）$/, "Agent Permission Presets (applies next turn)"],
+    [/^·\s*(\d+)\s*个工具$/, "· $1 tools"],
+    [/^已启用\s*·\s*(\d+)\s*个工具$/, "Enabled · $1 tools"],
+    [/^已停用\s*·\s*(\d+)\s*个工具$/, "Disabled · $1 tools"],
+    [/^(.+?)\s*·\s*(\d+)\s*个工具$/, "$1 · $2 tools"],
+    [/^MCP「(.+)」已启用$/, "MCP \"$1\" enabled"],
+    [/^MCP「(.+)」已停用$/, "MCP \"$1\" disabled"],
+    [/^已授权插件权限\s*\((\d+)\)$/, "Granted Plugin Permissions ($1)"],
+    [/^定时自动化任务\s*\((\d+)\)$/, "Scheduled Automations ($1)"],
+    [/^·\s*下次\s*(.+)$/, "· Next $1"],
+    [/^·\s*上次\s*(.+)$/, "· Last $1"],
+    [/^交互式终端\s*\((\d+)\)$/, "Interactive Terminals ($1)"],
+    [/^终端:\s*(.+)$/, "Terminal: $1"],
+    [/^文件夹名（默认\s*(.+)）$/, "Folder name (default: $1)"],
+    [/^运行历史\s*\((\d+)\)$/, "Run History ($1)"],
+    [/^确定删除定时任务「(.+)」？$/, "Delete scheduled task \"$1\"?"],
+    [/^(\d+)\s*个子代理运行中\s*·\s*点击查看\s*›$/, "$1 sub-agents running · Tap to view ›"],
+    [/^⚠️\s*待处理事项\s*\((\d+)\)$/, "⚠️ Attention Needed ($1)"],
+    [/^工作流推进\s*\((\d+)\)$/, "Workstreams ($1)"],
+    [/^负责人:\s*(.+)$/, "Owners: $1"],
+    [/^模型:\s*(.+)$/, "Model: $1"],
+    [/^动态:\s*(.+)$/, "Activity: $1"],
+    [/^(\d+)\s*次协作交流$/, "$1 interactions"],
+    [/^承接自「(.+)」第\s*(\d+)\s*轮$/, "Branched from \"$1\" · Turn $2"],
+    [/^承接自「(.+)」$/, "Branched from \"$1\""],
+    [/^承接自主会话第\s*(\d+)\s*轮$/, "Branched from main session · Turn $1"],
+    [/^将从\s*Step\s*#(\d+)\s*处分叉，不携带后续消息。$/, "Will branch from Step #$1 without subsequent messages."],
+    [/^已有旁路分支\s*\((\d+)\)$/, "Existing Side Branches ($1)"],
+    [/^\[动画表情\]\s*(.+)$/, "[Sticker] $1"],
+    [/^解析失败：(.+)$/, "Parse failed: $1"],
+    [/^创建会话失败:\s*(.+)$/, "Failed to create conversation: $1"],
+    [/^发送失败:\s*(.+)$/, "Send failed: $1"],
+    [/^确认方案失败:\s*(.+)$/, "Failed to proceed: $1"],
+    [/^取消任务失败:\s*(.+)$/, "Failed to stop task: $1"],
+    [/^提交失败:\s*(.+)$/, "Submission failed: $1"],
+    [/^审批提交失败:\s*(.+)$/, "Approval submission failed: $1"],
+    [/^终止任务失败:\s*(.+)$/, "Failed to terminate task: $1"],
+    [/^安装失败:\s*(.+)$/, "Install failed: $1"],
+    [/^请求出错:\s*(.+)$/, "Request error: $1"],
+    [/^切换账号失败:\s*(.+)$/, "Account switch failed: $1"],
+    [/^创建失败:\s*(.+)$/, "Creation failed: $1"],
+    [/^撤销失败:\s*(.+)$/, "Revoke failed: $1"],
+    [/^操作失败:\s*(.+)$/, "Action failed: $1"],
+    [/^立即运行失败:\s*(.+)$/, "Run now failed: $1"],
+    [/^重启失败:\s*(.+)$/, "Restart failed: $1"],
+    [/^加载日志失败:\s*(.+)$/, "Failed to load logs: $1"],
+    [/^查询克隆进度失败:\s*(.+)$/, "Failed to check clone progress: $1"],
+    [/^信任设置失败:\s*(.+)$/, "Failed to trust workspace: $1"],
+    [/^分叉失败:\s*(.+)$/, "Fork failed: $1"],
+    [/^切换到\s*(.+?)\s*将关闭并重启电脑上的\s*Antigravity，是否继续？$/, "Switching to $1 will close and restart Antigravity on your computer. Continue?"],
+    [/^在\s*(.+?)\s*下新建目录名称，或输入\s*~\/\.\.\.\s*自定义路径：$/, "New folder name inside $1, or enter a ~/... path:"],
+    [/^(\d+)\s*×\s*(\d+)\s*px\s*·\s*高清长图$/, "$1 × $2 px · HD Long Image"]
   ];
 
   const DYNAMIC_RULES_JA = [
@@ -3534,8 +4114,98 @@
     [/^共\s*(\d+)\s*条聊天记录$/, "全 $1 件のメッセージ"],
     [/^仅显示前\s*(\d+)\s*行，共\s*(\d+)\s*行$/, "先頭 $1 行を表示 (全 $2 行)"],
     [/^已完成\s*(\d+)\s*项检索与命令操作$/, "$1 件の検索・コマンド操作を完了"],
+    [/^📄\s*已完成\s*(\d+)\s*项检索与命令操作$/, "📄 $1 件の検索・コマンド操作を完了"],
     [/^已执行\s*(\d+)\s*项操作$/, "$1 件の操作を実行しました"],
-    [/^配额数据更新于\s*(.+)$/, "クォータ更新時刻: $1"]
+    [/^配额数据更新于\s*(.+)$/, "クォータ更新時刻: $1"],
+    [/^\[(\d+)\s*个附件\]$/, "[$1 件の添付ファイル]"],
+    [/^\[(\d+)\s*张图片\]$/, "[$1 枚の画像]"],
+    [/^(\d+)\s*会话$/, "$1 件の会話"],
+    [/^(\d+)\s*步$/, "$1 ステップ"],
+    [/^加载失败:\s*(.+)$/, "読み込み失敗: $1"],
+    [/^加载会话失败:\s*(.+)$/, "会話の読み込みに失敗しました: $1"],
+    [/^配对失败\s*\(HTTP\s*(\d+)\)$/, "ペアリングに失敗しました (HTTP $1)"],
+    [/^请求失败\s*\(HTTP\s*(\d+)\)$/, "リクエストに失敗しました (HTTP $1)"],
+    [/^查看\s*Python\s*编排脚本\s*\((\d+)\s*行\)$/, "Python ワークフロースクリプトを表示 ($1 行)"],
+    [/^需要确认规格\s*\((\d+)\s*个问题\)$/, "仕様の確認が必要です ($1 件の質問)"],
+    [/^并发智能体矩阵\s*\((\d+)\)$/, "並列エージェントマトリクス ($1)"],
+    [/^查看执行日志\s*\((\d+)\s*条\)$/, "実行ログを表示 ($1 件)"],
+    [/^(\d+)\s*运行中\s*·\s*(\d+)\s*已完成$/, "$1 実行中 · $2 完了"],
+    [/^(\d+)\s*运行中$/, "$1 実行中"],
+    [/^并行启动\s*(\d+)\s*个子代理$/, "$1 件のサブエージェントを並列起動"],
+    [/^🧠\s*Agent\s*思考过程\s*\((\d+)\s*字符\)$/, "🧠 エージェントの思考過程 ($1 文字)"],
+    [/^💭\s*已深度思考\s*\((.+)\)$/, "💭 深く思考しました ($1)"],
+    [/^💭\s*已深度思考$/, "💭 深く思考しました"],
+    [/^⚡\s*已思考并执行\s*(\d+)\s*项操作$/, "⚡ 思考して $1 件の操作を実行"],
+    [/^点击复制命令:\s*(.+)$/, "クリックしてコマンドをコピー: $1"],
+    [/^等待\s*(.+?)\s*等(\d+)项完成后出列$/, "$1 など $2 件の完了後に送信"],
+    [/^等待\s*(.+?)\s*完成后出列$/, "$1 の完了後に送信"],
+    [/^桌面端:\s*(.+)$/, "デスクトップ: $1"],
+    [/^CLI\s*端:\s*(.+)$/, "CLI: $1"],
+    [/^当前模型:\s*(.+?)\s*·\s*短按快切首选\/次选\s*·\s*长按\/右键手选模型$/, "現在のモデル: $1 · タップでお気に入り切替 · 長押し/右クリックで選択"],
+    [/^「(.+)」超过\s*(\d+)\s*MB\s*上传上限$/, "「$1」はアップロード上限（$2 MB）を超えています"],
+    [/^上传失败:\s*(.+)$/, "アップロード失敗: $1"],
+    [/^推送失败：(.+)$/, "プッシュ失敗: $1"],
+    [/^加载交互组件失败:\s*(.+)$/, "インタラクティブコンポーネントの読み込みに失敗: $1"],
+    [/^⚙️\s*已自动隐藏文档配置与样式\s*\((\d+)行\)$/, "⚙️ ドキュメント設定・スタイルを自動非表示 ($1行)"],
+    [/^⚙️\s*已自动隐藏\s*Marp\s*演示配置与样式\s*\((\d+)行\)$/, "⚙️ Marp スライド設定・スタイルを自動非表示 ($1行)"],
+    [/^🧩\s*推荐插件：(.+)$/, "🧩 おすすめプラグイン：$1"],
+    [/^⚙️\s*已自动隐藏样式代码\s*\((\d+)行\)$/, "⚙️ スタイルコードを自動非表示 ($1行)"],
+    [/^已归档会话\s*\((\d+)\)\s*›$/, "アーカイブ済み会話 ($1) ›"],
+    [/^已归档会话\s*\((\d+)\)$/, "アーカイブ済み会話 ($1)"],
+    [/^权限档位已切换为「(.+)」（下轮生效）$/, "権限モードを「$1」に切り替えました（次のターンから適用）"],
+    [/^工具与任务\s*\((.+?)，长按\/右键快切权限\)$/, "ツールとタスク（$1・長押し/右クリックで権限切替）"],
+    [/^Agent\s*执行权限预设（下轮生效）$/, "エージェント権限プリセット（次のターンから適用）"],
+    [/^·\s*(\d+)\s*个工具$/, "· $1 個のツール"],
+    [/^已启用\s*·\s*(\d+)\s*个工具$/, "有効 · $1 個のツール"],
+    [/^已停用\s*·\s*(\d+)\s*个工具$/, "無効 · $1 個のツール"],
+    [/^(.+?)\s*·\s*(\d+)\s*个工具$/, "$1 · $2 個のツール"],
+    [/^MCP「(.+)」已启用$/, "MCP「$1」を有効にしました"],
+    [/^MCP「(.+)」已停用$/, "MCP「$1」を無効にしました"],
+    [/^已授权插件权限\s*\((\d+)\)$/, "許可済みプラグイン権限 ($1)"],
+    [/^定时自动化任务\s*\((\d+)\)$/, "スケジュール自動化 ($1)"],
+    [/^·\s*下次\s*(.+)$/, "· 次回 $1"],
+    [/^·\s*上次\s*(.+)$/, "· 前回 $1"],
+    [/^交互式终端\s*\((\d+)\)$/, "インタラクティブターミナル ($1)"],
+    [/^终端:\s*(.+)$/, "ターミナル: $1"],
+    [/^文件夹名（默认\s*(.+)）$/, "フォルダ名（既定: $1）"],
+    [/^运行历史\s*\((\d+)\)$/, "実行履歴 ($1)"],
+    [/^确定删除定时任务「(.+)」？$/, "スケジュールタスク「$1」を削除しますか？"],
+    [/^(\d+)\s*个子代理运行中\s*·\s*点击查看\s*›$/, "$1 件のサブエージェントが稼働中 · タップして表示 ›"],
+    [/^⚠️\s*待处理事项\s*\((\d+)\)$/, "⚠️ 要確認事項 ($1)"],
+    [/^工作流推进\s*\((\d+)\)$/, "ワークストリーム ($1)"],
+    [/^负责人:\s*(.+)$/, "担当: $1"],
+    [/^模型:\s*(.+)$/, "モデル: $1"],
+    [/^动态:\s*(.+)$/, "ステータス: $1"],
+    [/^(\d+)\s*次协作交流$/, "$1 回の連携"],
+    [/^承接自「(.+)」第\s*(\d+)\s*轮$/, "「$1」ターン $2 から分岐"],
+    [/^承接自「(.+)」$/, "「$1」から分岐"],
+    [/^承接自主会话第\s*(\d+)\s*轮$/, "メイン会話ターン $1 から分岐"],
+    [/^将从\s*Step\s*#(\d+)\s*处分叉，不携带后续消息。$/, "Step #$1 から分岐し、以降のメッセージは含みません。"],
+    [/^已有旁路分支\s*\((\d+)\)$/, "既存のサイドブランチ ($1)"],
+    [/^\[动画表情\]\s*(.+)$/, "[スタンプ] $1"],
+    [/^解析失败：(.+)$/, "解析に失敗しました：$1"],
+    [/^创建会话失败:\s*(.+)$/, "会話の作成に失敗しました: $1"],
+    [/^发送失败:\s*(.+)$/, "送信に失敗しました: $1"],
+    [/^确认方案失败:\s*(.+)$/, "計画の確認に失敗しました: $1"],
+    [/^取消任务失败:\s*(.+)$/, "タスクの中止に失敗しました: $1"],
+    [/^提交失败:\s*(.+)$/, "送信に失敗しました: $1"],
+    [/^审批提交失败:\s*(.+)$/, "承認の送信に失敗しました: $1"],
+    [/^终止任务失败:\s*(.+)$/, "タスクの停止に失敗しました: $1"],
+    [/^安装失败:\s*(.+)$/, "インストールに失敗しました: $1"],
+    [/^请求出错:\s*(.+)$/, "リクエストエラー: $1"],
+    [/^切换账号失败:\s*(.+)$/, "アカウント切替に失敗しました: $1"],
+    [/^创建失败:\s*(.+)$/, "作成に失敗しました: $1"],
+    [/^撤销失败:\s*(.+)$/, "取り消しに失敗しました: $1"],
+    [/^操作失败:\s*(.+)$/, "操作に失敗しました: $1"],
+    [/^立即运行失败:\s*(.+)$/, "即時実行に失敗しました: $1"],
+    [/^重启失败:\s*(.+)$/, "再起動に失敗しました: $1"],
+    [/^加载日志失败:\s*(.+)$/, "ログの読み込みに失敗しました: $1"],
+    [/^查询克隆进度失败:\s*(.+)$/, "クローン進捗の取得に失敗しました: $1"],
+    [/^信任设置失败:\s*(.+)$/, "信頼設定に失敗しました: $1"],
+    [/^分叉失败:\s*(.+)$/, "フォークに失敗しました: $1"],
+    [/^切换到\s*(.+?)\s*将关闭并重启电脑上的\s*Antigravity，是否继续？$/, "$1 に切り替えるとPC上の Antigravity を再起動します。続行しますか？"],
+    [/^在\s*(.+?)\s*下新建目录名称，或输入\s*~\/\.\.\.\s*自定义路径：$/, "$1 内に作成するフォルダ名、または ~/... パスを入力："],
+    [/^(\d+)\s*×\s*(\d+)\s*px\s*·\s*高清长图$/, "$1 × $2 px · 高画質ロング画像"]
   ];
 
   const DICTS = {
@@ -3654,6 +4324,95 @@
 
   let hasTranslatedNonZh = false;
   let initialDomPassDone = false;
+  let isMutatingDOM = false;
+  let mutationObserver = null;
+  let pendingMutationNodes = new Set();
+  let mutationFlushScheduled = false;
+
+  const SKIP_TAGS = new Set(["script", "style", "code", "pre", "svg", "noscript"]);
+  const SKIP_TEXT_ONLY_TAGS = new Set(["textarea", "input"]);
+  const SKIP_SELECTOR = [
+    "[data-i18n-skip]",
+    ".monospaced",
+    ".agent-message-body",
+    ".user-message-text",
+    ".thought-content",
+    ".p3-thinking-detail",
+    ".artifact-card-title",
+    ".artifact-card-summary",
+    ".diff-view",
+    ".v233-pr-body-pre",
+    ".p3-term-log",
+    ".wx-msg-text",
+    ".wx-msg-sender",
+    ".dir-item-name",
+    ".dir-current-path",
+    ".dir-preview-path",
+    ".project-card-name",
+    ".project-card-path",
+    ".swarm-board-text",
+    ".swarm-member-name",
+    ".swarm-member-activity",
+    ".subagent-card-role"
+  ].join(", ");
+
+  function isSkippedElement(el) {
+    if (!el || el.nodeType !== Node.ELEMENT_NODE) return false;
+    const tag = el.tagName ? el.tagName.toLowerCase() : "";
+    if (SKIP_TAGS.has(tag)) return true;
+    try {
+      if (typeof el.matches === "function" && el.matches(SKIP_SELECTOR)) return true;
+    } catch (_) {}
+    return false;
+  }
+
+  function isInsideSkippedSubtree(node) {
+    let cur = node && node.nodeType === Node.TEXT_NODE ? node.parentElement : node;
+    while (cur && cur.nodeType === Node.ELEMENT_NODE) {
+      if (isSkippedElement(cur)) return true;
+      cur = cur.parentElement;
+    }
+    return false;
+  }
+
+  function translateTextNode(node, isChinese) {
+    if (!node || node.nodeType !== Node.TEXT_NODE) return;
+    const val = node.nodeValue;
+    if (!val || !val.trim()) return;
+    const pTag = node.parentElement && node.parentElement.tagName ? node.parentElement.tagName.toLowerCase() : "";
+    if (SKIP_TEXT_ONLY_TAGS.has(pTag)) return;
+    if (isInsideSkippedSubtree(node)) return;
+    // If JS updated this text node to a brand-new Chinese string after a previous translation,
+    // refresh _i18nRawText so the new text translates accurately (and stays reversible).
+    if (!node._i18nRawText || (node._i18nLastOut !== undefined && val !== node._i18nLastOut)) {
+      node._i18nRawText = val;
+    }
+    const next = isChinese ? node._i18nRawText : translateText(node._i18nRawText);
+    node._i18nLastOut = next;
+    if (val !== next) {
+      node.nodeValue = next;
+    }
+  }
+
+  function translateElementAttrs(el, isChinese) {
+    if (!el || el.nodeType !== Node.ELEMENT_NODE) return;
+    if (isInsideSkippedSubtree(el)) return;
+    ["placeholder", "title", "aria-label"].forEach((attr) => {
+      const currentVal = el.getAttribute(attr);
+      if (currentVal) {
+        const rawKey = "_i18nRaw_" + attr;
+        const lastKey = "_i18nLast_" + attr;
+        if (!el[rawKey] || (el[lastKey] !== undefined && currentVal !== el[lastKey])) {
+          el[rawKey] = currentVal;
+        }
+        const next = isChinese ? el[rawKey] : translateText(el[rawKey]);
+        el[lastKey] = next;
+        if (currentVal !== next) {
+          el.setAttribute(attr, next);
+        }
+      }
+    });
+  }
 
   function translateDOM(root, force = false) {
     if (!root || typeof document === "undefined") return;
@@ -3675,81 +4434,152 @@
     }
     const dict = DICTS[activeLang] || DICT_EN;
 
-    // 1. Explicit data-i18n attributes
-    const elements = root.querySelectorAll ? root.querySelectorAll("[data-i18n], [data-i18n-placeholder], [data-i18n-title], [data-i18n-aria]") : [];
-    elements.forEach((el) => {
-      const key = el.getAttribute("data-i18n");
-      if (key) {
-        if (!el._i18nRawText) el._i18nRawText = el.textContent;
-        el.textContent = isChinese ? el._i18nRawText : (dict[key] || translateText(el._i18nRawText));
+    const prevMutating = isMutatingDOM;
+    isMutatingDOM = true;
+    try {
+      if (root.nodeType === Node.TEXT_NODE) {
+        translateTextNode(root, isChinese);
+        return;
       }
-      const phKey = el.getAttribute("data-i18n-placeholder");
-      if (phKey) {
-        if (!el._i18nRawPh) el._i18nRawPh = el.placeholder;
-        el.placeholder = isChinese ? el._i18nRawPh : (dict[phKey] || translateText(el._i18nRawPh));
+      if (root !== document && isInsideSkippedSubtree(root)) {
+        return;
       }
-      const titleKey = el.getAttribute("data-i18n-title");
-      if (titleKey) {
-        if (!el._i18nRawTitle) el._i18nRawTitle = el.title;
-        el.title = isChinese ? el._i18nRawTitle : (dict[titleKey] || translateText(el._i18nRawTitle));
-      }
-      const ariaKey = el.getAttribute("data-i18n-aria");
-      if (ariaKey) {
-        if (!el._i18nRawAria) el._i18nRawAria = el.getAttribute("aria-label");
-        el.setAttribute("aria-label", isChinese ? el._i18nRawAria : (dict[ariaKey] || translateText(el._i18nRawAria)));
-      }
-    });
 
-    // 2. Scan text nodes & common attributes
-    const targetRoot = root === document ? document.body : root;
-    if (!targetRoot || typeof document.createTreeWalker !== "function") return;
+      // 1. Explicit data-i18n attributes
+      const elements = root.querySelectorAll ? root.querySelectorAll("[data-i18n], [data-i18n-placeholder], [data-i18n-title], [data-i18n-aria]") : [];
+      elements.forEach((el) => {
+        if (isInsideSkippedSubtree(el)) return;
+        const key = el.getAttribute("data-i18n");
+        if (key) {
+          if (!el._i18nRawText) el._i18nRawText = el.textContent;
+          el.textContent = isChinese ? el._i18nRawText : (dict[key] || translateText(el._i18nRawText));
+        }
+        const phKey = el.getAttribute("data-i18n-placeholder");
+        if (phKey) {
+          if (!el._i18nRawPh) el._i18nRawPh = el.placeholder;
+          el.placeholder = isChinese ? el._i18nRawPh : (dict[phKey] || translateText(el._i18nRawPh));
+        }
+        const titleKey = el.getAttribute("data-i18n-title");
+        if (titleKey) {
+          if (!el._i18nRawTitle) el._i18nRawTitle = el.title;
+          el.title = isChinese ? el._i18nRawTitle : (dict[titleKey] || translateText(el._i18nRawTitle));
+        }
+        const ariaKey = el.getAttribute("data-i18n-aria");
+        if (ariaKey) {
+          if (!el._i18nRawAria) el._i18nRawAria = el.getAttribute("aria-label");
+          el.setAttribute("aria-label", isChinese ? el._i18nRawAria : (dict[ariaKey] || translateText(el._i18nRawAria)));
+        }
+      });
 
-    const walk = document.createTreeWalker(
-      targetRoot,
-      NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT,
-      {
-        acceptNode(node) {
-          if (node.nodeType === Node.ELEMENT_NODE) {
-            const tag = node.tagName.toLowerCase();
-            if (tag === "script" || tag === "style" || tag === "code" || tag === "pre" || node.classList.contains("monospaced")) {
+      // 2. Scan text nodes & common attributes
+      const targetRoot = root === document ? document.body : root;
+      if (!targetRoot || typeof document.createTreeWalker !== "function") return;
+      if (targetRoot.nodeType === Node.ELEMENT_NODE) {
+        translateElementAttrs(targetRoot, isChinese);
+      }
+
+      const walk = document.createTreeWalker(
+        targetRoot,
+        NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT,
+        {
+          acceptNode(node) {
+            if (node.nodeType === Node.ELEMENT_NODE && isSkippedElement(node)) {
               return NodeFilter.FILTER_REJECT;
             }
+            return NodeFilter.FILTER_ACCEPT;
           }
-          return NodeFilter.FILTER_ACCEPT;
         }
-      }
-    );
+      );
 
-    let node;
-    while ((node = walk.nextNode())) {
-      if (node.nodeType === Node.TEXT_NODE) {
-        const val = node.nodeValue;
-        if (!val || !val.trim()) continue;
-        if (!node._i18nRawText) {
-          node._i18nRawText = val;
+      let node;
+      while ((node = walk.nextNode())) {
+        if (node.nodeType === Node.TEXT_NODE) {
+          translateTextNode(node, isChinese);
+        } else if (node.nodeType === Node.ELEMENT_NODE) {
+          translateElementAttrs(node, isChinese);
         }
-        node.nodeValue = isChinese ? node._i18nRawText : translateText(node._i18nRawText);
-      } else if (node.nodeType === Node.ELEMENT_NODE) {
-        ["placeholder", "title", "aria-label"].forEach((attr) => {
-          const currentVal = node.getAttribute(attr);
-          if (currentVal) {
-            const rawKey = "_i18nRaw_" + attr;
-            if (!node[rawKey]) {
-              node[rawKey] = currentVal;
-            }
-            node.setAttribute(attr, isChinese ? node[rawKey] : translateText(node[rawKey]));
-          }
-        });
       }
+    } finally {
+      isMutatingDOM = prevMutating;
     }
   }
 
-  function applyBrowserLanguage() {
-    currentPreference = "system";
-    try {
-      localStorage.removeItem(STORAGE_KEY);
-    } catch (_) {}
-    activeLang = detectSystemLanguage();
+  function flushPendingMutations() {
+    mutationFlushScheduled = false;
+    if (isZh() || pendingMutationNodes.size === 0) {
+      pendingMutationNodes.clear();
+      return;
+    }
+    const batch = Array.from(pendingMutationNodes);
+    pendingMutationNodes.clear();
+    for (let i = 0; i < batch.length; i++) {
+      const n = batch[i];
+      if (!n || !n.isConnected) continue;
+      translateDOM(n, true);
+    }
+  }
+
+  function startDOMObserver() {
+    if (mutationObserver || typeof MutationObserver !== "function" || typeof document === "undefined" || !document.body) {
+      return;
+    }
+    mutationObserver = new MutationObserver((records) => {
+      if (isMutatingDOM || isZh()) return;
+      for (let i = 0; i < records.length; i++) {
+        const rec = records[i];
+        if (rec.type === "characterData") {
+          if (rec.target && !isInsideSkippedSubtree(rec.target)) {
+            pendingMutationNodes.add(rec.target);
+          }
+        } else if (rec.type === "childList" && rec.addedNodes) {
+          for (let j = 0; j < rec.addedNodes.length; j++) {
+            const added = rec.addedNodes[j];
+            if (!added) continue;
+            if (added.nodeType === Node.ELEMENT_NODE && !isSkippedElement(added) && !isInsideSkippedSubtree(added)) {
+              pendingMutationNodes.add(added);
+            } else if (added.nodeType === Node.TEXT_NODE && !isInsideSkippedSubtree(added)) {
+              pendingMutationNodes.add(added);
+            }
+          }
+        }
+      }
+      if (pendingMutationNodes.size > 0 && !mutationFlushScheduled) {
+        mutationFlushScheduled = true;
+        Promise.resolve().then(flushPendingMutations);
+      }
+    });
+    mutationObserver.observe(document.body, {
+      childList: true,
+      subtree: true,
+      characterData: true
+    });
+  }
+
+  function normalizePreference(pref) {
+    const raw = String(pref || "system").trim().toLowerCase();
+    if (raw === "zh" || raw === "zh-cn" || raw === "zh-hans" || raw === "cn") return "zh-CN";
+    if (raw === "ja" || raw === "ja-jp" || raw === "jp") return "ja";
+    if (raw === "en" || raw === "en-us" || raw === "en-gb") return "en";
+    return "system";
+  }
+
+  function resolveActiveLanguage(pref) {
+    if (pref === "zh-CN" || pref === "en" || pref === "ja") return pref;
+    return detectSystemLanguage();
+  }
+
+  function applyLanguageState(pref, persist) {
+    currentPreference = normalizePreference(pref);
+    if (persist) {
+      try {
+        if (currentPreference === "system") {
+          localStorage.removeItem(STORAGE_KEY);
+        } else {
+          localStorage.setItem(STORAGE_KEY, currentPreference);
+        }
+      } catch (_) {}
+    }
+    activeLang = resolveActiveLanguage(currentPreference);
 
     if (typeof document !== "undefined") {
       document.documentElement.lang = activeLang;
@@ -3761,18 +4591,28 @@
       }
 
       translateDOM(document, true);
+      startDOMObserver();
 
-      if (typeof window.renderConversations === "function") {
-        try {
-          if (typeof allConversations !== "undefined" && allConversations.length > 0) {
-            window.renderConversations(allConversations);
+      // Re-render live JS-driven views so dynamic templates update immediately on language switch
+      try {
+        if (typeof renderConversationList === "function" && typeof currentTrajectories !== "undefined" && currentTrajectories) {
+          renderConversationList(currentTrajectories);
+        }
+      } catch (_) {}
+      try {
+        if (typeof window.updateChatControls === "function" && typeof window.activeCascadeId !== "undefined") {
+          const isRunning = typeof window.isCascadeRunning === "function" ? window.isCascadeRunning(window.activeCascadeId) : false;
+          window.updateChatControls(isRunning, null, false);
+        }
+      } catch (_) {}
+      try {
+        if (typeof activeCascadeId !== "undefined" && activeCascadeId && typeof getSessionStepsCache === "function" && typeof renderMessages === "function") {
+          const cached = getSessionStepsCache(activeCascadeId);
+          if (cached && Array.isArray(cached.steps)) {
+            renderMessages(cached.steps, !!cached.isRunning);
           }
-        } catch (_) {}
-      }
-      if (typeof window.updateChatControls === "function" && typeof window.activeCascadeId !== "undefined") {
-        const isRunning = typeof window.isCascadeRunning === "function" ? window.isCascadeRunning(window.activeCascadeId) : false;
-        window.updateChatControls(isRunning, null, false);
-      }
+        }
+      } catch (_) {}
 
       if (typeof window !== "undefined" && typeof window.dispatchEvent === "function") {
         try {
@@ -3785,17 +4625,18 @@
     }
   }
 
-  // Kept for backward compatibility; language always follows browser locale.
-  function setLanguage() {
-    applyBrowserLanguage();
+  // Persists explicit language selection ("system" | "zh-CN" | "en" | "ja") and re-renders the UI live.
+  function setLanguage(pref) {
+    applyLanguageState(pref, true);
   }
 
   function init() {
-    currentPreference = "system";
+    let saved = "system";
     try {
-      localStorage.removeItem(STORAGE_KEY);
+      saved = localStorage.getItem(STORAGE_KEY) || "system";
     } catch (_) {}
-    activeLang = detectSystemLanguage();
+    currentPreference = normalizePreference(saved);
+    activeLang = resolveActiveLanguage(currentPreference);
 
     if (typeof document !== "undefined") {
       document.documentElement.lang = activeLang;
@@ -3806,17 +4647,21 @@
         manifestLink.setAttribute("href", manifestHrefForLang(activeLang));
       }
 
-      if (document.readyState === "loading") {
-        document.addEventListener("DOMContentLoaded", () => {
-          translateDOM(document);
-        });
-      } else {
+      const bootDom = () => {
         translateDOM(document);
+        startDOMObserver();
+      };
+      if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", bootDom);
+      } else {
+        bootDom();
       }
 
       if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
         window.addEventListener("languagechange", () => {
-          applyBrowserLanguage();
+          if (currentPreference === "system") {
+            applyLanguageState("system", false);
+          }
         });
       }
     }

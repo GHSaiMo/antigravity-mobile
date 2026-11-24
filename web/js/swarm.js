@@ -340,12 +340,12 @@ const SwarmManager = (() => {
           });
           if (res.ok) {
             inputEl.value = "";
-            alert("已成功向协调员同步反馈！");
+            alert(typeof t === "function" ? t("已成功向协调员同步反馈！") : "已成功向协调员同步反馈！");
           } else {
-            alert("发送失败，请稍后再试");
+            alert(typeof t === "function" ? t("发送失败，请稍后再试") : "发送失败，请稍后再试");
           }
         } catch (err) {
-          alert("请求出错: " + err.message);
+          alert(typeof t === "function" ? t("请求出错: " + err.message) : "请求出错: " + err.message);
         } finally {
           sendBtn.disabled = false;
           sendBtn.textContent = "发送";

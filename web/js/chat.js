@@ -874,7 +874,7 @@ async function handleInteractionSubmit(isSkip) {
       loadChat(activeCascadeId, true);
     }
   } catch (err) {
-    alert("提交失败: " + err.message);
+    alert(typeof t === "function" ? t("提交失败: " + err.message) : "提交失败: " + err.message);
   } finally {
     isSubmittingInteraction = false;
     if (currentPendingInteraction) {
@@ -921,7 +921,7 @@ async function handleInteractionSubmitDirect(optionId, writeInText) {
       loadChat(activeCascadeId, true);
     }
   } catch (err) {
-    alert("审批提交失败: " + err.message);
+    alert(typeof t === "function" ? t("审批提交失败: " + err.message) : "审批提交失败: " + err.message);
   } finally {
     isSubmittingInteraction = false;
     if (currentPendingInteraction) {
@@ -2520,7 +2520,7 @@ function generateItemHtml(item, isRunning, isLastItem, isActivePlan = false) {
           ? renderUserTextWithSlashPills(parsedUser.body, item.slashCommands)
           : escapeHtml(parsedUser.body))
       : "";
-    const bubbleInner = `${imagesHtml}${renderedUserText ? `<div>${renderedUserText}</div>` : ""}`;
+    const bubbleInner = `${imagesHtml}${renderedUserText ? `<div class="user-message-text" data-i18n-skip="1">${renderedUserText}</div>` : ""}`;
     if (!filesHtml) {
       return `<div class="bubble-col"><div class="bubble">${bubbleInner}</div>${buildMessageActionsHtml("user")}</div>`;
     }
@@ -2534,23 +2534,24 @@ function generateItemHtml(item, isRunning, isLastItem, isActivePlan = false) {
       thoughtHtml = `
         <details class="thought-box">
           <summary>🧠 Agent 思考过程 (${item.thinking.length} 字符)</summary>
-          <div class="thought-content">${escapeHtml(item.thinking)}</div>
+          <div class="thought-content" data-i18n-skip="1">${escapeHtml(item.thinking)}</div>
         </details>
       `;
     }
-    const bodyHtml = item.text ? getCachedMarkdown(item.text, { streaming: !!(isRunning && isLastItem) }) : '<span style="color:var(--text-muted);">执行中...</span>';
+    const runningLabel = typeof t === "function" ? t("执行中...") : "执行中...";
+    const bodyHtml = item.text ? getCachedMarkdown(item.text, { streaming: !!(isRunning && isLastItem) }) : `<span style="color:var(--text-muted);">${escapeHtml(runningLabel)}</span>`;
     let artifactsHtml = "";
     if (Array.isArray(item.artifacts) && item.artifacts.length > 0) {
       artifactsHtml = `<div class="message-artifact-cards">` +
         item.artifacts.map(art => {
-          const title = escapeHtml(art.title || "文档详情");
-          const summary = art.summary ? `<div class="artifact-card-summary">${escapeHtml(art.summary)}</div>` : "";
+          const title = escapeHtml(art.title || (typeof t === "function" ? t("文档详情") : "文档详情"));
+          const summary = art.summary ? `<div class="artifact-card-summary" data-i18n-skip="1">${escapeHtml(art.summary)}</div>` : "";
           const uriAttr = escapeHtml(art.uri || "");
           return `
             <div class="artifact-preview-card" data-uri="${uriAttr}" data-title="${title}">
               <div class="artifact-card-header">
                 <span class="artifact-card-icon">📄</span>
-                <span class="artifact-card-title">${title}</span>
+                <span class="artifact-card-title" data-i18n-skip="1">${title}</span>
               </div>
               ${summary}
             </div>
@@ -2561,7 +2562,7 @@ function generateItemHtml(item, isRunning, isLastItem, isActivePlan = false) {
       <div class="bubble-col">
         <div class="bubble markdown-body">
           ${thoughtHtml}
-          <div class="agent-message-body">${bodyHtml}</div>
+          <div class="agent-message-body" data-i18n-skip="1">${bodyHtml}</div>
           ${artifactsHtml}
         </div>
         ${buildMessageActionsHtml("agent")}
@@ -2621,8 +2622,14 @@ function generateItemHtml(item, isRunning, isLastItem, isActivePlan = false) {
     }
 
     const foldedTitle = toolCount === 0
-      ? `💭 已深度思考${item.thinkingDuration ? ` (${escapeHtml(item.thinkingDuration)})` : ""}`
-      : `⚡ 已思考并执行 <strong>${toolCount}</strong> 项操作`;
+      ? (typeof t === "function"
+          ? t(`💭 已深度思考${item.thinkingDuration ? ` (${item.thinkingDuration})` : ""}`)
+          : `💭 已深度思考${item.thinkingDuration ? ` (${escapeHtml(item.thinkingDuration)})` : ""}`)
+      : (window.I18n?.isEn?.()
+          ? `⚡ Thought &amp; executed <strong>${toolCount}</strong> ${toolCount === 1 ? "action" : "actions"}`
+          : (window.I18n?.isJa?.()
+              ? `⚡ 思考して <strong>${toolCount}</strong> 件の操作を実行`
+              : `⚡ 已思考并执行 <strong>${toolCount}</strong> 项操作`));
 
     return `
       <details class="tool-batch-accordion">
@@ -3047,7 +3054,7 @@ const RunningTasksManager = {
 
   async stopTask(stepIndex, taskId, skipConfirm = false) {
     if (!activeCascadeId) return;
-    if (!skipConfirm && !confirm("确定要终止此后台任务吗？")) return;
+    if (!skipConfirm && !confirm(typeof t === "function" ? t("确定要终止此后台任务吗？") : "确定要终止此后台任务吗？")) return;
 
     try {
       const resp = await fetch("/gateway/cascade/task/stop", {
@@ -3067,7 +3074,7 @@ const RunningTasksManager = {
       this.tasks = this.tasks.filter(t => t.stepIndex !== stepIndex && t.id !== taskId);
       this.render();
     } catch (err) {
-      alert("终止任务失败: " + err.message);
+      alert(typeof t === "function" ? t("终止任务失败: " + err.message) : "终止任务失败: " + err.message);
     }
   },
 
@@ -3433,7 +3440,7 @@ const LocalQueueManager = {
       if (tempEl) tempEl.remove();
       this.queue = originalQueue;
       this.save();
-      alert("发送失败: " + err.message);
+      alert(typeof t === "function" ? t("发送失败: " + err.message) : "发送失败: " + err.message);
     }
   },
 

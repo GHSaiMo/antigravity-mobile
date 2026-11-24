@@ -32,6 +32,9 @@ type PushPayload struct {
 	CascadeID string `json:"cascade_id,omitempty"`
 	Silent    bool   `json:"silent,omitempty"`
 	Action    string `json:"action,omitempty"`
+	// Localize optionally renders Title and Body for a specific device language ("zh"/"en"/"ja").
+	// Ignored by JSON serialization and legacy senders that read Title/Body directly.
+	Localize func(lang string) (title, body string) `json:"-"`
 }
 
 // NotificationSender defines the interface for dispatching notification payloads.
@@ -175,6 +178,11 @@ func (n *Notifier) Senders() []NotificationSender {
 
 // UpdateFCMDeviceToken updates or registers an FCM client with the given Android registration token.
 func (n *Notifier) UpdateFCMDeviceToken(token string) {
+	n.UpdateFCMDeviceTokenWithLang(token, "")
+}
+
+// UpdateFCMDeviceTokenWithLang updates or registers an FCM client with the given Android registration token and language.
+func (n *Notifier) UpdateFCMDeviceTokenWithLang(token, lang string) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	token = strings.TrimSpace(token)
@@ -184,6 +192,7 @@ func (n *Notifier) UpdateFCMDeviceToken(token string) {
 	for _, s := range n.senders {
 		if fcm, ok := s.(*FCMClient); ok {
 			fcm.SetDeviceToken(token)
+			fcm.SetDeviceLang(lang)
 			return
 		}
 	}
@@ -192,7 +201,20 @@ func (n *Notifier) UpdateFCMDeviceToken(token string) {
 	fcmCfg.FCMDeviceToken = token
 	fcmCfg.FCMEnabled = true
 	n.cfg.Enabled = true
-	n.senders = append(n.senders, NewFCMClient(fcmCfg))
+	client := NewFCMClient(fcmCfg)
+	client.SetDeviceLang(lang)
+	n.senders = append(n.senders, client)
+}
+
+// UpdateFCMDeviceLang updates the preferred notification language on all registered FCM clients.
+func (n *Notifier) UpdateFCMDeviceLang(lang string) {
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+	for _, s := range n.senders {
+		if fcm, ok := s.(*FCMClient); ok {
+			fcm.SetDeviceLang(lang)
+		}
+	}
 }
 
 // AttachAPNsClient attaches an APNs relay client (and Live Activity dispatcher) for native iOS push delivery.
@@ -318,54 +340,68 @@ func (n *Notifier) NotifyAction(cascadeID, title string, pi *proxy.PendingIntera
 		return nil
 	}
 
-	notifTitle := msgTitleApproval()
-	var notifBody string
-
-	switch pi.Type {
-	case "workflow_approval":
-		notifTitle = msgTitleWorkflowApproval()
-		if pi.WorkflowApproval != nil && pi.WorkflowApproval.Description != "" {
-			notifBody = msgBodyWorkflowDesc(truncateString(SanitizePushText(pi.WorkflowApproval.Description), 90))
-		} else {
-			notifBody = msgBodyWorkflowTitle(truncateString(SanitizePushText(pi.Title), 90))
+	piCopy := *pi
+	if pi.WorkflowApproval != nil {
+		wa := *pi.WorkflowApproval
+		piCopy.WorkflowApproval = &wa
+	}
+	if pi.ApprovalPreview != nil {
+		ap := *pi.ApprovalPreview
+		piCopy.ApprovalPreview = &ap
+	}
+	cleanSessionTitle := SanitizePushText(title)
+	isHighRisk := piCopy.ApprovalPreview != nil && piCopy.ApprovalPreview.RiskLevel == "high" && piCopy.Type != "ask_question"
+	buildActionCopy := func(lang string) (string, string) {
+		nt := msgTitleApprovalFor(lang)
+		var nb string
+		switch piCopy.Type {
+		case "workflow_approval":
+			nt = msgTitleWorkflowApprovalFor(lang)
+			if piCopy.WorkflowApproval != nil && piCopy.WorkflowApproval.Description != "" {
+				nb = msgBodyWorkflowDescFor(lang, truncateString(SanitizePushText(piCopy.WorkflowApproval.Description), 90))
+			} else {
+				nb = msgBodyWorkflowTitleFor(lang, truncateString(SanitizePushText(piCopy.Title), 90))
+			}
+		case "permission":
+			actionLower := strings.ToLower(piCopy.Action)
+			cleanTarget := truncateString(SanitizePushText(piCopy.Target), 90)
+			if strings.Contains(actionLower, "command") || strings.Contains(actionLower, "run") {
+				nb = msgBodyCommandFor(lang, cleanTarget)
+			} else if strings.Contains(actionLower, "write") || strings.Contains(actionLower, "edit") {
+				nb = msgBodyWriteFileFor(lang, cleanTarget)
+			} else if strings.Contains(actionLower, "read") {
+				nb = msgBodyReadFileFor(lang, cleanTarget)
+			} else if piCopy.Description != "" {
+				nb = msgBodyApprovalFor(lang, truncateString(SanitizePushText(piCopy.Description), 90))
+			} else {
+				nb = msgBodyGenericActionFor(lang, SanitizePushText(piCopy.Action), cleanTarget)
+			}
+		case "ask_question":
+			nt = msgTitleQuestionFor(lang)
+			nb = msgBodyQuestionFor(lang, truncateString(SanitizePushText(piCopy.Title), 90))
+		case "run_command":
+			nt = msgTitleRunCommandFor(lang)
+			nb = msgBodyCommandFor(lang, truncateString(SanitizePushText(piCopy.Target), 90))
+		case "file_permission":
+			nt = msgTitleFileAccessFor(lang)
+			nb = msgBodyAccessFileFor(lang, truncateString(SanitizePushText(piCopy.Target), 90))
+		default:
+			nb = msgBodyWaitingFor(lang, truncateString(SanitizePushText(piCopy.Title), 90))
 		}
-	case "permission":
-		actionLower := strings.ToLower(pi.Action)
-		cleanTarget := truncateString(SanitizePushText(pi.Target), 90)
-		if strings.Contains(actionLower, "command") || strings.Contains(actionLower, "run") {
-			notifBody = msgBodyCommand(cleanTarget)
-		} else if strings.Contains(actionLower, "write") || strings.Contains(actionLower, "edit") {
-			notifBody = msgBodyWriteFile(cleanTarget)
-		} else if strings.Contains(actionLower, "read") {
-			notifBody = msgBodyReadFile(cleanTarget)
-		} else if pi.Description != "" {
-			notifBody = msgBodyApproval(truncateString(SanitizePushText(pi.Description), 90))
-		} else {
-			notifBody = msgBodyGenericAction(SanitizePushText(pi.Action), cleanTarget)
+		if isHighRisk {
+			nt = msgTitleHighRiskApprovalFor(lang)
 		}
-	case "ask_question":
-		notifTitle = msgTitleQuestion()
-		notifBody = msgBodyQuestion(truncateString(SanitizePushText(pi.Title), 90))
-	case "run_command":
-		notifTitle = msgTitleRunCommand()
-		notifBody = msgBodyCommand(truncateString(SanitizePushText(pi.Target), 90))
-	case "file_permission":
-		notifTitle = msgTitleFileAccess()
-		notifBody = msgBodyAccessFile(truncateString(SanitizePushText(pi.Target), 90))
-	default:
-		notifBody = msgBodyWaiting(truncateString(SanitizePushText(pi.Title), 90))
+		if cleanSessionTitle != "" && cleanSessionTitle != MsgUntitledSession {
+			nb = formatSessionPrefixFor(lang, truncateString(cleanSessionTitle, 60), nb)
+		}
+		return nt, nb
 	}
 
 	category := "antigravity_action"
-	if pi.ApprovalPreview != nil && pi.ApprovalPreview.RiskLevel == "high" && pi.Type != "ask_question" {
-		notifTitle = msgTitleHighRiskApproval()
+	if isHighRisk {
 		category = "antigravity_action_high"
 	}
-
-	cleanSessionTitle := SanitizePushText(title)
-	if cleanSessionTitle != "" && cleanSessionTitle != MsgUntitledSession {
-		notifBody = formatSessionPrefix(truncateString(cleanSessionTitle, 60), notifBody)
-	}
+	notifTitle, notifBody := buildActionCopy("")
 
 	payload := PushPayload{
 		Title:     notifTitle,
@@ -377,6 +413,7 @@ func (n *Notifier) NotifyAction(cascadeID, title string, pi *proxy.PendingIntera
 		Sound:     n.cfg.SoundAction,
 		Category:  category,
 		CascadeID: cascadeID,
+		Localize:  buildActionCopy,
 	}
 
 	if err := n.sendToAll(context.Background(), payload); err != nil {
@@ -397,12 +434,14 @@ func (n *Notifier) NotifyProceed(cascadeID, title string, totalSteps int) error 
 		return nil
 	}
 
-	notifTitle := msgTitleProceed()
-	displayTitle := title
-	if displayTitle == "" || displayTitle == MsgUntitledSession {
-		displayTitle = msgDefaultPlan()
+	buildProceedCopy := func(lang string) (string, string) {
+		displayTitle := title
+		if displayTitle == "" || displayTitle == MsgUntitledSession {
+			displayTitle = msgDefaultPlanFor(lang)
+		}
+		return msgTitleProceedFor(lang), msgBodyProceedFor(lang, displayTitle)
 	}
-	notifBody := msgBodyProceed(displayTitle)
+	notifTitle, notifBody := buildProceedCopy("")
 
 	payload := PushPayload{
 		Title:     notifTitle,
@@ -414,6 +453,7 @@ func (n *Notifier) NotifyProceed(cascadeID, title string, totalSteps int) error 
 		Sound:     n.cfg.SoundAction,
 		Category:  "antigravity_proceed",
 		CascadeID: cascadeID,
+		Localize:  buildProceedCopy,
 	}
 
 	if err := n.sendToAll(context.Background(), payload); err != nil {
@@ -466,12 +506,14 @@ func (n *Notifier) NotifyCompleted(cascadeID, title string, totalSteps int) erro
 		return nil
 	}
 
-	notifTitle := msgTitleCompleted()
-	displayTitle := title
-	if displayTitle == "" || displayTitle == MsgUntitledSession {
-		displayTitle = msgDefaultTask()
+	buildCompletedCopy := func(lang string) (string, string) {
+		displayTitle := title
+		if displayTitle == "" || displayTitle == MsgUntitledSession {
+			displayTitle = msgDefaultTaskFor(lang)
+		}
+		return msgTitleCompletedFor(lang), msgBodyCompletedFor(lang, displayTitle, totalSteps)
 	}
-	notifBody := msgBodyCompleted(displayTitle, totalSteps)
+	notifTitle, notifBody := buildCompletedCopy("")
 
 	payload := PushPayload{
 		Title:     notifTitle,
@@ -483,6 +525,7 @@ func (n *Notifier) NotifyCompleted(cascadeID, title string, totalSteps int) erro
 		Sound:     n.cfg.SoundComplete,
 		Category:  "antigravity_complete",
 		CascadeID: cascadeID,
+		Localize:  buildCompletedCopy,
 	}
 
 	if err := n.sendToAll(context.Background(), payload); err != nil {
@@ -503,12 +546,14 @@ func (n *Notifier) NotifyFailed(cascadeID, title string, totalSteps int) error {
 		return nil
 	}
 
-	notifTitle := msgTitleFailed()
-	displayTitle := title
-	if displayTitle == "" || displayTitle == MsgUntitledSession {
-		displayTitle = msgDefaultTask()
+	buildFailedCopy := func(lang string) (string, string) {
+		displayTitle := title
+		if displayTitle == "" || displayTitle == MsgUntitledSession {
+			displayTitle = msgDefaultTaskFor(lang)
+		}
+		return msgTitleFailedFor(lang), msgBodyFailedFor(lang, displayTitle)
 	}
-	notifBody := msgBodyFailed(displayTitle)
+	notifTitle, notifBody := buildFailedCopy("")
 
 	payload := PushPayload{
 		Title:     notifTitle,
@@ -520,6 +565,7 @@ func (n *Notifier) NotifyFailed(cascadeID, title string, totalSteps int) error {
 		Sound:     "failure",
 		Category:  "antigravity_error",
 		CascadeID: cascadeID,
+		Localize:  buildFailedCopy,
 	}
 
 	if err := n.sendToAll(context.Background(), payload); err != nil {
@@ -540,21 +586,29 @@ func (n *Notifier) NotifyCockpitAlert(title, message string) error {
 		return nil
 	}
 
-	if title == "" {
-		title = msgTitleCockpitOffline()
+	rawTitle, rawMessage := title, message
+	buildCockpitCopy := func(lang string) (string, string) {
+		t := rawTitle
+		if t == "" {
+			t = msgTitleCockpitOfflineFor(lang)
+		}
+		m := rawMessage
+		if m == "" {
+			m = msgBodyCockpitOfflineFor(lang)
+		}
+		return t, m
 	}
-	if message == "" {
-		message = msgBodyCockpitOffline()
-	}
+	notifTitle, notifBody := buildCockpitCopy("")
 
 	payload := PushPayload{
-		Title:    title,
-		Body:     message,
+		Title:    notifTitle,
+		Body:     notifBody,
 		Icon:     n.cfg.IconURL,
 		Group:    n.cfg.Group,
 		Level:    "timeSensitive",
 		Sound:    "failure",
 		Category: "cockpit_alert",
+		Localize: buildCockpitCopy,
 	}
 
 	if err := n.sendToAll(context.Background(), payload); err != nil {
@@ -567,6 +621,10 @@ func (n *Notifier) NotifyCockpitAlert(title, message string) error {
 // NotifyQuotaAlert pushes a low-quota alert. key identifies the (account, reset cycle) so a flaky sender retry
 // cannot double-send; the alerter itself already guarantees one push per level per cycle.
 func (n *Notifier) NotifyQuotaAlert(key, title, body string, critical bool) error {
+	return n.notifyQuotaAlert(key, title, body, critical, nil)
+}
+
+func (n *Notifier) notifyQuotaAlert(key, title, body string, critical bool, localize func(lang string) (string, string)) error {
 	if !n.IsEnabled() {
 		return nil
 	}
@@ -586,6 +644,7 @@ func (n *Notifier) NotifyQuotaAlert(key, title, body string, critical bool) erro
 		URL:      "antigravity://quota",
 		Level:    "active",
 		Category: "quota_alert",
+		Localize: localize,
 	}
 	if critical {
 		// 紧急一档：时效性通知 + 告警音，能穿透专注模式（但不用 critical，那会无视静音开关）
@@ -602,6 +661,11 @@ func (n *Notifier) NotifyQuotaAlert(key, title, body string, critical bool) erro
 // NotifyQuotaAlertWithLevel filters a quota alert against user-configured category preferences
 // ("warn"/"critical" -> quota_low, "bonus_reset" -> quota_bonus_reset, "anomaly" -> quota_anomaly).
 func (n *Notifier) NotifyQuotaAlertWithLevel(level, key, title, body string) error {
+	return n.NotifyQuotaAlertLocalized(level, key, title, body, nil)
+}
+
+// NotifyQuotaAlertLocalized behaves like NotifyQuotaAlertWithLevel and optionally localizes title/body per recipient device.
+func (n *Notifier) NotifyQuotaAlertLocalized(level, key, title, body string, localize func(lang string) (string, string)) error {
 	prefs := n.AlertPreferences()
 	switch strings.ToLower(strings.TrimSpace(level)) {
 	case "bonus_reset":
@@ -617,7 +681,7 @@ func (n *Notifier) NotifyQuotaAlertWithLevel(level, key, title, body string) err
 			return nil
 		}
 	}
-	return n.NotifyQuotaAlert(key, title, body, strings.EqualFold(level, "critical"))
+	return n.notifyQuotaAlert(key, title, body, strings.EqualFold(level, "critical"), localize)
 }
 
 func pickModelName(details *proxy.TrajectoryDetails, meter *proxy.ContextMeterItem) string {
@@ -753,14 +817,19 @@ func (n *Notifier) sendCacheMissPush(cascadeID, title string, streak int, missTo
 		return nil
 	}
 
-	notifBody := msgBodyCacheMissAlert(streak, formatCompactTokens(missTokens))
+	compactTokens := formatCompactTokens(missTokens)
 	cleanSessionTitle := SanitizePushText(title)
-	if cleanSessionTitle != "" && cleanSessionTitle != MsgUntitledSession {
-		notifBody = formatSessionPrefix(truncateString(cleanSessionTitle, 60), notifBody)
+	buildCacheMissCopy := func(lang string) (string, string) {
+		nb := msgBodyCacheMissAlertFor(lang, streak, compactTokens)
+		if cleanSessionTitle != "" && cleanSessionTitle != MsgUntitledSession {
+			nb = formatSessionPrefixFor(lang, truncateString(cleanSessionTitle, 60), nb)
+		}
+		return msgTitleCacheMissAlertFor(lang), nb
 	}
+	notifTitle, notifBody := buildCacheMissCopy("")
 
 	payload := PushPayload{
-		Title:     msgTitleCacheMissAlert(),
+		Title:     notifTitle,
 		Body:      notifBody,
 		Icon:      n.cfg.IconURL,
 		Group:     n.cfg.Group,
@@ -769,6 +838,7 @@ func (n *Notifier) sendCacheMissPush(cascadeID, title string, streak int, missTo
 		Sound:     n.cfg.SoundAction,
 		Category:  "cache_miss_alert",
 		CascadeID: cascadeID,
+		Localize:  buildCacheMissCopy,
 	}
 
 	if err := n.sendToAll(context.Background(), payload); err != nil {
@@ -791,14 +861,18 @@ func (n *Notifier) NotifyStallAlert(cascadeID, title string, stalledMinutes, tot
 		return nil
 	}
 
-	notifBody := msgBodyStallAlert(stalledMinutes)
 	cleanSessionTitle := SanitizePushText(title)
-	if cleanSessionTitle != "" && cleanSessionTitle != MsgUntitledSession {
-		notifBody = formatSessionPrefix(truncateString(cleanSessionTitle, 60), notifBody)
+	buildStallCopy := func(lang string) (string, string) {
+		nb := msgBodyStallAlertFor(lang, stalledMinutes)
+		if cleanSessionTitle != "" && cleanSessionTitle != MsgUntitledSession {
+			nb = formatSessionPrefixFor(lang, truncateString(cleanSessionTitle, 60), nb)
+		}
+		return msgTitleStallAlertFor(lang), nb
 	}
+	notifTitle, notifBody := buildStallCopy("")
 
 	payload := PushPayload{
-		Title:     msgTitleStallAlert(),
+		Title:     notifTitle,
 		Body:      notifBody,
 		Icon:      n.cfg.IconURL,
 		Group:     n.cfg.Group,
@@ -807,6 +881,7 @@ func (n *Notifier) NotifyStallAlert(cascadeID, title string, stalledMinutes, tot
 		Sound:     n.cfg.SoundAction,
 		Category:  "task_stall_alert",
 		CascadeID: cascadeID,
+		Localize:  buildStallCopy,
 	}
 
 	if err := n.sendToAll(context.Background(), payload); err != nil {

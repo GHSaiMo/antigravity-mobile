@@ -304,8 +304,23 @@ function renderPacedMetricBox(title, titleClass, bucket, tier, options = {}) {
   let cursorHtml = "";
   let paceTooltip = "";
   if (pace) {
-    paceTooltip = `\n• 消耗节奏：${pace.status}\n• 已使用：${pace.used.toFixed(1)}% (${pace.windowLabel}匀速应耗 ${pace.expectedUsed.toFixed(1)}%)\n• 理论应剩：${pace.expectedRemaining.toFixed(1)}% (白色游标位置)`;
-    cursorHtml = `<div class="weekly-pace-cursor ${pace.isOver ? "over-pacing" : ""}" style="left: ${pace.expectedRemaining.toFixed(1)}%;" title="${pace.windowLabel}匀速基准线: ${pace.expectedRemaining.toFixed(1)}%"></div>`;
+    const tr = (s) => (typeof t === "function" ? t(s) : s);
+    const statusLoc = tr(pace.status);
+    const winLoc = window.I18n?.isEn?.()
+      ? (pace.windowLabel === "5小时" ? "5h" : "7d")
+      : (window.I18n?.isJa?.()
+          ? (pace.windowLabel === "5小时" ? "5時間" : "7日間")
+          : pace.windowLabel);
+    if (window.I18n?.isEn?.()) {
+      paceTooltip = `\n• Pace: ${statusLoc}\n• Used: ${pace.used.toFixed(1)}% (${winLoc} even-pace target ${pace.expectedUsed.toFixed(1)}%)\n• Expected remaining: ${pace.expectedRemaining.toFixed(1)}% (white marker)`;
+      cursorHtml = `<div class="weekly-pace-cursor ${pace.isOver ? "over-pacing" : ""}" style="left: ${pace.expectedRemaining.toFixed(1)}%;" title="${winLoc} even-pace baseline: ${pace.expectedRemaining.toFixed(1)}%"></div>`;
+    } else if (window.I18n?.isJa?.()) {
+      paceTooltip = `\n• 消費ペース：${statusLoc}\n• 使用済み：${pace.used.toFixed(1)}% (${winLoc}均等ペース目安 ${pace.expectedUsed.toFixed(1)}%)\n• 理論残量：${pace.expectedRemaining.toFixed(1)}% (白マーカー位置)`;
+      cursorHtml = `<div class="weekly-pace-cursor ${pace.isOver ? "over-pacing" : ""}" style="left: ${pace.expectedRemaining.toFixed(1)}%;" title="${winLoc}均等ペース基準線: ${pace.expectedRemaining.toFixed(1)}%"></div>`;
+    } else {
+      paceTooltip = `\n• 消耗节奏：${pace.status}\n• 已使用：${pace.used.toFixed(1)}% (${pace.windowLabel}匀速应耗 ${pace.expectedUsed.toFixed(1)}%)\n• 理论应剩：${pace.expectedRemaining.toFixed(1)}% (白色游标位置)`;
+      cursorHtml = `<div class="weekly-pace-cursor ${pace.isOver ? "over-pacing" : ""}" style="left: ${pace.expectedRemaining.toFixed(1)}%;" title="${pace.windowLabel}匀速基准线: ${pace.expectedRemaining.toFixed(1)}%"></div>`;
+    }
   }
   const resetText = getQuotaResetDisplayText(bucket);
   const fullTitle = `${resetText}${paceTooltip}`;
@@ -416,7 +431,10 @@ function buildAccountQuotaCard(acc, isCurrent) {
 async function switchCockpitAccount(accountId, accountEmail, btn) {
   if (!accountId) return;
   const label = accountEmail || accountId;
-  if (!confirm("切换到 " + label + " 将关闭并重启电脑上的 Antigravity，是否继续？")) {
+  const switchConfirm = typeof t === "function"
+    ? t("切换到 " + label + " 将关闭并重启电脑上的 Antigravity，是否继续？")
+    : ("切换到 " + label + " 将关闭并重启电脑上的 Antigravity，是否继续？");
+  if (!confirm(switchConfirm)) {
     return;
   }
   const originalText = btn ? btn.textContent : "切换";
@@ -452,7 +470,7 @@ async function switchCockpitAccount(accountId, accountEmail, btn) {
     }
   } catch (err) {
     console.error("[Cockpit] Switch failed:", err);
-    alert("切换账号失败: " + err.message);
+    alert(typeof t === "function" ? t("切换账号失败: " + err.message) : "切换账号失败: " + err.message);
     if (lastUpEl) {
       lastUpEl.textContent = prevSubtitle;
     }

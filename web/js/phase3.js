@@ -428,7 +428,7 @@
           body.querySelectorAll("[data-mem-del]").forEach((btn) => {
             btn.addEventListener("click", async () => {
               const item = this.memories[Number(btn.getAttribute("data-mem-del"))];
-              if (!item || !confirm(`确定删除「${item.title}」？`)) return;
+              if (!item || !confirm(typeof t === "function" ? t(`确定删除「${item.title}」？`) : `确定删除「${item.title}」？`)) return;
               const r = await fetch("/gateway/memories", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
@@ -922,7 +922,9 @@
 
       const createDir = async () => {
         const raw = prompt(
-          `在 ${state.currentDisplay || "~"} 下新建目录名称，或输入 ~/... 自定义路径：`
+          typeof t === "function"
+            ? t(`在 ${state.currentDisplay || "~"} 下新建目录名称，或输入 ~/... 自定义路径：`)
+            : `在 ${state.currentDisplay || "~"} 下新建目录名称，或输入 ~/... 自定义路径：`
         );
         if (!raw || !raw.trim()) return;
         const trimmed = raw.trim();
@@ -1339,7 +1341,7 @@
           } else if (act === "cancel-clone") {
             st.actions.cancelClone();
           } else if (act === "manual-path") {
-            const p = prompt("输入电脑本地目录路径 (如 ~/Projects/my-app)：", st.currentPath || "");
+            const p = prompt(typeof t === "function" ? t("输入电脑本地目录路径 (如 ~/Projects/my-app)：") : "输入电脑本地目录路径 (如 ~/Projects/my-app)：", st.currentPath || "");
             if (p && p.trim()) st.actions.addWorkspace(p.trim());
           } else if (act === "start-chat" && st.completedProject) {
             const proj = st.completedProject;
@@ -1376,14 +1378,17 @@
         const idx = Number(card.getAttribute("data-index"));
         const proj = Array.isArray(discoveredProjects) ? discoveredProjects[idx] : null;
         if (!proj) return;
-        const action = prompt(
-          `工作区「${proj.name}」操作：\n1 = 在独立 Git Worktree 开启新会话\n2 = 设置工作区备注别名\n请输入序号 (1 或 2)：`
-        );
+        const wsMenuPrompt = window.I18n?.isEn?.()
+          ? `Workspace "${proj.name}" actions:\n1 = Start new chat in an isolated Git Worktree\n2 = Set workspace alias / note\nEnter choice (1 or 2):`
+          : (window.I18n?.isJa?.()
+              ? `ワークスペース「${proj.name}」の操作：\n1 = 独立した Git Worktree で新規会話を開始\n2 = ワークスペースのメモ・別名を設定\n番号を入力 (1 または 2)：`
+              : `工作区「${proj.name}」操作：\n1 = 在独立 Git Worktree 开启新会话\n2 = 设置工作区备注别名\n请输入序号 (1 或 2)：`);
+        const action = prompt(wsMenuPrompt);
         if (action === "1") {
           this.createWorktreeSession(proj);
         } else if (action === "2") {
           const cur = this.workspaceNotes[proj.uri || proj.path] || "";
-          const note = prompt(`为「${proj.name}」设置备注 (留空清除)：`, cur);
+          const note = prompt(typeof t === "function" ? t(`为「${proj.name}」设置备注 (留空清除)：`) : `为「${proj.name}」设置备注 (留空清除)：`, cur);
           if (note !== null) {
             if (note.trim()) this.workspaceNotes[proj.uri || proj.path] = note.trim();
             else delete this.workspaceNotes[proj.uri || proj.path];
@@ -1740,7 +1745,7 @@
     // --- 7. Fork & Narration ---
     async forkAtStep(stepIndex) {
       if (!activeCascadeId) return;
-      const useWt = confirm("从该步骤分叉新会话？\n点击「确定」将在独立 Git Worktree 创建分叉（失败可取消改普通分叉）；或请用 Worktree 参数。");
+      const useWt = confirm(typeof t === "function" ? t("从该步骤分叉新会话？\n点击「确定」将在独立 Git Worktree 创建分叉（失败可取消改普通分叉）；或请用 Worktree 参数。") : "从该步骤分叉新会话？\n点击「确定」将在独立 Git Worktree 创建分叉（失败可取消改普通分叉）；或请用 Worktree 参数。");
       try {
         const res = await fetch("/gateway/cascade/fork", {
           method: "POST",
@@ -2179,7 +2184,7 @@
         this.renderToolsTab(false);
       });
       document.getElementById("btn-auto-detail-del")?.addEventListener("click", async () => {
-        if (!confirm(`确定删除定时任务「${sc.name || sc.id}」？`)) return;
+        if (!confirm(typeof t === "function" ? t(`确定删除定时任务「${sc.name || sc.id}」？`) : `确定删除定时任务「${sc.name || sc.id}」？`)) return;
         const r = await fetch("/gateway/automations/delete", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
