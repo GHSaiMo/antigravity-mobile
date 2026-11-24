@@ -499,7 +499,7 @@ extension ChatView {
     }
     
     var canScheduleAutoFocus: Bool {
-        guard !hasAutoFocused, autoFocusTask == nil else { return false }
+        guard !hasAutoFocused, autoFocusTask == nil, !hasPendingInitialLaunchAction else { return false }
         if shouldAutoFocus { return true }
         return viewModel.messages.isEmpty && viewModel.stepCount == 0
     }

@@ -82,6 +82,41 @@
 		<string>audio</string>
 		<string>remote-notification</string>
 	</array>
+	<key>UIApplicationShortcutItems</key>
+	<array>
+		<dict>
+			<key>UIApplicationShortcutItemIconSymbolName</key>
+			<string>square.and.pencil</string>
+			<key>UIApplicationShortcutItemTitle</key>
+			<string>New Chat</string>
+			<key>UIApplicationShortcutItemType</key>
+			<string>com.ghsaimo.antigravity.shortcut.new-chat</string>
+		</dict>
+		<dict>
+			<key>UIApplicationShortcutItemIconSymbolName</key>
+			<string>folder.badge.plus</string>
+			<key>UIApplicationShortcutItemTitle</key>
+			<string>New Workspace Chat</string>
+			<key>UIApplicationShortcutItemType</key>
+			<string>com.ghsaimo.antigravity.shortcut.new-workspace</string>
+		</dict>
+		<dict>
+			<key>UIApplicationShortcutItemIconSymbolName</key>
+			<string>camera</string>
+			<key>UIApplicationShortcutItemTitle</key>
+			<string>Take Photo</string>
+			<key>UIApplicationShortcutItemType</key>
+			<string>com.ghsaimo.antigravity.shortcut.camera</string>
+		</dict>
+		<dict>
+			<key>UIApplicationShortcutItemIconSymbolName</key>
+			<string>doc.viewfinder</string>
+			<key>UIApplicationShortcutItemTitle</key>
+			<string>Scan Document</string>
+			<key>UIApplicationShortcutItemType</key>
+			<string>com.ghsaimo.antigravity.shortcut.scan</string>
+		</dict>
+	</array>
 	<key>UILaunchScreen</key>
 	<dict/>
 	<key>UISupportedInterfaceOrientations</key>

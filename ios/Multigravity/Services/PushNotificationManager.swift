@@ -105,6 +105,16 @@ public final class MultigravityAppDelegate: NSObject, UIApplicationDelegate {
 
     public func application(
         _ application: UIApplication,
+        configurationForConnecting connectingSceneSession: UISceneSession,
+        options: UIScene.ConnectionOptions
+    ) -> UISceneConfiguration {
+        let config = UISceneConfiguration(name: nil, sessionRole: connectingSceneSession.role)
+        config.delegateClass = MultigravitySceneDelegate.self
+        return config
+    }
+
+    public func application(
+        _ application: UIApplication,
         didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
     ) {
         let hex = deviceToken.map { String(format: "%02x", $0) }.joined()

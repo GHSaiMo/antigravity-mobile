@@ -117,7 +117,7 @@ extension ChatView {
         }
     }
     
-    func handleCameraAction() {
+    func handleCameraAction(focusAfterDismiss: Bool = false) {
         guard UIImagePickerController.isSourceTypeAvailable(.camera) else {
             showCameraUnavailableAlert = true
             return
@@ -126,11 +126,13 @@ extension ChatView {
         let status = AVCaptureDevice.authorizationStatus(for: .video)
         switch status {
         case .authorized:
+            if focusAfterDismiss { shouldFocusInputAfterCaptureDismiss = true }
             showCameraPicker = true
         case .notDetermined:
             AVCaptureDevice.requestAccess(for: .video) { granted in
                 DispatchQueue.main.async {
                     if granted {
+                        if focusAfterDismiss { shouldFocusInputAfterCaptureDismiss = true }
                         showCameraPicker = true
                     }
                 }
@@ -138,6 +140,7 @@ extension ChatView {
         case .denied, .restricted:
             showCameraPermissionAlert = true
         @unknown default:
+            if focusAfterDismiss { shouldFocusInputAfterCaptureDismiss = true }
             showCameraPicker = true
         }
     }
@@ -157,7 +160,7 @@ extension ChatView {
         }
     }
     
-    func handleDocumentScannerAction() {
+    func handleDocumentScannerAction(focusAfterDismiss: Bool = false) {
         guard VNDocumentCameraViewController.isSupported else {
             showCameraUnavailableAlert = true
             return
@@ -166,11 +169,13 @@ extension ChatView {
         let status = AVCaptureDevice.authorizationStatus(for: .video)
         switch status {
         case .authorized:
+            if focusAfterDismiss { shouldFocusInputAfterCaptureDismiss = true }
             showDocumentScanner = true
         case .notDetermined:
             AVCaptureDevice.requestAccess(for: .video) { granted in
                 DispatchQueue.main.async {
                     if granted {
+                        if focusAfterDismiss { shouldFocusInputAfterCaptureDismiss = true }
                         showDocumentScanner = true
                     }
                 }
@@ -178,6 +183,7 @@ extension ChatView {
         case .denied, .restricted:
             showCameraPermissionAlert = true
         @unknown default:
+            if focusAfterDismiss { shouldFocusInputAfterCaptureDismiss = true }
             showDocumentScanner = true
         }
     }

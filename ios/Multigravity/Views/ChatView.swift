@@ -64,14 +64,25 @@ public struct ChatView: View {
     let sessionStore: ChatSessionStore
     let sessionKey: String
     let restoredFromSessionStore: Bool
+    let initialLaunchAction: HomeScreenQuickAction.ChatLaunchAction?
+    let onConsumeLaunchAction: (() -> Void)?
     @State var hasAutoFocused = false
+    @State var hasConsumedLaunchAction = false
+    @State var shouldFocusInputAfterCaptureDismiss = false
     @State var isViewAppeared = false
     @State var autoFocusTask: Task<Void, Never>? = nil
+    @State var pendingLaunchActionTask: Task<Void, Never>? = nil
+    
+    var hasPendingInitialLaunchAction: Bool {
+        initialLaunchAction != nil && !hasConsumedLaunchAction
+    }
     
     public init(
         conversation: ConversationItem,
         isNewConversation: Bool = false,
-        sessionStore: ChatSessionStore? = nil
+        sessionStore: ChatSessionStore? = nil,
+        initialLaunchAction: HomeScreenQuickAction.ChatLaunchAction? = nil,
+        onConsumeLaunchAction: (() -> Void)? = nil
     ) {
         let resolvedStore = sessionStore ?? ChatSessionStore.shared
         self.initialConversation = conversation
@@ -79,6 +90,8 @@ public struct ChatView: View {
         self.initialStatus = conversation.status
         self.sessionStore = resolvedStore
         self.sessionKey = conversation.id
+        self.initialLaunchAction = initialLaunchAction
+        self.onConsumeLaunchAction = onConsumeLaunchAction
 
         if let retained = resolvedStore.peek(sessionKey: conversation.id) {
             self.restoredFromSessionStore = true
@@ -173,6 +186,8 @@ public struct ChatView: View {
         self.initialStatus = nil
         self.sessionStore = resolvedStore
         self.sessionKey = draftSession.id
+        self.initialLaunchAction = nil
+        self.onConsumeLaunchAction = nil
         if let retained = resolvedStore.peek(sessionKey: draftSession.id) {
             self.restoredFromSessionStore = true
             self.shouldAutoFocus = false
@@ -197,6 +212,8 @@ public struct ChatView: View {
         self.sessionStore = resolvedStore
         self.sessionKey = ""
         self.restoredFromSessionStore = false
+        self.initialLaunchAction = nil
+        self.onConsumeLaunchAction = nil
         self.shouldAutoFocus = true
         _scrollHUD = State(initialValue: ChatScrollHUDState())
         _viewModel = State(initialValue: ChatViewModel(
@@ -745,13 +762,17 @@ public struct ChatView: View {
                     .animation(.easeInOut(duration: 0.15), value: viewModel.isDownloadingDocument)
                 }
             }
-            .fullScreenCover(isPresented: $showCameraPicker) {
+            .fullScreenCover(isPresented: $showCameraPicker, onDismiss: {
+                handleCaptureOverlayDismissed()
+            }) {
                 CameraPickerView { capturedImage in
                     handleCapturedImage(capturedImage)
                 }
                 .ignoresSafeArea()
             }
-            .fullScreenCover(isPresented: $showDocumentScanner) {
+            .fullScreenCover(isPresented: $showDocumentScanner, onDismiss: {
+                handleCaptureOverlayDismissed()
+            }) {
                 DocumentScannerView(
                     onScanned: { scannedImages in
                         handleScannedImages(scannedImages)
@@ -808,6 +829,9 @@ public struct ChatView: View {
         workflowSheetStartInEditMode = false
         showCameraPicker = false
         showDocumentScanner = false
+        shouldFocusInputAfterCaptureDismiss = false
+        pendingLaunchActionTask?.cancel()
+        pendingLaunchActionTask = nil
         showBtwSheet = false
         btwAnchorStepIndex = nil
         btwAnchorPreview = nil
@@ -938,7 +962,9 @@ public struct ChatView: View {
         viewModel.restoreDraftsIfNeeded()
         consumeSharedFiles()
         checkPendingLiveRecording()
-        if shouldAutoFocus && viewModel.pendingInteraction == nil {
+        if let launchAction = initialLaunchAction, !hasConsumedLaunchAction {
+            scheduleInitialLaunchAction(launchAction)
+        } else if shouldAutoFocus && viewModel.pendingInteraction == nil {
             scheduleAutoFocus(delay: 0.45)
         }
         if !restoredFromSessionStore && !viewModel.messages.isEmpty {
@@ -946,6 +972,30 @@ public struct ChatView: View {
                 await viewModel.resumeActiveSession()
             }
         }
+    }
+
+    private func scheduleInitialLaunchAction(_ action: HomeScreenQuickAction.ChatLaunchAction) {
+        pendingLaunchActionTask?.cancel()
+        pendingLaunchActionTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 220_000_000)
+            guard !Task.isCancelled, isViewAppeared, !hasConsumedLaunchAction else { return }
+            hasConsumedLaunchAction = true
+            onConsumeLaunchAction?()
+            switch action {
+            case .camera:
+                handleCameraAction(focusAfterDismiss: true)
+            case .documentScanner:
+                handleDocumentScannerAction(focusAfterDismiss: true)
+            }
+        }
+    }
+
+    private func handleCaptureOverlayDismissed() {
+        guard shouldFocusInputAfterCaptureDismiss else { return }
+        shouldFocusInputAfterCaptureDismiss = false
+        guard viewModel.pendingInteraction == nil else { return }
+        hasAutoFocused = false
+        scheduleAutoFocus(delay: 0.28)
     }
 
     private func handleViewDisappear() {
@@ -971,6 +1021,8 @@ public struct ChatView: View {
         scrollHUD.stepperHideTask = nil
         autoFocusTask?.cancel()
         autoFocusTask = nil
+        pendingLaunchActionTask?.cancel()
+        pendingLaunchActionTask = nil
         viewModel.saveCurrentDraft()
 
         let activeVM = viewModel

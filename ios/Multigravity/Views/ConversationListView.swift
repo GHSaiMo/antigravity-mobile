@@ -14,6 +14,8 @@ public struct ConversationListView: View {
     @State private var showManualInput = false
     @State private var showNewConversation = false
     @State private var pendingCreatedConversation: ConversationItem? = nil
+    @State private var pendingChatLaunchActions: [String: HomeScreenQuickAction.ChatLaunchAction] = [:]
+    @State private var showQuickActionUnpairedAlert = false
     @State private var showAccountQuota = false
     @State private var showBackgroundTasksSheet = false
     @State private var navigationPath: [ConversationItem] = []
@@ -138,7 +140,7 @@ public struct ConversationListView: View {
         .sheet(isPresented: $showNewConversation, onDismiss: {
             if let item = pendingCreatedConversation {
                 pendingCreatedConversation = nil
-                openConversation(item)
+                navigationPath = [item]
             }
         }) {
             NewConversationSheet(onSelectProject: { project in
@@ -228,6 +230,14 @@ public struct ConversationListView: View {
             if let msg = pairingErrorMessage {
                 Text(msg)
             }
+        }
+        .alert("请先配对电脑网关", isPresented: $showQuickActionUnpairedAlert) {
+            Button("扫码配对") {
+                showQRScanner = true
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("配对电脑网关（或进入演示模式）后，即可从桌面长按图标快速发起对话、拍照或扫描文稿。")
         }
     }
 
@@ -476,12 +486,12 @@ public struct ConversationListView: View {
     }
 
     @discardableResult
-    private func dismissAllModals(excludingQuota: Bool = false) -> Bool {
+    private func dismissAllModals(excludingQuota: Bool = false, excludingNewConversation: Bool = false) -> Bool {
         var hadModal = false
         if showSettings { showSettings = false; hadModal = true }
         if !excludingQuota && showAccountQuota { showAccountQuota = false; hadModal = true }
         if showBackgroundTasksSheet { showBackgroundTasksSheet = false; hadModal = true }
-        if showNewConversation {
+        if !excludingNewConversation && showNewConversation {
             pendingCreatedConversation = nil
             showNewConversation = false
             hadModal = true
@@ -498,10 +508,12 @@ public struct ConversationListView: View {
         showDeleteConfirm = false
         showPinConfirm = false
         showPairingConfirm = false
+        showQuickActionUnpairedAlert = false
         pendingPairing = nil
 
         NotificationCenter.default.post(name: .dismissAllPresentedModals, object: nil)
-        if !excludingQuota || !showAccountQuota {
+        let shouldSkipPresentedDismiss = (excludingQuota && showAccountQuota) || (excludingNewConversation && showNewConversation)
+        if !shouldSkipPresentedDismiss {
             if let existingPresented = Self.activePresentedViewController() {
                 hadModal = true
                 Self.dismissRemainingPresentedViewControllerIfNeeded(matching: existingPresented)
@@ -936,7 +948,11 @@ public struct ConversationListView: View {
         ChatView(
             conversation: item,
             isNewConversation: item.isDraft || item.stepCount == 0,
-            sessionStore: chatSessionStore
+            sessionStore: chatSessionStore,
+            initialLaunchAction: pendingChatLaunchActions[item.id],
+            onConsumeLaunchAction: {
+                pendingChatLaunchActions.removeValue(forKey: item.id)
+            }
         )
             .id(item.id)
             .environment(\.isSplitDetail, usesSplitLayout)
@@ -1498,6 +1514,12 @@ public struct ConversationListView: View {
             openAccountQuotaSheet()
             return
         }
+
+        // Handle Home Screen Quick Actions & Shortcuts URLs (new-chat / new-workspace / camera / scan)
+        if let host = url.host, let quickAction = HomeScreenQuickAction(urlHost: host) {
+            handleQuickAction(quickAction)
+            return
+        }
         
         // Handle antigravity://conversations or antigravity://home deep link (from Agent Status Widget)
         if url.host == "conversations" || url.host == "home" {
@@ -1538,6 +1560,60 @@ public struct ConversationListView: View {
         
         guard CacheManager.isValidCascadeId(cascadeId) else { return }
         openConversationById(cascadeId)
+    }
+
+    private func handleQuickAction(_ action: HomeScreenQuickAction) {
+        guard !isPairingInProgress else { return }
+        guard settings.isPaired else {
+            if showQRScanner { return }
+            let hadOtherModal = dismissAllModals()
+            if hadOtherModal {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.38) {
+                    guard !settings.isPaired, !isPairingInProgress else { return }
+                    showQuickActionUnpairedAlert = true
+                }
+            } else {
+                showQuickActionUnpairedAlert = true
+            }
+            return
+        }
+
+        switch action {
+        case .newChat:
+            dismissAllModals()
+            let session = CacheManager.shared.createLocalDraftSession(project: .pureChat)
+            navigationPath = [session.toConversationItem()]
+
+        case .newWorkspace:
+            let hadOtherModal = dismissAllModals(excludingNewConversation: true)
+            if showNewConversation { return }
+            if hadOtherModal {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.38) {
+                    guard settings.isPaired else { return }
+                    showNewConversation = true
+                }
+            } else {
+                showNewConversation = true
+            }
+
+        case .camera, .scan:
+            let hadOtherModal = dismissAllModals()
+            let launchAction: HomeScreenQuickAction.ChatLaunchAction = (action == .camera) ? .camera : .documentScanner
+            let openCaptureChat = {
+                guard settings.isPaired else { return }
+                let session = CacheManager.shared.createLocalDraftSession(project: .pureChat)
+                let item = session.toConversationItem()
+                pendingChatLaunchActions[item.id] = launchAction
+                navigationPath = [item]
+            }
+            if hadOtherModal {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.38) {
+                    openCaptureChat()
+                }
+            } else {
+                openCaptureChat()
+            }
+        }
     }
     
     @ViewBuilder

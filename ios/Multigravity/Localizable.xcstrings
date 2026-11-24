@@ -29456,6 +29456,50 @@
           }
         }
       }
+    },
+    "请先配对电脑网关": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pair Your Computer First"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "先にPCゲートウェイとペアリングしてください"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请先配对电脑网关"
+          }
+        }
+      }
+    },
+    "配对电脑网关（或进入演示模式）后，即可从桌面长按图标快速发起对话、拍照或扫描文稿。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pair your computer gateway (or try Demo Mode) to start chats, take photos, or scan documents directly from the Home Screen."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PCゲートウェイとペアリング（またはデモモードを開始）すると、ホーム画面のアイコン長押しからすぐにチャット、写真撮影、書類スキャンを行えます。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "配对电脑网关（或进入演示模式）后，即可从桌面长按图标快速发起对话、拍照或扫描文稿。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
