@@ -52,9 +52,66 @@ data class WorktreeCreateResponse(
 @Serializable
 data class CloneRepoResponse(
     val ok: Boolean = false,
+    val async: Boolean = false,
+    val jobId: String? = null,
+    val repoSlug: String? = null,
+    val status: String? = null,
+    val phase: String? = null,
+    val progress: Int = 0,
+    val message: String? = null,
+    val targetPath: String? = null,
     val path: String? = null,
     val folderUri: String? = null,
+    val project: ProjectItem? = null,
+    val alreadyExists: Boolean = false,
     val cascadeId: String? = null,
+    val code: String? = null,
+    val existingPath: String? = null,
+    val error: String? = null
+)
+
+@Serializable
+data class LocalDirQuickItem(
+    val path: String = "",
+    val name: String = "",
+    val displayPath: String = "",
+    val projectCount: Int = 0,
+    val isDefault: Boolean = false,
+    val exists: Boolean = true
+)
+
+@Serializable
+data class LocalDirEntry(
+    val name: String = "",
+    val path: String = "",
+    val isGitRepo: Boolean = false,
+    val isProject: Boolean = false,
+    val isHidden: Boolean = false
+)
+
+@Serializable
+data class LocalDirsResponse(
+    val ok: Boolean = false,
+    val platform: String? = null,
+    val homePath: String? = null,
+    val defaultDir: String? = null,
+    val currentPath: String = "",
+    val currentDisplay: String? = null,
+    val parentPath: String? = null,
+    val canGoUp: Boolean = false,
+    val recommendedDirs: List<LocalDirQuickItem> = emptyList(),
+    val entries: List<LocalDirEntry> = emptyList(),
+    val truncated: Boolean = false,
+    val error: String? = null
+)
+
+@Serializable
+data class CreateLocalDirResponse(
+    val ok: Boolean = false,
+    val path: String? = null,
+    val name: String? = null,
+    val displayPath: String? = null,
+    val alreadyExists: Boolean = false,
     val error: String? = null
 )
 

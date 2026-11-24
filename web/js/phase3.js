@@ -745,51 +745,580 @@
       });
     },
 
-    // --- 3. New Conversation Sheet: Worktree / Workspace Alias + GitHub Clone ---
-    bindNewSheetExtras() {
-      const cloneBtn = document.getElementById("btn-clone-repo");
-      cloneBtn?.addEventListener("click", async () => {
-        const slug = prompt("输入要克隆的 GitHub 仓库 (owner/repo 或 HTTPS URL)：");
-        if (!slug || !slug.trim()) return;
-        showToast?.("正在克隆仓库并初始化会话…", 6000);
+    // --- 3. New Conversation Sheet: Worktree / Workspace Alias + Visual GitHub Clone & Add Workspace ---
+    _newSheetSubState: null,
+
+    resetNewSheetSubView() {
+      const st = this._newSheetSubState;
+      if (st?.pollTimer) {
+        clearInterval(st.pollTimer);
+        st.pollTimer = 0;
+      }
+      this._newSheetSubState = null;
+      document.getElementById("sheet-new-main")?.classList.remove("hidden");
+      const subEl = document.getElementById("sheet-new-sub");
+      if (subEl) {
+        subEl.classList.add("hidden");
+        subEl.innerHTML = "";
+      }
+    },
+
+    parseGitHubRepoSlug(raw) {
+      let s = (raw || "").trim();
+      if (!s || s.startsWith("-")) return null;
+      let fromUrl = false;
+      if (s.startsWith("git@github.com:")) {
+        s = s.slice("git@github.com:".length);
+        fromUrl = true;
+      } else if (s.startsWith("https://github.com/")) {
+        s = s.slice("https://github.com/".length);
+        fromUrl = true;
+      } else if (s.startsWith("http://github.com/")) {
+        s = s.slice("http://github.com/".length);
+        fromUrl = true;
+      } else if (s.includes("://") || s.includes("@")) {
+        return null;
+      }
+      const cut = s.search(/[?#]/);
+      if (cut >= 0) s = s.slice(0, cut);
+      s = s.replace(/^\/+|\/+$/g, "");
+      const parts = s.split("/").filter(Boolean);
+      if (parts.length < 2 || (!fromUrl && parts.length !== 2)) return null;
+      const owner = parts[0];
+      const repo = parts[1].replace(/\.git$/, "");
+      if (owner === "." || owner === ".." || repo === "." || repo === "..") return null;
+      const segRe = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$/;
+      if (!segRe.test(owner) || !segRe.test(repo)) return null;
+      return { slug: `${owner}/${repo}`, repoName: repo };
+    },
+
+    async _refreshDiscoveredProjectsList(createdProject) {
+      if (createdProject && Array.isArray(discoveredProjects)) {
+        discoveredProjects = discoveredProjects.filter(
+          (p) => p.id !== createdProject.id && p.uri !== createdProject.uri && p.path !== createdProject.path
+        );
+        discoveredProjects.unshift(createdProject);
+        renderNewProjectsList?.(discoveredProjects);
+      }
+      try {
+        const listRes = await fetch("/gateway/projects");
+        if (listRes.ok) {
+          discoveredProjects = await listRes.json();
+          renderNewProjectsList?.(discoveredProjects);
+        }
+      } catch (_) {}
+    },
+
+    _openNewSheetSubView(mode) {
+      const mainEl = document.getElementById("sheet-new-main");
+      const subEl = document.getElementById("sheet-new-sub");
+      if (!mainEl || !subEl) return;
+
+      if (this._newSheetSubState?.pollTimer) {
+        clearInterval(this._newSheetSubState.pollTimer);
+      }
+
+      const state = {
+        mode, // "clone" | "add"
+        phase: "form", // "form" | "running" | "done"
+        repoInput: "",
+        customFolderName: "",
+        showFolderRename: false,
+        dirLoading: true,
+        dirCreating: false,
+        dirError: "",
+        currentPath: "",
+        currentDisplay: "",
+        parentPath: "",
+        canGoUp: false,
+        recommendedDirs: [],
+        entries: [],
+        submitting: false,
+        error: "",
+        conflictAlreadyClonedPath: "",
+        jobId: "",
+        progress: 0,
+        progressMessage: "",
+        targetPath: "",
+        completedProject: null,
+        completedRepoSlug: "",
+        completedAlreadyExists: false,
+        pollTimer: 0,
+      };
+      this._newSheetSubState = state;
+      mainEl.classList.add("hidden");
+      subEl.classList.remove("hidden");
+
+      const loadDirs = async (targetPath) => {
+        state.dirLoading = true;
+        state.dirError = "";
+        this._renderNewSheetSubView();
+        try {
+          const qs = targetPath ? `?path=${encodeURIComponent(targetPath)}` : "";
+          const res = await fetch(`/gateway/fs/dirs${qs}`);
+          const d = await res.json();
+          if (!res.ok || !d.ok) throw new Error(d.error || "读取本机目录失败");
+          state.currentPath = d.currentPath || "";
+          state.currentDisplay = d.currentDisplay || d.currentPath || "";
+          state.parentPath = d.parentPath || "";
+          state.canGoUp = !!d.canGoUp;
+          state.recommendedDirs = Array.isArray(d.recommendedDirs) ? d.recommendedDirs : [];
+          state.entries = Array.isArray(d.entries) ? d.entries : [];
+          state.error = "";
+          state.conflictAlreadyClonedPath = "";
+        } catch (err) {
+          state.dirError = err.message || "读取本机目录失败";
+        } finally {
+          state.dirLoading = false;
+          if (this._newSheetSubState === state) this._renderNewSheetSubView();
+        }
+      };
+
+      const createDir = async () => {
+        const raw = prompt(
+          `在 ${state.currentDisplay || "~"} 下新建目录名称，或输入 ~/... 自定义路径：`
+        );
+        if (!raw || !raw.trim()) return;
+        const trimmed = raw.trim();
+        const isFullPath = trimmed.startsWith("/") || trimmed.startsWith("~") || trimmed.includes(":\\") || trimmed.includes(":/");
+        state.dirCreating = true;
+        state.dirError = "";
+        this._renderNewSheetSubView();
+        try {
+          const payload = isFullPath
+            ? { path: trimmed }
+            : { parentPath: state.currentPath, name: trimmed };
+          const res = await fetch("/gateway/fs/mkdir", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+          const d = await res.json();
+          if (!res.ok || !d.ok) throw new Error(d.error || "创建本地目录失败");
+          if (d.path) {
+            await loadDirs(d.path);
+            showToast?.(d.alreadyExists ? "已选中已有目录" : "已新建并选中目录", 2000);
+          }
+        } catch (err) {
+          state.dirError = err.message || "创建本地目录失败";
+        } finally {
+          state.dirCreating = false;
+          if (this._newSheetSubState === state) this._renderNewSheetSubView();
+        }
+      };
+
+      const finishProject = (project, repoSlug, alreadyExists) => {
+        if (state.pollTimer) {
+          clearInterval(state.pollTimer);
+          state.pollTimer = 0;
+        }
+        state.phase = "done";
+        state.completedProject = project;
+        state.completedRepoSlug = repoSlug || "";
+        state.completedAlreadyExists = !!alreadyExists;
+        this._refreshDiscoveredProjectsList(project);
+        this._renderNewSheetSubView();
+      };
+
+      const startClone = async (importExisting) => {
+        const parsed = this.parseGitHubRepoSlug(state.repoInput);
+        if (!parsed || !state.currentPath || state.submitting) return;
+        state.submitting = true;
+        state.error = "";
+        state.conflictAlreadyClonedPath = "";
+        this._renderNewSheetSubView();
         try {
           const res = await fetch("/gateway/projects/clone", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ repoSlug: slug.trim(), startSession: true }),
+            body: JSON.stringify({
+              repoSlug: state.repoInput.trim(),
+              parentDir: state.currentPath,
+              folderName: state.customFolderName.trim() || undefined,
+              async: true,
+              importExisting: !!importExisting,
+              startSession: false,
+            }),
           });
           const d = await res.json();
-          if (!res.ok || !d.ok) throw new Error(d.error || "克隆失败");
-          document.getElementById("sheet-new")?.classList.add("hidden");
-          if (d.cascadeId) navigateTo?.("#c=" + d.cascadeId);
-          else showToast?.(`已克隆至 ${d.path}`);
-        } catch (err) {
-          showToast?.("克隆失败: " + err.message, 3200);
-        }
-      });
+          if (res.status === 409 && d.code === "already_cloned") {
+            state.conflictAlreadyClonedPath = d.existingPath || d.targetPath || "";
+            return;
+          }
+          if (res.status === 409 && (d.code === "target_exists" || d.code === "path_is_file")) {
+            state.showFolderRename = true;
+            state.error = d.error || "目标目录已存在，请更换目录或修改文件夹名";
+            return;
+          }
+          if (!res.ok || !d.ok) {
+            throw new Error(d.error || "克隆失败");
+          }
+          if (d.status === "done" && d.project) {
+            finishProject(d.project, d.repoSlug || parsed.slug, d.alreadyExists);
+            return;
+          }
+          if (!d.jobId) throw new Error("网关未返回有效的克隆任务 ID");
 
-      const addWorkspaceBtn = document.getElementById("btn-add-workspace");
-      addWorkspaceBtn?.addEventListener("click", async () => {
-        const localPath = prompt("输入电脑本地目录路径 (如 ~/Projects/my-app)：");
-        if (!localPath || !localPath.trim()) return;
-        showToast?.("正在添加本地工作区…", 4000);
+          state.phase = "running";
+          state.jobId = d.jobId;
+          state.progress = d.progress || 5;
+          state.progressMessage = d.message || "正在连接 GitHub 并克隆仓库…";
+          state.targetPath = d.targetPath || "";
+          this._renderNewSheetSubView();
+
+          let failCount = 0;
+          state.pollTimer = setInterval(async () => {
+            if (this._newSheetSubState !== state) {
+              clearInterval(state.pollTimer);
+              return;
+            }
+            try {
+              const stRes = await fetch(`/gateway/projects/clone/status?jobId=${encodeURIComponent(state.jobId)}`);
+              const st = await stRes.json();
+              if (!stRes.ok) throw new Error(st.error || "查询进度失败");
+              failCount = 0;
+              state.targetPath = st.targetPath || st.path || state.targetPath;
+              if (st.status === "done") {
+                const proj = st.project || {
+                  name: (state.targetPath || parsed.repoName).split(/[\\/]/).filter(Boolean).pop(),
+                  uri: st.folderUri || `file://${state.targetPath}`,
+                  path: st.path || state.targetPath,
+                  isWorkspace: false,
+                };
+                finishProject(proj, st.repoSlug || parsed.slug, st.alreadyExists);
+              } else if (st.status === "failed") {
+                clearInterval(state.pollTimer);
+                state.pollTimer = 0;
+                state.phase = "form";
+                state.error = st.error || st.message || "克隆失败";
+                this._renderNewSheetSubView();
+              } else if (st.status === "cancelled") {
+                clearInterval(state.pollTimer);
+                state.pollTimer = 0;
+                state.phase = "form";
+                state.error = "已取消克隆";
+                this._renderNewSheetSubView();
+              } else {
+                state.progress = Math.max(0, Math.min(100, Number(st.progress || 10)));
+                state.progressMessage = st.message || "正在克隆仓库…";
+                this._renderNewSheetSubView();
+              }
+            } catch (pollErr) {
+              failCount += 1;
+              if (failCount >= 6) {
+                clearInterval(state.pollTimer);
+                state.pollTimer = 0;
+                state.phase = "form";
+                state.error = "查询克隆进度失败: " + (pollErr.message || "");
+                this._renderNewSheetSubView();
+              }
+            }
+          }, 500);
+        } catch (err) {
+          state.error = err.message || "克隆失败";
+        } finally {
+          state.submitting = false;
+          if (this._newSheetSubState === state) this._renderNewSheetSubView();
+        }
+      };
+
+      const cancelClone = async () => {
+        const jid = state.jobId;
+        if (state.pollTimer) {
+          clearInterval(state.pollTimer);
+          state.pollTimer = 0;
+        }
+        state.phase = "form";
+        state.error = "已取消克隆";
+        this._renderNewSheetSubView();
+        if (jid) {
+          fetch("/gateway/projects/clone/cancel", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ jobId: jid }),
+          }).catch(() => {});
+        }
+      };
+
+      const addWorkspace = async (overridePath) => {
+        const target = (overridePath || state.currentPath || "").trim();
+        if (!target || state.submitting) return;
+        state.submitting = true;
+        state.error = "";
+        this._renderNewSheetSubView();
         try {
           const res = await fetch("/gateway/projects/create", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ path: localPath.trim(), startSession: false }),
+            body: JSON.stringify({ path: target, startSession: false }),
           });
           const d = await res.json();
           if (!res.ok || !d.ok) throw new Error(d.error || "添加工作区失败");
-          const listRes = await fetch("/gateway/projects");
-          if (listRes.ok) {
-            discoveredProjects = await listRes.json();
-            renderNewProjectsList?.(discoveredProjects);
-          }
-          showToast?.(d.alreadyExists ? "工作区已在列表中" : "已添加工作区", 2400);
+          const proj = d.project || {
+            name: target.split(/[\\/]/).filter(Boolean).pop() || target,
+            uri: target.startsWith("file://") ? target : `file://${target}`,
+            path: target,
+            isWorkspace: false,
+          };
+          finishProject(proj, "", d.alreadyExists);
         } catch (err) {
-          showToast?.("添加失败: " + err.message, 3200);
+          state.error = err.message || "添加工作区失败";
+        } finally {
+          state.submitting = false;
+          if (this._newSheetSubState === state) this._renderNewSheetSubView();
         }
+      };
+
+      state.actions = { loadDirs, createDir, startClone, cancelClone, addWorkspace };
+      loadDirs("");
+    },
+
+    _renderNewSheetSubView() {
+      const subEl = document.getElementById("sheet-new-sub");
+      const st = this._newSheetSubState;
+      if (!subEl || !st) return;
+
+      const isClone = st.mode === "clone";
+      const parsed = isClone ? this.parseGitHubRepoSlug(st.repoInput) : null;
+      const effFolder = isClone ? (st.customFolderName.trim() || (parsed ? parsed.repoName : "")) : "";
+      const sep = (st.currentPath || "").includes("\\") ? "\\" : "/";
+      const previewBase = st.currentDisplay || st.currentPath || "";
+      const previewTarget = isClone
+        ? (previewBase && effFolder ? (previewBase.endsWith(sep) ? previewBase + effFolder : previewBase + sep + effFolder) : previewBase)
+        : st.currentPath;
+
+      const headerTitle = isClone ? "从 GitHub 克隆仓库" : "添加本地工作区";
+      const backBtnHtml = st.phase === "running"
+        ? `<div style="width:52px;"></div>`
+        : `<button type="button" class="sheet-header-btn" data-sub-action="back">‹ 返回</button>`;
+      const rightBtnHtml = !isClone && st.phase === "form"
+        ? `<button type="button" class="sheet-header-btn" data-sub-action="manual-path" style="font-size:13.5px;">手输路径</button>`
+        : `<div style="width:52px;"></div>`;
+
+      let bodyHtml = "";
+      if (st.phase === "running") {
+        bodyHtml = `
+          <div class="clone-center-state">
+            <div style="font-size:17px;font-weight:700;color:var(--ios-label);">${escapeHtml(parsed?.slug || st.repoInput)}</div>
+            <div style="font-size:13.5px;color:var(--ios-secondary-label);">${escapeHtml(st.progressMessage || "正在克隆仓库…")}</div>
+            <div style="width:100%;background:var(--ios-tertiary-bg);padding:14px;border-radius:14px;display:flex;flex-direction:column;gap:8px;">
+              <div class="clone-progress-track"><div class="clone-progress-fill" style="width:${st.progress}%;"></div></div>
+              <div style="display:flex;justify-content:space-between;gap:8px;font-size:11.5px;">
+                <span class="monospaced" style="color:var(--ios-secondary-label);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(st.targetPath)}</span>
+                <span class="monospaced" style="color:var(--ios-blue);font-weight:600;">${st.progress}%</span>
+              </div>
+            </div>
+            <button type="button" class="clone-cancel-btn" data-sub-action="cancel-clone">取消克隆</button>
+          </div>
+        `;
+      } else if (st.phase === "done" && st.completedProject) {
+        const proj = st.completedProject;
+        const doneTitle = isClone
+          ? (st.completedAlreadyExists ? "已导入 Antigravity 项目列表" : "克隆完成，已加入项目列表")
+          : (st.completedAlreadyExists ? "工作区已在项目列表中" : "已添加到 Antigravity 项目列表");
+        bodyHtml = `
+          <div class="clone-center-state">
+            <div style="width:62px;height:62px;border-radius:999px;background:rgba(48,209,88,0.15);color:var(--ios-green);display:flex;align-items:center;justify-content:center;font-size:30px;font-weight:700;">✓</div>
+            <div style="font-size:18px;font-weight:700;color:var(--ios-label);">${doneTitle}</div>
+            <div style="font-size:13px;color:var(--ios-secondary-label);">现在可以在「新建会话」工作区列表中随时选用该项目</div>
+            <div style="width:100%;text-align:left;background:var(--ios-tertiary-bg);padding:14px;border-radius:14px;display:flex;flex-direction:column;gap:6px;">
+              <div style="font-size:15.5px;font-weight:600;color:var(--ios-label);">${escapeHtml(proj.alias || proj.name)}</div>
+              ${st.completedRepoSlug ? `<div class="monospaced" style="font-size:12px;color:var(--ios-secondary-label);">${escapeHtml(st.completedRepoSlug)}</div>` : ""}
+              <div class="monospaced" style="font-size:11.5px;color:var(--ios-secondary-label);word-break:break-all;padding-top:4px;border-top:0.5px solid var(--ios-separator-subtle);">${escapeHtml(proj.path || "")}</div>
+            </div>
+          </div>
+          <div class="dir-sub-footer" style="display:flex;flex-direction:column;gap:10px;">
+            <button type="button" class="dir-primary-btn" data-sub-action="start-chat">立即开启新会话</button>
+            <button type="button" class="dir-secondary-btn" data-sub-action="back">返回工作区列表</button>
+          </div>
+        `;
+      } else {
+        const chipsHtml = st.recommendedDirs.length > 0
+          ? `<div class="dir-chips-row">${st.recommendedDirs.map((d) => `
+              <button type="button" class="dir-chip ${d.path === st.currentPath ? "active" : ""}" data-dir-jump="${escapeHtml(d.path)}">
+                <span>${escapeHtml(d.name)}</span>
+                ${d.projectCount > 0 ? `<span class="dir-chip-count">${d.projectCount}</span>` : ""}
+              </button>
+            `).join("")}</div>`
+          : "";
+
+        let entriesHtml = "";
+        if (st.dirError) {
+          entriesHtml = `<div style="padding:14px;font-size:12.5px;color:var(--ios-orange);">${escapeHtml(st.dirError)}</div>`;
+        } else if (st.dirLoading && st.entries.length === 0) {
+          entriesHtml = `<div style="padding:20px;text-align:center;font-size:12.5px;color:var(--ios-secondary-label);">正在读取本机目录…</div>`;
+        } else if (st.entries.length === 0) {
+          entriesHtml = `<div style="padding:20px;text-align:center;font-size:12.5px;color:var(--ios-secondary-label);">当前目录下暂无子文件夹，可直接选用此目录或点击「+ 新建目录」</div>`;
+        } else {
+          entriesHtml = `<div class="dir-entries-list">${st.entries.map((e) => `
+            <div class="dir-entry-row" data-dir-enter="${escapeHtml(e.path)}">
+              <span>${e.isProject ? "💼" : "📁"}</span>
+              <span class="dir-entry-name">${escapeHtml(e.name)}</span>
+              ${e.isProject ? `<span class="dir-tag project">项目</span>` : (e.isGitRepo ? `<span class="dir-tag git">Git</span>` : "")}
+              <span style="color:var(--ios-tertiary-label);font-size:13px;">›</span>
+            </div>
+          `).join("")}</div>`;
+        }
+
+        const repoSectionHtml = isClone ? `
+          <div style="display:flex;flex-direction:column;gap:8px;">
+            <div class="dir-section-title">GitHub 仓库地址</div>
+            <input id="clone-repo-input" class="dir-input ${parsed ? "is-valid" : ""}" type="text" placeholder="owner/repo 或 https://github.com/..." value="${escapeHtml(st.repoInput)}" autocomplete="off" spellcheck="false" />
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:12px;">
+              ${parsed
+                ? `<span style="color:var(--ios-green);font-weight:500;">✓ ${escapeHtml(parsed.slug)}</span>
+                   <button type="button" style="background:none;border:none;color:var(--ios-blue);font-size:12px;cursor:pointer;padding:0;" data-sub-action="toggle-rename">${st.showFolderRename ? "收起目录名" : "自定义目录名"}</button>`
+                : (st.repoInput.trim()
+                    ? `<span style="color:var(--ios-orange);">支持 owner/repo、HTTPS 或 git@github.com 地址</span>`
+                    : `<span style="color:var(--ios-secondary-label);">克隆完成后会自动加入 Antigravity 项目列表</span>`)}
+            </div>
+            ${st.showFolderRename ? `<input id="clone-folder-input" class="dir-input" type="text" placeholder="文件夹名（默认 ${escapeHtml(parsed?.repoName || "仓库名")}）" value="${escapeHtml(st.customFolderName)}" autocomplete="off" spellcheck="false" />` : ""}
+          </div>
+        ` : "";
+
+        const conflictOrErrHtml = st.conflictAlreadyClonedPath
+          ? `<div class="dir-alert-card">
+               <div style="font-weight:600;">该目录已存在同一 GitHub 仓库</div>
+               <div class="monospaced" style="font-size:11.5px;color:var(--ios-secondary-label);word-break:break-all;">${escapeHtml(st.conflictAlreadyClonedPath)}</div>
+               <button type="button" class="dir-warn-btn" data-sub-action="import-existing" ${st.submitting ? "disabled" : ""}>直接导入到 Antigravity 项目列表</button>
+             </div>`
+          : (st.error ? `<div class="dir-alert-card">${escapeHtml(st.error)}</div>` : "");
+
+        const canSubmit = isClone
+          ? (!!parsed && !!st.currentPath && !!effFolder && !st.submitting)
+          : (!!st.currentPath && !st.submitting);
+
+        bodyHtml = `
+          <div class="dir-sub-body">
+            ${repoSectionHtml}
+            <div style="display:flex;flex-direction:column;gap:10px;">
+              <div class="dir-section-head">
+                <div>
+                  <div class="dir-section-title">${isClone ? "选择本机存放目录" : "浏览或新建本机文件夹"}</div>
+                  <div class="dir-section-sub">${isClone ? "可从已有项目目录选择，浏览子目录，或新建本地目录" : "进入目标目录后点击底部按钮，即可将其加入项目列表"}</div>
+                </div>
+                <button type="button" class="dir-pill-btn" data-sub-action="mkdir" ${st.dirCreating || !st.currentPath ? "disabled" : ""}>${st.dirCreating ? "创建中…" : "+ 新建目录"}</button>
+              </div>
+              ${chipsHtml}
+              <div class="dir-browser-box">
+                <div class="dir-browser-bar">
+                  ${st.canGoUp ? `<button type="button" class="dir-up-btn" data-dir-jump="${escapeHtml(st.parentPath)}">‹ 上一级</button>` : ""}
+                  <span class="dir-current-path" title="${escapeHtml(st.currentPath)}">${escapeHtml(st.currentDisplay || "加载中…")}</span>
+                </div>
+                ${entriesHtml}
+              </div>
+            </div>
+            ${previewTarget ? `
+              <div class="dir-preview-card">
+                <div class="dir-preview-label">${isClone ? "克隆目标路径" : "当前选定目录"}</div>
+                <div class="dir-preview-path">${escapeHtml(previewTarget)}</div>
+              </div>
+            ` : ""}
+            ${conflictOrErrHtml}
+          </div>
+          <div class="dir-sub-footer">
+            <button type="button" class="dir-primary-btn" data-sub-action="submit" ${canSubmit ? "" : "disabled"}>
+              ${st.submitting
+                ? (isClone ? "正在启动克隆…" : "正在添加工作区…")
+                : (isClone ? "确认并克隆" : "添加当前目录为工作区")}
+            </button>
+          </div>
+        `;
+      }
+
+      subEl.innerHTML = `
+        <div class="sheet-header">
+          ${backBtnHtml}
+          <h2 class="sheet-title">${headerTitle}</h2>
+          ${rightBtnHtml}
+        </div>
+        ${bodyHtml}
+      `;
+
+      // Bind inputs & actions without losing focus on typing
+      const repoInputEl = subEl.querySelector("#clone-repo-input");
+      if (repoInputEl) {
+        repoInputEl.addEventListener("input", (e) => {
+          const val = e.target.value;
+          const pos = e.target.selectionStart;
+          st.repoInput = val;
+          st.error = "";
+          st.conflictAlreadyClonedPath = "";
+          this._renderNewSheetSubView();
+          const refreshed = document.querySelector("#sheet-new-sub #clone-repo-input");
+          if (refreshed) {
+            refreshed.focus();
+            if (typeof pos === "number") refreshed.setSelectionRange(pos, pos);
+          }
+        });
+      }
+      const folderInputEl = subEl.querySelector("#clone-folder-input");
+      if (folderInputEl) {
+        folderInputEl.addEventListener("input", (e) => {
+          const val = e.target.value;
+          const pos = e.target.selectionStart;
+          st.customFolderName = val;
+          st.error = "";
+          st.conflictAlreadyClonedPath = "";
+          this._renderNewSheetSubView();
+          const refreshed = document.querySelector("#sheet-new-sub #clone-folder-input");
+          if (refreshed) {
+            refreshed.focus();
+            if (typeof pos === "number") refreshed.setSelectionRange(pos, pos);
+          }
+        });
+      }
+
+      subEl.querySelectorAll("[data-dir-jump]").forEach((btn) => {
+        btn.addEventListener("click", () => st.actions.loadDirs(btn.getAttribute("data-dir-jump")));
+      });
+      subEl.querySelectorAll("[data-dir-enter]").forEach((row) => {
+        row.addEventListener("click", () => st.actions.loadDirs(row.getAttribute("data-dir-enter")));
+      });
+      subEl.querySelectorAll("[data-sub-action]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const act = btn.getAttribute("data-sub-action");
+          if (act === "back") {
+            this.resetNewSheetSubView();
+          } else if (act === "mkdir") {
+            st.actions.createDir();
+          } else if (act === "toggle-rename") {
+            st.showFolderRename = !st.showFolderRename;
+            this._renderNewSheetSubView();
+          } else if (act === "submit") {
+            if (isClone) st.actions.startClone(false);
+            else st.actions.addWorkspace("");
+          } else if (act === "import-existing") {
+            st.actions.startClone(true);
+          } else if (act === "cancel-clone") {
+            st.actions.cancelClone();
+          } else if (act === "manual-path") {
+            const p = prompt("输入电脑本地目录路径 (如 ~/Projects/my-app)：", st.currentPath || "");
+            if (p && p.trim()) st.actions.addWorkspace(p.trim());
+          } else if (act === "start-chat" && st.completedProject) {
+            const proj = st.completedProject;
+            closeNewSheet?.();
+            startDraftSession?.({
+              isPure: false,
+              name: proj.alias || proj.name,
+              path: proj.path,
+              uri: proj.uri || proj.path,
+              rawId: proj.rawId || (proj.id !== proj.path ? proj.id : undefined),
+            });
+          }
+        });
+      });
+    },
+
+    bindNewSheetExtras() {
+      const cloneBtn = document.getElementById("btn-clone-repo");
+      cloneBtn?.addEventListener("click", () => {
+        this._openNewSheetSubView("clone");
+      });
+
+      const addWorkspaceBtn = document.getElementById("btn-add-workspace");
+      addWorkspaceBtn?.addEventListener("click", () => {
+        this._openNewSheetSubView("add");
       });
 
       const listEl = document.getElementById("new-projects-list");

@@ -45,8 +45,22 @@ func isTransientPooledConnErr(err error) bool {
 		strings.Contains(msg, "client connection lost")
 }
 
-// callUpstreamRPC performs a unary LanguageServerService POST request and returns raw response bytes.
+// callUpstreamRPC performs a unary LanguageServerService POST request using the standard mediumClient timeout.
 func (p *Proxy) callUpstreamRPC(ctx context.Context, method string, payload interface{}) ([]byte, int, error) {
+	return p.callUpstreamRPCWithClient(ctx, p.upstreamClient(), method, payload)
+}
+
+// callUpstreamRPCLong performs a unary LanguageServerService POST request without the 10s mediumClient cap,
+// letting ctx control the deadline (e.g. for long-running CloneGitHubRepo calls).
+func (p *Proxy) callUpstreamRPCLong(ctx context.Context, method string, payload interface{}) ([]byte, int, error) {
+	client := p.streamingHTTPClient()
+	if client == nil {
+		client = p.upstreamClient()
+	}
+	return p.callUpstreamRPCWithClient(ctx, client, method, payload)
+}
+
+func (p *Proxy) callUpstreamRPCWithClient(ctx context.Context, client *http.Client, method string, payload interface{}) ([]byte, int, error) {
 	port, token := p.ActiveUpstream()
 	if port <= 0 {
 		return nil, http.StatusServiceUnavailable, fmt.Errorf("no active Antigravity upstream")
@@ -79,7 +93,7 @@ func (p *Proxy) callUpstreamRPC(ctx context.Context, method string, payload inte
 		if token != "" {
 			req.Header.Set("x-codeium-csrf-token", token)
 		}
-		return p.upstreamClient().Do(req)
+		return client.Do(req)
 	}
 
 	resp, err := doOnce()
@@ -568,7 +582,10 @@ func (p *Proxy) HandleCascadeFork(w http.ResponseWriter, r *http.Request) {
 		writeRPCError(w, http.StatusBadGateway, "上游分叉响应解析失败")
 		return
 	}
-	cid, _ := resp["cascadeId"].(string)
+	cid, _ := resp["newCascadeId"].(string)
+	if cid == "" {
+		cid, _ = resp["cascadeId"].(string)
+	}
 	if cid == "" {
 		cid, _ = resp["cascade_id"].(string)
 	}
@@ -745,89 +762,6 @@ func (p *Proxy) HandleWorktree(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// HandleCloneGitHubRepo clones a remote GitHub repository (`owner/repo` or URL) and optionally starts a session.
-func (p *Proxy) HandleCloneGitHubRepo(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	var req struct {
-		RepoSlug     string `json:"repoSlug"`
-		RepoURL      string `json:"repoUrl"`
-		ParentDir    string `json:"parentDir"`
-		ParentDirURI string `json:"parentDirUri"`
-		StartSession bool   `json:"startSession"`
-	}
-	if err := json.NewDecoder(io.LimitReader(r.Body, 256*1024)).Decode(&req); err != nil {
-		writeRPCError(w, http.StatusBadRequest, "无效的请求体")
-		return
-	}
-	slug := normalizeGitHubSlug(firstNonEmpty(req.RepoSlug, req.RepoURL))
-	if slug == "" {
-		writeRPCError(w, http.StatusBadRequest, "请输入有效的 GitHub 仓库地址或 owner/repo")
-		return
-	}
-
-	parentDir := strings.TrimSpace(req.ParentDir)
-	if parentDir == "" && req.ParentDirURI != "" {
-		parentDir = uriToFilePath(req.ParentDirURI)
-	}
-	if parentDir == "" {
-		home, _ := os.UserHomeDir()
-		parentDir = filepath.Join(home, "Projects")
-	}
-	validParent, wsErr := validateWorkspaceDir(parentDir, false)
-	if wsErr != nil {
-		writeRPCError(w, http.StatusForbidden, wsErr.Error())
-		return
-	}
-	_ = os.MkdirAll(validParent, 0o755)
-	parentURI := filePathToURI(validParent)
-
-	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
-	defer cancel()
-	body, status, err := p.callUpstreamRPC(ctx, "CloneGitHubRepo", map[string]interface{}{
-		"repoSlug":     slug,
-		"parentDirUri": parentURI,
-	})
-	if err != nil {
-		writeRPCError(w, status, err.Error())
-		return
-	}
-	if status != http.StatusOK {
-		writeRPCError(w, status, strings.TrimSpace(string(body)))
-		return
-	}
-	var cloned struct {
-		FolderURI string `json:"folderUri"`
-	}
-	_ = json.Unmarshal(body, &cloned)
-
-	p.invalidateProjectsCache()
-
-	cascadeID := ""
-	if req.StartSession && cloned.FolderURI != "" {
-		cBody, cStatus, cErr := p.callUpstreamRPC(ctx, "StartCascade", map[string]interface{}{
-			"workspaceUris": []string{cloned.FolderURI},
-		})
-		if cErr == nil && cStatus == http.StatusOK {
-			var started struct {
-				CascadeID string `json:"cascadeId"`
-			}
-			if json.Unmarshal(cBody, &started) == nil {
-				cascadeID = started.CascadeID
-			}
-		}
-	}
-
-	writeJSONStatus(w, http.StatusOK, map[string]interface{}{
-		"ok":        true,
-		"folderUri": cloned.FolderURI,
-		"path":      uriToFilePath(cloned.FolderURI),
-		"cascadeId": cascadeID,
-	})
-}
-
 // HandleCreateProject registers a local folder path as an Antigravity workspace project
 // using ResolveFolder + CreateProject RPC (falling back to local ~/.gemini/config/projects JSON if offline).
 func (p *Proxy) HandleCreateProject(w http.ResponseWriter, r *http.Request) {
@@ -855,45 +789,60 @@ func (p *Proxy) HandleCreateProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	folderURI := normalizeURI(filePathToURI(cleanPath))
-	if folderURI == "" {
-		writeRPCError(w, http.StatusBadRequest, "无法解析该路径的 URI")
+	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+	defer cancel()
+
+	created, alreadyExists, statusCode, regErr := p.registerProjectFolder(ctx, cleanPath, req.Name)
+	if regErr != nil {
+		writeRPCError(w, statusCode, regErr.Error())
 		return
 	}
 
-	name := strings.TrimSpace(req.Name)
+	cascadeID := ""
+	port, _ := p.ActiveUpstream()
+	if req.StartSession && port > 0 {
+		cascadeID = p.startCascadeForProject(ctx, created.ID, created.URI)
+	}
+
+	writeJSONStatus(w, http.StatusOK, map[string]interface{}{
+		"ok":            true,
+		"alreadyExists": alreadyExists,
+		"project":       created,
+		"cascadeId":     cascadeID,
+	})
+}
+
+// registerProjectFolder ensures an existing local folder is registered in Antigravity's official project list
+// (via CreateProject RPC when upstream is connected, or ~/.gemini/config/projects JSON when offline).
+func (p *Proxy) registerProjectFolder(ctx context.Context, cleanPath, preferredName string) (ProjectItem, bool, int, error) {
+	cleanPath = filepath.Clean(cleanPath)
+	folderURI := normalizeURI(filePathToURI(cleanPath))
+	if folderURI == "" {
+		return ProjectItem{}, false, http.StatusBadRequest, fmt.Errorf("无法解析该路径的 URI")
+	}
+
+	name := strings.TrimSpace(preferredName)
 	if name == "" {
 		name = filepath.Base(cleanPath)
 	}
 	if name == "" || name == "/" || name == "\\" || name == "." {
-		writeRPCError(w, http.StatusBadRequest, "无效的文件夹名称")
-		return
+		return ProjectItem{}, false, http.StatusBadRequest, fmt.Errorf("无效的文件夹名称")
 	}
-
-	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
-	defer cancel()
 
 	// Avoid creating duplicate entries if this folder is already registered.
 	if existing, err := p.GetProjects(); err == nil {
 		for _, prj := range existing {
 			if normalizeURI(prj.URI) == folderURI || (prj.Path != "" && filepath.Clean(prj.Path) == cleanPath) {
-				cascadeID := ""
-				if req.StartSession {
-					cascadeID = p.startCascadeForProject(ctx, prj.ID, folderURI)
-				}
-				writeJSONStatus(w, http.StatusOK, map[string]interface{}{
-					"ok":            true,
-					"alreadyExists": true,
-					"project":       prj,
-					"cascadeId":     cascadeID,
-				})
-				return
+				return prj, true, http.StatusOK, nil
 			}
 		}
 	}
 
 	port, _ := p.ActiveUpstream()
 	isGit, defaultBranch := p.detectProjectFolderType(ctx, port, cleanPath, folderURI)
+	if isGit && defaultBranch == "" {
+		defaultBranch = detectLocalGitBranch(ctx, cleanPath)
+	}
 
 	projectID := newUUIDv4()
 	var resourceObj map[string]interface{}
@@ -924,26 +873,18 @@ func (p *Proxy) HandleCreateProject(w http.ResponseWriter, r *http.Request) {
 		}
 		body, status, err := p.callUpstreamRPC(ctx, "CreateProject", payload)
 		if err != nil {
-			writeRPCError(w, status, err.Error())
-			return
+			return ProjectItem{}, false, status, err
 		}
 		if status != http.StatusOK {
-			writeRPCError(w, status, firstNonEmpty(strings.TrimSpace(string(body)), fmt.Sprintf("CreateProject failed (%d)", status)))
-			return
+			return ProjectItem{}, false, status, fmt.Errorf("%s", firstNonEmpty(strings.TrimSpace(string(body)), fmt.Sprintf("CreateProject failed (%d)", status)))
 		}
 	} else {
 		if err := writeFallbackGeminiProjectFile(projectID, name, resourceObj); err != nil {
-			writeRPCError(w, http.StatusInternalServerError, fmt.Sprintf("保存工作区配置失败: %v", err))
-			return
+			return ProjectItem{}, false, http.StatusInternalServerError, fmt.Errorf("保存工作区配置失败: %w", err)
 		}
 	}
 
 	p.invalidateProjectsCache()
-
-	cascadeID := ""
-	if req.StartSession && port > 0 {
-		cascadeID = p.startCascadeForProject(ctx, projectID, folderURI)
-	}
 
 	now := time.Now()
 	created := ProjectItem{
@@ -954,13 +895,22 @@ func (p *Proxy) HandleCreateProject(w http.ResponseWriter, r *http.Request) {
 		IsWorkspace: false,
 		LastActive:  &now,
 	}
+	return created, false, http.StatusOK, nil
+}
 
-	writeJSONStatus(w, http.StatusOK, map[string]interface{}{
-		"ok":            true,
-		"alreadyExists": false,
-		"project":       created,
-		"cascadeId":     cascadeID,
-	})
+func detectLocalGitBranch(ctx context.Context, repoDir string) string {
+	bCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(bCtx, "git", "-C", repoDir, "rev-parse", "--abbrev-ref", "HEAD")
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	branch := strings.TrimSpace(string(out))
+	if branch == "" || branch == "HEAD" {
+		return ""
+	}
+	return branch
 }
 
 func normalizeLocalWorkspacePath(raw string) (string, error) {

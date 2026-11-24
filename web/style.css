@@ -10087,6 +10087,339 @@ mark.md-find-mark.active {
   opacity: 0.75;
 }
 
+/* --- New Conversation Sheet Subviews: GitHub Clone & Visual Local Directory Picker --- */
+.sheet-new-view {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.sheet-new-view.hidden {
+  display: none !important;
+}
+
+.dir-sub-body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 14px 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.dir-sub-footer {
+  padding: 12px 16px calc(14px + var(--safe-bottom));
+  border-top: 0.5px solid var(--ios-separator-subtle);
+  background: var(--ios-secondary-bg);
+}
+
+.dir-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.dir-section-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ios-label);
+}
+
+.dir-section-sub {
+  font-size: 11.5px;
+  color: var(--ios-secondary-label);
+  margin-top: 2px;
+}
+
+.dir-pill-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: none;
+  background: rgba(10, 132, 255, 0.13);
+  color: var(--ios-blue);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 11px;
+  border-radius: 999px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.dir-pill-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.dir-input {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--ios-separator-subtle);
+  background: var(--ios-tertiary-bg);
+  color: var(--ios-label);
+  border-radius: 12px;
+  padding: 11px 12px;
+  font-size: 13.5px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  outline: none;
+}
+
+.dir-input:focus {
+  border-color: var(--ios-blue);
+}
+
+.dir-input.is-valid {
+  border-color: rgba(48, 209, 88, 0.55);
+}
+
+.dir-chips-row {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  scrollbar-width: none;
+}
+
+.dir-chips-row::-webkit-scrollbar {
+  display: none;
+}
+
+.dir-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: none;
+  background: var(--ios-tertiary-bg);
+  color: var(--ios-label);
+  padding: 7px 11px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.dir-chip.active {
+  background: var(--ios-blue);
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.dir-chip-count {
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(142, 142, 147, 0.2);
+}
+
+.dir-chip.active .dir-chip-count {
+  background: rgba(255, 255, 255, 0.24);
+  color: #ffffff;
+}
+
+.dir-browser-box {
+  border-radius: 13px;
+  background: var(--ios-tertiary-bg);
+  border: 0.5px solid var(--ios-separator-subtle);
+  overflow: hidden;
+}
+
+.dir-browser-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--ios-secondary-bg);
+  border-bottom: 0.5px solid var(--ios-separator-subtle);
+}
+
+.dir-up-btn {
+  border: none;
+  background: rgba(10, 132, 255, 0.12);
+  color: var(--ios-blue);
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 4px 8px;
+  border-radius: 7px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.dir-current-path {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--ios-label);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dir-entries-list {
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.dir-entry-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  cursor: pointer;
+  border-bottom: 0.5px solid var(--ios-separator-subtle);
+}
+
+.dir-entry-row:last-child {
+  border-bottom: none;
+}
+
+.dir-entry-row:hover {
+  background: rgba(120, 120, 128, 0.12);
+}
+
+.dir-entry-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--ios-label);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dir-tag {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 999px;
+}
+
+.dir-tag.project {
+  color: var(--ios-blue);
+  background: rgba(10, 132, 255, 0.14);
+}
+
+.dir-tag.git {
+  color: var(--ios-indigo);
+  background: rgba(94, 92, 230, 0.14);
+}
+
+.dir-preview-card {
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(10, 132, 255, 0.1);
+}
+
+.dir-preview-label {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--ios-secondary-label);
+  margin-bottom: 4px;
+}
+
+.dir-preview-path {
+  font-size: 12.5px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--ios-label);
+  word-break: break-all;
+}
+
+.dir-alert-card {
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(255, 159, 10, 0.14);
+  color: var(--ios-label);
+  font-size: 12.5px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dir-primary-btn {
+  width: 100%;
+  border: none;
+  border-radius: 13px;
+  padding: 13px 16px;
+  font-size: 15px;
+  font-weight: 600;
+  background: var(--ios-blue);
+  color: #ffffff;
+  cursor: pointer;
+}
+
+.dir-primary-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.dir-secondary-btn {
+  width: 100%;
+  border: none;
+  border-radius: 13px;
+  padding: 12px 16px;
+  font-size: 14.5px;
+  font-weight: 600;
+  background: var(--ios-tertiary-bg);
+  color: var(--ios-label);
+  cursor: pointer;
+}
+
+.dir-warn-btn {
+  width: 100%;
+  border: none;
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-size: 13.5px;
+  font-weight: 600;
+  background: var(--ios-orange);
+  color: #ffffff;
+  cursor: pointer;
+}
+
+.clone-center-state {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 20px;
+  text-align: center;
+  gap: 14px;
+}
+
+.clone-progress-track {
+  width: 100%;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--ios-separator-subtle);
+  overflow: hidden;
+}
+
+.clone-progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--ios-blue);
+  transition: width 0.25s ease;
+}
+
+.clone-cancel-btn {
+  border: none;
+  background: rgba(255, 69, 58, 0.13);
+  color: var(--ios-red);
+  font-size: 14px;
+  font-weight: 600;
+  padding: 9px 22px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+
 
 
 

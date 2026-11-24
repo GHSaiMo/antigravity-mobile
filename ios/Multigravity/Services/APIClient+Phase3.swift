@@ -169,17 +169,19 @@ extension APIClient {
 
     public func cloneGitHubRepo(
         repoSlug: String,
+        parentDir: String? = nil,
+        folderName: String? = nil,
         startSession: Bool = true,
         baseURL: URL
     ) async throws -> CloneRepoResponse {
-        try await p3PostJSON(
-            path: "gateway/projects/clone",
-            payload: [
-                "repoSlug": .string(repoSlug),
-                "startSession": .bool(startSession)
-            ],
-            baseURL: baseURL,
-            timeout: 120
+        try await startCloneGitHubRepo(
+            repoSlug: repoSlug,
+            parentDir: parentDir,
+            folderName: folderName,
+            asyncMode: false,
+            importExisting: false,
+            startSession: startSession,
+            baseURL: baseURL
         )
     }
 

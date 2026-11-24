@@ -11,12 +11,8 @@ public struct NewConversationSheet: View {
     @State private var errorMessage: String? = nil
     @State private var editingAliasProject: ProjectItem? = nil
     @State private var aliasInputText: String = ""
-    @State private var showCloneAlert: Bool = false
-    @State private var cloneRepoSlug: String = ""
-    @State private var isCloning: Bool = false
-    @State private var showAddWorkspaceAlert: Bool = false
-    @State private var localWorkspacePath: String = ""
-    @State private var isAddingWorkspace: Bool = false
+    @State private var showClonePage: Bool = false
+    @State private var showAddWorkspacePage: Bool = false
     @State private var isCreatingWorktree: Bool = false
     
     public init(
@@ -99,28 +95,23 @@ public struct NewConversationSheet: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button {
-                        showCloneAlert = true
+                        showClonePage = true
                     } label: {
-                        if isCloning {
-                            ProgressView()
-                                .scaleEffect(0.8)
-                        } else {
-                            Image("file_icon_github")
-                                .renderingMode(.template)
-                                .resizable()
-                                .aspectRatio(contentMode: .fit)
-                                .frame(width: 25, height: 25)
-                        }
+                        Image("file_icon_github")
+                            .renderingMode(.template)
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(width: 25, height: 25)
                     }
-                    .disabled(isCloning || isCreatingWorktree || isAddingWorkspace)
+                    .disabled(isCreatingWorktree)
                     .accessibilityLabel("克隆 GitHub 仓库")
                 }
 
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
-                        showAddWorkspaceAlert = true
+                        showAddWorkspacePage = true
                     } label: {
-                        if isAddingWorkspace || isCreatingWorktree {
+                        if isCreatingWorktree {
                             ProgressView()
                                 .scaleEffect(0.8)
                         } else {
@@ -128,41 +119,33 @@ public struct NewConversationSheet: View {
                                 .font(.system(size: 16, weight: .semibold))
                         }
                     }
-                    .disabled(isCloning || isCreatingWorktree || isAddingWorkspace)
+                    .disabled(isCreatingWorktree)
                     .accessibilityLabel("添加本地工作区")
                 }
+            }
+            .navigationDestination(isPresented: $showClonePage) {
+                CloneGitHubRepoView(
+                    onProjectReady: { created in
+                        handleNewProjectRegistered(created)
+                    },
+                    onStartConversation: { project in
+                        selectProject(for: project)
+                    }
+                )
+            }
+            .navigationDestination(isPresented: $showAddWorkspacePage) {
+                AddLocalWorkspaceView(
+                    onProjectReady: { created in
+                        handleNewProjectRegistered(created)
+                    },
+                    onStartConversation: { project in
+                        selectProject(for: project)
+                    }
+                )
             }
             .presentationDragIndicator(.visible)
         }
         .presentationDragIndicator(.visible)
-        .alert("添加本地工作区", isPresented: $showAddWorkspaceAlert) {
-            TextField(localWorkspacePlaceholder, text: $localWorkspacePath)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-            Button("取消", role: .cancel) { localWorkspacePath = "" }
-            Button("添加") {
-                let path = localWorkspacePath.trimmingCharacters(in: .whitespacesAndNewlines)
-                localWorkspacePath = ""
-                guard !path.isEmpty else { return }
-                startAddWorkspace(path: path)
-            }
-        } message: {
-            Text("输入电脑上的文件夹路径，将添加为新的工作区。")
-        }
-        .alert("从 GitHub 克隆仓库", isPresented: $showCloneAlert) {
-            TextField("owner/repo 或 HTTPS URL", text: $cloneRepoSlug)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-            Button("取消", role: .cancel) { cloneRepoSlug = "" }
-            Button("克隆并开启会话") {
-                let slug = cloneRepoSlug.trimmingCharacters(in: .whitespacesAndNewlines)
-                cloneRepoSlug = ""
-                guard !slug.isEmpty else { return }
-                startCloneRepo(slug: slug)
-            }
-        } message: {
-            Text("克隆完成后将在新工作区中自动发起会话。")
-        }
         .task {
             await refreshProjectsInBackground()
         }
@@ -338,76 +321,18 @@ public struct NewConversationSheet: View {
         }
     }
 
-    private var localWorkspacePlaceholder: String {
-        if AppSettings.shared.gatewayPlatform == "windows" {
-            return #"C:\Users\...\project"#
-        }
-        return String(localized: "/Users/... 或 ~/Projects/...")
-    }
-
-    private func startAddWorkspace(path: String) {
-        guard let url = AppSettings.shared.gatewayURL, !isAddingWorkspace else { return }
-        isAddingWorkspace = true
-        errorMessage = nil
-        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-        Task {
-            defer { isAddingWorkspace = false }
-            do {
-                let resp = try await APIClient.shared.createProjectWorkspace(
-                    path: path,
-                    startSession: false,
-                    baseURL: url
-                )
-                if resp.ok == false {
-                    errorMessage = resp.error ?? String(localized: "添加工作区失败")
-                    return
-                }
-                await refreshProjectsInBackground()
-                if let created = resp.project {
-                    let existsInList = projects.contains {
-                        $0.id == created.id ||
-                        $0.uri == created.uri ||
-                        (!created.path.isEmpty && $0.path == created.path)
-                    }
-                    if !existsInList {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            projects.insert(created, at: 0)
-                        }
-                        ProjectCacheManager.shared.saveProjects(projects)
-                    }
-                } else if let err = resp.error, !err.isEmpty {
-                    errorMessage = err
-                    return
-                }
-                UINotificationFeedbackGenerator().notificationOccurred(.success)
-            } catch {
-                errorMessage = String(localized: "添加工作区失败: \(error.localizedDescription)")
+    private func handleNewProjectRegistered(_ created: ProjectItem) {
+        withAnimation(.easeInOut(duration: 0.2)) {
+            projects.removeAll {
+                $0.id == created.id ||
+                $0.uri == created.uri ||
+                (!created.path.isEmpty && $0.path == created.path)
             }
+            projects.insert(created, at: 0)
         }
-    }
-
-    private func startCloneRepo(slug: String) {
-        guard let url = AppSettings.shared.gatewayURL, !isCloning else { return }
-        isCloning = true
-        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        ProjectCacheManager.shared.saveProjects(projects)
         Task {
-            defer { isCloning = false }
-            do {
-                let resp = try await APIClient.shared.cloneGitHubRepo(
-                    repoSlug: slug,
-                    startSession: true,
-                    baseURL: url
-                )
-                await refreshProjectsInBackground()
-                if let cid = resp.cascadeId, !cid.isEmpty {
-                    dismiss()
-                    NotificationCenter.default.post(name: .openConversationById, object: cid)
-                } else if let err = resp.error, !err.isEmpty {
-                    errorMessage = err
-                }
-            } catch {
-                errorMessage = String(localized: "克隆仓库失败: \(error.localizedDescription)")
-            }
+            await refreshProjectsInBackground()
         }
     }
     

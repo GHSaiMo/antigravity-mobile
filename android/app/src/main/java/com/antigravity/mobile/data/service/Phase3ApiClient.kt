@@ -104,12 +104,156 @@ suspend fun ApiClient.createWorktreeSession(repoUri: String, workspacePath: Stri
     }
 }
 
-suspend fun ApiClient.cloneGitHubRepo(repoSlug: String, startSession: Boolean = true): Result<CloneRepoResponse> {
+suspend fun ApiClient.cloneGitHubRepo(
+    repoSlug: String,
+    parentDir: String? = null,
+    folderName: String? = null,
+    startSession: Boolean = true
+): Result<CloneRepoResponse> = startCloneGitHubRepo(
+    repoSlug = repoSlug,
+    parentDir = parentDir,
+    folderName = folderName,
+    asyncMode = false,
+    importExisting = false,
+    startSession = startSession
+)
+
+suspend fun ApiClient.fetchLocalDirs(
+    path: String? = null,
+    showHidden: Boolean = false
+): Result<LocalDirsResponse> = withContext(Dispatchers.IO) {
+    val base = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
+    val params = mutableListOf<String>()
+    if (!path.isNullOrBlank()) {
+        params.add("path=${URLEncoder.encode(path.trim(), "UTF-8")}")
+    }
+    if (showHidden) {
+        params.add("showHidden=true")
+    }
+    val query = if (params.isEmpty()) "" else "?" + params.joinToString("&")
+    try {
+        val req = buildAuthorizedRequest("$base/gateway/fs/dirs$query").get().build()
+        okHttpClient.newCall(req).awaitP3().use { resp ->
+            val body = resp.body?.string().orEmpty()
+            val parsed = runCatching {
+                if (body.trimStart().startsWith("{")) json.decodeFromString<LocalDirsResponse>(body) else null
+            }.getOrNull()
+            if (resp.isSuccessful && parsed != null && parsed.ok) {
+                Result.success(parsed)
+            } else {
+                val errMsg = parsed?.error?.takeIf { it.isNotBlank() }
+                    ?: "HTTP ${resp.code}: ${body.take(180)}"
+                Result.failure(RuntimeException(errMsg))
+            }
+        }
+    } catch (e: Exception) {
+        Result.failure(e)
+    }
+}
+
+suspend fun ApiClient.createLocalDir(
+    parentPath: String? = null,
+    name: String? = null,
+    path: String? = null
+): Result<CreateLocalDirResponse> = withContext(Dispatchers.IO) {
+    val base = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
     val payload = buildJsonObject {
-        put("repoSlug", repoSlug)
+        if (!parentPath.isNullOrBlank()) put("parentPath", parentPath.trim())
+        if (!name.isNullOrBlank()) put("name", name.trim())
+        if (!path.isNullOrBlank()) put("path", path.trim())
+    }
+    try {
+        val req = buildAuthorizedRequest("$base/gateway/fs/mkdir")
+            .post(payload.toString().toRequestBody(p3JsonMediaType))
+            .build()
+        okHttpClient.newCall(req).awaitP3().use { resp ->
+            val body = resp.body?.string().orEmpty()
+            val parsed = runCatching {
+                if (body.trimStart().startsWith("{")) json.decodeFromString<CreateLocalDirResponse>(body) else null
+            }.getOrNull()
+            if (resp.isSuccessful && parsed != null && parsed.ok) {
+                Result.success(parsed)
+            } else {
+                val errMsg = parsed?.error?.takeIf { it.isNotBlank() }
+                    ?: "HTTP ${resp.code}: ${body.take(180)}"
+                Result.failure(RuntimeException(errMsg))
+            }
+        }
+    } catch (e: Exception) {
+        Result.failure(e)
+    }
+}
+
+suspend fun ApiClient.startCloneGitHubRepo(
+    repoSlug: String,
+    parentDir: String? = null,
+    folderName: String? = null,
+    asyncMode: Boolean = true,
+    importExisting: Boolean = false,
+    startSession: Boolean = false
+): Result<CloneRepoResponse> = withContext(Dispatchers.IO) {
+    val base = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
+    val payload = buildJsonObject {
+        put("repoSlug", repoSlug.trim())
+        if (!parentDir.isNullOrBlank()) put("parentDir", parentDir.trim())
+        if (!folderName.isNullOrBlank()) put("folderName", folderName.trim())
+        put("async", asyncMode)
+        put("importExisting", importExisting)
         put("startSession", startSession)
     }
-    return p3PostJson("/gateway/projects/clone", payload).mapCatching { body ->
+    try {
+        val req = buildAuthorizedRequest("$base/gateway/projects/clone")
+            .post(payload.toString().toRequestBody(p3JsonMediaType))
+            .build()
+        okHttpClient.newCall(req).awaitP3().use { resp ->
+            val body = resp.body?.string().orEmpty()
+            val parsed = runCatching {
+                if (body.trimStart().startsWith("{")) json.decodeFromString<CloneRepoResponse>(body) else null
+            }.getOrNull()
+            if (resp.code == 409 && parsed != null) {
+                return@withContext Result.success(parsed)
+            }
+            if (resp.isSuccessful && parsed != null) {
+                Result.success(parsed)
+            } else {
+                val errMsg = parsed?.error?.takeIf { it.isNotBlank() }
+                    ?: "HTTP ${resp.code}: ${body.take(180)}"
+                Result.failure(RuntimeException(errMsg))
+            }
+        }
+    } catch (e: Exception) {
+        Result.failure(e)
+    }
+}
+
+suspend fun ApiClient.fetchCloneGitHubRepoStatus(jobId: String): Result<CloneRepoResponse> = withContext(Dispatchers.IO) {
+    val base = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址"))
+    val encoded = URLEncoder.encode(jobId.trim(), "UTF-8")
+    try {
+        val req = buildAuthorizedRequest("$base/gateway/projects/clone/status?jobId=$encoded").get().build()
+        okHttpClient.newCall(req).awaitP3().use { resp ->
+            val body = resp.body?.string().orEmpty()
+            val parsed = runCatching {
+                if (body.trimStart().startsWith("{")) json.decodeFromString<CloneRepoResponse>(body) else null
+            }.getOrNull()
+            if (resp.isSuccessful && parsed != null) {
+                Result.success(parsed)
+            } else {
+                val errMsg = parsed?.error?.takeIf { it.isNotBlank() }
+                    ?: "HTTP ${resp.code}: ${body.take(180)}"
+                Result.failure(RuntimeException(errMsg))
+            }
+        }
+    } catch (e: Exception) {
+        Result.failure(e)
+    }
+}
+
+suspend fun ApiClient.cancelCloneGitHubRepo(jobId: String): Result<CloneRepoResponse> {
+    val payload = buildJsonObject {
+        put("jobId", jobId.trim())
+    }
+    return p3PostJson("/gateway/projects/clone/cancel", payload).mapCatching { body ->
         json.decodeFromString<CloneRepoResponse>(body)
     }
 }

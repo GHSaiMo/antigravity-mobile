@@ -406,6 +406,107 @@ final class DemoGateway: @unchecked Sendable {
         ]
     }
 
+    func listLocalDirs(path: String?) -> [String: Any] {
+        lock.lock()
+        let existingPaths = Set(projects.map(\.path))
+        lock.unlock()
+        let home = "/Users/demo"
+        let defaultDir = "/Users/demo/Projects"
+        let current = (path?.trimmingCharacters(in: .whitespacesAndNewlines)).flatMap { $0.isEmpty ? nil : $0 } ?? defaultDir
+        let normalized = current == "~" ? home : (current.hasPrefix("~/") ? home + "/" + current.dropFirst(2) : current)
+        let parent = (normalized == home || normalized == "/") ? "" : URL(fileURLWithPath: normalized).deletingLastPathComponent().path
+        let subEntries: [[String: Any]]
+        if normalized == defaultDir {
+            let names = ["antigravity-mobile", "multigravity-web", "sandbox"]
+            subEntries = names.map { name in
+                let full = "\(defaultDir)/\(name)"
+                return [
+                    "name": name,
+                    "path": full,
+                    "isGitRepo": name != "sandbox",
+                    "isProject": existingPaths.contains(full),
+                    "isHidden": false
+                ]
+            }
+        } else if normalized == home {
+            subEntries = ["Projects", "Websites", "Desktop"].map { name in
+                let full = "\(home)/\(name)"
+                return [
+                    "name": name,
+                    "path": full,
+                    "isGitRepo": false,
+                    "isProject": existingPaths.contains(full),
+                    "isHidden": false
+                ]
+            }
+        } else {
+            subEntries = []
+        }
+        let display = normalized == home ? "~" : normalized.replacingOccurrences(of: home, with: "~")
+        return [
+            "ok": true,
+            "platform": "darwin",
+            "homePath": home,
+            "defaultDir": defaultDir,
+            "currentPath": normalized,
+            "currentDisplay": display,
+            "parentPath": parent,
+            "canGoUp": !parent.isEmpty,
+            "recommendedDirs": [
+                ["path": defaultDir, "name": "Projects", "displayPath": "~/Projects", "projectCount": existingPaths.count, "isDefault": true, "exists": true],
+                ["path": "/Users/demo/Websites", "name": "Websites", "displayPath": "~/Websites", "projectCount": 1, "isDefault": false, "exists": true],
+                ["path": home, "name": "主目录 (~)", "displayPath": "~", "projectCount": 0, "isDefault": false, "exists": true]
+            ],
+            "entries": subEntries
+        ]
+    }
+
+    func createLocalDir(parentPath: String?, name: String?, path: String?) -> [String: Any] {
+        let target: String
+        if let p = path?.trimmingCharacters(in: .whitespacesAndNewlines), !p.isEmpty {
+            target = p.hasPrefix("~/") ? "/Users/demo/" + p.dropFirst(2) : p
+        } else {
+            let parent = (parentPath?.trimmingCharacters(in: .whitespacesAndNewlines)).flatMap { $0.isEmpty ? nil : $0 } ?? "/Users/demo/Projects"
+            let folder = (name?.trimmingCharacters(in: .whitespacesAndNewlines)).flatMap { $0.isEmpty ? nil : $0 } ?? "new-folder"
+            target = parent.hasSuffix("/") ? "\(parent)\(folder)" : "\(parent)/\(folder)"
+        }
+        return [
+            "ok": true,
+            "path": target,
+            "name": URL(fileURLWithPath: target).lastPathComponent,
+            "displayPath": target.replacingOccurrences(of: "/Users/demo", with: "~"),
+            "alreadyExists": false
+        ]
+    }
+
+    func cloneGitHubRepo(repoSlug: String, parentDir: String?, folderName: String?) -> [String: Any] {
+        let cleaned = repoSlug
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "https://github.com/", with: "")
+            .replacingOccurrences(of: "git@github.com:", with: "")
+            .replacingOccurrences(of: ".git", with: "")
+        let repo = (folderName?.trimmingCharacters(in: .whitespacesAndNewlines)).flatMap { $0.isEmpty ? nil : $0 }
+            ?? cleaned.split(separator: "/").last.map(String.init)
+            ?? "cloned-repo"
+        let parent = (parentDir?.trimmingCharacters(in: .whitespacesAndNewlines)).flatMap { $0.isEmpty ? nil : $0 } ?? "/Users/demo/Projects"
+        let target = parent.hasSuffix("/") ? "\(parent)\(repo)" : "\(parent)/\(repo)"
+        let created = createProject(path: target, name: repo)
+        return [
+            "ok": true,
+            "async": false,
+            "repoSlug": cleaned,
+            "status": "done",
+            "phase": "done",
+            "progress": 100,
+            "message": "克隆完成，已加入 Antigravity 项目列表",
+            "targetPath": target,
+            "path": target,
+            "folderUri": "file://\(target)",
+            "project": created["project"] as Any,
+            "alreadyExists": created["alreadyExists"] as Any
+        ]
+    }
+
     func statusPayload() -> [String: Any] {
         lock.lock()
         let first = conversations.first(where: { !$0.isSubagent })

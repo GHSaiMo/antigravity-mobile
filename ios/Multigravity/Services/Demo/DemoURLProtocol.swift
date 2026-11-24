@@ -112,6 +112,26 @@ private enum DemoRouter {
             let p = (obj["path"] as? String) ?? ""
             let name = obj["name"] as? String
             return json(gw.createProject(path: p, name: name))
+        case ("GET", "/gateway/fs/dirs"):
+            let p = param("path")
+            return json(gw.listLocalDirs(path: p))
+        case ("POST", "/gateway/fs/mkdir"):
+            let obj = bodyJSON(body)
+            return json(gw.createLocalDir(
+                parentPath: obj["parentPath"] as? String,
+                name: obj["name"] as? String,
+                path: obj["path"] as? String
+            ))
+        case ("POST", "/gateway/projects/clone"):
+            let obj = bodyJSON(body)
+            let slug = (obj["repoSlug"] as? String) ?? (obj["repoUrl"] as? String) ?? ""
+            return json(gw.cloneGitHubRepo(
+                repoSlug: slug,
+                parentDir: obj["parentDir"] as? String,
+                folderName: obj["folderName"] as? String
+            ))
+        case ("POST", "/gateway/projects/clone/cancel"):
+            return json(["ok": true, "status": "cancelled"])
 
         case ("POST", "/gateway/cascade/interaction"):
             let obj = bodyJSON(body)

@@ -142,6 +142,9 @@ type Proxy struct {
 	cachedProjectsAt     time.Time
 	projectsFlights      flightGroup[[]ProjectItem]
 
+	cloneJobsMu sync.Mutex
+	cloneJobs   map[string]*cloneRepoJob
+
 	// nuxCache caches GetCascadeNuxes responses for nuxCacheTTL to avoid
 	// 300-900ms upstream latency on every desktop workbench initialization.
 	nuxCacheMu      sync.RWMutex
@@ -386,6 +389,7 @@ func (p *Proxy) streamingHTTPClient() *http.Client {
 func (p *Proxy) Shutdown() {
 	p.agentStateHub.StopAll()
 	p.summariesHub.StopAll()
+	p.cancelAllCloneJobs()
 
 	p.wsConnsMu.Lock()
 	conns := make([]*websocket.Conn, 0, len(p.wsConns))
@@ -696,6 +700,18 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	case r.URL.Path == "/gateway/projects/clone":
 		p.HandleCloneGitHubRepo(w, r)
+		return
+	case r.URL.Path == "/gateway/projects/clone/status":
+		p.HandleCloneGitHubRepoStatus(w, r)
+		return
+	case r.URL.Path == "/gateway/projects/clone/cancel":
+		p.HandleCloneGitHubRepoCancel(w, r)
+		return
+	case r.URL.Path == "/gateway/fs/dirs":
+		p.HandleListLocalDirs(w, r)
+		return
+	case r.URL.Path == "/gateway/fs/mkdir":
+		p.HandleCreateLocalDir(w, r)
 		return
 	case r.URL.Path == "/gateway/permissions":
 		p.HandlePermissions(w, r)

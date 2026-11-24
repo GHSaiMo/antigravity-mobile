@@ -857,6 +857,7 @@ let activeDraftSession = null;
 async function openNewSheet() {
   const sheet = document.getElementById("sheet-new");
   if (!sheet) return;
+  window.Phase3?.resetNewSheetSubView?.();
   sheet.classList.remove("hidden");
 
   // Render existing cached projects or chat card immediately
@@ -1011,6 +1012,7 @@ function startDraftSession(sessionInfo) {
 }
 
 function closeNewSheet() {
+  window.Phase3?.resetNewSheetSubView?.();
   const sheet = document.getElementById("sheet-new");
   if (sheet) sheet.classList.add("hidden");
 }

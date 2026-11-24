@@ -745,44 +745,6 @@ fun ConversationListScreen(
                     }
                 }
             },
-            onCloneGitHubRepo = { repoUrl ->
-                showNewConvSheet = false
-                p3Scope.launch {
-                    val resp = ApiClient.defaultInstance?.cloneGitHubRepo(
-                        repoSlug = repoUrl,
-                        startSession = true
-                    )?.getOrNull()
-                    viewModel.loadProjects()
-                    if (resp?.ok == true && !resp.cascadeId.isNullOrBlank()) {
-                        viewModel.refresh()
-                        onSelectConversation(
-                            resp.cascadeId,
-                            repoUrl.substringAfterLast('/').removeSuffix(".git"),
-                            false,
-                            false,
-                            com.antigravity.mobile.data.model.ConversationStatus.IDLE,
-                            null
-                        )
-                    }
-                }
-            },
-            onAddLocalWorkspace = { localPath ->
-                val client = ApiClient.defaultInstance
-                    ?: return@NewConversationSheet "未配置网关地址".loc
-                val result = client.createProjectWorkspace(
-                    path = localPath,
-                    startSession = false
-                )
-                result.fold(
-                    onSuccess = {
-                        viewModel.loadProjects()
-                        null
-                    },
-                    onFailure = { err ->
-                        err.message?.takeIf { it.isNotBlank() } ?: "添加工作区失败".loc
-                    }
-                )
-            },
             onDismiss = { showNewConvSheet = false }
         )
     }

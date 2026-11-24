@@ -157,9 +157,64 @@ public struct WorktreeCreateResponse: Codable, Sendable {
 
 public struct CloneRepoResponse: Codable, Sendable {
     public let ok: Bool?
+    public let async: Bool?
+    public let jobId: String?
+    public let repoSlug: String?
+    public let status: String?
+    public let phase: String?
+    public let progress: Int?
+    public let message: String?
+    public let targetPath: String?
     public let path: String?
     public let folderUri: String?
+    public let project: ProjectItem?
+    public let alreadyExists: Bool?
     public let cascadeId: String?
+    public let code: String?
+    public let existingPath: String?
+    public let error: String?
+}
+
+public struct LocalDirQuickItem: Identifiable, Codable, Hashable, Sendable {
+    public var id: String { path }
+    public let path: String
+    public let name: String
+    public let displayPath: String
+    public let projectCount: Int
+    public let isDefault: Bool
+    public let exists: Bool
+}
+
+public struct LocalDirEntry: Identifiable, Codable, Hashable, Sendable {
+    public var id: String { path }
+    public let name: String
+    public let path: String
+    public let isGitRepo: Bool
+    public let isProject: Bool
+    public let isHidden: Bool
+}
+
+public struct LocalDirsResponse: Codable, Sendable {
+    public let ok: Bool?
+    public let platform: String?
+    public let homePath: String?
+    public let defaultDir: String?
+    public let currentPath: String
+    public let currentDisplay: String?
+    public let parentPath: String?
+    public let canGoUp: Bool
+    public let recommendedDirs: [LocalDirQuickItem]
+    public let entries: [LocalDirEntry]
+    public let truncated: Bool?
+    public let error: String?
+}
+
+public struct CreateLocalDirResponse: Codable, Sendable {
+    public let ok: Bool?
+    public let path: String?
+    public let name: String?
+    public let displayPath: String?
+    public let alreadyExists: Bool?
     public let error: String?
 }
 
