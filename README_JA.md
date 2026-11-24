@@ -5,7 +5,7 @@
 </p>
 
 > **Google Antigravity AI Agent のためのフルスタック・モバイル＆リモートコンパニオン。**  
-> いつでもどこでも、iPhone・iPad・Android・モバイルブラウザからリアルタイム対話、承認・意思決定、マルチエージェントワークフローの実行、コンテキスト使用率やクォータ消費の監視までシームレスに行えます。  
+> いつでもどこでも、iPhone・iPhone Duo・iPad・Android・モバイルブラウザからリアルタイム対話、承認・意思決定、マルチエージェントワークフローの実行、コンテキスト使用率やクォータ消費の監視までシームレスに行えます。  
 > 
 > *リポジトリ名は `antigravity-mobile`、公式プロダクト名は **Multigravity**、グローバル CLI ツール名は **`mgy`** です。*
 
@@ -103,7 +103,23 @@ mgy
   </tr>
 </table>
 
-> *上記スクリーンショットはクライアント内蔵の**オフラインデモモード**（v1.2.6 ネイティブ日本語ダーク UI・Antigravity 2.34 準拠および実機 Dynamic Island / ロック画面ライブアクティビティ / ホームウィジェット）で撮影したもので、ペアリング前でもすぐ操作感を体験できます。*
+> *上記スクリーンショットはクライアント内蔵の**オフラインデモモード**（v1.2.6 ネイティブ日本語ダーク UI・Antigravity 2.35 準拠および実機 Dynamic Island / ロック画面ライブアクティビティ / ホームウィジェット）で撮影したもので、ペアリング前でもすぐ操作感を体験できます。*
+
+### 📱 iPhone Duo 折りたたみネイティブ対応
+
+**iPhone Duo** および iOS 27.1+ の折りたたみ体験にネイティブ最適化しています。閉じたカバー画面では純正の右側縦ツールバーと中央揃えのチャットタイトルを維持し、180° 展開時は 342pt 比率の 2 ペイン作業台＋統一トップバーへ自動切替。**Book 90° 姿勢**では `ReservedRegion (.division)` により分割境界を物理的な折り目にぴったり揃え、開閉や回転時も `ChatSessionStore` でストリーミング会話・下書き・スクロール位置を途切れず保持します。
+
+<p align="center">
+  <img src="images/ja/duo_showcase.jpg" alt="Multigravity for iPhone Duo — カバー縦レール＆Book姿勢の折り目揃え2ペイン作業台" width="760" />
+</p>
+
+<table>
+  <tr>
+    <td align="center" valign="top" width="33%"><img src="images/ja/duo_01_inner_workflow.jpg" alt="iPhone Duo 展開2ペイン 並列サブエージェントワークフロー" /><br/><b>展開 2 ペイン · 並列サブエージェント</b><br/><sub>342pt サイドバー＋統一ヘッダーで全会話・5h 枠と並列サブエージェントを同時操作</sub></td>
+    <td align="center" valign="top" width="33%"><img src="images/ja/duo_02_inner_mermaid.jpg" alt="iPhone Duo 展開2ペイン オフライン Mermaid 構成図とワンタップ進める" /><br/><b>展開 2 ペイン · Mermaid プラン承認</b><br/><sub>大画面でオフライン Mermaid 構成図と基準指標を確認し、ワンタップで Proceed</sub></td>
+    <td align="center" valign="top" width="33%"><img src="images/ja/duo_03_inner_step_plan.jpg" alt="iPhone Duo 展開2ペイン ステップ計画カードとリアルタイムタイマー" /><br/><b>展開 2 ペイン · ステップ計画＆計測</b><br/><sub>デスクトップ同等のステップチェックリスト・経過時間・並列タスクを 1 画面で監視</sub></td>
+  </tr>
+</table>
 
 ---
 

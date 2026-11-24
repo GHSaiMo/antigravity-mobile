@@ -5,7 +5,7 @@
 </p>
 
 > **The Full-Stack Mobile & Remote Companion for Google Antigravity AI Agent.**  
-> 随时随地，在 iPhone、iPad、Android 或手机浏览器上实时对话、审批决策、调度多智能体工作流，并掌握上下文水位与配额消耗。  
+> 随时随地，在 iPhone、iPhone Duo、iPad、Android 或手机浏览器上实时对话、审批决策、调度多智能体工作流，并掌握上下文水位与配额消耗。  
 > 
 > *代码仓库保持为 `antigravity-mobile`，产品对外正式品牌命名为 **Multigravity**，全局命令行工具为 **`mgy`**。*
 
@@ -103,7 +103,23 @@ mgy
   </tr>
 </table>
 
-> 以上截图均来自客户端内置**离线演示模式**（v1.2.6 原生深色中文界面，完整对齐 Antigravity 2.34 真实协议与系统级灵动岛 / 锁屏实时活动 / 主屏小组件），下载后未配对即可零配置直接体验。
+> 以上截图均来自客户端内置**离线演示模式**（v1.2.6 原生深色中文界面，完整对齐 Antigravity 2.35 真实协议与系统级灵动岛 / 锁屏实时活动 / 主屏小组件），下载后未配对即可零配置直接体验。
+
+### 📱 iPhone Duo 折叠形态原生适配
+
+针对 **iPhone Duo** 折叠形态与 iOS 27.1+ 特性做了全栈原生适配：合盖外屏自动启用侧边竖向工具栏与居中聊天标题；展开 180° 切换 342pt 比例双栏工作台并统一顶部导航；**Book 90° 半折姿态**基于 `ReservedRegion (.division)` 自动将分栏边界精准对齐物理折痕，同时通过 `ChatSessionStore` 在折叠 / 展开 / 旋转全过程中零中断保留活跃会话流与草稿状态。
+
+<p align="center">
+  <img src="images/zh/duo_showcase.jpg" alt="Multigravity for iPhone Duo —— 合盖竖轨与 Book 姿态物理折痕对齐双栏协同" width="760" />
+</p>
+
+<table>
+  <tr>
+    <td align="center" valign="top" width="33%"><img src="images/zh/duo_01_inner_workflow.jpg" alt="iPhone Duo 展开双栏并发子代理工作流" /><br/><b>展开双栏 · 并行子代理</b><br/><sub>342pt 比例侧栏 + 统一顶栏，左览全局会话与 5h 配额、右控并行 Sub-Agents</sub></td>
+    <td align="center" valign="top" width="33%"><img src="images/zh/duo_02_inner_mermaid.jpg" alt="iPhone Duo 展开双栏离线 Mermaid 架构图与一键 Proceed" /><br/><b>展开双栏 · Mermaid 方案放行</b><br/><sub>宽幅内屏原生渲染离线暗黑 Mermaid 拓扑与指标表，审定后一键 Proceed</sub></td>
+    <td align="center" valign="top" width="33%"><img src="images/zh/duo_03_inner_step_plan.jpg" alt="iPhone Duo 展开双栏步骤清单卡与实时聚焦计时器" /><br/><b>展开双栏 · 步骤清单与计时</b><br/><sub>桌面 1:1 实时步骤清单、聚焦耗时计时与后台守护任务双栏同屏尽览</sub></td>
+  </tr>
+</table>
 
 ---
 

@@ -5,7 +5,7 @@
 </p>
 
 > **The Full-Stack Mobile & Remote Companion for Google Antigravity AI Agent.**  
-> Real-time chats, decision approvals, multi-agent workflows, context watermarks, and quota monitoring on your iPhone, iPad, Android, or mobile browser — anytime, anywhere.  
+> Real-time chats, decision approvals, multi-agent workflows, context watermarks, and quota monitoring on your iPhone, iPhone Duo, iPad, Android, or mobile browser — anytime, anywhere.  
 > 
 > *The repository is named `antigravity-mobile`, the official product brand is **Multigravity**, and the global CLI tool is **`mgy`**.*
 
@@ -103,7 +103,23 @@ When launched in the foreground, the gateway prints a one-time pairing QR code i
   </tr>
 </table>
 
-> *All screenshots above are captured from the built-in **offline Demo Mode** (v1.2.6 native dark English UI, aligned with Antigravity 2.34 protocols plus live iOS Dynamic Island, Lock Screen Live Activities & Home Screen Widgets) — try it out-of-the-box before pairing.*
+> *All screenshots above are captured from the built-in **offline Demo Mode** (v1.2.6 native dark English UI, aligned with Antigravity 2.35 protocols plus live iOS Dynamic Island, Lock Screen Live Activities & Home Screen Widgets) — try it out-of-the-box before pairing.*
+
+### 📱 Native iPhone Duo Foldable Support
+
+Purpose-built for **iPhone Duo** and iOS 27.1+: the compact cover display embraces the native trailing vertical rail and centered chat navigation title; unfolding flat switches into a proportional 342pt dual-pane workspace with unified horizontal top chrome; **90° Book posture** snaps the split divider directly onto the physical hinge crease via `ReservedRegion (.division)`, while `ChatSessionStore` preserves active streams, drafts, and scroll position seamlessly across fold, unfold, and rotation transitions.
+
+<p align="center">
+  <img src="images/en/duo_showcase.jpg" alt="Multigravity for iPhone Duo — Compact Cover Rail and Book Posture Crease-Aligned Split Workspace" width="760" />
+</p>
+
+<table>
+  <tr>
+    <td align="center" valign="top" width="33%"><img src="images/en/duo_01_inner_workflow.jpg" alt="iPhone Duo Unfolded Dual-Pane Parallel Sub-Agents Workflow" /><br/><b>Unfolded Split · Sub-Agents</b><br/><sub>342pt sidebar + unified top bar: track global sessions & 5h quota alongside parallel agents</sub></td>
+    <td align="center" valign="top" width="33%"><img src="images/en/duo_02_inner_mermaid.jpg" alt="iPhone Duo Unfolded Offline Mermaid Plan and One-Tap Proceed" /><br/><b>Unfolded Split · Mermaid Plan</b><br/><sub>Review offline dark Mermaid architecture diagrams & metrics on the wide canvas, then Proceed</sub></td>
+    <td align="center" valign="top" width="33%"><img src="images/en/duo_03_inner_step_plan.jpg" alt="iPhone Duo Unfolded Step Plan Card and Live Focus Timer" /><br/><b>Unfolded Split · Step Plan</b><br/><sub>Desktop-parity live step checklists, focus elapsed timers & background tasks side-by-side</sub></td>
+  </tr>
+</table>
 
 ---
 
