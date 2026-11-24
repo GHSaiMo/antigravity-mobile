@@ -53,6 +53,13 @@ class PreferencesManager(context: Context) {
     private val _enableVoiceModeFlow = MutableStateFlow(prefs.getBoolean(KEY_ENABLE_VOICE_MODE, false))
     val enableVoiceModeFlow: StateFlow<Boolean> = _enableVoiceModeFlow.asStateFlow()
 
+    /** 语音连接失败排查气泡是否已展示过（安装后永久只弹一次，解除配对不重置） */
+    var hasShownVoiceTroubleshootBubble: Boolean
+        get() = prefs.getBoolean(KEY_VOICE_TROUBLESHOOT_BUBBLE_SHOWN, false)
+        set(value) {
+            prefs.edit().putBoolean(KEY_VOICE_TROUBLESHOOT_BUBBLE_SHOWN, value).apply()
+        }
+
     var weeklyPaceCursorEnabled: Boolean
         get() = prefs.getBoolean(KEY_WEEKLY_PACE_CURSOR, true)
         set(value) {
@@ -983,8 +990,12 @@ class PreferencesManager(context: Context) {
     }
 
     fun clear() {
+        val keptVoiceTroubleshootShown = hasShownVoiceTroubleshootBubble
         securePrefs?.edit()?.clear()?.apply()
         prefs.edit().clear().apply()
+        if (keptVoiceTroubleshootShown) {
+            prefs.edit().putBoolean(KEY_VOICE_TROUBLESHOOT_BUBBLE_SHOWN, true).apply()
+        }
         memDeviceToken = null
         memDeviceTokenLoaded = false
         memE2eeKeyB64 = null
@@ -1060,6 +1071,7 @@ class PreferencesManager(context: Context) {
         private const val KEY_DEFAULT_NEW_SESSION_PROVIDER = "default_new_session_provider"
         private const val KEY_LIVE_NOTIFICATIONS = "live_notifications"
         private const val KEY_ENABLE_VOICE_MODE = "enable_voice_mode"
+        private const val KEY_VOICE_TROUBLESHOOT_BUBBLE_SHOWN = "voice_troubleshoot_bubble_shown"
         private const val KEY_WEEKLY_PACE_CURSOR = "weekly_pace_cursor"
         private const val KEY_MODEL_PICKER_QUOTA_ENABLED = "model_picker_quota_enabled"
         private const val KEY_MODEL_PICKER_QUOTA_WEEKLY = "model_picker_quota_weekly"

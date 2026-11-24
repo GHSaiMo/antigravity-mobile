@@ -687,19 +687,18 @@ fun ChatScreen(
         }
     }
 
+    val voicePrefs = remember { viewModel.prefs ?: com.antigravity.mobile.data.service.PreferencesManager(context) }
     val audioRecorder = remember { AudioRecorderManager(context) }
     val isRecordingAudio by audioRecorder.isRecording.collectAsState()
     val voiceCall = remember { VoiceCallManager(context) }
     val isInVoiceCall by voiceCall.isInCall.collectAsState()
     var showVoiceTroubleshootBubble by remember { mutableStateOf(false) }
-    var lastVoiceTroubleshootBubbleAt by remember { mutableStateOf(0L) }
 
-    // 语音明确失败（此时通话已被自动挂断）后弹出排查气泡；30 秒内不重复弹
+    // 语音明确失败（此时通话已被自动挂断）后弹出排查气泡；安装后永久只弹出一次
     LaunchedEffect(voiceCall) {
         voiceCall.failureEvents.collect {
-            val now = System.currentTimeMillis()
-            if (now - lastVoiceTroubleshootBubbleAt > 30_000L) {
-                lastVoiceTroubleshootBubbleAt = now
+            if (!voicePrefs.hasShownVoiceTroubleshootBubble) {
+                voicePrefs.hasShownVoiceTroubleshootBubble = true
                 showVoiceTroubleshootBubble = true
             }
         }
@@ -721,7 +720,6 @@ fun ChatScreen(
             onDispose {}
         }
     }
-    val voicePrefs = remember { viewModel.prefs ?: com.antigravity.mobile.data.service.PreferencesManager(context) }
     val enableVoiceMode by voicePrefs.enableVoiceModeFlow.collectAsState()
     val fontSizeScaleSetting by voicePrefs.fontSizeScaleFlow.collectAsState()
     val isKnowledgeModeEnabled by voicePrefs.knowledgeModeFlow.collectAsState()

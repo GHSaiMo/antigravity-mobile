@@ -38,7 +38,7 @@ public struct VoiceTroubleshootBubbleView: View {
                         Text("2.")
                             .font(.system(size: 15, weight: .bold, design: .monospaced))
                             .foregroundColor(.orange)
-                        Text("**开启代理 TUN 模式**：确保 `*.googleapis.com` 长连接（HTTP/2、gRPC）正常转发")
+                        Text("**检查网络与代理**：确保 `*.googleapis.com` 长连接（HTTP/2、gRPC）未被拦截（使用代理时请开启 TUN 模式）")
                             .font(.system(size: 15))
                             .lineSpacing(3)
                     }

@@ -1459,24 +1459,24 @@
         }
       }
     },
-    "**开启代理 TUN 模式**：确保 `*.googleapis.com` 长连接（HTTP/2、gRPC）正常转发": {
+    "**检查网络与代理**：确保 `*.googleapis.com` 长连接（HTTP/2、gRPC）未被拦截（使用代理时请开启 TUN 模式）": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "**Enable proxy TUN mode**: Ensure `*.googleapis.com` persistent HTTP/2 and gRPC connections forward properly"
+            "value": "**Check network & firewall**: Ensure persistent HTTP/2 and gRPC connections to `*.googleapis.com` aren't blocked by a VPN, firewall, or proxy"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "**プロキシのTUNモードを有効化**：`*.googleapis.com` へのHTTP/2・gRPC常時接続が正しく転送されるようにします"
+            "value": "**ネットワークとファイアウォールを確認**：`*.googleapis.com` への HTTP/2・gRPC 常時接続が VPN・ファイアウォール・プロキシで遮断されていないか確認してください"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "**开启代理 TUN 模式**：确保 `*.googleapis.com` 长连接（HTTP/2、gRPC）正常转发"
+            "value": "**检查网络与代理**：确保 `*.googleapis.com` 长连接（HTTP/2、gRPC）未被拦截（使用代理时请开启 TUN 模式）"
           }
         }
       }
@@ -1486,7 +1486,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "**Check Mac microphone**: System microphone permission is granted and the default input device is active"
+            "value": "**Check computer microphone**: System microphone permission is granted and the default input device is active and available"
           }
         },
         "ja": {

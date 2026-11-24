@@ -70,6 +70,7 @@ public final class AppSettings {
     private let defaultOrchestratorModelKey = "antigravity.default_orchestrator_model"
     private let defaultNewSessionProviderKey = "antigravity.default_new_session_provider"
     private let enableVoiceModeKey = "antigravity.enable_voice_mode"
+    private let voiceTroubleshootBubbleShownKey = "antigravity.voice_troubleshoot_bubble_shown"
     private let weeklyPaceCursorKey = "antigravity.weekly_pace_cursor"
     private let selectedQuotaBucketKey = "antigravity.selected_quota_bucket"
     private let modelPickerQuotaEnabledKey = "antigravity.model_picker_quota_enabled"
@@ -270,6 +271,13 @@ public final class AppSettings {
     public var enableVoiceMode: Bool {
         didSet {
             UserDefaults.standard.set(enableVoiceMode, forKey: enableVoiceModeKey)
+        }
+    }
+
+    /// 语音连接失败排查气泡是否已展示过（安装后永久只弹一次，解除配对不重置）
+    public var hasShownVoiceTroubleshootBubble: Bool {
+        didSet {
+            UserDefaults.standard.set(hasShownVoiceTroubleshootBubble, forKey: voiceTroubleshootBubbleShownKey)
         }
     }
 
@@ -893,6 +901,7 @@ public final class AppSettings {
         self.activeModel = savedModel
         
         self.enableVoiceMode = UserDefaults.standard.bool(forKey: enableVoiceModeKey)
+        self.hasShownVoiceTroubleshootBubble = UserDefaults.standard.bool(forKey: voiceTroubleshootBubbleShownKey)
         if UserDefaults.standard.object(forKey: weeklyPaceCursorKey) == nil {
             self.weeklyPaceCursorEnabled = true
         } else {

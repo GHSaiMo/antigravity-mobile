@@ -166,4 +166,39 @@ class L10nTest {
             L10n.setLanguagePreference("system")
         }
     }
+
+    @Test
+    fun testVoiceTroubleshootLocalizationAndPrompt() {
+        val networkChecklistKey = "**检查网络与代理**：确保 `*.googleapis.com` 长连接（HTTP/2、gRPC）未被拦截（使用代理时请开启 TUN 模式）"
+        val micChecklistKey = "**检查电脑麦克风**：系统麦克风权限已开启，默认录音设备正常且未被占用"
+        try {
+            L10n.setLanguagePreference("en")
+            val enNet = networkChecklistKey.loc
+            assertTrue("EN network hint should mention firewall/VPN/proxy", enNet.contains("firewall", ignoreCase = true))
+            assertFalse("EN network hint should not mention TUN mode", enNet.contains("TUN"))
+            assertFalse("EN mic hint should not hardcode Mac", micChecklistKey.loc.contains("Mac"))
+
+            val enPrompt = VoiceCallManager.troubleshootPrompt(L10n.AppLang.EN)
+            assertTrue("EN prompt should be English", enPrompt.contains("[Task]"))
+            assertFalse("EN prompt should not mention Clash", enPrompt.contains("Clash"))
+            assertFalse("EN prompt should not mention TUN", enPrompt.contains("TUN"))
+
+            L10n.setLanguagePreference("ja")
+            val jaNet = networkChecklistKey.loc
+            assertTrue("JA network hint should mention firewall", jaNet.contains("ファイアウォール"))
+            assertFalse("JA network hint should not mention TUN mode", jaNet.contains("TUN"))
+
+            val jaPrompt = VoiceCallManager.troubleshootPrompt(L10n.AppLang.JA)
+            assertTrue("JA prompt should be Japanese", jaPrompt.contains("【タスク】"))
+            assertFalse("JA prompt should not mention Clash", jaPrompt.contains("Clash"))
+            assertFalse("JA prompt should not mention TUN", jaPrompt.contains("TUN"))
+
+            L10n.setLanguagePreference("zh")
+            val zhPrompt = VoiceCallManager.troubleshootPrompt(L10n.AppLang.ZH)
+            assertTrue("ZH prompt should be Chinese", zhPrompt.contains("【任务】"))
+            assertTrue("ZH prompt should keep conditional proxy TUN guidance", zhPrompt.contains("TUN"))
+        } finally {
+            L10n.setLanguagePreference("system")
+        }
+    }
 }

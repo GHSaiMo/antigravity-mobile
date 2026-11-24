@@ -3557,37 +3557,114 @@ const LocalQueueManager = {
   }
 };
 
-// 语音连接失败后「一键排查」发送给智能体的预设提示词（三端保持一致）
-const VOICE_TROUBLESHOOT_PROMPT = [
-  "【任务】排查「本机无法使用谷歌语音(Gemini Live)功能」的问题。",
-  "",
-  "【现象】",
-  "- 本机 Antigravity 的语音功能无法连接，界面提示 “Couldn't connect / Try again”",
-  "",
-  "【请按顺序排查】",
-  "1. 登录与授权：",
-  "   - 检查登录态的 OAuth Scope 是否完整。旧登录态可能缺少语音所需的新权限",
-  "   - 如需重新授权，先退出 Antigravity，将 jetski-standalone-oauth-token 文件重命名或移走，再启动并重新登录，以强制拉取完整 Scope",
-  "2. 代理与长连接：",
-  "   - 语音使用双向流式通信（bidi stream / gRPC）",
-  "   - 确认代理（Clash / Clash Verge / Sing-box 等）已开启 TUN 模式，或支持对 *.googleapis.com 的 HTTP/2 与 gRPC 流式转发",
-  "   - 查看日志是否出现 context canceled while waiting for connections（连接超时的典型特征）",
-  "3. 系统麦克风：",
-  "   - 确认系统麦克风访问权限与「允许桌面应用访问麦克风」均已开启",
-  "   - 确认默认录音设备正常，且没有被其他程序占用",
-  "4. 网关链路：检查网关语音 WebSocket 链路与日志（mgy 会话输出）",
-  "",
-  "【输出要求】",
-  "- 先给出根因判断与证据（日志、命令输出），再给修复步骤",
-  "- 能自动修复的直接修复；涉及改配置、重启服务或重新登录的，先说明再执行",
-  "- 修复后验证语音是否恢复"
-].join("\n");
+// 语音连接失败后「一键排查」发送给智能体的预设提示词（按当前界面语言选择 zh / en / ja，三端保持一致）
+const VOICE_TROUBLESHOOT_SHOWN_KEY = "ag_voice_troubleshoot_bubble_shown";
+
+function getVoiceTroubleshootPrompt() {
+  const lang = (typeof window !== "undefined" && window.I18n && typeof window.I18n.getLanguage === "function")
+    ? window.I18n.getLanguage()
+    : "en";
+  if (lang === "zh-CN") {
+    return [
+      "【任务】排查「本机无法使用语音（Gemini Live）功能」的问题。",
+      "",
+      "【现象】",
+      "- 实时语音通话无法建立或意外中断，界面提示无法连接（如 “Couldn't connect / Try again”）",
+      "",
+      "【请按顺序排查】",
+      "1. 登录与授权：",
+      "   - 检查当前登录态的 OAuth Scope 是否完整；旧登录态可能缺少语音所需权限",
+      "   - 如需重新授权，先退出 Antigravity，将 jetski-standalone-oauth-token 文件重命名或移走，再重新启动并登录以拉取完整 Scope",
+      "2. 网络、防火墙与代理长连接：",
+      "   - 语音依赖对 *.googleapis.com 的双向流式长连接（HTTP/2 / gRPC bidi stream）",
+      "   - 检查当前网络、VPN 或防火墙是否拦截了该长连接；如本机使用代理工具（如 Clash / Sing-box 等），确认已开启 TUN 模式或支持 HTTP/2 与 gRPC 转发",
+      "   - 检查日志中是否出现 context canceled while waiting for connections 或连接超时特征",
+      "3. 系统麦克风：",
+      "   - 确认系统麦克风权限已授予桌面客户端，且默认输入设备正常、未被其他程序占用",
+      "4. 网关链路：",
+      "   - 检查本地网关语音 WebSocket（/voice/ws）链路与日志（mgy 会话输出）",
+      "",
+      "【输出要求】",
+      "- 先给出根因判断与证据（日志或命令输出），再给修复步骤",
+      "- 能自动修复的直接修复；涉及改配置、重启服务或重新登录的，先说明再执行",
+      "- 修复后验证语音是否恢复"
+    ].join("\n");
+  }
+  if (lang === "ja") {
+    return [
+      "【タスク】このPCでリアルタイム音声（Gemini Live）に接続できない・途中で切断される原因を調査してください。",
+      "",
+      "【現象】",
+      "- 音声通話の接続に失敗する、または予期せず切断される（「Couldn't connect / Try again」など）。",
+      "",
+      "【確認手順（上から順に）】",
+      "1. ログイン状態と OAuth 権限：",
+      "   - 現在の OAuth トークンに音声機能に必要なスコープが揃っているか確認してください（古いセッションでは権限が不足している場合があります）。",
+      "   - 再認可が必要な場合は、Antigravity を完全に終了し、`jetski-standalone-oauth-token` をリネームまたは移動してから再起動・再ログインして全権限を取得してください。",
+      "2. ネットワーク・ファイアウォール・VPN（HTTP/2・gRPC 接続）：",
+      "   - 音声機能は `*.googleapis.com` への双方向ストリーミング通信（HTTP/2 / gRPC）を使用します。",
+      "   - ネットワーク環境、VPN、ファイアウォール、またはプロキシが HTTP/2・gRPC の常時接続を遮断・切断していないか確認してください。",
+      "   - ログに `context canceled while waiting for connections` などのタイムアウト・切断エラーが出ていないか確認してください。",
+      "3. PC のマイク設定：",
+      "   - OS のマイクアクセス権限がデスクトップアプリに許可されていること、および既定の入力デバイスが正常で他アプリに占有されていないことを確認してください。",
+      "4. ゲートウェイ接続：",
+      "   - ローカルゲートウェイの `/voice/ws` WebSocket 経路および `mgy` ログを確認してください。",
+      "",
+      "【出力要件】",
+      "- まず原因の特定結果と根拠（ログやコマンド出力）を示し、その後に修復手順を提示してください。",
+      "- 安全に自動修復できる項目はそのまま対応し、設定変更・サービス再起動・再ログインが必要な場合は事前に説明してから実行してください。",
+      "- 修復後、音声機能が正常に復旧したか確認してください。"
+    ].join("\n");
+  }
+  return [
+    "[Task] Diagnose why real-time voice (Gemini Live) cannot connect or was unexpectedly interrupted on this computer.",
+    "",
+    "[Symptoms]",
+    "- Voice calls fail to connect or drop unexpectedly (e.g. \"Couldn't connect / Try again\").",
+    "",
+    "[Troubleshooting Steps (in order)]",
+    "1. Sign-in & OAuth Scope:",
+    "   - Check whether the current OAuth token includes all required voice scopes; older sessions may be missing voice permissions.",
+    "   - If re-authorization is needed, quit Antigravity completely, rename or move the `jetski-standalone-oauth-token` file, then relaunch and sign in again to refresh scopes.",
+    "2. Network, Firewall, VPN & gRPC Streaming:",
+    "   - Real-time voice requires persistent bidirectional HTTP/2 / gRPC streaming to `*.googleapis.com`.",
+    "   - Check whether the network, VPN, corporate firewall, or proxy is dropping or blocking HTTP/2 / gRPC connections.",
+    "   - Inspect logs for timeout or stream errors such as `context canceled while waiting for connections`.",
+    "3. System Microphone:",
+    "   - Verify that microphone access is granted to the desktop client and that the default input device is active and not exclusively held by another app.",
+    "4. Local Gateway Link:",
+    "   - Check the local gateway `/voice/ws` WebSocket relay and `mgy` logs for upstream errors.",
+    "",
+    "[Output Requirements]",
+    "- Report the root cause with concrete evidence (logs or command output) first, followed by fix steps.",
+    "- Apply safe fixes automatically; explain before changing configs, restarting services, or requiring re-login.",
+    "- Verify whether voice connectivity is restored after the fix."
+  ].join("\n");
+}
 
 // --- Full-Duplex Real-time Voice Call Manager (jetski-voice-proto) ---
 const WebVoiceCallManager = {
-  lastTroubleshootBubbleAt: 0,
+  _troubleshootBubbleShown: false,
   isInCall: false,
   callState: "idle", // idle | connecting | listening | reconnecting
+
+  hasShownTroubleshootBubble() {
+    if (this._troubleshootBubbleShown) return true;
+    try {
+      if (localStorage.getItem(VOICE_TROUBLESHOOT_SHOWN_KEY) === "true") {
+        this._troubleshootBubbleShown = true;
+        return true;
+      }
+    } catch (_) {}
+    return false;
+  },
+
+  markTroubleshootBubbleShown() {
+    this._troubleshootBubbleShown = true;
+    try {
+      localStorage.setItem(VOICE_TROUBLESHOOT_SHOWN_KEY, "true");
+    } catch (_) {}
+  },
 
   isVoiceModeEnabled() {
     try {
@@ -3753,11 +3830,10 @@ const WebVoiceCallManager = {
     };
   },
 
-  // 连接明确失败（已自动挂断）后弹出排查气泡；30 秒内不重复弹
+  // 连接明确失败（已自动挂断）后弹出排查气泡；安装/首次记录后永久只弹一次
   showTroubleshootBubble() {
-    const now = Date.now();
-    if (now - this.lastTroubleshootBubbleAt < 30000) return;
-    this.lastTroubleshootBubbleAt = now;
+    if (this.hasShownTroubleshootBubble()) return;
+    this.markTroubleshootBubbleShown();
     document.getElementById("voice-troubleshoot-bubble")?.classList.remove("hidden");
   },
 
@@ -3770,7 +3846,7 @@ const WebVoiceCallManager = {
     const inputEl = document.getElementById("chat-input");
     if (!inputEl || typeof sendMessage !== "function") return;
     const prevDraft = inputEl.value;
-    inputEl.value = VOICE_TROUBLESHOOT_PROMPT;
+    inputEl.value = getVoiceTroubleshootPrompt();
     await sendMessage();
     if (prevDraft && !inputEl.value) inputEl.value = prevDraft;
   },
@@ -4051,8 +4127,11 @@ const WebVoiceCallManager = {
     } else if (stateVal === 3) {
       this.callState = "reconnecting";
       this.renderCard();
-    } else if (stateVal === 4 || stateVal === 5) {
+    } else if (stateVal === 4) {
       this.endCall();
+    } else if (stateVal === 5) {
+      this.endCall();
+      this.showTroubleshootBubble();
     }
   },
 

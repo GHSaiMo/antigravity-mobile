@@ -209,13 +209,13 @@ extension ChatView {
     }
 
     /// 语音明确进入 failed 后弹出排查气泡（通话此时已被 VoiceCallManager 自动挂断）。
-    /// 同一次失败只弹一次，30 秒内不重复弹。
+    /// 安装后永久只弹出一次，避免后续偶发断线反复打扰。
     func handleVoiceCallStateChange(_ state: VoiceCallManager.CallState) {
         guard case .failed(let reason) = state else { return }
         // 未配置服务器地址属于本地配置问题，与语音链路无关
         guard reason != "未配置服务器地址", reason != String(localized: "未配置服务器地址") else { return }
-        guard Date().timeIntervalSince(lastVoiceTroubleshootBubbleAt) > 30 else { return }
-        lastVoiceTroubleshootBubbleAt = Date()
+        guard !AppSettings.shared.hasShownVoiceTroubleshootBubble else { return }
+        AppSettings.shared.hasShownVoiceTroubleshootBubble = true
         withAnimation { showVoiceTroubleshootBubble = true }
     }
 

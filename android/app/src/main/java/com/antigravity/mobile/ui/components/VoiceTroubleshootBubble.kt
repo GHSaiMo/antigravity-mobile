@@ -34,8 +34,8 @@ fun VoiceTroubleshootBubble(
     val amberWarning = Color(0xFFF59E0B)
 
     val checklistItems = listOf(
-        "**重新登录**：退出 Antigravity 登录，完全关闭后重新打开并登录，授权页勾选全部权限".loc,
-        "**开启代理 TUN 模式**：确保 `*.googleapis.com` 长连接（HTTP/2、gRPC）正常转发".loc,
+        "**重新登录**：退出桌面客户端账号，完全关闭后重新打开并登录，授权页勾选全部权限".loc,
+        "**检查网络与代理**：确保 `*.googleapis.com` 长连接（HTTP/2、gRPC）未被拦截（使用代理时请开启 TUN 模式）".loc,
         "**检查电脑麦克风**：系统麦克风权限已开启，默认录音设备正常且未被占用".loc
     )
 

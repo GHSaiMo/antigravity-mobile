@@ -30,7 +30,6 @@ public struct ChatView: View {
     @State var dictationManager = AudioDictationManager()
     @State var narrationPlayer = NarrationAudioPlayer()
     @State var showVoiceTroubleshootBubble = false
-    @State var lastVoiceTroubleshootBubbleAt: Date = .distantPast
     @State var previewDraftGallery: ImageGalleryData? = nil
     @State var showAttachmentSheet = false
     @State var showNavigatorSheet = false
