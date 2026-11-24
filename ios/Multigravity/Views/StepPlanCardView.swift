@@ -1,5 +1,148 @@
 import SwiftUI
 
+// MARK: - Below-Header Clipped Accordion Reveal Container
+
+/// Clips expandable accordion content strictly below its header using an animatable
+/// height-reveal `Layout` (avoiding SwiftUI `VStack` conditional-removal drift over
+/// or above the header row), while keeping collapsed content lazily unmounted.
+private struct AccordionRevealLayout: Layout {
+    var progress: CGFloat
+
+    var animatableData: CGFloat {
+        get { progress }
+        set { progress = newValue }
+    }
+
+    func sizeThatFits(
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache: inout ()
+    ) -> CGSize {
+        let clamped = min(max(progress, 0), 1)
+        guard let subview = subviews.first else {
+            return CGSize(width: proposal.width ?? 0, height: 0)
+        }
+        if clamped <= 0.0001, let width = proposal.width {
+            return CGSize(width: width, height: 0)
+        }
+        let ideal = subview.sizeThatFits(
+            ProposedViewSize(width: proposal.width, height: nil)
+        )
+        return CGSize(
+            width: proposal.width ?? ideal.width,
+            height: ideal.height * clamped
+        )
+    }
+
+    func placeSubviews(
+        in bounds: CGRect,
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache: inout ()
+    ) {
+        guard let subview = subviews.first else { return }
+        subview.place(
+            at: CGPoint(x: bounds.minX, y: bounds.minY),
+            anchor: .topLeading,
+            proposal: ProposedViewSize(width: bounds.width, height: nil)
+        )
+    }
+}
+
+struct AccordionRevealContainer<Content: View>: View {
+    let isExpanded: Bool
+    let topSpacing: CGFloat
+    let animation: Animation
+    @ViewBuilder let content: () -> Content
+
+    @State private var isMounted: Bool
+    @State private var revealProgress: CGFloat
+    @State private var unmountTask: Task<Void, Never>? = nil
+
+    init(
+        isExpanded: Bool,
+        topSpacing: CGFloat = 0,
+        animation: Animation = .spring(response: 0.28, dampingFraction: 1.0),
+        @ViewBuilder content: @escaping () -> Content
+    ) {
+        self.isExpanded = isExpanded
+        self.topSpacing = topSpacing
+        self.animation = animation
+        self.content = content
+        self._isMounted = State(initialValue: isExpanded)
+        self._revealProgress = State(initialValue: isExpanded ? 1 : 0)
+    }
+
+    var body: some View {
+        Group {
+            if isMounted {
+                AccordionRevealLayout(progress: revealProgress) {
+                    content()
+                        .padding(.top, topSpacing)
+                        .frame(maxWidth: .infinity, alignment: .topLeading)
+                }
+                .opacity(Double(min(max(revealProgress, 0), 1)))
+                .clipped()
+                .allowsHitTesting(isExpanded)
+            }
+        }
+        .onAppear {
+            var tx = Transaction()
+            tx.disablesAnimations = true
+            withTransaction(tx) {
+                if isExpanded {
+                    if !isMounted { isMounted = true }
+                    if revealProgress != 1 { revealProgress = 1 }
+                } else {
+                    if revealProgress != 0 { revealProgress = 0 }
+                    if isMounted { isMounted = false }
+                }
+            }
+        }
+        .onChange(of: isExpanded) { _, expanded in
+            unmountTask?.cancel()
+            unmountTask = nil
+            if expanded {
+                if !isMounted {
+                    var tx = Transaction()
+                    tx.disablesAnimations = true
+                    withTransaction(tx) {
+                        isMounted = true
+                        revealProgress = 0
+                    }
+                    DispatchQueue.main.async {
+                        guard isExpanded else { return }
+                        withAnimation(animation) {
+                            revealProgress = 1
+                        }
+                    }
+                } else {
+                    withAnimation(animation) {
+                        revealProgress = 1
+                    }
+                }
+            } else {
+                withAnimation(animation) {
+                    revealProgress = 0
+                }
+                unmountTask = Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 420_000_000)
+                    guard !Task.isCancelled, !isExpanded else { return }
+                    var tx = Transaction()
+                    tx.disablesAnimations = true
+                    withTransaction(tx) {
+                        isMounted = false
+                    }
+                }
+            }
+        }
+        .onDisappear {
+            unmountTask?.cancel()
+            unmountTask = nil
+        }
+    }
+}
+
 // MARK: - 2×2 Pulsing 4-Dot Spinner (Matches Desktop Antigravity `$vc`)
 
 public struct StepPlanDotSpinner: View {
@@ -109,7 +252,7 @@ public struct StepPlanCardView: View {
             } else {
                 Button {
                     UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                    withAnimation(.spring(response: 0.28, dampingFraction: 0.92)) {
+                    withAnimation(.spring(response: 0.28, dampingFraction: 1.0)) {
                         isManuallyExpanded.toggle()
                     }
                 } label: {
@@ -135,22 +278,13 @@ public struct StepPlanCardView: View {
                 .buttonStyle(.plain)
                 .zIndex(2)
 
-                if isManuallyExpanded {
+                AccordionRevealContainer(isExpanded: isManuallyExpanded, topSpacing: 6) {
                     checklistCard(isRunning: false)
-                        .padding(.top, 6)
-                        .clipped()
-                        .zIndex(1)
-                        .transition(
-                            .asymmetric(
-                                insertion: .opacity.combined(with: .scale(scale: 0.98, anchor: .top)),
-                                removal: .opacity
-                            )
-                        )
                 }
+                .zIndex(1)
             }
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
-        .clipped()
         .onChange(of: isActivePlan) { wasActive, nowActive in
             if wasActive && !nowActive {
                 withAnimation(.easeInOut(duration: 0.22)) {
@@ -243,7 +377,7 @@ public struct CollapsibleThinkingBlockView: View {
         VStack(alignment: .leading, spacing: 0) {
             Button {
                 UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                withAnimation(.spring(response: 0.28, dampingFraction: 0.92)) {
+                withAnimation(.spring(response: 0.28, dampingFraction: 1.0)) {
                     isExpanded.toggle()
                 }
             } label: {
@@ -266,7 +400,7 @@ public struct CollapsibleThinkingBlockView: View {
             }
             .buttonStyle(.plain)
 
-            if isExpanded {
+            AccordionRevealContainer(isExpanded: isExpanded) {
                 Text(thinking)
                     .font(.system(size: 11.5))
                     .foregroundColor(.secondary)
@@ -276,10 +410,9 @@ public struct CollapsibleThinkingBlockView: View {
                     .padding(.horizontal, 12)
                     .padding(.top, 2)
                     .padding(.bottom, 8)
-                    .transition(.opacity)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
         .background(Color.indigo.opacity(0.08))
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay(
@@ -372,7 +505,7 @@ public struct ActiveFocusToolRowView: View {
                 if hasDetails {
                     Button {
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                        withAnimation(.spring(response: 0.28, dampingFraction: 0.92)) {
+                        withAnimation(.spring(response: 0.28, dampingFraction: 1.0)) {
                             isExpanded.toggle()
                         }
                     } label: {
@@ -385,7 +518,7 @@ public struct ActiveFocusToolRowView: View {
             }
             .zIndex(2)
 
-            if isExpanded && hasDetails {
+            AccordionRevealContainer(isExpanded: isExpanded && hasDetails, topSpacing: 8) {
                 VStack(alignment: .leading, spacing: 5) {
                     if let thinking = thinking?.trimmingCharacters(in: .whitespacesAndNewlines), !thinking.isEmpty {
                         CollapsibleThinkingBlockView(
@@ -448,23 +581,12 @@ public struct ActiveFocusToolRowView: View {
                         }
                     }
                 }
-                .padding(.top, 8)
-                .clipped()
-                .zIndex(1)
-                .transition(
-                    .asymmetric(
-                        insertion: .opacity.combined(with: .scale(scale: 0.98, anchor: .top)),
-                        removal: .opacity
-                    )
-                )
             }
+            .zIndex(1)
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
-        .clipped()
         .onAppear {
-            withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) {
-                shimmerOn = true
-            }
+            shimmerOn = true
         }
     }
 
@@ -474,6 +596,7 @@ public struct ActiveFocusToolRowView: View {
                 .font(.system(size: 13, weight: .regular))
                 .foregroundColor(.secondary)
                 .opacity(shimmerOn ? 0.62 : 1.0)
+                .animation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true), value: shimmerOn)
                 .lineLimit(1)
                 .truncationMode(.tail)
 

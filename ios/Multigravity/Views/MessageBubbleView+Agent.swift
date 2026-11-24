@@ -30,9 +30,9 @@ extension MessageBubbleView {
     var agentBubble: some View {
         VStack(alignment: .leading, spacing: 8) {
             if let think = message.thinking?.trimmingCharacters(in: .whitespacesAndNewlines), !think.isEmpty {
-                VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: 0) {
                     Button {
-                        withAnimation(.easeInOut(duration: 0.2)) {
+                        withAnimation(.spring(response: 0.28, dampingFraction: 1.0)) {
                             isThinkingExpanded.toggle()
                         }
                     } label: {
@@ -43,9 +43,10 @@ extension MessageBubbleView {
                             Text(message.thinkingDuration.map { String(localized: "已深度思考 · \($0)") } ?? String(localized: "已深度思考"))
                                 .font(.system(size: 11.5, weight: .medium))
                                 .foregroundColor(.secondary)
-                            Image(systemName: isThinkingExpanded ? "chevron.up" : "chevron.down")
+                            Image(systemName: "chevron.down")
                                 .font(.system(size: 9.5, weight: .semibold))
                                 .foregroundColor(.secondary)
+                                .rotationEffect(.degrees(isThinkingExpanded ? 180 : 0))
                         }
                         .padding(.horizontal, 10)
                         .padding(.vertical, 5)
@@ -53,17 +54,22 @@ extension MessageBubbleView {
                         .clipShape(Capsule())
                     }
                     .buttonStyle(.plain)
+                    .zIndex(2)
 
-                    if isThinkingExpanded {
+                    AccordionRevealContainer(isExpanded: isThinkingExpanded, topSpacing: 6) {
                         Text(think)
                             .font(.system(size: 12))
                             .foregroundColor(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                             .textSelection(.enabled)
                             .padding(10)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                             .background(Color(uiColor: .tertiarySystemBackground))
                             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                     }
+                    .zIndex(1)
                 }
+                .frame(maxWidth: .infinity, alignment: .topLeading)
             }
 
             if !message.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {

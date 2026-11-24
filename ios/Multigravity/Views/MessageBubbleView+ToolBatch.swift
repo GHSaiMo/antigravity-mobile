@@ -62,7 +62,7 @@ extension MessageBubbleView {
                 // Header Capsule: stays strictly static, never dims on tap, chevron rotates smoothly
                 Button(action: {
                     UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                    withAnimation(.spring(response: 0.28, dampingFraction: 0.92)) {
+                    withAnimation(.spring(response: 0.28, dampingFraction: 1.0)) {
                         isExpanded.toggle()
                     }
                 }) {
@@ -95,9 +95,9 @@ extension MessageBubbleView {
                 .buttonStyle(NoTapAnimationButtonStyle())
                 .zIndex(2)
                 
-                // Expandable tool details: built lazily only when expanded so collapsed batches incur zero layout/text cost
-                if isExpanded {
-                    LazyVStack(alignment: .leading, spacing: 5) {
+                // Expandable tool details: lazily mounted & strictly clipped below the header capsule
+                AccordionRevealContainer(isExpanded: isExpanded, topSpacing: 6) {
+                    VStack(alignment: .leading, spacing: 5) {
                         if let thinking = thinking?.trimmingCharacters(in: .whitespacesAndNewlines), !thinking.isEmpty {
                             CollapsibleThinkingBlockView(
                                 thinking: thinking,
@@ -134,19 +134,10 @@ extension MessageBubbleView {
                             }
                         }
                     }
-                    .padding(.top, 6)
-                    .clipped()
-                    .zIndex(1)
-                    .transition(
-                        .asymmetric(
-                            insertion: .opacity.combined(with: .scale(scale: 0.98, anchor: .top)),
-                            removal: .opacity
-                        )
-                    )
                 }
+                .zIndex(1)
             }
             .frame(maxWidth: .infinity, alignment: .topLeading)
-            .clipped()
         }
 
         private func toolDetailRow(_ item: ToolDetailItem) -> some View {

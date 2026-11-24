@@ -13,9 +13,9 @@ public struct FrontmatterCollapseView: View {
     }
     
     public var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 0) {
             Button(action: {
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                withAnimation(.spring(response: 0.28, dampingFraction: 1.0)) {
                     isExpanded.toggle()
                 }
             }) {
@@ -30,9 +30,10 @@ public struct FrontmatterCollapseView: View {
                     
                     Spacer()
                     
-                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                    Image(systemName: "chevron.down")
                         .font(.system(size: 10.5, weight: .semibold))
                         .foregroundColor(.secondary.opacity(0.8))
+                        .rotationEffect(.degrees(isExpanded ? 180 : 0))
                 }
                 .padding(.horizontal, 11)
                 .padding(.vertical, 7)
@@ -40,9 +41,9 @@ public struct FrontmatterCollapseView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             }
             .buttonStyle(.plain)
-            .zIndex(10)
+            .zIndex(2)
             
-            if isExpanded {
+            AccordionRevealContainer(isExpanded: isExpanded, topSpacing: 8) {
                 ScrollView(.horizontal, showsIndicators: false) {
                     Text(content)
                         .font(.system(size: 11, design: .monospaced))
@@ -54,20 +55,12 @@ public struct FrontmatterCollapseView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .stroke(Color.secondary.opacity(0.2), lineWidth: 0.8)
-                )
-                .clipped()
-                .zIndex(1)
-                .transition(
-                    .asymmetric(
-                        insertion: .opacity.combined(with: .scale(scale: 0.98, anchor: .top)),
-                        removal: .opacity
-                    )
+                        .strokeBorder(Color.secondary.opacity(0.2), lineWidth: 0.8)
                 )
             }
+            .zIndex(1)
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
-        .clipped()
         .padding(.bottom, 4)
     }
 }
