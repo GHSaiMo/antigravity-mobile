@@ -62,7 +62,16 @@ public final class ConversationListViewModel {
 
     public var conversations: [ConversationItem] = []
     public var searchQuery: String = ""
-    public var selectedWorkspaceFilter: WorkspaceFilter? = nil
+    public var selectedWorkspaceFilter: WorkspaceFilter? = nil {
+        didSet {
+            if selectedWorkspaceFilter != .archived {
+                cancelArchiveAutoExit()
+            }
+        }
+    }
+    /// True during the brief window after unarchiving the last archived item while its row
+    /// finishes sliding out before exiting the `.archived` filter, preventing the empty-state flash.
+    public var isAutoExitingArchive: Bool = false
     public var isLoading: Bool = false
     public var errorMessage: String? = nil
     
@@ -79,6 +88,11 @@ public final class ConversationListViewModel {
     private var pendingDeleteCascadeIDs: Set<String> = []
     private var recentlyDeletedIDs: [String: Date] = [:]
     private let tombstoneTTL: TimeInterval = 600.0 // 10 minutes
+    // Optimistic archive overrides to prevent in-flight background polls from flipping archive state back mid-animation
+    private var pendingArchiveStates: [String: (archived: Bool, token: UUID)] = [:]
+    private var recentlyArchivedStates: [String: (archived: Bool, settledAt: Date)] = [:]
+    private let archiveSettlementWindow: TimeInterval = 5.0
+    private var archiveAutoExitTask: Task<Void, Never>? = nil
     
     private var pollTask: Task<Void, Never>? = nil
     /// Gateway push hints for list changes; polling is the fallback and a slow safety net.
@@ -168,6 +182,28 @@ public final class ConversationListViewModel {
     private func purgeExpiredTombstones() {
         let now = Date()
         recentlyDeletedIDs = recentlyDeletedIDs.filter { now.timeIntervalSince($0.value) < tombstoneTTL }
+        recentlyArchivedStates = recentlyArchivedStates.filter { now.timeIntervalSince($0.value.settledAt) < archiveSettlementWindow }
+    }
+
+    private func cancelArchiveAutoExit() {
+        archiveAutoExitTask?.cancel()
+        archiveAutoExitTask = nil
+        if isAutoExitingArchive {
+            isAutoExitingArchive = false
+        }
+    }
+
+    private func applyArchiveOverrides(_ items: [ConversationItem], fetchedAt: Date) -> [ConversationItem] {
+        guard !pendingArchiveStates.isEmpty || !recentlyArchivedStates.isEmpty else { return items }
+        return items.map { item in
+            if let pending = pendingArchiveStates[item.id] {
+                return item.isArchived == pending.archived ? item : item.withArchived(pending.archived)
+            }
+            if let recent = recentlyArchivedStates[item.id], fetchedAt < recent.settledAt {
+                return item.isArchived == recent.archived ? item : item.withArchived(recent.archived)
+            }
+            return item
+        }
     }
     
     /// 列表里实际可见的活跃会话（不含子代理、已归档与已删除/删除中的），不受搜索框与项目筛选影响。
@@ -444,7 +480,10 @@ public final class ConversationListViewModel {
         let nonDraftCached = cached.filter { !draftIds.contains($0.id) }
         if !nonDraftCached.isEmpty || !drafts.isEmpty {
             let pinnedIds = cacheManager.getPinnedConversationIDs()
-            let all = (drafts + nonDraftCached).map { $0.withPinned(pinnedIds.contains($0.id)) }
+            let all = applyArchiveOverrides(
+                (drafts + nonDraftCached).map { $0.withPinned(pinnedIds.contains($0.id)) },
+                fetchedAt: .distantFuture
+            )
             self.conversations = Self.sortItems(all)
             self.markReorderedNow()
         }
@@ -540,6 +579,7 @@ public final class ConversationListViewModel {
             Task { await apiClient.refreshGatewayCompat(baseURL: url) }
         }
         
+        let fetchStartedAt = Date()
         do {
             let items = try await apiClient.fetchConversations(baseURL: url)
             purgeExpiredTombstones()
@@ -565,7 +605,10 @@ public final class ConversationListViewModel {
             }
             let drafts = cacheManager.loadLocalDraftConversations()
             let draftIds = Set(drafts.map(\.id))
-            let nonDraftEnriched = enriched.filter { !draftIds.contains($0.id) && !$0.isDraft }
+            let nonDraftEnriched = applyArchiveOverrides(
+                enriched.filter { !draftIds.contains($0.id) && !$0.isDraft },
+                fetchedAt: fetchStartedAt
+            )
             let sorted = Self.sortItems(drafts + nonDraftEnriched)
             let all = applyReorderBuffer(sorted: sorted, forceReorder: !isBackgroundPoll)
             updateConversationsWithAnimation(all)
@@ -579,6 +622,7 @@ public final class ConversationListViewModel {
             if let elected = await ConnectionManager.shared.probeEndpoints(),
                let retryURL = URL(string: elected), retryURL != url {
                 do {
+                    let retryStartedAt = Date()
                     let items = try await apiClient.fetchConversations(baseURL: retryURL)
                     purgeExpiredTombstones()
                     let cleaned = items.filter { item in
@@ -603,7 +647,10 @@ public final class ConversationListViewModel {
                     }
                     let drafts = cacheManager.loadLocalDraftConversations()
                     let draftIds = Set(drafts.map(\.id))
-                    let nonDraftEnriched = enriched.filter { !draftIds.contains($0.id) && !$0.isDraft }
+                    let nonDraftEnriched = applyArchiveOverrides(
+                        enriched.filter { !draftIds.contains($0.id) && !$0.isDraft },
+                        fetchedAt: retryStartedAt
+                    )
                     let pinnedIds = cacheManager.getPinnedConversationIDs()
                     let all = (drafts + nonDraftEnriched).map { $0.withPinned(pinnedIds.contains($0.id)) }
                     let buffered = applyReorderBuffer(sorted: Self.sortItems(all), forceReorder: !isBackgroundPoll)
@@ -832,7 +879,10 @@ public final class ConversationListViewModel {
     @MainActor
     public func upsertConversation(_ item: ConversationItem) {
         guard !item.isSubagent && !item.isDraft && !pendingDeleteCascadeIDs.contains(item.id) && recentlyDeletedIDs[item.id] == nil else { return }
-        let resolved = item.withPinned(cacheManager.isPinned(cascadeId: item.id))
+        var resolved = item.withPinned(cacheManager.isPinned(cascadeId: item.id))
+        if let pending = pendingArchiveStates[resolved.id], resolved.isArchived != pending.archived {
+            resolved = resolved.withArchived(pending.archived)
+        }
         var updated = conversations
         if let idx = updated.firstIndex(where: { $0.id == resolved.id }) {
             updated[idx] = resolved
@@ -852,7 +902,7 @@ public final class ConversationListViewModel {
             updated[idx] = updated[idx].withPinned(newPinned)
             let sorted = Self.sortItems(updated)
             markReorderedNow()
-            withAnimation(.spring(response: 0.42, dampingFraction: 0.72)) {
+            withAnimation(.spring(response: 0.34, dampingFraction: 0.86)) {
                 self.conversations = sorted
             }
             cacheManager.saveConversations(sorted.filter { !$0.isDraft && !$0.isSubagent })
@@ -868,31 +918,84 @@ public final class ConversationListViewModel {
     public func toggleArchive(item: ConversationItem) {
         guard !item.isDraft else { return }
         let willArchive = !item.isArchived
+        let token = UUID()
+        pendingArchiveStates[item.id] = (archived: willArchive, token: token)
+        recentlyArchivedStates.removeValue(forKey: item.id)
+
         if let idx = conversations.firstIndex(where: { $0.id == item.id }) {
             var updated = conversations
             updated[idx] = updated[idx].withArchived(willArchive)
             let sorted = Self.sortItems(updated)
             markReorderedNow()
-            withAnimation(.spring(response: 0.42, dampingFraction: 0.72)) {
+
+            // When unarchiving the last item in `.archived`, remove the swiped row cleanly first
+            // before exiting the filter. Switching `selectedWorkspaceFilter = nil` in the same
+            // transaction keeps the swiped cell alive in `ForEach` and forces UICollectionView to
+            // move it across newly inserted rows while UISwipeActionController is still dismissing,
+            // causing the cell to pause/overlap near the top of the list.
+            let shouldAutoExitArchive = !willArchive
+                && self.selectedWorkspaceFilter == .archived
+                && !sorted.contains(where: {
+                    !$0.isSubagent &&
+                    $0.isArchived &&
+                    !self.pendingDeleteCascadeIDs.contains($0.id) &&
+                    self.recentlyDeletedIDs[$0.id] == nil &&
+                    !self.cacheManager.isDeletedConversation(cascadeId: $0.id)
+                })
+
+            cancelArchiveAutoExit()
+            if shouldAutoExitArchive {
+                self.isAutoExitingArchive = true
+            }
+
+            withAnimation(.spring(response: 0.34, dampingFraction: 0.86)) {
                 self.conversations = sorted
-                if !willArchive && self.selectedWorkspaceFilter == .archived && self.archivedConversations.isEmpty {
-                    self.selectedWorkspaceFilter = nil
+            }
+
+            if shouldAutoExitArchive {
+                archiveAutoExitTask = Task { @MainActor [weak self] in
+                    try? await Task.sleep(for: .milliseconds(320))
+                    guard let self, !Task.isCancelled else { return }
+                    guard self.selectedWorkspaceFilter == .archived && self.archivedConversations.isEmpty else {
+                        self.cancelArchiveAutoExit()
+                        return
+                    }
+                    withAnimation(.spring(response: 0.34, dampingFraction: 0.86)) {
+                        self.isAutoExitingArchive = false
+                        self.selectedWorkspaceFilter = nil
+                    }
                 }
             }
+
             cacheManager.saveConversations(sorted.filter { !$0.isDraft && !$0.isSubagent })
         }
 
-        guard let url = settings.serverURL, settings.isPaired else { return }
+        guard let url = settings.serverURL, settings.isPaired else {
+            pendingArchiveStates.removeValue(forKey: item.id)
+            return
+        }
         Task {
             do {
                 try await apiClient.setConversationArchived(cascadeId: item.id, archived: willArchive, baseURL: url)
+                if self.pendingArchiveStates[item.id]?.token == token {
+                    self.pendingArchiveStates.removeValue(forKey: item.id)
+                    self.recentlyArchivedStates[item.id] = (archived: willArchive, settledAt: Date())
+                }
             } catch {
                 // Revert optimistic state if remote update fails
-                if let idx = self.conversations.firstIndex(where: { $0.id == item.id }) {
-                    var reverted = self.conversations
-                    reverted[idx] = reverted[idx].withArchived(!willArchive)
-                    self.conversations = Self.sortItems(reverted)
-                    self.cacheManager.saveConversations(self.conversations.filter { !$0.isDraft && !$0.isSubagent })
+                if self.pendingArchiveStates[item.id]?.token == token {
+                    self.pendingArchiveStates.removeValue(forKey: item.id)
+                    self.recentlyArchivedStates.removeValue(forKey: item.id)
+                    self.cancelArchiveAutoExit()
+                    if let idx = self.conversations.firstIndex(where: { $0.id == item.id }) {
+                        var reverted = self.conversations
+                        reverted[idx] = reverted[idx].withArchived(!willArchive)
+                        let sorted = Self.sortItems(reverted)
+                        withAnimation(.spring(response: 0.34, dampingFraction: 0.86)) {
+                            self.conversations = sorted
+                        }
+                        self.cacheManager.saveConversations(sorted.filter { !$0.isDraft && !$0.isSubagent })
+                    }
                 }
             }
         }

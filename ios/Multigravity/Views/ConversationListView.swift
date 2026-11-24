@@ -734,7 +734,7 @@ public struct ConversationListView: View {
     private func toggleWorkspaceFilter(for item: ConversationItem) {
         let target: ConversationListViewModel.WorkspaceFilter = item.isPureChat ? .chat : .workspace(item.workspaceName)
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
-        withAnimation(.spring(response: 0.36, dampingFraction: 0.82)) {
+        withAnimation(.spring(response: 0.34, dampingFraction: 0.86)) {
             if viewModel.selectedWorkspaceFilter == target {
                 viewModel.selectedWorkspaceFilter = nil
             } else {
@@ -746,7 +746,7 @@ public struct ConversationListView: View {
     private func selectWorkspaceFilter(_ filter: ConversationListViewModel.WorkspaceFilter) {
         guard viewModel.selectedWorkspaceFilter != filter else { return }
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
-        withAnimation(.spring(response: 0.36, dampingFraction: 0.82)) {
+        withAnimation(.spring(response: 0.34, dampingFraction: 0.86)) {
             viewModel.selectedWorkspaceFilter = filter
         }
     }
@@ -754,7 +754,7 @@ public struct ConversationListView: View {
     private func clearWorkspaceFilter() {
         guard viewModel.selectedWorkspaceFilter != nil else { return }
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
-        withAnimation(.spring(response: 0.36, dampingFraction: 0.82)) {
+        withAnimation(.spring(response: 0.34, dampingFraction: 0.86)) {
             viewModel.selectedWorkspaceFilter = nil
         }
     }
@@ -1152,9 +1152,10 @@ public struct ConversationListView: View {
             }
 
             if let activeFilter = viewModel.selectedWorkspaceFilter,
+               !viewModel.isAutoExitingArchive,
                viewModel.filteredConversations.isEmpty && unmatchedContentHits.isEmpty && !viewModel.isSearchingContent {
                 VStack(spacing: 10) {
-                    Image(systemName: viewModel.searchQuery.isEmpty ? (activeFilter.isPureChat ? "bubble.left" : "folder") : "magnifyingglass")
+                    Image(systemName: viewModel.searchQuery.isEmpty ? (activeFilter.isArchived ? "archivebox" : (activeFilter.isPureChat ? "bubble.left" : "folder")) : "magnifyingglass")
                         .font(.system(size: 28))
                         .foregroundColor(.secondary)
                     Text(viewModel.searchQuery.isEmpty
@@ -1301,7 +1302,7 @@ public struct ConversationListView: View {
                         }
                     }
             }
-            .animation(.spring(response: 0.42, dampingFraction: 0.72), value: viewModel.filteredConversations.map(\.id))
+            .animation(.spring(response: 0.34, dampingFraction: 0.86), value: viewModel.filteredConversations.map(\.id))
 
             if viewModel.selectedWorkspaceFilter == nil,
                viewModel.searchQuery.trimmingCharacters(in: .whitespaces).isEmpty,
@@ -1354,7 +1355,7 @@ public struct ConversationListView: View {
         }
         .listStyle(.plain)
         .animation(.spring(response: 0.42, dampingFraction: 0.72), value: viewModel.globalBackgroundTasks.isEmpty)
-        .animation(.spring(response: 0.36, dampingFraction: 0.82), value: viewModel.selectedWorkspaceFilter)
+        .animation(.spring(response: 0.34, dampingFraction: 0.86), value: viewModel.selectedWorkspaceFilter)
         .refreshable {
             await viewModel.fetchConversations()
         }
