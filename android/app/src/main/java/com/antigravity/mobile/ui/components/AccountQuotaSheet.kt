@@ -91,7 +91,33 @@ fun AccountQuotaSheet(
     var paceDetailTitleAndInfo by remember { mutableStateOf<Pair<String, com.antigravity.mobile.data.model.WeeklyPaceInfo>?>(null) }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    val currentSelectedTab by rememberUpdatedState(selectedTab)
+    val currentOnLoadTokenHistory by rememberUpdatedState(onLoadTokenHistory)
     val prefs = remember(context) { com.antigravity.mobile.data.service.PreferencesManager(context) }
+
+    LaunchedEffect(selectedTab) {
+        if (selectedTab != 1) return@LaunchedEffect
+        currentOnLoadTokenHistory(false)
+        while (true) {
+            kotlinx.coroutines.delay(60_000L)
+            if (lifecycleOwner.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) {
+                currentOnLoadTokenHistory(false)
+            }
+        }
+    }
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME && currentSelectedTab == 1) {
+                currentOnLoadTokenHistory(false)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
     var hasInitializedChartType by remember { mutableStateOf(tokenHistory != null) }
     var selectedChartType by remember {
         mutableStateOf(
@@ -339,9 +365,6 @@ fun AccountQuotaSheet(
                             .background(if (active) colors.surface else Color.Transparent)
                             .clickable {
                                 selectedTab = idx
-                                if (idx == 1 && tokenHistory == null) {
-                                    onLoadTokenHistory(false)
-                                }
                             }
                             .padding(vertical = 6.dp),
                         contentAlignment = Alignment.Center

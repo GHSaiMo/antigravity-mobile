@@ -4,6 +4,7 @@ public struct AccountQuotaSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.displayScale) private var displayScale
+    @Environment(\.scenePhase) private var scenePhase
     @AppStorage("cockpit_email_masked") private var isMasked: Bool = false
     @State private var switchingAccountId: String? = nil
     @State private var pendingSwitch: CockpitAccountQuota? = nil
@@ -223,11 +224,6 @@ public struct AccountQuotaSheet: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 10)
                 .background(Color(uiColor: .systemGroupedBackground))
-                .onChange(of: selectedTab) { _, newTab in
-                    if newTab == 1 && tokenHistory == nil {
-                        Task { await onLoadTokenHistory?(false) }
-                    }
-                }
 
                 ScrollView {
                     VStack(spacing: 18) {
@@ -373,6 +369,27 @@ public struct AccountQuotaSheet: View {
                     try? await Task.sleep(nanoseconds: 10_000_000_000)
                     guard !Task.isCancelled else { break }
                     await onAppearFetch()
+                }
+            }
+            .task(id: selectedTab) {
+                guard selectedTab == 1 else { return }
+                await onLoadTokenHistory?(false)
+                while !Task.isCancelled {
+                    try? await Task.sleep(nanoseconds: 60_000_000_000)
+                    guard !Task.isCancelled else { break }
+                    if scenePhase == .active {
+                        await onLoadTokenHistory?(false)
+                    }
+                }
+            }
+            .onChange(of: scenePhase) { _, newPhase in
+                if newPhase == .active && selectedTab == 1 {
+                    Task { await onLoadTokenHistory?(false) }
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+                if selectedTab == 1 {
+                    Task { await onLoadTokenHistory?(false) }
                 }
             }
             .alert(alertTitle, isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {

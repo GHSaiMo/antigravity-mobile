@@ -570,6 +570,9 @@ function openQuotaSheet() {
     } else {
       fetchCockpitQuotas();
     }
+    if (isTokenHistoryTabVisible()) {
+      refreshTokenHistoryIfStale();
+    }
   }
 }
 
@@ -624,8 +627,17 @@ function initQuotaModule() {
   setInterval(() => {
     if (document.visibilityState === "visible") {
       fetchCockpitQuotas();
+      if (isTokenHistoryTabVisible()) {
+        refreshTokenHistoryIfStale();
+      }
     }
   }, 5 * 60 * 1000);
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && isTokenHistoryTabVisible()) {
+      refreshTokenHistoryIfStale();
+    }
+  });
 
   setInterval(() => {
     if (
@@ -678,8 +690,34 @@ async function fetchGlobalBackgroundTasksBar() {
 // Token History & 52-Week Heatmap Module
 // ==========================================================================
 
+const TOKEN_HISTORY_REFRESH_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 let currentTokenHistory = null;
+let lastTokenHistoryFetchAt = 0;
+let isFetchingTokenHistory = false;
 let selectedHeatCell = null;
+
+function isTokenHistoryStale() {
+  if (!currentTokenHistory) return true;
+  const elapsed = Date.now() - lastTokenHistoryFetchAt;
+  return elapsed < 0 || elapsed >= TOKEN_HISTORY_REFRESH_INTERVAL_MS;
+}
+
+function isTokenHistoryTabVisible() {
+  const sheet = document.getElementById("sheet-quota");
+  const historyContent = document.getElementById("quota-tab-history");
+  return !!(
+    sheet &&
+    !sheet.classList.contains("hidden") &&
+    historyContent &&
+    !historyContent.classList.contains("hidden")
+  );
+}
+
+function refreshTokenHistoryIfStale() {
+  if (isTokenHistoryStale()) {
+    fetchTokenHistory(false);
+  }
+}
 
 function initQuotaTabs() {
   const bar = document.getElementById("quota-segmented-bar");
@@ -698,11 +736,10 @@ function initQuotaTabs() {
       if (targetTab === "history") {
         if (realtimeContent) realtimeContent.classList.add("hidden");
         if (historyContent) historyContent.classList.remove("hidden");
-        if (!currentTokenHistory) {
-          fetchTokenHistory();
-        } else {
+        if (currentTokenHistory) {
           renderTokenHistory(currentTokenHistory);
         }
+        refreshTokenHistoryIfStale();
       } else {
         if (historyContent) historyContent.classList.add("hidden");
         if (realtimeContent) realtimeContent.classList.remove("hidden");
@@ -720,14 +757,23 @@ function formatTokensCompact(n) {
 }
 
 async function fetchTokenHistory(force = false) {
+  if (isFetchingTokenHistory) return;
+  if (!force && !isTokenHistoryStale()) {
+    renderTokenHistory(currentTokenHistory);
+    return;
+  }
+  isFetchingTokenHistory = true;
   try {
     const resp = await fetch("/api/v1/cockpit/tokens/history" + (force ? "?force=true" : ""));
     if (!resp.ok) throw new Error("HTTP " + resp.status);
     const data = await resp.json();
     currentTokenHistory = data;
+    lastTokenHistoryFetchAt = Date.now();
     renderTokenHistory(data);
   } catch (err) {
     console.warn("[TokenHistory] Failed to load token history:", err);
+  } finally {
+    isFetchingTokenHistory = false;
   }
 }
 

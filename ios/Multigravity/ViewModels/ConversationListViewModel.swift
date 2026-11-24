@@ -683,15 +683,29 @@ public final class ConversationListViewModel {
         )
     }
 
+    private var lastTokenHistoryFetchTime: Date = .distantPast
+    private var lastTokenHistorySessionKey: String? = nil
+    private let tokenHistoryRefreshInterval: TimeInterval = 3600 // 1 hour
+
     @MainActor
     public func fetchTokenHistory(force: Bool = false) async {
         guard settings.isPaired else { return }
-        if !force && tokenHistory != nil && isLoadingTokenHistory { return }
+        guard !isLoadingTokenHistory else { return }
         guard let url = settings.serverURL else { return }
+        let sessionKey = settings.isDemoMode ? "demo" : (settings.deviceToken ?? "")
+        let now = Date()
+        if !force && tokenHistory != nil && lastTokenHistorySessionKey == sessionKey {
+            let elapsed = now.timeIntervalSince(lastTokenHistoryFetchTime)
+            if elapsed >= 0 && elapsed < tokenHistoryRefreshInterval {
+                return
+            }
+        }
         isLoadingTokenHistory = true
         defer { isLoadingTokenHistory = false }
         do {
             self.tokenHistory = try await apiClient.fetchTokenHistory(baseURL: url, force: force)
+            self.lastTokenHistoryFetchTime = Date()
+            self.lastTokenHistorySessionKey = sessionKey
         } catch {
             // Silently ignore token history error
         }

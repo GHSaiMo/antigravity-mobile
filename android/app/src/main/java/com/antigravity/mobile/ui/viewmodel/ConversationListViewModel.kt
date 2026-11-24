@@ -37,6 +37,9 @@ private const val EVENTS_SAFETY_POLL_MS = 60_000L
 /** Cooldown window for background list reordering so concurrent running sessions don't swap rows rapidly. */
 private const val REORDER_COOLDOWN_MS = 8_000L
 
+/** Auto-refresh interval for Token History tab (1 hour). */
+private const val TOKEN_HISTORY_REFRESH_INTERVAL_MS = 60L * 60L * 1000L
+
 sealed interface ConversationListUiState {
     data object Loading : ConversationListUiState
     data class Success(val conversations: List<ConversationItem>) : ConversationListUiState
@@ -126,6 +129,9 @@ class ConversationListViewModel(
 
     private val _isLoadingTokenHistory = MutableStateFlow(false)
     val isLoadingTokenHistory: StateFlow<Boolean> = _isLoadingTokenHistory.asStateFlow()
+
+    private var lastTokenHistoryFetchAtMs: Long = 0L
+    private var lastTokenHistorySessionKey: String? = null
 
     private val _projects = MutableStateFlow<List<ProjectItem>>(loadInitialProjects())
     val projects: StateFlow<List<ProjectItem>> = _projects.asStateFlow()
@@ -672,13 +678,31 @@ class ConversationListViewModel(
 
     fun loadTokenHistory(force: Boolean = false) {
         if (!prefs.isPaired()) return
-        if (!force && _tokenHistory.value != null && _isLoadingTokenHistory.value) return
+        if (_isLoadingTokenHistory.value) return
+        val sessionKey = prefs.deviceToken.orEmpty()
+        val nowMs = System.currentTimeMillis()
+        if (!force && _tokenHistory.value != null && lastTokenHistorySessionKey == sessionKey) {
+            val elapsedMs = nowMs - lastTokenHistoryFetchAtMs
+            if (elapsedMs in 0L until TOKEN_HISTORY_REFRESH_INTERVAL_MS) return
+        }
         _isLoadingTokenHistory.value = true
         viewModelScope.launch {
-            apiClient.fetchTokenHistory(force = force).onSuccess {
-                _tokenHistory.value = it
+            try {
+                val attemptedBase = apiClient.currentBaseUrl
+                val firstResult = apiClient.fetchTokenHistory(force = force)
+                val result = if (firstResult.isFailure && probeAndDetectRouteChange(attemptedBase)) {
+                    apiClient.fetchTokenHistory(force = force)
+                } else {
+                    firstResult
+                }
+                result.onSuccess {
+                    _tokenHistory.value = it
+                    lastTokenHistoryFetchAtMs = System.currentTimeMillis()
+                    lastTokenHistorySessionKey = sessionKey
+                }
+            } finally {
+                _isLoadingTokenHistory.value = false
             }
-            _isLoadingTokenHistory.value = false
         }
     }
 
@@ -1114,6 +1138,9 @@ class ConversationListViewModel(
         _projects.value = emptyList()
         _projectsError.value = null
         _quotaData.value = null
+        _tokenHistory.value = null
+        lastTokenHistoryFetchAtMs = 0L
+        lastTokenHistorySessionKey = null
         onComplete()
     }
 
