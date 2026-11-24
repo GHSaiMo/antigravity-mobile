@@ -346,6 +346,17 @@ extension APIClient {
         )
     }
 
+    /// 撤销插件权限授权（Antigravity 2.35+，POST /gateway/plugins/grants/revoke）。
+    public func revokePluginPermissionGrant(_ item: PluginPermissionGrantItem, baseURL: URL) async throws {
+        let _: RevokePluginPermissionGrantResponse = try await gatewayPost(
+            path: "gateway/plugins/grants/revoke",
+            body: RevokePluginPermissionGrantRequest(grant: item.grant, scope: item.scope, projectId: item.projectId),
+            baseURL: baseURL,
+            timeout: 15,
+            failurePrefix: String(localized: "撤销插件授权失败")
+        )
+    }
+
     // MARK: - Automations 定时与守护任务接口
 
     /// 获取所有定时自动化任务状态与触发记录（GET /gateway/automations）。

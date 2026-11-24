@@ -402,6 +402,7 @@ public extension ModelProviderKind {
 
 public struct ModelSlidePickerOverlay: View {
     @Bindable var state: ModelSlidePickerState
+    var isRunning: Bool = false
     let onSelectModel: (String) -> Void
 
     private func accentColor(for kind: ModelProviderKind) -> Color {
@@ -431,6 +432,23 @@ public struct ModelSlidePickerOverlay: View {
 
                 // Left upward menu: All models color-coded by provider (Blue / Orange / Purple)
                 let leftRect = state.leftCardRect
+                if isRunning {
+                    HStack(spacing: 5) {
+                        Image(systemName: "clock.arrow.circlepath")
+                            .font(.system(size: 10.5, weight: .semibold))
+                        Text("运行中 · 切换下轮生效")
+                            .font(.system(size: 11, weight: .medium))
+                    }
+                    .foregroundColor(.orange)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(cardSurface(tint: .orange))
+                    .clipShape(Capsule())
+                    .overlay(Capsule().stroke(Color.orange.opacity(0.28), lineWidth: 0.8))
+                    .position(x: leftRect.midX, y: max(18, leftRect.minY - 16))
+                    .allowsHitTesting(false)
+                    .transition(.opacity)
+                }
                 leftColumnCard(size: leftRect.size)
                     .position(x: leftRect.midX, y: leftRect.midY)
                     .transition(

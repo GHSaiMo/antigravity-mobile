@@ -589,3 +589,131 @@ func TestV235_SearchConversationsEnrichesSideQuestions(t *testing.T) {
 		t.Fatalf("ordinary conversation must not be marked side-question: %+v", results[1])
 	}
 }
+
+func TestV235_ArchiveConversationAndDiskFallback(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+
+	var seenArchived *bool
+	p := setupMockUpstreamProxy(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/UpdateConversationAnnotations"):
+			var body struct {
+				CascadeIDs  []string `json:"cascadeIds"`
+				Annotations struct {
+					Archived *bool `json:"archived"`
+				} `json:"annotations"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			seenArchived = body.Annotations.Archived
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{}`))
+		case strings.HasSuffix(r.URL.Path, "/GetAllCascadeTrajectories"):
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"trajectorySummaries":{"casc-archive-235":{"summary":"Running job","status":"CASCADE_RUN_STATUS_RUNNING","stepCount":2}}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	})
+
+	// 1. Archive a running conversation directly via POST /gateway/cascade/archive.
+	rec := httptest.NewRecorder()
+	p.HandleArchiveCascade(rec, httptest.NewRequest(http.MethodPost, "/gateway/cascade/archive", strings.NewReader(`{"cascadeId":"casc-archive-235","archived":true}`)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("archive status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if seenArchived == nil || !*seenArchived {
+		t.Fatalf("expected upstream UpdateConversationAnnotations archived=true, got %v", seenArchived)
+	}
+	diskArchived, found := readAnnotationArchived("casc-archive-235")
+	if !found || !diskArchived {
+		t.Fatalf("expected archived=true persisted in disk .pbtxt, got found=%v val=%v", found, diskArchived)
+	}
+
+	// 2. GetAllCascadeTrajectories backfills archived=true from disk when upstream omits it.
+	port, token := p.ActiveUpstream()
+	recList := httptest.NewRecorder()
+	p.handleGetAllCascadeTrajectories(recList, httptest.NewRequest(http.MethodPost, "/api/exa.language_server_pb.LanguageServerService/GetAllCascadeTrajectories", strings.NewReader(`{}`)), port, token)
+	if recList.Code != http.StatusOK {
+		t.Fatalf("list status=%d body=%s", recList.Code, recList.Body.String())
+	}
+	var listResp struct {
+		TrajectorySummaries map[string]struct {
+			Annotations struct {
+				Archived bool `json:"archived"`
+			} `json:"annotations"`
+		} `json:"trajectorySummaries"`
+	}
+	if err := json.Unmarshal(recList.Body.Bytes(), &listResp); err != nil {
+		t.Fatal(err)
+	}
+	if !listResp.TrajectorySummaries["casc-archive-235"].Annotations.Archived {
+		t.Fatalf("expected disk archived=true backfilled into trajectorySummaries, got %s", recList.Body.String())
+	}
+
+	// 3. Unarchive flips disk annotation back to false.
+	recUn := httptest.NewRecorder()
+	p.HandleArchiveCascade(recUn, httptest.NewRequest(http.MethodPost, "/gateway/cascade/archive", strings.NewReader(`{"cascadeId":"casc-archive-235","archived":false}`)))
+	if recUn.Code != http.StatusOK {
+		t.Fatalf("unarchive status=%d body=%s", recUn.Code, recUn.Body.String())
+	}
+	diskArchived, found = readAnnotationArchived("casc-archive-235")
+	if !found || diskArchived {
+		t.Fatalf("expected archived=false after unarchive, got found=%v val=%v", found, diskArchived)
+	}
+}
+
+func TestV235_PluginPermissionGrantsListAndRevoke(t *testing.T) {
+	var revokedGrant, revokedScope, revokedProject string
+	p := setupMockUpstreamProxy(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/GetAllPlugins"):
+			_, _ = w.Write([]byte(`{"plugins":[{"id":"github","name":"GitHub","enabled":true}]}`))
+		case strings.HasSuffix(r.URL.Path, "/GetSidecars"):
+			_, _ = w.Write([]byte(`{"sidecars":[]}`))
+		case strings.HasSuffix(r.URL.Path, "/ListPluginAuthProviders"):
+			_, _ = w.Write([]byte(`{"providers":[]}`))
+		case strings.HasSuffix(r.URL.Path, "/ListPluginPermissionGrants"):
+			_, _ = w.Write([]byte(`{"grants":[{"grant":"gh:pr:write","pluginId":"github","plugin":"GitHub","description":"Create pull requests","action":"write","actionLabel":"Write PR","resourceName":"GHSaiMo/antigravity-mobile","scope":"PLUGIN_PERMISSION_GRANT_SCOPE_PROJECT","projectId":"proj-1","projectName":"antigravity-mobile"}]}`))
+		case strings.HasSuffix(r.URL.Path, "/RevokePluginPermissionGrant"):
+			var body struct {
+				Grant     string `json:"grant"`
+				Scope     string `json:"scope"`
+				ProjectID string `json:"projectId"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			revokedGrant = body.Grant
+			revokedScope = body.Scope
+			revokedProject = body.ProjectID
+			_, _ = w.Write([]byte(`{}`))
+		default:
+			http.NotFound(w, r)
+		}
+	})
+
+	// 1. GET /gateway/plugins includes permissionGrants from ListPluginPermissionGrants.
+	recList := httptest.NewRecorder()
+	p.HandleGetPlugins(recList, httptest.NewRequest(http.MethodGet, "/gateway/plugins", nil))
+	if recList.Code != http.StatusOK {
+		t.Fatalf("GET /gateway/plugins status=%d body=%s", recList.Code, recList.Body.String())
+	}
+	var resp PluginListResponse
+	if err := json.Unmarshal(recList.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.PermissionGrants) != 1 || resp.PermissionGrants[0].Grant != "gh:pr:write" || resp.PermissionGrants[0].ProjectName != "antigravity-mobile" {
+		t.Fatalf("unexpected permissionGrants: %+v", resp.PermissionGrants)
+	}
+
+	// 2. POST /gateway/plugins/grants/revoke forwards grant/scope/projectId to RevokePluginPermissionGrant.
+	recRev := httptest.NewRecorder()
+	p.HandleRevokePluginPermissionGrant(recRev, httptest.NewRequest(http.MethodPost, "/gateway/plugins/grants/revoke", strings.NewReader(`{"grant":"gh:pr:write","scope":"PLUGIN_PERMISSION_GRANT_SCOPE_PROJECT","projectId":"proj-1"}`)))
+	if recRev.Code != http.StatusOK {
+		t.Fatalf("POST /gateway/plugins/grants/revoke status=%d body=%s", recRev.Code, recRev.Body.String())
+	}
+	if revokedGrant != "gh:pr:write" || revokedScope != "PLUGIN_PERMISSION_GRANT_SCOPE_PROJECT" || revokedProject != "proj-1" {
+		t.Fatalf("unexpected revoke forward: grant=%q scope=%q project=%q", revokedGrant, revokedScope, revokedProject)
+	}
+}

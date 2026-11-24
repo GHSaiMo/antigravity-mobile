@@ -751,6 +751,17 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 			keptSideQuestionIDs = append(keptSideQuestionIDs, id)
 		}
 
+		// Backfill archived state from disk .pbtxt when upstream omits the field.
+		if ann, ok := s["annotations"].(map[string]interface{}); !ok || ann == nil || ann["archived"] == nil {
+			if diskArchived, found := readAnnotationArchived(id); found && diskArchived {
+				if ann == nil {
+					ann = make(map[string]interface{})
+				}
+				ann["archived"] = true
+				s["annotations"] = ann
+			}
+		}
+
 		// Enrich missing title (authoritative sources first: annotations -> disk .pbtxt -> upstream summary;
 		// in-memory cascadeTitles is last-resort fallback so a prompt-derived fallback never shadows upstream summary).
 		hasTitle := false

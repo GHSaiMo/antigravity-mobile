@@ -13,6 +13,8 @@ public struct McpSkillsSheet: View {
     @State private var skills: [SkillInfo] = []
     @State private var plugins: [CascadePluginItem] = []
     @State private var pluginProviders: [PluginAuthProviderItem] = []
+    @State private var pluginPermissionGrants: [PluginPermissionGrantItem] = []
+    @State private var revokingGrantIds: Set<String> = []
     @State private var automations: [AutomationSidecarItem] = []
     @State private var automationEvents: [AutomationEventItem] = []
     @State private var backgroundTasks: [GlobalBackgroundTaskItem] = []
@@ -743,6 +745,53 @@ public struct McpSkillsSheet: View {
             }
         }
 
+        if !pluginPermissionGrants.isEmpty {
+            Section(header: Text("已授权插件权限 (\(pluginPermissionGrants.count))")) {
+                ForEach(pluginPermissionGrants) { item in
+                    HStack(alignment: .center, spacing: 10) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            HStack(spacing: 6) {
+                                Text(item.displayTitle)
+                                    .font(.system(size: 13.5, weight: .semibold))
+                                    .lineLimit(2)
+                                Text(item.scopeLabel)
+                                    .font(.system(size: 10.5, weight: .medium))
+                                    .foregroundColor(.indigo)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(Color.indigo.opacity(0.12))
+                                    .clipShape(Capsule())
+                            }
+                            if let res = item.resourceName, !res.isEmpty {
+                                Text(res)
+                                    .font(.system(size: 11, design: .monospaced))
+                                    .foregroundColor(.secondary)
+                                    .lineLimit(1)
+                            } else if item.anyResource {
+                                Text("全部资源")
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                        Spacer(minLength: 8)
+                        Button(role: .destructive) {
+                            revokePluginGrant(item)
+                        } label: {
+                            if revokingGrantIds.contains(item.id) {
+                                ProgressView().scaleEffect(0.7)
+                            } else {
+                                Text("撤销")
+                                    .font(.system(size: 12, weight: .semibold))
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(revokingGrantIds.contains(item.id))
+                    }
+                    .padding(.vertical, 2)
+                }
+            }
+        }
+
         if filteredPlugins.isEmpty {
             Section {
                 VStack(spacing: 8) {
@@ -833,8 +882,24 @@ public struct McpSkillsSheet: View {
             if let refreshed = try? await APIClient.shared.fetchPlugins(baseURL: url) {
                 self.plugins = refreshed.plugins
                 self.pluginProviders = refreshed.providers
+                self.pluginPermissionGrants = refreshed.permissionGrants
             }
             installingPluginIds.remove(id)
+        }
+    }
+
+    private func revokePluginGrant(_ item: PluginPermissionGrantItem) {
+        guard let url = settings.serverURL else { return }
+        revokingGrantIds.insert(item.id)
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        Task {
+            do {
+                try await APIClient.shared.revokePluginPermissionGrant(item, baseURL: url)
+                self.pluginPermissionGrants.removeAll { $0.id == item.id }
+            } catch {
+                self.errorMessage = error.localizedDescription
+            }
+            revokingGrantIds.remove(item.id)
         }
     }
 
@@ -1505,6 +1570,7 @@ public struct McpSkillsSheet: View {
         if let pluginsResult {
             self.plugins = pluginsResult.plugins
             self.pluginProviders = pluginsResult.providers
+            self.pluginPermissionGrants = pluginsResult.permissionGrants
         }
         if let automationsResult {
             self.automations = automationsResult.automations

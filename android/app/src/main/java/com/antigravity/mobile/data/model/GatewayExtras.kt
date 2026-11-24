@@ -1278,9 +1278,45 @@ data class PluginAuthProviderItem(
 )
 
 @Serializable
+data class PluginPermissionGrantItem(
+    val grant: String = "",
+    val pluginId: String? = null,
+    val plugin: String? = null,
+    val description: String? = null,
+    val action: String? = null,
+    val actionLabel: String? = null,
+    val resourceName: String? = null,
+    val anyResource: Boolean = false,
+    val scope: String = "",
+    val projectId: String? = null,
+    val projectName: String? = null
+) {
+    val uniqueKey: String get() = "$scope:${projectId.orEmpty()}:$grant"
+    val displayTitle: String
+        get() {
+            if (!description.isNullOrBlank()) return description
+            val p = plugin?.takeIf { it.isNotBlank() } ?: pluginId.orEmpty()
+            val a = actionLabel?.takeIf { it.isNotBlank() } ?: action.orEmpty()
+            return when {
+                p.isNotBlank() && a.isNotBlank() -> "$p · $a"
+                p.isNotBlank() -> p
+                else -> grant
+            }
+        }
+}
+
+@Serializable
+data class RevokePluginPermissionGrantRequest(
+    val grant: String,
+    val scope: String = "",
+    val projectId: String? = null
+)
+
+@Serializable
 data class CascadePluginsResponse(
     val plugins: List<CascadePluginItem> = emptyList(),
-    val providers: List<PluginAuthProviderItem> = emptyList()
+    val providers: List<PluginAuthProviderItem> = emptyList(),
+    val permissionGrants: List<PluginPermissionGrantItem> = emptyList()
 )
 
 @Serializable

@@ -8,6 +8,7 @@ public final class ConversationListViewModel {
     public enum WorkspaceFilter: Equatable, Hashable, Sendable {
         case chat
         case workspace(String)
+        case archived
 
         public var displayName: String {
             switch self {
@@ -15,6 +16,8 @@ public final class ConversationListViewModel {
                 return "Chat"
             case .workspace(let name):
                 return name
+            case .archived:
+                return String(localized: "已归档")
             }
         }
 
@@ -23,12 +26,19 @@ public final class ConversationListViewModel {
             return false
         }
 
+        public var isArchived: Bool {
+            if case .archived = self { return true }
+            return false
+        }
+
         public func matches(_ item: ConversationItem) -> Bool {
             switch self {
             case .chat:
-                return item.isPureChat
+                return !item.isArchived && item.isPureChat
             case .workspace(let name):
-                return !item.isPureChat && item.workspaceName == name
+                return !item.isArchived && !item.isPureChat && item.workspaceName == name
+            case .archived:
+                return item.isArchived
             }
         }
     }
@@ -44,6 +54,8 @@ public final class ConversationListViewModel {
                 return "__pure_chat__"
             case .workspace(let name):
                 return "ws:\(name)"
+            case .archived:
+                return "__archived__"
             }
         }
     }
@@ -158,23 +170,40 @@ public final class ConversationListViewModel {
         recentlyDeletedIDs = recentlyDeletedIDs.filter { now.timeIntervalSince($0.value) < tombstoneTTL }
     }
     
-    /// 列表里实际可见的会话（不含子代理与已删除/删除中的），不受搜索框与项目筛选影响。
+    /// 列表里实际可见的活跃会话（不含子代理、已归档与已删除/删除中的），不受搜索框与项目筛选影响。
     private var visibleConversations: [ConversationItem] {
         conversations.filter { item in
             !item.isSubagent &&
+            !item.isArchived &&
             !pendingDeleteCascadeIDs.contains(item.id) &&
             (recentlyDeletedIDs[item.id] == nil) &&
             !cacheManager.isDeletedConversation(cascadeId: item.id)
         }
     }
 
+    /// 已归档的会话列表（独立收纳，避免无限历史模式下淹没主列表）。
+    public var archivedConversations: [ConversationItem] {
+        conversations.filter { item in
+            !item.isSubagent &&
+            item.isArchived &&
+            !pendingDeleteCascadeIDs.contains(item.id) &&
+            (recentlyDeletedIDs[item.id] == nil) &&
+            !cacheManager.isDeletedConversation(cascadeId: item.id)
+        }
+    }
+
+    public var archivedCount: Int {
+        archivedConversations.count
+    }
+
     public var totalVisibleCount: Int {
         visibleConversations.count
     }
 
-    /// 按当前选中的工作区/Chat 过滤后的会话列表。
+    /// 按当前选中的工作区/Chat/已归档过滤后的会话列表。
     public var workspaceFilteredConversations: [ConversationItem] {
         guard let filter = selectedWorkspaceFilter else { return visibleConversations }
+        if filter.isArchived { return archivedConversations }
         return visibleConversations.filter { filter.matches($0) }
     }
 
@@ -228,6 +257,11 @@ public final class ConversationListViewModel {
                 return a.filter.displayName.localizedCaseInsensitiveCompare(b.filter.displayName) == .orderedAscending
             }
         result.append(contentsOf: sortedProjects)
+        let archived = archivedConversations
+        if !archived.isEmpty {
+            let latestArchived = archived.map(\.effectiveLastModified).max() ?? .distantPast
+            result.append(WorkspaceFilterOption(filter: .archived, count: archived.count, latestModified: latestArchived))
+        }
         return result
     }
 
@@ -804,6 +838,40 @@ public final class ConversationListViewModel {
         guard let url = settings.serverURL, settings.isPaired else { return }
         Task {
             try? await apiClient.setConversationPinned(cascadeId: item.id, pinned: newPinned, baseURL: url)
+        }
+    }
+
+    @MainActor
+    public func toggleArchive(item: ConversationItem) {
+        guard !item.isDraft else { return }
+        let willArchive = !item.isArchived
+        if let idx = conversations.firstIndex(where: { $0.id == item.id }) {
+            var updated = conversations
+            updated[idx] = updated[idx].withArchived(willArchive)
+            let sorted = Self.sortItems(updated)
+            markReorderedNow()
+            withAnimation(.spring(response: 0.42, dampingFraction: 0.72)) {
+                self.conversations = sorted
+                if !willArchive && self.selectedWorkspaceFilter == .archived && self.archivedConversations.isEmpty {
+                    self.selectedWorkspaceFilter = nil
+                }
+            }
+            cacheManager.saveConversations(sorted.filter { !$0.isDraft && !$0.isSubagent })
+        }
+
+        guard let url = settings.serverURL, settings.isPaired else { return }
+        Task {
+            do {
+                try await apiClient.setConversationArchived(cascadeId: item.id, archived: willArchive, baseURL: url)
+            } catch {
+                // Revert optimistic state if remote update fails
+                if let idx = self.conversations.firstIndex(where: { $0.id == item.id }) {
+                    var reverted = self.conversations
+                    reverted[idx] = reverted[idx].withArchived(!willArchive)
+                    self.conversations = Self.sortItems(reverted)
+                    self.cacheManager.saveConversations(self.conversations.filter { !$0.isDraft && !$0.isSubagent })
+                }
+            }
         }
     }
     

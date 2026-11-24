@@ -707,6 +707,8 @@ async function markConversationAsRead(cascadeId) {
   } catch (e) {}
 }
 
+let showArchivedOnly = false;
+
 function renderConversationList(summaries, { forceReorder = false } = {}) {
   const listEl = document.getElementById("conversations-list");
   const searchInput = document.getElementById("conv-search");
@@ -721,9 +723,17 @@ function renderConversationList(summaries, { forceReorder = false } = {}) {
     }
   }
 
-  const sortedAll = Object.entries(summaries)
+  const allNonSubagents = Object.entries(summaries)
     .filter(([, info]) => !isSubagentSummary(info))
-    .map(([id, info]) => ({ id, ...info }))
+    .map(([id, info]) => ({ id, ...info }));
+
+  const archivedCount = allNonSubagents.filter((it) => Boolean(it.annotations?.archived)).length;
+  if (showArchivedOnly && archivedCount === 0) {
+    showArchivedOnly = false;
+  }
+
+  const sortedAll = allNonSubagents
+    .filter((it) => (showArchivedOnly ? Boolean(it.annotations?.archived) : !it.annotations?.archived))
     .sort((a, b) => {
       const aAction = isConversationNeedsAction(a);
       const bAction = isConversationNeedsAction(b);
@@ -745,19 +755,33 @@ function renderConversationList(summaries, { forceReorder = false } = {}) {
       })
   );
 
+  const archivedBannerHtml = showArchivedOnly
+    ? `<div class="conv-archived-banner" style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;margin:0 0 8px;border-radius:12px;background:var(--surface-secondary,rgba(128,128,128,0.12));font-size:12.5px;">
+        <span style="font-weight:600;">已归档会话 (${archivedCount})</span>
+        <button type="button" class="conv-exit-archived-btn" style="border:none;background:none;color:var(--accent,#6366f1);font-weight:600;cursor:pointer;font-size:12.5px;">返回全部</button>
+      </div>`
+    : "";
+
+  const archivedFooterHtml = !showArchivedOnly && !query && archivedCount > 0
+    ? `<button type="button" class="conv-open-archived-btn" style="display:flex;align-items:center;justify-content:center;gap:6px;width:100%;padding:10px 12px;margin-top:6px;border:none;background:transparent;color:var(--text-secondary,#8e8e93);font-size:12.5px;font-weight:500;cursor:pointer;">
+        已归档会话 (${archivedCount}) ›
+      </button>`
+    : "";
+
   if (items.length === 0) {
     // 有内容命中（或正在搜索）时不显示「暂无匹配」，由下面的内容命中区承接
     const contentBusy = !!query && contentSearch.query === (searchInput?.value || "").trim() && (contentSearch.loading || contentSearch.results.length > 0);
-    listEl.innerHTML = `
+    listEl.innerHTML = archivedBannerHtml + `
       <div class="loading-state no-match-state${contentBusy ? " hidden" : ""}">
-        <p>暂无匹配会话</p>
+        <p>${showArchivedOnly ? "暂无已归档会话" : "暂无匹配会话"}</p>
       </div>
-    `;
+    ` + archivedFooterHtml;
+    attachConversationCardInteractions();
     return;
   }
 
   const visibleIds = new Set(items.map((it) => it.id));
-  listEl.innerHTML = items
+  listEl.innerHTML = archivedBannerHtml + items
     .map((item) => {
       const hasError = !!item.hasError || item.status === "CASCADE_RUN_STATUS_ERROR";
       const hasAction = !hasError && !!item.needsInput;
@@ -812,9 +836,21 @@ function renderConversationList(summaries, { forceReorder = false } = {}) {
           <span class="ws-name">${escapeHtml(wsName)}</span>${formatConvPrBadge(item)}`;
       const rightMetaHtml = isSideQuestion ? escapeHtml(timeStr) : `${stepCount} ${stepLabel} • ${timeStr}`;
 
+      const isArchived = Boolean(item.annotations?.archived);
+      const archiveLabel = isArchived
+        ? (typeof t === "function" ? t("取消归档") : "取消归档")
+        : (typeof t === "function" ? t("归档会话") : "归档会话");
+
       return `
         <div class="${wrapperClasses}" data-id="${idEsc}">
           <div class="conv-card-actions">
+            <button class="conv-card-archive-btn${isArchived ? " is-unarchive" : ""}" type="button" aria-label="${archiveLabel}" title="${archiveLabel}" data-id="${idEsc}" data-archived="${isArchived ? "1" : "0"}">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="21 8 21 21 3 21 3 8"></polyline>
+                <rect x="1" y="3" width="22" height="5"></rect>
+                <line x1="10" y1="12" x2="14" y2="12"></line>
+              </svg>
+            </button>
             <button class="conv-card-delete-btn" type="button" aria-label="${typeof t === "function" ? t("删除会话") : "删除会话"}" data-id="${idEsc}">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                 <polyline points="3 6 5 6 21 6"></polyline>
@@ -837,7 +873,7 @@ function renderConversationList(summaries, { forceReorder = false } = {}) {
         </div>
       `;
     })
-    .join("");
+    .join("") + archivedFooterHtml;
 
   attachConversationCardInteractions();
   updateAppBadgeFromList(items);
@@ -941,13 +977,13 @@ function initConversationCardDelegation() {
       wrapper.classList.add("swiping");
 
       const isAlreadySwiped = card.classList.contains("swiped");
-      const baseOffset = isAlreadySwiped ? -80 : 0;
+      const baseOffset = isAlreadySwiped ? -128 : 0;
       let newX = baseOffset + dx;
 
       if (newX > 0) {
         newX = newX * 0.2;
-      } else if (newX < -80) {
-        newX = -80 + (newX + 80) * 0.25;
+      } else if (newX < -128) {
+        newX = -128 + (newX + 128) * 0.25;
       }
       card.style.transform = `translateX(${newX}px)`;
     }
@@ -983,13 +1019,13 @@ function initConversationCardDelegation() {
         if (dx > 25) {
           closeCard(card);
         } else {
-          card.style.transform = "translateX(-80px)";
+          card.style.transform = "translateX(-128px)";
           card.classList.add("swiped");
           wrapper.classList.add("swiped");
         }
       } else {
-        if (dx < -38) {
-          card.style.transform = "translateX(-80px)";
+        if (dx < -44) {
+          card.style.transform = "translateX(-128px)";
           card.classList.add("swiped");
           wrapper.classList.add("swiped");
           triggerHaptic("light");
@@ -1026,6 +1062,29 @@ function initConversationCardDelegation() {
   });
 
   listEl.addEventListener("click", (e) => {
+    const openArchBtn = e.target.closest(".conv-open-archived-btn");
+    if (openArchBtn) {
+      e.stopPropagation();
+      showArchivedOnly = true;
+      renderConversationList(currentTrajectories || {}, { forceReorder: true });
+      return;
+    }
+    const exitArchBtn = e.target.closest(".conv-exit-archived-btn");
+    if (exitArchBtn) {
+      e.stopPropagation();
+      showArchivedOnly = false;
+      renderConversationList(currentTrajectories || {}, { forceReorder: true });
+      return;
+    }
+    const archiveBtn = e.target.closest(".conv-card-archive-btn");
+    if (archiveBtn) {
+      e.stopPropagation();
+      triggerHaptic("medium");
+      const id = archiveBtn.getAttribute("data-id") || archiveBtn.closest(".conv-card-wrapper")?.getAttribute("data-id");
+      const isCurrentlyArchived = archiveBtn.getAttribute("data-archived") === "1";
+      if (id) toggleArchiveConversation(id, !isCurrentlyArchived);
+      return;
+    }
     const deleteBtn = e.target.closest(".conv-card-delete-btn");
     if (deleteBtn) {
       e.stopPropagation();
@@ -1069,6 +1128,32 @@ function openDeleteActionSheet(id) {
   pendingDeleteCascadeId = id;
   const sheet = document.getElementById("actionsheet-delete");
   if (sheet) sheet.classList.remove("hidden");
+}
+
+async function toggleArchiveConversation(id, archived) {
+  if (!id) return;
+  closeOtherCards();
+  const prev = currentTrajectories?.[id]?.annotations?.archived;
+  if (currentTrajectories && currentTrajectories[id]) {
+    if (!currentTrajectories[id].annotations) currentTrajectories[id].annotations = {};
+    currentTrajectories[id].annotations.archived = archived;
+    renderConversationList(currentTrajectories, { forceReorder: true });
+  }
+  try {
+    await rpc("UpdateConversationAnnotations", {
+      cascadeIds: [id],
+      annotations: { archived },
+      mergeAnnotations: true,
+    });
+    showToast?.(archived ? "已归档会话" : "已取消归档");
+  } catch (err) {
+    console.error("Failed to update archive state:", err);
+    if (currentTrajectories && currentTrajectories[id]?.annotations) {
+      currentTrajectories[id].annotations.archived = prev;
+      renderConversationList(currentTrajectories, { forceReorder: true });
+    }
+    showToast?.("归档操作失败", 2600);
+  }
 }
 
 function closeDeleteActionSheet() {

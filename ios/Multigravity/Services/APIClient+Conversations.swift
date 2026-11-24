@@ -146,6 +146,25 @@ extension APIClient {
         struct EmptyResp: Decodable {}
         _ = try await rpc(method: "UpdateConversationAnnotations", body: body, baseURL: baseURL) as EmptyResp
     }
+
+    /// Update archived state of a conversation (Antigravity 2.35+ supports archiving idle and running conversations).
+    public func setConversationArchived(cascadeId: String, archived: Bool, baseURL: URL) async throws {
+        struct AnnotationsPayload: Encodable {
+            let archived: Bool
+        }
+        struct UpdateReq: Encodable {
+            let cascadeIds: [String]
+            let annotations: AnnotationsPayload
+            let mergeAnnotations: Bool
+        }
+        let body = UpdateReq(
+            cascadeIds: [cascadeId],
+            annotations: AnnotationsPayload(archived: archived),
+            mergeAnnotations: true
+        )
+        struct EmptyResp: Decodable {}
+        _ = try await rpc(method: "UpdateConversationAnnotations", body: body, baseURL: baseURL) as EmptyResp
+    }
     
     /// Unpairs this device from the gateway and cleans up server-side state.
     public func unpair(

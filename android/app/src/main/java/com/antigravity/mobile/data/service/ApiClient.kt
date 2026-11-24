@@ -1916,6 +1916,54 @@ class ApiClient(
         }
     }
 
+    suspend fun revokePluginPermissionGrant(item: PluginPermissionGrantItem): Result<Unit> = withContext(Dispatchers.IO) {
+        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(RuntimeException("未配置网关地址".loc))
+        try {
+            val payload = json.encodeToString(
+                RevokePluginPermissionGrantRequest(
+                    grant = item.grant,
+                    scope = item.scope,
+                    projectId = item.projectId?.takeIf { it.isNotBlank() }
+                )
+            )
+            val request = buildAuthorizedRequest("$baseUrl/gateway/plugins/grants/revoke")
+                .post(payload.toRequestBody(jsonMediaType))
+                .build()
+            client.newCall(request).await().use { response ->
+                if (!response.isSuccessful) {
+                    return@withContext Result.failure(RuntimeException("HTTP ${response.code}"))
+                }
+                Result.success(Unit)
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun setConversationArchived(cascadeId: String, archived: Boolean): Result<Unit> = withContext(Dispatchers.IO) {
+        val baseUrl = currentBaseUrl ?: return@withContext Result.failure(IllegalStateException("未配置网关地址".loc))
+        val url = "$baseUrl/api/exa.language_server_pb.LanguageServerService/UpdateConversationAnnotations"
+        val payload = buildJsonObject {
+            put("cascadeIds", buildJsonArray { add(JsonPrimitive(cascadeId)) })
+            put("annotations", buildJsonObject {
+                put("archived", archived)
+            })
+            put("mergeAnnotations", true)
+        }
+        try {
+            val request = buildAuthorizedRequest(url)
+                .post(payload.toString().toRequestBody(jsonMediaType))
+                .header("Connect-Protocol-Version", "1")
+                .build()
+            client.newCall(request).await().use { response ->
+                if (response.isSuccessful) Result.success(Unit)
+                else Result.failure(RuntimeException("归档操作失败: HTTP ${response.code}".loc))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
     // MARK: - Automations 定时与守护任务接口
 
     suspend fun fetchAutomationsData(): Result<AutomationsResponse> = withContext(Dispatchers.IO) {

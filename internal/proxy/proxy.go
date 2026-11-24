@@ -654,13 +654,21 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Plugins endpoints (Antigravity 2.31+)
+	// Plugins endpoints (Antigravity 2.31+ / 2.35+ permission grants)
 	if r.URL.Path == "/gateway/plugins" {
 		p.HandleGetPlugins(w, r)
 		return
 	}
 	if r.URL.Path == "/gateway/plugins/install" {
 		p.HandleInstallPlugin(w, r)
+		return
+	}
+	if r.URL.Path == "/gateway/plugins/grants/revoke" {
+		p.HandleRevokePluginPermissionGrant(w, r)
+		return
+	}
+	if r.URL.Path == "/gateway/cascade/archive" {
+		p.HandleArchiveCascade(w, r)
 		return
 	}
 

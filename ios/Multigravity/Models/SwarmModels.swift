@@ -522,9 +522,76 @@ public struct PluginAuthProviderItem: Codable, Sendable, Identifiable, Equatable
     }
 }
 
+public struct PluginPermissionGrantItem: Codable, Sendable, Identifiable, Equatable {
+    public var id: String { "\(scope):\(projectId ?? ""):\(grant)" }
+    public let grant: String
+    public let pluginId: String?
+    public let plugin: String?
+    public let description: String?
+    public let action: String?
+    public let actionLabel: String?
+    public let resourceName: String?
+    public let anyResource: Bool
+    public let scope: String
+    public let projectId: String?
+    public let projectName: String?
+
+    enum CodingKeys: String, CodingKey {
+        case grant, pluginId, plugin, description, action, actionLabel, resourceName, anyResource, scope, projectId, projectName
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.grant = try c.decodeIfPresent(String.self, forKey: .grant) ?? ""
+        self.pluginId = try c.decodeIfPresent(String.self, forKey: .pluginId)
+        self.plugin = try c.decodeIfPresent(String.self, forKey: .plugin)
+        self.description = try c.decodeIfPresent(String.self, forKey: .description)
+        self.action = try c.decodeIfPresent(String.self, forKey: .action)
+        self.actionLabel = try c.decodeIfPresent(String.self, forKey: .actionLabel)
+        self.resourceName = try c.decodeIfPresent(String.self, forKey: .resourceName)
+        self.anyResource = try c.decodeIfPresent(Bool.self, forKey: .anyResource) ?? false
+        self.scope = try c.decodeIfPresent(String.self, forKey: .scope) ?? ""
+        self.projectId = try c.decodeIfPresent(String.self, forKey: .projectId)
+        self.projectName = try c.decodeIfPresent(String.self, forKey: .projectName)
+    }
+
+    public var displayTitle: String {
+        if let desc = description, !desc.isEmpty { return desc }
+        let p = (plugin?.isEmpty == false ? plugin : pluginId) ?? ""
+        let a = (actionLabel?.isEmpty == false ? actionLabel : action) ?? ""
+        if !p.isEmpty && !a.isEmpty { return "\(p) · \(a)" }
+        return !p.isEmpty ? p : grant
+    }
+
+    public var scopeLabel: String {
+        switch scope {
+        case "PLUGIN_PERMISSION_GRANT_SCOPE_GLOBAL":
+            return String(localized: "全局")
+        case "PLUGIN_PERMISSION_GRANT_SCOPE_PROJECT":
+            if let name = projectName, !name.isEmpty { return name }
+            return String(localized: "项目")
+        case "PLUGIN_PERMISSION_GRANT_SCOPE_DEFAULT":
+            return String(localized: "默认")
+        default:
+            return String(localized: "已授权")
+        }
+    }
+}
+
+public struct RevokePluginPermissionGrantRequest: Encodable, Sendable {
+    public let grant: String
+    public let scope: String
+    public let projectId: String?
+}
+
+public struct RevokePluginPermissionGrantResponse: Decodable, Sendable {
+    public let ok: Bool?
+}
+
 public struct CascadePluginsResponse: Codable, Sendable {
     public let plugins: [CascadePluginItem]
     public let providers: [PluginAuthProviderItem]
+    public let permissionGrants: [PluginPermissionGrantItem]
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -543,6 +610,7 @@ public struct CascadePluginsResponse: Codable, Sendable {
             seenIds.insert(candidate)
             return candidate == item.id ? item : PluginAuthProviderItem(id: candidate, name: item.name, signedIn: item.signedIn)
         }
+        self.permissionGrants = try c.decodeIfPresent([PluginPermissionGrantItem].self, forKey: .permissionGrants) ?? []
     }
 }
 

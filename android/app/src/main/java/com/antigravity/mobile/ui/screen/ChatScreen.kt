@@ -1502,6 +1502,20 @@ fun ChatScreen(
                                 }
                             )
                             HorizontalDivider(color = colors.border.copy(alpha = 0.4f))
+                            if (uiState.isRunning) {
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            text = "运行中 · 权限切换下轮生效".loc,
+                                            fontSize = 11.5.sp,
+                                            color = colors.accentOrange,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                    },
+                                    enabled = false,
+                                    onClick = {}
+                                )
+                            }
                             listOf(
                                 Triple("strict", "严格审批".loc, "每步高危命令需确认".loc),
                                 Triple("sandbox", "离席沙箱放行".loc, "工作区安全操作自动放行".loc),
@@ -3304,7 +3318,8 @@ fun ChatScreen(
     // iOS 对齐的模型上拉右滑二级选择器
     com.antigravity.mobile.ui.components.ModelSlidePickerOverlay(
         state = modelSlidePickerState,
-        onSelectModel = { viewModel.selectModel(it) }
+        onSelectModel = { viewModel.selectModel(it) },
+        isRunning = uiState.isRunning
     )
 
     // Workflow 长按上滑快捷模板菜单

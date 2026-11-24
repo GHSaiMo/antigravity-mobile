@@ -91,6 +91,7 @@ fun ConversationListScreen(
     val selectedWorkspaceFilter by viewModel.selectedWorkspaceFilter.collectAsStateWithLifecycle()
     val workspaceFilterOptions by viewModel.workspaceFilterOptions.collectAsStateWithLifecycle()
     val totalVisibleCount by viewModel.totalVisibleCount.collectAsStateWithLifecycle()
+    val archivedCount by viewModel.archivedCount.collectAsStateWithLifecycle()
     val workspaceTotalCount by viewModel.workspaceTotalCount.collectAsStateWithLifecycle()
     val hiddenPendingApprovalCount by viewModel.hiddenPendingApprovalCount.collectAsStateWithLifecycle()
     val contentResults by viewModel.contentResults.collectAsStateWithLifecycle()
@@ -390,6 +391,7 @@ fun ConversationListScreen(
                             selectedWorkspaceFilter = selectedWorkspaceFilter,
                             workspaceFilterOptions = workspaceFilterOptions,
                             totalVisibleCount = totalVisibleCount,
+                            archivedCount = archivedCount,
                             workspaceTotalCount = workspaceTotalCount,
                             hiddenPendingApprovalCount = hiddenPendingApprovalCount,
                             onWorkspaceTagTap = { item ->
@@ -467,6 +469,11 @@ fun ConversationListScreen(
                             onPin = { item ->
                                 swipedConversationId = null
                                 pinningItem = item
+                            },
+                            onArchive = { item ->
+                                swipedConversationId = null
+                                haptic.medium()
+                                viewModel.toggleArchiveConversation(item.id)
                             },
                             swipedConversationId = swipedConversationId,
                             showWeeklyPaceCursor = showWeeklyPaceCursor,
@@ -971,6 +978,7 @@ private fun ConversationListContent(
     selectedWorkspaceFilter: WorkspaceFilter?,
     workspaceFilterOptions: List<WorkspaceFilterOption>,
     totalVisibleCount: Int,
+    archivedCount: Int = 0,
     workspaceTotalCount: Int,
     hiddenPendingApprovalCount: Int = 0,
     onWorkspaceTagTap: (ConversationItem) -> Unit,
@@ -990,6 +998,7 @@ private fun ConversationListContent(
     onRename: (ConversationItem) -> Unit,
     onDelete: (ConversationItem) -> Unit,
     onPin: (ConversationItem) -> Unit,
+    onArchive: (ConversationItem) -> Unit = {},
     swipedConversationId: String?,
     showWeeklyPaceCursor: Boolean = true,
     selectedQuotaBucket: com.antigravity.mobile.data.model.QuotaBucketKind = com.antigravity.mobile.data.model.QuotaBucketKind.GEMINI_5H,
@@ -1380,8 +1389,47 @@ private fun ConversationListContent(
                     onPin = {
                         onSwipedConversationIdChange(null)
                         onPin(conversation)
+                    },
+                    onArchive = {
+                        onSwipedConversationIdChange(null)
+                        onArchive(conversation)
                     }
                 )
+            }
+        }
+
+        if (selectedWorkspaceFilter == null && searchQuery.isBlank() && archivedCount > 0) {
+            item(key = "archived_conversations_footer") {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable { onSelectWorkspaceFilter(WorkspaceFilter.Archived) }
+                        .padding(vertical = 10.dp),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Inventory2,
+                        contentDescription = null,
+                        tint = colors.textSecondary,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "已归档会话 ($archivedCount)".loc,
+                        color = colors.textSecondary,
+                        fontSize = 12.5.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Icon(
+                        imageVector = Icons.Default.ChevronRight,
+                        contentDescription = null,
+                        tint = colors.textMuted,
+                        modifier = Modifier.size(14.dp)
+                    )
+                }
             }
         }
 
@@ -1488,6 +1536,7 @@ private fun WorkspaceFilterCapsule(
     activeFilter: WorkspaceFilter,
     options: List<WorkspaceFilterOption>,
     totalVisibleCount: Int,
+    archivedCount: Int = 0,
     workspaceTotalCount: Int,
     hiddenPendingApprovalCount: Int = 0,
     onSelectFilter: (WorkspaceFilter) -> Unit,
@@ -1520,7 +1569,11 @@ private fun WorkspaceFilterCapsule(
                 horizontalArrangement = Arrangement.spacedBy(5.dp)
             ) {
                 Icon(
-                    imageVector = if (activeFilter.isPureChat) Icons.Default.ChatBubbleOutline else Icons.Default.Folder,
+                    imageVector = when {
+                        activeFilter.isArchived -> Icons.Default.Inventory2
+                        activeFilter.isPureChat -> Icons.Default.ChatBubbleOutline
+                        else -> Icons.Default.Folder
+                    },
                     contentDescription = null,
                     tint = colors.accentIndigo,
                     modifier = Modifier.size(14.dp)
@@ -1529,7 +1582,7 @@ private fun WorkspaceFilterCapsule(
                     text = activeFilter.displayName,
                     fontSize = 12.5.sp,
                     fontWeight = FontWeight.SemiBold,
-                    fontFamily = if (activeFilter.isPureChat) FontFamily.Default else FontFamily.Monospace,
+                    fontFamily = if (activeFilter.isPureChat || activeFilter.isArchived) FontFamily.Default else FontFamily.Monospace,
                     color = colors.textPrimary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -1586,7 +1639,11 @@ private fun WorkspaceFilterCapsule(
                             },
                             leadingIcon = {
                                 Icon(
-                                    imageVector = if (opt.filter.isPureChat) Icons.Default.ChatBubbleOutline else Icons.Default.Folder,
+                                    imageVector = when {
+                                        opt.filter.isArchived -> Icons.Default.Inventory2
+                                        opt.filter.isPureChat -> Icons.Default.ChatBubbleOutline
+                                        else -> Icons.Default.Folder
+                                    },
                                     contentDescription = null,
                                     tint = if (isCurrent) colors.accentIndigo else colors.textSecondary,
                                     modifier = Modifier.size(18.dp)
@@ -1645,12 +1702,14 @@ private fun SwipeableConversationCard(
     onLongClick: () -> Unit,
     onDelete: () -> Unit,
     onPin: () -> Unit,
+    onArchive: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val colors = AntigravityTheme.colors
     val density = LocalDensity.current
     val coroutineScope = rememberCoroutineScope()
-    val maxRevealPx = with(density) { 72.dp.toPx() }
+    val maxLeftRevealPx = with(density) { 72.dp.toPx() }
+    val maxRightRevealPx = with(density) { (if (conversation.isDraft) 72.dp else 124.dp).toPx() }
     val offsetX = remember { Animatable(0f) }
     val haptic = com.antigravity.mobile.ui.util.rememberHaptic()
 
@@ -1702,17 +1761,43 @@ private fun SwipeableConversationCard(
             }
         }
 
-        // Background Right: iOS-style circular red delete button (revealed by swiping left)
+        // Background Right: archive + delete circular buttons (revealed by swiping left)
         Box(
             modifier = Modifier.matchParentSize(),
             contentAlignment = Alignment.CenterEnd
         ) {
-            Box(
+            Row(
                 modifier = Modifier
-                    .width(72.dp)
-                    .fillMaxHeight(),
-                contentAlignment = Alignment.Center
+                    .width(if (conversation.isDraft) 72.dp else 124.dp)
+                    .fillMaxHeight()
+                    .padding(horizontal = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
+                verticalAlignment = Alignment.CenterVertically
             ) {
+                if (!conversation.isDraft) {
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(if (conversation.isArchived) colors.accentIndigo else Color(0xFF64748B))
+                            .clickable {
+                                haptic.medium()
+                                onSwipeClosed()
+                                coroutineScope.launch {
+                                    offsetX.animateTo(0f, spring(stiffness = Spring.StiffnessMediumLow))
+                                }
+                                onArchive()
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = if (conversation.isArchived) Icons.Default.Unarchive else Icons.Default.Archive,
+                            contentDescription = if (conversation.isArchived) "Unarchive" else "Archive",
+                            tint = Color.White,
+                            modifier = Modifier.size(19.dp)
+                        )
+                    }
+                }
                 Box(
                     modifier = Modifier
                         .size(40.dp)
@@ -1747,7 +1832,7 @@ private fun SwipeableConversationCard(
                     state = rememberDraggableState { delta ->
                         onStartDrag()
                         coroutineScope.launch {
-                            val newOffset = (offsetX.value + delta).coerceIn(-maxRevealPx, maxRevealPx)
+                            val newOffset = (offsetX.value + delta).coerceIn(-maxRightRevealPx, maxLeftRevealPx)
                             offsetX.snapTo(newOffset)
                         }
                     },
@@ -1758,13 +1843,13 @@ private fun SwipeableConversationCard(
                     onDragStopped = { velocity ->
                         coroutineScope.launch {
                             val targetOffset = when {
-                                velocity < -500f || offsetX.value < -maxRevealPx / 2 -> {
+                                velocity < -500f || offsetX.value < -maxRightRevealPx / 2 -> {
                                     haptic.light()
-                                    -maxRevealPx
+                                    -maxRightRevealPx
                                 }
-                                velocity > 500f || offsetX.value > maxRevealPx / 2 -> {
+                                velocity > 500f || offsetX.value > maxLeftRevealPx / 2 -> {
                                     haptic.light()
-                                    maxRevealPx
+                                    maxLeftRevealPx
                                 }
                                 else -> 0f
                             }

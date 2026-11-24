@@ -33,10 +33,26 @@ type PluginAuthProvider struct {
 	SignedIn bool   `json:"signedIn"`
 }
 
+// PluginPermissionGrant represents one persisted plugin permission grant (Antigravity 2.35+).
+type PluginPermissionGrant struct {
+	Grant        string `json:"grant"`
+	PluginID     string `json:"pluginId,omitempty"`
+	Plugin       string `json:"plugin,omitempty"`
+	Description  string `json:"description,omitempty"`
+	Action       string `json:"action,omitempty"`
+	ActionLabel  string `json:"actionLabel,omitempty"`
+	ResourceName string `json:"resourceName,omitempty"`
+	AnyResource  bool   `json:"anyResource,omitempty"`
+	Scope        string `json:"scope,omitempty"`
+	ProjectID    string `json:"projectId,omitempty"`
+	ProjectName  string `json:"projectName,omitempty"`
+}
+
 // PluginListResponse is returned by GET /gateway/plugins.
 type PluginListResponse struct {
-	Plugins   []PluginItem         `json:"plugins"`
-	Providers []PluginAuthProvider `json:"providers,omitempty"`
+	Plugins          []PluginItem            `json:"plugins"`
+	Providers        []PluginAuthProvider    `json:"providers,omitempty"`
+	PermissionGrants []PluginPermissionGrant `json:"permissionGrants,omitempty"`
 }
 
 // HandleGetPlugins serves GET /gateway/plugins.
@@ -88,15 +104,15 @@ func (p *Proxy) HandleGetPlugins(w http.ResponseWriter, r *http.Request) {
 		}
 		defer resUp.Body.Close()
 		b, _ := io.ReadAll(io.LimitReader(resUp.Body, 4<<20))
-		return b, true
+		return b, resUp.StatusCode >= 200 && resUp.StatusCode < 300
 	}
 
 	var (
-		scBody, allPluginsBody, authProvidersBody []byte
-		okSc, okAll, okAuth                       bool
-		wg                                        sync.WaitGroup
+		scBody, allPluginsBody, authProvidersBody, grantsBody []byte
+		okSc, okAll, okAuth, okGrants                         bool
+		wg                                                    sync.WaitGroup
 	)
-	wg.Add(3)
+	wg.Add(4)
 	go func() {
 		defer wg.Done()
 		scBody, okSc = fetchUpstreamJSON("GetSidecars")
@@ -108,6 +124,10 @@ func (p *Proxy) HandleGetPlugins(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		defer wg.Done()
 		authProvidersBody, okAuth = fetchUpstreamJSON("ListPluginAuthProviders")
+	}()
+	go func() {
+		defer wg.Done()
+		grantsBody, okGrants = fetchUpstreamJSON("ListPluginPermissionGrants")
 	}()
 	wg.Wait()
 
@@ -337,6 +357,34 @@ func (p *Proxy) HandleGetPlugins(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Parse ListPluginPermissionGrants (Antigravity 2.35+; absent on older servers)
+	if okGrants && len(grantsBody) > 2 {
+		var rawGrants struct {
+			Grants []PluginPermissionGrant `json:"grants"`
+		}
+		if json.Unmarshal(grantsBody, &rawGrants) == nil && len(rawGrants.Grants) > 0 {
+			for _, g := range rawGrants.Grants {
+				g.Grant = strings.TrimSpace(g.Grant)
+				if g.Grant == "" {
+					continue
+				}
+				g.PluginID = strings.TrimSpace(g.PluginID)
+				g.Plugin = strings.TrimSpace(g.Plugin)
+				if g.Plugin == "" {
+					g.Plugin = g.PluginID
+				}
+				g.Description = strings.TrimSpace(g.Description)
+				g.Action = strings.TrimSpace(g.Action)
+				g.ActionLabel = strings.TrimSpace(g.ActionLabel)
+				g.ResourceName = strings.TrimSpace(g.ResourceName)
+				g.Scope = strings.TrimSpace(g.Scope)
+				g.ProjectID = strings.TrimSpace(g.ProjectID)
+				g.ProjectName = strings.TrimSpace(g.ProjectName)
+				resp.PermissionGrants = append(resp.PermissionGrants, g)
+			}
+		}
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(resp)
 }
@@ -449,5 +497,83 @@ func (p *Proxy) HandleInstallPlugin(w http.ResponseWriter, r *http.Request) {
 		"installed": true,
 		"resumed":   resumed,
 		"message":   "插件安装成功",
+	})
+}
+
+// HandleRevokePluginPermissionGrant serves POST /gateway/plugins/grants/revoke (Antigravity 2.35+).
+func (p *Proxy) HandleRevokePluginPermissionGrant(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, `{"error":"Method not allowed"}`, http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		Grant     string `json:"grant"`
+		Scope     string `json:"scope"`
+		ProjectID string `json:"projectId"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 64*1024)).Decode(&req); err != nil {
+		writeJSONError(w, "invalid request: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	req.Grant = strings.TrimSpace(req.Grant)
+	req.Scope = strings.TrimSpace(req.Scope)
+	req.ProjectID = strings.TrimSpace(req.ProjectID)
+	if req.Grant == "" {
+		writeJSONError(w, "grant cannot be empty", http.StatusBadRequest)
+		return
+	}
+
+	port, token := p.ActiveUpstream()
+	if p.insp != nil {
+		if cur := p.insp.Current(); cur != nil && cur.IsHealthy && cur.Port > 0 {
+			port = cur.Port
+			token = cur.CSRFToken
+		}
+	}
+	if port <= 0 {
+		writeJSONError(w, "upstream language_server unavailable", http.StatusServiceUnavailable)
+		return
+	}
+
+	payload := map[string]interface{}{
+		"grant": req.Grant,
+	}
+	if req.Scope != "" {
+		payload["scope"] = req.Scope
+	}
+	if req.ProjectID != "" {
+		payload["projectId"] = req.ProjectID
+	}
+	bodyBytes, _ := json.Marshal(payload)
+
+	revokeURL := fmt.Sprintf("https://127.0.0.1:%d/exa.language_server_pb.LanguageServerService/RevokePluginPermissionGrant", port)
+	upReq, err := http.NewRequestWithContext(r.Context(), http.MethodPost, revokeURL, bytes.NewReader(bodyBytes))
+	if err != nil {
+		writeJSONError(w, "failed to build request: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	upReq.Header.Set("Content-Type", "application/json")
+	upReq.Header.Set("Connect-Protocol-Version", "1")
+	if token != "" {
+		upReq.Header.Set("x-codeium-csrf-token", token)
+	}
+
+	resp, err := p.mediumClient.Do(upReq)
+	if err != nil {
+		writeJSONError(w, "revoke request failed: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
+		writeJSONError(w, fmt.Sprintf("revoke failed (%d): %s", resp.StatusCode, strings.TrimSpace(string(respBody))), resp.StatusCode)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"ok":    true,
+		"grant": req.Grant,
 	})
 }

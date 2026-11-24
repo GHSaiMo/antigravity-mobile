@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
@@ -678,6 +679,7 @@ func (p *Proxy) handleUpdateConversationAnnotations(w http.ResponseWriter, r *ht
 			MarkedAsUnread   *bool  `json:"markedAsUnread,omitempty"`
 			LastUserViewTime string `json:"lastUserViewTime,omitempty"`
 			Pinned           *bool  `json:"pinned,omitempty"`
+			Archived         *bool  `json:"archived,omitempty"`
 		} `json:"annotations"`
 		MergeAnnotations *bool `json:"mergeAnnotations,omitempty"`
 	}
@@ -725,6 +727,15 @@ func (p *Proxy) handleUpdateConversationAnnotations(w http.ResponseWriter, r *ht
 			}
 		}
 
+		if payload.Annotations.Archived != nil {
+			for _, cid := range activeIDs {
+				if cid != "" {
+					writeAnnotationArchived(cid, *payload.Annotations.Archived)
+				}
+			}
+			p.invalidateAllTrajectories()
+		}
+
 		// Backward compatibility: normalize legacy SetCascadeTrajectoryMetadata for upstream
 		if strings.HasSuffix(reqPath, "/SetCascadeTrajectoryMetadata") {
 			reqPath = strings.Replace(reqPath, "SetCascadeTrajectoryMetadata", "UpdateConversationAnnotations", 1)
@@ -744,6 +755,62 @@ func (p *Proxy) handleUpdateConversationAnnotations(w http.ResponseWriter, r *ht
 	fwdReq.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 	fwdReq.ContentLength = int64(len(bodyBytes))
 	rp.ServeHTTP(w, fwdReq)
+}
+
+// HandleArchiveCascade serves POST /gateway/cascade/archive (Antigravity 2.35+ archive / unarchive,
+// including directly archiving running conversations).
+func (p *Proxy) HandleArchiveCascade(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, `{"error":"Method not allowed"}`, http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		CascadeID string `json:"cascadeId"`
+		Archived  *bool  `json:"archived"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 64*1024)).Decode(&req); err != nil {
+		writeJSONError(w, "invalid request: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	cascadeID := strings.TrimSpace(req.CascadeID)
+	if cascadeID == "" || !cascadeIDRe.MatchString(cascadeID) {
+		writeJSONError(w, "invalid cascadeId", http.StatusBadRequest)
+		return
+	}
+	archived := true
+	if req.Archived != nil {
+		archived = *req.Archived
+	}
+
+	writeAnnotationArchived(cascadeID, archived)
+
+	if port, _ := p.ActiveUpstream(); port > 0 {
+		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+		defer cancel()
+		_, status, err := p.callUpstreamRPC(ctx, "UpdateConversationAnnotations", map[string]interface{}{
+			"cascadeIds":       []string{cascadeID},
+			"annotations":      map[string]interface{}{"archived": archived},
+			"mergeAnnotations": true,
+		})
+		if err != nil {
+			writeJSONError(w, "upstream archive failed: "+err.Error(), http.StatusBadGateway)
+			return
+		}
+		if status >= 400 {
+			writeJSONError(w, fmt.Sprintf("upstream archive failed (%d)", status), status)
+			return
+		}
+	}
+
+	p.SuppressDesktopFocus(AntiReflectionDuration)
+	p.invalidateAllTrajectories()
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"ok":        true,
+		"cascadeId": cascadeID,
+		"archived":  archived,
+	})
 }
 
 // QuestionResponse represents an answer to a single question in a multi-question ask_question interaction.

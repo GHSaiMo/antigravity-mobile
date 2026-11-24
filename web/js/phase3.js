@@ -62,7 +62,8 @@
         const st = await res.json();
         if (!res.ok || st.ok === false) throw new Error(st.error || "切换失败");
         this.applyPermissionState(st);
-        showToast?.(`权限档位已切换为「${st.label}」`);
+        const runningSuffix = typeof isCascadeRunning === "function" && activeCascadeId && isCascadeRunning(activeCascadeId) ? "（下轮生效）" : "";
+        showToast?.(`权限档位已切换为「${st.label}」${runningSuffix}`);
       } catch (err) {
         showToast?.("切换权限失败: " + err.message, 2800);
       }
@@ -105,7 +106,9 @@
           { id: "sandbox", title: "离席沙箱放行", sub: "沙箱内安全命令自动执行" },
           { id: "auto", title: "全自动 (Turbo)", sub: "允许自动执行与跨区文件写入" },
         ];
-        menu.innerHTML = `<div class="p3-pop-title">Agent 执行权限预设</div>` + presets.map((p) => `
+        const isTurnRunning = typeof isCascadeRunning === "function" && activeCascadeId && isCascadeRunning(activeCascadeId);
+        const runningHint = isTurnRunning ? `<div style="font-size:11px;color:#f59e0b;margin-top:2px;font-weight:500;">运行中 · 切换下轮生效</div>` : "";
+        menu.innerHTML = `<div class="p3-pop-title">Agent 执行权限预设${runningHint}</div>` + presets.map((p) => `
           <button type="button" class="p3-pop-item ${cur === p.id ? "active" : ""}" data-preset="${p.id}">
             <div>
               <div class="p3-pop-label">${p.title}${cur === p.id ? " ✓" : ""}</div>
@@ -444,7 +447,30 @@
           const res = await fetch("/gateway/plugins");
           const data = await res.json();
           const list = Array.isArray(data.plugins) ? data.plugins : (Array.isArray(data) ? data : []);
-          body.innerHTML = `<div class="p3-list">` + (list.map((pl) => `
+          const grants = Array.isArray(data.permissionGrants) ? data.permissionGrants : [];
+          const scopeLabel = (g) => {
+            if (g.scope === "PLUGIN_PERMISSION_GRANT_SCOPE_GLOBAL") return "全局";
+            if (g.scope === "PLUGIN_PERMISSION_GRANT_SCOPE_PROJECT") return g.projectName || "项目";
+            if (g.scope === "PLUGIN_PERMISSION_GRANT_SCOPE_DEFAULT") return "默认";
+            return "已授权";
+          };
+          const grantsHtml = grants.length
+            ? `<div class="p3-section-header" style="margin-bottom:6px;"><span>已授权插件权限 (${grants.length})</span></div>
+               <div class="p3-list" style="margin-bottom:12px;">` +
+              grants.map((g, idx) => {
+                const title = g.description || [g.plugin || g.pluginId, g.actionLabel || g.action].filter(Boolean).join(" · ") || g.grant;
+                const sub = g.resourceName || (g.anyResource ? "全部资源" : "");
+                return `<div class="p3-row">
+                  <div class="p3-row-main">
+                    <div class="p3-row-title">${escapeHtml(title)} <span class="p3-badge">${escapeHtml(scopeLabel(g))}</span></div>
+                    ${sub ? `<div class="p3-row-sub monospaced">${escapeHtml(sub)}</div>` : ""}
+                  </div>
+                  <button type="button" class="p3-mini-btn" data-revoke-grant="${idx}" style="color:#ef4444;">撤销</button>
+                </div>`;
+              }).join("") +
+              `</div>`
+            : "";
+          body.innerHTML = grantsHtml + `<div class="p3-list">` + (list.map((pl) => `
             <div class="p3-row">
               <div class="p3-row-main">
                 <div class="p3-row-title">${escapeHtml(pl.name || pl.id || "")}</div>
@@ -452,6 +478,26 @@
               </div>
               <span class="p3-badge">${pl.enabled === false ? "停用" : "启用"}</span>
             </div>`).join("") || `<div class="p3-empty">暂无已安装插件</div>`) + `</div>`;
+          body.querySelectorAll("[data-revoke-grant]").forEach((btn) => {
+            btn.addEventListener("click", async () => {
+              const g = grants[Number(btn.getAttribute("data-revoke-grant"))];
+              if (!g) return;
+              btn.disabled = true;
+              try {
+                const r = await fetch("/gateway/plugins/grants/revoke", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ grant: g.grant, scope: g.scope || "", projectId: g.projectId || "" }),
+                });
+                if (!r.ok) throw new Error(`HTTP ${r.status}`);
+                showToast?.("已撤销插件授权");
+                this.renderToolsTab(false);
+              } catch (err) {
+                btn.disabled = false;
+                showToast?.("撤销失败: " + (err.message || err), 2600);
+              }
+            });
+          });
           return;
         }
 

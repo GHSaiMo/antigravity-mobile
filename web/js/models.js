@@ -667,10 +667,15 @@ function renderWebModelPicker() {
     `;
   }
 
+  const isActiveTurnRunning = typeof isCascadeRunning === "function" && activeCascadeId && isCascadeRunning(activeCascadeId);
+  const runningHintHtml = isActiveTurnRunning
+    ? `<div class="mp-running-hint" style="font-size:11px;color:#f59e0b;padding:4px 10px 3px;font-weight:500;border-bottom:1px solid rgba(245,158,11,0.18);margin-bottom:2px;">运行中 · 切换下轮生效</div>`
+    : "";
+
   overlay.innerHTML = `
     <div class="mp-backdrop"></div>
     <div class="mp-card mp-left" style="left:${leftX}px; bottom:${bottomY}px; width:${leftW}px; max-height:${maxHeight}px;">
-      ${leftRowsHtml}
+      ${runningHintHtml}${leftRowsHtml}
     </div>
     ${rightCardHtml}
   `;

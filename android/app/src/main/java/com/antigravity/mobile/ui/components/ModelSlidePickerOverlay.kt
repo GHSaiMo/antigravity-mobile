@@ -432,7 +432,8 @@ private fun providerAccentColor(kind: String): Color = AntigravityTheme.colors.m
 fun ModelSlidePickerOverlay(
     state: ModelSlidePickerState,
     onSelectModel: (String) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    isRunning: Boolean = false
 ) {
     val colors = AntigravityTheme.colors
     val density = LocalDensity.current
@@ -467,6 +468,29 @@ fun ModelSlidePickerOverlay(
                         indication = null
                     ) { state.dismiss() }
             )
+
+            // Subtle non-blocking next-turn indicator above picker when current turn is running
+            if (isRunning) {
+                val pillTopPx = (leftRect.top - with(density) { 30.dp.toPx() }).coerceAtLeast(with(density) { 12.dp.toPx() })
+                Row(
+                    modifier = Modifier
+                        .offset { IntOffset(leftRect.left.roundToInt(), pillTopPx.roundToInt()) }
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(colors.surface)
+                        .border(0.8.dp, colors.accentOrange.copy(alpha = 0.35f), RoundedCornerShape(999.dp))
+                        .padding(horizontal = 10.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        text = "运行中 · 切换下轮生效".loc,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = colors.accentOrange,
+                        maxLines = 1
+                    )
+                }
+            }
 
             // Left column: All models color-coded Blue (Gemini) / Orange (Claude) / Purple (Orchestrator)
             ModelPickerCardSurface(

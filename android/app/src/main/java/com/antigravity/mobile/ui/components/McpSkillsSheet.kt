@@ -100,6 +100,8 @@ fun McpSkillsSheet(
     var skills by remember { mutableStateOf(prefs.loadCachedSkills()) }
     var plugins by remember { mutableStateOf<List<CascadePluginItem>>(emptyList()) }
     var pluginProviders by remember { mutableStateOf<List<PluginAuthProviderItem>>(emptyList()) }
+    var pluginPermissionGrants by remember { mutableStateOf<List<PluginPermissionGrantItem>>(emptyList()) }
+    val revokingGrantKeys = remember { mutableStateListOf<String>() }
     var automations by remember { mutableStateOf<List<AutomationSidecarItem>>(emptyList()) }
     var automationEvents by remember { mutableStateOf<List<AutomationEventItem>>(emptyList()) }
     var backgroundTasks by remember { mutableStateOf<List<GlobalBackgroundTaskItem>>(emptyList()) }
@@ -202,6 +204,7 @@ fun McpSkillsSheet(
                 pluginsDeferred.await().onSuccess {
                     plugins = it.plugins
                     pluginProviders = it.providers
+                    pluginPermissionGrants = it.permissionGrants
                 }
                 automationsDeferred.await().onSuccess {
                     automations = it.automations
@@ -642,7 +645,7 @@ fun McpSkillsSheet(
                     }
                 }
 
-                if (filteredPlugins.isEmpty() && pluginProviders.isEmpty()) {
+                if (filteredPlugins.isEmpty() && pluginProviders.isEmpty() && pluginPermissionGrants.isEmpty()) {
                     Box(
                         modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center
@@ -696,6 +699,98 @@ fun McpSkillsSheet(
                             }
                         }
 
+                        if (pluginPermissionGrants.isNotEmpty()) {
+                            item(key = "plugin_grants_header") {
+                                Text(
+                                    text = "已授权插件权限 (${pluginPermissionGrants.size})".loc,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = colors.textSecondary,
+                                    modifier = Modifier.padding(top = 6.dp, bottom = 2.dp)
+                                )
+                            }
+                            itemsIndexed(pluginPermissionGrants, key = { index, it -> "grant_${index}_${it.uniqueKey}" }) { _, item ->
+                                val isRevoking = revokingGrantKeys.contains(item.uniqueKey)
+                                val scopeLabel = when (item.scope) {
+                                    "PLUGIN_PERMISSION_GRANT_SCOPE_GLOBAL" -> "全局".loc
+                                    "PLUGIN_PERMISSION_GRANT_SCOPE_PROJECT" -> item.projectName?.takeIf { it.isNotBlank() } ?: "项目".loc
+                                    "PLUGIN_PERMISSION_GRANT_SCOPE_DEFAULT" -> "默认".loc
+                                    else -> "已授权".loc
+                                }
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(colors.surface)
+                                        .border(0.5.dp, colors.border, RoundedCornerShape(10.dp))
+                                        .padding(horizontal = 12.dp, vertical = 9.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Text(
+                                                text = item.displayTitle,
+                                                color = colors.textPrimary,
+                                                fontSize = 13.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                maxLines = 2,
+                                                overflow = TextOverflow.Ellipsis,
+                                                modifier = Modifier.weight(1f, fill = false)
+                                            )
+                                            Box(
+                                                modifier = Modifier
+                                                    .clip(RoundedCornerShape(6.dp))
+                                                    .background(colors.accentIndigo.copy(alpha = 0.12f))
+                                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                                            ) {
+                                                Text(
+                                                    text = scopeLabel,
+                                                    color = colors.accentIndigo,
+                                                    fontSize = 10.5.sp,
+                                                    fontWeight = FontWeight.Medium
+                                                )
+                                            }
+                                        }
+                                        val resLabel = item.resourceName?.takeIf { it.isNotBlank() }
+                                            ?: if (item.anyResource) "全部资源".loc else ""
+                                        if (resLabel.isNotBlank()) {
+                                            Text(
+                                                text = resLabel,
+                                                color = colors.textSecondary,
+                                                fontSize = 11.sp,
+                                                fontFamily = FontFamily.Monospace,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                    }
+                                    TextButton(
+                                        enabled = !isRevoking,
+                                        onClick = {
+                                            scope.launch {
+                                                revokingGrantKeys.add(item.uniqueKey)
+                                                apiClient.revokePluginPermissionGrant(item).onSuccess {
+                                                    pluginPermissionGrants = pluginPermissionGrants.filterNot { it.uniqueKey == item.uniqueKey }
+                                                }
+                                                revokingGrantKeys.remove(item.uniqueKey)
+                                            }
+                                        },
+                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                                    ) {
+                                        if (isRevoking) {
+                                            CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 1.8.dp)
+                                        } else {
+                                            Text("撤销".loc, color = colors.accentRed, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
                         if (filteredPlugins.isNotEmpty()) {
                             item(key = "plugins_header") {
                                 Text(
@@ -719,6 +814,7 @@ fun McpSkillsSheet(
                                             apiClient.fetchPluginsCatalog().onSuccess {
                                                 plugins = it.plugins
                                                 pluginProviders = it.providers
+                                                pluginPermissionGrants = it.permissionGrants
                                             }
                                             installingPluginIds.remove(pid)
                                         }

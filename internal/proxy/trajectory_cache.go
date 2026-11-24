@@ -496,6 +496,54 @@ func writeAnnotationTitle(cascadeID, title string) {
 	defaultTrajCache.annotationTitleCacheMu.Unlock()
 }
 
+var archivedRegex = regexp.MustCompile(`archived:\s*(true|false)`)
+
+func writeAnnotationArchived(cascadeID string, archived bool) {
+	if cascadeID == "" || !cascadeIDRe.MatchString(cascadeID) {
+		return
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return
+	}
+	dir := filepath.Join(home, ".gemini", "antigravity", "annotations")
+	_ = os.MkdirAll(dir, 0700)
+	p := filepath.Join(dir, cascadeID+".pbtxt")
+	b, err := os.ReadFile(p)
+	archivedStr := fmt.Sprintf("archived:%t", archived)
+	if err != nil {
+		_ = os.WriteFile(p, []byte(archivedStr+"\n"), 0600)
+	} else {
+		s := string(b)
+		if archivedRegex.MatchString(s) {
+			newContent := archivedRegex.ReplaceAllString(s, archivedStr)
+			_ = os.WriteFile(p, []byte(newContent), 0600)
+		} else {
+			newContent := strings.TrimRight(s, "\n") + " " + archivedStr + "\n"
+			_ = os.WriteFile(p, []byte(newContent), 0600)
+		}
+	}
+}
+
+func readAnnotationArchived(cascadeID string) (bool, bool) {
+	if cascadeID == "" || !cascadeIDRe.MatchString(cascadeID) {
+		return false, false
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return false, false
+	}
+	b, err := os.ReadFile(filepath.Join(home, ".gemini", "antigravity", "annotations", cascadeID+".pbtxt"))
+	if err != nil {
+		return false, false
+	}
+	m := archivedRegex.FindSubmatch(b)
+	if len(m) < 2 {
+		return false, false
+	}
+	return string(m[1]) == "true", true
+}
+
 var pinnedRegex = regexp.MustCompile(`pinned:\s*(true|false)`)
 
 func writeAnnotationPinned(cascadeID string, pinned bool) {

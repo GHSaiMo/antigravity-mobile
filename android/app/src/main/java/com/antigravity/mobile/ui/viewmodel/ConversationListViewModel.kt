@@ -46,19 +46,25 @@ sealed interface ConversationListUiState {
 sealed interface WorkspaceFilter {
     data object Chat : WorkspaceFilter
     data class Workspace(val name: String) : WorkspaceFilter
+    data object Archived : WorkspaceFilter
 
     val displayName: String
         get() = when (this) {
             is Chat -> "Chat"
             is Workspace -> name
+            is Archived -> "已归档".loc
         }
 
     val isPureChat: Boolean
         get() = this is Chat
 
+    val isArchived: Boolean
+        get() = this is Archived
+
     fun matches(item: ConversationItem): Boolean = when (this) {
-        is Chat -> item.isPureChat
-        is Workspace -> !item.isPureChat && item.workspaceName == name
+        is Chat -> !item.isArchived && item.isPureChat
+        is Workspace -> !item.isArchived && !item.isPureChat && item.workspaceName == name
+        is Archived -> item.isArchived
     }
 }
 
@@ -90,6 +96,9 @@ class ConversationListViewModel(
 
     private val _totalVisibleCount = MutableStateFlow(0)
     val totalVisibleCount: StateFlow<Int> = _totalVisibleCount.asStateFlow()
+
+    private val _archivedCount = MutableStateFlow(0)
+    val archivedCount: StateFlow<Int> = _archivedCount.asStateFlow()
 
     private val _workspaceTotalCount = MutableStateFlow(0)
     val workspaceTotalCount: StateFlow<Int> = _workspaceTotalCount.asStateFlow()
@@ -803,6 +812,33 @@ class ConversationListViewModel(
         }
     }
 
+    fun toggleArchiveConversation(cascadeId: String) {
+        val current = rawConversations.find { it.id == cascadeId } ?: return
+        if (current.isDraft) return
+        val willArchive = !current.isArchived
+        rawConversations = rawConversations.map { item ->
+            if (item.id == cascadeId) item.copy(isArchived = willArchive, isUnread = if (willArchive) false else item.isUnread) else item
+        }
+        if (!willArchive && _selectedWorkspaceFilter.value == WorkspaceFilter.Archived && rawConversations.none { !it.isSubagent && it.isArchived }) {
+            _selectedWorkspaceFilter.value = null
+        }
+        rawConversations = sortConversations(rawConversations)
+        markReorderedNow()
+        persistConversationsToCache(rawConversations)
+        applyFilter()
+
+        viewModelScope.launch {
+            apiClient.setConversationArchived(cascadeId, willArchive).onFailure {
+                rawConversations = rawConversations.map { item ->
+                    if (item.id == cascadeId) item.copy(isArchived = !willArchive) else item
+                }
+                rawConversations = sortConversations(rawConversations)
+                persistConversationsToCache(rawConversations)
+                applyFilter()
+            }
+        }
+    }
+
     fun renameConversation(cascadeId: String, newTitle: String) {
         val trimmed = newTitle.trim()
         if (trimmed.isBlank()) return
@@ -913,6 +949,7 @@ class ConversationListViewModel(
     fun resolveProjectForFilter(filter: WorkspaceFilter): ProjectItem? {
         return when (filter) {
             is WorkspaceFilter.Chat -> ProjectItem.PURE_CHAT
+            is WorkspaceFilter.Archived -> null
             is WorkspaceFilter.Workspace -> {
                 _projects.value.firstOrNull { !it.isPureChat && (it.name == filter.name || it.displayName == filter.name) }
                     ?: rawConversations
@@ -925,8 +962,10 @@ class ConversationListViewModel(
     }
 
     private fun updateWorkspaceFilterStats(source: List<ConversationItem>) {
-        val visible = source.filter { !it.isSubagent }
+        val visible = source.filter { !it.isSubagent && !it.isArchived }
+        val archived = source.filter { !it.isSubagent && it.isArchived }
         _totalVisibleCount.value = visible.size
+        _archivedCount.value = archived.size
 
         var chatCount = 0
         var chatLatest = 0L
@@ -958,13 +997,17 @@ class ConversationListViewModel(
                     .thenBy { it.filter.displayName.lowercase(Locale.getDefault()) }
             )
         options.addAll(sortedProjects)
+        if (archived.isNotEmpty()) {
+            val latestArchived = archived.maxOfOrNull { it.lastModifiedEpochMs } ?: 0L
+            options.add(WorkspaceFilterOption(WorkspaceFilter.Archived, archived.size, latestArchived))
+        }
         _workspaceFilterOptions.value = options
 
         val activeFilter = _selectedWorkspaceFilter.value
-        _workspaceTotalCount.value = if (activeFilter == null) {
-            visible.size
-        } else {
-            visible.count { activeFilter.matches(it) }
+        _workspaceTotalCount.value = when (activeFilter) {
+            null -> visible.size
+            is WorkspaceFilter.Archived -> archived.size
+            else -> visible.count { activeFilter.matches(it) }
         }
         _hiddenPendingApprovalCount.value = if (activeFilter == null) {
             0
@@ -1011,7 +1054,7 @@ class ConversationListViewModel(
         updateWorkspaceFilterStats(rawConversations)
         val activeFilter = _selectedWorkspaceFilter.value
         val scoped = if (activeFilter == null) {
-            rawConversations
+            rawConversations.filter { !it.isArchived }
         } else {
             rawConversations.filter { activeFilter.matches(it) }
         }

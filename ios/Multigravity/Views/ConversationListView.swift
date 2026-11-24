@@ -711,6 +711,8 @@ public struct ConversationListView: View {
             } else {
                 showNewConversation = true
             }
+        case .archived:
+            showNewConversation = true
         }
     }
 
@@ -734,7 +736,7 @@ public struct ConversationListView: View {
                             HStack {
                                 Label(
                                     "\(opt.filter.displayName) (\(opt.count))",
-                                    systemImage: opt.filter.isPureChat ? "bubble.left" : "folder"
+                                    systemImage: opt.filter.isArchived ? "archivebox" : (opt.filter.isPureChat ? "bubble.left" : "folder")
                                 )
                                 if opt.filter == filter {
                                     Image(systemName: "checkmark")
@@ -745,11 +747,11 @@ public struct ConversationListView: View {
                 }
             } label: {
                 HStack(spacing: 6) {
-                    Image(systemName: filter.isPureChat ? "bubble.left.fill" : "folder.fill")
+                    Image(systemName: filter.isArchived ? "archivebox.fill" : (filter.isPureChat ? "bubble.left.fill" : "folder.fill"))
                         .font(.system(size: 11.5, weight: .semibold))
                         .foregroundColor(.indigo)
                     Text(filter.displayName)
-                        .font(.system(size: 12.5, weight: .semibold, design: filter.isPureChat ? .default : .monospaced))
+                        .font(.system(size: 12.5, weight: .semibold, design: (filter.isPureChat || filter.isArchived) ? .default : .monospaced))
                         .foregroundColor(.primary)
                         .lineLimit(1)
                     Image(systemName: "chevron.down")
@@ -1101,6 +1103,10 @@ public struct ConversationListView: View {
                             renameText = item.title
                             showRenameAlert = true
                         },
+                        onArchive: {
+                            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                            viewModel.toggleArchive(item: item)
+                        },
                         onDelete: {
                             conversationToDelete = item
                             showDeleteConfirm = true
@@ -1137,6 +1143,17 @@ public struct ConversationListView: View {
                             Image(uiImage: Self.trashActionImage)
                         }
                         .tint(.clear)
+
+                        if !item.isDraft {
+                            Button {
+                                UserDefaults.standard.set(true, forKey: "has_seen_swipe_gesture_hint")
+                                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                                viewModel.toggleArchive(item: item)
+                            } label: {
+                                Image(uiImage: Self.archiveActionImage(isArchived: item.isArchived))
+                            }
+                            .tint(.clear)
+                        }
                     }
 
                     .confirmationDialog(
@@ -1195,6 +1212,31 @@ public struct ConversationListView: View {
                     }
             }
             .animation(.spring(response: 0.42, dampingFraction: 0.72), value: viewModel.filteredConversations.map(\.id))
+
+            if viewModel.selectedWorkspaceFilter == nil,
+               viewModel.searchQuery.trimmingCharacters(in: .whitespaces).isEmpty,
+               viewModel.archivedCount > 0 {
+                Button {
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    selectWorkspaceFilter(.archived)
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "archivebox")
+                            .font(.system(size: 12, weight: .medium))
+                        Text(String(localized: "已归档会话 (\(viewModel.archivedCount))"))
+                            .font(.system(size: 12.5, weight: .medium))
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 10, weight: .semibold))
+                    }
+                    .foregroundColor(.secondary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                }
+                .buttonStyle(.plain)
+                .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 10, trailing: 16))
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
+            }
 
             // 对话内容命中（language_server 全文搜索），与上面的标题/工作区匹配并列
             if !viewModel.searchQuery.trimmingCharacters(in: .whitespaces).isEmpty,
@@ -1799,6 +1841,38 @@ public struct ConversationListView: View {
         }
         return img.withRenderingMode(.alwaysOriginal)
     }
+
+    private static func archiveActionImage(isArchived: Bool) -> UIImage {
+        let size: CGFloat = 40
+        let circleDiameter: CGFloat = 38
+
+        let format = UIGraphicsImageRendererFormat()
+        format.opaque = false
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: size, height: size), format: format)
+
+        let img = renderer.image { ctx in
+            let circleOffset = (size - circleDiameter) / 2
+            let circleRect = CGRect(x: circleOffset, y: circleOffset, width: circleDiameter, height: circleDiameter)
+            (isArchived ? UIColor.systemIndigo : UIColor.systemSlateGrayCompatible).setFill()
+            ctx.cgContext.fillEllipse(in: circleRect)
+
+            let iconName = isArchived ? "tray.and.arrow.up.fill" : "archivebox.fill"
+            let config = UIImage.SymbolConfiguration(pointSize: 15, weight: .semibold)
+            if let baseSymbol = UIImage(systemName: iconName, withConfiguration: config) {
+                let symbol = baseSymbol.withTintColor(.white, renderingMode: .alwaysOriginal)
+                let iconX = (size - symbol.size.width) / 2
+                let iconY = (size - symbol.size.height) / 2
+                symbol.draw(at: CGPoint(x: iconX, y: iconY))
+            }
+        }
+        return img.withRenderingMode(.alwaysOriginal)
+    }
+}
+
+private extension UIColor {
+    static var systemSlateGrayCompatible: UIColor {
+        UIColor(red: 0.39, green: 0.45, blue: 0.55, alpha: 1.0)
+    }
 }
 
 private enum SwipeActionAdjuster {
@@ -2045,6 +2119,7 @@ private struct RowActions: ViewModifier {
     let isSplit: Bool
     let item: ConversationItem
     let onRename: () -> Void
+    let onArchive: () -> Void
     let onDelete: () -> Void
     
     func body(content: Content) -> some View {
@@ -2055,6 +2130,14 @@ private struct RowActions: ViewModifier {
                         onRename()
                     } label: {
                         Label("重命名", systemImage: "pencil")
+                    }
+                    Button {
+                        onArchive()
+                    } label: {
+                        Label(
+                            item.isArchived ? String(localized: "取消归档") : String(localized: "归档"),
+                            systemImage: item.isArchived ? "tray.and.arrow.up" : "archivebox"
+                        )
                     }
                 }
                 Button(role: .destructive) {

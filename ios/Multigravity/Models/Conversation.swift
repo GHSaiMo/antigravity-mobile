@@ -153,6 +153,7 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
     public let parentConversationId: String?
     public let nestingDepth: Int
     public let isPinned: Bool
+    public let isArchived: Bool
     public let hasRunningTasks: Bool
     public let hasRunningSubagents: Bool
     public let currentBranch: String?
@@ -187,6 +188,7 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
         case parentConversationId
         case nestingDepth
         case isPinned
+        case isArchived
         case hasRunningTasks
         case hasRunningSubagents
         case currentBranch
@@ -211,6 +213,7 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
         self.parentConversationId = try container.decodeIfPresent(String.self, forKey: .parentConversationId)
         self.nestingDepth = try container.decodeIfPresent(Int.self, forKey: .nestingDepth) ?? 0
         self.isPinned = try container.decodeIfPresent(Bool.self, forKey: .isPinned) ?? false
+        self.isArchived = try container.decodeIfPresent(Bool.self, forKey: .isArchived) ?? false
         self.hasRunningTasks = try container.decodeIfPresent(Bool.self, forKey: .hasRunningTasks) ?? false
         self.hasRunningSubagents = try container.decodeIfPresent(Bool.self, forKey: .hasRunningSubagents) ?? false
         self.currentBranch = try container.decodeIfPresent(String.self, forKey: .currentBranch)
@@ -235,6 +238,7 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
         try container.encodeIfPresent(parentConversationId, forKey: .parentConversationId)
         try container.encode(nestingDepth, forKey: .nestingDepth)
         try container.encode(isPinned, forKey: .isPinned)
+        if isArchived { try container.encode(isArchived, forKey: .isArchived) }
         try container.encode(hasRunningTasks, forKey: .hasRunningTasks)
         try container.encode(hasRunningSubagents, forKey: .hasRunningSubagents)
         try container.encodeIfPresent(currentBranch, forKey: .currentBranch)
@@ -279,6 +283,7 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
             parentConversationId: self.parentConversationId,
             nestingDepth: self.nestingDepth,
             isPinned: self.isPinned,
+            isArchived: self.isArchived,
             hasRunningTasks: self.hasRunningTasks,
             hasRunningSubagents: self.hasRunningSubagents,
             currentBranch: self.currentBranch,
@@ -304,6 +309,33 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
             parentConversationId: self.parentConversationId,
             nestingDepth: self.nestingDepth,
             isPinned: pinned,
+            isArchived: self.isArchived,
+            hasRunningTasks: self.hasRunningTasks,
+            hasRunningSubagents: self.hasRunningSubagents,
+            currentBranch: self.currentBranch,
+            pullRequest: self.pullRequest,
+            isSideQuestion: self.isSideQuestion,
+            branchParentId: self.branchParentId,
+            branchParentTitle: self.branchParentTitle,
+            forkStepIndex: self.forkStepIndex
+        )
+    }
+
+    public func withArchived(_ archived: Bool) -> ConversationItem {
+        ConversationItem(
+            id: self.id,
+            title: self.title,
+            status: self.status,
+            stepCount: self.stepCount,
+            workspaceName: self.workspaceName,
+            lastModified: self.lastModified,
+            isSubagent: self.isSubagent,
+            isUnread: archived ? false : self.isUnread,
+            draftProject: self.draftProject,
+            parentConversationId: self.parentConversationId,
+            nestingDepth: self.nestingDepth,
+            isPinned: self.isPinned,
+            isArchived: archived,
             hasRunningTasks: self.hasRunningTasks,
             hasRunningSubagents: self.hasRunningSubagents,
             currentBranch: self.currentBranch,
@@ -421,6 +453,7 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
         } else {
             self.isPinned = CacheManager.shared.isPinned(cascadeId: id)
         }
+        self.isArchived = summary.annotations?.archived == true
         self.currentBranch = summary.currentBranch
         self.pullRequest = summary.pullRequest
         self.isSideQuestion = summary.isSideQuestion == true
@@ -442,6 +475,7 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
         parentConversationId: String? = nil,
         nestingDepth: Int = 0,
         isPinned: Bool = false,
+        isArchived: Bool = false,
         hasRunningTasks: Bool = false,
         hasRunningSubagents: Bool = false,
         currentBranch: String? = nil,
@@ -463,6 +497,7 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
         self.parentConversationId = parentConversationId
         self.nestingDepth = nestingDepth
         self.isPinned = isPinned
+        self.isArchived = isArchived
         self.hasRunningTasks = hasRunningTasks
         self.hasRunningSubagents = hasRunningSubagents
         self.currentBranch = currentBranch

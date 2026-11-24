@@ -223,7 +223,7 @@ public struct ChatView: View {
             commitPickerState.containerSize = newSize
         }
         .overlay {
-            ModelSlidePickerOverlay(state: modelPickerState) { modelId in
+            ModelSlidePickerOverlay(state: modelPickerState, isRunning: viewModel.isRunning) { modelId in
                 withAnimation(.easeInOut(duration: 0.15)) {
                     viewModel.selectModel(modelId)
                 }
@@ -306,8 +306,9 @@ public struct ChatView: View {
 
         ToolbarItem(placement: .topBarTrailing) {
             let isAutoPermission = viewModel.permissionState.preset == "auto"
+            let runningPermSuffix = viewModel.isRunning ? String(localized: " · 运行中，下轮生效") : ""
             Menu {
-                Section("全局权限放行模式 (\(viewModel.permissionState.localizedLabel))") {
+                Section("全局权限放行模式 (\(viewModel.permissionState.localizedLabel))\(runningPermSuffix)") {
                     Button {
                         Task { await viewModel.updatePermissionPreset("strict") }
                     } label: {

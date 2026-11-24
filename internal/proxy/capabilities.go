@@ -56,6 +56,7 @@ var Features = []Feature{
 	{ID: "github", RPCs: []string{"GetGitHubPullRequests"}},
 	{ID: "background_tasks", RPCs: []string{"ListBackgroundTasks"}},
 	{ID: "plugins", RPCs: []string{"GetAllPlugins", "InstallCascadePlugin", "ListPluginAuthProviders"}},
+	{ID: "plugin_grants", RPCs: []string{"ListPluginPermissionGrants", "RevokePluginPermissionGrant"}},
 	{ID: "automations", RPCs: []string{"GetSidecars", "GetSidecarEvents", "ManageSidecar", "ResolveSidecarConfig"}},
 	{ID: "context_meter", RPCs: []string{"GetCascadeTrajectoryGeneratorMetadata"}},
 	{ID: "live_summaries", RPCs: []string{"JetboxSubscribeToSummaries"}}, // 网关自带轮询兜底，缺失不影响列表功能
