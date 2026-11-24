@@ -1566,7 +1566,7 @@ function groupSteps(steps) {
   function flushBatch() {
     if (currentBatch && currentBatch.steps.length > 0) {
       if (pendingFocus) currentBatch.focusText = pendingFocus;
-      if ((pendingFocus || turnPlan) && pendingToolsStartedAt) {
+      if (pendingToolsStartedAt) {
         currentBatch.startedAt = pendingToolsStartedAt;
       }
       items.push(currentBatch);
@@ -1670,6 +1670,7 @@ function groupSteps(steps) {
       if (resp) {
         flushBatch();
         pendingFocus = "";
+        pendingToolsStartedAt = "";
         const artList = s.artifacts ? [...s.artifacts] : [];
         items.push({
           type: "agent",
@@ -1681,6 +1682,7 @@ function groupSteps(steps) {
           step: s
         });
       } else if (thinking) {
+        if (!pendingToolsStartedAt) pendingToolsStartedAt = stepCreatedTimestampWeb(s);
         if (!currentBatch) {
           currentBatch = {
             type: "tools",
@@ -1861,7 +1863,7 @@ function groupSteps(steps) {
   flushBatch();
   insertTurnPlan();
   items._activeFocus = pendingFocus;
-  items._activeFocusStartedAt = pendingFocus ? pendingToolsStartedAt : "";
+  items._activeFocusStartedAt = pendingToolsStartedAt || "";
   return items;
 }
 
@@ -2300,7 +2302,7 @@ function generateItemHtml(item, isRunning, isLastItem, isActivePlan = false) {
     const localizedNames = [...new Set((item.toolNames || []).filter(n => n !== "thinking").map(formatToolName))];
     const toolNamesStr = localizedNames.join(", ") + (localizedNames.length > 2 ? "..." : "");
     const liveThinking = (item.thinking || "").trim();
-    const openThinkingByDefault = !isActive && toolCount === 0;
+    const openThinkingByDefault = toolCount === 0;
     const thinkingHtml = liveThinking
       ? `
         <details class="p3-thinking-accordion"${openThinkingByDefault ? " open" : ""}>
@@ -2334,37 +2336,8 @@ function generateItemHtml(item, isRunning, isLastItem, isActivePlan = false) {
     `).join("");
 
     if (isActive) {
-      const liveFocus = (item.focusText || "").trim();
-      if (liveFocus) {
-        return buildActiveFocusRowHtml(liveFocus, item.startedAt, thinkingHtml, stepItemsHtml, true);
-      }
-      return `
-        <div class="agent-thinking-card">
-          <div class="agent-avatar">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M12 2v4m0 12v4M4.93 4.93l2.83 2.83m8.48 8.48l2.83 2.83M2 12h4m12 0h4M4.93 19.07l2.83-2.83m8.48-8.48l2.83-2.83"></path>
-            </svg>
-          </div>
-          <div class="agent-thinking-body">
-            <div class="thinking-title-row">
-              <span>${toolCount > 0 ? "Agent 正在思考与执行" : "Agent 正在深度思考"}</span>
-              <div class="activity-dots">
-                <span class="dot"></span>
-                <span class="dot"></span>
-                <span class="dot"></span>
-              </div>
-            </div>
-            <div class="active-tools-pill">
-              <svg class="bolt-icon" width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
-                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
-              </svg>
-              <span>${toolCount > 0 ? `已执行 <strong>${toolCount}</strong> 项操作` : "思考推理中"}</span>
-              ${toolNamesStr ? `<span class="tool-names">(${escapeHtml(toolNamesStr)})</span>` : ''}
-            </div>
-            ${liveThinking ? `<div class="p3-thinking-preview">${escapeHtml(liveThinking.slice(-500))}</div>` : ''}
-          </div>
-        </div>
-      `;
+      const liveFocus = (item.focusText || "").trim() || "Working";
+      return buildActiveFocusRowHtml(liveFocus, item.startedAt, thinkingHtml, stepItemsHtml, true);
     }
 
     if (window.CompactModePrefs?.shouldCollapseTools?.()) {
@@ -2512,26 +2485,7 @@ function renderMessages(steps, isRunning = false) {
   const activeFocusText = (items._activeFocus || "").trim();
   const activeFocusStartedAt = items._activeFocusStartedAt || "";
   const buildThinkingIndicatorHtml = () => {
-    if (activeFocusText) {
-      return buildActiveFocusRowHtml(activeFocusText, activeFocusStartedAt, "", "", false);
-    }
-    return `
-      <div class="agent-avatar">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M12 2v4m0 12v4M4.93 4.93l2.83 2.83m8.48 8.48l2.83 2.83M2 12h4m12 0h4M4.93 19.07l2.83-2.83m8.48-8.48l2.83-2.83"></path>
-        </svg>
-      </div>
-      <div class="agent-thinking-body">
-        <div class="thinking-title-row">
-          <span>Agent 正在思考与执行</span>
-          <div class="activity-dots">
-            <span class="dot"></span>
-            <span class="dot"></span>
-            <span class="dot"></span>
-          </div>
-        </div>
-      </div>
-    `;
+    return buildActiveFocusRowHtml(activeFocusText || "Working", activeFocusStartedAt, "", "", false);
   };
 
   const preDist = streamEl.scrollHeight - streamEl.scrollTop - streamEl.clientHeight;
@@ -2557,7 +2511,7 @@ function renderMessages(steps, isRunning = false) {
       } else if (item.type === "agent") {
         rowClass = "message-row agent";
       } else if (item.type === "tools") {
-        rowClass = (isRunning && isLastItem) ? "message-row agent" : "message-row tool-batch-row";
+        rowClass = (isRunning && isLastItem) ? "message-row focus-indicator-row" : "message-row tool-batch-row";
       } else if (item.type === "error") {
         rowClass = "message-row agent error-row";
       } else if (item.type === "subagent") {
@@ -2580,7 +2534,7 @@ function renderMessages(steps, isRunning = false) {
     if (isAwaiting) {
       const thinkingIndicator = document.createElement("div");
       thinkingIndicator.id = "agent-thinking-indicator";
-      thinkingIndicator.className = activeFocusText ? "message-row focus-indicator-row" : "agent-thinking-card";
+      thinkingIndicator.className = "message-row focus-indicator-row";
       thinkingIndicator.setAttribute("data-focus-sig", `${activeFocusText}|${activeFocusStartedAt}`);
       thinkingIndicator.innerHTML = buildThinkingIndicatorHtml();
       fragment.appendChild(thinkingIndicator);
@@ -2613,7 +2567,7 @@ function renderMessages(steps, isRunning = false) {
       } else if (item.type === "agent") {
         rowClass = "message-row agent";
       } else if (item.type === "tools") {
-        rowClass = (isRunning && isLastItem) ? "message-row agent" : "message-row tool-batch-row";
+        rowClass = (isRunning && isLastItem) ? "message-row focus-indicator-row" : "message-row tool-batch-row";
       } else if (item.type === "error") {
         rowClass = "message-row agent error-row";
       } else if (item.type === "subagent") {
@@ -2704,13 +2658,13 @@ function renderMessages(steps, isRunning = false) {
       if (!thinkingIndicator) {
         thinkingIndicator = document.createElement("div");
         thinkingIndicator.id = "agent-thinking-indicator";
-        thinkingIndicator.className = activeFocusText ? "message-row focus-indicator-row" : "agent-thinking-card";
+        thinkingIndicator.className = "message-row focus-indicator-row";
         thinkingIndicator.setAttribute("data-focus-sig", focusSig);
         thinkingIndicator.innerHTML = buildThinkingIndicatorHtml();
         streamEl.appendChild(thinkingIndicator);
         hasDOMChanges = true;
       } else if (thinkingIndicator.getAttribute("data-focus-sig") !== focusSig) {
-        thinkingIndicator.className = activeFocusText ? "message-row focus-indicator-row" : "agent-thinking-card";
+        thinkingIndicator.className = "message-row focus-indicator-row";
         thinkingIndicator.setAttribute("data-focus-sig", focusSig);
         thinkingIndicator.innerHTML = buildThinkingIndicatorHtml();
         hasDOMChanges = true;

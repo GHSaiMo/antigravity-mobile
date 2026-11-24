@@ -4,58 +4,21 @@ import Photos
 extension MessageBubbleView {
     @ViewBuilder
     func activeToolBatchCard(count: Int, tools: [String]) -> some View {
-        if let focus = message.focusText?.trimmingCharacters(in: .whitespacesAndNewlines), !focus.isEmpty {
-            ActiveFocusToolRowView(
-                focusText: focus,
-                startedAt: message.startedAt,
-                thinking: message.thinking,
-                toolDetails: message.toolDetails,
-                fallbackTools: tools,
-                isExpandable: true
-            )
-        } else {
-            HStack(alignment: .top, spacing: 10) {
-                AgentAvatarView()
-                
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack(spacing: 8) {
-                        Text("Agent 正在思考与执行")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundColor(.primary)
-                        
-                        AgentActivityDotsView()
-                    }
-                    
-                    HStack(spacing: 6) {
-                        Image(systemName: "bolt.fill")
-                            .font(.system(size: 10))
-                            .foregroundColor(.orange)
-                        
-                        Text("已执行 \(count) 项操作")
-                            .font(.system(size: 11.5, weight: .semibold))
-                            .foregroundColor(.primary.opacity(0.85))
-                        
-                        if !tools.isEmpty {
-                            let localizedPrefix = tools.prefix(3).map { ToolLocalization.localizedName(for: $0) }
-                            Text("(\(localizedPrefix.joined(separator: ", "))\(tools.count > 3 ? "..." : ""))")
-                                .font(.system(size: 10.5))
-                                .foregroundColor(.secondary)
-                                .lineLimit(1)
-                        }
-                    }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(Color(uiColor: .tertiarySystemFill))
-                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(Color(uiColor: .secondarySystemBackground))
-                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                
-                Spacer(minLength: 20)
+        let resolvedFocus: String = {
+            if let focus = message.focusText?.trimmingCharacters(in: .whitespacesAndNewlines), !focus.isEmpty {
+                return focus
             }
-        }
+            return "Working"
+        }()
+        let resolvedFallbackTools = !tools.isEmpty ? tools : (count > 0 ? Array(repeating: "tool_call", count: count) : [])
+        ActiveFocusToolRowView(
+            focusText: resolvedFocus,
+            startedAt: message.startedAt,
+            thinking: message.thinking,
+            toolDetails: message.toolDetails,
+            fallbackTools: resolvedFallbackTools,
+            isExpandable: true
+        )
     }
     
     var errorCard: some View {

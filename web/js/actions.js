@@ -345,24 +345,11 @@ async function handleProceed() {
   if (!thinkingIndicator) {
     thinkingIndicator = document.createElement("div");
     thinkingIndicator.id = "agent-thinking-indicator";
-    thinkingIndicator.className = "agent-thinking-card message-entering";
-    thinkingIndicator.innerHTML = `
-      <div class="agent-avatar">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M12 2v4m0 12v4M4.93 4.93l2.83 2.83m8.48 8.48l2.83 2.83M2 12h4m12 0h4M4.93 19.07l2.83-2.83m8.48-8.48l2.83-2.83"></path>
-        </svg>
-      </div>
-      <div class="agent-thinking-body">
-        <div class="thinking-title-row">
-          <span>Agent 正在思考与执行</span>
-          <div class="activity-dots">
-            <span class="dot"></span>
-            <span class="dot"></span>
-            <span class="dot"></span>
-          </div>
-        </div>
-      </div>
-    `;
+    thinkingIndicator.className = "message-row focus-indicator-row message-entering";
+    thinkingIndicator.setAttribute("data-focus-sig", "|");
+    thinkingIndicator.innerHTML = (typeof buildActiveFocusRowHtml === "function")
+      ? buildActiveFocusRowHtml("Working", "", "", "", false)
+      : `<div class="focus-tool-row static"><span class="focus-tool-text">Working</span></div>`;
     streamEl.appendChild(thinkingIndicator);
   }
   userIsNearBottom = true;

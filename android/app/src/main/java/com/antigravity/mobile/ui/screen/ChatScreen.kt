@@ -219,8 +219,8 @@ fun ChatScreen(
     val colors = AntigravityTheme.colors
     val isStreamingOrRunning = uiState.isAwaitingResponse || uiState.isRunning
     val lastMsg = uiState.messages.lastOrNull()
-    val hasActiveFocusToolTail = isStreamingOrRunning && lastMsg?.isTools == true && !lastMsg.focusText.isNullOrBlank()
-    val shouldShowThinkingBubble = isStreamingOrRunning && !hasActiveFocusToolTail
+    val hasActiveToolTail = isStreamingOrRunning && lastMsg?.isTools == true
+    val shouldShowThinkingBubble = isStreamingOrRunning && !hasActiveToolTail
     val activePlanId = remember(uiState.messages, isStreamingOrRunning) {
         if (!isStreamingOrRunning) return@remember null
         val lastUserIdx = uiState.messages.indexOfLast { it.isUser }
@@ -3392,117 +3392,12 @@ private fun AgentThinkingBubble(
     focusText: String? = null,
     startedAt: String? = null
 ) {
-    val cleanFocus = focusText?.trim().orEmpty()
-    if (cleanFocus.isNotEmpty()) {
-        ActiveFocusToolRow(
-            focusText = cleanFocus,
-            startedAt = startedAt,
-            isExpandable = false
-        )
-        return
-    }
-    val colors = AntigravityTheme.colors
-
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-        modifier = Modifier.padding(vertical = 4.dp)
-    ) {
-        // Agent Avatar
-        Box(
-            modifier = Modifier
-                .size(28.dp)
-                .clip(CircleShape)
-                .background(colors.accentBlue.copy(alpha = 0.12f)),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = Icons.Default.AutoAwesome,
-                contentDescription = "Agent",
-                tint = colors.accentBlue,
-                modifier = Modifier.size(14.dp)
-            )
-        }
-
-        // Bubble with 3 pulsing dots
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier
-                .clip(RoundedCornerShape(14.dp))
-                .background(colors.surface)
-                .border(0.5.dp, colors.border, RoundedCornerShape(14.dp))
-                .padding(horizontal = 12.dp, vertical = 8.dp)
-        ) {
-            Text(
-                text = "Agent 正在思考与执行".loc,
-                color = colors.textPrimary,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.SemiBold
-            )
-
-            PulsingDots(color = colors.accentBlue)
-        }
-    }
-}
-
-@Composable
-private fun PulsingDots(color: Color) {
-    val infiniteTransition = rememberInfiniteTransition(label = "dots")
-
-    val dot1Alpha by infiniteTransition.animateFloat(
-        initialValue = 0.25f,
-        targetValue = 0.9f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 600, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "dot1"
+    val resolvedFocus = focusText?.trim().orEmpty().ifEmpty { "Working" }
+    ActiveFocusToolRow(
+        focusText = resolvedFocus,
+        startedAt = startedAt,
+        isExpandable = false
     )
-
-    val dot2Alpha by infiniteTransition.animateFloat(
-        initialValue = 0.25f,
-        targetValue = 0.9f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 600, delayMillis = 200, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "dot2"
-    )
-
-    val dot3Alpha by infiniteTransition.animateFloat(
-        initialValue = 0.25f,
-        targetValue = 0.9f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 600, delayMillis = 400, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "dot3"
-    )
-
-    Row(
-        horizontalArrangement = Arrangement.spacedBy(3.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Box(
-            modifier = Modifier
-                .size(4.dp)
-                .clip(CircleShape)
-                .background(color.copy(alpha = dot1Alpha))
-        )
-        Box(
-            modifier = Modifier
-                .size(4.dp)
-                .clip(CircleShape)
-                .background(color.copy(alpha = dot2Alpha))
-        )
-        Box(
-            modifier = Modifier
-                .size(4.dp)
-                .clip(CircleShape)
-                .background(color.copy(alpha = dot3Alpha))
-        )
-    }
 }
 
 /**

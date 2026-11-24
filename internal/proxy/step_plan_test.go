@@ -283,3 +283,49 @@ func TestStreamFingerprintDetectsInPlaceStepPlanAndFocusUpdates(t *testing.T) {
 		t.Fatalf("hashMessageItem failed to detect FocusText update")
 	}
 }
+
+func TestActiveWorkingStartedAtWithoutUpdateFocus(t *testing.T) {
+	rawJSON := `{
+		"status": "CASCADE_RUN_STATUS_RUNNING",
+		"trajectory": {
+			"cascadeId": "cid-working-no-focus",
+			"steps": [
+				{
+					"type": "CORTEX_STEP_TYPE_USER_INPUT",
+					"status": "CORTEX_STEP_STATUS_DONE",
+					"metadata": {"createdAt": "2026-11-24T01:00:00Z"},
+					"userInput": {"userResponse": "Check status"}
+				},
+				{
+					"type": "CORTEX_STEP_TYPE_RUN_COMMAND",
+					"status": "CORTEX_STEP_STATUS_RUNNING",
+					"metadata": {
+						"createdAt": "2026-11-24T01:00:02Z",
+						"toolCall": {"id": "tc-1", "name": "run_command"}
+					},
+					"runCommand": {"commandLine": "git status"}
+				}
+			]
+		}
+	}`
+
+	var raw upstreamTrajectoryResp
+	if err := json.Unmarshal([]byte(rawJSON), &raw); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	p := &Proxy{}
+	d := p.ParseTrajectoryDetails(&raw)
+
+	if len(d.AllMessages) != 2 || d.AllMessages[1].Type != "tools" {
+		t.Fatalf("expected [user, tools], got %#v", d.AllMessages)
+	}
+	if d.AllMessages[1].FocusText != "" {
+		t.Fatalf("expected empty FocusText so clients fall back to Working, got %q", d.AllMessages[1].FocusText)
+	}
+	if d.AllMessages[1].StartedAt != "2026-11-24T01:00:02Z" {
+		t.Fatalf("expected tools StartedAt=2026-11-24T01:00:02Z, got %q", d.AllMessages[1].StartedAt)
+	}
+	if d.ActiveFocusStarted != "2026-11-24T01:00:02Z" {
+		t.Fatalf("expected ActiveFocusStarted=2026-11-24T01:00:02Z, got %q", d.ActiveFocusStarted)
+	}
+}

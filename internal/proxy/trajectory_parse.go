@@ -239,10 +239,7 @@ func buildTrajectoryMessages(steps []TrajectoryStep) ([]CascadeMessageItem, int)
 		if pendingTools > 0 {
 			text = fmt.Sprintf("已思考并执行 %d 项操作", pendingTools)
 		}
-		toolsStartedAt := ""
-		if pendingFocus != "" || turnPlan != nil {
-			toolsStartedAt = pendingToolsStartedAt
-		}
+		toolsStartedAt := pendingToolsStartedAt
 		item := CascadeMessageItem{
 			ID:               fmt.Sprintf("tools-%d", len(allMessages)),
 			Type:             "tools",

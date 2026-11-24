@@ -290,6 +290,8 @@ func extractActiveTurnPlanAndFocus(steps []TrajectoryStep, lastUserIdx int) (*St
 				// Mirror desktop j1b: an assistant text message resets the trailing focus & timer.
 				activeFocus = ""
 				activeFocusStartedAt = ""
+			} else if strings.TrimSpace(s.PlannerResponse.Thinking) != "" && activeFocusStartedAt == "" {
+				activeFocusStartedAt = stepStartTimestamp(s)
 			}
 			continue
 		}
@@ -301,9 +303,6 @@ func extractActiveTurnPlanAndFocus(steps []TrajectoryStep, lastUserIdx int) (*St
 				activeFocusStartedAt = stepStartTimestamp(s)
 			}
 		}
-	}
-	if activeFocus == "" {
-		activeFocusStartedAt = ""
 	}
 	return activePlan, activeFocus, activeFocusStartedAt
 }

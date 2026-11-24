@@ -353,10 +353,13 @@ public struct ActiveFocusToolRowView: View {
         self.isExpandable = isExpandable
     }
 
+    private var hasTools: Bool {
+        !(toolDetails?.isEmpty ?? true) || !fallbackTools.isEmpty
+    }
+
     private var hasDetails: Bool {
         let hasThinking = !(thinking?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
-        let hasToolDetails = !(toolDetails?.isEmpty ?? true)
-        return isExpandable && (hasThinking || hasToolDetails || !fallbackTools.isEmpty)
+        return isExpandable && (hasThinking || hasTools)
     }
 
     private var startDate: Date? {
@@ -385,7 +388,10 @@ public struct ActiveFocusToolRowView: View {
             if isExpanded && hasDetails {
                 VStack(alignment: .leading, spacing: 5) {
                     if let thinking = thinking?.trimmingCharacters(in: .whitespacesAndNewlines), !thinking.isEmpty {
-                        CollapsibleThinkingBlockView(thinking: thinking)
+                        CollapsibleThinkingBlockView(
+                            thinking: thinking,
+                            initiallyExpanded: !hasTools
+                        )
                     }
 
                     if let details = toolDetails, !details.isEmpty {

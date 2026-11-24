@@ -132,15 +132,23 @@ fun MessageBubble(
 
     // Standalone tool or thinking capsule
     if (message.isTools) {
-        val liveFocus = message.focusText?.trim().orEmpty()
-        if (isActiveToolBatch && liveFocus.isNotEmpty()) {
+        if (isActiveToolBatch) {
+            val liveFocus = message.focusText?.trim().orEmpty().ifEmpty { "Working" }
+            val resolvedToolNames = message.toolNames.orEmpty().ifEmpty {
+                val count = message.toolCount ?: 0
+                if (count > 0 && message.toolCalls.isNullOrEmpty() && message.toolDetails.isNullOrEmpty()) {
+                    List(count) { "tool_call" }
+                } else {
+                    emptyList()
+                }
+            }
             ActiveFocusToolRow(
                 focusText = liveFocus,
                 startedAt = message.startedAt,
                 thinkingText = message.thinking,
                 toolDetails = message.toolDetails,
                 toolCalls = message.toolCalls.orEmpty(),
-                toolNames = message.toolNames.orEmpty(),
+                toolNames = resolvedToolNames,
                 isExpandable = true,
                 modifier = modifier
             )

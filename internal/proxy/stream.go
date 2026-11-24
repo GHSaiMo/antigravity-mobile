@@ -150,7 +150,7 @@ func (p *StreamUpdatePayload) Fingerprint() string {
 	if p.TaskProgress != nil {
 		tpKey = p.TaskProgress.TaskName + ":" + p.TaskProgress.TaskStatus + ":" + p.TaskProgress.TaskSummary
 	}
-	if p.ActiveFocus != "" || p.ActivePlan != nil {
+	if p.ActiveFocus != "" || p.ActiveFocusStarted != "" || p.ActivePlan != nil {
 		ph := newFNV64()
 		ph.str(p.ActiveFocus)
 		ph.str(p.ActiveFocusStarted)

@@ -481,12 +481,8 @@ fun ActiveFocusToolRow(
     val haptic = rememberHaptic()
     var isExpanded by remember { mutableStateOf(false) }
 
-    val hasDetails = isExpandable && (
-        !thinkingText.isNullOrBlank() ||
-            !toolDetails.isNullOrEmpty() ||
-            toolCalls.isNotEmpty() ||
-            toolNames.isNotEmpty()
-    )
+    val hasTools = !toolDetails.isNullOrEmpty() || toolCalls.isNotEmpty() || toolNames.isNotEmpty()
+    val hasDetails = isExpandable && (!thinkingText.isNullOrBlank() || hasTools)
 
     val startMs = remember(startedAt) { parseIsoTimestampMs(startedAt) }
     var nowMs by remember(startMs) { mutableLongStateOf(System.currentTimeMillis()) }
@@ -581,7 +577,10 @@ fun ActiveFocusToolRow(
                 verticalArrangement = Arrangement.spacedBy(5.dp)
             ) {
                 if (!thinkingText.isNullOrBlank()) {
-                    CollapsibleThinkingBlock(thinkingText = thinkingText.trim())
+                    CollapsibleThinkingBlock(
+                        thinkingText = thinkingText.trim(),
+                        initiallyExpanded = !hasTools
+                    )
                 }
 
                 if (!toolDetails.isNullOrEmpty()) {
