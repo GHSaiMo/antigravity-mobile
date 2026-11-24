@@ -31,8 +31,14 @@ public struct InteractionCardView: View {
     @State private var pendingAutoFocusSingleWriteIn: Bool = false
     @State private var pendingAutoFocusQuestionIndex: Int? = nil
     
-    // Multi-question state: questionIndex -> selectedOptionId, questionIndex -> writeInText
+    // Single-question multi-select state
+    @State private var singleMultiSelectedIds: Set<String> = []
+    @State private var singleWriteInActive: Bool = false
+
+    // Multi-question state: questionIndex -> selectedOptionId (single) / selectedOptionIds (multi) / writeIn
     @State private var selectedOptionsByQuestion: [Int: String] = [:]
+    @State private var multiSelectedOptionsByQuestion: [Int: Set<String>] = [:]
+    @State private var writeInActiveByQuestion: [Int: Bool] = [:]
     @State private var writeInByQuestion: [Int: String] = [:]
     
     // Expandable card state (default: adaptive height up to ~half chat area, expandable to full chat area without overlapping nav bar)
@@ -99,6 +105,48 @@ public struct InteractionCardView: View {
         return false
     }
 
+    private var isSingleMultiSelect: Bool {
+        !hasMultipleQuestions && ((interaction.isMultiSelect == true) || (interaction.questions?.first?.isMultiSelect == true))
+    }
+
+    private func isOptionWriteIn(_ option: InteractionOption, hasWriteIn: Bool) -> Bool {
+        if option.id == "__write_in__" { return true }
+        guard hasWriteIn else { return false }
+        if option.isDeny == true { return true }
+        if isPermissionType && option.id == "5" { return true }
+        return false
+    }
+
+    private var singleMultiSelectionCount: Int {
+        let trimmed = writeInText.trimmingCharacters(in: .whitespacesAndNewlines)
+        return singleMultiSelectedIds.count + (singleWriteInActive && !trimmed.isEmpty ? 1 : 0)
+    }
+
+    private var canSubmit: Bool {
+        if hasMultipleQuestions, let questions = interaction.questions {
+            for (idx, q) in questions.enumerated() where q.isMultiSelect == true {
+                let hasOpts = !(multiSelectedOptionsByQuestion[idx] ?? []).isEmpty
+                let trimmed = (writeInByQuestion[idx] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                let hasWriteIn = (writeInActiveByQuestion[idx] == true) && !trimmed.isEmpty
+                if !hasOpts && !hasWriteIn {
+                    return false
+                }
+            }
+            return true
+        }
+        if isSingleMultiSelect {
+            return singleMultiSelectionCount > 0
+        }
+        return true
+    }
+
+    private var submitButtonTitle: String {
+        if isSingleMultiSelect && singleMultiSelectionCount > 0 {
+            return "\(String(localized: "提交")) (\(singleMultiSelectionCount))"
+        }
+        return String(localized: "提交")
+    }
+
     private var singleQuestionTitle: String {
         interaction.title.isEmpty ? (interaction.description ?? String(localized: "需要用户审批操作")) : interaction.title
     }
@@ -137,7 +185,7 @@ public struct InteractionCardView: View {
         if let maxAvailableHeight, maxAvailableHeight > 0 {
             return maxAvailableHeight
         }
-        return max(320, UIScreen.main.bounds.height - 220)
+        return 380
     }
 
     /// 卡片固定壳层高度（顶栏 + 底部按钮栏 + 内外边距与分割线）
@@ -201,13 +249,19 @@ public struct InteractionCardView: View {
         _targetText = State(initialValue: interaction.target ?? "")
         
         var qMap: [Int: String] = [:]
+        var qMultiMap: [Int: Set<String>] = [:]
         if let questions = interaction.questions {
             for (idx, q) in questions.enumerated() {
-                let qFallback = (q.hasWriteIn == true) ? "__write_in__" : "1"
-                qMap[idx] = q.defaultOptionId ?? q.options.first?.id ?? qFallback
+                if q.isMultiSelect == true {
+                    qMultiMap[idx] = []
+                } else {
+                    let qFallback = (q.hasWriteIn == true) ? "__write_in__" : "1"
+                    qMap[idx] = q.defaultOptionId ?? q.options.first?.id ?? qFallback
+                }
             }
         }
         _selectedOptionsByQuestion = State(initialValue: qMap)
+        _multiSelectedOptionsByQuestion = State(initialValue: qMultiMap)
     }
     
     private var headerIconName: String {
@@ -325,21 +379,27 @@ public struct InteractionCardView: View {
     }
 
     private var isWriteInSelected: Bool {
+        if isSingleMultiSelect {
+            return singleWriteInActive
+        }
         if selectedOptionId == "__write_in__" { return true }
         guard interaction.hasWriteIn == true else { return false }
         if let opt = singleDisplayOptions.first(where: { $0.id == selectedOptionId }) {
-            return opt.isDeny == true || opt.id == "5" || opt.id.lowercased() == "other"
+            return isOptionWriteIn(opt, hasWriteIn: true)
         }
-        return selectedOptionId == "5"
+        return isPermissionType && selectedOptionId == "5"
     }
     
     private func isQuestionDenySelected(qIdx: Int, q: InteractionQuestion) -> Bool {
+        if q.isMultiSelect == true {
+            return writeInActiveByQuestion[qIdx] == true
+        }
         let optId = selectedOptionsByQuestion[qIdx] ?? ""
         let opts = displayOptions(for: q)
         if let opt = opts.first(where: { $0.id == optId }) {
-            return opt.isDeny == true || opt.id == "5" || opt.id == "__write_in__" || opt.id.lowercased() == "other"
+            return isOptionWriteIn(opt, hasWriteIn: q.hasWriteIn == true)
         }
-        return optId == "5" || optId == "__write_in__" || optId.lowercased() == "other"
+        return optId == "__write_in__"
     }
     
     private func dismissKeyboard() {
@@ -372,19 +432,66 @@ public struct InteractionCardView: View {
     }
     
     private func handleSubmit() {
+        guard canSubmit else { return }
         dismissKeyboard()
         if hasMultipleQuestions, let questions = interaction.questions {
-            let responses = questions.enumerated().map { idx, q in
-                let qFallback = (q.hasWriteIn == true) ? "__write_in__" : "1"
-                let optId = selectedOptionsByQuestion[idx] ?? q.defaultOptionId ?? q.options.first?.id ?? qFallback
-                let text = writeInByQuestion[idx]
-                return QuestionResponse(questionIndex: idx, selectedOptionIds: [optId], writeInResponse: text, skipped: false)
+            let responses = questions.enumerated().map { idx, q -> QuestionResponse in
+                if q.isMultiSelect == true {
+                    let selectedSet = multiSelectedOptionsByQuestion[idx] ?? []
+                    let orderedIds = q.options.map(\.id).filter { selectedSet.contains($0) }
+                    let trimmedWriteIn = (writeInActiveByQuestion[idx] == true)
+                        ? (writeInByQuestion[idx] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                        : ""
+                    return QuestionResponse(
+                        questionIndex: idx,
+                        selectedOptionIds: orderedIds,
+                        writeInResponse: trimmedWriteIn.isEmpty ? nil : trimmedWriteIn,
+                        skipped: false
+                    )
+                } else {
+                    let qFallback = (q.hasWriteIn == true) ? "__write_in__" : "1"
+                    let optId = selectedOptionsByQuestion[idx] ?? q.defaultOptionId ?? q.options.first?.id ?? qFallback
+                    let isWriteIn = (optId == "__write_in__") || (q.options.first(where: { $0.id == optId })?.isDeny == true)
+                    let ids = isWriteIn ? [] : [optId]
+                    let text = isWriteIn ? (writeInByQuestion[idx] ?? "").trimmingCharacters(in: .whitespacesAndNewlines) : ""
+                    return QuestionResponse(
+                        questionIndex: idx,
+                        selectedOptionIds: ids,
+                        writeInResponse: text.isEmpty ? nil : text,
+                        skipped: false
+                    )
+                }
             }
-            onSubmit(selectedOptionId, nil, interaction.target, responses)
+            let primaryOptId = responses.first?.selectedOptionIds.first ?? ""
+            onSubmit(primaryOptId, nil, interaction.target, responses)
+        } else if isSingleMultiSelect {
+            let orderedIds = interaction.options.map(\.id).filter { singleMultiSelectedIds.contains($0) }
+            let trimmedWriteIn = singleWriteInActive
+                ? writeInText.trimmingCharacters(in: .whitespacesAndNewlines)
+                : ""
+            let response = QuestionResponse(
+                questionIndex: 0,
+                selectedOptionIds: orderedIds,
+                writeInResponse: trimmedWriteIn.isEmpty ? nil : trimmedWriteIn,
+                skipped: false
+            )
+            let primaryOptId = orderedIds.first ?? (trimmedWriteIn.isEmpty ? "" : "__write_in__")
+            onSubmit(primaryOptId, trimmedWriteIn.isEmpty ? nil : trimmedWriteIn, interaction.target, [response])
         } else {
             let text = (isWriteInSelected || isDenySelected) ? writeInText : nil
             onSubmit(selectedOptionId, text, interaction.target, nil)
         }
+    }
+
+    private var multiSelectBadgeView: some View {
+        Text("多选")
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundColor(.blue)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 2)
+            .background(Color.blue.opacity(0.12))
+            .clipShape(Capsule())
+            .fixedSize()
     }
     
     @ViewBuilder
@@ -401,10 +508,36 @@ public struct InteractionCardView: View {
                     .foregroundColor(.primary)
                     .lineLimit(1)
             } else if isLongSingleQuestion {
-                Text(compactCategoryTitle)
-                    .font(.system(size: 14.5, weight: .semibold))
-                    .foregroundColor(.primary)
-                    .lineLimit(1)
+                HStack(spacing: 6) {
+                    Text(compactCategoryTitle)
+                        .font(.system(size: 14.5, weight: .semibold))
+                        .foregroundColor(.primary)
+                        .lineLimit(1)
+                    if isSingleMultiSelect {
+                        multiSelectBadgeView
+                    }
+                }
+            } else if isSingleMultiSelect {
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .center, spacing: 6) {
+                        Text(singleQuestionTitle)
+                            .font(.system(size: 14.5, weight: .semibold))
+                            .foregroundColor(.primary)
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
+                        multiSelectBadgeView
+                    }
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(singleQuestionTitle)
+                            .font(.system(size: 14.5, weight: .semibold))
+                            .foregroundColor(.primary)
+                            .lineSpacing(2.5)
+                            .lineLimit(3)
+                            .multilineTextAlignment(.leading)
+                            .fixedSize(horizontal: false, vertical: true)
+                        multiSelectBadgeView
+                    }
+                }
             } else {
                 Text(singleQuestionTitle)
                     .font(.system(size: 14.5, weight: .semibold))
@@ -676,6 +809,9 @@ public struct InteractionCardView: View {
     @ViewBuilder
     private func multiQuestionSection(qIdx: Int, q: InteractionQuestion) -> some View {
         let opts = displayOptions(for: q)
+        let isMulti = (q.isMultiSelect == true)
+        let selectedMultiSet = multiSelectedOptionsByQuestion[qIdx] ?? []
+        let isQuestionWriteInActive = writeInActiveByQuestion[qIdx] == true
         VStack(alignment: .leading, spacing: 7) {
             HStack(alignment: .top, spacing: 6) {
                 Text("Q\(qIdx + 1)")
@@ -692,6 +828,11 @@ public struct InteractionCardView: View {
                     .lineSpacing(2)
                     .multilineTextAlignment(.leading)
                     .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                if isMulti {
+                    multiSelectBadgeView
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
@@ -701,8 +842,23 @@ public struct InteractionCardView: View {
             
             VStack(spacing: 6) {
                 ForEach(Array(opts.enumerated()), id: \.element.id) { optIdx, option in
-                    let isSelected = (selectedOptionsByQuestion[qIdx] ?? q.defaultOptionId ?? "1") == option.id
-                    let isWriteIn = (option.id == "__write_in__" || (q.hasWriteIn == true && (option.isDeny == true || option.id == "5" || option.id.lowercased() == "other")))
+                    let isWriteIn = isOptionWriteIn(option, hasWriteIn: q.hasWriteIn == true)
+                    let isSelected: Bool = {
+                        if isMulti {
+                            return isWriteIn ? isQuestionWriteInActive : selectedMultiSet.contains(option.id)
+                        }
+                        return (selectedOptionsByQuestion[qIdx] ?? q.defaultOptionId ?? "1") == option.id
+                    }()
+                    let indicatorName = isMulti
+                        ? (isSelected ? "checkmark.square.fill" : "square")
+                        : (isSelected ? "largecircle.fill.circle" : "circle")
+                    let toggleWriteInOff = {
+                        UISelectionFeedbackGenerator().selectionChanged()
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            writeInActiveByQuestion[qIdx] = false
+                        }
+                        dismissKeyboard()
+                    }
                     
                     HStack(alignment: .top, spacing: 8) {
                         Text(badgeText(for: option, in: opts, index: optIdx))
@@ -712,6 +868,11 @@ public struct InteractionCardView: View {
                             .background(isSelected ? Color.blue : Color(uiColor: .tertiarySystemFill))
                             .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
                             .padding(.top, 1)
+                            .onTapGesture {
+                                if isMulti && isWriteIn && isSelected {
+                                    toggleWriteInOff()
+                                }
+                            }
                         
                         if isWriteIn && isSelected {
                             let binding = Binding<String>(
@@ -743,10 +904,16 @@ public struct InteractionCardView: View {
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
                         
-                        Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
-                            .font(.system(size: 14))
+                        Image(systemName: indicatorName)
+                            .font(.system(size: isMulti ? 15.5 : 14))
                             .foregroundColor(isSelected ? .blue : Color(uiColor: .tertiaryLabel))
-                            .padding(.top, 2)
+                            .padding(.top, isMulti ? 1.5 : 2)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                if isMulti && isWriteIn && isSelected {
+                                    toggleWriteInOff()
+                                }
+                            }
                     }
                     .padding(.horizontal, 9)
                     .padding(.vertical, 8)
@@ -760,18 +927,44 @@ public struct InteractionCardView: View {
                     )
                     .contentShape(Rectangle())
                     .onTapGesture {
-                        UISelectionFeedbackGenerator().selectionChanged()
-                        let wasAlreadySelected = isSelected
-                        withAnimation(.easeInOut(duration: 0.15)) {
-                            selectedOptionsByQuestion[qIdx] = option.id
-                        }
-                        if isWriteIn {
-                            if !wasAlreadySelected {
-                                pendingAutoFocusQuestionIndex = qIdx
-                            }
+                        if isMulti && isWriteIn && isSelected {
                             focusedMultiQuestionIndex = qIdx
+                            return
+                        }
+                        UISelectionFeedbackGenerator().selectionChanged()
+                        if isMulti {
+                            withAnimation(.easeInOut(duration: 0.15)) {
+                                if isWriteIn {
+                                    writeInActiveByQuestion[qIdx] = true
+                                } else {
+                                    var set = multiSelectedOptionsByQuestion[qIdx] ?? []
+                                    if set.contains(option.id) {
+                                        set.remove(option.id)
+                                    } else {
+                                        set.insert(option.id)
+                                    }
+                                    multiSelectedOptionsByQuestion[qIdx] = set
+                                }
+                            }
+                            if isWriteIn {
+                                pendingAutoFocusQuestionIndex = qIdx
+                                focusedMultiQuestionIndex = qIdx
+                            } else {
+                                dismissKeyboard()
+                            }
                         } else {
-                            dismissKeyboard()
+                            let wasAlreadySelected = isSelected
+                            withAnimation(.easeInOut(duration: 0.15)) {
+                                selectedOptionsByQuestion[qIdx] = option.id
+                            }
+                            if isWriteIn {
+                                if !wasAlreadySelected {
+                                    pendingAutoFocusQuestionIndex = qIdx
+                                }
+                                focusedMultiQuestionIndex = qIdx
+                            } else {
+                                dismissKeyboard()
+                            }
                         }
                     }
                 }
@@ -783,10 +976,26 @@ public struct InteractionCardView: View {
     @ViewBuilder
     private var singleQuestionOptions: some View {
         let opts = singleDisplayOptions
+        let isMulti = isSingleMultiSelect
         VStack(spacing: 6) {
             ForEach(Array(opts.enumerated()), id: \.element.id) { optIdx, option in
-                let isSelected = selectedOptionId == option.id
-                let isWriteIn = (option.id == "__write_in__" || (interaction.hasWriteIn == true && (option.isDeny == true || option.id == "5")))
+                let isWriteIn = isOptionWriteIn(option, hasWriteIn: interaction.hasWriteIn == true)
+                let isSelected: Bool = {
+                    if isMulti {
+                        return isWriteIn ? singleWriteInActive : singleMultiSelectedIds.contains(option.id)
+                    }
+                    return selectedOptionId == option.id
+                }()
+                let indicatorName = isMulti
+                    ? (isSelected ? "checkmark.square.fill" : "square")
+                    : (isSelected ? "largecircle.fill.circle" : "circle")
+                let toggleSingleWriteInOff = {
+                    UISelectionFeedbackGenerator().selectionChanged()
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        singleWriteInActive = false
+                    }
+                    dismissKeyboard()
+                }
                 
                 HStack(alignment: .top, spacing: 9) {
                     Text(badgeText(for: option, in: opts, index: optIdx))
@@ -796,6 +1005,11 @@ public struct InteractionCardView: View {
                         .background(isSelected ? Color.blue : Color(uiColor: .tertiarySystemFill))
                         .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
                         .padding(.top, 1)
+                        .onTapGesture {
+                            if isMulti && isWriteIn && isSelected {
+                                toggleSingleWriteInOff()
+                            }
+                        }
                     
                     if isWriteIn && isSelected {
                         TextField(
@@ -822,10 +1036,16 @@ public struct InteractionCardView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     
-                    Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
-                        .font(.system(size: 15))
+                    Image(systemName: indicatorName)
+                        .font(.system(size: isMulti ? 16 : 15))
                         .foregroundColor(isSelected ? .blue : Color(uiColor: .tertiaryLabel))
-                        .padding(.top, 2)
+                        .padding(.top, isMulti ? 1.5 : 2)
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            if isMulti && isWriteIn && isSelected {
+                                toggleSingleWriteInOff()
+                            }
+                        }
                 }
                 .padding(.horizontal, 10)
                 .padding(.vertical, 8)
@@ -839,18 +1059,40 @@ public struct InteractionCardView: View {
                 )
                 .contentShape(Rectangle())
                 .onTapGesture {
-                    UISelectionFeedbackGenerator().selectionChanged()
-                    let wasAlreadySelected = isSelected
-                    withAnimation(.easeInOut(duration: 0.15)) {
-                        selectedOptionId = option.id
-                    }
-                    if isWriteIn {
-                        if !wasAlreadySelected {
-                            pendingAutoFocusSingleWriteIn = true
-                        }
+                    if isMulti && isWriteIn && isSelected {
                         isSingleWriteInFocused = true
+                        return
+                    }
+                    UISelectionFeedbackGenerator().selectionChanged()
+                    if isMulti {
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            if isWriteIn {
+                                singleWriteInActive = true
+                            } else if singleMultiSelectedIds.contains(option.id) {
+                                singleMultiSelectedIds.remove(option.id)
+                            } else {
+                                singleMultiSelectedIds.insert(option.id)
+                            }
+                        }
+                        if isWriteIn {
+                            pendingAutoFocusSingleWriteIn = true
+                            isSingleWriteInFocused = true
+                        } else {
+                            dismissKeyboard()
+                        }
                     } else {
-                        dismissKeyboard()
+                        let wasAlreadySelected = isSelected
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            selectedOptionId = option.id
+                        }
+                        if isWriteIn {
+                            if !wasAlreadySelected {
+                                pendingAutoFocusSingleWriteIn = true
+                            }
+                            isSingleWriteInFocused = true
+                        } else {
+                            dismissKeyboard()
+                        }
                     }
                 }
             }
@@ -880,19 +1122,19 @@ public struct InteractionCardView: View {
                                 .tint(.white)
                                 .scaleEffect(0.8)
                         } else {
-                            Text("提交")
+                            Text(submitButtonTitle)
                                 .font(.system(size: 14, weight: .semibold))
                                 .foregroundColor(.white)
                         }
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 8)
-                    .background(Color.blue)
+                    .background(canSubmit ? Color.blue : Color.blue.opacity(0.38))
                     .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    .shadow(color: Color.blue.opacity(0.3), radius: 3, x: 0, y: 1.5)
+                    .shadow(color: canSubmit ? Color.blue.opacity(0.3) : .clear, radius: 3, x: 0, y: 1.5)
                 }
                 .buttonStyle(.plain)
-                .disabled(isSubmitting)
+                .disabled(isSubmitting || !canSubmit)
             }
         }
         .padding(.top, 2)

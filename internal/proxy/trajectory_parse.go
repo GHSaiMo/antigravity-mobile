@@ -1406,9 +1406,13 @@ func buildPendingInteraction(rawResp *upstreamTrajectoryResp, steps []Trajectory
 						WriteInLabel:       "Other",
 						WriteInPlaceholder: "(write in your response)",
 					}
-					for _, opt := range qItem.Options {
+					for idx, opt := range qItem.Options {
+						optID := opt.ID
+						if optID == "" {
+							optID = fmt.Sprintf("%d", idx+1)
+						}
 						iq.Options = append(iq.Options, InteractionOption{
-							ID:   opt.ID,
+							ID:   optID,
 							Text: opt.Text,
 						})
 					}

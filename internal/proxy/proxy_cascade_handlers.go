@@ -951,14 +951,20 @@ func (p *Proxy) HandleCascadeInteraction(w http.ResponseWriter, r *http.Request)
 			responses := make([]map[string]interface{}, len(req.QuestionResponses))
 			for i, qr := range req.QuestionResponses {
 				opts := []string{}
+				seen := make(map[string]struct{}, len(qr.SelectedOptionIDs))
 				for _, oid := range qr.SelectedOptionIDs {
-					if oid != "" && oid != "5" && oid != "__write_in__" {
-						opts = append(opts, oid)
+					if oid == "" || oid == "__write_in__" {
+						continue
 					}
+					if _, dup := seen[oid]; dup {
+						continue
+					}
+					seen[oid] = struct{}{}
+					opts = append(opts, oid)
 				}
 				responses[i] = map[string]interface{}{
 					"selectedOptionIds": opts,
-					"writeInResponse":   qr.WriteInResponse,
+					"writeInResponse":   strings.TrimSpace(qr.WriteInResponse),
 					"skipped":           qr.Skipped,
 				}
 			}
@@ -968,14 +974,14 @@ func (p *Proxy) HandleCascadeInteraction(w http.ResponseWriter, r *http.Request)
 			}
 		} else {
 			opts := []string{}
-			if req.OptionID != "" && req.OptionID != "5" && req.OptionID != "__write_in__" {
+			if req.OptionID != "" && req.OptionID != "__write_in__" {
 				opts = append(opts, req.OptionID)
 			}
 			interaction.AskQuestion = map[string]interface{}{
 				"responses": []map[string]interface{}{
 					{
 						"selectedOptionIds": opts,
-						"writeInResponse":   req.WriteInResponse,
+						"writeInResponse":   strings.TrimSpace(req.WriteInResponse),
 						"skipped":           false,
 					},
 				},

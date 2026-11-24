@@ -17,7 +17,7 @@ internal fun ChatViewModel.submitInteraction(
     val selectedOpt = interaction.options.find { it.id == optionId }
     val scope = selectedOpt?.scope ?: 1
     val isPermissionType = interaction.type == "permission" || interaction.type == "file_permission"
-    val isDeny = selectedOpt?.isDeny == true || optionId == "5" || (isPermissionType && optionId == "__write_in__")
+    val isDeny = selectedOpt?.isDeny == true || (isPermissionType && (optionId == "5" || optionId == "__write_in__"))
     val allow = !isDeny
 
     viewModelScope.launch {

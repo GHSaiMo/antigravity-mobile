@@ -1520,6 +1520,10 @@ final class DemoGateway: @unchecked Sendable {
                             chosenTexts = ids.map { id in
                                 opts.first(where: { ($0["id"] as? String) == id })?["text"] as? String ?? id
                             }
+                        } else if let opts = pendingOptions {
+                            chosenTexts = ids.map { id in
+                                opts.first(where: { ($0["id"] as? String) == id })?["text"] as? String ?? id
+                            }
                         } else {
                             chosenTexts = ids
                         }

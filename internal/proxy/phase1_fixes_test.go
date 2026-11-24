@@ -130,6 +130,83 @@ func TestHandleCascadeInteraction_FilePermissionMcpAndElicitation(t *testing.T) 
 	}
 }
 
+func TestHandleCascadeInteraction_AskQuestionMultiSelectAndOption5(t *testing.T) {
+	var captured []map[string]interface{}
+	p, _ := newMockTLSProxy(t, func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/HandleCascadeUserInteraction") {
+			var body map[string]interface{}
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			captured = append(captured, body)
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{}`))
+			return
+		}
+		http.NotFound(w, r)
+	})
+
+	// 1. Single-question multi-select submitted via questionResponses: must preserve "5", deduplicate, filter "__write_in__", and keep writeInResponse
+	multiBody := `{
+		"cascadeId":"c-multi",
+		"trajectoryId":"t-multi",
+		"stepIndex":2,
+		"type":"ask_question",
+		"allow":true,
+		"questionResponses":[
+			{"questionIndex":0,"selectedOptionIds":["1","3","5","3","__write_in__"],"writeInResponse":"  补充第 4 项  ","skipped":false}
+		]
+	}`
+	rec := httptest.NewRecorder()
+	p.HandleCascadeInteraction(rec, httptest.NewRequest(http.MethodPost, "/gateway/cascade/interaction", strings.NewReader(multiBody)))
+	if rec.Code != http.StatusOK || len(captured) != 1 {
+		t.Fatalf("multi-select ask_question failed: code=%d body=%s", rec.Code, rec.Body.String())
+	}
+	inter0 := captured[0]["interaction"].(map[string]interface{})
+	aq0 := inter0["askQuestion"].(map[string]interface{})
+	if aq0["cancelled"] != false {
+		t.Errorf("expected cancelled=false, got %v", aq0["cancelled"])
+	}
+	resps0 := aq0["responses"].([]interface{})
+	if len(resps0) != 1 {
+		t.Fatalf("expected 1 response, got %d", len(resps0))
+	}
+	r0 := resps0[0].(map[string]interface{})
+	gotIDs := r0["selectedOptionIds"].([]interface{})
+	wantIDs := []string{"1", "3", "5"}
+	if len(gotIDs) != len(wantIDs) {
+		t.Fatalf("selectedOptionIds = %v, want %v", gotIDs, wantIDs)
+	}
+	for i, wID := range wantIDs {
+		if gotIDs[i].(string) != wID {
+			t.Errorf("selectedOptionIds[%d] = %q, want %q", i, gotIDs[i], wID)
+		}
+	}
+	if r0["writeInResponse"] != "补充第 4 项" {
+		t.Errorf("writeInResponse = %q, want %q", r0["writeInResponse"], "补充第 4 项")
+	}
+
+	// 2. Single-question legacy path with optionId="5": must NOT drop "5"
+	singleOpt5 := `{
+		"cascadeId":"c-opt5",
+		"trajectoryId":"t-opt5",
+		"stepIndex":3,
+		"type":"ask_question",
+		"optionId":"5",
+		"allow":true
+	}`
+	rec = httptest.NewRecorder()
+	p.HandleCascadeInteraction(rec, httptest.NewRequest(http.MethodPost, "/gateway/cascade/interaction", strings.NewReader(singleOpt5)))
+	if rec.Code != http.StatusOK || len(captured) != 2 {
+		t.Fatalf("single ask_question opt 5 failed: code=%d", rec.Code)
+	}
+	inter1 := captured[1]["interaction"].(map[string]interface{})
+	aq1 := inter1["askQuestion"].(map[string]interface{})
+	r1 := aq1["responses"].([]interface{})[0].(map[string]interface{})
+	gotIDs1 := r1["selectedOptionIds"].([]interface{})
+	if len(gotIDs1) != 1 || gotIDs1[0].(string) != "5" {
+		t.Errorf("expected optionId '5' preserved, got %v", gotIDs1)
+	}
+}
+
 func TestHandleCascadeTaskStop_DoesNotCancelStepZeroOnMiss(t *testing.T) {
 	var cancelCalls atomic.Int32
 	p, _ := newMockTLSProxy(t, func(w http.ResponseWriter, r *http.Request) {

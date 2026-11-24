@@ -87,9 +87,19 @@ function updatePendingInteraction(interaction, isRunning) {
   const container = document.getElementById("interaction-card-container");
   if (!container) return;
 
-  if (!isRunning || !interaction || !interaction.options || interaction.options.length === 0) {
+  const hasOptionsOrQuestions = (interaction?.options && interaction.options.length > 0) ||
+    interaction?.hasWriteIn ||
+    (interaction?.questions && interaction.questions.length > 0);
+  if (!isRunning || !interaction || !hasOptionsOrQuestions) {
     currentPendingInteraction = null;
     selectedInteractionOptionId = null;
+    singleMultiSelections = [];
+    singleWriteInActive = false;
+    singleWriteInText = "";
+    multiQuestionSelections = {};
+    multiQuestionMultiSelections = {};
+    multiQuestionWriteInActives = {};
+    multiQuestionWriteIns = {};
     isInteractionCardExpanded = false;
     isInteractionDiffExpanded = false;
     container.innerHTML = "";
@@ -99,23 +109,51 @@ function updatePendingInteraction(interaction, isRunning) {
 
   const isDifferent = !currentPendingInteraction ||
     currentPendingInteraction.stepIndex !== interaction.stepIndex ||
-    currentPendingInteraction.type !== interaction.type;
+    currentPendingInteraction.type !== interaction.type ||
+    currentPendingInteraction.title !== interaction.title;
 
   currentPendingInteraction = interaction;
-  if (isDifferent || !selectedInteractionOptionId) {
-    selectedInteractionOptionId = interaction.defaultOptionId || interaction.options?.[0]?.id || (interaction.hasWriteIn ? "__write_in__" : "");
-  }
   if (isDifferent) {
+    selectedInteractionOptionId = interaction.defaultOptionId || interaction.options?.[0]?.id || (interaction.hasWriteIn ? "__write_in__" : "");
+    singleMultiSelections = [];
+    singleWriteInActive = false;
+    singleWriteInText = "";
+    multiQuestionSelections = {};
+    multiQuestionMultiSelections = {};
+    multiQuestionWriteInActives = {};
+    multiQuestionWriteIns = {};
     isInteractionCardExpanded = false;
     isInteractionDiffExpanded = false;
+  } else if (!selectedInteractionOptionId) {
+    selectedInteractionOptionId = interaction.defaultOptionId || interaction.options?.[0]?.id || (interaction.hasWriteIn ? "__write_in__" : "");
   }
 
   renderInteractionCard(isDifferent);
 }
 
+let singleMultiSelections = [];
+let singleWriteInActive = false;
 let multiQuestionSelections = {};
+let multiQuestionMultiSelections = {};
+let multiQuestionWriteInActives = {};
 let multiQuestionWriteIns = {};
 let singleWriteInText = "";
+
+function isInteractionOptionWriteIn(opt, hasWriteIn, isPermission) {
+  if (!opt) return false;
+  if (opt.id === "__write_in__") return true;
+  if (!hasWriteIn) return false;
+  if (opt.isDeny) return true;
+  if (isPermission && opt.id === "5") return true;
+  return false;
+}
+
+function buildOptionIndicatorHtml(isMulti, isSelected, extraClass = "") {
+  if (isMulti) {
+    return `<span class="interaction-option-checkbox ${extraClass}" style="margin-top: 1.5px; width: 16px; height: 16px; border-radius: 4px; border: 1.5px solid ${isSelected ? '#3b82f6' : 'var(--text-secondary)'}; background: ${isSelected ? '#3b82f6' : 'transparent'}; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">${isSelected ? '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>' : ''}</span>`;
+  }
+  return `<span class="interaction-option-radio" style="margin-top: 2px; width: 15px; height: 15px; border-radius: 50%; border: 1.5px solid ${isSelected ? '#3b82f6' : 'var(--text-secondary)'}; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">${isSelected ? '<span style="width: 7px; height: 7px; border-radius: 50%; background: #3b82f6;"></span>' : ''}</span>`;
+}
 
 function resolveWriteInLabel(raw) {
   if (!raw || !raw.trim()) return "自定义输入";
@@ -316,10 +354,28 @@ function renderInteractionCard(resetScroll = false) {
   const isElicitation = interaction.type === "elicitation";
   const isApproval = interaction.type === "approval" || isDownload || isMcp;
   const hasMultiQuestions = interaction.questions && interaction.questions.length > 1;
+  const isSingleMultiSelect = !hasMultiQuestions && Boolean(interaction.isMultiSelect || interaction.questions?.[0]?.isMultiSelect);
+  const tr = (typeof window !== "undefined" && typeof window.t === "function") ? window.t : (s) => s;
+  const multiSelectBadgeHtml = `<span class="interaction-multiselect-badge" style="display: inline-flex; align-items: center; padding: 1px 7px; border-radius: 999px; background: rgba(59,130,246,0.14); color: #3b82f6; font-size: 11px; font-weight: 600; line-height: 1.4; white-space: nowrap; flex-shrink: 0;">${escapeHtml(tr("多选"))}</span>`;
   const preview = interaction.approvalPreview || null;
   const isHighRisk = preview && preview.riskLevel === "high";
   const riskSummary = buildApprovalRiskSummary(preview);
   const diffHtml = buildApprovalDiffHtml(preview);
+
+  const singleMultiCount = isSingleMultiSelect
+    ? singleMultiSelections.length + (singleWriteInActive && singleWriteInText.trim().length > 0 ? 1 : 0)
+    : 0;
+  const canSubmit = hasMultiQuestions
+    ? interaction.questions.every((q, idx) => {
+        if (!q.isMultiSelect) return true;
+        const selected = multiQuestionMultiSelections[idx] || [];
+        const hasWriteIn = Boolean(multiQuestionWriteInActives[idx]) && Boolean((multiQuestionWriteIns[idx] || "").trim());
+        return selected.length > 0 || hasWriteIn;
+      })
+    : (!isSingleMultiSelect || singleMultiCount > 0);
+  const submitLabelText = isSubmittingInteraction
+    ? tr("提交中...")
+    : (isSingleMultiSelect && singleMultiCount > 0 ? `${tr("提交")} (${singleMultiCount})` : tr("提交"));
 
   let iconSvg = '';
   if (isHighRisk) {
@@ -347,36 +403,41 @@ function renderInteractionCard(resetScroll = false) {
     contentHtml = `
       <div class="interaction-multi-questions-list" style="display: flex; flex-direction: column; gap: 12px;">
         ${interaction.questions.map((q, qIdx) => {
+          const isQMulti = Boolean(q.isMultiSelect);
           const hasWriteIn = q.hasWriteIn && !(q.options || []).some(o => o.id === '__write_in__' || o.isDeny);
           const writeInLabel = resolveWriteInLabel(q.writeInLabel);
           const opts = hasWriteIn
             ? [...(q.options || []), { id: '__write_in__', text: writeInLabel }]
             : (q.options || []);
           const selectedId = multiQuestionSelections[qIdx] || q.defaultOptionId || opts[0]?.id || "1";
+          const selectedSet = multiQuestionMultiSelections[qIdx] || [];
+          const qWriteInActive = Boolean(multiQuestionWriteInActives[qIdx]);
           const isNumeric = (q.options || []).length > 0 && (q.options || []).every(o => !isNaN(parseInt(o.id, 10)));
           return `
             <div class="interaction-question-block" style="border: 1px solid var(--border-color, rgba(255,255,255,0.08)); border-radius: 8px; padding: 10px; background: rgba(0,0,0,0.15);">
               <div style="display: flex; align-items: flex-start; gap: 6px; margin-bottom: 8px;">
                 <span style="background: #9333ea; color: white; font-size: 10px; font-weight: bold; padding: 2px 5px; border-radius: 4px; font-family: monospace; flex-shrink: 0;">Q${qIdx + 1}</span>
-                <span style="font-size: 13px; font-weight: 600; color: var(--text-primary); line-height: 1.4; white-space: pre-wrap; word-break: break-word;">${escapeHtml(q.question)}</span>
+                <span style="font-size: 13px; font-weight: 600; color: var(--text-primary); line-height: 1.4; white-space: pre-wrap; word-break: break-word; flex: 1; min-width: 0;">${escapeHtml(q.question)}</span>
+                ${isQMulti ? multiSelectBadgeHtml : ''}
               </div>
               <div class="interaction-options-list" style="display: flex; flex-direction: column; gap: 5px;">
                 ${opts.map((opt, optIdx) => {
-                  const isSelected = opt.id === selectedId;
+                  const isWriteIn = isInteractionOptionWriteIn(opt, q.hasWriteIn, false);
+                  const isSelected = isQMulti
+                    ? (isWriteIn ? qWriteInActive : selectedSet.includes(opt.id))
+                    : (opt.id === selectedId);
                   const label = opt.text || opt.label || "";
                   const badge = opt.id === '__write_in__' ? (isNumeric ? String(optIdx + 1) : '✎') : (opt.id || String(optIdx + 1));
-                  const isWriteIn = opt.id === '__write_in__' || (q.hasWriteIn && (opt.isDeny || opt.id === '5' || opt.id.toLowerCase() === 'other'));
+                  const toggleCls = (isQMulti && isWriteIn && isSelected) ? 'js-toggle-writein-off' : '';
                   return `
-                    <div class="interaction-option-item ${isSelected ? 'selected' : ''}" data-q-idx="${qIdx}" data-opt-id="${escapeHtml(opt.id)}" style="display: flex; align-items: flex-start; gap: 8px; padding: 7px 9px; border-radius: 6px; cursor: pointer; background: ${isSelected ? 'rgba(59,130,246,0.12)' : 'var(--bg-tertiary, rgba(255,255,255,0.04))'}; border: 1px solid ${isSelected ? '#3b82f6' : 'transparent'};">
-                      <span class="interaction-option-radio" style="margin-top: 2px; width: 14px; height: 14px; border-radius: 50%; border: 1.5px solid ${isSelected ? '#3b82f6' : 'var(--text-secondary)'}; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
-                        ${isSelected ? '<span style="width: 6px; height: 6px; border-radius: 50%; background: #3b82f6;"></span>' : ''}
-                      </span>
-                      <span class="interaction-option-badge" style="margin-top: 1px; font-size: 11px; font-weight: bold; font-family: monospace; color: ${isSelected ? '#3b82f6' : 'var(--text-secondary)'}; flex-shrink: 0;">[${escapeHtml(badge)}]</span>
+                    <div class="interaction-option-item ${isSelected ? 'selected' : ''}" data-q-idx="${qIdx}" data-opt-id="${escapeHtml(opt.id)}" data-is-multi="${isQMulti ? '1' : '0'}" data-is-writein="${isWriteIn ? '1' : '0'}" style="display: flex; align-items: flex-start; gap: 8px; padding: 7px 9px; border-radius: 6px; cursor: pointer; background: ${isSelected ? 'rgba(59,130,246,0.12)' : 'var(--bg-tertiary, rgba(255,255,255,0.04))'}; border: 1px solid ${isSelected ? '#3b82f6' : 'transparent'};">
+                      <span class="interaction-option-badge ${toggleCls}" style="margin-top: 1px; font-size: 11px; font-weight: bold; font-family: monospace; color: ${isSelected ? '#3b82f6' : 'var(--text-secondary)'}; flex-shrink: 0;">[${escapeHtml(badge)}]</span>
                       ${isWriteIn && isSelected ? `
                         <input type="text" class="interaction-multi-write-in-input" data-q-idx="${qIdx}" placeholder="${escapeHtml(resolveWriteInPlaceholder(q.writeInPlaceholder, false))}" value="${escapeHtml(multiQuestionWriteIns[qIdx] || '')}" style="flex: 1; font-size: 12.5px; border: none; background: transparent; color: var(--text-primary); outline: none; padding: 0;" />
                       ` : `
                         <span class="interaction-option-label" style="font-size: 12.5px; line-height: 1.4; color: ${isSelected ? 'var(--text-primary)' : 'var(--text-secondary)'}; white-space: normal; word-break: break-word; flex: 1;">${escapeHtml(isWriteIn && multiQuestionWriteIns[qIdx] ? multiQuestionWriteIns[qIdx] : label)}</span>
                       `}
+                      ${buildOptionIndicatorHtml(isQMulti, isSelected, toggleCls)}
                     </div>
                   `;
                 }).join('')}
@@ -393,27 +454,28 @@ function renderInteractionCard(resetScroll = false) {
       ? [...(interaction.options || []), { id: '__write_in__', text: writeInLabel }]
       : (interaction.options || []);
     const selectedOpt = displayOptions.find(o => o.id === selectedInteractionOptionId) || displayOptions[0];
-    const isDenyOrWriteIn = selectedOpt?.isDeny || selectedInteractionOptionId === "5" || selectedInteractionOptionId === "__write_in__" || selectedOpt?.id === "no" || selectedOpt?.id?.toLowerCase().includes("deny");
+    const isDenyOrWriteIn = selectedOpt?.isDeny || (isPermission && selectedInteractionOptionId === "5") || selectedInteractionOptionId === "__write_in__" || selectedOpt?.id === "no" || selectedOpt?.id?.toLowerCase().includes("deny");
     const isNumeric = (interaction.options || []).length > 0 && (interaction.options || []).every(o => !isNaN(parseInt(o.id, 10)));
 
     contentHtml = `
       <div class="interaction-options-list" style="display: flex; flex-direction: column; gap: 6px;">
         ${displayOptions.map((opt, idx) => {
-          const isSelected = opt.id === selectedInteractionOptionId;
+          const isWriteIn = isInteractionOptionWriteIn(opt, interaction.hasWriteIn, isPermission);
+          const isSelected = isSingleMultiSelect
+            ? (isWriteIn ? singleWriteInActive : singleMultiSelections.includes(opt.id))
+            : (opt.id === selectedInteractionOptionId);
           const label = opt.text || opt.label || "";
           const badge = opt.id === '__write_in__' ? (isNumeric ? String(idx + 1) : '✎') : (opt.id || String(idx + 1));
-          const isWriteIn = opt.id === '__write_in__' || (interaction.hasWriteIn && (opt.isDeny || opt.id === '5'));
+          const toggleCls = (isSingleMultiSelect && isWriteIn && isSelected) ? 'js-toggle-writein-off' : '';
           return `
-            <div class="interaction-option-item ${isSelected ? 'selected' : ''}" data-opt-id="${escapeHtml(opt.id)}" style="display: flex; align-items: flex-start; gap: 8px; padding: 8px 10px; border-radius: 8px; cursor: pointer; background: ${isSelected ? 'rgba(59,130,246,0.12)' : 'var(--bg-tertiary, rgba(255,255,255,0.04))'}; border: 1px solid ${isSelected ? '#3b82f6' : 'transparent'};">
-              <span class="interaction-option-radio" style="margin-top: 2px; width: 16px; height: 16px; border-radius: 50%; border: 1.5px solid ${isSelected ? '#3b82f6' : 'var(--text-secondary)'}; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
-                ${isSelected ? '<span style="width: 8px; height: 8px; border-radius: 50%; background: #3b82f6;"></span>' : ''}
-              </span>
-              <span class="interaction-option-badge" style="margin-top: 1px; font-size: 11px; font-weight: bold; font-family: monospace; color: ${isSelected ? '#3b82f6' : 'var(--text-secondary)'}; flex-shrink: 0;">[${escapeHtml(badge)}]</span>
+            <div class="interaction-option-item ${isSelected ? 'selected' : ''}" data-opt-id="${escapeHtml(opt.id)}" data-is-multi="${isSingleMultiSelect ? '1' : '0'}" data-is-writein="${isWriteIn ? '1' : '0'}" style="display: flex; align-items: flex-start; gap: 8px; padding: 8px 10px; border-radius: 8px; cursor: pointer; background: ${isSelected ? 'rgba(59,130,246,0.12)' : 'var(--bg-tertiary, rgba(255,255,255,0.04))'}; border: 1px solid ${isSelected ? '#3b82f6' : 'transparent'};">
+              <span class="interaction-option-badge ${toggleCls}" style="margin-top: 1px; font-size: 11px; font-weight: bold; font-family: monospace; color: ${isSelected ? '#3b82f6' : 'var(--text-secondary)'}; flex-shrink: 0;">[${escapeHtml(badge)}]</span>
               ${isWriteIn && isSelected ? `
                 <input type="text" id="interaction-write-in-input" class="interaction-write-in-input" placeholder="${escapeHtml(resolveWriteInPlaceholder(interaction.writeInPlaceholder, isDenyOrWriteIn))}" value="${escapeHtml(singleWriteInText)}" style="flex: 1; font-size: 13px; border: none; background: transparent; color: var(--text-primary); outline: none; padding: 0;" />
               ` : `
                 <span class="interaction-option-label" style="font-size: 13px; line-height: 1.45; color: ${isSelected ? 'var(--text-primary)' : 'var(--text-secondary)'}; white-space: normal; word-break: break-word; flex: 1;">${escapeHtml(isWriteIn && singleWriteInText ? singleWriteInText : label)}</span>
               `}
+              ${buildOptionIndicatorHtml(isSingleMultiSelect, isSelected, toggleCls)}
             </div>
           `;
         }).join('')}
@@ -455,10 +517,11 @@ function renderInteractionCard(resetScroll = false) {
     <div class="interaction-card" style="display: flex; flex-direction: column; max-height: ${cardMaxHeight}; padding: 14px; border-radius: 12px; border: 1px solid ${cardBorderColor}; background: var(--bg-secondary, #1a1d24); box-shadow: 0 4px 16px rgba(0,0,0,0.25);">
       <div class="interaction-card-header" style="display: flex; align-items: ${isLongSingleQuestion || hasMultiQuestions ? 'center' : 'flex-start'}; gap: 8px; flex-shrink: 0; padding-bottom: ${isLongSingleQuestion ? '8px' : '6px'}; ${isLongSingleQuestion ? 'border-bottom: 1px solid var(--border-color, rgba(255,255,255,0.08));' : ''}">
         <div class="interaction-icon" style="color: ${isHighRisk ? '#ef4444' : (hasMultiQuestions ? '#9333ea' : '#3b82f6')}; flex-shrink: 0; margin-top: ${isLongSingleQuestion || hasMultiQuestions ? '0' : '2px'};">${iconSvg}</div>
-        <div class="interaction-title-group" style="flex: 1; min-width: 0;">
+        <div class="interaction-title-group" style="flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px;">
           <div class="interaction-title" style="font-size: 14px; font-weight: bold; color: var(--text-primary); line-height: 1.35; ${isLongSingleQuestion || hasMultiQuestions ? 'white-space: nowrap; overflow: hidden; text-overflow: ellipsis;' : 'display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; word-break: break-word;'}">
             ${escapeHtml(headerTitleText)}
           </div>
+          ${isSingleMultiSelect ? multiSelectBadgeHtml : ''}
         </div>
         <button type="button" id="btn-interaction-expand" class="btn-interaction-expand" style="display: ${isInteractionCardExpanded ? 'inline-flex' : 'none'}; align-items: center; gap: 3px; padding: 3px 9px; border-radius: 999px; border: none; background: var(--bg-tertiary, rgba(255,255,255,0.08)); color: var(--text-secondary); font-size: 11.5px; cursor: pointer; flex-shrink: 0;">
           <span>${isInteractionCardExpanded ? '收起' : '展开'}</span>
@@ -482,8 +545,8 @@ function renderInteractionCard(resetScroll = false) {
 
       <div class="interaction-card-actions" style="display: flex; align-items: center; gap: 10px; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border-color, rgba(255,255,255,0.08)); flex-shrink: 0;">
         <button type="button" id="btn-interaction-skip" class="btn-interaction-skip" ${isSubmittingInteraction ? 'disabled' : ''} style="flex: 1; text-align: center; padding: 8px 14px; border-radius: 8px; border: 1px solid var(--border-color); background: transparent; color: var(--text-secondary); cursor: pointer;">跳过</button>
-        <button type="button" id="btn-interaction-submit" class="btn-interaction-submit" ${isSubmittingInteraction ? 'disabled' : ''} style="flex: 1; text-align: center; padding: 8px 16px; border-radius: 8px; border: none; background: #2563eb; color: white; font-weight: 600; cursor: pointer;">
-          <span>${isSubmittingInteraction ? '提交中...' : '提交'}</span>
+        <button type="button" id="btn-interaction-submit" class="btn-interaction-submit" ${(isSubmittingInteraction || !canSubmit) ? 'disabled' : ''} style="flex: 1; text-align: center; padding: 8px 16px; border-radius: 8px; border: none; background: #2563eb; color: white; font-weight: 600; cursor: ${(isSubmittingInteraction || !canSubmit) ? 'not-allowed' : 'pointer'}; opacity: ${(isSubmittingInteraction || !canSubmit) ? '0.45' : '1'};">
+          <span>${escapeHtml(submitLabelText)}</span>
         </button>
       </div>
     </div>
@@ -523,10 +586,24 @@ function renderInteractionCard(resetScroll = false) {
       }
       const qIdx = parseInt(item.dataset.qIdx, 10);
       const optId = item.dataset.optId;
-      if (optId) {
-        multiQuestionSelections[qIdx] = optId;
-        renderInteractionCard();
-        if (optId === "__write_in__" || optId === "5") {
+      const isQMulti = item.dataset.isMulti === "1";
+      const isWriteIn = item.dataset.isWritein === "1";
+      if (!optId) return;
+
+      if (isQMulti) {
+        if (isWriteIn) {
+          if (multiQuestionWriteInActives[qIdx]) {
+            if (e.target && e.target.closest(".js-toggle-writein-off")) {
+              multiQuestionWriteInActives[qIdx] = false;
+              renderInteractionCard();
+            } else {
+              const input = container.querySelector(`.interaction-multi-write-in-input[data-q-idx="${qIdx}"]`);
+              if (input) input.focus();
+            }
+            return;
+          }
+          multiQuestionWriteInActives[qIdx] = true;
+          renderInteractionCard();
           setTimeout(() => {
             const input = container.querySelector(`.interaction-multi-write-in-input[data-q-idx="${qIdx}"]`);
             if (input) {
@@ -534,7 +611,26 @@ function renderInteractionCard(resetScroll = false) {
               input.selectionStart = input.selectionEnd = input.value.length;
             }
           }, 30);
+        } else {
+          const cur = multiQuestionMultiSelections[qIdx] || [];
+          multiQuestionMultiSelections[qIdx] = cur.includes(optId)
+            ? cur.filter(id => id !== optId)
+            : [...cur, optId];
+          renderInteractionCard();
         }
+        return;
+      }
+
+      multiQuestionSelections[qIdx] = optId;
+      renderInteractionCard();
+      if (isWriteIn) {
+        setTimeout(() => {
+          const input = container.querySelector(`.interaction-multi-write-in-input[data-q-idx="${qIdx}"]`);
+          if (input) {
+            input.focus();
+            input.selectionStart = input.selectionEnd = input.value.length;
+          }
+        }, 30);
       }
     });
   });
@@ -544,6 +640,18 @@ function renderInteractionCard(resetScroll = false) {
     input.addEventListener("input", (e) => {
       const qIdx = parseInt(input.dataset.qIdx, 10);
       multiQuestionWriteIns[qIdx] = e.target.value;
+      const submitBtnEl = container.querySelector("#btn-interaction-submit");
+      if (submitBtnEl && currentPendingInteraction?.questions) {
+        const ready = currentPendingInteraction.questions.every((q, idx) => {
+          if (!q.isMultiSelect) return true;
+          const sel = multiQuestionMultiSelections[idx] || [];
+          const hasW = Boolean(multiQuestionWriteInActives[idx]) && Boolean((multiQuestionWriteIns[idx] || "").trim());
+          return sel.length > 0 || hasW;
+        });
+        submitBtnEl.disabled = isSubmittingInteraction || !ready;
+        submitBtnEl.style.opacity = submitBtnEl.disabled ? "0.45" : "1";
+        submitBtnEl.style.cursor = submitBtnEl.disabled ? "not-allowed" : "pointer";
+      }
     });
   });
 
@@ -554,10 +662,24 @@ function renderInteractionCard(resetScroll = false) {
         return;
       }
       const optId = item.dataset.optId;
-      if (optId) {
-        selectedInteractionOptionId = optId;
-        renderInteractionCard();
-        if (optId === "__write_in__" || optId === "5") {
+      const isMulti = item.dataset.isMulti === "1";
+      const isWriteIn = item.dataset.isWritein === "1";
+      if (!optId) return;
+
+      if (isMulti) {
+        if (isWriteIn) {
+          if (singleWriteInActive) {
+            if (e.target && e.target.closest(".js-toggle-writein-off")) {
+              singleWriteInActive = false;
+              renderInteractionCard();
+            } else {
+              const input = container.querySelector("#interaction-write-in-input");
+              if (input) input.focus();
+            }
+            return;
+          }
+          singleWriteInActive = true;
+          renderInteractionCard();
           setTimeout(() => {
             const input = container.querySelector("#interaction-write-in-input");
             if (input) {
@@ -565,7 +687,25 @@ function renderInteractionCard(resetScroll = false) {
               input.selectionStart = input.selectionEnd = input.value.length;
             }
           }, 30);
+        } else {
+          singleMultiSelections = singleMultiSelections.includes(optId)
+            ? singleMultiSelections.filter(id => id !== optId)
+            : [...singleMultiSelections, optId];
+          renderInteractionCard();
         }
+        return;
+      }
+
+      selectedInteractionOptionId = optId;
+      renderInteractionCard();
+      if (isWriteIn) {
+        setTimeout(() => {
+          const input = container.querySelector("#interaction-write-in-input");
+          if (input) {
+            input.focus();
+            input.selectionStart = input.selectionEnd = input.value.length;
+          }
+        }, 30);
       }
     });
   });
@@ -574,6 +714,19 @@ function renderInteractionCard(resetScroll = false) {
   if (writeInInput) {
     writeInInput.addEventListener("input", (e) => {
       singleWriteInText = e.target.value;
+      if (isSingleMultiSelect) {
+        const submitBtnEl = container.querySelector("#btn-interaction-submit");
+        if (submitBtnEl) {
+          const cnt = singleMultiSelections.length + (singleWriteInActive && singleWriteInText.trim().length > 0 ? 1 : 0);
+          submitBtnEl.disabled = isSubmittingInteraction || cnt === 0;
+          submitBtnEl.style.opacity = submitBtnEl.disabled ? "0.45" : "1";
+          submitBtnEl.style.cursor = submitBtnEl.disabled ? "not-allowed" : "pointer";
+          const span = submitBtnEl.querySelector("span");
+          if (span && !isSubmittingInteraction) {
+            span.textContent = cnt > 0 ? `${tr("提交")} (${cnt})` : tr("提交");
+          }
+        }
+      }
     });
     writeInInput.addEventListener("keydown", (e) => {
       if (e.key === "Enter") {
@@ -597,29 +750,77 @@ function renderInteractionCard(resetScroll = false) {
 async function handleInteractionSubmit(isSkip) {
   if (isSubmittingInteraction || !currentPendingInteraction || !activeCascadeId) return;
 
+  const interaction = currentPendingInteraction;
+  const hasMultiQuestions = interaction.questions && interaction.questions.length > 1;
+  const isSingleMultiSelect = !hasMultiQuestions && Boolean(interaction.isMultiSelect || interaction.questions?.[0]?.isMultiSelect);
+
+  if (!isSkip) {
+    if (hasMultiQuestions) {
+      const ready = interaction.questions.every((q, idx) => {
+        if (!q.isMultiSelect) return true;
+        const sel = multiQuestionMultiSelections[idx] || [];
+        const hasW = Boolean(multiQuestionWriteInActives[idx]) && Boolean((multiQuestionWriteIns[idx] || "").trim());
+        return sel.length > 0 || hasW;
+      });
+      if (!ready) return;
+    } else if (isSingleMultiSelect) {
+      const cnt = singleMultiSelections.length + (singleWriteInActive && singleWriteInText.trim().length > 0 ? 1 : 0);
+      if (cnt === 0) return;
+    }
+  }
+
   isSubmittingInteraction = true;
   renderInteractionCard();
 
   try {
-    const interaction = currentPendingInteraction;
-    const hasMultiQuestions = interaction.questions && interaction.questions.length > 1;
-
     let questionResponses = null;
     let selectedOptionId = isSkip ? "" : (selectedInteractionOptionId || "");
     let writeInText = "";
 
     if (hasMultiQuestions) {
       questionResponses = interaction.questions.map((q, idx) => {
+        if (isSkip) {
+          return { questionIndex: idx, selectedOptionIds: [], writeInResponse: "", skipped: true };
+        }
+        if (q.isMultiSelect) {
+          const sel = multiQuestionMultiSelections[idx] || [];
+          const orderedIds = (q.options || []).map(o => o.id).filter(id => sel.includes(id));
+          const writeIn = multiQuestionWriteInActives[idx] ? (multiQuestionWriteIns[idx] || "").trim() : "";
+          return {
+            questionIndex: idx,
+            selectedOptionIds: orderedIds,
+            writeInResponse: writeIn,
+            skipped: false
+          };
+        }
         const optId = multiQuestionSelections[idx] || q.defaultOptionId || q.options?.[0]?.id || "1";
-        const writeIn = multiQuestionWriteIns[idx] || "";
+        const isW = optId === "__write_in__" || Boolean((q.options || []).find(o => o.id === optId)?.isDeny);
+        const writeIn = isW ? (multiQuestionWriteIns[idx] || "").trim() : "";
         return {
           questionIndex: idx,
-          selectedOptionIds: isSkip ? [] : [optId],
-          writeInResponse: isSkip ? "" : writeIn,
-          skipped: isSkip
+          selectedOptionIds: isW ? [] : [optId],
+          writeInResponse: writeIn,
+          skipped: false
         };
       });
       selectedOptionId = questionResponses[0]?.selectedOptionIds?.[0] || "";
+    } else if (isSingleMultiSelect) {
+      if (isSkip) {
+        questionResponses = [{ questionIndex: 0, selectedOptionIds: [], writeInResponse: "", skipped: true }];
+        selectedOptionId = "";
+        writeInText = "";
+      } else {
+        const orderedIds = (interaction.options || []).map(o => o.id).filter(id => singleMultiSelections.includes(id));
+        const trimmedWriteIn = singleWriteInActive ? singleWriteInText.trim() : "";
+        questionResponses = [{
+          questionIndex: 0,
+          selectedOptionIds: orderedIds,
+          writeInResponse: trimmedWriteIn,
+          skipped: false
+        }];
+        selectedOptionId = orderedIds[0] || (trimmedWriteIn ? "__write_in__" : "");
+        writeInText = trimmedWriteIn;
+      }
     } else {
       const writeInInput = document.getElementById("interaction-write-in-input");
       writeInText = writeInInput ? writeInInput.value.trim() : "";
@@ -627,7 +828,7 @@ async function handleInteractionSubmit(isSkip) {
 
     const selectedOpt = interaction.options?.find(o => o.id === selectedOptionId);
     const isPermissionInteraction = interaction.type === "permission" || interaction.type === "file_permission";
-    const isDeny = selectedOpt?.isDeny || selectedOptionId === "5" || (isPermissionInteraction && selectedOptionId === "__write_in__");
+    const isDeny = Boolean(selectedOpt?.isDeny) || (isPermissionInteraction && (selectedOptionId === "5" || selectedOptionId === "__write_in__"));
 
     const payload = {
       cascadeId: activeCascadeId,
@@ -656,7 +857,11 @@ async function handleInteractionSubmit(isSkip) {
     }
 
     // Success: clear pending interaction
+    singleMultiSelections = [];
+    singleWriteInActive = false;
     multiQuestionSelections = {};
+    multiQuestionMultiSelections = {};
+    multiQuestionWriteInActives = {};
     multiQuestionWriteIns = {};
     singleWriteInText = "";
     updatePendingInteraction(null, false);

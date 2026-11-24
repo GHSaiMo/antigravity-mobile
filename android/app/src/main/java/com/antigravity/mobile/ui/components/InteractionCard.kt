@@ -25,6 +25,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.HelpOutline
 import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Difference
 import androidx.compose.material.icons.filled.ErrorOutline
@@ -63,6 +64,7 @@ import com.antigravity.mobile.data.model.PendingInteraction
 import com.antigravity.mobile.data.model.QuestionResponse
 import com.antigravity.mobile.ui.theme.AntigravityTheme
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun InteractionCard(
     interaction: PendingInteraction,
@@ -90,29 +92,71 @@ fun InteractionCard(
 
     val questions = interaction.questions
     val hasMultipleQuestions = questions != null && questions.size > 1
+    val isPermissionType = interaction.type == "permission" || interaction.type == "file_permission"
+    val isSingleMultiSelect = !hasMultipleQuestions &&
+        (interaction.isMultiSelect || (questions?.firstOrNull()?.isMultiSelect == true))
+    val interactionKey = "${interaction.trajectoryId}:${interaction.stepIndex}:${interaction.title.hashCode()}"
 
-    // State for single question
-    var selectedOptionId by remember(interaction) {
+    // State for single question (single-select)
+    var selectedOptionId by remember(interactionKey) {
         mutableStateOf(
             interaction.defaultOptionId
                 ?: interaction.options.firstOrNull()?.id
                 ?: if (interaction.hasWriteIn) "__write_in__" else "1"
         )
     }
-    var singleWriteInText by remember(interaction) { mutableStateOf("") }
+    var singleWriteInText by remember(interactionKey) { mutableStateOf("") }
 
-    // State for multiple questions: questionIndex -> optionId
-    val multiSelections = remember(interaction) {
+    // State for single question (multi-select: starts empty to match Antigravity desktop)
+    val singleMultiSelectedIds = remember(interactionKey) { mutableStateListOf<String>() }
+    var singleWriteInActive by remember(interactionKey) { mutableStateOf(false) }
+
+    // State for multiple questions: single-select optionId, multi-select optionIds, writeIn active & text
+    val multiSelections = remember(interactionKey) {
         val map = mutableStateMapOf<Int, String>()
         questions?.forEachIndexed { idx, q ->
-            map[idx] = q.defaultOptionId
-                ?: q.options.firstOrNull()?.id
-                ?: if (q.hasWriteIn) "__write_in__" else "1"
+            if (!q.isMultiSelect) {
+                map[idx] = q.defaultOptionId
+                    ?: q.options.firstOrNull()?.id
+                    ?: if (q.hasWriteIn) "__write_in__" else "1"
+            }
         }
         map
     }
-    val multiWriteIns = remember(interaction) {
+    val multiQuestionMultiSelections = remember(interactionKey) {
+        mutableStateMapOf<Int, Set<String>>()
+    }
+    val multiWriteInActives = remember(interactionKey) {
+        mutableStateMapOf<Int, Boolean>()
+    }
+    val multiWriteIns = remember(interactionKey) {
         mutableStateMapOf<Int, String>()
+    }
+
+    val singleMultiSelectionCount = if (isSingleMultiSelect) {
+        singleMultiSelectedIds.size + if (singleWriteInActive && singleWriteInText.isNotBlank()) 1 else 0
+    } else 0
+
+    val canSubmit = when {
+        hasMultipleQuestions -> {
+            questions?.withIndex()?.all { (idx, q) ->
+                if (!q.isMultiSelect) {
+                    true
+                } else {
+                    val hasOpts = !multiQuestionMultiSelections[idx].isNullOrEmpty()
+                    val hasWriteIn = (multiWriteInActives[idx] == true) && !(multiWriteIns[idx].isNullOrBlank())
+                    hasOpts || hasWriteIn
+                }
+            } ?: true
+        }
+        isSingleMultiSelect -> singleMultiSelectionCount > 0
+        else -> true
+    }
+
+    val submitButtonLabel = if (isSingleMultiSelect && singleMultiSelectionCount > 0) {
+        "${"提交".loc} ($singleMultiSelectionCount)"
+    } else {
+        "提交".loc
     }
 
     val pg = interaction.permissionGrant
@@ -192,7 +236,6 @@ fun InteractionCard(
     }
 
     // 默认自适应高度，只有超出半屏才截断至半屏，支持一键扩展到会话全屏（严格不超过可用高度，避免遮挡顶栏或挤没底部按钮）
-    val interactionKey = "${interaction.trajectoryId}:${interaction.stepIndex}:${interaction.title.hashCode()}"
     var isExpanded by remember(interactionKey) { mutableStateOf(false) }
     var isDiffExpanded by remember(interactionKey) { mutableStateOf(false) }
     val screenHeight = LocalConfiguration.current.screenHeightDp.dp
@@ -285,19 +328,66 @@ fun InteractionCard(
                             .padding(top = if (hasMultipleQuestions || isLongSingleQuestion) 0.dp else 2.dp)
                             .size(20.dp)
                     )
-                    Text(
-                        text = when {
-                            hasMultipleQuestions -> "需要确认规格 (${questions?.size} 个问题)".loc
-                            isLongSingleQuestion -> compactCategoryTitle
-                            else -> singleQuestionTitle
-                        },
-                        color = colors.textPrimary,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold,
-                        lineHeight = 19.sp,
-                        maxLines = if (hasMultipleQuestions || isLongSingleQuestion) 1 else 3,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                    when {
+                        hasMultipleQuestions -> {
+                            Text(
+                                text = "需要确认规格 (${questions?.size} 个问题)".loc,
+                                color = colors.textPrimary,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                lineHeight = 19.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        isLongSingleQuestion -> {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    text = compactCategoryTitle,
+                                    color = colors.textPrimary,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    lineHeight = 19.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                if (isSingleMultiSelect) {
+                                    MultiSelectBadge()
+                                }
+                            }
+                        }
+                        isSingleMultiSelect -> {
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Text(
+                                    text = singleQuestionTitle,
+                                    color = colors.textPrimary,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    lineHeight = 19.sp,
+                                    maxLines = 3,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                MultiSelectBadge()
+                            }
+                        }
+                        else -> {
+                            Text(
+                                text = singleQuestionTitle,
+                                color = colors.textPrimary,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                lineHeight = 19.sp,
+                                maxLines = 3,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
                 }
 
                 if (canExpand) {
@@ -663,21 +753,44 @@ fun InteractionCard(
                 if (hasMultipleQuestions) {
                     questions?.forEachIndexed { qIdx, q ->
                         val currentSelected = multiSelections[qIdx] ?: q.defaultOptionId ?: "1"
+                        val currentMultiSet = multiQuestionMultiSelections[qIdx] ?: emptySet()
+                        val currentWriteInActive = multiWriteInActives[qIdx] == true
                         QuestionSection(
                             questionIndex = qIdx,
                             question = q,
                             selectedOptionId = currentSelected,
+                            selectedOptionIds = currentMultiSet,
+                            writeInActive = currentWriteInActive,
                             onSelectOption = { optId, isWriteInOpt ->
                                 haptic.light()
-                                val wasSelected = currentSelected == optId
-                                multiSelections[qIdx] = optId
-                                if (isWriteInOpt) {
-                                    if (!wasSelected) {
-                                        pendingAutoFocusKey = "multi:$qIdx"
+                                if (q.isMultiSelect) {
+                                    if (isWriteInOpt) {
+                                        if (!currentWriteInActive) {
+                                            multiWriteInActives[qIdx] = true
+                                            pendingAutoFocusKey = "multi:$qIdx"
+                                        }
+                                    } else {
+                                        val next = currentMultiSet.toMutableSet()
+                                        if (next.contains(optId)) next.remove(optId) else next.add(optId)
+                                        multiQuestionMultiSelections[qIdx] = next
+                                        dismissCardKeyboard()
                                     }
                                 } else {
-                                    dismissCardKeyboard()
+                                    val wasSelected = currentSelected == optId
+                                    multiSelections[qIdx] = optId
+                                    if (isWriteInOpt) {
+                                        if (!wasSelected) {
+                                            pendingAutoFocusKey = "multi:$qIdx"
+                                        }
+                                    } else {
+                                        dismissCardKeyboard()
+                                    }
                                 }
+                            },
+                            onToggleWriteInOff = {
+                                haptic.light()
+                                multiWriteInActives[qIdx] = false
+                                dismissCardKeyboard()
                             },
                             onHeaderTap = { dismissCardKeyboard() },
                             pendingAutoFocusKey = pendingAutoFocusKey,
@@ -706,27 +819,57 @@ fun InteractionCard(
                             verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
                             displayOptions.forEachIndexed { optIdx, opt ->
-                                val isSelected = selectedOptionId == opt.id
-                                val isWriteIn = opt.id == "__write_in__" || (interaction.hasWriteIn && (opt.isDeny || opt.id == "5"))
+                                val isWriteIn = isOptionWriteIn(opt, interaction.hasWriteIn, isPermissionType)
+                                val isSelected = if (isSingleMultiSelect) {
+                                    if (isWriteIn) singleWriteInActive else singleMultiSelectedIds.contains(opt.id)
+                                } else {
+                                    selectedOptionId == opt.id
+                                }
                                 val placeholderText = resolveWriteInPlaceholder(
                                     interaction.writeInPlaceholder,
-                                    isDeny = opt.isDeny || opt.id == "5"
+                                    isDeny = opt.isDeny || (isPermissionType && opt.id == "5")
                                 )
                                 OptionRow(
                                     option = opt,
                                     isSelected = isSelected,
+                                    isMultiSelect = isSingleMultiSelect,
                                     onClick = {
+                                        if (isSingleMultiSelect && isWriteIn && isSelected) {
+                                            pendingAutoFocusKey = "single"
+                                            return@OptionRow
+                                        }
                                         haptic.light()
-                                        val wasSelected = isSelected
-                                        selectedOptionId = opt.id
-                                        if (isWriteIn) {
-                                            if (!wasSelected) {
+                                        if (isSingleMultiSelect) {
+                                            if (isWriteIn) {
+                                                singleWriteInActive = true
                                                 pendingAutoFocusKey = "single"
+                                            } else {
+                                                if (singleMultiSelectedIds.contains(opt.id)) {
+                                                    singleMultiSelectedIds.remove(opt.id)
+                                                } else {
+                                                    singleMultiSelectedIds.add(opt.id)
+                                                }
+                                                dismissCardKeyboard()
                                             }
                                         } else {
-                                            dismissCardKeyboard()
+                                            val wasSelected = isSelected
+                                            selectedOptionId = opt.id
+                                            if (isWriteIn) {
+                                                if (!wasSelected) {
+                                                    pendingAutoFocusKey = "single"
+                                                }
+                                            } else {
+                                                dismissCardKeyboard()
+                                            }
                                         }
                                     },
+                                    onToggleWriteInOff = if (isSingleMultiSelect && isWriteIn && isSelected) {
+                                        {
+                                            haptic.light()
+                                            singleWriteInActive = false
+                                            dismissCardKeyboard()
+                                        }
+                                    } else null,
                                     displayIndex = optIdx,
                                     isWriteIn = isWriteIn,
                                     shouldAutoFocus = pendingAutoFocusKey == "single",
@@ -781,32 +924,67 @@ fun InteractionCard(
 
                 Button(
                     onClick = {
+                        if (!canSubmit) return@Button
                         dismissCardKeyboard()
                         haptic.heavy()
                         if (hasMultipleQuestions) {
                             val responses = questions?.mapIndexed { idx, q ->
-                                val optId = multiSelections[idx] ?: q.defaultOptionId ?: q.options.firstOrNull()?.id ?: "1"
-                                val writeIn = multiWriteIns[idx] ?: ""
-                                QuestionResponse(
-                                    questionIndex = idx,
-                                    selectedOptionIds = listOf(optId),
-                                    writeInResponse = writeIn,
-                                    skipped = false
-                                )
+                                if (q.isMultiSelect) {
+                                    val selectedSet = multiQuestionMultiSelections[idx] ?: emptySet()
+                                    val orderedIds = q.options.map { it.id }.filter { selectedSet.contains(it) }
+                                    val writeIn = if (multiWriteInActives[idx] == true) {
+                                        (multiWriteIns[idx] ?: "").trim()
+                                    } else ""
+                                    QuestionResponse(
+                                        questionIndex = idx,
+                                        selectedOptionIds = orderedIds,
+                                        writeInResponse = writeIn.ifBlank { null },
+                                        skipped = false
+                                    )
+                                } else {
+                                    val optId = multiSelections[idx] ?: q.defaultOptionId ?: q.options.firstOrNull()?.id ?: "1"
+                                    val isWriteIn = optId == "__write_in__" || (q.options.find { it.id == optId }?.isDeny == true)
+                                    val writeIn = if (isWriteIn) (multiWriteIns[idx] ?: "").trim() else ""
+                                    QuestionResponse(
+                                        questionIndex = idx,
+                                        selectedOptionIds = if (isWriteIn) emptyList() else listOf(optId),
+                                        writeInResponse = writeIn.ifBlank { null },
+                                        skipped = false
+                                    )
+                                }
                             }
-                            onSubmit(selectedOptionId, null, responses)
+                            val primaryOptId = responses?.firstOrNull()?.selectedOptionIds?.firstOrNull() ?: ""
+                            onSubmit(primaryOptId, null, responses)
+                        } else if (isSingleMultiSelect) {
+                            val orderedIds = interaction.options.map { it.id }.filter { singleMultiSelectedIds.contains(it) }
+                            val trimmedWriteIn = if (singleWriteInActive) singleWriteInText.trim() else ""
+                            val response = QuestionResponse(
+                                questionIndex = 0,
+                                selectedOptionIds = orderedIds,
+                                writeInResponse = trimmedWriteIn.ifBlank { null },
+                                skipped = false
+                            )
+                            val primaryOptId = orderedIds.firstOrNull() ?: if (trimmedWriteIn.isNotEmpty()) "__write_in__" else ""
+                            onSubmit(primaryOptId, trimmedWriteIn.ifBlank { null }, listOf(response))
                         } else {
-                            onSubmit(selectedOptionId, singleWriteInText.ifBlank { null }, null)
+                            val selectedOpt = interaction.options.find { it.id == selectedOptionId }
+                            val isWriteInOrDeny = selectedOptionId == "__write_in__" ||
+                                (selectedOpt?.isDeny == true) ||
+                                (isPermissionType && selectedOptionId == "5")
+                            onSubmit(selectedOptionId, if (isWriteInOrDeny) singleWriteInText.ifBlank { null } else null, null)
                         }
                     },
+                    enabled = canSubmit,
                     modifier = Modifier.weight(1f),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = colors.accentBlue,
-                        contentColor = Color.White
+                        contentColor = Color.White,
+                        disabledContainerColor = colors.accentBlue.copy(alpha = 0.38f),
+                        disabledContentColor = Color.White.copy(alpha = 0.78f)
                     ),
                     shape = RoundedCornerShape(10.dp)
                 ) {
-                    Text("提交".loc)
+                    Text(submitButtonLabel)
                 }
             }
         }
@@ -814,11 +992,47 @@ fun InteractionCard(
 }
 
 @Composable
+private fun MultiSelectBadge() {
+    val colors = AntigravityTheme.colors
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(50))
+            .background(colors.accentBlue.copy(alpha = 0.12f))
+            .padding(horizontal = 7.dp, vertical = 2.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = "多选".loc,
+            color = colors.accentBlue,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold,
+            lineHeight = 14.sp,
+            maxLines = 1
+        )
+    }
+}
+
+private fun isOptionWriteIn(
+    opt: InteractionOption,
+    hasWriteIn: Boolean,
+    isPermissionType: Boolean
+): Boolean {
+    if (opt.id == "__write_in__") return true
+    if (!hasWriteIn) return false
+    if (opt.isDeny) return true
+    if (isPermissionType && opt.id == "5") return true
+    return false
+}
+
+@Composable
 private fun QuestionSection(
     questionIndex: Int,
     question: InteractionQuestion,
     selectedOptionId: String,
+    selectedOptionIds: Set<String> = emptySet(),
+    writeInActive: Boolean = false,
     onSelectOption: (String, Boolean) -> Unit,
+    onToggleWriteInOff: () -> Unit = {},
     onHeaderTap: () -> Unit = {},
     pendingAutoFocusKey: String? = null,
     onConsumeAutoFocus: () -> Unit = {},
@@ -826,6 +1040,7 @@ private fun QuestionSection(
     onWriteInChange: (String) -> Unit
 ) {
     val colors = AntigravityTheme.colors
+    val isMulti = question.isMultiSelect
 
     val hasWriteIn = question.hasWriteIn && question.options.none { it.id == "__write_in__" || it.isDeny }
     val displayOptions = remember(question) {
@@ -838,7 +1053,7 @@ private fun QuestionSection(
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        // Question title with Q[index] badge
+        // Question title with Q[index] badge + optional Multi-select pill
         Row(
             verticalAlignment = Alignment.Top,
             horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -868,18 +1083,28 @@ private fun QuestionSection(
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.weight(1f)
             )
+
+            if (isMulti) {
+                MultiSelectBadge()
+            }
         }
 
         // Options for this question
         Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
             displayOptions.forEachIndexed { optIdx, opt ->
-                val isSelected = selectedOptionId == opt.id
-                val isWriteIn = opt.id == "__write_in__" || (question.hasWriteIn && (opt.isDeny || opt.id == "5" || opt.id.equals("other", ignoreCase = true)))
+                val isWriteIn = isOptionWriteIn(opt, question.hasWriteIn, isPermissionType = false)
+                val isSelected = if (isMulti) {
+                    if (isWriteIn) writeInActive else selectedOptionIds.contains(opt.id)
+                } else {
+                    selectedOptionId == opt.id
+                }
                 val placeholderText = resolveWriteInPlaceholder(question.writeInPlaceholder, isDeny = false)
                 OptionRow(
                     option = opt,
                     isSelected = isSelected,
+                    isMultiSelect = isMulti,
                     onClick = { onSelectOption(opt.id, isWriteIn) },
+                    onToggleWriteInOff = if (isMulti && isWriteIn && isSelected) onToggleWriteInOff else null,
                     displayIndex = optIdx,
                     isWriteIn = isWriteIn,
                     shouldAutoFocus = pendingAutoFocusKey == "multi:$questionIndex",
@@ -897,7 +1122,9 @@ private fun QuestionSection(
 private fun OptionRow(
     option: InteractionOption,
     isSelected: Boolean,
+    isMultiSelect: Boolean = false,
     onClick: () -> Unit,
+    onToggleWriteInOff: (() -> Unit)? = null,
     displayIndex: Int = -1,
     isWriteIn: Boolean = false,
     shouldAutoFocus: Boolean = false,
@@ -943,7 +1170,8 @@ private fun OptionRow(
                 .padding(top = 1.dp)
                 .size(20.dp)
                 .clip(RoundedCornerShape(5.dp))
-                .background(if (isSelected) colors.accentBlue else colors.surfaceVariant),
+                .background(if (isSelected) colors.accentBlue else colors.surfaceVariant)
+                .then(if (onToggleWriteInOff != null) Modifier.clickable(onClick = onToggleWriteInOff) else Modifier),
             contentAlignment = Alignment.Center
         ) {
             Text(
@@ -997,26 +1225,52 @@ private fun OptionRow(
             )
         }
 
-        // Radio indicator
-        Box(
-            modifier = Modifier
-                .padding(top = 2.dp)
-                .size(16.dp)
-                .clip(CircleShape)
-                .border(
-                    width = 1.5.dp,
-                    color = if (isSelected) colors.accentBlue else colors.textSecondary.copy(alpha = 0.4f),
-                    shape = CircleShape
-                ),
-            contentAlignment = Alignment.Center
-        ) {
-            if (isSelected) {
-                Box(
-                    modifier = Modifier
-                        .size(8.dp)
-                        .clip(CircleShape)
-                        .background(colors.accentBlue)
-                )
+        // Checkbox (multi-select) or Radio (single-select) indicator
+        if (isMultiSelect) {
+            Box(
+                modifier = Modifier
+                    .padding(top = 1.5.dp)
+                    .size(17.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(if (isSelected) colors.accentBlue else Color.Transparent)
+                    .border(
+                        width = 1.5.dp,
+                        color = if (isSelected) colors.accentBlue else colors.textSecondary.copy(alpha = 0.45f),
+                        shape = RoundedCornerShape(4.dp)
+                    )
+                    .then(if (onToggleWriteInOff != null) Modifier.clickable(onClick = onToggleWriteInOff) else Modifier),
+                contentAlignment = Alignment.Center
+            ) {
+                if (isSelected) {
+                    Icon(
+                        imageVector = Icons.Default.Check,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(12.dp)
+                    )
+                }
+            }
+        } else {
+            Box(
+                modifier = Modifier
+                    .padding(top = 2.dp)
+                    .size(16.dp)
+                    .clip(CircleShape)
+                    .border(
+                        width = 1.5.dp,
+                        color = if (isSelected) colors.accentBlue else colors.textSecondary.copy(alpha = 0.4f),
+                        shape = CircleShape
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                if (isSelected) {
+                    Box(
+                        modifier = Modifier
+                            .size(8.dp)
+                            .clip(CircleShape)
+                            .background(colors.accentBlue)
+                    )
+                }
             }
         }
     }
