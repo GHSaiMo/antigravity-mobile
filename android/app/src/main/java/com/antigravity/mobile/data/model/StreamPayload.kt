@@ -346,7 +346,9 @@ data class StreamUpdatePayload(
     val suggestedResponses: List<String>? = null,
     val activeFocus: String? = null,
     val activeFocusStartedAt: String? = null,
-    val activePlan: StepPlanItem? = null
+    val activePlan: StepPlanItem? = null,
+    val branchOrigin: SideQuestionOrigin? = null,
+    val sideQuestions: List<SideQuestionCardItem>? = null
 )
 
 @Serializable

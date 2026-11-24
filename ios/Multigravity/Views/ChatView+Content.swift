@@ -122,7 +122,8 @@ extension ChatView {
                     await viewModel.stopSubagent(item)
                 },
                 onAskBtw: { quote in
-                    btwInitialQuote = quote
+                    btwAnchorStepIndex = nil
+                    btwAnchorPreview = quote
                     showBtwSheet = true
                 }
             )
@@ -529,33 +530,124 @@ extension ChatView {
         let canRevert = GatewayCompatStore.shared.isAvailable(GatewayFeature.revert)
         let canExport = GatewayCompatStore.shared.isAvailable(GatewayFeature.export)
         let highlightedId = highlightedTurnMessageId
+        let branchOrigin = viewModel.branchOrigin
+        let sideQuestionsMap = sideQuestionsByAnchorMessageId()
+
+        let sharedPrefixMessages: [ChatMessage] = {
+            guard let origin = branchOrigin else { return [] }
+            return viewModel.messages.filter { msg in
+                if let si = msg.effectiveStepIndex {
+                    return si <= origin.forkStepIndex
+                }
+                return false
+            }
+        }()
+        let branchOnlyMessages: [ChatMessage] = {
+            guard let origin = branchOrigin else { return viewModel.messages }
+            return viewModel.messages.filter { msg in
+                if let si = msg.effectiveStepIndex {
+                    return si > origin.forkStepIndex
+                }
+                return true
+            }
+        }()
 
         messagesStack {
             Color.clear
                 .frame(maxWidth: .infinity)
                 .frame(height: 1)
                 .id("TOP_ANCHOR")
-            
-            if viewModel.hasMore && !viewModel.messages.contains(where: { $0.id == "step-0" || $0.effectiveStepIndex == 0 }) {
-                loadOlderMessagesButton(proxy: proxy)
-            }
-            
-            if viewModel.messages.isEmpty {
-                emptyStateView
-            }
-            
-            ForEach(viewModel.messages) { message in
-                messageRow(
-                    message: message,
-                    isLast: message.id == lastId,
-                    isActive: (message.id == lastId) && isStreamingOrRunning,
-                    isActivePlan: message.id == activePlanId,
-                    isHighlighted: highlightedId == message.id,
-                    shouldTrackVisibility: shouldTrackVisibility,
-                    canRevert: canRevert,
-                    canExport: canExport,
-                    proxy: proxy
+
+            if let origin = branchOrigin {
+                BranchOriginBannerView(
+                    origin: origin,
+                    hiddenCount: sharedPrefixMessages.count,
+                    isExpanded: showSharedBranchContext,
+                    onToggleExpand: {
+                        withAnimation(.easeInOut(duration: 0.22)) {
+                            showSharedBranchContext.toggle()
+                        }
+                    },
+                    onReturnToParent: {
+                        NotificationCenter.default.post(
+                            name: .openConversationById,
+                            object: origin.parentCascadeId
+                        )
+                    }
                 )
+                .id("BRANCH_ORIGIN_BANNER")
+
+                if showSharedBranchContext {
+                    if viewModel.hasMore && !viewModel.messages.contains(where: { $0.id == "step-0" || $0.effectiveStepIndex == 0 }) {
+                        loadOlderMessagesButton(proxy: proxy)
+                    }
+                    ForEach(sharedPrefixMessages) { message in
+                        messageRow(
+                            message: message,
+                            isLast: false,
+                            isActive: false,
+                            isActivePlan: false,
+                            isHighlighted: highlightedId == message.id,
+                            shouldTrackVisibility: shouldTrackVisibility,
+                            canRevert: false,
+                            canExport: canExport,
+                            attachedSideQuestions: [],
+                            canInsertToParent: false,
+                            proxy: proxy
+                        )
+                        .opacity(0.82)
+                    }
+                    BranchForkDividerView {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            showSharedBranchContext = false
+                        }
+                    }
+                    .id("BRANCH_FORK_DIVIDER")
+                }
+
+                if branchOnlyMessages.isEmpty && !viewModel.isRunning && !viewModel.isAwaitingResponse {
+                    emptyStateView
+                }
+
+                ForEach(branchOnlyMessages) { message in
+                    messageRow(
+                        message: message,
+                        isLast: message.id == lastId,
+                        isActive: (message.id == lastId) && isStreamingOrRunning,
+                        isActivePlan: message.id == activePlanId,
+                        isHighlighted: highlightedId == message.id,
+                        shouldTrackVisibility: shouldTrackVisibility,
+                        canRevert: canRevert,
+                        canExport: canExport,
+                        attachedSideQuestions: sideQuestionsMap[message.id] ?? [],
+                        canInsertToParent: message.isAgent && !origin.parentCascadeId.isEmpty,
+                        proxy: proxy
+                    )
+                }
+            } else {
+                if viewModel.hasMore && !viewModel.messages.contains(where: { $0.id == "step-0" || $0.effectiveStepIndex == 0 }) {
+                    loadOlderMessagesButton(proxy: proxy)
+                }
+                
+                if viewModel.messages.isEmpty {
+                    emptyStateView
+                }
+                
+                ForEach(viewModel.messages) { message in
+                    messageRow(
+                        message: message,
+                        isLast: message.id == lastId,
+                        isActive: (message.id == lastId) && isStreamingOrRunning,
+                        isActivePlan: message.id == activePlanId,
+                        isHighlighted: highlightedId == message.id,
+                        shouldTrackVisibility: shouldTrackVisibility,
+                        canRevert: canRevert,
+                        canExport: canExport,
+                        attachedSideQuestions: sideQuestionsMap[message.id] ?? [],
+                        canInsertToParent: false,
+                        proxy: proxy
+                    )
+                }
             }
             
             if shouldShowThinkingBubble {
@@ -576,6 +668,33 @@ extension ChatView {
         .padding(.bottom, 4)
         .frame(maxWidth: .infinity)
     }
+
+    private func sideQuestionsByAnchorMessageId() -> [String: [SideQuestionCardItem]] {
+        guard !viewModel.sideQuestions.isEmpty, !viewModel.messages.isEmpty else { return [:] }
+        let loadedIds = Set(viewModel.messages.map(\.id))
+        let firstLoadedStep = viewModel.messages.compactMap(\.effectiveStepIndex).min() ?? 0
+        var map: [String: [SideQuestionCardItem]] = [:]
+
+        for item in viewModel.sideQuestions {
+            if let anchorId = item.anchorMessageId, !anchorId.isEmpty, loadedIds.contains(anchorId) {
+                map[anchorId, default: []].append(item)
+                continue
+            }
+            if let forkStep = item.forkStepIndex, forkStep >= firstLoadedStep {
+                if let match = viewModel.messages.last(where: { msg in
+                    guard let si = msg.effectiveStepIndex else { return false }
+                    return si <= forkStep && (msg.isAgent || msg.isUser)
+                }) ?? viewModel.messages.last(where: { ($0.effectiveStepIndex ?? Int.max) <= forkStep }) {
+                    map[match.id, default: []].append(item)
+                    continue
+                }
+            }
+            if item.forkStepIndex == nil, let lastId = viewModel.messages.last?.id {
+                map[lastId, default: []].append(item)
+            }
+        }
+        return map
+    }
     
     var shouldShowThinkingBubble: Bool {
         (viewModel.isAwaitingResponse || viewModel.isRunning) && (viewModel.messages.last?.isToolBatch != true)
@@ -591,6 +710,8 @@ extension ChatView {
         shouldTrackVisibility: Bool,
         canRevert: Bool,
         canExport: Bool,
+        attachedSideQuestions: [SideQuestionCardItem],
+        canInsertToParent: Bool,
         proxy: ScrollViewProxy
     ) -> some View {
         EquatableMessageRow(
@@ -600,6 +721,8 @@ extension ChatView {
             isHighlighted: isHighlighted,
             canRevert: canRevert,
             canExport: canExport,
+            attachedSideQuestions: attachedSideQuestions,
+            canInsertToParent: canInsertToParent,
             onFollowStreamGrowth: { followStreamGrowth(proxy: proxy) },
             onUndo: { msg in viewModel.requestUndo(for: msg) },
             onExportMarkdown: { viewModel.exportMarkdown() },
@@ -630,9 +753,16 @@ extension ChatView {
             onNarrate: { text in
                 narrationPlayer.play(text: text, baseURL: AppSettings.shared.gatewayURL)
             },
-            onAskBtw: { quote in
-                btwInitialQuote = quote
+            onAskBtw: { stepIdx, preview in
+                btwAnchorStepIndex = stepIdx
+                btwAnchorPreview = preview
                 showBtwSheet = true
+            },
+            onOpenSideQuestion: { targetId in
+                NotificationCenter.default.post(name: .openConversationById, object: targetId)
+            },
+            onInsertToParent: { text in
+                viewModel.insertConclusionIntoParent(text: text)
             },
             makeShareContext: { shareContext(for: message) }
         )
@@ -1058,6 +1188,8 @@ private struct EquatableMessageRow: View, Equatable {
     let isHighlighted: Bool
     let canRevert: Bool
     let canExport: Bool
+    let attachedSideQuestions: [SideQuestionCardItem]
+    let canInsertToParent: Bool
     let onFollowStreamGrowth: () -> Void
     let onUndo: (ChatMessage) -> Void
     let onExportMarkdown: () -> Void
@@ -1067,7 +1199,9 @@ private struct EquatableMessageRow: View, Equatable {
     let onSelectSubagent: (SubagentItem) -> Void
     let onFork: (ChatMessage) -> Void
     let onNarrate: (String) -> Void
-    let onAskBtw: (String) -> Void
+    let onAskBtw: (Int?, String) -> Void
+    let onOpenSideQuestion: (String) -> Void
+    let onInsertToParent: (String) -> Void
     let makeShareContext: () -> ShareCardContext
 
     static func == (lhs: EquatableMessageRow, rhs: EquatableMessageRow) -> Bool {
@@ -1077,6 +1211,8 @@ private struct EquatableMessageRow: View, Equatable {
             && lhs.isHighlighted == rhs.isHighlighted
             && lhs.canRevert == rhs.canRevert
             && lhs.canExport == rhs.canExport
+            && lhs.attachedSideQuestions == rhs.attachedSideQuestions
+            && lhs.canInsertToParent == rhs.canInsertToParent
     }
 
     var body: some View {
@@ -1094,15 +1230,24 @@ private struct EquatableMessageRow: View, Equatable {
                 onFork: onFork,
                 onNarrate: onNarrate,
                 onAskBtw: onAskBtw,
+                onInsertToParent: canInsertToParent ? onInsertToParent : nil,
                 makeShareContext: makeShareContext
             )
         }
-        Group {
-            if message.isAgent {
-                // 流式文本按稳定速度播放，并在播放过程中平滑跟随到底部
-                PacedAgentRow(message: message, onGrow: onFollowStreamGrowth, content: bubble)
-            } else {
-                bubble(message)
+        VStack(alignment: .leading, spacing: 2) {
+            Group {
+                if message.isAgent {
+                    // 流式文本按稳定速度播放，并在播放过程中平滑跟随到底部
+                    PacedAgentRow(message: message, onGrow: onFollowStreamGrowth, content: bubble)
+                } else {
+                    bubble(message)
+                }
+            }
+            if !attachedSideQuestions.isEmpty {
+                SideQuestionInlineCardsSection(
+                    items: attachedSideQuestions,
+                    onOpen: onOpenSideQuestion
+                )
             }
         }
         .overlay(

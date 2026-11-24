@@ -47,6 +47,7 @@ import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.*
+import androidx.compose.material.icons.filled.CallSplit
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import android.net.Uri
@@ -167,8 +168,12 @@ import com.antigravity.mobile.ui.viewmodel.removeContextMention
 import com.antigravity.mobile.ui.viewmodel.searchContextMentions
 import com.antigravity.mobile.ui.viewmodel.sendTaskToBackground
 import com.antigravity.mobile.ui.viewmodel.trustCurrentProject
-import com.antigravity.mobile.data.service.startBtwSideQuestion
+import com.antigravity.mobile.ui.viewmodel.startBtwAndOpen
+import com.antigravity.mobile.ui.viewmodel.insertConclusionIntoParent
 import com.antigravity.mobile.ui.viewmodel.setPermissionPreset
+import com.antigravity.mobile.ui.components.BranchOriginBanner
+import com.antigravity.mobile.ui.components.BranchForkDivider
+import com.antigravity.mobile.ui.components.SideQuestionInlineCardsSection
 
 private val BracketPlaceholderRegex = Regex("\\[[^\\[\\]\\n]+\\]")
 
@@ -184,6 +189,7 @@ fun ChatScreen(
     isUnreadOnEntry: Boolean = false,
     initialStatus: com.antigravity.mobile.data.model.ConversationStatus? = null,
     onOpenSubagent: (com.antigravity.mobile.data.model.SubagentItem) -> Unit = {},
+    onOpenConversation: (cascadeId: String, title: String) -> Unit = { _, _ -> },
     onStartNewSession: () -> Unit = {},
     dismissModalsTrigger: Int = 0
 ) {
@@ -836,7 +842,9 @@ fun ChatScreen(
     val narrationLabel by narrationPlayer.statusLabel.collectAsState()
     var showPermissionMenu by remember { mutableStateOf(false) }
     var showBtwSheet by remember { mutableStateOf(false) }
-    var btwInitialQuote by remember { mutableStateOf<String?>(null) }
+    var btwAnchorStepIndex by remember { mutableStateOf<Int?>(null) }
+    var btwAnchorPreview by remember { mutableStateOf<String?>(null) }
+    var showSharedBranchContext by remember(cascadeId) { mutableStateOf(false) }
     var selectedGitHubPRUrl by remember { mutableStateOf<String?>(null) }
     var phase3Notice by remember { mutableStateOf<String?>(null) }
     var dictationBaseText by remember { mutableStateOf("") }
@@ -858,7 +866,8 @@ fun ChatScreen(
             showVoiceTroubleshootBubble = false
             showPermissionMenu = false
             showBtwSheet = false
-            btwInitialQuote = null
+            btwAnchorStepIndex = null
+            btwAnchorPreview = null
             selectedWorkflowSubagent = null
             selectedGitHubPRUrl = null
             viewModel.closeMarkdownViewer()
@@ -1299,7 +1308,52 @@ fun ChatScreen(
                     indication = null
                 ) { focusManager.clearFocus() },
                 title = {
-                    if (turns.size >= 2) {
+                    val branchOrigin = uiState.branchOrigin
+                    if (branchOrigin != null && branchOrigin.isSideQuestion) {
+                        Column {
+                            Text(
+                                text = uiState.title,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 15.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                color = colors.textPrimary
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(3.dp),
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(colors.accentIndigo.copy(alpha = 0.11f))
+                                        .clickable {
+                                            if (branchOrigin.parentCascadeId.isNotBlank()) {
+                                                haptic.light()
+                                                onOpenConversation(branchOrigin.parentCascadeId, branchOrigin.parentTitle.orEmpty())
+                                            }
+                                        }
+                                        .padding(horizontal = 7.dp, vertical = 1.5.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.CallSplit,
+                                        contentDescription = null,
+                                        tint = colors.accentIndigo,
+                                        modifier = Modifier.size(11.dp)
+                                    )
+                                    Text(
+                                        text = "旁路快问 · 回主会话".loc,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = colors.accentIndigo
+                                    )
+                                }
+                            }
+                        }
+                    } else if (turns.size >= 2) {
                         Column(
                             modifier = Modifier.clickable(
                                 interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
@@ -1442,7 +1496,8 @@ fun ChatScreen(
                                 text = { Text("旁路快问".loc) },
                                 onClick = {
                                     showPermissionMenu = false
-                                    btwInitialQuote = null
+                                    btwAnchorStepIndex = null
+                                    btwAnchorPreview = null
                                     showBtwSheet = true
                                 }
                             )
@@ -1603,10 +1658,26 @@ fun ChatScreen(
                             val stableOnNarrateClick = remember<((String) -> Unit)> {
                                 { text -> latestNarrationPlayer.play(text) }
                             }
-                            val stableOnAskBtwClick = remember<((String) -> Unit)> {
-                                { quote ->
-                                    btwInitialQuote = quote
+                            val stableOnAskBtwClick = remember<((Int?, String) -> Unit)> {
+                                { stepIdx, preview ->
+                                    btwAnchorStepIndex = stepIdx
+                                    btwAnchorPreview = preview
                                     showBtwSheet = true
+                                }
+                            }
+                            val stableOnOpenBranch = remember<((String, String) -> Unit)> {
+                                { targetId, targetTitle ->
+                                    preserveScrollOnReturn = true
+                                    savedScrollIndex = listState.firstVisibleItemIndex
+                                    savedScrollOffset = listState.firstVisibleItemScrollOffset
+                                    onOpenConversation(targetId, targetTitle)
+                                }
+                            }
+                            val stableOnInsertToParent = remember<((String) -> Unit)> {
+                                { text ->
+                                    latestViewModel.insertConclusionIntoParent(text) { parentId, parentTitle ->
+                                        onOpenConversation(parentId, parentTitle)
+                                    }
                                 }
                             }
                             val stableOnCompactClick = remember<(() -> Unit)> {
@@ -1654,6 +1725,54 @@ fun ChatScreen(
                                 }
                             }
 
+                            val branchOrigin = uiState.branchOrigin
+                            val sharedPrefixMessages = remember(uiState.messages, branchOrigin) {
+                                if (branchOrigin == null) emptyList()
+                                else uiState.messages.filter { msg ->
+                                    val si = msg.stepIndex
+                                    si != null && si <= branchOrigin.forkStepIndex
+                                }
+                            }
+                            val branchOnlyMessages = remember(uiState.messages, branchOrigin) {
+                                if (branchOrigin == null) uiState.messages
+                                else uiState.messages.filter { msg ->
+                                    val si = msg.stepIndex
+                                    si == null || si > branchOrigin.forkStepIndex
+                                }
+                            }
+                            val sideQuestionsByMessageId = remember(uiState.sideQuestions, uiState.messages) {
+                                if (uiState.sideQuestions.isEmpty() || uiState.messages.isEmpty()) emptyMap()
+                                else {
+                                    val loadedIds = uiState.messages.mapTo(HashSet(uiState.messages.size)) { it.id }
+                                    val firstLoadedStep = uiState.messages.mapNotNull { it.stepIndex }.minOrNull() ?: 0
+                                    val map = LinkedHashMap<String, MutableList<com.antigravity.mobile.data.model.SideQuestionCardItem>>()
+                                    for (card in uiState.sideQuestions) {
+                                        val anchorId = card.anchorMessageId
+                                        if (!anchorId.isNullOrBlank() && loadedIds.contains(anchorId)) {
+                                            map.getOrPut(anchorId) { mutableListOf() }.add(card)
+                                            continue
+                                        }
+                                        val forkStep = card.forkStepIndex
+                                        if (forkStep != null && forkStep >= firstLoadedStep) {
+                                            val match = uiState.messages.lastOrNull { m ->
+                                                val si = m.stepIndex
+                                                si != null && si <= forkStep && (m.isAgent || m.isUser)
+                                            } ?: uiState.messages.lastOrNull { (it.stepIndex ?: Int.MAX_VALUE) <= forkStep }
+                                            if (match != null) {
+                                                map.getOrPut(match.id) { mutableListOf() }.add(card)
+                                                continue
+                                            }
+                                        }
+                                        if (forkStep == null) {
+                                            uiState.messages.lastOrNull()?.id?.let { lastId ->
+                                                map.getOrPut(lastId) { mutableListOf() }.add(card)
+                                            }
+                                        }
+                                    }
+                                    map
+                                }
+                            }
+
                             LazyColumn(
                                 state = listState,
                                 modifier = Modifier
@@ -1662,7 +1781,23 @@ fun ChatScreen(
                                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                                 verticalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                if (uiState.hasMore) {
+                                if (branchOrigin != null) {
+                                    item(key = "branch_origin_banner") {
+                                        BranchOriginBanner(
+                                            origin = branchOrigin,
+                                            isExpanded = showSharedBranchContext,
+                                            onToggleExpand = { showSharedBranchContext = !showSharedBranchContext },
+                                            onReturnToParent = {
+                                                if (branchOrigin.parentCascadeId.isNotBlank()) {
+                                                    onOpenConversation(branchOrigin.parentCascadeId, branchOrigin.parentTitle.orEmpty())
+                                                }
+                                            }
+                                        )
+                                    }
+                                }
+
+                                val showOlderBtn = uiState.hasMore && (branchOrigin == null || showSharedBranchContext)
+                                if (showOlderBtn) {
                                     item(key = "load_older_messages") {
                                         Box(
                                             modifier = Modifier
@@ -1705,8 +1840,41 @@ fun ChatScreen(
                                     }
                                 }
 
+                                if (branchOrigin != null && showSharedBranchContext && sharedPrefixMessages.isNotEmpty()) {
+                                    items(
+                                        sharedPrefixMessages,
+                                        key = { "shared_${if (it.id.isNotBlank()) it.id else "${it.timestamp}_${it.role}_${it.stepIndex ?: 0}"}" }
+                                    ) { sharedMsg ->
+                                        Box(modifier = Modifier.fillMaxWidth().alpha(0.82f)) {
+                                            MessageBubble(
+                                                message = sharedMsg,
+                                                isActiveToolBatch = false,
+                                                isActivePlan = false,
+                                                onPlanClick = stableOnPlanClick,
+                                                urlResolver = stableUrlResolver,
+                                                onImageClick = stableOnImageClick,
+                                                onImageGroupClick = stableOnImageGroupClick,
+                                                onSubagentClick = openSubagent,
+                                                onStopWorkflow = stableOnStopWorkflow,
+                                                onSelectWorkflowSubagent = stableOnSelectWorkflowSubagent,
+                                                onForkClick = stableOnForkClick,
+                                                onNarrateClick = stableOnNarrateClick,
+                                                onAskBtwClick = stableOnAskBtwClick,
+                                                onCompactClick = stableOnCompactClick,
+                                                onStartNewSessionClick = onStartNewSession,
+                                                onUndoClick = null,
+                                                onExportMarkdownClick = stableOnExportMarkdownClick,
+                                                shareContextProvider = stableShareContextProvider
+                                            )
+                                        }
+                                    }
+                                    item(key = "branch_fork_divider") {
+                                        BranchForkDivider(onCollapse = { showSharedBranchContext = false })
+                                    }
+                                }
+
                                 items(
-                                    uiState.messages,
+                                    branchOnlyMessages,
                                     key = { if (it.id.isNotBlank()) it.id else "${it.timestamp}_${it.role}_${it.stepIndex ?: 0}" }
                                 ) { rawMsg ->
                                     val isLastAgentStreaming = uiState.isRunning && rawMsg.isAgent && rawMsg.id == uiState.messages.lastOrNull()?.id
@@ -1741,7 +1909,9 @@ fun ChatScreen(
                                         animationSpec = androidx.compose.animation.core.tween(durationMillis = 280),
                                         label = "turnHighlightBorder"
                                     )
-                                    Box(
+                                    val attachedSides = sideQuestionsByMessageId[rawMsg.id].orEmpty()
+                                    val allowInsertParent = branchOrigin != null && branchOrigin.parentCascadeId.isNotBlank() && rawMsg.isAgent
+                                    Column(
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .then(
@@ -1770,12 +1940,19 @@ fun ChatScreen(
                                             onForkClick = stableOnForkClick,
                                             onNarrateClick = stableOnNarrateClick,
                                             onAskBtwClick = stableOnAskBtwClick,
+                                            onInsertToParentClick = if (allowInsertParent) stableOnInsertToParent else null,
                                             onCompactClick = stableOnCompactClick,
                                             onStartNewSessionClick = onStartNewSession,
                                             onUndoClick = stableOnUndoClick,
                                             onExportMarkdownClick = stableOnExportMarkdownClick,
                                             shareContextProvider = stableShareContextProvider
                                         )
+                                        if (attachedSides.isNotEmpty()) {
+                                            SideQuestionInlineCardsSection(
+                                                items = attachedSides,
+                                                onOpen = stableOnOpenBranch
+                                            )
+                                        }
                                     }
                                 }
 
@@ -2472,8 +2649,13 @@ fun ChatScreen(
                                     ) {
                                         val isActivelyRunning = uiState.isRunning || uiState.isAwaitingResponse || uiState.runningTasks.hasBlockingTasks
                                         if (inputText.isEmpty()) {
+                                            val placeholderText = when {
+                                                uiState.selectedSlashCommand?.name.equals("btw", ignoreCase = true) -> "输入旁路快问（不打断主对话）...".loc
+                                                isActivelyRunning -> "向队列添加指令...".loc
+                                                else -> "发送对 Agent 的指令...".loc
+                                            }
                                             Text(
-                                                text = if (isActivelyRunning) "向队列添加指令...".loc else "发送对 Agent 的指令...".loc,
+                                                text = placeholderText,
                                                 color = colors.textMuted,
                                                 fontSize = 16.sp,
                                                 lineHeight = 22.sp
@@ -2539,24 +2721,26 @@ fun ChatScreen(
                                             .clickable(enabled = isEnabled) {
                                                 dismissKeyboard()
                                                 val trimmedSend = inputText.trim()
-                                                if (uiState.selectedImages.isEmpty() && uiState.selectedFiles.isEmpty() && uiState.selectedSlashCommand == null &&
-                                                    (trimmedSend == "/btw" || trimmedSend.startsWith("/btw "))
-                                                ) {
-                                                    val q = trimmedSend.drop(4).trim()
+                                                val slashCmd = uiState.selectedSlashCommand
+                                                val isSlashBtw = slashCmd?.name.equals("btw", ignoreCase = true)
+                                                val isTypedBtw = slashCmd == null && (trimmedSend == "/btw" || trimmedSend.startsWith("/btw "))
+                                                if (uiState.selectedImages.isEmpty() && uiState.selectedFiles.isEmpty() && (isSlashBtw || isTypedBtw)) {
+                                                    val q = if (isSlashBtw) trimmedSend else trimmedSend.drop(4).trim()
                                                     viewModel.onInputTextChanged("")
+                                                    viewModel.clearSlashCommand()
                                                     val cid = uiState.cascadeId
                                                     if (q.isEmpty() || cid.isBlank() || cid.startsWith("local_draft_")) {
-                                                        btwInitialQuote = null
+                                                        btwAnchorStepIndex = null
+                                                        btwAnchorPreview = null
                                                         showBtwSheet = true
                                                     } else {
                                                         coroutineScope.launch {
-                                                            com.antigravity.mobile.data.service.ApiClient.defaultInstance?.startBtwSideQuestion(
-                                                                parentCascadeId = cid,
-                                                                question = q,
-                                                                model = uiState.activeModel
-                                                            )
-                                                            btwInitialQuote = null
-                                                            showBtwSheet = true
+                                                            viewModel.startBtwAndOpen(question = q) { newId, newTitle ->
+                                                                preserveScrollOnReturn = true
+                                                                savedScrollIndex = listState.firstVisibleItemIndex
+                                                                savedScrollOffset = listState.firstVisibleItemScrollOffset
+                                                                onOpenConversation(newId, newTitle)
+                                                            }
                                                         }
                                                     }
                                                 } else {
@@ -3007,7 +3191,8 @@ fun ChatScreen(
                 viewModel.stopSubagent(item.conversationId)
             },
             onAskBtw = { quote ->
-                btwInitialQuote = quote
+                btwAnchorStepIndex = null
+                btwAnchorPreview = quote
                 showBtwSheet = true
             }
         )
@@ -3026,23 +3211,28 @@ fun ChatScreen(
     if (showBtwSheet) {
         BtwSideQuestionBottomSheet(
             parentCascadeId = uiState.cascadeId,
-            activeModel = uiState.activeModel,
-            initialQuote = btwInitialQuote,
-            onInsertIntoMain = { inserted ->
-                val cur = inputText.trim()
-                viewModel.onInputTextChanged(if (cur.isEmpty()) inserted else "$cur\n\n$inserted")
+            parentTitle = uiState.title,
+            anchorStepIndex = btwAnchorStepIndex,
+            anchorPreview = btwAnchorPreview,
+            existingBranches = uiState.sideQuestions,
+            onOpenBranch = { targetId, targetTitle ->
+                preserveScrollOnReturn = true
+                savedScrollIndex = listState.firstVisibleItemIndex
+                savedScrollOffset = listState.firstVisibleItemScrollOffset
+                onOpenConversation(targetId, targetTitle)
             },
-            onOpenStandalone = { targetId ->
-                viewModel.prepareSession(
-                    cascadeId = targetId,
-                    initialTitle = "旁路快问".loc,
-                    isNewConversation = false,
-                    workspaceName = uiState.workspaceName
-                )
+            onStartBranch = { question, stepIdx ->
+                viewModel.startBtwAndOpen(question = question, stepIndex = stepIdx) { newId, newTitle ->
+                    preserveScrollOnReturn = true
+                    savedScrollIndex = listState.firstVisibleItemIndex
+                    savedScrollOffset = listState.firstVisibleItemScrollOffset
+                    onOpenConversation(newId, newTitle)
+                }
             },
             onDismiss = {
                 showBtwSheet = false
-                btwInitialQuote = null
+                btwAnchorStepIndex = null
+                btwAnchorPreview = null
             }
         )
     }

@@ -573,12 +573,14 @@ suspend fun ApiClient.startBtwSideQuestion(
     parentCascadeId: String,
     question: String,
     quote: String? = null,
+    stepIndex: Int? = null,
     model: String? = null
 ): Result<BtwStartResponse> {
     val payload = buildJsonObject {
         put("parentCascadeId", parentCascadeId)
         put("question", question)
         if (!quote.isNullOrBlank()) put("quote", quote)
+        if (stepIndex != null && stepIndex >= 0) put("stepIndex", stepIndex)
         if (!model.isNullOrBlank()) put("model", model)
     }
     return p3PostJson("/gateway/btw/start", payload).mapCatching { body ->

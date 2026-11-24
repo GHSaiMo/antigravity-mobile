@@ -51,6 +51,8 @@ public struct StreamUpdatePayload: Decodable, Sendable {
     public let activeFocus: String?
     public let activeFocusStartedAt: String?
     public let activePlan: StepPlanItem?
+    public let branchOrigin: SideQuestionOrigin?
+    public let sideQuestions: [SideQuestionCardItem]?
 }
 
 @Observable

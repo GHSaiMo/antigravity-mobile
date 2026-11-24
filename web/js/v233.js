@@ -24,10 +24,11 @@
   let fallbackMarks = [];
 
   let activeBtwParentId = "";
-  let activeBtwCascadeId = "";
+  let activeBtwStepIndex = null;
+  let activeBtwPreview = "";
   let activeBtwQuote = "";
-  let activeBtwInsertText = "";
-  let btwPollTimer = 0;
+  const branchStateByCascade = new Map();
+  const sharedExpandedByCascade = new Map();
 
   function fileExt(nameOrUrl) {
     const clean = String(nameOrUrl || "").split("?")[0].split("#")[0].toLowerCase();
@@ -500,73 +501,260 @@
     });
   }
 
-  // --- 5. /btw Side-Question Loop ---
-  function stopBtwPoll() {
-    if (btwPollTimer) {
-      clearInterval(btwPollTimer);
-      btwPollTimer = 0;
+  // --- 5. /btw Side-Question Branch Architecture ---
+  function getBranchState(cascadeId) {
+    return (cascadeId && branchStateByCascade.get(cascadeId)) || { branchOrigin: null, sideQuestions: [] };
+  }
+
+  function syncBranchState(cascadeId, payload) {
+    if (!cascadeId || !payload) return;
+    const prev = getBranchState(cascadeId);
+    const nextOrigin = payload.branchOrigin !== undefined ? (payload.branchOrigin || null) : prev.branchOrigin;
+    const nextSides = Array.isArray(payload.sideQuestions) ? payload.sideQuestions : [];
+    branchStateByCascade.set(cascadeId, { branchOrigin: nextOrigin, sideQuestions: nextSides });
+    if (typeof activeCascadeId !== "undefined" && activeCascadeId === cascadeId) {
+      applyBranchDecorations(document.getElementById("messages-stream"), cascadeId);
+    }
+  }
+
+  function ensureBranchOriginBanner(streamEl) {
+    let banner = document.getElementById("btw-branch-origin-banner");
+    if (!banner && streamEl && streamEl.parentNode) {
+      banner = document.createElement("div");
+      banner.id = "btw-branch-origin-banner";
+      banner.className = "btw-branch-origin-banner hidden";
+      streamEl.parentNode.insertBefore(banner, streamEl);
+    }
+    return banner;
+  }
+
+  function insertBranchConclusionToParent(parentId, rawText) {
+    const pid = String(parentId || "").trim();
+    const snippet = String(rawText || "").trim().slice(0, 1600);
+    if (!pid || !snippet) return;
+    if (typeof DraftManager !== "undefined") {
+      const existing = String(DraftManager.get(pid) || "").trim();
+      DraftManager.set(pid, existing ? `${existing}\n\n${snippet}` : snippet);
+    }
+    if (typeof navigateTo === "function") {
+      navigateTo("#c=" + pid);
+      setTimeout(() => {
+        const chatInput = document.getElementById("chat-input");
+        if (chatInput) {
+          chatInput.focus();
+          chatInput.style.height = "auto";
+          chatInput.style.height = Math.min(chatInput.scrollHeight, 120) + "px";
+        }
+      }, 120);
+    }
+  }
+
+  function applyBranchDecorations(streamEl, cascadeId) {
+    const cid = cascadeId || (typeof activeCascadeId !== "undefined" ? activeCascadeId : "");
+    const banner = ensureBranchOriginBanner(streamEl);
+    if (!streamEl || !cid) {
+      banner?.classList.add("hidden");
+      return;
+    }
+
+    const { branchOrigin, sideQuestions } = getBranchState(cid);
+    const rows = Array.from(streamEl.children).filter((el) => el.classList?.contains("message-row"));
+
+    // 1. Branched chat view: origin banner + collapsed shared prefix + one-tap insert to parent
+    if (banner) {
+      if (branchOrigin && branchOrigin.parentCascadeId) {
+        const expanded = !!sharedExpandedByCascade.get(cid);
+        const parentTitle = String(branchOrigin.parentTitle || "").trim();
+        const turnNum = Number(branchOrigin.forkTurnNumber || 0);
+        const originLabel = parentTitle && turnNum > 0
+          ? `承接自「${parentTitle}」第 ${turnNum} 轮`
+          : parentTitle
+          ? `承接自「${parentTitle}」`
+          : turnNum > 0
+          ? `承接自主会话第 ${turnNum} 轮`
+          : "承接自主会话上下文";
+        const sig = `${branchOrigin.parentCascadeId}|${originLabel}|${expanded ? 1 : 0}`;
+        if (banner.getAttribute("data-sig") !== sig || banner.classList.contains("hidden")) {
+          banner.setAttribute("data-sig", sig);
+          banner.classList.remove("hidden");
+          banner.innerHTML = `
+            <div class="btw-origin-main">
+              <span class="btw-origin-icon">⑂</span>
+              <div class="btw-origin-text">
+                <div class="btw-origin-title">${escapeHtmlLocal(originLabel)}</div>
+                <div class="btw-origin-sub">${expanded ? "已展开共享前文" : "已共享前文上下文（默认折叠）"}</div>
+              </div>
+            </div>
+            <div class="btw-origin-actions">
+              <button type="button" class="btw-origin-btn accent" data-btw-action="toggle-shared">${expanded ? "收起前文" : "展开前文"}</button>
+              <button type="button" class="btw-origin-btn" data-btw-action="return-parent">回主会话</button>
+            </div>
+          `;
+          banner.querySelector('[data-btw-action="toggle-shared"]')?.addEventListener("click", () => {
+            sharedExpandedByCascade.set(cid, !sharedExpandedByCascade.get(cid));
+            applyBranchDecorations(streamEl, cid);
+          });
+          banner.querySelector('[data-btw-action="return-parent"]')?.addEventListener("click", () => {
+            if (typeof navigateTo === "function") navigateTo("#c=" + branchOrigin.parentCascadeId);
+          });
+        }
+      } else {
+        banner.classList.add("hidden");
+      }
+    }
+
+    const forkStep = branchOrigin ? Number(branchOrigin.forkStepIndex) : -1;
+    const isExpanded = branchOrigin ? !!sharedExpandedByCascade.get(cid) : false;
+    let firstPostForkMarked = false;
+
+    for (const row of rows) {
+      const rawStep = row.getAttribute("data-step-index");
+      const stepIdx = rawStep !== null && rawStep !== "" && !Number.isNaN(Number(rawStep)) ? Number(rawStep) : null;
+      const isSharedPrefix = !!(branchOrigin && stepIdx !== null && stepIdx <= forkStep);
+
+      row.classList.toggle("branch-shared-hidden", isSharedPrefix && !isExpanded);
+      row.classList.toggle("branch-shared-prefix", isSharedPrefix && isExpanded);
+
+      const markDivider = !!(branchOrigin && isExpanded && !isSharedPrefix && !firstPostForkMarked);
+      if (markDivider) firstPostForkMarked = true;
+      row.classList.toggle("branch-fork-divider-before", markDivider);
+
+      const existingInsertBar = row.querySelector(":scope > .btw-insert-parent-bar");
+      const shouldHaveInsert = !!(branchOrigin && branchOrigin.parentCascadeId && !isSharedPrefix && row.classList.contains("agent") && !row.classList.contains("error-row"));
+      if (shouldHaveInsert) {
+        if (!existingInsertBar) {
+          const bar = document.createElement("div");
+          bar.className = "btw-insert-parent-bar";
+          bar.innerHTML = `<button type="button" class="btw-insert-parent-btn">↵ 插入主对话</button>`;
+          bar.querySelector("button")?.addEventListener("click", (e) => {
+            e.stopPropagation();
+            const body = row.querySelector(".agent-message-body") || row.querySelector(".bubble");
+            const txt = body ? body.innerText.trim() : "";
+            insertBranchConclusionToParent(branchOrigin.parentCascadeId, txt);
+          });
+          row.appendChild(bar);
+        }
+      } else if (existingInsertBar) {
+        existingInsertBar.remove();
+      }
+    }
+
+    // 2. Parent conversation inline branch cards anchored beneath source messages
+    const cardsByRowId = new Map();
+    if (Array.isArray(sideQuestions) && sideQuestions.length > 0 && rows.length > 0) {
+      const rowById = new Map();
+      let firstLoadedStep = Infinity;
+      for (const r of rows) {
+        if (r.id) rowById.set(r.id, r);
+        const raw = r.getAttribute("data-step-index");
+        if (raw !== null && raw !== "" && !Number.isNaN(Number(raw))) {
+          firstLoadedStep = Math.min(firstLoadedStep, Number(raw));
+        }
+      }
+      if (!Number.isFinite(firstLoadedStep)) firstLoadedStep = 0;
+
+      for (const card of sideQuestions) {
+        let targetRow = card.anchorMessageId ? rowById.get(card.anchorMessageId) : null;
+        if (!targetRow && typeof card.forkStepIndex === "number" && card.forkStepIndex >= firstLoadedStep) {
+          for (let i = rows.length - 1; i >= 0; i--) {
+            const raw = rows[i].getAttribute("data-step-index");
+            const si = raw !== null && raw !== "" && !Number.isNaN(Number(raw)) ? Number(raw) : null;
+            if (si !== null && si <= card.forkStepIndex && (rows[i].classList.contains("agent") || rows[i].classList.contains("user"))) {
+              targetRow = rows[i];
+              break;
+            }
+          }
+          if (!targetRow) {
+            for (let i = rows.length - 1; i >= 0; i--) {
+              const raw = rows[i].getAttribute("data-step-index");
+              const si = raw !== null && raw !== "" && !Number.isNaN(Number(raw)) ? Number(raw) : null;
+              if (si !== null && si <= card.forkStepIndex) {
+                targetRow = rows[i];
+                break;
+              }
+            }
+          }
+        }
+        if (!targetRow && card.forkStepIndex === undefined && rows.length > 0) {
+          targetRow = rows[rows.length - 1];
+        }
+        if (targetRow && targetRow.id) {
+          if (!cardsByRowId.has(targetRow.id)) cardsByRowId.set(targetRow.id, []);
+          cardsByRowId.get(targetRow.id).push(card);
+        }
+      }
+    }
+
+    for (const row of rows) {
+      const cards = cardsByRowId.get(row.id) || [];
+      let container = row.querySelector(":scope > .btw-inline-cards");
+      if (cards.length === 0) {
+        if (container) container.remove();
+        continue;
+      }
+      const sig = cards.map((c) => `${c.cascadeId}|${c.status || ""}|${c.title || ""}|${c.answerPreview || ""}`).join("||");
+      if (container && container.getAttribute("data-sig") === sig) continue;
+      if (!container) {
+        container = document.createElement("div");
+        container.className = "btw-inline-cards";
+        row.appendChild(container);
+      }
+      container.setAttribute("data-sig", sig);
+      container.innerHTML = cards
+        .map((c) => {
+          const idEsc = escapeHtmlLocal(c.cascadeId || "");
+          const titleEsc = escapeHtmlLocal(c.title || c.question || "旁路快问");
+          const isRunning = c.status === "CASCADE_RUN_STATUS_RUNNING";
+          const isError = c.status === "CASCADE_RUN_STATUS_ERROR";
+          const dotClass = isRunning ? "running" : isError ? "error" : "done";
+          const preview = String(c.answerPreview || "").trim();
+          const previewHtml = preview
+            ? `<div class="btw-inline-card-preview">${escapeHtmlLocal(preview)}</div>`
+            : isRunning
+            ? `<div class="btw-inline-card-preview">正在独立生成回复…</div>`
+            : "";
+          return `
+            <button type="button" class="btw-inline-card" data-btw-branch-id="${idEsc}">
+              <div class="btw-inline-card-head">
+                <span class="btw-inline-card-tag">⑂ 旁路快问</span>
+                <span class="btw-inline-card-title">${titleEsc}</span>
+                <span class="btw-inline-card-dot ${dotClass}"></span>
+                <span class="btw-inline-card-arrow">›</span>
+              </div>
+              ${previewHtml}
+            </button>
+          `;
+        })
+        .join("");
+      container.querySelectorAll("[data-btw-branch-id]").forEach((btn) => {
+        btn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          const targetId = btn.getAttribute("data-btw-branch-id");
+          if (targetId && typeof navigateTo === "function") {
+            navigateTo("#c=" + targetId);
+          }
+        });
+      });
     }
   }
 
   function renderBtwQuote() {
     const card = document.getElementById("btw-quote-card");
     const txt = document.getElementById("btw-quote-text");
+    const lbl = document.getElementById("btw-quote-label");
     if (!card || !txt) return;
-    if (activeBtwQuote) {
+    if (activeBtwStepIndex !== null) {
+      if (lbl) lbl.textContent = "⑂ 承接至所选消息的上下文";
+      txt.textContent = activeBtwPreview || `将从 Step #${activeBtwStepIndex} 处分叉，不携带后续消息。`;
+      card.classList.remove("hidden");
+    } else if (activeBtwQuote) {
+      if (lbl) lbl.textContent = "引用片段";
       txt.textContent = activeBtwQuote;
       card.classList.remove("hidden");
     } else {
       txt.textContent = "";
       card.classList.add("hidden");
     }
-  }
-
-  function renderBtwStatusView(st) {
-    const statusArea = document.getElementById("btw-status-area");
-    const insertWrap = document.getElementById("btw-insert-actions");
-    if (!statusArea) return;
-    if (!st) {
-      statusArea.innerHTML = `<div style="color:var(--ios-secondary-label);">在下方输入临时问题，独立旁路求解；解答完成后可一键插入主对话或作为独立会话继续。</div>`;
-      insertWrap?.classList.add("hidden");
-      return;
-    }
-    const thinkingHtml = st.thinking
-      ? `<details class="thought-box" style="margin-bottom:10px;"><summary>🧠 推理过程 (${st.thinking.length} 字)</summary><div class="thought-content">${escapeHtmlLocal(st.thinking)}</div></details>`
-      : "";
-    const answerHtml = st.answer && typeof window.renderMarkdown === "function"
-      ? `<div class="markdown-body">${window.renderMarkdown(st.answer)}</div>`
-      : st.isRunning
-      ? `<div style="display:flex;align-items:center;gap:8px;color:var(--ios-secondary-label);"><div class="ios-spinner small"></div><span>正在思考旁问…</span></div>`
-      : st.errorMessage
-      ? `<div style="color:var(--ios-red);">${escapeHtmlLocal(st.errorMessage)}</div>`
-      : "";
-    statusArea.innerHTML = `
-      ${st.question ? `<div style="font-weight:600;margin-bottom:8px;">Q: ${escapeHtmlLocal(st.question)}</div>` : ""}
-      ${thinkingHtml}
-      ${answerHtml}
-    `;
-    if (st.answer) {
-      activeBtwInsertText = st.insertText || `> ${st.question || ""}\n\n${st.answer}`;
-      insertWrap?.classList.remove("hidden");
-    } else if (!st.isRunning && activeBtwCascadeId) {
-      insertWrap?.classList.remove("hidden");
-    } else {
-      insertWrap?.classList.add("hidden");
-    }
-  }
-
-  async function pollBtwStatus(cascadeId) {
-    if (!cascadeId) return;
-    try {
-      const res = await fetch(`/gateway/btw/status?cascadeId=${encodeURIComponent(cascadeId)}`);
-      if (!res.ok) return;
-      const st = await res.json();
-      if (cascadeId !== activeBtwCascadeId) return;
-      renderBtwStatusView(st);
-      if (!st.isRunning) {
-        stopBtwPoll();
-      }
-    } catch (_) {}
   }
 
   async function refreshBtwHistory(parentId) {
@@ -586,62 +774,77 @@
         return;
       }
       bar.classList.remove("hidden");
-      bar.innerHTML = items
-        .map((it) => {
-          const cid = escapeHtmlLocal(it.cascadeId || "");
-          const title = escapeHtmlLocal(it.title || it.question || cid.slice(0, 8));
-          const active = it.cascadeId === activeBtwCascadeId ? " active" : "";
-          return `<button type="button" class="v233-btw-hist-chip${active}" data-btw-id="${cid}">${title}</button>`;
-        })
-        .join("");
-      bar.querySelectorAll("[data-btw-id]").forEach((btn) => {
+      bar.innerHTML =
+        `<div class="btw-branch-list-title">已有旁路分支 (${items.length})</div>` +
+        items
+          .map((it) => {
+            const cid = escapeHtmlLocal(it.cascadeId || "");
+            const title = escapeHtmlLocal(it.title || it.question || cid.slice(0, 8));
+            const preview = String(it.answerPreview || "").trim();
+            const isRunning = it.status === "CASCADE_RUN_STATUS_RUNNING";
+            return `
+              <button type="button" class="btw-branch-list-item" data-btw-open-id="${cid}">
+                <span class="btw-origin-icon">⑂</span>
+                <div class="btw-branch-list-item-text">
+                  <div class="btw-branch-list-item-title">${title}</div>
+                  ${preview ? `<div class="btw-branch-list-item-sub">${escapeHtmlLocal(preview)}</div>` : ""}
+                </div>
+                ${isRunning ? `<span class="btw-inline-card-dot running"></span>` : ""}
+                <span class="btw-inline-card-arrow">›</span>
+              </button>
+            `;
+          })
+          .join("");
+      bar.querySelectorAll("[data-btw-open-id]").forEach((btn) => {
         btn.addEventListener("click", () => {
-          const cid = btn.getAttribute("data-btw-id");
+          const cid = btn.getAttribute("data-btw-open-id");
           if (!cid) return;
-          activeBtwCascadeId = cid;
-          refreshBtwHistory(parentId);
-          stopBtwPoll();
-          pollBtwStatus(cid);
-          btwPollTimer = setInterval(() => pollBtwStatus(cid), 1200);
+          document.getElementById("dialog-btw")?.close();
+          if (typeof navigateTo === "function") navigateTo("#c=" + cid);
         });
       });
     } catch (_) {}
   }
 
-  async function startBtwQuestion(question) {
+  async function startBtwAndOpen({ parentCascadeId, question, stepIndex = null, quote = "" } = {}) {
+    const pid = parentCascadeId || (typeof activeCascadeId !== "undefined" ? activeCascadeId : "");
     const q = String(question || "").trim();
-    if (!q || !activeBtwParentId) return;
+    if (!q || !pid) return false;
     const sendBtn = document.getElementById("btn-btw-send");
     const input = document.getElementById("btw-question-input");
     if (sendBtn) sendBtn.disabled = true;
     try {
+      const payload = {
+        parentCascadeId: pid,
+        question: q,
+        model: typeof activeModel !== "undefined" ? activeModel : "",
+      };
+      if (stepIndex !== null && stepIndex !== undefined && !Number.isNaN(Number(stepIndex)) && Number(stepIndex) >= 0) {
+        payload.stepIndex = Number(stepIndex);
+      } else if (quote && String(quote).trim()) {
+        payload.quote = String(quote).trim();
+      }
       const res = await fetch("/gateway/btw/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          parentCascadeId: activeBtwParentId,
-          question: q,
-          quote: activeBtwQuote || "",
-          model: typeof activeModel !== "undefined" ? activeModel : "",
-        }),
+        body: JSON.stringify(payload),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.cascadeId) throw new Error(data.error || "发起 /btw 失败");
-      activeBtwCascadeId = data.cascadeId;
       if (input) input.value = "";
-      renderBtwStatusView({ question: q, isRunning: true });
-      refreshBtwHistory(activeBtwParentId);
-      stopBtwPoll();
-      pollBtwStatus(data.cascadeId);
-      btwPollTimer = setInterval(() => pollBtwStatus(data.cascadeId), 1200);
+      document.getElementById("dialog-btw")?.close();
+      if (typeof loadConversations === "function") loadConversations();
+      if (typeof navigateTo === "function") navigateTo("#c=" + data.cascadeId);
+      return true;
     } catch (err) {
       window.showToast?.(err.message || "发起 /btw 失败", 2800);
+      return false;
     } finally {
       if (sendBtn) sendBtn.disabled = false;
     }
   }
 
-  function openBtwModal({ parentCascadeId, quote = "", initialQuestion = "" } = {}) {
+  function openBtwModal({ parentCascadeId, stepIndex = null, preview = "", quote = "", initialQuestion = "" } = {}) {
     const dlg = document.getElementById("dialog-btw");
     if (!dlg) return;
     const parentId = parentCascadeId || (typeof activeCascadeId !== "undefined" ? activeCascadeId : "");
@@ -649,69 +852,55 @@
       window.showToast?.("请先进入一个会话后再使用 /btw");
       return;
     }
+    if (initialQuestion && initialQuestion.trim()) {
+      startBtwAndOpen({ parentCascadeId: parentId, question: initialQuestion.trim(), stepIndex, quote });
+      return;
+    }
     activeBtwParentId = parentId;
-    activeBtwQuote = String(quote || "").trim();
-    activeBtwCascadeId = "";
-    activeBtwInsertText = "";
-    stopBtwPoll();
+    activeBtwStepIndex = stepIndex !== null && stepIndex !== undefined && !Number.isNaN(Number(stepIndex)) ? Number(stepIndex) : null;
+    activeBtwPreview = String(preview || "").trim().slice(0, 220);
+    activeBtwQuote = activeBtwStepIndex === null ? String(quote || "").trim() : "";
 
     renderBtwQuote();
-    renderBtwStatusView(null);
     refreshBtwHistory(parentId);
 
     const input = document.getElementById("btw-question-input");
-    if (input) input.value = initialQuestion || "";
+    if (input) input.value = "";
     if (typeof dlg.showModal === "function" && !dlg.open) dlg.showModal();
-
-    if (initialQuestion && initialQuestion.trim()) {
-      startBtwQuestion(initialQuestion.trim());
-    } else {
-      setTimeout(() => input?.focus(), 60);
-    }
+    setTimeout(() => input?.focus(), 60);
   }
 
   function initBtwDialog() {
     const dlg = document.getElementById("dialog-btw");
     document.getElementById("btn-btw-dialog-close")?.addEventListener("click", () => {
-      stopBtwPoll();
       dlg?.close();
     });
-    dlg?.addEventListener("close", stopBtwPoll);
     document.getElementById("btn-btw-clear-quote")?.addEventListener("click", () => {
+      activeBtwStepIndex = null;
+      activeBtwPreview = "";
       activeBtwQuote = "";
       renderBtwQuote();
     });
     document.getElementById("btn-btw-send")?.addEventListener("click", () => {
       const q = document.getElementById("btw-question-input")?.value || "";
-      startBtwQuestion(q);
+      startBtwAndOpen({
+        parentCascadeId: activeBtwParentId,
+        question: q,
+        stepIndex: activeBtwStepIndex,
+        quote: activeBtwQuote,
+      });
     });
     document.getElementById("btw-question-input")?.addEventListener("keydown", (e) => {
       if (e.isComposing || e.keyCode === 229) return;
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
-        startBtwQuestion(e.target.value);
+        startBtwAndOpen({
+          parentCascadeId: activeBtwParentId,
+          question: e.target.value,
+          stepIndex: activeBtwStepIndex,
+          quote: activeBtwQuote,
+        });
       }
-    });
-    document.getElementById("btn-btw-insert-main")?.addEventListener("click", () => {
-      const chatInput = document.getElementById("chat-input");
-      if (chatInput && activeBtwInsertText) {
-        const prefix = chatInput.value.trim() ? `${chatInput.value.trim()}\n\n` : "";
-        chatInput.value = prefix + activeBtwInsertText;
-        chatInput.style.height = "auto";
-        chatInput.style.height = Math.min(chatInput.scrollHeight, 120) + "px";
-        if (typeof updateChatControls === "function") {
-          updateChatControls(typeof isCascadeRunning === "function" ? isCascadeRunning(activeCascadeId) : false, null, false);
-        }
-      }
-      stopBtwPoll();
-      dlg?.close();
-      setTimeout(() => chatInput?.focus(), 60);
-    });
-    document.getElementById("btn-btw-open-session")?.addEventListener("click", () => {
-      if (!activeBtwCascadeId) return;
-      stopBtwPoll();
-      dlg?.close();
-      if (typeof navigateTo === "function") navigateTo("#c=" + activeBtwCascadeId);
     });
   }
 
@@ -995,6 +1184,9 @@
     hydrateChatPRPills,
     checkWorkspaceTrust,
     openBtwModal,
+    startBtwAndOpen,
+    syncBranchState,
+    applyBranchDecorations,
     openFindPopover,
     closeFindPopover,
     openMediaPreviewModal,

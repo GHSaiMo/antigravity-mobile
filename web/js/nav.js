@@ -598,6 +598,7 @@ function formatConvPrBadge(info) {
 
 // 子代理会话不在列表里展示（与原生端一致）：有父会话 / 战斗模式分叉 / 子代理规格 / 嵌套深度 > 0。
 function isSubagentSummary(info) {
+  if (info && info.isSideQuestion === true) return false;
   const meta = info && info.trajectoryMetadata;
   if (!meta) return false;
   if (typeof meta.parentConversationId === "string" && meta.parentConversationId.trim()) return true;
@@ -606,6 +607,41 @@ function isSubagentSummary(info) {
   if (meta.agentScript) return true;
   if (typeof meta.nestingDepth === "number" && meta.nestingDepth > 0) return true;
   return false;
+}
+
+function arrangeConversationBranchTree(items) {
+  if (!Array.isArray(items) || items.length <= 1) return items || [];
+  const allIds = new Set(items.map((it) => it.id));
+  const childrenByParent = new Map();
+  const roots = [];
+  for (const item of items) {
+    const parentId = typeof item.branchParentId === "string" ? item.branchParentId.trim() : "";
+    if (item.isSideQuestion && parentId && parentId !== item.id && allIds.has(parentId)) {
+      if (!childrenByParent.has(parentId)) childrenByParent.set(parentId, []);
+      childrenByParent.get(parentId).push(item);
+    } else {
+      roots.push(item);
+    }
+  }
+  if (childrenByParent.size === 0) return items;
+  const result = [];
+  const emitted = new Set();
+  const appendWithChildren = (node) => {
+    if (emitted.has(node.id)) return;
+    emitted.add(node.id);
+    result.push(node);
+    const kids = childrenByParent.get(node.id);
+    if (kids) {
+      for (const child of kids) appendWithChildren(child);
+    }
+  };
+  for (const r of roots) appendWithChildren(r);
+  if (result.length < items.length) {
+    for (const it of items) {
+      if (!emitted.has(it.id)) result.push(it);
+    }
+  }
+  return result;
 }
 
 function isConversationUnread(item) {
@@ -698,13 +734,16 @@ function renderConversationList(summaries, { forceReorder = false } = {}) {
       return new Date(b.lastModifiedTime || 0) - new Date(a.lastModifiedTime || 0);
     });
 
-  const items = applyConversationReorderBuffer(sortedAll, forceReorder)
-    .filter((item) => {
-      if (!query) return true;
-      const title = formatConversationTitle(item.annotations, item.summary, "").toLowerCase();
-      const ws = (item.workspaceUris?.[0] || "").toLowerCase();
-      return title.includes(query) || ws.includes(query) || item.id.includes(query);
-    });
+  const items = arrangeConversationBranchTree(
+    applyConversationReorderBuffer(sortedAll, forceReorder)
+      .filter((item) => {
+        if (!query) return true;
+        const title = formatConversationTitle(item.annotations, item.summary, "").toLowerCase();
+        const ws = (item.workspaceUris?.[0] || item.workspaceName || "").toLowerCase();
+        const parentTitle = (item.branchParentTitle || "").toLowerCase();
+        return title.includes(query) || ws.includes(query) || parentTitle.includes(query) || item.id.includes(query);
+      })
+  );
 
   if (items.length === 0) {
     // 有内容命中（或正在搜索）时不显示「暂无匹配」，由下面的内容命中区承接
@@ -717,6 +756,7 @@ function renderConversationList(summaries, { forceReorder = false } = {}) {
     return;
   }
 
+  const visibleIds = new Set(items.map((it) => it.id));
   listEl.innerHTML = items
     .map((item) => {
       const hasError = !!item.hasError || item.status === "CASCADE_RUN_STATUS_ERROR";
@@ -750,8 +790,30 @@ function renderConversationList(summaries, { forceReorder = false } = {}) {
         : (typeof t === "function" ? t("步骤") : "步骤");
 
       const idEsc = escapeHtml(item.id || "");
+      const isSideQuestion = Boolean(item.isSideQuestion);
+      const hasVisibleParent = isSideQuestion && !!item.branchParentId && visibleIds.has(item.branchParentId);
+      const wrapperClasses = [
+        "conv-card-wrapper",
+        isSideQuestion ? "is-side-question" : "",
+        hasVisibleParent ? "is-branch-child" : "",
+      ].filter(Boolean).join(" ");
+      const branchPillHtml = isSideQuestion
+        ? `<span class="conv-branch-tag">⑂ ${typeof t === "function" ? t("旁路") : "旁路"}</span>`
+        : "";
+      const subMetaHtml = isSideQuestion && !hasVisibleParent && item.branchParentTitle
+        ? `<span class="ws-name">${typeof t === "function" ? t("来自") : "来自"}「${escapeHtml(item.branchParentTitle)}」</span>`
+        : `${wsName === "Chat"
+            ? `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+              </svg>`
+            : `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+              </svg>`}
+          <span class="ws-name">${escapeHtml(wsName)}</span>${formatConvPrBadge(item)}`;
+      const rightMetaHtml = isSideQuestion ? escapeHtml(timeStr) : `${stepCount} ${stepLabel} • ${timeStr}`;
+
       return `
-        <div class="conv-card-wrapper" data-id="${idEsc}">
+        <div class="${wrapperClasses}" data-id="${idEsc}">
           <div class="conv-card-actions">
             <button class="conv-card-delete-btn" type="button" aria-label="${typeof t === "function" ? t("删除会话") : "删除会话"}" data-id="${idEsc}">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
@@ -762,21 +824,14 @@ function renderConversationList(summaries, { forceReorder = false } = {}) {
           </div>
           <div class="conv-card" data-id="${idEsc}" data-title="${escapeHtml(title)}">
             <div class="conv-card-top">
-              <div class="conv-title">${pinIconHtml}${escapeHtml(title)}</div>
+              <div class="conv-title">${pinIconHtml}${branchPillHtml}${escapeHtml(title)}</div>
               ${badgeHtml}
             </div>
             <div class="conv-card-bottom">
               <div class="conv-meta">
-                ${wsName === "Chat"
-                  ? `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
-                    </svg>`
-                  : `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
-                    </svg>`}
-                <span class="ws-name">${escapeHtml(wsName)}</span>${formatConvPrBadge(item)}
+                ${subMetaHtml}
               </div>
-              <span class="conv-steps-time">${stepCount} ${stepLabel} • ${timeStr}</span>
+              <span class="conv-steps-time">${rightMetaHtml}</span>
             </div>
           </div>
         </div>

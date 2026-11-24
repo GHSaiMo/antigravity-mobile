@@ -159,6 +159,9 @@ func TestFastGitBranchAndCachedListPR(t *testing.T) {
 
 func TestBtwSideQuestionLifecycleAndHiddenFromMainList(t *testing.T) {
 	var startType, sentParentMsg string
+	var startBase map[string]interface{}
+	var replyCount atomic.Int32
+	var canceledID string
 	p := newFakeLSProxy(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
@@ -166,30 +169,84 @@ func TestBtwSideQuestionLifecycleAndHiddenFromMainList(t *testing.T) {
 			var body map[string]interface{}
 			_ = json.NewDecoder(r.Body).Decode(&body)
 			startType, _ = body["trajectoryType"].(string)
+			startBase, _ = body["baseTrajectoryIdentifier"].(map[string]interface{})
 			_, _ = w.Write([]byte(`{"cascadeId":"side-q-1"}`))
 		case strings.HasSuffix(r.URL.Path, "/SendUserCascadeMessage"):
 			var body struct {
-				Items []struct {
+				CascadeID string `json:"cascadeId"`
+				Items     []struct {
 					Text string `json:"text"`
 				} `json:"items"`
 			}
 			_ = json.NewDecoder(r.Body).Decode(&body)
-			if len(body.Items) > 0 {
+			if len(body.Items) > 0 && sentParentMsg == "" {
 				sentParentMsg = body.Items[0].Text
 			}
+			replyCount.Add(1)
+			_, _ = w.Write([]byte(`{}`))
+		case strings.HasSuffix(r.URL.Path, "/CancelCascadeInvocation"):
+			var body struct {
+				CascadeID string `json:"cascadeId"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			canceledID = body.CascadeID
 			_, _ = w.Write([]byte(`{}`))
 		case strings.HasSuffix(r.URL.Path, "/GetAllCascadeTrajectories"):
 			_, _ = w.Write([]byte(`{
 				"trajectorySummaries": {
-					"main-conv": {"status":"CASCADE_RUN_STATUS_IDLE","stepCount":2,"summary":"Main Conv"},
-					"side-q-1": {"status":"CASCADE_RUN_STATUS_IDLE","stepCount":2,"summary":"Quick Side Q","trajectoryType":"CORTEX_TRAJECTORY_TYPE_SIDE_QUESTION"}
+					"main-conv": {
+						"status":"CASCADE_RUN_STATUS_IDLE",
+						"stepCount":4,
+						"summary":"Main Conv",
+						"annotations":{
+							"title":"Main Conv",
+							"sideQuestionCascadeIds":["side-q-1"],
+							"sideQuestionTitles":{"side-q-1":"Nord Palette Meaning"}
+						}
+					},
+					"side-q-1": {
+						"status":"CASCADE_RUN_STATUS_IDLE",
+						"stepCount":7,
+						"summary":"Quick Side Q",
+						"trajectoryType":"CORTEX_TRAJECTORY_TYPE_SIDE_QUESTION"
+					}
 				}
 			}`))
 		case strings.HasSuffix(r.URL.Path, "/GetCascadeTrajectory"):
+			var body struct {
+				CascadeID string `json:"cascadeId"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			if body.CascadeID == "main-conv" {
+				_, _ = w.Write([]byte(`{
+					"trajectory": {
+						"cascadeId": "main-conv",
+						"trajectoryType": "CORTEX_TRAJECTORY_TYPE_CASCADE",
+						"steps": [
+							{"type":"CORTEX_STEP_TYPE_USER_INPUT","userInput":{"items":[{"text":"Parent Turn 1"}]}},
+							{"type":"CORTEX_STEP_TYPE_PLANNER_RESPONSE","plannerResponse":{"response":"PARENT_SECRET_HISTORY_1"}},
+							{"type":"CORTEX_STEP_TYPE_USER_INPUT","userInput":{"items":[{"text":"Parent Turn 2"}]}},
+							{"type":"CORTEX_STEP_TYPE_PLANNER_RESPONSE","plannerResponse":{"response":"PARENT_SECRET_HISTORY_2"}}
+						]
+					},
+					"status": "CASCADE_RUN_STATUS_IDLE"
+				}`))
+				return
+			}
 			_, _ = w.Write([]byte(`{
 				"trajectory": {
 					"cascadeId": "side-q-1",
+					"trajectoryType": "CORTEX_TRAJECTORY_TYPE_SIDE_QUESTION",
+					"parentReferences": [{
+						"conversationId": "main-conv",
+						"stepIndex": 1,
+						"referenceType": "CORTEX_TRAJECTORY_REFERENCE_TYPE_FORK",
+						"trajectoryType": "CORTEX_TRAJECTORY_TYPE_CASCADE"
+					}],
 					"steps": [
+						{"type":"CORTEX_STEP_TYPE_USER_INPUT","userInput":{"items":[{"text":"Parent Turn 1"}]}},
+						{"type":"CORTEX_STEP_TYPE_PLANNER_RESPONSE","plannerResponse":{"response":"PARENT_SECRET_HISTORY_1"}},
+						{"type":"CORTEX_STEP_TYPE_SYSTEM_MESSAGE","systemMessage":{"message":"Above is the conversation history from the parent conversation; what follows is a side question (/btw) branched from that conversation."}},
 						{"type":"CORTEX_STEP_TYPE_USER_INPUT","userInput":{"items":[{"text":"What is Nord?"}]}},
 						{"type":"CORTEX_STEP_TYPE_PLANNER_RESPONSE","plannerResponse":{"response":"Nord is an arctic dark palette."}}
 					]
@@ -200,39 +257,112 @@ func TestBtwSideQuestionLifecycleAndHiddenFromMainList(t *testing.T) {
 			_, _ = w.Write([]byte(`{}`))
 		}
 	})
+	defer defaultBtwTracker.remove("side-q-1")
+
+	// Start side question anchored at stepIndex=1 via forkFrom.
 	startRec := httptest.NewRecorder()
 	p.ServeHTTP(startRec, httptest.NewRequest(http.MethodPost, "/gateway/btw/start", strings.NewReader(`{
 		"parentCascadeId": "main-conv",
+		"stepIndex": 1,
 		"question": "What is Nord?",
 		"quote": "#2E3440"
 	}`)))
 	if startRec.Code != http.StatusOK || startType != "CORTEX_TRAJECTORY_TYPE_SIDE_QUESTION" {
 		t.Fatalf("btw/start failed: code=%d startType=%q body=%s", startRec.Code, startType, startRec.Body.String())
 	}
+	forkFrom, _ := startBase["forkFrom"].(map[string]interface{})
+	if forkFrom == nil || forkFrom["cascadeId"] != "main-conv" || forkFrom["stepIndex"] != float64(1) {
+		t.Fatalf("expected baseTrajectoryIdentifier.forkFrom(main-conv, 1), got: %+v", startBase)
+	}
 	if !strings.Contains(sentParentMsg, "> #2E3440") || !strings.Contains(sentParentMsg, "What is Nord?") {
 		t.Fatalf("unexpected formatted btw prompt: %q", sentParentMsg)
 	}
 
-	// Verify status endpoint returns answer + formatted insertText.
+	// Verify status endpoint returns ONLY branch messages after forkStepIndex=1 (never parent history!).
 	statusRec := httptest.NewRecorder()
 	p.ServeHTTP(statusRec, httptest.NewRequest(http.MethodGet, "/gateway/btw/status?cascadeId=side-q-1", nil))
-	if statusRec.Code != http.StatusOK || !strings.Contains(statusRec.Body.String(), "Nord is an arctic dark palette.") || !strings.Contains(statusRec.Body.String(), "insertText") {
-		t.Fatalf("btw/status unexpected: code=%d body=%s", statusRec.Code, statusRec.Body.String())
+	statusBody := statusRec.Body.String()
+	if statusRec.Code != http.StatusOK || !strings.Contains(statusBody, "Nord is an arctic dark palette.") || !strings.Contains(statusBody, "insertText") {
+		t.Fatalf("btw/status unexpected: code=%d body=%s", statusRec.Code, statusBody)
+	}
+	if strings.Contains(statusBody, "PARENT_SECRET_HISTORY_1") || strings.Contains(statusBody, "Parent Turn 1") {
+		t.Fatalf("btw/status leaked shared parent history: %s", statusBody)
 	}
 
-	// Verify list endpoint returns tracked side question.
+	// Verify /gateway/btw/reply and /gateway/btw/cancel.
+	replyRec := httptest.NewRecorder()
+	p.ServeHTTP(replyRec, httptest.NewRequest(http.MethodPost, "/gateway/btw/reply", strings.NewReader(`{"cascadeId":"side-q-1","message":"Follow-up?"}`)))
+	if replyRec.Code != http.StatusOK || replyCount.Load() < 2 {
+		t.Fatalf("btw/reply failed: code=%d count=%d body=%s", replyRec.Code, replyCount.Load(), replyRec.Body.String())
+	}
+	cancelRec := httptest.NewRecorder()
+	p.ServeHTTP(cancelRec, httptest.NewRequest(http.MethodPost, "/gateway/btw/cancel", strings.NewReader(`{"cascadeId":"side-q-1"}`)))
+	if cancelRec.Code != http.StatusOK || canceledID != "side-q-1" {
+		t.Fatalf("btw/cancel failed: code=%d canceled=%q", cancelRec.Code, canceledID)
+	}
+
+	// Verify list endpoint returns tracked side question with forkStepIndex and clean preview.
 	listRec := httptest.NewRecorder()
 	p.ServeHTTP(listRec, httptest.NewRequest(http.MethodGet, "/gateway/btw/list?cascadeId=main-conv", nil))
 	if listRec.Code != http.StatusOK || !strings.Contains(listRec.Body.String(), "side-q-1") {
 		t.Fatalf("btw/list unexpected: code=%d body=%s", listRec.Code, listRec.Body.String())
 	}
 
-	// Verify GetAllCascadeTrajectories filters out side-q-1 from main list.
-	allRec := httptest.NewRecorder()
-	allReq := httptest.NewRequest(http.MethodPost, "/exa.language_server_pb.LanguageServerService/GetAllCascadeTrajectories", strings.NewReader(`{}`))
-	p.ServeHTTP(allRec, allReq)
-	if allRec.Code != http.StatusOK || !strings.Contains(allRec.Body.String(), "main-conv") || strings.Contains(allRec.Body.String(), "side-q-1") {
-		t.Fatalf("expected main-conv only and side-q-1 hidden, got: %s", allRec.Body.String())
+	// Verify parent /gateway/cascade/messages returns anchored inline SideQuestions card.
+	parentMsgsRec := httptest.NewRecorder()
+	p.ServeHTTP(parentMsgsRec, httptest.NewRequest(http.MethodGet, "/gateway/cascade/messages?cascadeId=main-conv", nil))
+	if parentMsgsRec.Code != http.StatusOK {
+		t.Fatalf("parent cascade-messages failed: %d %s", parentMsgsRec.Code, parentMsgsRec.Body.String())
+	}
+	var parentResp CascadeMessagesResponse
+	if err := json.Unmarshal(parentMsgsRec.Body.Bytes(), &parentResp); err != nil {
+		t.Fatal(err)
+	}
+	if len(parentResp.SideQuestions) != 1 || parentResp.SideQuestions[0].CascadeID != "side-q-1" || parentResp.SideQuestions[0].ForkStepIndex != 1 {
+		t.Fatalf("expected 1 inline side question anchored at step 1, got: %+v", parentResp.SideQuestions)
+	}
+	if parentResp.SideQuestions[0].AnchorMessageID != "step-1" {
+		t.Fatalf("expected anchorMessageId=step-1, got %q", parentResp.SideQuestions[0].AnchorMessageID)
+	}
+
+	// Verify side-question /gateway/cascade/messages returns BranchOrigin metadata.
+	sideMsgsRec := httptest.NewRecorder()
+	p.ServeHTTP(sideMsgsRec, httptest.NewRequest(http.MethodGet, "/gateway/cascade/messages?cascadeId=side-q-1", nil))
+	var sideResp CascadeMessagesResponse
+	if err := json.Unmarshal(sideMsgsRec.Body.Bytes(), &sideResp); err != nil {
+		t.Fatal(err)
+	}
+	if sideResp.BranchOrigin == nil || !sideResp.BranchOrigin.IsSideQuestion || sideResp.BranchOrigin.ParentCascadeID != "main-conv" || sideResp.BranchOrigin.ForkStepIndex != 1 || sideResp.BranchOrigin.ForkTurnNumber != 1 {
+		t.Fatalf("unexpected sideResp.BranchOrigin: %+v", sideResp.BranchOrigin)
+	}
+
+	// Verify desktop non-/api/ GetAllCascadeTrajectories still hides side-q-1 as a top-level entry.
+	desktopRec := httptest.NewRecorder()
+	desktopReq := httptest.NewRequest(http.MethodPost, "/exa.language_server_pb.LanguageServerService/GetAllCascadeTrajectories", strings.NewReader(`{}`))
+	p.ServeHTTP(desktopRec, desktopReq)
+	var desktopEnv struct {
+		TrajectorySummaries map[string]map[string]interface{} `json:"trajectorySummaries"`
+	}
+	if err := json.Unmarshal(desktopRec.Body.Bytes(), &desktopEnv); err != nil {
+		t.Fatal(err)
+	}
+	if desktopRec.Code != http.StatusOK || desktopEnv.TrajectorySummaries["main-conv"] == nil || desktopEnv.TrajectorySummaries["side-q-1"] != nil {
+		t.Fatalf("expected desktop list to contain main-conv and hide side-q-1 entry, got: %s", desktopRec.Body.String())
+	}
+
+	// Verify mobile /api/ GetAllCascadeTrajectories KEEPS side-q-1 with branchParentId & isSideQuestion.
+	mobileRec := httptest.NewRecorder()
+	mobileReq := httptest.NewRequest(http.MethodPost, "/api/exa.language_server_pb.LanguageServerService/GetAllCascadeTrajectories", strings.NewReader(`{}`))
+	p.ServeHTTP(mobileRec, mobileReq)
+	var mobileEnv struct {
+		TrajectorySummaries map[string]map[string]interface{} `json:"trajectorySummaries"`
+	}
+	if err := json.Unmarshal(mobileRec.Body.Bytes(), &mobileEnv); err != nil {
+		t.Fatal(err)
+	}
+	sideSummary := mobileEnv.TrajectorySummaries["side-q-1"]
+	if mobileRec.Code != http.StatusOK || sideSummary == nil || sideSummary["isSideQuestion"] != true || sideSummary["branchParentId"] != "main-conv" || sideSummary["branchParentTitle"] != "Main Conv" {
+		t.Fatalf("expected mobile /api/ list to keep enriched side-q-1 branch, got: %s", mobileRec.Body.String())
 	}
 }
 
@@ -264,5 +394,22 @@ func TestLargeMedia200MBLimitsAndAMR(t *testing.T) {
 	att := decodeAttachment(t, rec)
 	if att.Kind != "audio" || att.Mime != "audio/amr" {
 		t.Fatalf("expected audio/amr for .amr, got kind=%q mime=%q", att.Kind, att.Mime)
+	}
+}
+
+func TestExtractBranchOriginDoesNotMisclassifyCompactedCascade(t *testing.T) {
+	raw := &upstreamTrajectoryResp{}
+	raw.Trajectory.CascadeID = "normal-compacted-conv"
+	raw.Trajectory.TrajectoryType = "CORTEX_TRAJECTORY_TYPE_CASCADE"
+	var step1 TrajectoryStep
+	if err := json.Unmarshal([]byte(`{"type":"CORTEX_STEP_TYPE_SYSTEM_MESSAGE","systemMessage":{"message":"<CONTEXT_SUMMARY>Discussing side question and parent conversation behavior.</CONTEXT_SUMMARY>"}}`), &step1); err != nil {
+		t.Fatal(err)
+	}
+	steps := []TrajectoryStep{
+		{Type: "CORTEX_STEP_TYPE_USER_INPUT"},
+		step1,
+	}
+	if origin := extractBranchOrigin(raw, steps); origin != nil {
+		t.Fatalf("normal CASCADE with summary mentioning side question must not be classified as branch, got %+v", origin)
 	}
 }

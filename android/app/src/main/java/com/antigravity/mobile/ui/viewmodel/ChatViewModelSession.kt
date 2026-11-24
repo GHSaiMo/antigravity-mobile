@@ -45,7 +45,9 @@ internal fun ChatViewModel.saveSessionToCache() {
         runningTasks = state.runningTasks,
         activeModel = state.activeModel,
         activeModelName = state.activeModelName,
-        startedAt = state.startedAt
+        startedAt = state.startedAt,
+        branchOrigin = state.branchOrigin,
+        sideQuestions = state.sideQuestions.takeIf { it.isNotEmpty() }
     )
     cm.saveSession(session)
 }
@@ -90,7 +92,11 @@ internal fun ChatViewModel.currentConversationItem(): ConversationItem? {
         workspaceName = wsName,
         lastModifiedTime = currentLastModifiedTime,
         isSubagent = false,
-        isUnread = false
+        isUnread = false,
+        isSideQuestion = state.branchOrigin?.isSideQuestion == true,
+        branchParentId = state.branchOrigin?.parentCascadeId?.takeIf { it.isNotBlank() },
+        branchParentTitle = state.branchOrigin?.parentTitle,
+        forkStepIndex = state.branchOrigin?.forkStepIndex
     )
 }
 
@@ -180,7 +186,9 @@ private fun ChatViewModel.buildStateFromCachedSession(
         stepCount = cached.stepCount,
         totalTools = cached.totalTools,
         duration = cached.duration,
-        cascadeConfigRaw = cached.cascadeConfigRaw
+        cascadeConfigRaw = cached.cascadeConfigRaw,
+        branchOrigin = cached.branchOrigin,
+        sideQuestions = cached.sideQuestions.orEmpty()
     )
 }
 
@@ -566,7 +574,9 @@ internal fun ChatViewModel.initSession(
                         suggestedResponses = if (!isRunning) payload.suggestedResponses.orEmpty() else emptyList(),
                         activeFocus = payload.activeFocus,
                         activeFocusStartedAt = payload.activeFocusStartedAt,
-                        activePlan = payload.activePlan
+                        activePlan = payload.activePlan,
+                        branchOrigin = payload.branchOrigin ?: _uiState.value.branchOrigin,
+                        sideQuestions = payload.sideQuestions.orEmpty()
                     )
 
                     if (isRunning) {
@@ -831,7 +841,9 @@ internal fun ChatViewModel.ensureWebSocketObserving() {
                     suggestedResponses = if (!isRunning) payload.suggestedResponses.orEmpty() else emptyList(),
                     activeFocus = payload.activeFocus,
                     activeFocusStartedAt = payload.activeFocusStartedAt,
-                    activePlan = payload.activePlan
+                    activePlan = payload.activePlan,
+                    branchOrigin = payload.branchOrigin ?: _uiState.value.branchOrigin,
+                    sideQuestions = payload.sideQuestions.orEmpty()
                 )
 
                 if (isRunning) {
@@ -943,7 +955,9 @@ internal fun ChatViewModel.refresh(onComplete: (() -> Unit)? = null) {
                             suggestedResponses = if (!isRunning) payload.suggestedResponses.orEmpty() else emptyList(),
                             activeFocus = payload.activeFocus,
                             activeFocusStartedAt = payload.activeFocusStartedAt,
-                            activePlan = payload.activePlan
+                            activePlan = payload.activePlan,
+                            branchOrigin = payload.branchOrigin ?: _uiState.value.branchOrigin,
+                            sideQuestions = payload.sideQuestions.orEmpty()
                         )
                         if (isRunning) {
                             val stepCount = msgs.count { !it.isUser }

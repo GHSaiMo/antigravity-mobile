@@ -116,12 +116,14 @@ func buildSlashCommandTables(raw []upstreamSlashCommand) ([]SlashCommandOption, 
 		})
 	}
 
-	// 注入移动端首选动态多智能体工作流 (/workflow) 快捷入口
+	// 注入移动端首选动态多智能体工作流 (/workflow) 与旁路快问 (/btw) 快捷入口
 	hasWorkflow := false
+	hasBtw := false
 	for _, opt := range options {
 		if opt.Name == "workflow" {
 			hasWorkflow = true
-			break
+		} else if opt.Name == "btw" {
+			hasBtw = true
 		}
 	}
 	if !hasWorkflow {
@@ -133,6 +135,16 @@ func buildSlashCommandTables(raw []upstreamSlashCommand) ([]SlashCommandOption, 
 			Kind:        "system",
 		})
 		infoByName["workflow"] = json.RawMessage(`{"name":"workflow","type":"COMMAND_TYPE_SYSTEM","icon":"point.3.connected.trianglepath.dotted"}`)
+	}
+	if !hasBtw {
+		options = append(options, SlashCommandOption{
+			Name:        "btw",
+			Title:       "旁路快问",
+			Description: "基于当前上下文分支快问，不打断主对话",
+			Icon:        "chat_add_on",
+			Kind:        "system",
+		})
+		infoByName["btw"] = json.RawMessage(`{"name":"btw","type":"COMMAND_TYPE_SYSTEM","icon":"chat_add_on"}`)
 	}
 
 	// 系统命令在前，技能在后；组内按名称排序，菜单稳定

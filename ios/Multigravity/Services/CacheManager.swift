@@ -21,6 +21,8 @@ public nonisolated struct CachedChatSession: Codable, Sendable {
     public let queuedMessages: [QueuedMessageItem]?
     public let runningTasks: [RunningTaskItem]?
     public let workspaceName: String?
+    public let branchOrigin: SideQuestionOrigin?
+    public let sideQuestions: [SideQuestionCardItem]?
     public let savedAt: Date
     
     public init(
@@ -41,6 +43,8 @@ public nonisolated struct CachedChatSession: Codable, Sendable {
         queuedMessages: [QueuedMessageItem]? = nil,
         runningTasks: [RunningTaskItem]? = nil,
         workspaceName: String? = nil,
+        branchOrigin: SideQuestionOrigin? = nil,
+        sideQuestions: [SideQuestionCardItem]? = nil,
         savedAt: Date = Date()
     ) {
         self.cascadeId = cascadeId
@@ -60,6 +64,8 @@ public nonisolated struct CachedChatSession: Codable, Sendable {
         self.queuedMessages = queuedMessages
         self.runningTasks = runningTasks
         self.workspaceName = workspaceName
+        self.branchOrigin = branchOrigin
+        self.sideQuestions = sideQuestions
         self.savedAt = savedAt
     }
 }
@@ -238,7 +244,15 @@ public final class CacheManager: @unchecked Sendable {
                     draftProject: old.draftProject,
                     parentConversationId: old.parentConversationId,
                     nestingDepth: old.nestingDepth,
-                    isPinned: old.isPinned
+                    isPinned: old.isPinned,
+                    hasRunningTasks: old.hasRunningTasks,
+                    hasRunningSubagents: old.hasRunningSubagents,
+                    currentBranch: old.currentBranch,
+                    pullRequest: old.pullRequest,
+                    isSideQuestion: old.isSideQuestion,
+                    branchParentId: old.branchParentId,
+                    branchParentTitle: old.branchParentTitle,
+                    forkStepIndex: old.forkStepIndex
                 )
                 items.insert(updated, at: 0)
                 memConversations = items
@@ -275,7 +289,15 @@ public final class CacheManager: @unchecked Sendable {
                     draftProject: old.draftProject,
                     parentConversationId: old.parentConversationId,
                     nestingDepth: old.nestingDepth,
-                    isPinned: old.isPinned
+                    isPinned: old.isPinned,
+                    hasRunningTasks: old.hasRunningTasks,
+                    hasRunningSubagents: old.hasRunningSubagents,
+                    currentBranch: old.currentBranch,
+                    pullRequest: old.pullRequest,
+                    isSideQuestion: old.isSideQuestion,
+                    branchParentId: old.branchParentId,
+                    branchParentTitle: old.branchParentTitle,
+                    forkStepIndex: old.forkStepIndex
                 )
                 items.insert(updated, at: 0)
                 self.lock.lock()
@@ -392,7 +414,19 @@ public final class CacheManager: @unchecked Sendable {
                 workspaceName: old.workspaceName,
                 lastModified: old.lastModified,
                 isSubagent: old.isSubagent,
-                isUnread: false
+                isUnread: false,
+                draftProject: old.draftProject,
+                parentConversationId: old.parentConversationId,
+                nestingDepth: old.nestingDepth,
+                isPinned: old.isPinned,
+                hasRunningTasks: old.hasRunningTasks,
+                hasRunningSubagents: old.hasRunningSubagents,
+                currentBranch: old.currentBranch,
+                pullRequest: old.pullRequest,
+                isSideQuestion: old.isSideQuestion,
+                branchParentId: old.branchParentId,
+                branchParentTitle: old.branchParentTitle,
+                forkStepIndex: old.forkStepIndex
             )
             memConversations = items
         }
@@ -677,7 +711,21 @@ public final class CacheManager: @unchecked Sendable {
                     status: status,
                     stepCount: old.stepCount,
                     workspaceName: old.workspaceName,
-                    lastModified: old.lastModified
+                    lastModified: old.lastModified,
+                    isSubagent: old.isSubagent,
+                    isUnread: old.isUnread,
+                    draftProject: old.draftProject,
+                    parentConversationId: old.parentConversationId,
+                    nestingDepth: old.nestingDepth,
+                    isPinned: old.isPinned,
+                    hasRunningTasks: old.hasRunningTasks,
+                    hasRunningSubagents: old.hasRunningSubagents,
+                    currentBranch: old.currentBranch,
+                    pullRequest: old.pullRequest,
+                    isSideQuestion: old.isSideQuestion,
+                    branchParentId: old.branchParentId,
+                    branchParentTitle: old.branchParentTitle,
+                    forkStepIndex: old.forkStepIndex
                 )
                 memConversations = items
                 if let data = try? Self.encoder.encode(items) {

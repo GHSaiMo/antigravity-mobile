@@ -37,11 +37,13 @@ type StreamUpdatePayload struct {
 	TurnOutline        []TurnOutlineItem    `json:"turnOutline,omitempty"`
 	QueuedMessages     []QueuedMessageItem  `json:"queuedMessages"`
 	RunningTasks       []RunningTaskItem    `json:"runningTasks,omitempty"`
-	Subagents          []SubagentItem       `json:"subagents,omitempty"`
-	HasRunningSubagents bool                `json:"hasRunningSubagents,omitempty"`
-	ParentConversation string               `json:"parentConversationId,omitempty"`
-	SubagentRole       string               `json:"subagentRole,omitempty"`
-	IsFullSnapshot     bool                 `json:"isFullSnapshot"`
+	Subagents          []SubagentItem         `json:"subagents,omitempty"`
+	HasRunningSubagents bool                  `json:"hasRunningSubagents,omitempty"`
+	ParentConversation string                 `json:"parentConversationId,omitempty"`
+	SubagentRole       string                 `json:"subagentRole,omitempty"`
+	BranchOrigin       *SideQuestionOrigin    `json:"branchOrigin,omitempty"`
+	SideQuestions      []SideQuestionCardItem `json:"sideQuestions,omitempty"`
+	IsFullSnapshot     bool                   `json:"isFullSnapshot"`
 	CascadeConfigRaw   string               `json:"cascadeConfigRaw,omitempty"`
 	CanProceed         bool                 `json:"canProceed"`
 	ProceedArtifactURI string               `json:"proceedArtifactUri,omitempty"`
@@ -96,6 +98,17 @@ func (p *StreamUpdatePayload) Fingerprint() string {
 			fmt.Fprintf(&sb, ";%s:%s:%d", sa.ConversationID, sa.Status, sa.StepCount)
 		}
 		tasksKey = sb.String()
+	}
+	if len(p.SideQuestions) > 0 {
+		var sb strings.Builder
+		sb.WriteString(tasksKey)
+		for _, sq := range p.SideQuestions {
+			fmt.Fprintf(&sb, "|sq:%s:%s:%d:%s:%d", sq.CascadeID, sq.Status, sq.ForkStepIndex, sq.AnchorMessageID, len(sq.AnswerPreview))
+		}
+		tasksKey = sb.String()
+	}
+	if p.BranchOrigin != nil {
+		tasksKey += fmt.Sprintf("|bo:%s:%d:%t", p.BranchOrigin.ParentCascadeID, p.BranchOrigin.ForkStepIndex, p.BranchOrigin.IsSideQuestion)
 	}
 	msgsKey := fmt.Sprintf("%d:%d", p.TotalMessages, len(p.TurnOutline))
 	if len(p.Messages) > 0 {
@@ -408,7 +421,7 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 			return true
 		}
 
-		rawSig := rawTrajectorySignature(rawResp) + "|" + p.subagentLiveSignature(rawResp) + "|" + GetSwarmSignature(cascadeID) + "|" + desktopModel + "|" + p.liveStreamAuxSignature(cascadeID)
+		rawSig := rawTrajectorySignature(rawResp) + "|" + p.subagentLiveSignature(rawResp) + "|" + p.sideQuestionLiveSignature(cascadeID) + "|" + GetSwarmSignature(cascadeID) + "|" + desktopModel + "|" + p.liveStreamAuxSignature(cascadeID)
 		if !firstPush && rawSig == lastRawSig && (time.Since(lastTitleLookupTime) < 2*time.Second || cachedStreamTitle != "") {
 			// Fast path: Upstream trajectory has not changed at all.
 			// Keep L7 stream alive across >5 minute silent thinking via lightweight JSON noop every 25s.
@@ -451,6 +464,16 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		details.AllMessages = p.enrichSubagentMessages(details.AllMessages)
+		if details.BranchOrigin != nil && details.BranchOrigin.ParentCascadeID != "" && details.BranchOrigin.ParentTitle == "" {
+			originCopy := *details.BranchOrigin
+			if pt := p.lookupCascadeTitle(originCopy.ParentCascadeID, port, token); pt != "" {
+				originCopy.ParentTitle = pt
+			}
+			details.BranchOrigin = &originCopy
+		}
+		if details.BranchOrigin == nil || !details.BranchOrigin.IsSideQuestion {
+			details.SideQuestions = p.buildSideQuestionCards(r.Context(), cascadeID, details.AllMessages, port, token)
+		}
 		if details.Title != "" && details.Title != "未命名会话" {
 			cachedStreamTitle = details.Title
 		} else if cachedStreamTitle != "" && cachedStreamTitle != "未命名会话" && cachedStreamTitle != "当前会话" {
@@ -514,6 +537,8 @@ func (p *Proxy) HandleCascadeStream(w http.ResponseWriter, r *http.Request) {
 			HasRunningSubagents:    details.HasRunningSubagents,
 			ParentConversation:     details.ParentConversation,
 			SubagentRole:           details.SubagentRole,
+			BranchOrigin:           details.BranchOrigin,
+			SideQuestions:          details.SideQuestions,
 			IsFullSnapshot:         !hasMore,
 			CascadeConfigRaw:       details.CascadeConfigRaw,
 			CanProceed:             details.CanProceed,

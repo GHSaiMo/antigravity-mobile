@@ -371,6 +371,10 @@ public final class ChatViewModel {
     public var trustStatus: ProjectTrustStatusResponse? = nil
     public var isUpdatingTrust: Bool = false
     public var btwEntries: [BtwSideQuestionEntry] = []
+    public var branchOrigin: SideQuestionOrigin? = nil
+    public var sideQuestions: [SideQuestionCardItem] = []
+    public var isStartingBtw: Bool = false
+    public var isSideQuestionSession: Bool { branchOrigin?.isSideQuestion == true }
     public var activeTerminals: [TerminalItem] = []
     public var isForkingConversation: Bool = false
     @ObservationIgnored var mentionSearchTask: Task<Void, Never>? = nil
@@ -582,7 +586,8 @@ public final class ChatViewModel {
         settings: AppSettings? = nil,
         cacheManager: CacheManager? = nil,
         isUnread: Bool = false,
-        conversationStatus: ConversationItem.ConversationStatus? = nil
+        conversationStatus: ConversationItem.ConversationStatus? = nil,
+        initialBranchOrigin: SideQuestionOrigin? = nil
     ) {
         self.cascadeId = cascadeId
         self.initialTitle = initialTitle
@@ -591,6 +596,7 @@ public final class ChatViewModel {
         self.isNewConversation = isNewConversation
         self.isUnreadOnEntry = isUnread
         self.initialConversationStatus = conversationStatus
+        self.branchOrigin = initialBranchOrigin
         let resolvedApiClient = apiClient ?? .shared
         let resolvedSettings = settings ?? .shared
         let resolvedCacheManager = cacheManager ?? .shared
@@ -724,6 +730,12 @@ public final class ChatViewModel {
         self.canProceed = cached.canProceed ?? false
         self.proceedArtifactUri = cached.proceedArtifactUri
         self.pendingInteraction = cached.pendingInteraction
+        if let origin = cached.branchOrigin {
+            self.branchOrigin = origin
+        }
+        if let sides = cached.sideQuestions {
+            self.sideQuestions = sides
+        }
         let userMsgs = healed.filter { $0.isUser }
         self.queuedMessages = (cached.queuedMessages ?? []).filter { qm in
             Self.isUserQueuedItem(qm) && !Self.isQueuedItemInMessages(qm, userMessages: userMsgs)
@@ -904,6 +916,12 @@ public final class ChatViewModel {
             self.canProceed = false
             self.proceedArtifactUri = nil
             self.pendingInteraction = cached.pendingInteraction
+            if let origin = cached.branchOrigin {
+                self.branchOrigin = origin
+            }
+            if let sides = cached.sideQuestions {
+                self.sideQuestions = sides
+            }
             let userMsgs = healed.filter { $0.isUser }
             self.queuedMessages = (cached.queuedMessages ?? []).filter { qm in
                 Self.isUserQueuedItem(qm) && !Self.isQueuedItemInMessages(qm, userMessages: userMsgs)
@@ -1002,6 +1020,15 @@ public final class ChatViewModel {
             self.activeFocus = result.activeFocus
             self.activeFocusStartedAt = result.activeFocusStartedAt
             self.activePlan = result.activePlan
+            if let origin = result.branchOrigin {
+                if self.branchOrigin != origin {
+                    self.branchOrigin = origin
+                }
+            }
+            let incomingSides = result.sideQuestions ?? []
+            if self.sideQuestions != incomingSides {
+                self.sideQuestions = incomingSides
+            }
             
             if let outline = result.turnOutline {
                 if self.turnOutline != outline {
@@ -1141,7 +1168,10 @@ public final class ChatViewModel {
                 proceedArtifactUri: self.proceedArtifactUri,
                 pendingInteraction: self.pendingInteraction,
                 queuedMessages: self.queuedMessages,
-                runningTasks: self.runningTasks
+                runningTasks: self.runningTasks,
+                workspaceName: self.workspaceName,
+                branchOrigin: self.branchOrigin,
+                sideQuestions: self.sideQuestions.isEmpty ? nil : self.sideQuestions
             ))
             if self.pendingOptimisticMessageId == nil {
                 self.knownServerMessageIds = Set(toCache.map(\.id))
@@ -1297,7 +1327,10 @@ public final class ChatViewModel {
                 proceedArtifactUri: self.proceedArtifactUri,
                 pendingInteraction: self.pendingInteraction,
                 queuedMessages: self.queuedMessages,
-                runningTasks: self.runningTasks
+                runningTasks: self.runningTasks,
+                workspaceName: self.workspaceName,
+                branchOrigin: self.branchOrigin,
+                sideQuestions: self.sideQuestions.isEmpty ? nil : self.sideQuestions
             ))
             
             UIImpactFeedbackGenerator(style: .light).impactOccurred()

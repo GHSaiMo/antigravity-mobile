@@ -582,6 +582,7 @@ func (p *Proxy) handleDeleteCascadeTrajectory(w http.ResponseWriter, r *http.Req
 		if isSafeCascadeID {
 			RecordDeletedCascade(reqData.CascadeID)
 			ClearTrajectoryCache(reqData.CascadeID)
+			p.notifySideQuestionDeleted(reqData.CascadeID)
 			// Clean up local files only after upstream confirms deletion.
 			if home, err := os.UserHomeDir(); err == nil {
 				annPath := filepath.Join(home, ".gemini", "antigravity", "annotations", reqData.CascadeID+".pbtxt")

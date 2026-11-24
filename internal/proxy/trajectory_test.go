@@ -1235,41 +1235,18 @@ func TestCascadeDedup_LazyExpiry(t *testing.T) {
 
 func TestParseTrajectoryDetails_UserInputMediaURI(t *testing.T) {
 	p := &Proxy{}
-	resp := &upstreamTrajectoryResp{
-		Trajectory: struct {
-			TrajectoryID  string           `json:"trajectoryId"`
-			CascadeID     string           `json:"cascadeId"`
-			WorkspaceUris []string         `json:"workspaceUris"`
-			Steps         []TrajectoryStep `json:"steps"`
-			Annotations   *struct {
-				Title            string `json:"title"`
-				LastUserViewTime string `json:"lastUserViewTime"`
-			} `json:"annotations"`
-			Summary  string `json:"summary"`
-			Metadata *struct {
-				ParentConversationID string `json:"parentConversationId"`
-				SubagentSpec         *struct {
-					TypeName string `json:"typeName"`
-					Role     string `json:"role"`
-				} `json:"subagentSpec"`
-			} `json:"metadata"`
-			ExecutorMetadatas []struct {
-				CascadeConfig json.RawMessage `json:"cascadeConfig"`
-			} `json:"executorMetadatas"`
-		}{
-			CascadeID: "test-cascade-media",
-			Steps: []TrajectoryStep{
-				{
-					Type: "CORTEX_STEP_TYPE_USER_INPUT",
-					UserInput: &TrajectoryUserInput{
-						UserResponse: "这是附带图片的测试消息",
-						Media: []TrajectoryMediaItem{
-							{
-								MimeType:  "image/png",
-								Thumbnail: "thumb-base64-data",
-								URI:       "/Users/test/.gemini/antigravity/brain/test-cascade-media/.user_uploaded/original.png",
-							},
-						},
+	resp := &upstreamTrajectoryResp{}
+	resp.Trajectory.CascadeID = "test-cascade-media"
+	resp.Trajectory.Steps = []TrajectoryStep{
+		{
+			Type: "CORTEX_STEP_TYPE_USER_INPUT",
+			UserInput: &TrajectoryUserInput{
+				UserResponse: "这是附带图片的测试消息",
+				Media: []TrajectoryMediaItem{
+					{
+						MimeType:  "image/png",
+						Thumbnail: "thumb-base64-data",
+						URI:       "/Users/test/.gemini/antigravity/brain/test-cascade-media/.user_uploaded/original.png",
 					},
 				},
 			},

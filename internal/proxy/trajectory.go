@@ -170,6 +170,16 @@ func (p *Proxy) handleCascadeMessages(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	details.AllMessages = p.enrichSubagentMessages(details.AllMessages)
+	if details.BranchOrigin != nil && details.BranchOrigin.ParentCascadeID != "" && details.BranchOrigin.ParentTitle == "" {
+		originCopy := *details.BranchOrigin
+		if pt := p.lookupCascadeTitle(originCopy.ParentCascadeID, port, token); pt != "" {
+			originCopy.ParentTitle = pt
+		}
+		details.BranchOrigin = &originCopy
+	}
+	if details.BranchOrigin == nil || !details.BranchOrigin.IsSideQuestion {
+		details.SideQuestions = p.buildSideQuestionCards(r.Context(), cascadeID, details.AllMessages, port, token)
+	}
 	if details.Title == "" || details.Title == "未命名会话" {
 		if t := p.lookupCascadeTitle(cascadeID, port, token); t != "" {
 			details.Title = t
@@ -256,6 +266,8 @@ func (p *Proxy) handleCascadeMessages(w http.ResponseWriter, r *http.Request) {
 		Subagents:          details.Subagents,
 		ParentConversation: details.ParentConversation,
 		SubagentRole:       details.SubagentRole,
+		BranchOrigin:       details.BranchOrigin,
+		SideQuestions:      details.SideQuestions,
 		ActiveModel:            details.ActiveModel,
 		ActiveModelName:        details.ActiveModelName,
 		ModelDisplayName:       details.ModelDisplayName,

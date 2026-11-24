@@ -3,6 +3,9 @@ package com.antigravity.mobile.ui.viewmodel
 import com.antigravity.mobile.ui.util.loc
 import androidx.lifecycle.viewModelScope
 import com.antigravity.mobile.data.model.ContextMentionItem
+import com.antigravity.mobile.data.model.ConversationItem
+import com.antigravity.mobile.data.model.ConversationStatus
+import com.antigravity.mobile.data.model.SideQuestionCardItem
 import com.antigravity.mobile.data.service.*
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -136,4 +139,109 @@ internal fun ChatViewModel.sendTaskToBackground(stepIndex: Int, onNotice: (Strin
             onNotice("转后台失败: ${err.message}".loc)
         }
     }
+}
+
+/** 发起旁路快问分支（可选 stepIndex 精准继承至该条消息及之前上下文），成功后立即进入完整分支会话。 */
+internal suspend fun ChatViewModel.startBtwAndOpen(
+    question: String,
+    stepIndex: Int? = null,
+    quote: String? = null,
+    onOpened: (cascadeId: String, title: String) -> Unit
+): Boolean {
+    val trimmedQ = question.trim()
+    val trimmedQuote = quote?.trim().orEmpty()
+    if (trimmedQ.isEmpty() && trimmedQuote.isEmpty()) return false
+    val state = _uiState.value
+    val parentId = state.cascadeId
+    if (parentId.isBlank() || parentId.startsWith("local_draft_") || parentId.startsWith("draft_")) {
+        _uiState.value = state.copy(attachmentNotice = "请先在主会话发送至少一条消息后再发起旁路快问".loc)
+        return false
+    }
+    if (state.isStartingBtw) return false
+    _uiState.value = state.copy(isStartingBtw = true)
+    return try {
+        val res = apiClient.startBtwSideQuestion(
+            parentCascadeId = parentId,
+            question = trimmedQ,
+            quote = trimmedQuote.ifEmpty { null },
+            stepIndex = stepIndex,
+            model = state.activeModel
+        ).getOrElse { err ->
+            _uiState.value = _uiState.value.copy(
+                isStartingBtw = false,
+                attachmentNotice = "发起旁路快问失败: ${err.message}".loc
+            )
+            return false
+        }
+        val resolvedTitle = res.title?.trim()?.takeIf { it.isNotEmpty() }
+            ?: ConversationItem.sanitizeTitle(trimmedQ.ifEmpty { trimmedQuote.ifEmpty { "旁路快问".loc } })
+        val effectiveForkStep = res.forkStepIndex ?: stepIndex ?: maxOf(0, state.stepCount - 1)
+        val newItem = ConversationItem(
+            id = res.cascadeId,
+            title = resolvedTitle,
+            status = ConversationStatus.RUNNING,
+            stepCount = 1,
+            workspaceName = state.workspaceName.ifBlank { "Chat" },
+            lastModifiedTime = res.createdAt,
+            isSubagent = false,
+            isUnread = false,
+            isSideQuestion = true,
+            branchParentId = parentId,
+            branchParentTitle = state.title,
+            forkStepIndex = effectiveForkStep
+        )
+        onConversationUpdated?.invoke(newItem)
+
+        val anchorId = if (stepIndex != null) {
+            state.messages.lastOrNull { (it.stepIndex ?: -1) <= stepIndex }?.id ?: state.messages.lastOrNull()?.id
+        } else {
+            state.messages.lastOrNull()?.id
+        }
+        val optimisticCard = SideQuestionCardItem(
+            cascadeId = res.cascadeId,
+            parentCascadeId = parentId,
+            title = resolvedTitle,
+            question = trimmedQ,
+            answerPreview = null,
+            status = "CASCADE_RUN_STATUS_RUNNING",
+            forkStepIndex = effectiveForkStep,
+            anchorMessageId = anchorId,
+            turnCount = 1,
+            createdAt = res.createdAt
+        )
+        val updatedCards = if (_uiState.value.sideQuestions.any { it.cascadeId == res.cascadeId }) {
+            _uiState.value.sideQuestions
+        } else {
+            _uiState.value.sideQuestions + optimisticCard
+        }
+        _uiState.value = _uiState.value.copy(
+            isStartingBtw = false,
+            sideQuestions = updatedCards
+        )
+        onOpened(res.cascadeId, resolvedTitle)
+        true
+    } catch (e: Exception) {
+        _uiState.value = _uiState.value.copy(
+            isStartingBtw = false,
+            attachmentNotice = "发起旁路快问失败: ${e.message}".loc
+        )
+        false
+    }
+}
+
+/** 在旁路分支内一键将回复结论插入父会话草稿，并切回父会话。 */
+internal fun ChatViewModel.insertConclusionIntoParent(
+    text: String,
+    onOpenParent: (parentId: String, parentTitle: String) -> Unit
+) {
+    val origin = _uiState.value.branchOrigin ?: return
+    val parentId = origin.parentCascadeId.trim()
+    if (parentId.isEmpty()) return
+    val trimmed = text.trim()
+    if (trimmed.isEmpty()) return
+    val snippet = trimmed.take(1600)
+    val existing = prefs?.getDraftText(parentId)?.trim().orEmpty()
+    val merged = if (existing.isEmpty()) snippet else "$existing\n\n$snippet"
+    prefs?.setDraftText(parentId, merged)
+    onOpenParent(parentId, origin.parentTitle.orEmpty())
 }

@@ -301,44 +301,79 @@ type TurnOutlineItem struct {
 	IsVoiceTurn    bool           `json:"isVoiceTurn,omitempty"`
 }
 
+type TrajectoryParentReference struct {
+	TrajectoryID   string `json:"trajectoryId,omitempty"`
+	TrajectoryType string `json:"trajectoryType,omitempty"`
+	StepIndex      int    `json:"stepIndex"`
+	StepType       string `json:"stepType,omitempty"`
+	ReferenceType  string `json:"referenceType,omitempty"`
+	ConversationID string `json:"conversationId,omitempty"`
+}
+
+// SideQuestionOrigin identifies the parent conversation and fork step when viewing a /btw side question
+// or a forked conversation branch, allowing clients to collapse shared prefix history cleanly.
+type SideQuestionOrigin struct {
+	ParentCascadeID string `json:"parentCascadeId"`
+	ParentTitle     string `json:"parentTitle,omitempty"`
+	ForkStepIndex   int    `json:"forkStepIndex"`
+	ForkTurnNumber  int    `json:"forkTurnNumber,omitempty"`
+	IsSideQuestion  bool   `json:"isSideQuestion,omitempty"`
+}
+
+// SideQuestionCardItem represents an inline /btw side-question branch anchored to a parent message.
+type SideQuestionCardItem struct {
+	CascadeID       string `json:"cascadeId"`
+	ParentCascadeID string `json:"parentCascadeId,omitempty"`
+	Title           string `json:"title,omitempty"`
+	Question        string `json:"question,omitempty"`
+	AnswerPreview   string `json:"answerPreview,omitempty"`
+	Status          string `json:"status,omitempty"` // "running", "done", "error"
+	ForkStepIndex   int    `json:"forkStepIndex"`
+	AnchorMessageID string `json:"anchorMessageId,omitempty"`
+	TurnCount       int    `json:"turnCount,omitempty"`
+	CreatedAt       string `json:"createdAt,omitempty"`
+}
+
 type CascadeMessagesResponse struct {
-	CascadeID          string               `json:"cascadeId"`
-	Title              string               `json:"title,omitempty"`
-	Status             string               `json:"status"`
-	HasError           bool                 `json:"hasError"`
-	ErrorMessage       string               `json:"errorMessage,omitempty"`
-	Duration           string               `json:"duration"`
-	TotalSteps         int                  `json:"totalSteps"`
-	TotalTools         int                  `json:"totalTools"`
-	TotalMessages      int                  `json:"totalMessages"`
-	HasMore            bool                 `json:"hasMore"`
-	NextOffset         int                  `json:"nextOffset"`
-	Messages           []CascadeMessageItem `json:"messages"`
-	TurnOutline        []TurnOutlineItem    `json:"turnOutline,omitempty"`
-	QueuedMessages     []QueuedMessageItem  `json:"queuedMessages"`
-	RunningTasks       []RunningTaskItem    `json:"runningTasks,omitempty"`
-	Subagents          []SubagentItem       `json:"subagents,omitempty"`
-	HasRunningSubagents bool                `json:"hasRunningSubagents,omitempty"`
-	ParentConversation string               `json:"parentConversationId,omitempty"`
-	SubagentRole       string               `json:"subagentRole,omitempty"`
-	ActiveModel            string               `json:"activeModel,omitempty"`
-	ActiveModelName        string               `json:"activeModelName,omitempty"` // full display name, e.g. "Gemini 3.8 Flash (High)"
-	ModelDisplayName       string               `json:"modelDisplayName,omitempty"`
-	DesktopActiveModel     string               `json:"desktopActiveModel,omitempty"`
-	DesktopActiveModelName string               `json:"desktopActiveModelName,omitempty"`
-	StartedAt          string               `json:"startedAt,omitempty"` // when the conversation started (first step)
-	CascadeConfig      json.RawMessage      `json:"cascadeConfig,omitempty"`
-	CascadeConfigRaw   string               `json:"cascadeConfigRaw,omitempty"`
-	CanProceed         bool                 `json:"canProceed"`
-	ProceedArtifactURI string               `json:"proceedArtifactUri,omitempty"`
-	PendingInteraction *PendingInteraction  `json:"pendingInteraction,omitempty"`
-	Swarm              *SwarmBrief          `json:"swarm,omitempty"`
-	ContextMeter       *ContextMeterItem    `json:"contextMeter,omitempty"`
-	SuggestedResponses []string             `json:"suggestedResponses,omitempty"`
-	TaskProgress       *TaskProgressItem    `json:"taskProgress,omitempty"`
-	ActiveFocus        string               `json:"activeFocus,omitempty"`
-	ActiveFocusStarted string               `json:"activeFocusStartedAt,omitempty"`
-	ActivePlan         *StepPlanItem        `json:"activePlan,omitempty"`
+	CascadeID          string                 `json:"cascadeId"`
+	Title              string                 `json:"title,omitempty"`
+	Status             string                 `json:"status"`
+	HasError           bool                   `json:"hasError"`
+	ErrorMessage       string                 `json:"errorMessage,omitempty"`
+	Duration           string                 `json:"duration"`
+	TotalSteps         int                    `json:"totalSteps"`
+	TotalTools         int                    `json:"totalTools"`
+	TotalMessages      int                    `json:"totalMessages"`
+	HasMore            bool                   `json:"hasMore"`
+	NextOffset         int                    `json:"nextOffset"`
+	Messages           []CascadeMessageItem   `json:"messages"`
+	TurnOutline        []TurnOutlineItem      `json:"turnOutline,omitempty"`
+	QueuedMessages     []QueuedMessageItem    `json:"queuedMessages"`
+	RunningTasks       []RunningTaskItem      `json:"runningTasks,omitempty"`
+	Subagents          []SubagentItem         `json:"subagents,omitempty"`
+	HasRunningSubagents bool                  `json:"hasRunningSubagents,omitempty"`
+	ParentConversation string                 `json:"parentConversationId,omitempty"`
+	SubagentRole       string                 `json:"subagentRole,omitempty"`
+	BranchOrigin       *SideQuestionOrigin    `json:"branchOrigin,omitempty"`
+	SideQuestions      []SideQuestionCardItem `json:"sideQuestions,omitempty"`
+	ActiveModel            string             `json:"activeModel,omitempty"`
+	ActiveModelName        string             `json:"activeModelName,omitempty"` // full display name, e.g. "Gemini 3.8 Flash (High)"
+	ModelDisplayName       string             `json:"modelDisplayName,omitempty"`
+	DesktopActiveModel     string             `json:"desktopActiveModel,omitempty"`
+	DesktopActiveModelName string             `json:"desktopActiveModelName,omitempty"`
+	StartedAt          string                 `json:"startedAt,omitempty"` // when the conversation started (first step)
+	CascadeConfig      json.RawMessage        `json:"cascadeConfig,omitempty"`
+	CascadeConfigRaw   string                 `json:"cascadeConfigRaw,omitempty"`
+	CanProceed         bool                   `json:"canProceed"`
+	ProceedArtifactURI string                 `json:"proceedArtifactUri,omitempty"`
+	PendingInteraction *PendingInteraction    `json:"pendingInteraction,omitempty"`
+	Swarm              *SwarmBrief            `json:"swarm,omitempty"`
+	ContextMeter       *ContextMeterItem      `json:"contextMeter,omitempty"`
+	SuggestedResponses []string               `json:"suggestedResponses,omitempty"`
+	TaskProgress       *TaskProgressItem      `json:"taskProgress,omitempty"`
+	ActiveFocus        string                 `json:"activeFocus,omitempty"`
+	ActiveFocusStarted string                 `json:"activeFocusStartedAt,omitempty"`
+	ActivePlan         *StepPlanItem          `json:"activePlan,omitempty"`
 }
 
 type TrajectoryMediaItem struct {
@@ -620,6 +655,7 @@ type TrajectoryStep struct {
 	} `json:"error"`
 	SystemMessage *struct {
 		Content string `json:"content"`
+		Message string `json:"message,omitempty"`
 	} `json:"systemMessage,omitempty"`
 	ToolCall *struct {
 		ID            string `json:"id"`
@@ -707,13 +743,17 @@ type upstreamPendingAgentMessage struct {
 
 type upstreamTrajectoryResp struct {
 	Trajectory struct {
-		TrajectoryID  string           `json:"trajectoryId"`
-		CascadeID     string           `json:"cascadeId"`
-		WorkspaceUris []string         `json:"workspaceUris"`
-		Steps         []TrajectoryStep `json:"steps"`
-		Annotations   *struct {
-			Title            string `json:"title"`
-			LastUserViewTime string `json:"lastUserViewTime"`
+		TrajectoryID     string                      `json:"trajectoryId"`
+		CascadeID        string                      `json:"cascadeId"`
+		TrajectoryType   string                      `json:"trajectoryType,omitempty"`
+		WorkspaceUris    []string                    `json:"workspaceUris"`
+		Steps            []TrajectoryStep            `json:"steps"`
+		ParentReferences []TrajectoryParentReference `json:"parentReferences,omitempty"`
+		Annotations      *struct {
+			Title                  string            `json:"title"`
+			LastUserViewTime       string            `json:"lastUserViewTime"`
+			SideQuestionCascadeIDs []string          `json:"sideQuestionCascadeIds,omitempty"`
+			SideQuestionTitles     map[string]string `json:"sideQuestionTitles,omitempty"`
 		} `json:"annotations"`
 		Summary  string `json:"summary"`
 		Metadata *struct {
@@ -733,25 +773,27 @@ type upstreamTrajectoryResp struct {
 
 // TrajectoryDetails represents parsed and processed trajectory information.
 type TrajectoryDetails struct {
-	CascadeID          string               `json:"cascadeId"`
-	Title              string               `json:"title,omitempty"`
-	Status             string               `json:"status"`
-	HasError           bool                 `json:"hasError"`
-	ErrorMessage       string               `json:"errorMessage,omitempty"`
-	Duration           string               `json:"duration"`
-	TotalSteps         int                  `json:"totalSteps"`
-	TotalTools         int                  `json:"totalTools"`
-	WorkspaceURI       string               `json:"workspaceUri"`
-	Steps              []TrajectoryStep     `json:"steps"`
-	AllMessages        []CascadeMessageItem `json:"allMessages"`
-	TurnOutline        []TurnOutlineItem    `json:"-"`
-	QueuedMessages     []QueuedMessageItem  `json:"queuedMessages"`
-	RunningTasks       []RunningTaskItem    `json:"runningTasks,omitempty"`
-	Subagents          []SubagentItem       `json:"subagents,omitempty"`
-	HasRunningSubagents bool                `json:"hasRunningSubagents,omitempty"`
-	ParentConversation string               `json:"parentConversationId,omitempty"`
-	SubagentRole       string               `json:"subagentRole,omitempty"`
-	ActiveModel        string               `json:"activeModel,omitempty"`
+	CascadeID          string                 `json:"cascadeId"`
+	Title              string                 `json:"title,omitempty"`
+	Status             string                 `json:"status"`
+	HasError           bool                   `json:"hasError"`
+	ErrorMessage       string                 `json:"errorMessage,omitempty"`
+	Duration           string                 `json:"duration"`
+	TotalSteps         int                    `json:"totalSteps"`
+	TotalTools         int                    `json:"totalTools"`
+	WorkspaceURI       string                 `json:"workspaceUri"`
+	Steps              []TrajectoryStep       `json:"steps"`
+	AllMessages        []CascadeMessageItem   `json:"allMessages"`
+	TurnOutline        []TurnOutlineItem      `json:"-"`
+	QueuedMessages     []QueuedMessageItem    `json:"queuedMessages"`
+	RunningTasks       []RunningTaskItem      `json:"runningTasks,omitempty"`
+	Subagents          []SubagentItem         `json:"subagents,omitempty"`
+	HasRunningSubagents bool                  `json:"hasRunningSubagents,omitempty"`
+	ParentConversation string                 `json:"parentConversationId,omitempty"`
+	SubagentRole       string                 `json:"subagentRole,omitempty"`
+	BranchOrigin       *SideQuestionOrigin    `json:"branchOrigin,omitempty"`
+	SideQuestions      []SideQuestionCardItem `json:"sideQuestions,omitempty"`
+	ActiveModel        string                 `json:"activeModel,omitempty"`
 	ActiveModelName    string               `json:"activeModelName,omitempty"`
 	ModelDisplayName   string               `json:"modelDisplayName,omitempty"`
 	StartedAt          string               `json:"startedAt,omitempty"`

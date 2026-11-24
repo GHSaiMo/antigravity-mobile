@@ -26,8 +26,15 @@ public struct TrajectorySummary: Codable, Sendable {
     public let workspaceName: String?
     public let currentBranch: String?
     public let pullRequest: GitPullRequestItem?
+    public let isSideQuestion: Bool?
+    public let branchParentId: String?
+    public let branchParentTitle: String?
+    public let forkStepIndex: Int?
     
     public var isSubagent: Bool {
+        if isSideQuestion == true {
+            return false
+        }
         if let parent = parentConversationId, !parent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return true
         }
@@ -150,6 +157,10 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
     public let hasRunningSubagents: Bool
     public let currentBranch: String?
     public let pullRequest: GitPullRequestItem?
+    public let isSideQuestion: Bool
+    public let branchParentId: String?
+    public let branchParentTitle: String?
+    public let forkStepIndex: Int?
     
     public var isDraft: Bool {
         id.hasPrefix("local_draft_") || id.hasPrefix("draft_") || draftProject != nil
@@ -180,6 +191,10 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
         case hasRunningSubagents
         case currentBranch
         case pullRequest
+        case isSideQuestion
+        case branchParentId
+        case branchParentTitle
+        case forkStepIndex
     }
     
     public init(from decoder: Decoder) throws {
@@ -200,6 +215,10 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
         self.hasRunningSubagents = try container.decodeIfPresent(Bool.self, forKey: .hasRunningSubagents) ?? false
         self.currentBranch = try container.decodeIfPresent(String.self, forKey: .currentBranch)
         self.pullRequest = try container.decodeIfPresent(GitPullRequestItem.self, forKey: .pullRequest)
+        self.isSideQuestion = try container.decodeIfPresent(Bool.self, forKey: .isSideQuestion) ?? false
+        self.branchParentId = try container.decodeIfPresent(String.self, forKey: .branchParentId)
+        self.branchParentTitle = try container.decodeIfPresent(String.self, forKey: .branchParentTitle)
+        self.forkStepIndex = try container.decodeIfPresent(Int.self, forKey: .forkStepIndex)
     }
     
     public func encode(to encoder: Encoder) throws {
@@ -220,6 +239,10 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
         try container.encode(hasRunningSubagents, forKey: .hasRunningSubagents)
         try container.encodeIfPresent(currentBranch, forKey: .currentBranch)
         try container.encodeIfPresent(pullRequest, forKey: .pullRequest)
+        if isSideQuestion { try container.encode(isSideQuestion, forKey: .isSideQuestion) }
+        try container.encodeIfPresent(branchParentId, forKey: .branchParentId)
+        try container.encodeIfPresent(branchParentTitle, forKey: .branchParentTitle)
+        try container.encodeIfPresent(forkStepIndex, forKey: .forkStepIndex)
     }
     
     public enum ConversationStatus: String, Sendable, Codable {
@@ -259,7 +282,11 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
             hasRunningTasks: self.hasRunningTasks,
             hasRunningSubagents: self.hasRunningSubagents,
             currentBranch: self.currentBranch,
-            pullRequest: self.pullRequest
+            pullRequest: self.pullRequest,
+            isSideQuestion: self.isSideQuestion,
+            branchParentId: self.branchParentId,
+            branchParentTitle: self.branchParentTitle,
+            forkStepIndex: self.forkStepIndex
         )
     }
 
@@ -280,7 +307,11 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
             hasRunningTasks: self.hasRunningTasks,
             hasRunningSubagents: self.hasRunningSubagents,
             currentBranch: self.currentBranch,
-            pullRequest: self.pullRequest
+            pullRequest: self.pullRequest,
+            isSideQuestion: self.isSideQuestion,
+            branchParentId: self.branchParentId,
+            branchParentTitle: self.branchParentTitle,
+            forkStepIndex: self.forkStepIndex
         )
     }
     
@@ -392,6 +423,10 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
         }
         self.currentBranch = summary.currentBranch
         self.pullRequest = summary.pullRequest
+        self.isSideQuestion = summary.isSideQuestion == true
+        self.branchParentId = summary.branchParentId
+        self.branchParentTitle = summary.branchParentTitle
+        self.forkStepIndex = summary.forkStepIndex
     }
     
     public init(
@@ -410,7 +445,11 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
         hasRunningTasks: Bool = false,
         hasRunningSubagents: Bool = false,
         currentBranch: String? = nil,
-        pullRequest: GitPullRequestItem? = nil
+        pullRequest: GitPullRequestItem? = nil,
+        isSideQuestion: Bool = false,
+        branchParentId: String? = nil,
+        branchParentTitle: String? = nil,
+        forkStepIndex: Int? = nil
     ) {
         self.id = id
         self.title = title
@@ -428,6 +467,10 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
         self.hasRunningSubagents = hasRunningSubagents
         self.currentBranch = currentBranch
         self.pullRequest = pullRequest
+        self.isSideQuestion = isSideQuestion
+        self.branchParentId = branchParentId
+        self.branchParentTitle = branchParentTitle
+        self.forkStepIndex = forkStepIndex
     }
     
     public var effectiveLastModified: Date {

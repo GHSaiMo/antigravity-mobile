@@ -154,7 +154,10 @@ data class ChatUiState(
     val showMentionPicker: Boolean = false,
     val permissionState: PermissionStateResponse = PermissionStateResponse(),
     val trustStatus: ProjectTrustStatusResponse? = null,
-    val isUpdatingTrust: Boolean = false
+    val isUpdatingTrust: Boolean = false,
+    val branchOrigin: SideQuestionOrigin? = null,
+    val sideQuestions: List<SideQuestionCardItem> = emptyList(),
+    val isStartingBtw: Boolean = false
 )
 
 class ChatViewModel(

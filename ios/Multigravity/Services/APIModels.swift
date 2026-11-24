@@ -125,6 +125,8 @@ public struct PaginatedMessagesResponse: Codable, Sendable {
     public let activeFocus: String?
     public let activeFocusStartedAt: String?
     public let activePlan: StepPlanItem?
+    public let branchOrigin: SideQuestionOrigin?
+    public let sideQuestions: [SideQuestionCardItem]?
     
     public struct GatewayMessageItem: Codable, Sendable {
         public let id: String
@@ -195,4 +197,6 @@ public struct FetchMessagesResult: Sendable {
     public let activeFocus: String?
     public let activeFocusStartedAt: String?
     public let activePlan: StepPlanItem?
+    public let branchOrigin: SideQuestionOrigin?
+    public let sideQuestions: [SideQuestionCardItem]?
 }

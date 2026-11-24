@@ -275,7 +275,7 @@ public final class ConversationListViewModel {
     }
 
     public static func sortItems(_ items: [ConversationItem]) -> [ConversationItem] {
-        items.sorted { a, b in
+        let flat = items.sorted { a, b in
             if a.status.needsAction != b.status.needsAction {
                 return a.status.needsAction && !b.status.needsAction
             }
@@ -284,17 +284,66 @@ public final class ConversationListViewModel {
             }
             return a.effectiveLastModified > b.effectiveLastModified
         }
+        return arrangeBranchTree(flat)
+    }
+
+    /// 将旁路快问分支稳定挂载到其父会话正下方（保持父子视觉层级与树状缩进），
+    /// 若父会话不在当前筛选集合内，分支会话仍作为独立行保留（不丢失）。
+    public static func arrangeBranchTree(_ items: [ConversationItem]) -> [ConversationItem] {
+        let allIDs = Set(items.map(\.id))
+        var childrenByParent: [String: [ConversationItem]] = [:]
+        var roots: [ConversationItem] = []
+
+        for item in items {
+            if item.isSideQuestion,
+               let parentId = item.branchParentId?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !parentId.isEmpty,
+               parentId != item.id,
+               allIDs.contains(parentId) {
+                childrenByParent[parentId, default: []].append(item)
+            } else {
+                roots.append(item)
+            }
+        }
+        guard !childrenByParent.isEmpty else { return items }
+
+        var result: [ConversationItem] = []
+        result.reserveCapacity(items.count)
+        var emitted = Set<String>()
+
+        func appendWithChildren(_ node: ConversationItem) {
+            guard emitted.insert(node.id).inserted else { return }
+            result.append(node)
+            if let children = childrenByParent[node.id] {
+                for child in children {
+                    appendWithChildren(child)
+                }
+            }
+        }
+
+        for root in roots {
+            appendWithChildren(root)
+        }
+        // 防御性兜底：极端环引用情况下不丢失任何会话
+        if result.count < items.count {
+            for item in items where !emitted.contains(item.id) {
+                result.append(item)
+            }
+        }
+        return result
     }
 
     public var filteredConversations: [ConversationItem] {
         let q = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let scoped = workspaceFilteredConversations
-        if q.isEmpty { return scoped }
-        return scoped.filter {
+        if q.isEmpty { return Self.arrangeBranchTree(scoped) }
+        let matched = scoped.filter {
             $0.title.lowercased().contains(q) ||
             $0.workspaceName.lowercased().contains(q) ||
+            ($0.branchParentTitle?.lowercased().contains(q) ?? false) ||
             $0.id.lowercased().contains(q)
         }
+        return Self.arrangeBranchTree(matched)
     }
     
     public func reloadFromCache() {
@@ -537,6 +586,7 @@ public final class ConversationListViewModel {
 
     @MainActor
     public func publishQuotaToWidget() {
+        ModelPickerQuotaCache.shared.account = quotaResponse?.currentAccount
         settings.syncWidgetConfiguration(reloadWidget: false)
         let emailMasked = UserDefaults.standard.bool(forKey: "cockpit_email_masked")
         QuotaWidgetStore.shared.publishFromApp(

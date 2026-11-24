@@ -371,6 +371,32 @@ class MainActivity : ComponentActivity() {
                                 val subStatus = if (sub.isRunning) "RUNNING" else "IDLE"
                                 navController.navigate("chat/${sub.conversationId}/$subTitle?isNew=false&isUnread=false&status=$subStatus")
                             },
+                            onOpenConversation = { targetId, targetTitle ->
+                                val cleanId = targetId.trim()
+                                if (cleanId.isNotEmpty() && cleanId != cascadeId) {
+                                    val prevId = navController.previousBackStackEntry?.arguments?.getString("cascadeId")
+                                    if (prevId == cleanId) {
+                                        navController.popBackStack()
+                                    } else {
+                                        val existing = conversationListViewModel.getConversation(cleanId)
+                                        val resolvedTitle = targetTitle.ifBlank { existing?.displayTitle ?: "会话详情".loc }
+                                        val resolvedWs = existing?.workspaceName ?: chatViewModel.uiState.value.workspaceName
+                                        val resolvedStatus = existing?.status ?: ConversationStatus.IDLE
+                                        chatViewModel.prepareSession(
+                                            cascadeId = cleanId,
+                                            initialTitle = resolvedTitle,
+                                            isNewConversation = false,
+                                            workspaceName = resolvedWs,
+                                            isUnread = false,
+                                            conversationStatus = resolvedStatus,
+                                            draftProject = null,
+                                            lastModifiedTime = existing?.lastModifiedTime
+                                        )
+                                        val encoded = URLEncoder.encode(resolvedTitle, "UTF-8")
+                                        navController.navigate("chat/$cleanId/$encoded?isNew=false&isUnread=false&status=${resolvedStatus.raw}")
+                                    }
+                                }
+                            },
                             onStartNewSession = {
                                 val currentWs = chatViewModel.uiState.value.workspaceName
                                 val project = conversationListViewModel.projects.value.firstOrNull {

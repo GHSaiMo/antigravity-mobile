@@ -37,7 +37,8 @@ func (p *Proxy) ParseTrajectoryDetails(rawResp *upstreamTrajectoryResp) Trajecto
 		wsURI = rawResp.Trajectory.WorkspaceUris[0]
 	}
 
-	title := resolveTrajectoryTitle(rawResp, steps)
+	branchOrigin := extractBranchOrigin(rawResp, steps)
+	title := resolveTrajectoryTitleWithOrigin(rawResp, steps, branchOrigin)
 
 	lastUserInputIdx := lastUserInputIndex(steps)
 	canProceed, proceedArtifactURI := detectProceed(rawResp, steps, lastUserInputIdx)
@@ -70,6 +71,7 @@ func (p *Proxy) ParseTrajectoryDetails(rawResp *upstreamTrajectoryResp) Trajecto
 		Subagents:          subagents,
 		ParentConversation: parentID,
 		SubagentRole:       subagentRole,
+		BranchOrigin:       branchOrigin,
 		ActiveModel:        activeModel,
 		ActiveModelName:    activeModelName,
 		ModelDisplayName:   modelDisplayName,
@@ -1041,12 +1043,26 @@ func modelDisplayNameFor(activeModel string) string {
 // resolveTrajectoryTitle picks the title from annotations, summary, the on-disk annotation file,
 // an authoritative cached title, or the first user prompt, and remembers it in the cascade title cache.
 func resolveTrajectoryTitle(rawResp *upstreamTrajectoryResp, steps []TrajectoryStep) string {
+	return resolveTrajectoryTitleWithOrigin(rawResp, steps, nil)
+}
+
+func resolveTrajectoryTitleWithOrigin(rawResp *upstreamTrajectoryResp, steps []TrajectoryStep, branchOrigin *SideQuestionOrigin) string {
 	title := ""
 	isFallback := false
-	if rawResp.Trajectory.Annotations != nil && rawResp.Trajectory.Annotations.Title != "" {
-		title = rawResp.Trajectory.Annotations.Title
-	} else if rawResp.Trajectory.Summary != "" {
-		title = rawResp.Trajectory.Summary
+	isSide := branchOrigin != nil && branchOrigin.IsSideQuestion
+	if isSide {
+		if entry, ok := defaultBtwTracker.getSide(rawResp.Trajectory.CascadeID); ok {
+			if t := strings.TrimSpace(firstNonEmpty(entry.Title, entry.Question)); t != "" && t != "未命名会话" {
+				title = t
+			}
+		}
+	}
+	if title == "" {
+		if rawResp.Trajectory.Annotations != nil && rawResp.Trajectory.Annotations.Title != "" {
+			title = rawResp.Trajectory.Annotations.Title
+		} else if rawResp.Trajectory.Summary != "" {
+			title = rawResp.Trajectory.Summary
+		}
 	}
 
 	if title == "" || title == "未命名会话" {
@@ -1062,7 +1078,12 @@ func resolveTrajectoryTitle(rawResp *upstreamTrajectoryResp, steps []TrajectoryS
 	}
 
 	if title == "" || title == "未命名会话" {
-		for _, s := range steps {
+		startIdx := 0
+		if isSide && branchOrigin.ForkStepIndex >= 0 {
+			startIdx = branchOrigin.ForkStepIndex + 1
+		}
+		for i := startIdx; i < len(steps); i++ {
+			s := steps[i]
 			if s.Type == "CORTEX_STEP_TYPE_USER_INPUT" {
 				if t := extractTitleFromUserInput(s); t != "" && t != "未命名会话" {
 					title = t

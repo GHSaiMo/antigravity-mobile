@@ -379,37 +379,268 @@ public struct WorkspaceTrustBanner: View {
     }
 }
 
-// MARK: - /btw Side Question Sheet
+// MARK: - /btw Side Question Branch UI Components
+
+/// 挂在父会话源消息卡片正下方的紧凑旁路分支子卡片（点击直接进入完整分支会话）。
+public struct SideQuestionInlineCardsSection: View {
+    public let items: [SideQuestionCardItem]
+    public let onOpen: (String) -> Void
+
+    public init(items: [SideQuestionCardItem], onOpen: @escaping (String) -> Void) {
+        self.items = items
+        self.onOpen = onOpen
+    }
+
+    public var body: some View {
+        if !items.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(items) { item in
+                    Button {
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        onOpen(item.cascadeId)
+                    } label: {
+                        HStack(alignment: .top, spacing: 8) {
+                            Rectangle()
+                                .fill(Color.indigo.opacity(0.45))
+                                .frame(width: 2.5)
+                                .clipShape(Capsule())
+
+                            VStack(alignment: .leading, spacing: 3) {
+                                HStack(spacing: 5) {
+                                    Image(systemName: "arrow.triangle.branch")
+                                        .font(.system(size: 10.5, weight: .semibold))
+                                        .foregroundColor(.indigo)
+                                    Text("旁路快问")
+                                        .font(.system(size: 10.5, weight: .semibold))
+                                        .foregroundColor(.indigo)
+                                    Text("·")
+                                        .font(.system(size: 10.5))
+                                        .foregroundColor(.secondary)
+                                    Text(item.displayTitle)
+                                        .font(.system(size: 12.5, weight: .semibold))
+                                        .foregroundColor(.primary)
+                                        .lineLimit(1)
+                                    Spacer(minLength: 4)
+                                    if item.isRunning {
+                                        ProgressView()
+                                            .controlSize(.mini)
+                                            .tint(.indigo)
+                                    } else if item.isError {
+                                        Circle()
+                                            .fill(Color.red)
+                                            .frame(width: 6, height: 6)
+                                    } else {
+                                        Circle()
+                                            .fill(Color.indigo.opacity(0.65))
+                                            .frame(width: 6, height: 6)
+                                    }
+                                    Image(systemName: "chevron.right")
+                                        .font(.system(size: 9.5, weight: .semibold))
+                                        .foregroundColor(.secondary.opacity(0.75))
+                                }
+
+                                if let preview = item.answerPreview?.trimmingCharacters(in: .whitespacesAndNewlines),
+                                   !preview.isEmpty {
+                                    Text(preview)
+                                        .font(.system(size: 12))
+                                        .foregroundColor(.secondary)
+                                        .lineLimit(2)
+                                        .multilineTextAlignment(.leading)
+                                } else if item.isRunning {
+                                    Text("正在独立生成回复...")
+                                        .font(.system(size: 11.5))
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 8)
+                        .background(Color.indigo.opacity(0.06))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .stroke(Color.indigo.opacity(0.20), lineWidth: 0.8)
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.leading, 22)
+            .padding(.trailing, 16)
+            .padding(.top, 2)
+            .padding(.bottom, 4)
+        }
+    }
+}
+
+/// 旁路分支会话顶部的来源与共享前文折叠横幅。
+public struct BranchOriginBannerView: View {
+    public let origin: SideQuestionOrigin
+    public let hiddenCount: Int
+    public let isExpanded: Bool
+    public let onToggleExpand: () -> Void
+    public let onReturnToParent: () -> Void
+
+    private var originLabel: String {
+        let title = origin.parentTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !title.isEmpty, let turn = origin.forkTurnNumber, turn > 0 {
+            return String(localized: "承接自「\(title)」第 \(turn) 轮")
+        }
+        if !title.isEmpty {
+            return String(localized: "承接自「\(title)」")
+        }
+        if let turn = origin.forkTurnNumber, turn > 0 {
+            return String(localized: "承接自主会话第 \(turn) 轮")
+        }
+        return String(localized: "承接自主会话上下文")
+    }
+
+    public var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 7) {
+                Image(systemName: "arrow.triangle.branch")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(.indigo)
+                Text(originLabel)
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                Spacer(minLength: 4)
+            }
+
+            HStack(spacing: 8) {
+                Text(isExpanded ? String(localized: "已展开共享前文") : String(localized: "已共享前文上下文（默认折叠）"))
+                    .font(.system(size: 11.5))
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+
+                Spacer(minLength: 4)
+
+                Button {
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    onToggleExpand()
+                } label: {
+                    HStack(spacing: 3) {
+                        Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                            .font(.system(size: 9.5, weight: .bold))
+                        Text(isExpanded ? String(localized: "收起前文") : String(localized: "展开前文"))
+                            .font(.system(size: 11.5, weight: .semibold))
+                    }
+                    .foregroundColor(.indigo)
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 4)
+                    .background(Color.indigo.opacity(0.11))
+                    .clipShape(Capsule())
+                }
+                .buttonStyle(.plain)
+
+                if !origin.parentCascadeId.isEmpty {
+                    Button {
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        onReturnToParent()
+                    } label: {
+                        HStack(spacing: 3) {
+                            Image(systemName: "arrow.uturn.backward")
+                                .font(.system(size: 9.5, weight: .bold))
+                            Text("回主会话")
+                                .font(.system(size: 11.5, weight: .semibold))
+                        }
+                        .foregroundColor(.primary)
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 4)
+                        .background(Color(uiColor: .tertiarySystemFill))
+                        .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(Color.indigo.opacity(0.06))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(Color.indigo.opacity(0.22), lineWidth: 0.8)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .padding(.horizontal, 16)
+        .padding(.bottom, 4)
+    }
+}
+
+/// 展开共享前文时，区分共享历史与旁路分支消息的分隔线。
+public struct BranchForkDividerView: View {
+    public let onCollapse: () -> Void
+
+    public var body: some View {
+        HStack(spacing: 8) {
+            Rectangle()
+                .fill(Color.indigo.opacity(0.22))
+                .frame(height: 1)
+
+            Button(action: onCollapse) {
+                HStack(spacing: 4) {
+                    Image(systemName: "arrow.triangle.branch")
+                        .font(.system(size: 10, weight: .semibold))
+                    Text("以上为共享前文 · 以下为旁路分支")
+                        .font(.system(size: 11, weight: .semibold))
+                }
+                .foregroundColor(.indigo)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(Color.indigo.opacity(0.10))
+                .clipShape(Capsule())
+            }
+            .buttonStyle(.plain)
+
+            Rectangle()
+                .fill(Color.indigo.opacity(0.22))
+                .frame(height: 1)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 6)
+    }
+}
+
+// MARK: - /btw Quick-Ask Composer & Branch Switcher Sheet
 
 public struct BtwSideQuestionSheet: View {
     @Environment(\.dismiss) private var dismiss
     public let parentCascadeId: String
-    public let activeModel: String
-    public let initialQuote: String?
-    public let onInsertIntoMain: (String) -> Void
-    public let onOpenStandalone: ((String) -> Void)?
+    public let parentTitle: String
+    public let anchorStepIndex: Int?
+    public let anchorPreview: String?
+    public let existingBranches: [SideQuestionCardItem]
+    public let onOpenBranch: (String) -> Void
+    public let onStartBranch: (String, Int?) async -> Bool
 
     @State private var questionText: String = ""
-    @State private var quoteText: String = ""
-    @State private var entries: [BtwSideQuestionEntry] = []
-    @State private var activeSideId: String? = nil
-    @State private var activeStatus: BtwStatusResponse? = nil
+    @State private var useAnchorStep: Bool = true
     @State private var isStarting: Bool = false
-    @State private var errorMsg: String? = nil
-    @State private var showThinking: Bool = false
+    @State private var loadedBranches: [SideQuestionCardItem] = []
+    @FocusState private var isQuestionFocused: Bool
 
     public init(
         parentCascadeId: String,
-        activeModel: String,
-        initialQuote: String? = nil,
-        onInsertIntoMain: @escaping (String) -> Void,
-        onOpenStandalone: ((String) -> Void)? = nil
+        parentTitle: String,
+        anchorStepIndex: Int? = nil,
+        anchorPreview: String? = nil,
+        existingBranches: [SideQuestionCardItem] = [],
+        onOpenBranch: @escaping (String) -> Void,
+        onStartBranch: @escaping (String, Int?) async -> Bool
     ) {
         self.parentCascadeId = parentCascadeId
-        self.activeModel = activeModel
-        self.initialQuote = initialQuote
-        self.onInsertIntoMain = onInsertIntoMain
-        self.onOpenStandalone = onOpenStandalone
+        self.parentTitle = parentTitle
+        self.anchorStepIndex = anchorStepIndex
+        self.anchorPreview = anchorPreview
+        self.existingBranches = existingBranches
+        self.onOpenBranch = onOpenBranch
+        self.onStartBranch = onStartBranch
+    }
+
+    private var effectiveBranches: [SideQuestionCardItem] {
+        loadedBranches.isEmpty ? existingBranches : loadedBranches
     }
 
     public var body: some View {
@@ -417,148 +648,98 @@ public struct BtwSideQuestionSheet: View {
             VStack(spacing: 0) {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 14) {
-                        if !quoteText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        if let stepIdx = anchorStepIndex, useAnchorStep {
                             VStack(alignment: .leading, spacing: 6) {
-                                HStack {
-                                    Label("引用片段", systemImage: "text.quote")
-                                        .font(.system(size: 11.5, weight: .semibold))
+                                HStack(spacing: 6) {
+                                    Label("承接至所选消息的上下文", systemImage: "arrow.triangle.branch")
+                                        .font(.system(size: 12, weight: .semibold))
                                         .foregroundColor(.indigo)
                                     Spacer()
-                                    Button("清除") { quoteText = "" }
-                                        .font(.system(size: 11.5))
+                                    Button("改用最新上下文") {
+                                        withAnimation(.easeInOut(duration: 0.15)) {
+                                            useAnchorStep = false
+                                        }
+                                    }
+                                    .font(.system(size: 11.5, weight: .medium))
+                                    .foregroundColor(.secondary)
+                                }
+                                if let preview = anchorPreview?.trimmingCharacters(in: .whitespacesAndNewlines), !preview.isEmpty {
+                                    Text(preview)
+                                        .font(.system(size: 12))
+                                        .foregroundColor(.secondary)
+                                        .lineLimit(2)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                } else {
+                                    Text("将从 Step #\(stepIdx) 处分叉，不携带后续消息。")
+                                        .font(.system(size: 12))
                                         .foregroundColor(.secondary)
                                 }
-                                Text(quoteText)
-                                    .font(.system(size: 12.5))
-                                    .foregroundColor(.secondary)
-                                    .lineLimit(5)
-                                    .padding(10)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .background(Color(uiColor: .secondarySystemBackground))
-                                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                             }
-                        }
-
-                        if !entries.isEmpty {
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                HStack(spacing: 8) {
-                                    ForEach(entries) { entry in
-                                        Button {
-                                            activeSideId = entry.cascadeId
-                                        } label: {
-                                            HStack(spacing: 5) {
-                                                Circle()
-                                                    .fill(entry.status == "CASCADE_RUN_STATUS_RUNNING" ? Color.green : Color.indigo.opacity(0.6))
-                                                    .frame(width: 6, height: 6)
-                                                Text(entry.title ?? entry.question ?? "Side question")
-                                                    .font(.system(size: 12, weight: .medium))
-                                                    .lineLimit(1)
-                                                    .frame(maxWidth: 160, alignment: .leading)
-                                            }
-                                            .padding(.horizontal, 10)
-                                            .padding(.vertical, 6)
-                                            .background(activeSideId == entry.cascadeId ? Color.indigo.opacity(0.18) : Color(uiColor: .secondarySystemBackground))
-                                            .clipShape(Capsule())
-                                        }
-                                        .buttonStyle(.plain)
-                                    }
-                                }
-                            }
-                        }
-
-                        if let st = activeStatus {
-                            VStack(alignment: .leading, spacing: 10) {
-                                if let q = st.question, !q.isEmpty {
-                                    Text(q)
-                                        .font(.system(size: 14, weight: .semibold))
-                                        .padding(10)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                        .background(Color.indigo.opacity(0.10))
-                                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                                }
-
-                                if let think = st.thinking, !think.isEmpty {
-                                    DisclosureGroup("深度思考", isExpanded: $showThinking) {
-                                        Text(think)
-                                            .font(.system(size: 12))
-                                            .foregroundColor(.secondary)
-                                            .padding(.top, 4)
-                                    }
-                                    .font(.system(size: 12.5, weight: .medium))
-                                    .padding(10)
-                                    .background(Color(uiColor: .secondarySystemBackground))
-                                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                                }
-
-                                if let err = st.errorMessage, st.hasError == true, !err.isEmpty {
-                                    Text(err)
-                                        .font(.system(size: 13))
-                                        .foregroundColor(.red)
-                                        .padding(10)
-                                        .background(Color.red.opacity(0.10))
-                                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                                }
-
-                                if let ans = st.answer, !ans.isEmpty {
-                                    MarkdownContentView(content: ans)
-                                        .padding(12)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                        .background(Color(uiColor: .secondarySystemBackground))
-                                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-
-                                    HStack(spacing: 10) {
-                                        Button {
-                                            let text = (st.insertText?.isEmpty == false ? st.insertText! : ans)
-                                            dismiss()
-                                            onInsertIntoMain(text)
-                                        } label: {
-                                            Label("插入主对话", systemImage: "arrow.turn.down.left")
-                                                .font(.system(size: 13.5, weight: .semibold))
-                                                .frame(maxWidth: .infinity)
-                                        }
-                                        .buttonStyle(.borderedProminent)
-                                        .tint(.indigo)
-
-                                        if let onOpenStandalone {
-                                            Button {
-                                                dismiss()
-                                                onOpenStandalone(st.cascadeId)
-                                            } label: {
-                                                Image(systemName: "arrow.up.right.square")
-                                            }
-                                            .buttonStyle(.bordered)
-                                            .accessibilityLabel("在独立会话打开")
-                                        }
-                                    }
-                                } else if st.isRunning == true {
-                                    HStack(spacing: 8) {
-                                        ProgressView().controlSize(.small)
-                                        Text("旁路快问正在生成回复...")
-                                            .font(.system(size: 13))
-                                            .foregroundColor(.secondary)
-                                    }
-                                    .padding(.vertical, 8)
-                                }
-                            }
-                        } else if !isStarting && entries.isEmpty {
-                            VStack(alignment: .leading, spacing: 6) {
-                                Label("旁路快问（不打断主对话流）", systemImage: "bubble.left.and.exclamationmark.bubble.right")
-                                    .font(.system(size: 13.5, weight: .semibold))
-                                    .foregroundColor(.primary)
-                                Text("随时就当前上下文发起独立快问，回答完成后可一键将结论引用插入主对话输入框。")
+                            .padding(11)
+                            .background(Color.indigo.opacity(0.07))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .stroke(Color.indigo.opacity(0.22), lineWidth: 0.8)
+                            )
+                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        } else {
+                            HStack(spacing: 8) {
+                                Image(systemName: "arrow.triangle.branch")
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundColor(.indigo)
+                                Text("基于「\(parentTitle)」当前上下文创建独立旁路分支，不打断主对话流，支持多轮追问。")
                                     .font(.system(size: 12.5))
                                     .foregroundColor(.secondary)
                             }
-                            .padding(12)
+                            .padding(11)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .background(Color(uiColor: .secondarySystemBackground))
                             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                         }
 
-                        if let err = errorMsg {
-                            Text(err)
-                                .font(.system(size: 12.5))
-                                .foregroundColor(.red)
+                        if !effectiveBranches.isEmpty {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("已有旁路分支 (\(effectiveBranches.count))")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundColor(.secondary)
+
+                                ForEach(effectiveBranches) { branch in
+                                    Button {
+                                        dismiss()
+                                        onOpenBranch(branch.cascadeId)
+                                    } label: {
+                                        HStack(spacing: 8) {
+                                            Image(systemName: "arrow.triangle.branch")
+                                                .font(.system(size: 12, weight: .semibold))
+                                                .foregroundColor(.indigo)
+                                            VStack(alignment: .leading, spacing: 2) {
+                                                Text(branch.displayTitle)
+                                                    .font(.system(size: 13.5, weight: .semibold))
+                                                    .foregroundColor(.primary)
+                                                    .lineLimit(1)
+                                                if let ans = branch.answerPreview?.trimmingCharacters(in: .whitespacesAndNewlines), !ans.isEmpty {
+                                                    Text(ans)
+                                                        .font(.system(size: 11.5))
+                                                        .foregroundColor(.secondary)
+                                                        .lineLimit(1)
+                                                }
+                                            }
+                                            Spacer()
+                                            if branch.isRunning {
+                                                ProgressView().controlSize(.mini).tint(.indigo)
+                                            }
+                                            Image(systemName: "chevron.right")
+                                                .font(.system(size: 11, weight: .semibold))
+                                                .foregroundColor(.secondary)
+                                        }
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 10)
+                                        .background(Color(uiColor: .secondarySystemBackground))
+                                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
                         }
                     }
                     .padding(16)
@@ -566,9 +747,10 @@ public struct BtwSideQuestionSheet: View {
 
                 Divider()
                 HStack(spacing: 8) {
-                    TextField("输入旁路快问（/btw）...", text: $questionText, axis: .vertical)
+                    TextField("输入旁路问题（/btw）...", text: $questionText, axis: .vertical)
                         .lineLimit(1...4)
                         .font(.system(size: 14.5))
+                        .focused($isQuestionFocused)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 9)
                         .background(Color(uiColor: .secondarySystemBackground))
@@ -585,12 +767,12 @@ public struct BtwSideQuestionSheet: View {
                                 .font(.system(size: 15, weight: .semibold))
                                 .foregroundColor(.white)
                                 .frame(width: 36, height: 36)
-                                .background(Color.indigo)
+                                .background(questionText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color.secondary.opacity(0.35) : Color.indigo)
                                 .clipShape(Circle())
                         }
                     }
                     .buttonStyle(.plain)
-                    .disabled(isStarting || (questionText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && quoteText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty))
+                    .disabled(isStarting || questionText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
@@ -598,30 +780,35 @@ public struct BtwSideQuestionSheet: View {
             }
             .navigationTitle("/btw 旁路快问")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("关闭") { dismiss() }
+                        .font(.system(size: 14.5))
+                }
+            }
             .onAppear {
-                if let q = initialQuote, !q.isEmpty {
-                    quoteText = q
+                useAnchorStep = (anchorStepIndex != nil)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
+                    isQuestionFocused = true
                 }
             }
             .task(id: parentCascadeId) {
                 guard let baseURL = AppSettings.shared.gatewayURL, !parentCascadeId.isEmpty else { return }
                 if let list = try? await APIClient.shared.listBtwSideQuestions(cascadeId: parentCascadeId, baseURL: baseURL) {
-                    entries = list
-                    if activeSideId == nil {
-                        activeSideId = list.last?.cascadeId
+                    loadedBranches = list.map { entry in
+                        SideQuestionCardItem(
+                            cascadeId: entry.cascadeId,
+                            parentCascadeId: entry.parentCascadeId ?? parentCascadeId,
+                            title: entry.title,
+                            question: entry.question,
+                            answerPreview: entry.answerPreview,
+                            status: entry.status,
+                            forkStepIndex: entry.forkStepIndex,
+                            anchorMessageId: nil,
+                            turnCount: entry.turnCount,
+                            createdAt: entry.createdAt
+                        )
                     }
-                }
-            }
-            .task(id: activeSideId) {
-                guard let sid = activeSideId, let baseURL = AppSettings.shared.gatewayURL else { return }
-                while !Task.isCancelled {
-                    if let st = try? await APIClient.shared.fetchBtwStatus(cascadeId: sid, baseURL: baseURL) {
-                        activeStatus = st
-                        if st.isRunning != true {
-                            break
-                        }
-                    }
-                    try? await Task.sleep(nanoseconds: 850_000_000)
                 }
             }
         }
@@ -630,38 +817,13 @@ public struct BtwSideQuestionSheet: View {
     }
 
     private func submitQuestion() async {
-        guard let baseURL = AppSettings.shared.gatewayURL else { return }
         let q = questionText.trimmingCharacters(in: .whitespacesAndNewlines)
-        let qt = quoteText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !q.isEmpty || !qt.isEmpty else { return }
-
+        guard !q.isEmpty, !isStarting else { return }
         isStarting = true
-        errorMsg = nil
-        defer { isStarting = false }
-
-        do {
-            let res = try await APIClient.shared.startBtwSideQuestion(
-                parentCascadeId: parentCascadeId,
-                question: q,
-                quote: qt.isEmpty ? nil : qt,
-                model: activeModel,
-                baseURL: baseURL
-            )
-            questionText = ""
-            quoteText = ""
-            let entry = BtwSideQuestionEntry(
-                cascadeId: res.cascadeId,
-                parentCascadeId: parentCascadeId,
-                title: res.title,
-                question: res.question,
-                quote: res.quote,
-                status: "CASCADE_RUN_STATUS_RUNNING",
-                createdAt: res.createdAt
-            )
-            entries.append(entry)
-            activeSideId = res.cascadeId
-        } catch {
-            errorMsg = error.localizedDescription
+        let ok = await onStartBranch(q, useAnchorStep ? anchorStepIndex : nil)
+        isStarting = false
+        if ok {
+            dismiss()
         }
     }
 }

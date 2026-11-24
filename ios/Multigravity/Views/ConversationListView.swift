@@ -533,7 +533,17 @@ public struct ConversationListView: View {
                 lastModified: Date()
             )
         }
-        navigationPath = [targetItem]
+        if usesSplitLayout {
+            navigationPath = [targetItem]
+        } else if let existingIdx = navigationPath.firstIndex(where: { $0.id == trimmedId }) {
+            navigationPath = Array(navigationPath.prefix(through: existingIdx))
+        } else if targetItem.isSideQuestion,
+                  let parentId = targetItem.branchParentId,
+                  navigationPath.last?.id == parentId {
+            navigationPath.append(targetItem)
+        } else {
+            navigationPath = [targetItem]
+        }
     }
 
     private var globalBackgroundTasksCapsule: some View {
@@ -1046,7 +1056,9 @@ public struct ConversationListView: View {
             }
             
             ForEach(viewModel.filteredConversations) { item in
-                conversationCard(for: item)
+                let isBranchChild = item.isSideQuestion
+                let hasVisibleParent = isBranchChild && (item.branchParentId.map { pid in viewModel.filteredConversations.contains(where: { $0.id == pid }) } ?? false)
+                conversationCard(for: item, isAttachedBranchChild: hasVisibleParent)
                     .offset(x: item.id == viewModel.filteredConversations.first?.id ? firstCardPeekOffset : 0)
                     .contentShape(Rectangle())
                     .onTapGesture {
@@ -1065,7 +1077,12 @@ public struct ConversationListView: View {
                             showDeleteConfirm = true
                         }
                     ))
-                    .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+                    .listRowInsets(EdgeInsets(
+                        top: hasVisibleParent ? 2 : 6,
+                        leading: 16,
+                        bottom: 6,
+                        trailing: 16
+                    ))
                     .listRowSeparator(.hidden)
                     .listRowBackground(Color.clear)
                     .swipeActions(edge: .leading, allowsFullSwipe: false) {
@@ -1378,11 +1395,150 @@ public struct ConversationListView: View {
         openConversationById(cascadeId)
     }
     
-    private func conversationCard(for item: ConversationItem) -> some View {
+    @ViewBuilder
+    private func conversationCard(for item: ConversationItem, isAttachedBranchChild: Bool = false) -> some View {
         let _ = draftsVersion
         let hasDraft = item.isDraft || CacheManager.shared.hasDraft(for: item.id)
         let isRecording = audioRecorder.isRecording && audioRecorder.currentCascadeId == item.id
-        
+
+        if item.isSideQuestion {
+            sideQuestionBranchRow(item: item, isAttachedChild: isAttachedBranchChild, hasDraft: hasDraft)
+        } else {
+            standardConversationCard(for: item, hasDraft: hasDraft, isRecording: isRecording)
+        }
+    }
+
+    private func sideQuestionBranchRow(item: ConversationItem, isAttachedChild: Bool, hasDraft: Bool) -> some View {
+        HStack(alignment: .center, spacing: 8) {
+            if isAttachedChild {
+                // Subtle tree elbow connector underneath the parent card
+                VStack(spacing: 0) {
+                    Rectangle()
+                        .fill(Color.indigo.opacity(0.32))
+                        .frame(width: 1.5, height: 14)
+                    HStack(spacing: 0) {
+                        Rectangle()
+                            .fill(Color.indigo.opacity(0.32))
+                            .frame(width: 10, height: 1.5)
+                    }
+                    .frame(width: 10, alignment: .leading)
+                    .offset(x: 4.25)
+                    Spacer(minLength: 0)
+                }
+                .frame(width: 14, height: 34)
+                .padding(.leading, 8)
+            }
+
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(alignment: .center, spacing: 6) {
+                    Image(systemName: "arrow.triangle.branch")
+                        .font(.system(size: 11.5, weight: .semibold))
+                        .foregroundColor(.indigo)
+
+                    Text("旁路")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(.indigo)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1.5)
+                        .background(Color.indigo.opacity(0.12))
+                        .clipShape(Capsule())
+
+                    Text(item.title)
+                        .font(.system(size: 14, weight: .semibold))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .foregroundColor(.primary)
+
+                    Spacer(minLength: 4)
+
+                    if item.status.needsAction {
+                        Text("Action")
+                            .font(.system(size: 10.5, weight: .bold))
+                            .foregroundColor(.blue)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.blue.opacity(0.15))
+                            .cornerRadius(5)
+                    } else if item.status.isError {
+                        Text("Error")
+                            .font(.system(size: 10.5, weight: .bold))
+                            .foregroundColor(.red)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.red.opacity(0.15))
+                            .cornerRadius(5)
+                    } else if item.isWorking {
+                        HStack(spacing: 4) {
+                            ProgressView()
+                                .controlSize(.mini)
+                                .tint(.green)
+                            Text("Working")
+                        }
+                        .font(.system(size: 10.5, weight: .bold))
+                        .foregroundColor(.green)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.green.opacity(0.15))
+                        .cornerRadius(5)
+                    } else if hasDraft {
+                        Text("DRAFT")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundColor(.yellow)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 2)
+                            .background(Color.yellow.opacity(0.15))
+                            .cornerRadius(5)
+                    } else if item.isUnread {
+                        Circle()
+                            .fill(Color.indigo)
+                            .frame(width: 6, height: 6)
+                    }
+                }
+
+                HStack(spacing: 6) {
+                    if !isAttachedChild, let parentTitle = item.branchParentTitle?.trimmingCharacters(in: .whitespacesAndNewlines), !parentTitle.isEmpty {
+                        Text("来自「\(parentTitle)」")
+                            .font(.system(size: 11.5))
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                    } else {
+                        Text(item.workspaceName)
+                            .font(.system(size: 11.5, design: .monospaced))
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                    }
+
+                    Spacer(minLength: 4)
+
+                    if !item.relativeTimeString.isEmpty {
+                        Text(item.relativeTimeString)
+                            .font(.system(size: 11.5))
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(Color(uiColor: .secondarySystemBackground).opacity(0.85))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(Color.indigo.opacity(0.20), lineWidth: 0.8)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay {
+                if usesSplitLayout && selectedConversationID == item.id {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color.accentColor.opacity(0.10))
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(Color.accentColor.opacity(0.55), lineWidth: 1.5)
+                }
+            }
+            .contentShape(.hoverEffect, RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .hoverEffect(.highlight)
+        }
+    }
+
+    private func standardConversationCard(for item: ConversationItem, hasDraft: Bool, isRecording: Bool) -> some View {
         let indent = CGFloat(min(item.nestingDepth, 3) * 14)
         
         return VStack(alignment: .leading, spacing: 8) {

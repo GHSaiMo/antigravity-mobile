@@ -87,6 +87,29 @@ extension MessageBubbleView {
                 }
                 .padding(.top, 2)
             }
+
+            if let onInsertToParent, !agentPlainText.isEmpty {
+                HStack {
+                    Button {
+                        onInsertToParent(agentPlainText)
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "arrow.turn.down.left")
+                                .font(.system(size: 10.5, weight: .semibold))
+                            Text("插入主对话")
+                                .font(.system(size: 11.5, weight: .semibold))
+                        }
+                        .foregroundColor(.indigo)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(Color.indigo.opacity(0.10))
+                        .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    Spacer(minLength: 0)
+                }
+                .padding(.top, 2)
+            }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
@@ -95,6 +118,15 @@ extension MessageBubbleView {
         .contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: 18, style: .continuous))
         .contextMenu {
             let plainText = agentPlainText
+            if !plainText.isEmpty, let onInsertToParent {
+                Section {
+                    Button {
+                        onInsertToParent(plainText)
+                    } label: {
+                        Label("插入主对话", systemImage: "arrow.turn.down.left")
+                    }
+                }
+            }
             if !plainText.isEmpty, let onNarrate {
                 Section {
                     Button {
@@ -116,7 +148,7 @@ extension MessageBubbleView {
                     }
                     if !plainText.isEmpty, let onAskBtw {
                         Button {
-                            onAskBtw(plainText)
+                            onAskBtw(message.effectiveStepIndex, plainText)
                         } label: {
                             Label("旁路快问", systemImage: "bubble.left.and.exclamationmark.bubble.right")
                         }

@@ -1303,9 +1303,13 @@ private fun ConversationListContent(
                 }
             }
         } else {
+            val visibleConversationIds = conversations.mapTo(HashSet(conversations.size)) { it.id }
             items(conversations, key = { it.id }) { conversation ->
                 val hasDraft = conversation.isDraft || hasDraftFor(conversation.id)
                 val isFirst = conversation.id == conversations.firstOrNull()?.id
+                val isAttachedBranchChild = conversation.isSideQuestion &&
+                    !conversation.branchParentId.isNullOrBlank() &&
+                    visibleConversationIds.contains(conversation.branchParentId)
                 SwipeableConversationCard(
                     modifier = Modifier
                         .offset { androidx.compose.ui.unit.IntOffset(if (isFirst) firstCardPeekOffset.toInt() else 0, 0) }
@@ -1317,6 +1321,7 @@ private fun ConversationListContent(
                         ),
                     conversation = conversation,
                     hasDraft = hasDraft,
+                    isAttachedBranchChild = isAttachedBranchChild,
                     isSwiped = (swipedConversationId == conversation.id),
                     onSwipeOpened = {
                         tipsPrefs.edit().putBoolean("has_seen_swipe_gesture_hint", true).apply()
@@ -1610,6 +1615,7 @@ private fun WorkspaceFilterCapsule(
 private fun SwipeableConversationCard(
     conversation: ConversationItem,
     hasDraft: Boolean,
+    isAttachedBranchChild: Boolean = false,
     isSwiped: Boolean,
     onSwipeOpened: () -> Unit,
     onSwipeClosed: () -> Unit,
@@ -1755,6 +1761,7 @@ private fun SwipeableConversationCard(
             ConversationCard(
                 conversation = conversation,
                 hasDraft = hasDraft,
+                isAttachedBranchChild = isAttachedBranchChild,
                 onClick = {
                     if (offsetX.value != 0f) {
                         onSwipeClosed()
@@ -1796,12 +1803,136 @@ private fun SwipeableConversationCard(
 fun ConversationCard(
     conversation: ConversationItem,
     hasDraft: Boolean = false,
+    isAttachedBranchChild: Boolean = false,
     onClick: () -> Unit,
     onWorkspaceTap: (() -> Unit)? = null,
     onLongClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val colors = AntigravityTheme.colors
+
+    if (conversation.isSideQuestion) {
+        Row(
+            modifier = modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            if (isAttachedBranchChild) {
+                Box(
+                    modifier = Modifier
+                        .padding(start = 10.dp)
+                        .width(14.dp)
+                        .height(34.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .width(1.5.dp)
+                            .height(18.dp)
+                            .background(colors.accentIndigo.copy(alpha = 0.35f))
+                    )
+                    Box(
+                        modifier = Modifier
+                            .padding(top = 17.dp)
+                            .width(11.dp)
+                            .height(1.5.dp)
+                            .background(colors.accentIndigo.copy(alpha = 0.35f))
+                    )
+                }
+            }
+            Card(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(12.dp))
+                    .border(0.8.dp, colors.accentIndigo.copy(alpha = 0.24f), RoundedCornerShape(12.dp))
+                    .combinedClickable(
+                        onClick = onClick,
+                        onLongClick = onLongClick
+                    ),
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(containerColor = colors.surface.copy(alpha = 0.92f))
+            ) {
+                Column(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(5.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            modifier = Modifier.weight(1f).padding(end = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(5.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CallSplit,
+                                contentDescription = "旁路快问".loc,
+                                tint = colors.accentIndigo,
+                                modifier = Modifier.size(13.dp)
+                            )
+                            Text(
+                                text = "旁路".loc,
+                                color = colors.accentIndigo,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(999.dp))
+                                    .background(colors.accentIndigo.copy(alpha = 0.12f))
+                                    .padding(horizontal = 5.dp, vertical = 1.dp)
+                            )
+                            Text(
+                                text = conversation.displayTitle,
+                                color = colors.textPrimary,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        if (conversation.isWorking || conversation.status.needsAction || conversation.status.isError) {
+                            StatusBadge(status = conversation.status, hasRunningTasks = conversation.hasRunningTasks)
+                        } else if (hasDraft || conversation.isDraft) {
+                            DraftBadge()
+                        } else if (conversation.isUnread) {
+                            UnreadDot()
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        val subLabel = if (!isAttachedBranchChild && !conversation.branchParentTitle.isNullOrBlank()) {
+                            "来自「${conversation.branchParentTitle}」".loc
+                        } else {
+                            conversation.workspaceName
+                        }
+                        Text(
+                            text = subLabel,
+                            color = colors.textSecondary,
+                            fontSize = 11.5.sp,
+                            fontFamily = if (isAttachedBranchChild) FontFamily.Monospace else FontFamily.Default,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false)
+                        )
+                        val timeStr = conversation.relativeTimeString
+                        if (timeStr.isNotBlank()) {
+                            Text(
+                                text = timeStr,
+                                color = colors.textSecondary,
+                                fontSize = 11.5.sp
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        return
+    }
+
     val indentPadding = (conversation.nestingDepth.coerceAtMost(3) * 14).dp
 
     Card(

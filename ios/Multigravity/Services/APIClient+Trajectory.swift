@@ -139,7 +139,9 @@ extension APIClient {
                         suggestedResponses: decoded.suggestedResponses,
                         activeFocus: decoded.activeFocus,
                         activeFocusStartedAt: decoded.activeFocusStartedAt,
-                        activePlan: decoded.activePlan
+                        activePlan: decoded.activePlan,
+                        branchOrigin: decoded.branchOrigin,
+                        sideQuestions: decoded.sideQuestions
                     )
                     if let respETag = httpResp.value(forHTTPHeaderField: "ETag")?.trimmingCharacters(in: .whitespacesAndNewlines), !respETag.isEmpty {
                         cascadeMessagesETagCache.withLock { store in
@@ -189,7 +191,9 @@ extension APIClient {
             suggestedResponses: nil,
             activeFocus: nil,
             activeFocusStartedAt: nil,
-            activePlan: nil
+            activePlan: nil,
+            branchOrigin: nil,
+            sideQuestions: nil
         )
     }
     

@@ -646,6 +646,51 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 		}
 		return matchProjectIDFromProjects(wsURIs, fallbackProjects, fallbackCfgProjects)
 	}
+	isApiClient := strings.HasPrefix(r.URL.Path, "/api/")
+	isWidgetLite := r.Header.Get("X-Widget-Lite") == "1"
+
+	// Pre-index side-question parentage and semantic titles from parent annotations and in-memory tracker.
+	sideParentByID := make(map[string]string)
+	sideTitleByID := make(map[string]string)
+	sideForkStepByID := make(map[string]int)
+	for parentID, s := range summaries {
+		if IsDeletedCascade(parentID) || s == nil {
+			continue
+		}
+		ann, ok := s["annotations"].(map[string]interface{})
+		if !ok || ann == nil {
+			continue
+		}
+		if rawIDs, ok := ann["sideQuestionCascadeIds"].([]interface{}); ok {
+			for _, rawID := range rawIDs {
+				if sid, ok := rawID.(string); ok && strings.TrimSpace(sid) != "" {
+					sideParentByID[strings.TrimSpace(sid)] = parentID
+				}
+			}
+		}
+		if rawTitles, ok := ann["sideQuestionTitles"].(map[string]interface{}); ok {
+			for sid, rawTitle := range rawTitles {
+				if t, ok := rawTitle.(string); ok && strings.TrimSpace(t) != "" {
+					sideTitleByID[strings.TrimSpace(sid)] = strings.TrimSpace(t)
+				}
+			}
+		}
+	}
+	for sid, entry := range defaultBtwTracker.snapshotAll() {
+		if entry.ParentCascadeID != "" && sideParentByID[sid] == "" {
+			sideParentByID[sid] = entry.ParentCascadeID
+		}
+		if sideTitleByID[sid] == "" {
+			if t := strings.TrimSpace(firstNonEmpty(entry.Title, entry.Question)); t != "" {
+				sideTitleByID[sid] = t
+			}
+		}
+		if entry.ForkStepIndex != nil && *entry.ForkStepIndex >= 0 {
+			sideForkStepByID[sid] = *entry.ForkStepIndex
+		}
+	}
+
+	var keptSideQuestionIDs []string
 	// Enrich missing titles, filter out subagent sessions, deleted sessions, and stale abandoned drafts
 	for id, s := range summaries {
 		// Filter out recently deleted sessions (tombstone protection against upstream sync delays)
@@ -674,10 +719,36 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 			continue
 		}
 
-		// Filter out /btw side-question sessions from the main conversation list
-		if isSideQuestionTrajectoryMap(s, id) {
-			delete(summaries, id)
-			continue
+		// For mobile/PWA /api/ clients (excluding compact widgets), keep /btw side-question branches
+		// in the list with explicit branch metadata so clients render them indented under their parent.
+		// Desktop workbench (/exa.language_server_pb...) and widgets keep them filtered out.
+		isSideQ := isSideQuestionTrajectoryMap(s, id)
+		if isSideQ {
+			if !isApiClient || isWidgetLite {
+				delete(summaries, id)
+				continue
+			}
+			s["isSideQuestion"] = true
+			if pid := sideParentByID[id]; pid != "" {
+				s["branchParentId"] = pid
+			}
+			if fi, ok := sideForkStepByID[id]; ok {
+				s["forkStepIndex"] = fi
+			}
+			if sqTitle := sideTitleByID[id]; sqTitle != "" {
+				cleanSQ := SanitizeTitle(sqTitle)
+				if cleanSQ != "" {
+					ann, _ := s["annotations"].(map[string]interface{})
+					if ann == nil {
+						ann = make(map[string]interface{})
+					}
+					ann["title"] = cleanSQ
+					s["annotations"] = ann
+					s["summary"] = cleanSQ
+					setCachedCascadeTitle(id, cleanSQ)
+				}
+			}
+			keptSideQuestionIDs = append(keptSideQuestionIDs, id)
 		}
 
 		// Enrich missing title (authoritative sources first: annotations -> disk .pbtxt -> upstream summary;
@@ -827,6 +898,50 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 		}
 	}
 
+	// Inherit resolved parent title, projectId, and workspaceName onto kept side-question branches
+	// so project tabs and indented branch rows always stay attached to their parent conversation.
+	for _, sid := range keptSideQuestionIDs {
+		s := summaries[sid]
+		if s == nil {
+			continue
+		}
+		pid, _ := s["branchParentId"].(string)
+		if pid == "" {
+			continue
+		}
+		parent := summaries[pid]
+		if parent == nil {
+			continue
+		}
+		if ann, ok := parent["annotations"].(map[string]interface{}); ok {
+			if pt, ok := ann["title"].(string); ok && strings.TrimSpace(pt) != "" {
+				s["branchParentTitle"] = pt
+			}
+		}
+		if _, hasPT := s["branchParentTitle"]; !hasPT {
+			if pt, ok := parent["summary"].(string); ok && strings.TrimSpace(pt) != "" {
+				s["branchParentTitle"] = pt
+			}
+		}
+		if pws, ok := parent["workspaceName"].(string); ok && pws != "" {
+			if cur, _ := s["workspaceName"].(string); cur == "" {
+				s["workspaceName"] = pws
+			}
+		}
+		if pMeta, ok := parent["trajectoryMetadata"].(map[string]interface{}); ok && pMeta != nil {
+			if ppid, ok := pMeta["projectId"].(string); ok && ppid != "" {
+				sMeta, _ := s["trajectoryMetadata"].(map[string]interface{})
+				if sMeta == nil {
+					sMeta = make(map[string]interface{})
+				}
+				if curPID, _ := sMeta["projectId"].(string); curPID == "" || curPID == "outside-of-project" {
+					sMeta["projectId"] = ppid
+					s["trajectoryMetadata"] = sMeta
+				}
+			}
+		}
+	}
+
 	// Preserve upstream summary statuses before parent-subagent status propagation so Step 1
 	// can detect when a cached trajectory snapshot is out of sync with the live summary status.
 	rawStatuses := make(map[string]string, len(summaries))
@@ -892,13 +1007,30 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 				s["hasRunningSubagents"] = true
 				s["status"] = "CASCADE_RUN_STATUS_RUNNING"
 			}
+			if details.BranchOrigin != nil {
+				if details.BranchOrigin.IsSideQuestion {
+					s["isSideQuestion"] = true
+				}
+				if details.BranchOrigin.ParentCascadeID != "" {
+					if cur, _ := s["branchParentId"].(string); cur == "" {
+						s["branchParentId"] = details.BranchOrigin.ParentCascadeID
+					}
+				}
+				if details.BranchOrigin.ParentTitle != "" {
+					if cur, _ := s["branchParentTitle"].(string); cur == "" {
+						s["branchParentTitle"] = details.BranchOrigin.ParentTitle
+					}
+				}
+				if details.BranchOrigin.ForkStepIndex >= 0 {
+					s["forkStepIndex"] = details.BranchOrigin.ForkStepIndex
+				}
+			}
 		}
 	}
 
 	// 2. Candidates that might need live upstream probing:
 	// Only probe for mobile/API clients (/api/...) that actively consume needsInput/hasError.
 	// Desktop web workbench (/exa.language_server_pb...) does not use these flags.
-	isApiClient := strings.HasPrefix(r.URL.Path, "/api/")
 	candidates := make(map[string]bool)
 
 	if isApiClient {

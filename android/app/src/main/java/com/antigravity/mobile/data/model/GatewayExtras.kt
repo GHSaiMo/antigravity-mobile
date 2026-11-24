@@ -77,6 +77,38 @@ data class ProjectTrustStatusResponse(
     val message: String? = null
 )
 
+@androidx.compose.runtime.Immutable
+@Serializable
+data class SideQuestionOrigin(
+    val parentCascadeId: String = "",
+    val parentTitle: String? = null,
+    val forkStepIndex: Int = 0,
+    val forkTurnNumber: Int? = null,
+    val isSideQuestion: Boolean = false
+)
+
+@androidx.compose.runtime.Immutable
+@Serializable
+data class SideQuestionCardItem(
+    val cascadeId: String = "",
+    val parentCascadeId: String? = null,
+    val title: String? = null,
+    val question: String? = null,
+    val answerPreview: String? = null,
+    val status: String? = null,
+    val forkStepIndex: Int? = null,
+    val anchorMessageId: String? = null,
+    val turnCount: Int? = null,
+    val createdAt: String? = null
+) {
+    val isRunning: Boolean get() = status == "CASCADE_RUN_STATUS_RUNNING"
+    val isError: Boolean get() = status == "CASCADE_RUN_STATUS_ERROR"
+    val displayTitle: String
+        get() = title?.trim()?.takeIf { it.isNotEmpty() }
+            ?: question?.trim()?.takeIf { it.isNotEmpty() }
+            ?: "旁路快问".loc
+}
+
 @Serializable
 data class BtwSideQuestionEntry(
     val cascadeId: String = "",
@@ -85,6 +117,9 @@ data class BtwSideQuestionEntry(
     val question: String? = null,
     val quote: String? = null,
     val status: String? = null,
+    val forkStepIndex: Int? = null,
+    val answerPreview: String? = null,
+    val turnCount: Int? = null,
     val createdAt: String? = null
 )
 
@@ -96,6 +131,7 @@ data class BtwStartResponse(
     val title: String? = null,
     val question: String? = null,
     val quote: String? = null,
+    val forkStepIndex: Int? = null,
     val createdAt: String? = null
 )
 
@@ -109,6 +145,9 @@ data class BtwListResponse(
 data class BtwStatusResponse(
     val cascadeId: String = "",
     val parentCascadeId: String? = null,
+    val parentTitle: String? = null,
+    val forkStepIndex: Int? = null,
+    val forkTurnNumber: Int? = null,
     val status: String? = null,
     val isRunning: Boolean = false,
     val hasError: Boolean = false,
@@ -118,6 +157,7 @@ data class BtwStatusResponse(
     val quote: String? = null,
     val thinking: String? = null,
     val answer: String? = null,
+    val answerPreview: String? = null,
     val insertText: String? = null,
     val totalSteps: Int = 0
 )

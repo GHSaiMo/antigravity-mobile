@@ -1241,6 +1241,7 @@ async function connectStreamWs(cascadeId) {
         SubagentManager.sync(data);
         if (typeof SwarmManager !== "undefined") SwarmManager.sync(data);
         if (window.Phase3?.syncStreamData) window.Phase3.syncStreamData(data);
+        window.V233?.syncBranchState?.(cascadeId, data);
 
         if (data.steps) {
           scheduleRenderMessages(data.steps, isRunning);
@@ -1350,6 +1351,7 @@ async function loadChat(cascadeId, isBackgroundPoll = false) {
             RunningTasksManager.syncFromServer(info.runningTasks);
             SubagentManager.sync(info);
             if (window.Phase3?.syncStreamData) window.Phase3.syncStreamData(info);
+            window.V233?.syncBranchState?.(cascadeId, info);
             if (currentTrajectories[cascadeId]) {
               if (info.status) currentTrajectories[cascadeId].status = info.status;
               currentTrajectories[cascadeId].runningTasks = Array.isArray(info.runningTasks) ? info.runningTasks : [];
@@ -2731,6 +2733,7 @@ function renderMessages(steps, isRunning = false) {
       window.V233?.hydrateChatPRPills?.(root);
     }
   }
+  window.V233?.applyBranchDecorations?.(streamEl, activeCascadeId);
 
   // 1. First-time render on entering a conversation: align cleanly to bottom without whole-page jump
   if (!hasInitiallyAligned) {

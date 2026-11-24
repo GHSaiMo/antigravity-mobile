@@ -1148,28 +1148,24 @@
     <div class="v233-dialog-head">
       <div class="v233-dialog-title-wrap">
         <span class="v233-btw-badge">/btw</span>
-        <h2 id="btw-dialog-title" class="v233-dialog-title">旁问对话 (不干扰主线)</h2>
+        <h2 id="btw-dialog-title" class="v233-dialog-title">旁路快问（独立分支）</h2>
       </div>
       <button type="button" id="btn-btw-dialog-close" class="v233-dialog-close" aria-label="关闭">✕</button>
     </div>
     <div id="btw-dialog-body" class="v233-dialog-body">
       <div id="btw-quote-card" class="v233-btw-quote hidden">
         <div class="v233-btw-quote-head">
-          <span>附带引用上下文</span>
-          <button type="button" id="btn-btw-clear-quote" class="v233-mini-link">清除</button>
+          <span id="btw-quote-label">⑂ 承接至所选消息的上下文</span>
+          <button type="button" id="btn-btw-clear-quote" class="v233-mini-link">改用最新上下文</button>
         </div>
         <div id="btw-quote-text" class="v233-btw-quote-text"></div>
       </div>
-      <div id="btw-history-bar" class="v233-btw-history hidden"></div>
-      <div id="btw-status-area" class="v233-btw-status">在下方输入临时问题，独立旁路求解；解答完成后可一键插入主对话或作为独立会话继续。</div>
+      <div id="btw-status-area" class="v233-btw-status">基于当前上下文创建独立旁路分支，不打断主对话流，支持多轮追问。</div>
+      <div id="btw-history-bar" class="v233-btw-branch-list hidden"></div>
     </div>
     <div class="v233-btw-footer">
-      <div id="btw-insert-actions" class="v233-dialog-foot hidden" style="padding:0 0 8px 0;">
-        <button type="button" id="btn-btw-open-session" class="v233-btn">在独立会话打开</button>
-        <button type="button" id="btn-btw-insert-main" class="v233-btn primary">插入主对话</button>
-      </div>
       <div class="v233-btw-composer">
-        <textarea id="btw-question-input" class="v233-btw-input" rows="2" placeholder="输入想顺便确认的问题…"></textarea>
+        <textarea id="btw-question-input" class="v233-btw-input" rows="2" placeholder="输入旁路问题（/btw）…"></textarea>
         <button type="button" id="btn-btw-send" class="v233-btn primary">发送</button>
       </div>
     </div>

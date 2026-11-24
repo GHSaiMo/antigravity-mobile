@@ -543,14 +543,22 @@ extension APIClient {
 
     // MARK: - /btw Side Questions
 
-    public func startBtwSideQuestion(parentCascadeId: String, question: String, quote: String? = nil, model: String? = nil, baseURL: URL) async throws -> BtwStartResponse {
+    public func startBtwSideQuestion(
+        parentCascadeId: String,
+        question: String,
+        quote: String? = nil,
+        stepIndex: Int? = nil,
+        model: String? = nil,
+        baseURL: URL
+    ) async throws -> BtwStartResponse {
         var payload: [String: JSONValue] = [
             "parentCascadeId": .string(parentCascadeId),
             "question": .string(question)
         ]
         if let quote, !quote.isEmpty { payload["quote"] = .string(quote) }
+        if let stepIndex, stepIndex >= 0 { payload["stepIndex"] = .int(stepIndex) }
         if let model, !model.isEmpty { payload["model"] = .string(model) }
-        return try await p3PostJSON(path: "gateway/btw/start", payload: payload, baseURL: baseURL, timeout: 20)
+        return try await p3PostJSON(path: "gateway/btw/start", payload: payload, baseURL: baseURL, timeout: 25)
     }
 
     public func listBtwSideQuestions(cascadeId: String, baseURL: URL) async throws -> [BtwSideQuestionEntry] {

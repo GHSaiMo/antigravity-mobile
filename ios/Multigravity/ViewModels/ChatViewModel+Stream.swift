@@ -88,6 +88,13 @@ extension ChatViewModel {
         self.activeFocus = payload.activeFocus
         self.activeFocusStartedAt = payload.activeFocusStartedAt
         self.activePlan = payload.activePlan
+        if let origin = payload.branchOrigin, self.branchOrigin != origin {
+            self.branchOrigin = origin
+        }
+        let incomingSides = payload.sideQuestions ?? []
+        if self.sideQuestions != incomingSides {
+            self.sideQuestions = incomingSides
+        }
         
         if let title = payload.title?.trimmingCharacters(in: .whitespacesAndNewlines),
            !title.isEmpty, title != "未命名会话" {
@@ -358,7 +365,10 @@ extension ChatViewModel {
             proceedArtifactUri: self.proceedArtifactUri,
             pendingInteraction: self.pendingInteraction,
             queuedMessages: self.queuedMessages,
-            runningTasks: self.runningTasks
+            runningTasks: self.runningTasks,
+            workspaceName: self.workspaceName,
+            branchOrigin: self.branchOrigin,
+            sideQuestions: self.sideQuestions.isEmpty ? nil : self.sideQuestions
         ))
         if self.pendingOptimisticMessageId == nil {
             self.knownServerMessageIds = Set(toCache.map(\.id))

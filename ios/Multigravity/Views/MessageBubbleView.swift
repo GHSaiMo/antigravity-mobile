@@ -14,7 +14,8 @@ public struct MessageBubbleView: View {
     let onSelectSubagent: ((SubagentItem) -> Void)?
     let onFork: ((ChatMessage) -> Void)?
     let onNarrate: ((String) -> Void)?
-    let onAskBtw: ((String) -> Void)?
+    let onAskBtw: ((Int?, String) -> Void)?
+    let onInsertToParent: ((String) -> Void)?
     let makeShareContext: (() -> ShareCardContext)?
     @State var showShareCard: Bool = false
     @State var isThinkingExpanded: Bool = false
@@ -34,7 +35,8 @@ public struct MessageBubbleView: View {
         onSelectSubagent: ((SubagentItem) -> Void)? = nil,
         onFork: ((ChatMessage) -> Void)? = nil,
         onNarrate: ((String) -> Void)? = nil,
-        onAskBtw: ((String) -> Void)? = nil,
+        onAskBtw: ((Int?, String) -> Void)? = nil,
+        onInsertToParent: ((String) -> Void)? = nil,
         makeShareContext: (() -> ShareCardContext)? = nil
     ) {
         self.message = message
@@ -49,6 +51,7 @@ public struct MessageBubbleView: View {
         self.onFork = onFork
         self.onNarrate = onNarrate
         self.onAskBtw = onAskBtw
+        self.onInsertToParent = onInsertToParent
         self.makeShareContext = makeShareContext
     }
     

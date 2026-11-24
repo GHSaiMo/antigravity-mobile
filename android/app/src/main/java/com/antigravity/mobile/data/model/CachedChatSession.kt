@@ -24,5 +24,7 @@ data class CachedChatSession(
     val activeModel: String? = null,
     val activeModelName: String? = null,
     val startedAt: String? = null,
+    val branchOrigin: SideQuestionOrigin? = null,
+    val sideQuestions: List<SideQuestionCardItem>? = null,
     val savedAtEpochMs: Long = System.currentTimeMillis()
 )

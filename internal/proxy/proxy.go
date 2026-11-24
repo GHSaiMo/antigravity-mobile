@@ -771,6 +771,8 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		p.HandleGitHubPullRequests(w, r)
 		return
 	case r.URL.Path == "/gateway/btw/start",
+		r.URL.Path == "/gateway/btw/reply",
+		r.URL.Path == "/gateway/btw/cancel",
 		r.URL.Path == "/gateway/btw/list",
 		r.URL.Path == "/gateway/btw/status":
 		p.HandleBtw(w, r)

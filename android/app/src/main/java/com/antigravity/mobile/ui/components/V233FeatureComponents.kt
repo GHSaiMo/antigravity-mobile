@@ -29,11 +29,11 @@ import com.antigravity.mobile.data.model.BtwSideQuestionEntry
 import com.antigravity.mobile.data.model.BtwStatusResponse
 import com.antigravity.mobile.data.model.GitPullRequestItem
 import com.antigravity.mobile.data.model.ProjectTrustStatusResponse
+import com.antigravity.mobile.data.model.SideQuestionCardItem
+import com.antigravity.mobile.data.model.SideQuestionOrigin
 import com.antigravity.mobile.data.service.ApiClient
-import com.antigravity.mobile.data.service.fetchBtwStatus
 import com.antigravity.mobile.data.service.fetchGitHubPullRequests
 import com.antigravity.mobile.data.service.listBtwSideQuestions
-import com.antigravity.mobile.data.service.startBtwSideQuestion
 import com.antigravity.mobile.ui.theme.AntigravityTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -361,49 +361,307 @@ fun WorkspaceTrustBanner(
     }
 }
 
+@Composable
+fun SideQuestionInlineCardsSection(
+    items: List<SideQuestionCardItem>,
+    onOpen: (cascadeId: String, title: String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    if (items.isEmpty()) return
+    val colors = AntigravityTheme.colors
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(start = 18.dp, top = 4.dp, bottom = 2.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        items.forEach { item ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(colors.accentIndigo.copy(alpha = 0.07f))
+                    .border(0.8.dp, colors.accentIndigo.copy(alpha = 0.22f), RoundedCornerShape(12.dp))
+                    .clickable { onOpen(item.cascadeId, item.displayTitle) }
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.Top,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .width(2.5.dp)
+                        .height(32.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(colors.accentIndigo.copy(alpha = 0.5f))
+                )
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(3.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(5.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CallSplit,
+                            contentDescription = null,
+                            tint = colors.accentIndigo,
+                            modifier = Modifier.size(12.dp)
+                        )
+                        Text(
+                            text = "旁路快问".loc,
+                            color = colors.accentIndigo,
+                            fontSize = 10.5.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text("·", color = colors.textSecondary, fontSize = 10.5.sp)
+                        Text(
+                            text = item.displayTitle,
+                            color = colors.textPrimary,
+                            fontSize = 12.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
+                        )
+                        when {
+                            item.isRunning -> CircularProgressIndicator(
+                                modifier = Modifier.size(11.dp),
+                                strokeWidth = 1.6.dp,
+                                color = colors.accentIndigo
+                            )
+                            item.isError -> Box(
+                                modifier = Modifier
+                                    .size(6.dp)
+                                    .clip(CircleShape)
+                                    .background(colors.accentRed)
+                            )
+                            else -> Box(
+                                modifier = Modifier
+                                    .size(6.dp)
+                                    .clip(CircleShape)
+                                    .background(colors.accentIndigo.copy(alpha = 0.65f))
+                            )
+                        }
+                        Icon(
+                            imageVector = Icons.Default.ChevronRight,
+                            contentDescription = null,
+                            tint = colors.textSecondary.copy(alpha = 0.75f),
+                            modifier = Modifier.size(14.dp)
+                        )
+                    }
+                    val preview = item.answerPreview?.trim().orEmpty()
+                    if (preview.isNotEmpty()) {
+                        Text(
+                            text = preview,
+                            color = colors.textSecondary,
+                            fontSize = 12.sp,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    } else if (item.isRunning) {
+                        Text(
+                            text = "正在独立生成回复...".loc,
+                            color = colors.textSecondary,
+                            fontSize = 11.5.sp
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun BranchOriginBanner(
+    origin: SideQuestionOrigin,
+    isExpanded: Boolean,
+    onToggleExpand: () -> Unit,
+    onReturnToParent: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val colors = AntigravityTheme.colors
+    val title = origin.parentTitle?.trim().orEmpty()
+    val turn = origin.forkTurnNumber
+    val originLabel = when {
+        title.isNotEmpty() && turn != null && turn > 0 -> "承接自「$title」第 $turn 轮".loc
+        title.isNotEmpty() -> "承接自「$title」".loc
+        turn != null && turn > 0 -> "承接自主会话第 $turn 轮".loc
+        else -> "承接自主会话上下文".loc
+    }
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(colors.accentIndigo.copy(alpha = 0.07f))
+            .border(0.8.dp, colors.accentIndigo.copy(alpha = 0.24f), RoundedCornerShape(12.dp))
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.CallSplit,
+                contentDescription = null,
+                tint = colors.accentIndigo,
+                modifier = Modifier.size(14.dp)
+            )
+            Text(
+                text = originLabel,
+                color = colors.textPrimary,
+                fontSize = 12.5.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = if (isExpanded) "已展开共享前文".loc else "已共享前文上下文（默认折叠）".loc,
+                color = colors.textSecondary,
+                fontSize = 11.5.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(colors.accentIndigo.copy(alpha = 0.12f))
+                    .clickable(onClick = onToggleExpand)
+                    .padding(horizontal = 9.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(3.dp)
+            ) {
+                Icon(
+                    imageVector = if (isExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                    contentDescription = null,
+                    tint = colors.accentIndigo,
+                    modifier = Modifier.size(13.dp)
+                )
+                Text(
+                    text = if (isExpanded) "收起前文".loc else "展开前文".loc,
+                    color = colors.accentIndigo,
+                    fontSize = 11.5.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+            if (origin.parentCascadeId.isNotBlank()) {
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(colors.surfaceVariant)
+                        .clickable(onClick = onReturnToParent)
+                        .padding(horizontal = 9.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(3.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.SubdirectoryArrowLeft,
+                        contentDescription = null,
+                        tint = colors.textPrimary,
+                        modifier = Modifier.size(12.dp)
+                    )
+                    Text(
+                        text = "回主会话".loc,
+                        color = colors.textPrimary,
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun BranchForkDivider(
+    onCollapse: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val colors = AntigravityTheme.colors
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        HorizontalDivider(modifier = Modifier.weight(1f), color = colors.accentIndigo.copy(alpha = 0.25f))
+        Row(
+            modifier = Modifier
+                .clip(RoundedCornerShape(999.dp))
+                .background(colors.accentIndigo.copy(alpha = 0.10f))
+                .clickable(onClick = onCollapse)
+                .padding(horizontal = 10.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.CallSplit,
+                contentDescription = null,
+                tint = colors.accentIndigo,
+                modifier = Modifier.size(12.dp)
+            )
+            Text(
+                text = "以上为共享前文 · 以下为旁路分支".loc,
+                color = colors.accentIndigo,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+        }
+        HorizontalDivider(modifier = Modifier.weight(1f), color = colors.accentIndigo.copy(alpha = 0.25f))
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BtwSideQuestionBottomSheet(
     parentCascadeId: String,
-    activeModel: String,
-    initialQuote: String?,
-    onInsertIntoMain: (String) -> Unit,
-    onOpenStandalone: ((String) -> Unit)? = null,
+    parentTitle: String,
+    anchorStepIndex: Int?,
+    anchorPreview: String?,
+    existingBranches: List<SideQuestionCardItem>,
+    onOpenBranch: (cascadeId: String, title: String) -> Unit,
+    onStartBranch: suspend (question: String, stepIndex: Int?) -> Boolean,
     onDismiss: () -> Unit
 ) {
     val colors = AntigravityTheme.colors
     val scope = rememberCoroutineScope()
     var questionText by remember { mutableStateOf("") }
-    var quoteText by remember(initialQuote) { mutableStateOf(initialQuote.orEmpty()) }
-    var entries by remember { mutableStateOf<List<BtwSideQuestionEntry>>(emptyList()) }
-    var activeSideId by remember { mutableStateOf<String?>(null) }
-    var activeStatus by remember { mutableStateOf<BtwStatusResponse?>(null) }
+    var useAnchorStep by remember(anchorStepIndex) { mutableStateOf(anchorStepIndex != null) }
     var isStarting by remember { mutableStateOf(false) }
-    var errorMsg by remember { mutableStateOf<String?>(null) }
-    var showThinking by remember { mutableStateOf(false) }
+    var loadedBranches by remember { mutableStateOf<List<SideQuestionCardItem>>(emptyList()) }
+    val branches = if (loadedBranches.isNotEmpty()) loadedBranches else existingBranches
 
     LaunchedEffect(parentCascadeId) {
         if (parentCascadeId.isNotBlank()) {
             ApiClient.defaultInstance?.listBtwSideQuestions(parentCascadeId)?.onSuccess { list ->
-                entries = list
-                if (activeSideId == null && list.isNotEmpty()) {
-                    activeSideId = list.last().cascadeId
+                loadedBranches = list.map { entry ->
+                    SideQuestionCardItem(
+                        cascadeId = entry.cascadeId,
+                        parentCascadeId = entry.parentCascadeId ?: parentCascadeId,
+                        title = entry.title,
+                        question = entry.question,
+                        answerPreview = entry.answerPreview,
+                        status = entry.status,
+                        forkStepIndex = entry.forkStepIndex,
+                        anchorMessageId = null,
+                        turnCount = entry.turnCount,
+                        createdAt = entry.createdAt
+                    )
                 }
             }
-        }
-    }
-
-    LaunchedEffect(activeSideId) {
-        val sid = activeSideId ?: return@LaunchedEffect
-        val client = ApiClient.defaultInstance ?: return@LaunchedEffect
-        while (true) {
-            var done = false
-            client.fetchBtwStatus(sid).onSuccess { st ->
-                activeStatus = st
-                if (!st.isRunning) done = true
-            }
-            if (done) break
-            delay(850L)
         }
     }
 
@@ -432,174 +690,117 @@ fun BtwSideQuestionBottomSheet(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(min = 180.dp, max = 380.dp)
+                    .heightIn(max = 320.dp)
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                if (quoteText.isNotBlank()) {
+                if (anchorStepIndex != null && useAnchorStep) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(colors.surfaceVariant)
-                            .padding(10.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(colors.accentIndigo.copy(alpha = 0.08f))
+                            .border(0.8.dp, colors.accentIndigo.copy(alpha = 0.24f), RoundedCornerShape(12.dp))
+                            .padding(11.dp),
+                        verticalArrangement = Arrangement.spacedBy(5.dp)
                     ) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text("引用片段".loc, color = colors.accentIndigo, fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold)
-                            Text("清除".loc, color = colors.textSecondary, fontSize = 11.5.sp, modifier = Modifier.clickable { quoteText = "" })
-                        }
-                        Text(quoteText, color = colors.textSecondary, fontSize = 12.sp, maxLines = 4, overflow = TextOverflow.Ellipsis)
-                    }
-                }
-
-                if (entries.isNotEmpty()) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        entries.forEach { entry ->
-                            val selected = activeSideId == entry.cascadeId
                             Row(
-                                modifier = Modifier
-                                    .clip(CircleShape)
-                                    .background(if (selected) colors.accentIndigo.copy(alpha = 0.20f) else colors.surfaceVariant)
-                                    .clickable { activeSideId = entry.cascadeId }
-                                    .padding(horizontal = 10.dp, vertical = 5.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(5.dp)
                             ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(6.dp)
-                                        .clip(CircleShape)
-                                        .background(if (entry.status == "CASCADE_RUN_STATUS_RUNNING") colors.accentGreen else colors.accentIndigo)
-                                )
-                                Text(
-                                    text = entry.title ?: entry.question ?: "Side question",
-                                    color = colors.textPrimary,
-                                    fontSize = 12.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.widthIn(max = 150.dp)
-                                )
+                                Icon(Icons.Default.CallSplit, contentDescription = null, tint = colors.accentIndigo, modifier = Modifier.size(13.dp))
+                                Text("承接至所选消息的上下文".loc, color = colors.accentIndigo, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                             }
-                        }
-                    }
-                }
-
-                val st = activeStatus
-                if (st != null) {
-                    st.question?.takeIf { it.isNotBlank() }?.let { q ->
-                        Text(
-                            text = q,
-                            color = colors.textPrimary,
-                            fontSize = 13.5.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(colors.accentIndigo.copy(alpha = 0.12f))
-                                .padding(10.dp)
-                        )
-                    }
-
-                    st.thinking?.takeIf { it.isNotBlank() }?.let { think ->
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(colors.surfaceVariant)
-                                .clickable { showThinking = !showThinking }
-                                .padding(10.dp)
-                        ) {
                             Text(
-                                text = if (showThinking) "▼ 深度思考".loc else "▶ 深度思考".loc,
+                                text = "改用最新上下文".loc,
                                 color = colors.textSecondary,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Medium
+                                fontSize = 11.5.sp,
+                                modifier = Modifier.clickable { useAnchorStep = false }
                             )
-                            if (showThinking) {
-                                Spacer(Modifier.height(6.dp))
-                                Text(think, color = colors.textSecondary, fontSize = 12.sp)
-                            }
                         }
-                    }
-
-                    st.errorMessage?.takeIf { st.hasError && it.isNotBlank() }?.let { err ->
+                        val preview = anchorPreview?.trim().orEmpty()
                         Text(
-                            text = err,
-                            color = colors.accentRed,
-                            fontSize = 12.5.sp,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(colors.accentRed.copy(alpha = 0.12f))
-                                .padding(10.dp)
+                            text = if (preview.isNotEmpty()) preview else "将从 Step #$anchorStepIndex 处分叉，不携带后续消息。".loc,
+                            color = colors.textSecondary,
+                            fontSize = 12.sp,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
-
-                    val ans = st.answer.orEmpty()
-                    if (ans.isNotBlank()) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(colors.surfaceVariant.copy(alpha = 0.7f))
-                                .padding(12.dp)
-                        ) {
-                            MarkdownContentView(content = ans)
-                        }
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Button(
-                                onClick = {
-                                    val inserted = st.insertText?.takeIf { it.isNotBlank() } ?: ans
-                                    onDismiss()
-                                    onInsertIntoMain(inserted)
-                                },
-                                modifier = Modifier.weight(1f),
-                                colors = ButtonDefaults.buttonColors(containerColor = colors.accentIndigo)
-                            ) {
-                                Text("插入主对话".loc, fontWeight = FontWeight.SemiBold)
-                            }
-                            if (onOpenStandalone != null) {
-                                OutlinedButton(onClick = {
-                                    onDismiss()
-                                    onOpenStandalone(st.cascadeId)
-                                }) {
-                                    Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = "在独立会话打开".loc, modifier = Modifier.size(16.dp))
-                                }
-                            }
-                        }
-                    } else if (st.isRunning) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = colors.accentIndigo)
-                            Text("旁路快问正在生成回复...".loc, color = colors.textSecondary, fontSize = 13.sp)
-                        }
-                    }
-                } else if (!isStarting && entries.isEmpty()) {
-                    Text(
-                        text = "随时在不打断主任务流的前提下发起旁路提问，结果可一键引用插入主对话输入框。".loc,
-                        color = colors.textSecondary,
-                        fontSize = 12.5.sp,
+                } else {
+                    Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(10.dp))
+                            .clip(RoundedCornerShape(12.dp))
                             .background(colors.surfaceVariant)
-                            .padding(12.dp)
-                    )
+                            .padding(11.dp),
+                        verticalAlignment = Alignment.Top,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(Icons.Default.CallSplit, contentDescription = null, tint = colors.accentIndigo, modifier = Modifier.size(15.dp))
+                        Text(
+                            text = "基于「$parentTitle」当前上下文创建独立旁路分支，不打断主对话流，支持多轮追问。".loc,
+                            color = colors.textSecondary,
+                            fontSize = 12.5.sp
+                        )
+                    }
                 }
 
-                errorMsg?.let { Text(it, color = colors.accentRed, fontSize = 12.sp) }
+                if (branches.isNotEmpty()) {
+                    Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                        Text(
+                            text = "已有旁路分支 (${branches.size})".loc,
+                            color = colors.textSecondary,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        branches.forEach { branch ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(colors.surfaceVariant)
+                                    .clickable {
+                                        onDismiss()
+                                        onOpenBranch(branch.cascadeId, branch.displayTitle)
+                                    }
+                                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(Icons.Default.CallSplit, contentDescription = null, tint = colors.accentIndigo, modifier = Modifier.size(14.dp))
+                                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Text(
+                                        text = branch.displayTitle,
+                                        color = colors.textPrimary,
+                                        fontSize = 13.5.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    branch.answerPreview?.trim()?.takeIf { it.isNotEmpty() }?.let { ans ->
+                                        Text(
+                                            text = ans,
+                                            color = colors.textSecondary,
+                                            fontSize = 11.5.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                }
+                                if (branch.isRunning) {
+                                    CircularProgressIndicator(modifier = Modifier.size(12.dp), strokeWidth = 1.6.dp, color = colors.accentIndigo)
+                                }
+                                Icon(Icons.Default.ChevronRight, contentDescription = null, tint = colors.textSecondary, modifier = Modifier.size(16.dp))
+                            }
+                        }
+                    }
+                }
             }
 
             Row(
@@ -610,53 +811,37 @@ fun BtwSideQuestionBottomSheet(
                 OutlinedTextField(
                     value = questionText,
                     onValueChange = { questionText = it },
-                    placeholder = { Text("输入旁路快问（/btw）...".loc, fontSize = 14.sp) },
+                    placeholder = { Text("输入旁路问题（/btw）...".loc, fontSize = 14.sp) },
                     modifier = Modifier.weight(1f),
                     maxLines = 3
                 )
+                val canSend = !isStarting && questionText.isNotBlank()
                 IconButton(
-                    enabled = !isStarting && (questionText.isNotBlank() || quoteText.isNotBlank()),
+                    enabled = canSend,
                     onClick = {
                         val q = questionText.trim()
-                        val qt = quoteText.trim()
-                        val client = ApiClient.defaultInstance ?: return@IconButton
+                        if (q.isEmpty() || isStarting) return@IconButton
                         isStarting = true
-                        errorMsg = null
                         scope.launch {
-                            client.startBtwSideQuestion(
-                                parentCascadeId = parentCascadeId,
-                                question = q,
-                                quote = qt.ifBlank { null },
-                                model = activeModel
-                            ).onSuccess { res ->
-                                questionText = ""
-                                quoteText = ""
-                                val entry = BtwSideQuestionEntry(
-                                    cascadeId = res.cascadeId,
-                                    parentCascadeId = parentCascadeId,
-                                    title = res.title,
-                                    question = res.question,
-                                    quote = res.quote,
-                                    status = "CASCADE_RUN_STATUS_RUNNING",
-                                    createdAt = res.createdAt
-                                )
-                                entries = entries + entry
-                                activeSideId = res.cascadeId
-                            }.onFailure { err ->
-                                errorMsg = err.message ?: "启动旁路快问失败".loc
-                            }
+                            val ok = onStartBranch(q, if (useAnchorStep) anchorStepIndex else null)
                             isStarting = false
+                            if (ok) onDismiss()
                         }
                     },
                     modifier = Modifier
                         .size(44.dp)
                         .clip(CircleShape)
-                        .background(colors.accentIndigo)
+                        .background(if (canSend) colors.accentIndigo else colors.surfaceVariant)
                 ) {
                     if (isStarting) {
                         CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = Color.White)
                     } else {
-                        Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "发送".loc, tint = Color.White, modifier = Modifier.size(18.dp))
+                        Icon(
+                            Icons.AutoMirrored.Filled.Send,
+                            contentDescription = "发送".loc,
+                            tint = if (canSend) Color.White else colors.textSecondary.copy(alpha = 0.5f),
+                            modifier = Modifier.size(18.dp)
+                        )
                     }
                 }
             }

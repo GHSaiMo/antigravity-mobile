@@ -173,6 +173,11 @@ class ConversationListViewModel(
     }
 
     init {
+        viewModelScope.launch {
+            _quotaData.collect {
+                com.antigravity.mobile.data.service.ModelPickerQuotaCache.account.value = it?.currentAccount
+            }
+        }
         rawConversations = loadInitialConversations()
         connectionManager?.addOnRouteChangedListener(routeChangeListener)
         if (prefs.isPaired()) {
@@ -192,11 +197,41 @@ class ConversationListViewModel(
     }
 
     private fun sortConversations(items: List<ConversationItem>): List<ConversationItem> {
-        return items.sortedWith(
+        val flat = items.sortedWith(
             compareByDescending<ConversationItem> { it.status == ConversationStatus.ACTION }
                 .thenByDescending { it.isPinned }
                 .thenByDescending { it.lastModifiedEpochMs }
         )
+        return arrangeBranchTree(flat)
+    }
+
+    /** 将旁路快问分支稳定挂载到父会话正下方，若父会话不在当前筛选集合内仍作为独立行保留。 */
+    private fun arrangeBranchTree(items: List<ConversationItem>): List<ConversationItem> {
+        if (items.size <= 1) return items
+        val allIds = items.mapTo(HashSet(items.size)) { it.id }
+        val childrenByParent = LinkedHashMap<String, MutableList<ConversationItem>>()
+        val roots = ArrayList<ConversationItem>(items.size)
+        for (item in items) {
+            val parentId = item.branchParentId?.trim().orEmpty()
+            if (item.isSideQuestion && parentId.isNotEmpty() && parentId != item.id && allIds.contains(parentId)) {
+                childrenByParent.getOrPut(parentId) { mutableListOf() }.add(item)
+            } else {
+                roots.add(item)
+            }
+        }
+        if (childrenByParent.isEmpty()) return items
+        val result = ArrayList<ConversationItem>(items.size)
+        val emitted = HashSet<String>(items.size)
+        fun appendWithChildren(node: ConversationItem) {
+            if (!emitted.add(node.id)) return
+            result.add(node)
+            childrenByParent[node.id]?.forEach { appendWithChildren(it) }
+        }
+        roots.forEach { appendWithChildren(it) }
+        if (result.size < items.size) {
+            items.forEach { if (emitted.add(it.id)) result.add(it) }
+        }
+        return result
     }
 
     private fun markReorderedNow() {
@@ -982,12 +1017,15 @@ class ConversationListViewModel(
         }
         val query = _searchQuery.value.trim().lowercase()
         val filtered = if (query.isEmpty()) {
-            scoped
+            arrangeBranchTree(scoped)
         } else {
-            scoped.filter {
-                it.title.lowercase().contains(query) ||
-                        it.workspaceName.lowercase().contains(query)
-            }
+            arrangeBranchTree(
+                scoped.filter {
+                    it.title.lowercase().contains(query) ||
+                        it.workspaceName.lowercase().contains(query) ||
+                        (it.branchParentTitle?.lowercase()?.contains(query) == true)
+                }
+            )
         }
         _uiState.value = ConversationListUiState.Success(filtered)
     }

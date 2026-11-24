@@ -56,10 +56,15 @@ data class TrajectorySummary(
     /** Official project display name (alias or project.name) resolved by the gateway. */
     val workspaceName: String? = null,
     val currentBranch: String? = null,
-    val pullRequest: GitPullRequestItem? = null
+    val pullRequest: GitPullRequestItem? = null,
+    val isSideQuestion: Boolean? = null,
+    val branchParentId: String? = null,
+    val branchParentTitle: String? = null,
+    val forkStepIndex: Int? = null
 ) {
     val isSubagent: Boolean
         get() {
+            if (isSideQuestion == true) return false
             if (!parentConversationId.isNullOrBlank() || (nestingDepth ?: 0) > 0) return true
             val meta = trajectoryMetadata ?: return false
             if (!meta.parentConversationId.isNullOrBlank()) return true
@@ -103,7 +108,11 @@ data class ConversationItem(
     val hasRunningTasks: Boolean = false,
     val hasRunningSubagents: Boolean = false,
     val currentBranch: String? = null,
-    val pullRequest: GitPullRequestItem? = null
+    val pullRequest: GitPullRequestItem? = null,
+    val isSideQuestion: Boolean = false,
+    val branchParentId: String? = null,
+    val branchParentTitle: String? = null,
+    val forkStepIndex: Int? = null
 ) {
     val displayTitle: String
         get() = title.ifBlank { "未命名会话".loc }
@@ -223,7 +232,11 @@ data class ConversationItem(
                 hasRunningTasks = hasRunningTasks,
                 hasRunningSubagents = hasRunningSubagents,
                 currentBranch = summary.currentBranch,
-                pullRequest = summary.pullRequest
+                pullRequest = summary.pullRequest,
+                isSideQuestion = summary.isSideQuestion == true,
+                branchParentId = summary.branchParentId,
+                branchParentTitle = summary.branchParentTitle,
+                forkStepIndex = summary.forkStepIndex
             )
         }
 

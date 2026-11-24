@@ -442,7 +442,9 @@ private struct ChatInputTextAndSendRow: View {
         HStack(alignment: .bottom, spacing: 10) {
             BracketPlaceholderTextInput(
                 text: $viewModel.inputText,
-                placeholder: viewModel.isActivelyRunning ? String(localized: "向队列添加指令...") : String(localized: "发送对 Agent 的指令..."),
+                placeholder: viewModel.selectedSlashCommand?.name.lowercased() == "btw"
+                    ? String(localized: "输入旁路快问（不打断主对话）...")
+                    : (viewModel.isActivelyRunning ? String(localized: "向队列添加指令...") : String(localized: "发送对 Agent 的指令...")),
                 isFocused: $isInputFocused,
                 pendingSelectFirstPlaceholder: $viewModel.pendingSelectFirstPlaceholder
             )

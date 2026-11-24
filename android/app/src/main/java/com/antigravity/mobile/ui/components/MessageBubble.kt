@@ -17,6 +17,7 @@ import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Undo
 import androidx.compose.material.icons.filled.UnfoldLess
+import androidx.compose.material.icons.filled.SubdirectoryArrowLeft
 import androidx.compose.material.icons.filled.UnfoldMore
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.Warning
@@ -95,7 +96,8 @@ fun MessageBubble(
     onSelectWorkflowSubagent: ((SubagentItem) -> Unit)? = null,
     onForkClick: ((GatewayMessageItem) -> Unit)? = null,
     onNarrateClick: ((String) -> Unit)? = null,
-    onAskBtwClick: ((String) -> Unit)? = null
+    onAskBtwClick: ((Int?, String) -> Unit)? = null,
+    onInsertToParentClick: ((String) -> Unit)? = null
 ) {
     val colors = AntigravityTheme.colors
     val context = LocalContext.current
@@ -775,6 +777,17 @@ fun MessageBubble(
                                 shareCardRequest = ShareCardRequest(userBodyText, true, allUserImages)
                             }
                         )
+                        if (onAskBtwClick != null && message.stepIndex != null) {
+                            HorizontalDivider(color = colors.border.copy(alpha = 0.4f))
+                            DropdownMenuItem(
+                                text = { Text("旁路快问".loc) },
+                                leadingIcon = { Icon(Icons.Default.CallSplit, contentDescription = "旁路快问".loc) },
+                                onClick = {
+                                    showContextMenu = false
+                                    onAskBtwClick(message.stepIndex, userBodyText)
+                                }
+                            )
+                        }
                         // 当前 Antigravity 不支持撤回接口时，调用方传 null，菜单里就不显示这一项
                         if (onUndoClick != null) {
                             HorizontalDivider(color = colors.border.copy(alpha = 0.4f))
@@ -840,6 +853,18 @@ fun MessageBubble(
                         onDismissRequest = { showAgentMenu = false }
                     ) {
                         if (displayText.isNotBlank()) {
+                            if (onInsertToParentClick != null) {
+                                DropdownMenuItem(
+                                    text = { Text("插入主对话".loc) },
+                                    leadingIcon = { Icon(Icons.Default.SubdirectoryArrowLeft, contentDescription = "插入主对话".loc) },
+                                    onClick = {
+                                        showAgentMenu = false
+                                        val plain = MarkdownPlainText.convert(displayText)
+                                        onInsertToParentClick(plain.ifEmpty { displayText })
+                                    }
+                                )
+                                HorizontalDivider(color = colors.border.copy(alpha = 0.4f))
+                            }
                             val hasGroup1 = onNarrateClick != null
                             val hasGroup2 = onForkClick != null || onAskBtwClick != null
 
@@ -874,7 +899,7 @@ fun MessageBubble(
                                         onClick = {
                                             showAgentMenu = false
                                             val plain = MarkdownPlainText.convert(displayText)
-                                            onAskBtwClick(plain.ifEmpty { displayText })
+                                            onAskBtwClick(message.stepIndex, plain.ifEmpty { displayText })
                                         }
                                     )
                                 }
@@ -927,6 +952,34 @@ fun MessageBubble(
                                 onClick = {
                                     onPlanClick?.invoke(artifact.uri, artifact.title)
                                 }
+                            )
+                        }
+                    }
+
+                    if (onInsertToParentClick != null && displayText.isNotBlank()) {
+                        Row(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(999.dp))
+                                .background(colors.accentIndigo.copy(alpha = 0.10f))
+                                .clickable {
+                                    val plain = MarkdownPlainText.convert(displayText)
+                                    onInsertToParentClick(plain.ifEmpty { displayText })
+                                }
+                                .padding(horizontal = 10.dp, vertical = 5.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.SubdirectoryArrowLeft,
+                                contentDescription = null,
+                                tint = colors.accentIndigo,
+                                modifier = Modifier.size(13.dp)
+                            )
+                            Text(
+                                text = "插入主对话".loc,
+                                color = colors.accentIndigo,
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.SemiBold
                             )
                         }
                     }

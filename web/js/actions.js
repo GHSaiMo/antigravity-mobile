@@ -16,8 +16,11 @@ async function sendMessage() {
     clearTimeout(draftDebounceTimer);
     DraftManager.clear(activeCascadeId);
     updateChatControls(isCascadeRunning(activeCascadeId), null, false);
-    const sel = window.getSelection?.()?.toString()?.trim() || "";
-    window.V233?.openBtwModal?.({ parentCascadeId: activeCascadeId, quote: sel, initialQuestion: q });
+    if (q) {
+      window.V233?.startBtwAndOpen?.({ parentCascadeId: activeCascadeId, question: q });
+    } else {
+      window.V233?.openBtwModal?.({ parentCascadeId: activeCascadeId });
+    }
     return;
   }
 

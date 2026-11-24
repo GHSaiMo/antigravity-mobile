@@ -80,6 +80,97 @@ public struct ProjectTrustStatusResponse: Codable, Sendable, Equatable {
 
 // MARK: - /btw Side Questions (Antigravity 2.33.0 CORTEX_TRAJECTORY_TYPE_SIDE_QUESTION)
 
+public struct SideQuestionOrigin: Codable, Sendable, Hashable {
+    public let parentCascadeId: String
+    public let parentTitle: String?
+    public let forkStepIndex: Int
+    public let forkTurnNumber: Int?
+    public let isSideQuestion: Bool
+
+    public init(
+        parentCascadeId: String,
+        parentTitle: String? = nil,
+        forkStepIndex: Int = 0,
+        forkTurnNumber: Int? = nil,
+        isSideQuestion: Bool = true
+    ) {
+        self.parentCascadeId = parentCascadeId
+        self.parentTitle = parentTitle
+        self.forkStepIndex = forkStepIndex
+        self.forkTurnNumber = forkTurnNumber
+        self.isSideQuestion = isSideQuestion
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case parentCascadeId, parentTitle, forkStepIndex, forkTurnNumber, isSideQuestion
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        parentCascadeId = try c.decodeIfPresent(String.self, forKey: .parentCascadeId) ?? ""
+        parentTitle = try c.decodeIfPresent(String.self, forKey: .parentTitle)
+        forkStepIndex = try c.decodeIfPresent(Int.self, forKey: .forkStepIndex) ?? 0
+        forkTurnNumber = try c.decodeIfPresent(Int.self, forKey: .forkTurnNumber)
+        isSideQuestion = try c.decodeIfPresent(Bool.self, forKey: .isSideQuestion) ?? false
+    }
+}
+
+public struct SideQuestionCardItem: Codable, Sendable, Identifiable, Hashable {
+    public var id: String { cascadeId }
+    public let cascadeId: String
+    public let parentCascadeId: String?
+    public let title: String?
+    public let question: String?
+    public let answerPreview: String?
+    public let status: String?
+    public let forkStepIndex: Int?
+    public let anchorMessageId: String?
+    public let turnCount: Int?
+    public let createdAt: String?
+
+    public var isRunning: Bool {
+        status == "CASCADE_RUN_STATUS_RUNNING"
+    }
+
+    public var isError: Bool {
+        status == "CASCADE_RUN_STATUS_ERROR"
+    }
+
+    public var displayTitle: String {
+        if let t = title?.trimmingCharacters(in: .whitespacesAndNewlines), !t.isEmpty {
+            return t
+        }
+        if let q = question?.trimmingCharacters(in: .whitespacesAndNewlines), !q.isEmpty {
+            return q
+        }
+        return String(localized: "旁路快问")
+    }
+
+    public init(
+        cascadeId: String,
+        parentCascadeId: String? = nil,
+        title: String? = nil,
+        question: String? = nil,
+        answerPreview: String? = nil,
+        status: String? = nil,
+        forkStepIndex: Int? = nil,
+        anchorMessageId: String? = nil,
+        turnCount: Int? = nil,
+        createdAt: String? = nil
+    ) {
+        self.cascadeId = cascadeId
+        self.parentCascadeId = parentCascadeId
+        self.title = title
+        self.question = question
+        self.answerPreview = answerPreview
+        self.status = status
+        self.forkStepIndex = forkStepIndex
+        self.anchorMessageId = anchorMessageId
+        self.turnCount = turnCount
+        self.createdAt = createdAt
+    }
+}
+
 public struct BtwSideQuestionEntry: Codable, Sendable, Identifiable, Hashable {
     public var id: String { cascadeId }
     public let cascadeId: String
@@ -88,6 +179,9 @@ public struct BtwSideQuestionEntry: Codable, Sendable, Identifiable, Hashable {
     public let question: String?
     public let quote: String?
     public let status: String?
+    public let forkStepIndex: Int?
+    public let answerPreview: String?
+    public let turnCount: Int?
     public let createdAt: String?
 }
 
@@ -98,6 +192,7 @@ public struct BtwStartResponse: Codable, Sendable {
     public let title: String?
     public let question: String?
     public let quote: String?
+    public let forkStepIndex: Int?
     public let createdAt: String?
 }
 
@@ -109,6 +204,9 @@ public struct BtwListResponse: Codable, Sendable {
 public struct BtwStatusResponse: Codable, Sendable {
     public let cascadeId: String
     public let parentCascadeId: String?
+    public let parentTitle: String?
+    public let forkStepIndex: Int?
+    public let forkTurnNumber: Int?
     public let status: String?
     public let isRunning: Bool?
     public let hasError: Bool?
@@ -118,6 +216,7 @@ public struct BtwStatusResponse: Codable, Sendable {
     public let quote: String?
     public let thinking: String?
     public let answer: String?
+    public let answerPreview: String?
     public let insertText: String?
     public let totalSteps: Int?
 }

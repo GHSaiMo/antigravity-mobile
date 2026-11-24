@@ -46,7 +46,9 @@ public struct ChatView: View {
     @State var commitPickerState = CommitSlidePickerState()
     @State var selectedSubagentDetail: SubagentItem? = nil
     @State var showBtwSheet: Bool = false
-    @State var btwInitialQuote: String? = nil
+    @State var btwAnchorStepIndex: Int? = nil
+    @State var btwAnchorPreview: String? = nil
+    @State var showSharedBranchContext: Bool = false
     @State var selectedGitHubPRItem: IdentifiableURL? = nil
     @State var isSlashPickerDismissed: Bool = false
     @State var highlightedTurnMessageId: String? = nil
@@ -98,13 +100,24 @@ public struct ChatView: View {
         } else {
             let isNewOrEmpty = isNewConversation || conversation.stepCount == 0
             self.shouldAutoFocus = isNewOrEmpty
+            let seededBranchOrigin: SideQuestionOrigin? = {
+                guard let parentId = conversation.branchParentId, !parentId.isEmpty else { return nil }
+                return SideQuestionOrigin(
+                    parentCascadeId: parentId,
+                    parentTitle: conversation.branchParentTitle,
+                    forkStepIndex: conversation.forkStepIndex ?? 0,
+                    forkTurnNumber: nil,
+                    isSideQuestion: conversation.isSideQuestion
+                )
+            }()
             let vm = ChatViewModel(
                 cascadeId: conversation.id,
                 initialTitle: conversation.title,
                 workspaceName: conversation.workspaceName,
                 isNewConversation: isNewOrEmpty,
                 isUnread: conversation.isUnread,
-                conversationStatus: conversation.status
+                conversationStatus: conversation.status,
+                initialBranchOrigin: seededBranchOrigin
             )
             _viewModel = State(initialValue: vm)
             _useLazyMessagesStack = State(initialValue: Self.shouldUseLazyStack(for: vm.messages))
@@ -317,7 +330,8 @@ public struct ChatView: View {
                 }
                 Divider()
                 Button {
-                    btwInitialQuote = nil
+                    btwAnchorStepIndex = nil
+                    btwAnchorPreview = nil
                     showBtwSheet = true
                 } label: {
                     Label("旁路快问", systemImage: "bubble.left.and.exclamationmark.bubble.right")
@@ -388,6 +402,17 @@ public struct ChatView: View {
                 if let state = notif.object as? PermissionStateResponse {
                     viewModel.permissionState = state
                 }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .btwInsertedIntoParentDraft)) { notif in
+                guard let info = notif.userInfo,
+                      let targetId = info["cascadeId"] as? String,
+                      targetId == viewModel.cascadeId,
+                      let merged = info["text"] as? String else { return }
+                viewModel.inputText = merged
+                viewModel.focusInputTrigger &+= 1
+            }
+            .onChange(of: viewModel.cascadeId) { _, _ in
+                showSharedBranchContext = false
             }
             .onChange(of: viewModel.pendingInteraction != nil) { _, hasPending in
                 if hasPending {
@@ -544,22 +569,23 @@ public struct ChatView: View {
                 }
             }
             .sheet(isPresented: $showBtwSheet, onDismiss: {
-                btwInitialQuote = nil
+                btwAnchorStepIndex = nil
+                btwAnchorPreview = nil
             }) {
                 BtwSideQuestionSheet(
                     parentCascadeId: viewModel.cascadeId,
-                    activeModel: viewModel.activeModel,
-                    initialQuote: btwInitialQuote,
-                    onInsertIntoMain: { inserted in
-                        let existing = viewModel.inputText.trimmingCharacters(in: .whitespacesAndNewlines)
-                        viewModel.inputText = existing.isEmpty ? inserted : (existing + "\n\n" + inserted)
-                        viewModel.focusInputTrigger &+= 1
-                    },
-                    onOpenStandalone: { targetId in
+                    parentTitle: viewModel.currentTitle,
+                    anchorStepIndex: btwAnchorStepIndex,
+                    anchorPreview: btwAnchorPreview,
+                    existingBranches: viewModel.sideQuestions,
+                    onOpenBranch: { targetId in
                         NotificationCenter.default.post(
-                            name: .openConversationFromTaskCenter,
+                            name: .openConversationById,
                             object: targetId
                         )
+                    },
+                    onStartBranch: { question, stepIdx in
+                        await viewModel.startBtwAndOpen(question: question, stepIndex: stepIdx)
                     }
                 )
             }
@@ -735,7 +761,8 @@ public struct ChatView: View {
         showCameraPicker = false
         showDocumentScanner = false
         showBtwSheet = false
-        btwInitialQuote = nil
+        btwAnchorStepIndex = nil
+        btwAnchorPreview = nil
         selectedSubagentDetail = nil
         selectedGitHubPRItem = nil
         previewDraftGallery = nil
@@ -1372,7 +1399,47 @@ private struct ChatToolbarPrincipalView: View {
     var body: some View {
         let isRunning = viewModel.isRunning || viewModel.isAwaitingResponse
         let hasPending = viewModel.pendingInteraction != nil || viewModel.canProceed
-        if viewModel.turns.count >= 2 {
+        if let origin = viewModel.branchOrigin, origin.isSideQuestion {
+            VStack(spacing: 2) {
+                Text(viewModel.currentTitle)
+                    .font(.system(size: 14.5, weight: .semibold))
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+
+                HStack(spacing: 8) {
+                    Button {
+                        if !origin.parentCascadeId.isEmpty {
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            NotificationCenter.default.post(name: .openConversationById, object: origin.parentCascadeId)
+                        }
+                    } label: {
+                        HStack(spacing: 3) {
+                            Image(systemName: "arrow.triangle.branch")
+                                .font(.system(size: 8.5, weight: .bold))
+                            Text("旁路快问 · 回主会话")
+                                .font(.system(size: 10, weight: .semibold))
+                        }
+                        .foregroundColor(.indigo)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 1.5)
+                        .background(Color.indigo.opacity(0.11))
+                        .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+
+                    if let meter = viewModel.contextMeter,
+                       settings.shouldShowContextMeter(meter, isRunning: isRunning, hasPendingInteraction: hasPending) {
+                        ContextRingCapsuleView(
+                            meter: meter,
+                            isRunning: isRunning,
+                            hasPendingInteraction: hasPending
+                        ) {
+                            onOpenContextAudit()
+                        }
+                    }
+                }
+            }
+        } else if viewModel.turns.count >= 2 {
             VStack(spacing: 2) {
                 Button(action: onOpenNavigator) {
                     Text(viewModel.currentTitle)

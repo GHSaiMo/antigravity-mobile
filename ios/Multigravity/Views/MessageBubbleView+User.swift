@@ -74,6 +74,15 @@ extension MessageBubbleView {
                     shareLongImageButton
                 }
             }
+            if let onAskBtw, message.effectiveStepIndex != nil {
+                Section {
+                    Button {
+                        onAskBtw(message.effectiveStepIndex, parsed.body)
+                    } label: {
+                        Label("旁路快问", systemImage: "bubble.left.and.exclamationmark.bubble.right")
+                    }
+                }
+            }
             // 当前 Antigravity 不支持撤回接口时，调用方传 nil，菜单里就不显示这一项
             if let onUndo {
                 Section {

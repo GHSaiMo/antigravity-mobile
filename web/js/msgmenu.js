@@ -162,7 +162,13 @@ function initMessageActions() {
       } else if (action === "narrate" && row) {
         window.Phase3?.narrateText?.(messageRowText(row));
       } else if (action === "btw" && row) {
-        window.V233?.openBtwModal?.({ parentCascadeId: activeCascadeId, quote: messageRowText(row) });
+        const rawStep = row.getAttribute("data-step-index");
+        const stepIndex = rawStep !== null && rawStep !== "" && !Number.isNaN(Number(rawStep)) ? Number(rawStep) : null;
+        window.V233?.openBtwModal?.({
+          parentCascadeId: activeCascadeId,
+          stepIndex,
+          preview: messageRowText(row),
+        });
       }
       row?.classList.remove("actions-open");
       return;
