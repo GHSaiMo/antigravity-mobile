@@ -119,4 +119,43 @@ class ConversationPinTest {
         assertEquals("xiaomi-ocr", sorted[0].id)
         assertEquals("troubleshooting", sorted[1].id)
     }
+
+    @Test
+    fun fromSummary_swarmMetadataAndRunningOrder() {
+        val activeSwarmSummary = TrajectorySummary(
+            summary = "iPhone Duo 适配开发",
+            status = "CASCADE_RUN_STATUS_IDLE",
+            lastModifiedTime = "2026-11-24T05:27:13Z",
+            hasSwarm = true,
+            swarmWorkingCount = 2,
+            swarmTotalMembers = 5
+        )
+        val activeSwarm = ConversationItem.fromSummary("swarm-1", activeSwarmSummary)
+        assertTrue(activeSwarm.hasSwarm)
+        assertEquals(2, activeSwarm.swarmWorkingCount)
+        assertEquals(5, activeSwarm.swarmTotalMembers)
+        assertEquals(ConversationStatus.RUNNING, activeSwarm.status)
+        assertTrue(activeSwarm.isSwarmWorking)
+
+        val idleRecent = ConversationItem(
+            id = "idle-recent",
+            title = "Recent Idle",
+            status = ConversationStatus.IDLE,
+            lastModifiedTime = "2026-11-24T06:10:00Z"
+        )
+        val pinnedOld = ConversationItem(
+            id = "pinned-old",
+            title = "Pinned Old",
+            status = ConversationStatus.IDLE,
+            lastModifiedTime = "2026-11-24T01:00:00Z",
+            isPinned = true
+        )
+        val sorted = listOf(idleRecent, activeSwarm, pinnedOld).sortedWith(
+            compareByDescending<ConversationItem> { it.status == ConversationStatus.ACTION }
+                .thenByDescending { it.isPinned }
+                .thenByDescending { it.status == ConversationStatus.RUNNING }
+                .thenByDescending { it.lastModifiedEpochMs }
+        )
+        assertEquals(listOf("pinned-old", "swarm-1", "idle-recent"), sorted.map { it.id })
+    }
 }

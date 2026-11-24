@@ -215,6 +215,7 @@ class ConversationListViewModel(
         val flat = items.sortedWith(
             compareByDescending<ConversationItem> { it.status == ConversationStatus.ACTION }
                 .thenByDescending { it.isPinned }
+                .thenByDescending { it.status == ConversationStatus.RUNNING }
                 .thenByDescending { it.lastModifiedEpochMs }
         )
         return arrangeBranchTree(flat)
@@ -262,7 +263,9 @@ class ConversationListViewModel(
         val now = android.os.SystemClock.elapsedRealtime()
         val prevActionIds = rawConversations.filter { it.status == ConversationStatus.ACTION }.mapTo(HashSet()) { it.id }
         val hasNewPendingAction = sorted.any { it.status == ConversationStatus.ACTION && !prevActionIds.contains(it.id) }
-        if (forceReorder || hasNewPendingAction || rawConversations.isEmpty() || lastReorderAtMs == 0L || (now - lastReorderAtMs) >= REORDER_COOLDOWN_MS) {
+        val prevRunningIds = rawConversations.filter { it.status == ConversationStatus.RUNNING }.mapTo(HashSet()) { it.id }
+        val hasNewRunning = sorted.any { it.status == ConversationStatus.RUNNING && !prevRunningIds.contains(it.id) }
+        if (forceReorder || hasNewPendingAction || hasNewRunning || rawConversations.isEmpty() || lastReorderAtMs == 0L || (now - lastReorderAtMs) >= REORDER_COOLDOWN_MS) {
             markReorderedNow()
             return sorted
         }
@@ -275,7 +278,8 @@ class ConversationListViewModel(
 
         val buffered = (added.filter { it.status == ConversationStatus.ACTION } + preserved.filter { it.status == ConversationStatus.ACTION }) +
             (added.filter { it.status != ConversationStatus.ACTION && it.isPinned } + preserved.filter { it.status != ConversationStatus.ACTION && it.isPinned }) +
-            (added.filter { it.status != ConversationStatus.ACTION && !it.isPinned } + preserved.filter { it.status != ConversationStatus.ACTION && !it.isPinned })
+            (added.filter { it.status != ConversationStatus.ACTION && !it.isPinned && it.status == ConversationStatus.RUNNING } + preserved.filter { it.status != ConversationStatus.ACTION && !it.isPinned && it.status == ConversationStatus.RUNNING }) +
+            (added.filter { it.status != ConversationStatus.ACTION && !it.isPinned && it.status != ConversationStatus.RUNNING } + preserved.filter { it.status != ConversationStatus.ACTION && !it.isPinned && it.status != ConversationStatus.RUNNING })
 
         val orderChanged = buffered.size == sorted.size &&
             buffered.indices.any { buffered[it].id != sorted[it].id }
@@ -758,7 +762,10 @@ class ConversationListViewModel(
                 stepCount = maxOf(old.stepCount, item.stepCount),
                 workspaceName = if (item.workspaceName.isNotBlank() && item.workspaceName != "Chat") item.workspaceName else old.workspaceName,
                 lastModifiedTime = old.lastModifiedTime,
-                isUnread = item.isUnread
+                isUnread = item.isUnread,
+                hasSwarm = item.hasSwarm || old.hasSwarm,
+                swarmWorkingCount = if (item.hasSwarm) item.swarmWorkingCount else old.swarmWorkingCount,
+                swarmTotalMembers = if (item.hasSwarm) item.swarmTotalMembers else old.swarmTotalMembers
             )
             val list = rawConversations.toMutableList()
             list[existingIndex] = merged

@@ -21,6 +21,9 @@ public struct TrajectorySummary: Codable, Sendable {
     public let hasRunningTasks: Bool?
     public let runningTaskCount: Int?
     public let hasRunningSubagents: Bool?
+    public let hasSwarm: Bool?
+    public let swarmWorkingCount: Int?
+    public let swarmTotalMembers: Int?
     public let notFullyIdle: Bool?
     public let backgroundTaskCount: Int?
     public let workspaceName: String?
@@ -156,6 +159,9 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
     public let isArchived: Bool
     public let hasRunningTasks: Bool
     public let hasRunningSubagents: Bool
+    public let hasSwarm: Bool
+    public let swarmWorkingCount: Int
+    public let swarmTotalMembers: Int
     public let currentBranch: String?
     public let pullRequest: GitPullRequestItem?
     public let isSideQuestion: Bool
@@ -174,6 +180,10 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
     public var isWorking: Bool {
         status.isRunning || hasRunningTasks
     }
+
+    public var isSwarmWorking: Bool {
+        hasSwarm && (swarmWorkingCount > 0 || status.isRunning)
+    }
     
     enum CodingKeys: String, CodingKey {
         case id
@@ -191,6 +201,9 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
         case isArchived
         case hasRunningTasks
         case hasRunningSubagents
+        case hasSwarm
+        case swarmWorkingCount
+        case swarmTotalMembers
         case currentBranch
         case pullRequest
         case isSideQuestion
@@ -216,6 +229,9 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
         self.isArchived = try container.decodeIfPresent(Bool.self, forKey: .isArchived) ?? false
         self.hasRunningTasks = try container.decodeIfPresent(Bool.self, forKey: .hasRunningTasks) ?? false
         self.hasRunningSubagents = try container.decodeIfPresent(Bool.self, forKey: .hasRunningSubagents) ?? false
+        self.hasSwarm = try container.decodeIfPresent(Bool.self, forKey: .hasSwarm) ?? false
+        self.swarmWorkingCount = try container.decodeIfPresent(Int.self, forKey: .swarmWorkingCount) ?? 0
+        self.swarmTotalMembers = try container.decodeIfPresent(Int.self, forKey: .swarmTotalMembers) ?? 0
         self.currentBranch = try container.decodeIfPresent(String.self, forKey: .currentBranch)
         self.pullRequest = try container.decodeIfPresent(GitPullRequestItem.self, forKey: .pullRequest)
         self.isSideQuestion = try container.decodeIfPresent(Bool.self, forKey: .isSideQuestion) ?? false
@@ -241,6 +257,9 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
         if isArchived { try container.encode(isArchived, forKey: .isArchived) }
         try container.encode(hasRunningTasks, forKey: .hasRunningTasks)
         try container.encode(hasRunningSubagents, forKey: .hasRunningSubagents)
+        if hasSwarm { try container.encode(hasSwarm, forKey: .hasSwarm) }
+        if swarmWorkingCount > 0 { try container.encode(swarmWorkingCount, forKey: .swarmWorkingCount) }
+        if swarmTotalMembers > 0 { try container.encode(swarmTotalMembers, forKey: .swarmTotalMembers) }
         try container.encodeIfPresent(currentBranch, forKey: .currentBranch)
         try container.encodeIfPresent(pullRequest, forKey: .pullRequest)
         if isSideQuestion { try container.encode(isSideQuestion, forKey: .isSideQuestion) }
@@ -286,6 +305,9 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
             isArchived: self.isArchived,
             hasRunningTasks: self.hasRunningTasks,
             hasRunningSubagents: self.hasRunningSubagents,
+            hasSwarm: self.hasSwarm,
+            swarmWorkingCount: self.swarmWorkingCount,
+            swarmTotalMembers: self.swarmTotalMembers,
             currentBranch: self.currentBranch,
             pullRequest: self.pullRequest,
             isSideQuestion: self.isSideQuestion,
@@ -312,6 +334,9 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
             isArchived: self.isArchived,
             hasRunningTasks: self.hasRunningTasks,
             hasRunningSubagents: self.hasRunningSubagents,
+            hasSwarm: self.hasSwarm,
+            swarmWorkingCount: self.swarmWorkingCount,
+            swarmTotalMembers: self.swarmTotalMembers,
             currentBranch: self.currentBranch,
             pullRequest: self.pullRequest,
             isSideQuestion: self.isSideQuestion,
@@ -338,6 +363,9 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
             isArchived: archived,
             hasRunningTasks: self.hasRunningTasks,
             hasRunningSubagents: self.hasRunningSubagents,
+            hasSwarm: self.hasSwarm,
+            swarmWorkingCount: self.swarmWorkingCount,
+            swarmTotalMembers: self.swarmTotalMembers,
             currentBranch: self.currentBranch,
             pullRequest: self.pullRequest,
             isSideQuestion: self.isSideQuestion,
@@ -387,12 +415,15 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
             (summary.backgroundTaskCount ?? 0) > 0 ||
             summary.notFullyIdle == true
         self.hasRunningSubagents = summary.hasRunningSubagents == true
+        self.hasSwarm = summary.hasSwarm == true
+        self.swarmWorkingCount = max(0, summary.swarmWorkingCount ?? 0)
+        self.swarmTotalMembers = max(0, summary.swarmTotalMembers ?? 0)
         
         if summary.needsInput == true {
             self.status = .action
         } else if summary.hasError == true || summary.status == "CASCADE_RUN_STATUS_ERROR" {
             self.status = .error
-        } else if summary.status == "CASCADE_RUN_STATUS_RUNNING" || self.hasRunningSubagents {
+        } else if summary.status == "CASCADE_RUN_STATUS_RUNNING" || self.hasRunningSubagents || self.swarmWorkingCount > 0 {
             self.status = .running
         } else if summary.status == "CASCADE_RUN_STATUS_IDLE" {
             self.status = .idle
@@ -478,6 +509,9 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
         isArchived: Bool = false,
         hasRunningTasks: Bool = false,
         hasRunningSubagents: Bool = false,
+        hasSwarm: Bool = false,
+        swarmWorkingCount: Int = 0,
+        swarmTotalMembers: Int = 0,
         currentBranch: String? = nil,
         pullRequest: GitPullRequestItem? = nil,
         isSideQuestion: Bool = false,
@@ -500,6 +534,9 @@ public struct ConversationItem: Identifiable, Hashable, Sendable, Codable {
         self.isArchived = isArchived
         self.hasRunningTasks = hasRunningTasks
         self.hasRunningSubagents = hasRunningSubagents
+        self.hasSwarm = hasSwarm
+        self.swarmWorkingCount = swarmWorkingCount
+        self.swarmTotalMembers = swarmTotalMembers
         self.currentBranch = currentBranch
         self.pullRequest = pullRequest
         self.isSideQuestion = isSideQuestion

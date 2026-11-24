@@ -315,6 +315,17 @@ final class DemoGateway: @unchecked Sendable {
             if !workspaces.isEmpty {
                 entry["workspaces"] = workspaces
             }
+            if let swarm = c.swarm {
+                entry["hasSwarm"] = true
+                if let brief = swarm["brief"] as? [String: Any] {
+                    if let wc = brief["workingCount"] as? Int, wc > 0 {
+                        entry["swarmWorkingCount"] = wc
+                    }
+                    if let tm = brief["totalMembers"] as? Int, tm > 0 {
+                        entry["swarmTotalMembers"] = tm
+                    }
+                }
+            }
             if isErr, let lastErr = c.messages.last(where: { $0.type == "error" }) {
                 entry["errorMessage"] = lastErr.text
             }

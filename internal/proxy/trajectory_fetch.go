@@ -698,6 +698,46 @@ func (p *Proxy) FetchRawCascadeSummariesWithMaxAge(maxAge time.Duration) (map[st
 
 	filterDeletedZombieSummaries(summaries)
 
+	subagentIDs := make(map[string]bool)
+	subagentParents := make(map[string]string)
+	subagentRoots := make(map[string]string)
+	for id, s := range summaries {
+		if s == nil || IsDeletedCascade(id) {
+			continue
+		}
+		if isSubagentTrajectoryMap(s, id) {
+			subagentIDs[id] = true
+			if pid := extractSummaryParentID(s); pid != "" {
+				subagentParents[id] = pid
+			}
+			if rid := extractSummaryRootID(s); rid != "" {
+				subagentRoots[id] = rid
+			}
+		}
+	}
+	resolveVisibleAncestor := func(id string) string {
+		cur := id
+		for depth := 0; depth < 8; depth++ {
+			next := subagentParents[cur]
+			if next == "" || next == cur {
+				break
+			}
+			if !subagentIDs[next] {
+				if _, exists := summaries[next]; exists && !IsDeletedCascade(next) {
+					return next
+				}
+				break
+			}
+			cur = next
+		}
+		if root := subagentRoots[id]; root != "" && !subagentIDs[root] {
+			if _, exists := summaries[root]; exists && !IsDeletedCascade(root) {
+				return root
+			}
+		}
+		return ""
+	}
+
 	runningSubagents := make(map[string]bool)
 	// Filter out internal subagent sessions while tracking parents of actively running subagents
 	for id, s := range summaries {
@@ -708,10 +748,8 @@ func (p *Proxy) FetchRawCascadeSummariesWithMaxAge(maxAge time.Duration) (map[st
 		if isSubagentTrajectoryMap(s, id) {
 			status, _ := s["status"].(string)
 			if status == "CASCADE_RUN_STATUS_RUNNING" {
-				if meta, ok := s["trajectoryMetadata"].(map[string]interface{}); ok {
-					if parent, ok := meta["parentConversationId"].(string); ok && strings.TrimSpace(parent) != "" {
-						runningSubagents[strings.TrimSpace(parent)] = true
-					}
+				if ancestor := resolveVisibleAncestor(id); ancestor != "" {
+					runningSubagents[ancestor] = true
 				}
 			}
 			delete(summaries, id)

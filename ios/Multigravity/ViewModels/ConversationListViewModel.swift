@@ -318,6 +318,9 @@ public final class ConversationListViewModel {
                                 isPinned: existing.isPinned,
                                 hasRunningTasks: existing.hasRunningTasks,
                                 hasRunningSubagents: existing.hasRunningSubagents,
+                                hasSwarm: existing.hasSwarm,
+                                swarmWorkingCount: existing.swarmWorkingCount,
+                                swarmTotalMembers: existing.swarmTotalMembers,
                                 currentBranch: existing.currentBranch,
                                 pullRequest: existing.pullRequest,
                                 isSideQuestion: true,
@@ -366,6 +369,9 @@ public final class ConversationListViewModel {
             }
             if a.isPinned != b.isPinned {
                 return a.isPinned && !b.isPinned
+            }
+            if a.status.isRunning != b.status.isRunning {
+                return a.status.isRunning && !b.status.isRunning
             }
             return a.effectiveLastModified > b.effectiveLastModified
         }
@@ -765,7 +771,9 @@ public final class ConversationListViewModel {
         let now = ProcessInfo.processInfo.systemUptime
         let prevActionIDs = Set(conversations.filter { $0.status.needsAction }.map(\.id))
         let hasNewPendingAction = sorted.contains { $0.status.needsAction && !prevActionIDs.contains($0.id) }
-        if forceReorder || hasNewPendingAction || conversations.isEmpty || lastReorderUptime == 0 || (now - lastReorderUptime) >= Self.reorderCooldownSeconds {
+        let prevRunningIDs = Set(conversations.filter { $0.status.isRunning }.map(\.id))
+        let hasNewRunning = sorted.contains { $0.status.isRunning && !prevRunningIDs.contains($0.id) }
+        if forceReorder || hasNewPendingAction || hasNewRunning || conversations.isEmpty || lastReorderUptime == 0 || (now - lastReorderUptime) >= Self.reorderCooldownSeconds {
             markReorderedNow()
             return sorted
         }
@@ -778,7 +786,8 @@ public final class ConversationListViewModel {
 
         let buffered = (added.filter { $0.status.needsAction } + preserved.filter { $0.status.needsAction }) +
             (added.filter { !$0.status.needsAction && $0.isPinned } + preserved.filter { !$0.status.needsAction && $0.isPinned }) +
-            (added.filter { !$0.status.needsAction && !$0.isPinned } + preserved.filter { !$0.status.needsAction && !$0.isPinned })
+            (added.filter { !$0.status.needsAction && !$0.isPinned && $0.status.isRunning } + preserved.filter { !$0.status.needsAction && !$0.isPinned && $0.status.isRunning }) +
+            (added.filter { !$0.status.needsAction && !$0.isPinned && !$0.status.isRunning } + preserved.filter { !$0.status.needsAction && !$0.isPinned && !$0.status.isRunning })
 
         let orderChanged = buffered.map(\.id) != sorted.map(\.id)
         if orderChanged {
@@ -945,17 +954,7 @@ public final class ConversationListViewModel {
         let originalTitle = item.title
         // Optimistic UI update
         if let idx = self.conversations.firstIndex(where: { $0.id == item.id }) {
-            let old = self.conversations[idx]
-            self.conversations[idx] = ConversationItem(
-                id: old.id,
-                title: trimmed,
-                status: old.status,
-                stepCount: old.stepCount,
-                workspaceName: old.workspaceName,
-                lastModified: old.lastModified,
-                isSubagent: old.isSubagent,
-                isUnread: old.isUnread
-            )
+            self.conversations[idx] = self.conversations[idx].withTitle(trimmed)
         }
         self.cacheManager.updateConversationTitle(cascadeId: item.id, newTitle: trimmed)
         ActivityManager.shared.updateTitle(cascadeId: item.id, newTitle: trimmed)
@@ -966,17 +965,7 @@ public final class ConversationListViewModel {
             // Revert on failure
             ActivityManager.shared.updateTitle(cascadeId: item.id, newTitle: originalTitle)
             if let idx = self.conversations.firstIndex(where: { $0.id == item.id }) {
-                let old = self.conversations[idx]
-                self.conversations[idx] = ConversationItem(
-                    id: old.id,
-                    title: originalTitle,
-                    status: old.status,
-                    stepCount: old.stepCount,
-                    workspaceName: old.workspaceName,
-                    lastModified: old.lastModified,
-                    isSubagent: old.isSubagent,
-                    isUnread: old.isUnread
-                )
+                self.conversations[idx] = self.conversations[idx].withTitle(originalTitle)
             }
             self.cacheManager.updateConversationTitle(cascadeId: item.id, newTitle: originalTitle)
             self.errorMessage = String(localized: "重命名会话失败: \(error.localizedDescription)")

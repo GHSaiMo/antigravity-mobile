@@ -520,10 +520,197 @@ const SwarmManager = (() => {
       .replace(/'/g, "&#039;");
   }
 
+  const pixelBeeCache = new Map();
+
+  function shiftHue(h, target, amount) {
+    const d = (((target - h + 540) % 360) + 360) % 360 - 180;
+    return h + d * amount;
+  }
+
+  function hslToRGBA(rawH, rawS, rawL, a = 255) {
+    const h = ((rawH % 360) + 360) % 360;
+    const s = rawS / 100;
+    const l = rawL / 100;
+    const amp = s * Math.min(l, 1 - l);
+    const comp = (n) => {
+      const k = (n + h / 30) % 12;
+      const v = l - amp * Math.max(-1, Math.min(k - 3, 9 - k, 1));
+      return Math.max(0, Math.min(255, Math.round(v * 255)));
+    };
+    return [comp(0), comp(8), comp(4), a];
+  }
+
+  function drawQueenBeeFrame(ctx, offsetX, landed, frame) {
+    const w = 22, h = 18;
+    const img = ctx.createImageData(w, h);
+    const data = img.data;
+    const setPixel = (x, y, col) => {
+      if (x < 0 || y < 0 || x >= w || y >= h) return;
+      const idx = (y * w + x) * 4;
+      const sa = col[3] / 255;
+      if (col[3] === 255) {
+        data[idx] = col[0];
+        data[idx + 1] = col[1];
+        data[idx + 2] = col[2];
+        data[idx + 3] = 255;
+      } else if (col[3] > 0) {
+        const da = data[idx + 3] / 255;
+        const outA = sa + da * (1 - sa);
+        if (outA <= 0) return;
+        data[idx] = Math.round((col[0] * sa + data[idx] * da * (1 - sa)) / outA);
+        data[idx + 1] = Math.round((col[1] * sa + data[idx + 1] * da * (1 - sa)) / outA);
+        data[idx + 2] = Math.round((col[2] * sa + data[idx + 2] * da * (1 - sa)) / outA);
+        data[idx + 3] = Math.round(outA * 255);
+      }
+    };
+
+    const hue = 46;
+    const r = {
+      spec: hslToRGBA(shiftHue(hue, 55, 0.28), 96, 90),
+      hi: hslToRGBA(shiftHue(hue, 55, 0.18), 90, 74),
+      mid: hslToRGBA(hue, 78, 60),
+      sh: hslToRGBA(shiftHue(hue, 220, 0.22), 58, 44),
+      ol: hslToRGBA(shiftHue(hue, 220, 0.35), 42, 19),
+      skh: hslToRGBA(shiftHue(hue, 220, 0.15), 20, 30),
+      sk: hslToRGBA(shiftHue(hue, 220, 0.30), 24, 18),
+      skd: hslToRGBA(shiftHue(hue, 220, 0.45), 32, 10),
+    };
+
+    const cx = 11.0, cy = 10.5, rx = 7.3, ry = 4.8;
+    const inside = (x, y) => {
+      const nx = (x + 0.5 - cx) / rx;
+      const ny = (y + 0.5 - cy) / ry;
+      return nx * nx + ny * ny <= 1.0;
+    };
+    const lenL = Math.hypot(-0.42, -0.62, 0.66);
+    const lx = -0.42 / lenL, ly = -0.62 / lenL, lz = 0.66 / lenL;
+    const n4 = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+    const rows = (spec) => {
+      const pts = [];
+      for (const [rowY, x0, x1] of spec) {
+        for (let x = x0; x <= x1; x++) pts.push([x, rowY]);
+      }
+      return pts;
+    };
+    const drawWing = (pts, glint) => {
+      const set = new Set(pts.map(([x, y]) => `${x},${y}`));
+      const edgeCol = [140, 160, 192, 230];
+      const fillCol = [255, 255, 255, 184];
+      for (const [x, y] of pts) {
+        const isEdge = n4.some(([dx, dy]) => !set.has(`${x + dx},${y + dy}`));
+        setPixel(x, y, isEdge ? edgeCol : fillCol);
+      }
+      if (glint) {
+        const interior = pts
+          .filter(([x, y]) => !n4.some(([dx, dy]) => !set.has(`${x + dx},${y + dy}`)))
+          .sort((a, b) => a[1] - b[1] || a[0] - b[0]);
+        if (interior.length) setPixel(interior[0][0], interior[0][1], [255, 255, 255, 255]);
+      }
+    };
+
+    let backWing = null, frontWing;
+    if (landed) {
+      frontWing = rows([[5, 14, 17], [6, 13, 18]]);
+    } else if (frame === 0) {
+      backWing = rows([[1, 16, 17], [2, 16, 18], [3, 15, 18], [4, 15, 17], [5, 15, 16]]);
+      frontWing = rows([[0, 13, 14], [1, 12, 15], [2, 11, 15], [3, 11, 14], [4, 11, 13], [5, 11, 12]]);
+    } else {
+      backWing = rows([[3, 16, 18], [4, 15, 19], [5, 16, 18]]);
+      frontWing = rows([[3, 13, 16], [4, 12, 17], [5, 12, 17], [6, 13, 15]]);
+    }
+    if (backWing) drawWing(backWing, false);
+
+    const stripe = (x, y) => {
+      const ny = (y + 0.5 - cy) / ry;
+      const u = x + 0.5 + 1.15 * ny * ny;
+      return (u > 10.6 && u < 12.5) || (u > 14.3 && u < 16.1) || u > 17.9;
+    };
+
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        if (!inside(x, y)) continue;
+        const nx = (x + 0.5 - cx) / rx;
+        const ny = (y + 0.5 - cy) / ry;
+        const nz = Math.sqrt(Math.max(0, 1 - Math.min(1, nx * nx + ny * ny)));
+        const intensity = nx * lx + ny * ly + nz * lz;
+        if (stripe(x, y)) {
+          setPixel(x, y, intensity > 0.80 ? r.skh : intensity > 0.30 ? r.sk : r.skd);
+        } else {
+          setPixel(x, y, intensity > 0.965 ? r.spec : intensity > 0.78 ? r.hi : intensity > 0.26 ? r.mid : r.sh);
+        }
+      }
+    }
+
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        if (inside(x, y)) continue;
+        const nbs = n4.filter(([dx, dy]) => inside(x + dx, y + dy));
+        if (!nbs.length) continue;
+        const nx = (x + 0.5 - cx) / rx;
+        const ny = (y + 0.5 - cy) / ry;
+        const n = Math.hypot(nx, ny);
+        const d = (nx / n) * lx + (ny / n) * ly;
+        const nextToStripe = nbs.some(([dx, dy]) => stripe(x + dx, y + dy));
+        setPixel(x, y, d > 0.5 && !nextToStripe ? r.sh : r.ol);
+      }
+    }
+
+    // Stinger, eyes, blush, queen crown
+    setPixel(19, 10, r.ol);
+    setPixel(20, 10, r.ol);
+    setPixel(6, 9, [255, 255, 255, 255]);
+    setPixel(7, 9, r.skd);
+    setPixel(6, 10, r.skd);
+    setPixel(7, 10, r.skd);
+    setPixel(5, 11, [245, 132, 96, 140]);
+    setPixel(4, 11, [245, 132, 96, 90]);
+
+    const g1 = [247, 206, 91, 255], g2 = [255, 233, 166, 255], g3 = [201, 138, 43, 255], gem = [228, 100, 62, 255];
+    for (const [cx2, cy2] of [[5, 5], [6, 5], [7, 5], [8, 5], [9, 5]]) setPixel(cx2, cy2, g1);
+    setPixel(5, 4, g2);
+    setPixel(7, 4, g2);
+    setPixel(9, 4, g2);
+    setPixel(7, 3, g2);
+    setPixel(5, 5, g3);
+    setPixel(9, 5, g3);
+    setPixel(7, 5, gem);
+
+    drawWing(frontWing, true);
+    ctx.putImageData(img, offsetX, 0);
+  }
+
+  function getQueenBeeSpriteSheetURL(isWorking) {
+    const key = isWorking ? "working" : "landed";
+    if (pixelBeeCache.has(key)) return pixelBeeCache.get(key);
+    if (typeof document === "undefined") return "";
+    const canvas = document.createElement("canvas");
+    canvas.width = isWorking ? 44 : 22;
+    canvas.height = 18;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return "";
+    if (isWorking) {
+      drawQueenBeeFrame(ctx, 0, false, 0);
+      drawQueenBeeFrame(ctx, 22, false, 1);
+    } else {
+      drawQueenBeeFrame(ctx, 0, true, 0);
+    }
+    const url = canvas.toDataURL("image/png");
+    pixelBeeCache.set(key, url);
+    return url;
+  }
+
+  function renderListBeeBadge(isWorking) {
+    const url = getQueenBeeSpriteSheetURL(Boolean(isWorking));
+    if (!url) return "";
+    const label = typeof t === "function" ? t("蜂群会话") : "蜂群会话";
+    return `<span class="conv-swarm-bee${isWorking ? " is-working" : ""}" style="background-image:url('${url}')" title="${escapeHtml(label)}" aria-label="${escapeHtml(label)}"></span>`;
+  }
+
   return {
     init,
     sync,
     toggleSwarmModal,
+    renderListBeeBadge,
   };
 })();
 

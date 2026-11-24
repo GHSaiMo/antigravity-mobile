@@ -508,10 +508,168 @@ type cachedSwarmBriefEntry struct {
 }
 
 var (
-	swarmBriefCacheMu sync.RWMutex
-	swarmBriefCache   = make(map[string]cachedSwarmBriefEntry)
-	swarmWorkerNameRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]{0,31}$`)
+	swarmBriefCacheMu   sync.RWMutex
+	swarmBriefCache     = make(map[string]cachedSwarmBriefEntry)
+	swarmMembersCacheMu sync.RWMutex
+	swarmMembersCache   = make(map[string]cachedSwarmMembersEntry)
+	swarmWorkerNameRe   = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]{0,31}$`)
 )
+
+type cachedSwarmMembersEntry struct {
+	modTime int64
+	size    int64
+	members map[string]rawSwarmMemberEntry
+}
+
+// SwarmListSummary is lightweight swarm metadata attached to conversation list entries.
+type SwarmListSummary struct {
+	HasSwarm           bool
+	WorkingCount       int
+	TotalMembers       int
+	LatestActivityTime time.Time
+}
+
+func loadCachedSwarmMembers(cacheKey, membersPath string, fi os.FileInfo) (map[string]rawSwarmMemberEntry, error) {
+	modTime := fi.ModTime().UnixNano()
+	size := fi.Size()
+
+	swarmMembersCacheMu.RLock()
+	if entry, ok := swarmMembersCache[cacheKey]; ok && entry.modTime == modTime && entry.size == size {
+		members := entry.members
+		swarmMembersCacheMu.RUnlock()
+		return members, nil
+	}
+	swarmMembersCacheMu.RUnlock()
+
+	data, err := os.ReadFile(membersPath)
+	if err != nil {
+		return nil, err
+	}
+	var raw struct {
+		Members map[string]rawSwarmMemberEntry `json:"members"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, err
+	}
+	if raw.Members == nil {
+		raw.Members = make(map[string]rawSwarmMemberEntry)
+	}
+
+	swarmMembersCacheMu.Lock()
+	if len(swarmMembersCache) > 128 {
+		swarmMembersCache = make(map[string]cachedSwarmMembersEntry)
+	}
+	swarmMembersCache[cacheKey] = cachedSwarmMembersEntry{
+		modTime: modTime,
+		size:    size,
+		members: raw.Members,
+	}
+	swarmMembersCacheMu.Unlock()
+	return raw.Members, nil
+}
+
+// InspectSwarmCoordinatorForList inspects whether coordID owns a swarm session and summarizes
+// its active worker count and latest activity time for the conversation list.
+// Non-swarm conversations incur at most two stat syscalls and return nil.
+func InspectSwarmCoordinatorForList(
+	coordID string,
+	rawMemberStatuses map[string]string,
+	rawMemberModTimes map[string]time.Time,
+) *SwarmListSummary {
+	if coordID == "" || !cascadeIDRe.MatchString(coordID) {
+		return nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return nil
+	}
+	brainBase := filepath.Join(home, ".gemini", "antigravity", "brain")
+	swarmDir := filepath.Join(brainBase, coordID, ".system_generated", "swarm")
+	membersPath := filepath.Join(swarmDir, "members.json")
+
+	fiMembers, mErr := os.Stat(membersPath)
+	if mErr != nil || fiMembers.IsDir() {
+		// Newly initialized swarm before members.json is flushed.
+		if fiSwarm, sErr := os.Stat(filepath.Join(swarmDir, "swarm.json")); sErr == nil && !fiSwarm.IsDir() {
+			return &SwarmListSummary{HasSwarm: true}
+		}
+		return nil
+	}
+
+	cacheKey := brainBase + "\x00" + coordID
+	members, err := loadCachedSwarmMembers(cacheKey, membersPath, fiMembers)
+	if err != nil {
+		return &SwarmListSummary{HasSwarm: true}
+	}
+
+	totalMembers := len(members)
+	workingCount := 0
+	var latestMod time.Time
+	recordMod := func(t time.Time) {
+		if !t.IsZero() && t.After(latestMod) {
+			latestMod = t
+		}
+	}
+
+	for _, m := range members {
+		cid := strings.TrimSpace(m.ConversationID)
+		if cid != "" {
+			if mt, ok := rawMemberModTimes[cid]; ok {
+				recordMod(mt)
+			}
+		}
+		if m.Killed {
+			continue
+		}
+		if rawSt, hasUpstream := rawMemberStatuses[cid]; hasUpstream && rawSt != "" {
+			if rawSt == "CASCADE_RUN_STATUS_RUNNING" {
+				workingCount++
+			}
+			continue
+		}
+		wakeMode := strings.TrimSpace(m.WakeMode)
+		if strings.EqualFold(wakeMode, "working") {
+			workingCount++
+		} else if wakeMode == "" && cid != "" && cascadeIDRe.MatchString(cid) {
+			tPath := filepath.Join(brainBase, cid, ".system_generated", "logs", "transcript.jsonl")
+			if st, _ := readMemberTranscriptActivity(tPath); st == "working" {
+				workingCount++
+			}
+		}
+	}
+
+	// While the swarm is actively executing, fold in live filesystem mtimes so the coordinator
+	// reflects real-time progress even before upstream flushes worker summaries.
+	if workingCount > 0 {
+		recordMod(fiMembers.ModTime())
+		if fiBoard, bErr := os.Stat(filepath.Join(swarmDir, "board.jsonl")); bErr == nil && !fiBoard.IsDir() {
+			recordMod(fiBoard.ModTime())
+		}
+		if _, vMod := resolveSwarmViewPath(brainBase, swarmDir, members); vMod > 0 {
+			recordMod(time.Unix(0, vMod))
+		}
+		for _, m := range members {
+			if m.Killed {
+				continue
+			}
+			cid := strings.TrimSpace(m.ConversationID)
+			if cid == "" || !cascadeIDRe.MatchString(cid) {
+				continue
+			}
+			tPath := filepath.Join(brainBase, cid, ".system_generated", "logs", "transcript.jsonl")
+			if fi, tErr := os.Stat(tPath); tErr == nil && !fi.IsDir() {
+				recordMod(fi.ModTime())
+			}
+		}
+	}
+
+	return &SwarmListSummary{
+		HasSwarm:           true,
+		WorkingCount:       workingCount,
+		TotalMembers:       totalMembers,
+		LatestActivityTime: latestMod,
+	}
+}
 
 // readBoardLatestSeqTail reads the highest sequence number near the end of board.jsonl
 // using a bounded reverse-tail seek instead of scanning the entire file from byte 0.

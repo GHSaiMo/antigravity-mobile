@@ -617,6 +617,34 @@ html, body {
   overflow: hidden;
 }
 
+.conv-swarm-bee {
+  display: inline-block;
+  width: 22px;
+  height: 18px;
+  margin-right: 5px;
+  vertical-align: -3px;
+  background-repeat: no-repeat;
+  background-position: 0 0;
+  background-size: 22px 18px;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  flex-shrink: 0;
+}
+
+.conv-swarm-bee.is-working {
+  background-size: 44px 18px;
+  animation: conv-swarm-bee-flap 0.28s steps(2) infinite;
+}
+
+@keyframes conv-swarm-bee-flap {
+  from {
+    background-position: 0 0;
+  }
+  to {
+    background-position: -44px 0;
+  }
+}
+
 .badge {
   font-size: 11px;
   font-weight: 700;

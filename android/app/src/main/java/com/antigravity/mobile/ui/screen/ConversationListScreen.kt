@@ -2089,6 +2089,14 @@ fun ConversationCard(
                             modifier = Modifier.size(15.dp)
                         )
                     }
+                    if (conversation.hasSwarm) {
+                        SwarmPixelBeeSprite(
+                            name = "coordinator",
+                            pose = if (conversation.isSwarmWorking) SwarmBeePose.WORKING else SwarmBeePose.LANDED,
+                            width = 22.dp,
+                            height = 18.dp
+                        )
+                    }
                     Text(
                         text = conversation.displayTitle,
                         color = colors.textPrimary,

@@ -1777,6 +1777,17 @@ public struct ConversationListView: View {
                         .foregroundColor(.indigo)
                         .padding(.top, 2)
                 }
+
+                if item.hasSwarm {
+                    SwarmPixelBeeSpriteView(
+                        name: "coordinator",
+                        pose: item.isSwarmWorking ? .working : .landed,
+                        width: 22,
+                        height: 18
+                    )
+                    .padding(.top, 0.5)
+                    .accessibilityLabel(String(localized: "蜂群会话"))
+                }
                 
                 Text(item.title)
                     .font(.system(size: 15.5, weight: .semibold))

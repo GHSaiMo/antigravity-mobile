@@ -472,6 +472,7 @@ const REORDER_COOLDOWN_MS = 8000;
 let lastConvReorderAt = 0;
 let lastConvOrderIds = [];
 let lastConvActionIds = new Set();
+let lastConvRunningIds = new Set();
 let pendingConvReorderTimer = null;
 
 function isConversationNeedsAction(item) {
@@ -481,9 +482,17 @@ function isConversationNeedsAction(item) {
   return st.includes("WAITING");
 }
 
+function isConversationRunning(item) {
+  if (!item) return false;
+  if (item.hasError || item.status === "CASCADE_RUN_STATUS_ERROR") return false;
+  if (isConversationNeedsAction(item)) return false;
+  return item.status === "CASCADE_RUN_STATUS_RUNNING" || Boolean(item.hasRunningSubagents) || Number(item.swarmWorkingCount || 0) > 0;
+}
+
 function applyConversationReorderBuffer(sortedItems, forceReorder = false) {
   const now = Date.now();
   const currentActionIds = new Set(sortedItems.filter(isConversationNeedsAction).map((item) => item.id));
+  const currentRunningIds = new Set(sortedItems.filter(isConversationRunning).map((item) => item.id));
   let hasNewPendingAction = false;
   for (const id of currentActionIds) {
     if (!lastConvActionIds.has(id)) {
@@ -491,9 +500,17 @@ function applyConversationReorderBuffer(sortedItems, forceReorder = false) {
       break;
     }
   }
+  let hasNewRunning = false;
+  for (const id of currentRunningIds) {
+    if (!lastConvRunningIds.has(id)) {
+      hasNewRunning = true;
+      break;
+    }
+  }
   if (
     forceReorder ||
     hasNewPendingAction ||
+    hasNewRunning ||
     lastConvOrderIds.length === 0 ||
     lastConvReorderAt === 0 ||
     now - lastConvReorderAt >= REORDER_COOLDOWN_MS
@@ -501,6 +518,7 @@ function applyConversationReorderBuffer(sortedItems, forceReorder = false) {
     lastConvReorderAt = now;
     lastConvOrderIds = sortedItems.map((item) => item.id);
     lastConvActionIds = currentActionIds;
+    lastConvRunningIds = currentRunningIds;
     if (pendingConvReorderTimer) {
       clearTimeout(pendingConvReorderTimer);
       pendingConvReorderTimer = null;
@@ -522,12 +540,15 @@ function applyConversationReorderBuffer(sortedItems, forceReorder = false) {
     ...preserved.filter(isConversationNeedsAction),
     ...added.filter((item) => !isConversationNeedsAction(item) && isPinned(item)),
     ...preserved.filter((item) => !isConversationNeedsAction(item) && isPinned(item)),
-    ...added.filter((item) => !isConversationNeedsAction(item) && !isPinned(item)),
-    ...preserved.filter((item) => !isConversationNeedsAction(item) && !isPinned(item)),
+    ...added.filter((item) => !isConversationNeedsAction(item) && !isPinned(item) && isConversationRunning(item)),
+    ...preserved.filter((item) => !isConversationNeedsAction(item) && !isPinned(item) && isConversationRunning(item)),
+    ...added.filter((item) => !isConversationNeedsAction(item) && !isPinned(item) && !isConversationRunning(item)),
+    ...preserved.filter((item) => !isConversationNeedsAction(item) && !isPinned(item) && !isConversationRunning(item)),
   ];
 
   lastConvOrderIds = buffered.map((item) => item.id);
   lastConvActionIds = currentActionIds;
+  lastConvRunningIds = currentRunningIds;
 
   const orderChanged =
     buffered.length === sortedItems.length &&
@@ -741,6 +762,9 @@ function renderConversationList(summaries, { forceReorder = false } = {}) {
       const aPinned = Boolean(a.annotations?.pinned);
       const bPinned = Boolean(b.annotations?.pinned);
       if (aPinned !== bPinned) return aPinned ? -1 : 1;
+      const aRunning = isConversationRunning(a);
+      const bRunning = isConversationRunning(b);
+      if (aRunning !== bRunning) return aRunning ? -1 : 1;
       return new Date(b.lastModifiedTime || 0) - new Date(a.lastModifiedTime || 0);
     });
 
@@ -785,7 +809,13 @@ function renderConversationList(summaries, { forceReorder = false } = {}) {
     .map((item) => {
       const hasError = !!item.hasError || item.status === "CASCADE_RUN_STATUS_ERROR";
       const hasAction = !hasError && !!item.needsInput;
-      const isRunning = !hasError && item.status === "CASCADE_RUN_STATUS_RUNNING" && !hasAction;
+      const isRunning = !hasError && !hasAction && isConversationRunning(item);
+      const hasSwarm = Boolean(item.hasSwarm);
+      const isSwarmWorking = hasSwarm && (Number(item.swarmWorkingCount || 0) > 0 || isRunning);
+      const swarmBeeHtml =
+        hasSwarm && typeof SwarmManager !== "undefined" && typeof SwarmManager.renderListBeeBadge === "function"
+          ? SwarmManager.renderListBeeBadge(isSwarmWorking)
+          : "";
       const hasDraft = !hasError && !hasAction && !isRunning && DraftManager.has(item.id);
       const isUnread = !hasError && !isRunning && !hasAction && !hasDraft && isConversationUnread(item);
       const unreadDotHtml = isUnread
@@ -860,7 +890,7 @@ function renderConversationList(summaries, { forceReorder = false } = {}) {
           </div>
           <div class="conv-card" data-id="${idEsc}" data-title="${escapeHtml(title)}">
             <div class="conv-card-top">
-              <div class="conv-title">${pinIconHtml}${branchPillHtml}${escapeHtml(title)}</div>
+              <div class="conv-title">${pinIconHtml}${swarmBeeHtml}${branchPillHtml}${escapeHtml(title)}</div>
               ${badgeHtml}
             </div>
             <div class="conv-card-bottom">

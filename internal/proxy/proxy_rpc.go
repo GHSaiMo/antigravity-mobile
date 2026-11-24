@@ -626,7 +626,61 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 	// on "unlinkat brain/<id>: directory not empty" after already removing conversations/<id>.db).
 	filterDeletedZombieSummaries(summaries)
 
+	// Snapshot raw upstream statuses, modification times, and subagent lineage before filtering
+	// so multi-level subagent chains and swarm members propagate accurately up to their visible
+	// root conversation, while Step 1 cache freshness checks still compare against raw values.
+	rawStatuses := make(map[string]string, len(summaries))
+	rawModTimes := make(map[string]time.Time, len(summaries))
+	subagentIDs := make(map[string]bool)
+	subagentParents := make(map[string]string)
+	subagentRoots := make(map[string]string)
+	for id, s := range summaries {
+		if s == nil {
+			continue
+		}
+		if st, ok := s["status"].(string); ok {
+			rawStatuses[id] = st
+		}
+		if modStr, ok := s["lastModifiedTime"].(string); ok && modStr != "" {
+			if t, err := parseTime(modStr); err == nil {
+				rawModTimes[id] = t
+			}
+		}
+		if isSubagentTrajectoryMap(s, id) {
+			subagentIDs[id] = true
+			if pid := extractSummaryParentID(s); pid != "" {
+				subagentParents[id] = pid
+			}
+			if rid := extractSummaryRootID(s); rid != "" {
+				subagentRoots[id] = rid
+			}
+		}
+	}
+	resolveVisibleAncestor := func(id string) string {
+		cur := id
+		for depth := 0; depth < 8; depth++ {
+			next := subagentParents[cur]
+			if next == "" || next == cur {
+				break
+			}
+			if !subagentIDs[next] {
+				if _, exists := summaries[next]; exists && !IsDeletedCascade(next) {
+					return next
+				}
+				break
+			}
+			cur = next
+		}
+		if root := subagentRoots[id]; root != "" && !subagentIDs[root] {
+			if _, exists := summaries[root]; exists && !IsDeletedCascade(root) {
+				return root
+			}
+		}
+		return ""
+	}
+
 	runningSubagentParents := make(map[string]bool)
+	subagentLatestModTime := make(map[string]time.Time)
 	sidecarProjectIDs := fetchSidecarProjectIDs()
 	resolveWorkspace := p.BuildWorkspaceDisplayNameResolver()
 	var (
@@ -700,19 +754,18 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 		}
 
 		// Filter out internal subagent sessions completely while recording running subagents
+		// and propagating their latest modification timestamp up to the visible ancestor.
 		if isSubagentTrajectoryMap(s, id) {
-			status, _ := s["status"].(string)
-			if status == "CASCADE_RUN_STATUS_RUNNING" {
-				parent := ""
-				if pid, ok := s["parentConversationId"].(string); ok && strings.TrimSpace(pid) != "" {
-					parent = strings.TrimSpace(pid)
-				} else if meta, ok := s["trajectoryMetadata"].(map[string]interface{}); ok {
-					if pid, ok := meta["parentConversationId"].(string); ok && strings.TrimSpace(pid) != "" {
-						parent = strings.TrimSpace(pid)
-					}
+			ancestor := resolveVisibleAncestor(id)
+			if ancestor != "" {
+				status, _ := s["status"].(string)
+				if status == "CASCADE_RUN_STATUS_RUNNING" {
+					runningSubagentParents[ancestor] = true
 				}
-				if parent != "" {
-					runningSubagentParents[parent] = true
+				if modT, ok := rawModTimes[id]; ok && !modT.IsZero() {
+					if prev, exists := subagentLatestModTime[ancestor]; !exists || modT.After(prev) {
+						subagentLatestModTime[ancestor] = modT
+					}
 				}
 			}
 			delete(summaries, id)
@@ -953,15 +1006,6 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 		}
 	}
 
-	// Preserve upstream summary statuses before parent-subagent status propagation so Step 1
-	// can detect when a cached trajectory snapshot is out of sync with the live summary status.
-	rawStatuses := make(map[string]string, len(summaries))
-	for id, s := range summaries {
-		if st, ok := s["status"].(string); ok {
-			rawStatuses[id] = st
-		}
-	}
-
 	// Propagate running status from subagents up to parent conversations
 	for parentID := range runningSubagentParents {
 		if parent, ok := summaries[parentID]; ok {
@@ -1035,6 +1079,33 @@ func (p *Proxy) handleGetAllCascadeTrajectories(w http.ResponseWriter, r *http.R
 				if details.BranchOrigin.ForkStepIndex >= 0 {
 					s["forkStepIndex"] = details.BranchOrigin.ForkStepIndex
 				}
+			}
+		}
+	}
+
+	// Propagate subagent modification timestamps and swarm coordinator state AFTER Step 1's
+	// trajCache freshness check so parent snapshots are never unnecessarily evicted.
+	for parentID, subMod := range subagentLatestModTime {
+		if parent := summaries[parentID]; parent != nil {
+			bumpSummaryLastModifiedTime(parent, subMod)
+		}
+	}
+	for id, s := range summaries {
+		if s == nil {
+			continue
+		}
+		if sw := InspectSwarmCoordinatorForList(id, rawStatuses, rawModTimes); sw != nil && sw.HasSwarm {
+			s["hasSwarm"] = true
+			if sw.TotalMembers > 0 {
+				s["swarmTotalMembers"] = sw.TotalMembers
+			}
+			if sw.WorkingCount > 0 {
+				s["swarmWorkingCount"] = sw.WorkingCount
+				s["status"] = "CASCADE_RUN_STATUS_RUNNING"
+				s["hasRunningSubagents"] = true
+			}
+			if !sw.LatestActivityTime.IsZero() {
+				bumpSummaryLastModifiedTime(s, sw.LatestActivityTime)
 			}
 		}
 	}
@@ -1229,6 +1300,9 @@ func compactSummariesForWidget(summaries map[string]map[string]interface{}) map[
 		"hasRunningTasks",
 		"runningTaskCount",
 		"hasRunningSubagents",
+		"hasSwarm",
+		"swarmWorkingCount",
+		"swarmTotalMembers",
 		"notFullyIdle",
 		"backgroundTaskCount",
 	}
@@ -1302,6 +1376,48 @@ func summaryStepCount(v interface{}) int {
 	default:
 		return 0
 	}
+}
+
+func extractSummaryParentID(s map[string]interface{}) string {
+	if s == nil {
+		return ""
+	}
+	if pid, ok := s["parentConversationId"].(string); ok && strings.TrimSpace(pid) != "" {
+		return strings.TrimSpace(pid)
+	}
+	if meta, ok := s["trajectoryMetadata"].(map[string]interface{}); ok && meta != nil {
+		if pid, ok := meta["parentConversationId"].(string); ok && strings.TrimSpace(pid) != "" {
+			return strings.TrimSpace(pid)
+		}
+	}
+	return ""
+}
+
+func extractSummaryRootID(s map[string]interface{}) string {
+	if s == nil {
+		return ""
+	}
+	if rid, ok := s["rootConversationId"].(string); ok && strings.TrimSpace(rid) != "" {
+		return strings.TrimSpace(rid)
+	}
+	if meta, ok := s["trajectoryMetadata"].(map[string]interface{}); ok && meta != nil {
+		if rid, ok := meta["rootConversationId"].(string); ok && strings.TrimSpace(rid) != "" {
+			return strings.TrimSpace(rid)
+		}
+	}
+	return ""
+}
+
+func bumpSummaryLastModifiedTime(s map[string]interface{}, candidate time.Time) {
+	if s == nil || candidate.IsZero() {
+		return
+	}
+	if curStr, ok := s["lastModifiedTime"].(string); ok && curStr != "" {
+		if curT, err := parseTime(curStr); err == nil && !candidate.After(curT) {
+			return
+		}
+	}
+	s["lastModifiedTime"] = candidate.UTC().Format(time.RFC3339Nano)
 }
 
 // isSubagentTrajectoryMap checks if a trajectory summary map belongs to an internal subagent.

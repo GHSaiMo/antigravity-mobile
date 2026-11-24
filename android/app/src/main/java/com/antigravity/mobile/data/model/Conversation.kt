@@ -51,6 +51,9 @@ data class TrajectorySummary(
     val hasRunningTasks: Boolean? = null,
     val runningTaskCount: Int? = null,
     val hasRunningSubagents: Boolean? = null,
+    val hasSwarm: Boolean? = null,
+    val swarmWorkingCount: Int? = null,
+    val swarmTotalMembers: Int? = null,
     val notFullyIdle: Boolean? = null,
     val backgroundTaskCount: Int? = null,
     /** Official project display name (alias or project.name) resolved by the gateway. */
@@ -108,6 +111,9 @@ data class ConversationItem(
     val isArchived: Boolean = false,
     val hasRunningTasks: Boolean = false,
     val hasRunningSubagents: Boolean = false,
+    val hasSwarm: Boolean = false,
+    val swarmWorkingCount: Int = 0,
+    val swarmTotalMembers: Int = 0,
     val currentBranch: String? = null,
     val pullRequest: GitPullRequestItem? = null,
     val isSideQuestion: Boolean = false,
@@ -142,6 +148,9 @@ data class ConversationItem(
     val isWorking: Boolean
         get() = status.isRunning || hasRunningTasks
 
+    val isSwarmWorking: Boolean
+        get() = hasSwarm && (swarmWorkingCount > 0 || status.isRunning)
+
     val isDraft: Boolean
         get() = id.startsWith("local_draft_") || id.startsWith("draft_") || draftProject != null
 
@@ -175,11 +184,14 @@ data class ConversationItem(
                 (summary.backgroundTaskCount ?: 0) > 0 ||
                 summary.notFullyIdle == true
             val hasRunningSubagents = summary.hasRunningSubagents == true
+            val hasSwarm = summary.hasSwarm == true
+            val swarmWorkingCount = (summary.swarmWorkingCount ?: 0).coerceAtLeast(0)
+            val swarmTotalMembers = (summary.swarmTotalMembers ?: 0).coerceAtLeast(0)
 
             val status = when {
                 summary.needsInput == true || summary.status?.contains("WAITING", ignoreCase = true) == true -> ConversationStatus.ACTION
                 summary.hasError == true || summary.status.equals("CASCADE_RUN_STATUS_ERROR", ignoreCase = true) || summary.status.equals("ERROR", ignoreCase = true) || summary.status.equals("CASCADE_RUN_STATUS_FAILED", ignoreCase = true) -> ConversationStatus.ERROR
-                summary.status.equals("CASCADE_RUN_STATUS_RUNNING", ignoreCase = true) || summary.status.equals("RUNNING", ignoreCase = true) || hasRunningSubagents -> ConversationStatus.RUNNING
+                summary.status.equals("CASCADE_RUN_STATUS_RUNNING", ignoreCase = true) || summary.status.equals("RUNNING", ignoreCase = true) || hasRunningSubagents || swarmWorkingCount > 0 -> ConversationStatus.RUNNING
                 summary.status.equals("CASCADE_RUN_STATUS_IDLE", ignoreCase = true) || summary.status.equals("IDLE", ignoreCase = true) || summary.status.equals("CASCADE_RUN_STATUS_DONE", ignoreCase = true) || summary.status.equals("CASCADE_RUN_STATUS_COMPLETED", ignoreCase = true) -> ConversationStatus.IDLE
                 else -> ConversationStatus.UNKNOWN
             }
@@ -233,6 +245,9 @@ data class ConversationItem(
                 isArchived = summary.annotations?.archived == true,
                 hasRunningTasks = hasRunningTasks,
                 hasRunningSubagents = hasRunningSubagents,
+                hasSwarm = hasSwarm,
+                swarmWorkingCount = swarmWorkingCount,
+                swarmTotalMembers = swarmTotalMembers,
                 currentBranch = summary.currentBranch,
                 pullRequest = summary.pullRequest,
                 isSideQuestion = summary.isSideQuestion == true,

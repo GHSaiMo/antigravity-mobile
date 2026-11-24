@@ -371,3 +371,223 @@ func TestSwarmPlanJsonAndToolActivityLabels(t *testing.T) {
 		t.Errorf("expected monitor to be marked RoleWorker=true")
 	}
 }
+
+func TestGetAllCascadeTrajectoriesPropagatesSwarmAndSubagentActivity(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	brainBase := filepath.Join(home, ".gemini", "antigravity", "brain")
+
+	// 1. Active swarm coordinator whose own status is IDLE and lastModifiedTime is 45m old,
+	// while its workers (including a depth-2 nested helper) are actively running right now.
+	coordID := "coord-active-swarm-1"
+	workerRunningID := "worker-running-1"
+	workerHelperID := "worker-helper-2"
+	activeSwarmDir := filepath.Join(brainBase, coordID, ".system_generated", "swarm")
+	if err := os.MkdirAll(activeSwarmDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.WriteFile(filepath.Join(activeSwarmDir, "members.json"), []byte(`{
+		"title": "Active Swarm",
+		"members": {
+			"coordinator": {"conversation_id": "coord-active-swarm-1", "role": "coordinator", "wake_mode": "mentions", "killed": false},
+			"fixer": {"conversation_id": "worker-running-1", "role": "worker", "wake_mode": "working", "killed": false}
+		}
+	}`), 0644)
+
+	// 2. Historical finished swarm: all workers IDLE in upstream -> hasSwarm=true, status stays IDLE, no false running.
+	idleCoordID := "coord-idle-swarm-2"
+	idleWorkerID := "worker-idle-2"
+	idleSwarmDir := filepath.Join(brainBase, idleCoordID, ".system_generated", "swarm")
+	if err := os.MkdirAll(idleSwarmDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.WriteFile(filepath.Join(idleSwarmDir, "members.json"), []byte(`{
+		"title": "Finished Swarm",
+		"members": {
+			"coordinator": {"conversation_id": "coord-idle-swarm-2", "role": "coordinator", "wake_mode": "mentions", "killed": false},
+			"done-worker": {"conversation_id": "worker-idle-2", "role": "worker", "wake_mode": "mentions", "killed": false}
+		}
+	}`), 0644)
+
+	// 3. Freshly initialized swarm with only swarm.json (before members.json exists).
+	freshCoordID := "coord-fresh-swarm-3"
+	freshSwarmDir := filepath.Join(brainBase, freshCoordID, ".system_generated", "swarm")
+	if err := os.MkdirAll(freshSwarmDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.WriteFile(filepath.Join(freshSwarmDir, "swarm.json"), []byte(`{"version":1}`), 0644)
+
+	// 4. Ordinary non-swarm conversation.
+	plainID := "plain-idle-conv-4"
+
+	now := time.Now().UTC()
+	stale45m := now.Add(-45 * time.Minute).Format(time.RFC3339)
+	idle10m := now.Add(-10 * time.Minute).Format(time.RFC3339)
+	workerFresh := now.Add(-5 * time.Second).Format(time.RFC3339)
+	helperFresh := now.Add(-2 * time.Second).Format(time.RFC3339)
+	yesterday := now.Add(-24 * time.Hour).Format(time.RFC3339)
+	yesterdayWorker := now.Add(-23 * time.Hour).Format(time.RFC3339)
+
+	upstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/exa.language_server_pb.LanguageServerService/GetAllCascadeTrajectories" {
+			resp := map[string]interface{}{
+				"trajectorySummaries": map[string]interface{}{
+					coordID: map[string]interface{}{
+						"summary":          "iPhone Duo 适配开发",
+						"status":           "CASCADE_RUN_STATUS_IDLE",
+						"stepCount":        569,
+						"lastModifiedTime": stale45m,
+					},
+					workerRunningID: map[string]interface{}{
+						"summary":          "",
+						"status":           "CASCADE_RUN_STATUS_RUNNING",
+						"stepCount":        120,
+						"lastModifiedTime": workerFresh,
+						"trajectoryMetadata": map[string]interface{}{
+							"parentConversationId": coordID,
+							"nestingDepth":         1,
+						},
+					},
+					workerHelperID: map[string]interface{}{
+						"summary":          "",
+						"status":           "CASCADE_RUN_STATUS_RUNNING",
+						"stepCount":        12,
+						"lastModifiedTime": helperFresh,
+						"trajectoryMetadata": map[string]interface{}{
+							"parentConversationId": workerRunningID,
+							"rootConversationId":   coordID,
+							"nestingDepth":         2,
+						},
+					},
+					idleCoordID: map[string]interface{}{
+						"summary":          "Yesterday Swarm",
+						"status":           "CASCADE_RUN_STATUS_IDLE",
+						"stepCount":        80,
+						"lastModifiedTime": yesterday,
+					},
+					idleWorkerID: map[string]interface{}{
+						"summary":          "",
+						"status":           "CASCADE_RUN_STATUS_IDLE",
+						"stepCount":        25,
+						"lastModifiedTime": yesterdayWorker,
+						"trajectoryMetadata": map[string]interface{}{
+							"parentConversationId": idleCoordID,
+							"nestingDepth":         1,
+						},
+					},
+					freshCoordID: map[string]interface{}{
+						"summary":          "Fresh Swarm Init",
+						"status":           "CASCADE_RUN_STATUS_RUNNING",
+						"stepCount":        3,
+						"lastModifiedTime": idle10m,
+					},
+					plainID: map[string]interface{}{
+						"summary":          "Plain Idle Chat",
+						"status":           "CASCADE_RUN_STATUS_IDLE",
+						"stepCount":        10,
+						"lastModifiedTime": idle10m,
+					},
+				},
+			}
+			_ = json.NewEncoder(w).Encode(resp)
+			return
+		}
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer upstream.Close()
+
+	var port int
+	_, _ = fmt.Sscanf(upstream.Listener.Addr().String(), "127.0.0.1:%d", &port)
+	p := &Proxy{
+		shortClient:  upstream.Client(),
+		mediumClient: upstream.Client(),
+		longClient:   upstream.Client(),
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/exa.language_server_pb.LanguageServerService/GetAllCascadeTrajectories", nil)
+	rec := httptest.NewRecorder()
+	p.handleGetAllCascadeTrajectories(rec, req, port, "tok")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var parsed struct {
+		TrajectorySummaries map[string]map[string]interface{} `json:"trajectorySummaries"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &parsed); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+
+	// Subagents must still be filtered out.
+	if _, exists := parsed.TrajectorySummaries[workerRunningID]; exists {
+		t.Errorf("expected workerRunningID to be filtered out")
+	}
+	if _, exists := parsed.TrajectorySummaries[workerHelperID]; exists {
+		t.Errorf("expected workerHelperID to be filtered out")
+	}
+
+	// Active swarm coordinator: promoted to RUNNING, hasSwarm=true, swarmWorkingCount=1, fresh lastModifiedTime.
+	active := parsed.TrajectorySummaries[coordID]
+	if active == nil {
+		t.Fatalf("missing active swarm coordinator %s", coordID)
+	}
+	if active["status"] != "CASCADE_RUN_STATUS_RUNNING" {
+		t.Errorf("expected active swarm status RUNNING, got %v", active["status"])
+	}
+	if active["hasSwarm"] != true {
+		t.Errorf("expected active swarm hasSwarm=true, got %v", active["hasSwarm"])
+	}
+	if got, _ := active["swarmWorkingCount"].(float64); int(got) != 1 {
+		t.Errorf("expected swarmWorkingCount=1, got %v", active["swarmWorkingCount"])
+	}
+	if got, _ := active["swarmTotalMembers"].(float64); int(got) != 2 {
+		t.Errorf("expected swarmTotalMembers=2, got %v", active["swarmTotalMembers"])
+	}
+	gotMod, err := parseTime(fmt.Sprintf("%v", active["lastModifiedTime"]))
+	if err != nil {
+		t.Fatalf("invalid active lastModifiedTime %v: %v", active["lastModifiedTime"], err)
+	}
+	idle10mT, _ := parseTime(idle10m)
+	if !gotMod.After(idle10mT) {
+		t.Errorf("expected active swarm lastModifiedTime (%v) to surpass plain idle chat (%v)", gotMod, idle10mT)
+	}
+
+	// Finished historical swarm: hasSwarm=true, status stays IDLE, lastModifiedTime bumped to yesterdayWorker (not now!).
+	idleSwarm := parsed.TrajectorySummaries[idleCoordID]
+	if idleSwarm == nil {
+		t.Fatalf("missing idle swarm coordinator %s", idleCoordID)
+	}
+	if idleSwarm["hasSwarm"] != true {
+		t.Errorf("expected finished swarm hasSwarm=true, got %v", idleSwarm["hasSwarm"])
+	}
+	if idleSwarm["status"] != "CASCADE_RUN_STATUS_IDLE" {
+		t.Errorf("expected finished swarm status IDLE, got %v", idleSwarm["status"])
+	}
+	if _, hasWorking := idleSwarm["swarmWorkingCount"]; hasWorking {
+		t.Errorf("expected finished swarm to omit non-zero swarmWorkingCount, got %v", idleSwarm["swarmWorkingCount"])
+	}
+	idleSwarmMod, err := parseTime(fmt.Sprintf("%v", idleSwarm["lastModifiedTime"]))
+	if err != nil {
+		t.Fatalf("invalid idle swarm lastModifiedTime: %v", err)
+	}
+	if idleSwarmMod.After(idle10mT) {
+		t.Errorf("finished historical swarm must not inherit today's file mtime: got %v", idleSwarmMod)
+	}
+
+	// Fresh swarm (swarm.json only): hasSwarm=true.
+	fresh := parsed.TrajectorySummaries[freshCoordID]
+	if fresh == nil || fresh["hasSwarm"] != true {
+		t.Errorf("expected fresh swarm.json coordinator to have hasSwarm=true, got %+v", fresh)
+	}
+
+	// Plain non-swarm conversation: no hasSwarm.
+	plain := parsed.TrajectorySummaries[plainID]
+	if plain == nil {
+		t.Fatalf("missing plain conversation")
+	}
+	if _, has := plain["hasSwarm"]; has {
+		t.Errorf("expected plain conversation to not set hasSwarm, got %v", plain["hasSwarm"])
+	}
+}
