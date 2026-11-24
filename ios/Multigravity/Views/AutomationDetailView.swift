@@ -21,6 +21,8 @@ struct AutomationDetailView: View {
     @State private var isDeleting = false
     @State private var errorMessage: String? = nil
     @State private var toastMessage: String? = nil
+    @State private var noticeToastMessage: String? = nil
+    @State private var noticeToastSeq: Int = 0
 
     // Inline editors
     @State private var isEditingTitle = false
@@ -298,9 +300,13 @@ struct AutomationDetailView: View {
                 } else {
                     ForEach(visibleEvents) { ev in
                         Button {
-                            if let cid = ev.conversationId, !cid.isEmpty {
-                                onSelectConversation?(cid)
+                            guard let cid = ev.conversationId, !cid.isEmpty else { return }
+                            if ev.conversationExists == false {
+                                UINotificationFeedbackGenerator().notificationOccurred(.warning)
+                                showNoticeToast(String(localized: "该触发记录对应的会话已删除"))
+                                return
                             }
+                            onSelectConversation?(cid)
                         } label: {
                             HStack(alignment: .top, spacing: 10) {
                                 Image(systemName: ev.status == "error" ? "exclamationmark.circle.fill" : "checkmark.circle.fill")
@@ -346,6 +352,32 @@ struct AutomationDetailView: View {
             }
         }
         .listStyle(.insetGrouped)
+        .overlay(alignment: .center) {
+            if let msg = noticeToastMessage {
+                HStack(spacing: 8) {
+                    Image(systemName: "info.circle.fill")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(.orange)
+                    Text(msg)
+                        .font(.system(size: 13.5, weight: .medium))
+                        .foregroundColor(.primary)
+                        .lineLimit(2)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .background(.ultraThinMaterial)
+                .clipShape(Capsule())
+                .overlay(
+                    Capsule()
+                        .stroke(Color.primary.opacity(0.1), lineWidth: 0.7)
+                )
+                .shadow(color: Color.black.opacity(0.18), radius: 14, x: 0, y: 6)
+                .padding(.horizontal, 24)
+                .allowsHitTesting(false)
+                .transition(.scale(scale: 0.88).combined(with: .opacity))
+            }
+        }
+        .animation(.spring(response: 0.3, dampingFraction: 0.82), value: noticeToastMessage)
         .navigationTitle("任务详情")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -712,6 +744,21 @@ struct AutomationDetailView: View {
         toastMessage = msg
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
             if toastMessage == msg { toastMessage = nil }
+        }
+    }
+
+    private func showNoticeToast(_ msg: String) {
+        noticeToastSeq += 1
+        let seq = noticeToastSeq
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.82)) {
+            noticeToastMessage = msg
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) {
+            if noticeToastSeq == seq {
+                withAnimation(.easeOut(duration: 0.2)) {
+                    noticeToastMessage = nil
+                }
+            }
         }
     }
 

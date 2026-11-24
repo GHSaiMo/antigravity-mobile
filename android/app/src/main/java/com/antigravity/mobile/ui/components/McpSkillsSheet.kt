@@ -1,5 +1,6 @@
 package com.antigravity.mobile.ui.components
 
+import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -990,8 +991,13 @@ fun McpSkillsSheet(
                                                 .clickable(enabled = !ev.conversationId.isNullOrBlank()) {
                                                     val cid = ev.conversationId
                                                     if (!cid.isNullOrBlank()) {
-                                                        onDismiss()
-                                                        onSelectConversation?.invoke(cid, ev.scheduleId.ifBlank { "自动化任务记录".loc })
+                                                        if (ev.conversationExists == false) {
+                                                            haptic.light()
+                                                            Toast.makeText(context, "该触发记录对应的会话已删除".loc, Toast.LENGTH_SHORT).show()
+                                                        } else {
+                                                            onDismiss()
+                                                            onSelectConversation?.invoke(cid, ev.scheduleId.ifBlank { "自动化任务记录".loc })
+                                                        }
                                                     }
                                                 }
                                                 .padding(horizontal = 14.dp, vertical = 11.dp),

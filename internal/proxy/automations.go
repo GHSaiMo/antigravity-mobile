@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -38,13 +39,14 @@ type AutomationSchedule struct {
 
 // AutomationEvent represents a historical run of an automation.
 type AutomationEvent struct {
-	ID             string `json:"id"`
-	ScheduleID     string `json:"scheduleId"`
-	SidecarID      string `json:"sidecarId,omitempty"`
-	ConversationID string `json:"conversationId,omitempty"`
-	Timestamp      string `json:"timestamp"`
-	Status         string `json:"status"` // success, error, running
-	Message        string `json:"message,omitempty"`
+	ID                 string `json:"id"`
+	ScheduleID         string `json:"scheduleId"`
+	SidecarID          string `json:"sidecarId,omitempty"`
+	ConversationID     string `json:"conversationId,omitempty"`
+	ConversationExists *bool  `json:"conversationExists,omitempty"`
+	Timestamp          string `json:"timestamp"`
+	Status             string `json:"status"` // success, error, running
+	Message            string `json:"message,omitempty"`
 }
 
 // AutomationsResponse is returned by GET /gateway/automations.
@@ -428,6 +430,7 @@ func (p *Proxy) HandleGetAutomations(w http.ResponseWriter, r *http.Request) {
 	if len(allEvents) > 50 {
 		allEvents = allEvents[:50]
 	}
+	p.annotateAutomationEventsConversationExists(r.Context(), port, token, allEvents)
 
 	// Convert schedulesMap to slice and sort
 	automations := make([]AutomationSchedule, 0, len(schedulesMap))
@@ -1107,6 +1110,116 @@ func readLocalSidecarEvents(sidecarID, displayName string, limit int) []Automati
 	}
 
 	return events
+}
+
+// annotateAutomationEventsConversationExists populates ConversationExists on each event that
+// references a conversationId so clients can warn instead of opening a deleted ("void") session.
+func (p *Proxy) annotateAutomationEventsConversationExists(ctx context.Context, port int, token string, events []AutomationEvent) {
+	hasConvID := false
+	for i := range events {
+		if strings.TrimSpace(events[i].ConversationID) != "" {
+			hasConvID = true
+			break
+		}
+	}
+	if !hasConvID {
+		return
+	}
+
+	var agDir string
+	var diskConvIDs map[string]struct{}
+	var hasDiskConvDir bool
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		agDir = filepath.Join(home, ".gemini", "antigravity")
+		diskConvIDs, hasDiskConvDir = loadCachedDiskConvIDs(filepath.Join(agDir, "conversations"))
+	}
+
+	var idx *allTrajectoriesParsed
+	if port > 0 && p != nil && p.mediumClient != nil {
+		checkCtx, cancel := context.WithTimeout(ctx, 1500*time.Millisecond)
+		idx, _ = p.fetchAllTrajectoriesIndex(checkCtx, port, token)
+		cancel()
+	}
+
+	upstreamMatchesDisk := false
+	if idx != nil && hasDiskConvDir && len(diskConvIDs) > 0 {
+		for id := range idx.sigByID {
+			if _, ok := diskConvIDs[id]; ok {
+				upstreamMatchesDisk = true
+				break
+			}
+		}
+	}
+
+	now := time.Now()
+	for i := range events {
+		cid := strings.TrimSpace(events[i].ConversationID)
+		if cid == "" {
+			continue
+		}
+
+		// 1. Explicitly deleted via gateway tombstone.
+		if IsDeletedCascade(cid) {
+			exists := false
+			events[i].ConversationExists = &exists
+			continue
+		}
+
+		// 2. Persisted conversation file (.db / .pb) still exists on disk.
+		if hasDiskConvDir {
+			if _, ok := diskConvIDs[cid]; ok {
+				exists := true
+				events[i].ConversationExists = &exists
+				continue
+			}
+		}
+
+		// 3. Cross-check live upstream trajectories snapshot when available.
+		if idx != nil {
+			live, inUpstream := idx.liveByID[cid]
+			if !inUpstream {
+				_, inUpstream = idx.sigByID[cid]
+			}
+			if !inUpstream {
+				exists := false
+				events[i].ConversationExists = &exists
+				continue
+			}
+
+			// Present in upstream memory but absent from disk. Keep true if disk isn't
+			// authoritative for this upstream (unless delete residue exists), or if the
+			// session is actively running, empty draft, or within the grace window.
+			diskAuthoritative := hasDiskConvDir && upstreamMatchesDisk
+			if hasDiskConvDir && !upstreamMatchesDisk && agDir != "" {
+				if _, err := os.Stat(filepath.Join(agDir, "brain", cid)); err == nil {
+					diskAuthoritative = true
+				} else if _, err := os.Stat(filepath.Join(agDir, "annotations", cid+".pbtxt")); err == nil {
+					diskAuthoritative = true
+				}
+			}
+			if !diskAuthoritative || live.Status == "CASCADE_RUN_STATUS_RUNNING" || live.StepCount <= 0 {
+				exists := true
+				events[i].ConversationExists = &exists
+				continue
+			}
+			if evTime, err := time.ParseInLocation("2006-01-02 15:04:05", events[i].Timestamp, time.Local); err == nil {
+				if now.Sub(evTime) < deletedZombieGracePeriod {
+					exists := true
+					events[i].ConversationExists = &exists
+					continue
+				}
+			}
+			exists := false
+			events[i].ConversationExists = &exists
+			continue
+		}
+
+		// 4. Upstream unavailable: fall back to local conversations directory when present.
+		if hasDiskConvDir {
+			exists := false
+			events[i].ConversationExists = &exists
+		}
+	}
 }
 
 var nextRunRegex = regexp.MustCompile(`\(at\s+(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})\s+UTC\)`)

@@ -657,3 +657,173 @@ func TestHandleGetAutomationsUsesCronOverStaleLog(t *testing.T) {
 		t.Errorf("expected top-of-hour NextRunAt, got %q", gotNext)
 	}
 }
+
+func TestHandleGetAutomationsEventConversationExistsDiskOnly(t *testing.T) {
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+
+	sidecarsDir := filepath.Join(tmpHome, ".gemini", "config", "sidecars", "daily-job")
+	if err := os.MkdirAll(sidecarsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	scJSON := `{"builtin":"schedule","args":["0 9 * * *","agentapi","new-conversation","Run check"],"display_name":"Daily Job"}`
+	if err := os.WriteFile(filepath.Join(sidecarsDir, "sidecar.json"), []byte(scJSON), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	convDir := filepath.Join(tmpHome, ".gemini", "antigravity", "conversations")
+	if err := os.MkdirAll(convDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(convDir, "conv-alive.db"), []byte("sqlite"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	eventsDir := filepath.Join(tmpHome, ".gemini", "antigravity", "sidecar_data", "daily-job", "events")
+	if err := os.MkdirAll(eventsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	writeEvent := func(name, content string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(eventsDir, name), []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeEvent("20261125_030000_alive.json", `{"timestampMs":"1795489200000","payload":{"newConversation":{"conversationId":"conv-alive","prompt":"ok"}}}`)
+	writeEvent("20261125_020000_deleted.json", `{"timestampMs":"1795485600000","payload":{"newConversation":{"conversationId":"conv-deleted","prompt":"gone"}}}`)
+	writeEvent("20261125_010000_error.json", `{"timestampMs":"1795482000000","error":"failed before session"}`)
+
+	p := &Proxy{}
+	req := httptest.NewRequest(http.MethodGet, "/gateway/automations", nil)
+	w := httptest.NewRecorder()
+	p.HandleGetAutomations(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("unexpected status %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp AutomationsResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	byID := make(map[string]AutomationEvent, len(resp.Events))
+	for _, ev := range resp.Events {
+		byID[ev.ID] = ev
+	}
+
+	alive := byID["20261125_030000_alive.json"]
+	if alive.ConversationExists == nil || !*alive.ConversationExists {
+		t.Errorf("expected conv-alive conversationExists=true, got %v", alive.ConversationExists)
+	}
+	deleted := byID["20261125_020000_deleted.json"]
+	if deleted.ConversationExists == nil || *deleted.ConversationExists {
+		t.Errorf("expected conv-deleted conversationExists=false, got %v", deleted.ConversationExists)
+	}
+	errEv := byID["20261125_010000_error.json"]
+	if errEv.ConversationExists != nil {
+		t.Errorf("expected error event without conversationId to have nil conversationExists, got %v", *errEv.ConversationExists)
+	}
+}
+
+func TestHandleGetAutomationsEventConversationExistsWithUpstreamAndZombie(t *testing.T) {
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+
+	sidecarsDir := filepath.Join(tmpHome, ".gemini", "config", "sidecars", "outreach")
+	if err := os.MkdirAll(sidecarsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	scJSON := `{"builtin":"schedule","args":["0 * * * *","agentapi","new-conversation","Check slots"],"display_name":"Outreach"}`
+	if err := os.WriteFile(filepath.Join(sidecarsDir, "sidecar.json"), []byte(scJSON), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	convDir := filepath.Join(tmpHome, ".gemini", "antigravity", "conversations")
+	if err := os.MkdirAll(convDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(convDir, "conv-alive.db"), []byte("sqlite"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(convDir, "conv-tombstone.db"), []byte("sqlite"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	RecordDeletedCascade("conv-tombstone")
+	defer RemoveDeletedCascadeTombstone("conv-tombstone")
+
+	eventsDir := filepath.Join(tmpHome, ".gemini", "antigravity", "sidecar_data", "outreach", "events")
+	if err := os.MkdirAll(eventsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	writeEvent := func(name, tsMs, cid string) {
+		t.Helper()
+		raw := `{"timestampMs":"` + tsMs + `","payload":{"newConversation":{"conversationId":"` + cid + `","prompt":"run"}}}`
+		if err := os.WriteFile(filepath.Join(eventsDir, name), []byte(raw), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	oldMs := "1700000000000" // well outside deletedZombieGracePeriod
+	writeEvent("20261125_050000_running.json", oldMs, "conv-running")
+	writeEvent("20261125_040000_alive.json", oldMs, "conv-alive")
+	writeEvent("20261125_030000_zombie.json", oldMs, "conv-zombie")
+	writeEvent("20261125_020000_deleted.json", oldMs, "conv-deleted")
+	writeEvent("20261125_010000_tombstone.json", oldMs, "conv-tombstone")
+
+	mockUpstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/exa.language_server_pb.LanguageServerService/GetSidecars":
+			_, _ = w.Write([]byte(`{"sidecars":[]}`))
+		case "/exa.language_server_pb.LanguageServerService/GetAllCascadeTrajectories":
+			_, _ = w.Write([]byte(`{"trajectorySummaries":{
+				"conv-alive":{"status":"CASCADE_RUN_STATUS_IDLE","stepCount":5},
+				"conv-zombie":{"status":"CASCADE_RUN_STATUS_IDLE","stepCount":4},
+				"conv-running":{"status":"CASCADE_RUN_STATUS_RUNNING","stepCount":2},
+				"conv-tombstone":{"status":"CASCADE_RUN_STATUS_IDLE","stepCount":3}
+			}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer mockUpstream.Close()
+
+	tcpAddr := mockUpstream.Listener.Addr().(*net.TCPAddr)
+	p := &Proxy{
+		mediumClient: mockUpstream.Client(),
+		activePort:   tcpAddr.Port,
+		activeToken:  "tok",
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/gateway/automations", nil)
+	w := httptest.NewRecorder()
+	p.HandleGetAutomations(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("unexpected status %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp AutomationsResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	byCID := make(map[string]*bool, len(resp.Events))
+	for _, ev := range resp.Events {
+		byCID[ev.ConversationID] = ev.ConversationExists
+	}
+
+	expect := map[string]bool{
+		"conv-alive":     true,
+		"conv-running":   true,
+		"conv-zombie":    false,
+		"conv-deleted":   false,
+		"conv-tombstone": false,
+	}
+	for cid, want := range expect {
+		got, ok := byCID[cid]
+		if !ok || got == nil {
+			t.Errorf("%s: expected non-nil conversationExists=%v, got %v", cid, want, got)
+			continue
+		}
+		if *got != want {
+			t.Errorf("%s: expected conversationExists=%v, got %v", cid, want, *got)
+		}
+	}
+}

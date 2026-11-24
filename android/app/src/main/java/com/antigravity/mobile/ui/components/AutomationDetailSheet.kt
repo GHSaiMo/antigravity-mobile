@@ -820,8 +820,12 @@ fun AutomationDetailDialog(
                                         .clickable(enabled = !ev.conversationId.isNullOrBlank()) {
                                             val cid = ev.conversationId
                                             if (!cid.isNullOrBlank()) {
-                                                onDismiss()
-                                                onSelectConversation?.invoke(cid, sidecar.name.ifBlank { sid })
+                                                if (ev.conversationExists == false) {
+                                                    Toast.makeText(context, "该触发记录对应的会话已删除".loc, Toast.LENGTH_SHORT).show()
+                                                } else {
+                                                    onDismiss()
+                                                    onSelectConversation?.invoke(cid, sidecar.name.ifBlank { sid })
+                                                }
                                             }
                                         }
                                         .padding(vertical = 6.dp),

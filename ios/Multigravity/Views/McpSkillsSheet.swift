@@ -51,6 +51,8 @@ public struct McpSkillsSheet: View {
     @State private var showStopAllTasksConfirm: Bool = false
     @State private var pendingStopDaemonTask: GlobalBackgroundTaskItem? = nil
     @State private var actionErrorMessage: String? = nil
+    @State private var noticeToastMessage: String? = nil
+    @State private var noticeToastSeq: Int = 0
     
     private let currentConversationId: String?
     private let hasActiveSwarm: Bool
@@ -247,6 +249,32 @@ public struct McpSkillsSheet: View {
                 await loadData()
             }
         }
+        .overlay(alignment: .center) {
+            if let msg = noticeToastMessage {
+                HStack(spacing: 8) {
+                    Image(systemName: "info.circle.fill")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(.orange)
+                    Text(msg)
+                        .font(.system(size: 13.5, weight: .medium))
+                        .foregroundColor(.primary)
+                        .lineLimit(2)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .background(.ultraThinMaterial)
+                .clipShape(Capsule())
+                .overlay(
+                    Capsule()
+                        .stroke(Color.primary.opacity(0.1), lineWidth: 0.7)
+                )
+                .shadow(color: Color.black.opacity(0.18), radius: 14, x: 0, y: 6)
+                .padding(.horizontal, 24)
+                .allowsHitTesting(false)
+                .transition(.scale(scale: 0.88).combined(with: .opacity))
+            }
+        }
+        .animation(.spring(response: 0.3, dampingFraction: 0.82), value: noticeToastMessage)
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
     }
@@ -1102,10 +1130,7 @@ public struct McpSkillsSheet: View {
                 Section(header: Text("最近触发记录")) {
                     ForEach(automationEvents) { ev in
                         Button(action: {
-                            if let cid = ev.conversationId, !cid.isEmpty {
-                                dismiss()
-                                onSelectConversation?(cid)
-                            }
+                            handleAutomationEventTap(ev)
                         }) {
                             VStack(alignment: .leading, spacing: 4) {
                                 HStack {
@@ -1130,6 +1155,32 @@ public struct McpSkillsSheet: View {
                         }
                         .disabled(ev.conversationId?.isEmpty != false)
                     }
+                }
+            }
+        }
+    }
+
+    private func handleAutomationEventTap(_ ev: AutomationEventItem) {
+        guard let cid = ev.conversationId, !cid.isEmpty else { return }
+        if ev.conversationExists == false {
+            UINotificationFeedbackGenerator().notificationOccurred(.warning)
+            showNoticeToast(String(localized: "该触发记录对应的会话已删除"))
+            return
+        }
+        dismiss()
+        onSelectConversation?(cid)
+    }
+
+    private func showNoticeToast(_ msg: String) {
+        noticeToastSeq += 1
+        let seq = noticeToastSeq
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.82)) {
+            noticeToastMessage = msg
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) {
+            if noticeToastSeq == seq {
+                withAnimation(.easeOut(duration: 0.2)) {
+                    noticeToastMessage = nil
                 }
             }
         }

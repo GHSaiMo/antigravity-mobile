@@ -2096,7 +2096,7 @@
           <span>运行历史 (${taskEvents.length})</span>
         </div>
         <div class="p3-list">` + (taskEvents.slice(0, 15).map((ev) => `
-          <div class="p3-row" ${ev.conversationId ? `data-auto-conv="${escapeHtml(ev.conversationId)}" style="cursor:pointer;"` : ""}>
+          <div class="p3-row" ${ev.conversationId ? `data-auto-conv="${escapeHtml(ev.conversationId)}" data-auto-conv-exists="${ev.conversationExists === false ? "0" : "1"}" style="cursor:pointer;"` : ""}>
             <div class="p3-row-main">
               <div class="p3-row-title" style="font-size:12.5px;">
                 ${ev.status === "error" ? "🔴" : "🟢"} <span class="monospaced">${escapeHtml(ev.timestamp || "")}</span>
@@ -2215,9 +2215,17 @@
       body.querySelectorAll("[data-auto-conv]").forEach((row) => {
         row.addEventListener("click", () => {
           const cid = row.getAttribute("data-auto-conv");
-          if (cid && typeof selectConversation === "function") {
+          const exists = row.getAttribute("data-auto-conv-exists") !== "0";
+          if (!exists) {
+            showToast?.(typeof t === "function" ? t("该触发记录对应的会话已删除") : "该触发记录对应的会话已删除", 2400);
+            return;
+          }
+          const openConv = typeof selectCascadeConversation === "function"
+            ? selectCascadeConversation
+            : (typeof selectConversation === "function" ? selectConversation : null);
+          if (cid && openConv) {
             this.closeToolsBoard();
-            selectConversation(cid);
+            openConv(cid);
           }
         });
       });

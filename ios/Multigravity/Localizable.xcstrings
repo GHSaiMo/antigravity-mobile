@@ -36945,6 +36945,28 @@
         }
       }
     },
+    "该触发记录对应的会话已删除": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conversation for this trigger has been deleted"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この実行履歴の会話は削除されています"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该触发记录对应的会话已删除"
+          }
+        }
+      }
+    },
     "请先在主会话发送至少一条消息后再发起旁路快问": {
       "localizations": {
         "en": {

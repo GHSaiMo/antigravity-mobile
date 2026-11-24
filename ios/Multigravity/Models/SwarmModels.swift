@@ -691,6 +691,7 @@ public struct AutomationEventItem: Codable, Sendable, Identifiable, Equatable {
     public let scheduleId: String
     public let sidecarId: String?
     public let conversationId: String?
+    public let conversationExists: Bool?
     public let timestamp: String
     public let status: String
     public let message: String?
@@ -708,6 +709,7 @@ public struct AutomationEventItem: Codable, Sendable, Identifiable, Equatable {
         self.scheduleId = try c.decodeIfPresent(String.self, forKey: .scheduleId) ?? ""
         self.sidecarId = try c.decodeIfPresent(String.self, forKey: .sidecarId)
         self.conversationId = try c.decodeIfPresent(String.self, forKey: .conversationId)
+        self.conversationExists = try c.decodeIfPresent(Bool.self, forKey: .conversationExists)
         self.timestamp = try c.decodeIfPresent(String.self, forKey: .timestamp) ?? ""
         self.status = try c.decodeIfPresent(String.self, forKey: .status) ?? ""
         self.message = try c.decodeIfPresent(String.self, forKey: .message)

@@ -1367,6 +1367,7 @@ data class AutomationEventItem(
     val scheduleId: String = "",
     val sidecarId: String? = null,
     val conversationId: String? = null,
+    val conversationExists: Boolean? = null,
     val timestamp: String = "",
     val status: String = "",
     val message: String? = null
