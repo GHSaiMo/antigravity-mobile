@@ -1508,6 +1508,12 @@ private struct ChatToolbarPrincipalView: View {
     @State private var settings = AppSettings.shared
 
     var body: some View {
+        principalContent
+            .frame(idealWidth: 10_000, maxWidth: .infinity, alignment: .center)
+    }
+
+    @ViewBuilder
+    private var principalContent: some View {
         let isRunning = viewModel.isRunning || viewModel.isAwaitingResponse
         let hasPending = viewModel.pendingInteraction != nil || viewModel.canProceed
         if let origin = viewModel.branchOrigin, origin.isSideQuestion {

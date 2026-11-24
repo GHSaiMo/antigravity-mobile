@@ -2263,23 +2263,28 @@ private nonisolated struct AdaptiveLayoutGeometry: Equatable, Sendable {
     static func measure(from proxy: GeometryProxy) -> AdaptiveLayoutGeometry {
         let w = proxy.size.width.rounded()
         let h = proxy.size.height.rounded()
-        var divisionRect: CGRect? = nil
-        if #available(iOS 27.1, *) {
-            if let region = proxy.reservedRegions(kind: .division).first(where: { region in
-                region.isActive
-                    && region.frame.height > region.frame.width
-                    && region.frame.minX >= 280
-                    && (proxy.size.width - region.frame.maxX) >= 340
-            }) {
-                let f = region.frame
-                divisionRect = CGRect(
-                    x: f.origin.x.rounded(),
-                    y: f.origin.y.rounded(),
-                    width: f.size.width.rounded(),
-                    height: f.size.height.rounded()
-                )
-            }
+        let divisionRect: CGRect?
+        #if compiler(>=6.4.1)
+        if #available(iOS 27.1, *),
+           let region = proxy.reservedRegions(kind: .division).first(where: { region in
+               region.isActive
+                   && region.frame.height > region.frame.width
+                   && region.frame.minX >= 280
+                   && (proxy.size.width - region.frame.maxX) >= 340
+           }) {
+            let f = region.frame
+            divisionRect = CGRect(
+                x: f.origin.x.rounded(),
+                y: f.origin.y.rounded(),
+                width: f.size.width.rounded(),
+                height: f.size.height.rounded()
+            )
+        } else {
+            divisionRect = nil
         }
+        #else
+        divisionRect = nil
+        #endif
         return AdaptiveLayoutGeometry(width: w, height: h, verticalDivision: divisionRect)
     }
 }
@@ -2288,11 +2293,15 @@ private nonisolated struct AdaptiveLayoutGeometry: Equatable, Sendable {
 /// NavigationStacks share consistent horizontal top bars.
 private struct DisableVerticalToolbarIfAvailable: ViewModifier {
     func body(content: Content) -> some View {
+        #if compiler(>=6.4.1)
         if #available(iOS 27.1, *) {
             content.toolbarVerticalBehavior(.disabled)
         } else {
             content
         }
+        #else
+        content
+        #endif
     }
 }
 
@@ -2303,12 +2312,17 @@ private struct SharePendingDeliveryPill: View {
     let action: () -> Void
 
     var body: some View {
+        #if compiler(>=6.4.1)
         if #available(iOS 27.1, *) {
             SharePendingDeliveryPillV27(count: count, action: action)
         } else {
             pillButton
                 .padding(.bottom, 76)
         }
+        #else
+        pillButton
+            .padding(.bottom, 76)
+        #endif
     }
 
     private var pillButton: some View {
@@ -2324,6 +2338,7 @@ private struct SharePendingDeliveryPill: View {
     }
 }
 
+#if compiler(>=6.4.1)
 @available(iOS 27.1, *)
 private struct SharePendingDeliveryPillV27: View {
     @Environment(\.toolbarVerticalEdge) private var toolbarVerticalEdge
@@ -2343,6 +2358,7 @@ private struct SharePendingDeliveryPillV27: View {
         .padding(.bottom, toolbarVerticalEdge != nil ? 16 : 76)
     }
 }
+#endif
 
 /// Row interactions: iPad (pointer / long press) gets a context menu, iPhone keeps long-press to rename.
 private struct RowActions: ViewModifier {
