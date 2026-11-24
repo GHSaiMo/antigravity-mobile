@@ -1773,12 +1773,43 @@ class ApiClient(
 
     // MARK: - Swarm 蜂群协同接口
 
-    suspend fun fetchSwarmSnapshot(cascadeId: String): Result<SwarmSnapshot> = withContext(Dispatchers.IO) {
+    suspend fun fetchSwarmSnapshot(
+        cascadeId: String,
+        afterSeq: Int? = null,
+        beforeSeq: Int? = null,
+        limit: Int? = null
+    ): Result<SwarmSnapshot> = fetchSwarmSnapshotIfModified(
+        cascadeId = cascadeId,
+        afterSeq = afterSeq,
+        beforeSeq = beforeSeq,
+        limit = limit,
+        etag = null
+    ).mapCatching { it ?: throw RuntimeException("Not Modified") }
+
+    suspend fun fetchSwarmSnapshotIfModified(
+        cascadeId: String,
+        afterSeq: Int? = null,
+        beforeSeq: Int? = null,
+        limit: Int? = null,
+        etag: String? = null
+    ): Result<SwarmSnapshot?> = withContext(Dispatchers.IO) {
         val baseUrl = currentBaseUrl ?: return@withContext Result.failure(RuntimeException("未配置网关地址".loc))
         try {
-            val url = "$baseUrl/gateway/swarm?cascadeId=${URLEncoder.encode(cascadeId, "UTF-8")}"
-            val request = buildAuthorizedRequest(url).get().build()
-            client.newCall(request).await().use { response ->
+            val query = buildString {
+                append("cascadeId=").append(URLEncoder.encode(cascadeId, "UTF-8"))
+                if (afterSeq != null && afterSeq > 0) append("&afterSeq=").append(afterSeq)
+                if (beforeSeq != null && beforeSeq > 0) append("&beforeSeq=").append(beforeSeq)
+                if (limit != null && limit > 0) append("&limit=").append(limit)
+            }
+            val url = "$baseUrl/gateway/swarm?$query"
+            val builder = buildAuthorizedRequest(url).get()
+            if (!etag.isNullOrBlank()) {
+                builder.header("If-None-Match", etag)
+            }
+            client.newCall(builder.build()).await().use { response ->
+                if (response.code == 304) {
+                    return@withContext Result.success(null)
+                }
                 val respStr = response.body?.string().orEmpty()
                 if (!response.isSuccessful) {
                     return@withContext Result.failure(RuntimeException("HTTP ${response.code}"))

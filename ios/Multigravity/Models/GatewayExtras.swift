@@ -312,9 +312,11 @@ public struct ConversationSearchResult: Codable, Sendable, Identifiable, Hashabl
     public let snippetMatchRanges: [SearchMatchRange]
     public let matchSource: String?
     public let matchedStepIndex: Int?
+    public let isSideQuestion: Bool?
+    public let parentConversationId: String?
 
     enum CodingKeys: String, CodingKey {
-        case cascadeId, title, workspaceName, lastModifiedTime, snippet, snippetMatchRanges, matchSource, matchedStepIndex
+        case cascadeId, title, workspaceName, lastModifiedTime, snippet, snippetMatchRanges, matchSource, matchedStepIndex, isSideQuestion, parentConversationId
     }
 
     public init(from decoder: Decoder) throws {
@@ -327,6 +329,8 @@ public struct ConversationSearchResult: Codable, Sendable, Identifiable, Hashabl
         snippetMatchRanges = try c.decodeIfPresent([SearchMatchRange].self, forKey: .snippetMatchRanges) ?? []
         matchSource = try c.decodeIfPresent(String.self, forKey: .matchSource)
         matchedStepIndex = try c.decodeIfPresent(Int.self, forKey: .matchedStepIndex)
+        isSideQuestion = try c.decodeIfPresent(Bool.self, forKey: .isSideQuestion)
+        parentConversationId = try c.decodeIfPresent(String.self, forKey: .parentConversationId)
     }
 }
 

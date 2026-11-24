@@ -43,10 +43,34 @@ extension ChatView {
         }
 
         if !viewModel.queuedMessages.isEmpty {
-            let hasActiveBgWork = viewModel.isActivelyRunning || !viewModel.runningTasks.isEmpty || viewModel.subagents.contains { $0.isRunning }
+            let activeSubagents = viewModel.subagents.filter { $0.isRunning }
+            let blockingTasks = viewModel.runningTasks.filter { $0.isDaemon != true }
+            let effectiveTasks = blockingTasks.isEmpty ? viewModel.runningTasks : blockingTasks
+            let hasActiveBgWork = viewModel.isActivelyRunning || !effectiveTasks.isEmpty || !activeSubagents.isEmpty
+            let blockingNames: [String] = {
+                var names: [String] = []
+                for sa in activeSubagents {
+                    let label = (sa.role?.isEmpty == false ? sa.role : sa.typeName) ?? ""
+                    let clean = label.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !clean.isEmpty { names.append(clean) }
+                }
+                for task in effectiveTasks {
+                    let raw = (task.toolSummary?.isEmpty == false ? task.toolSummary : nil)
+                        ?? (task.commandLine.isEmpty ? nil : task.commandLine)
+                        ?? task.toolName
+                        ?? ""
+                    let clean = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !clean.isEmpty {
+                        names.append(clean.count > 18 ? String(clean.prefix(18)) + "…" : clean)
+                    }
+                }
+                return names
+            }()
             QueuedMessagesCardView(
+                cascadeId: viewModel.cascadeId,
                 items: viewModel.queuedMessages,
                 hasActiveBackgroundWork: hasActiveBgWork,
+                blockingWorkNames: blockingNames,
                 onSendNow: { item in
                     if hasActiveBgWork {
                         queuedItemToSendNow = item

@@ -216,20 +216,64 @@ extension APIClient {
 
     // MARK: - Swarm 蜂群协同接口
 
-    /// 获取当前会话关联的 Swarm 蜂群快照（/gateway/swarm?cascadeId=...）。
-    public func fetchSwarmSnapshot(cascadeId: String, baseURL: URL) async throws -> SwarmSnapshot {
+    /// 获取当前会话关联的 Swarm 蜂群快照（/gateway/swarm?cascadeId=...），支持尾部窗口分页与增量轮询。
+    public func fetchSwarmSnapshot(
+        cascadeId: String,
+        afterSeq: Int? = nil,
+        beforeSeq: Int? = nil,
+        limit: Int? = nil,
+        baseURL: URL
+    ) async throws -> SwarmSnapshot {
+        guard let snap = try await fetchSwarmSnapshotIfModified(
+            cascadeId: cascadeId,
+            afterSeq: afterSeq,
+            beforeSeq: beforeSeq,
+            limit: limit,
+            etag: nil,
+            baseURL: baseURL
+        ) else {
+            throw APIError.serverError(statusCode: 304, message: "Not Modified")
+        }
+        return snap
+    }
+
+    /// 带 ETag 协商的 Swarm 快照拉取；未变更（HTTP 304）时返回 nil 以避免大蜂群冗余传输与重绘。
+    public func fetchSwarmSnapshotIfModified(
+        cascadeId: String,
+        afterSeq: Int? = nil,
+        beforeSeq: Int? = nil,
+        limit: Int? = nil,
+        etag: String? = nil,
+        baseURL: URL
+    ) async throws -> SwarmSnapshot? {
         var components = URLComponents(url: baseURL.appendingPathComponent("gateway/swarm"), resolvingAgainstBaseURL: false)
-        components?.queryItems = [URLQueryItem(name: "cascadeId", value: cascadeId)]
+        var queryItems = [URLQueryItem(name: "cascadeId", value: cascadeId)]
+        if let afterSeq, afterSeq > 0 {
+            queryItems.append(URLQueryItem(name: "afterSeq", value: String(afterSeq)))
+        }
+        if let beforeSeq, beforeSeq > 0 {
+            queryItems.append(URLQueryItem(name: "beforeSeq", value: String(beforeSeq)))
+        }
+        if let limit, limit > 0 {
+            queryItems.append(URLQueryItem(name: "limit", value: String(limit)))
+        }
+        components?.queryItems = queryItems
         guard let url = components?.url else { throw APIError.invalidURL }
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.timeoutInterval = 15
+        if let etag, !etag.isEmpty {
+            request.setValue(etag, forHTTPHeaderField: "If-None-Match")
+        }
         let data: Data
         let response: URLResponse
         do {
             (data, response) = try await transport.send(request: request)
         } catch {
             throw APIError.networkError(error.localizedDescription)
+        }
+        if let http = response as? HTTPURLResponse, http.statusCode == 304 {
+            return nil
         }
         guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
             let code = (response as? HTTPURLResponse)?.statusCode ?? -1

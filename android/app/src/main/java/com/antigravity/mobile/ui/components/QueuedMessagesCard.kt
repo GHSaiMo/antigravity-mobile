@@ -35,6 +35,8 @@ import androidx.compose.ui.unit.sp
 import com.antigravity.mobile.data.model.QueuedMessageItem
 import com.antigravity.mobile.ui.theme.AntigravityTheme
 
+private val queueExpandStateByCascade = mutableMapOf<String, Boolean>()
+
 @Composable
 fun QueuedMessagesCard(
     items: List<QueuedMessageItem>,
@@ -42,13 +44,29 @@ fun QueuedMessagesCard(
     onEdit: (QueuedMessageItem) -> Unit,
     onDelete: (QueuedMessageItem) -> Unit,
     hasActiveBackgroundWork: Boolean = false,
+    blockingWorkNames: List<String> = emptyList(),
+    cascadeId: String = "",
     onToggleExpand: ((Boolean) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     if (items.isEmpty()) return
 
-    var isExpanded by remember { mutableStateOf(true) }
+    var isExpanded by remember(cascadeId) {
+        mutableStateOf(if (cascadeId.isNotEmpty()) queueExpandStateByCascade[cascadeId] ?: true else true)
+    }
     val colors = AntigravityTheme.colors
+    val statusSubtitle = remember(hasActiveBackgroundWork, blockingWorkNames) {
+        if (!hasActiveBackgroundWork) {
+            "当前任务完成后自动发送".loc
+        } else {
+            val cleaned = blockingWorkNames.map { it.trim() }.filter { it.isNotEmpty() }
+            when {
+                cleaned.isEmpty() -> "后台任务运行中，完成后出列".loc
+                cleaned.size > 2 -> "等待 ${cleaned.take(2).joinToString("、")} 等${cleaned.size}项完成后出列".loc
+                else -> "等待 ${cleaned.joinToString("、")} 完成后出列".loc
+            }
+        }
+    }
 
     // iOS 对齐：展开时箭头朝下(0度)，折叠时箭头朝上(180度)，弹性动画旋转
     val arrowRotation by animateFloatAsState(
@@ -80,6 +98,9 @@ fun QueuedMessagesCard(
                     .fillMaxWidth()
                     .clickable {
                         isExpanded = !isExpanded
+                        if (cascadeId.isNotEmpty()) {
+                            queueExpandStateByCascade[cascadeId] = isExpanded
+                        }
                         onToggleExpand?.invoke(isExpanded)
                     },
                 verticalAlignment = Alignment.CenterVertically,
@@ -119,7 +140,7 @@ fun QueuedMessagesCard(
                                 .background(Color(0xFFFF9800))
                         )
                         Text(
-                            text = "后台任务运行中，完成后出列".loc,
+                            text = statusSubtitle,
                             color = Color(0xFFFF9800),
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Medium,
@@ -128,7 +149,7 @@ fun QueuedMessagesCard(
                         )
                     } else {
                         Text(
-                            text = "当前任务完成后自动发送".loc,
+                            text = statusSubtitle,
                             color = colors.textSecondary,
                             fontSize = 12.sp,
                             maxLines = 1,

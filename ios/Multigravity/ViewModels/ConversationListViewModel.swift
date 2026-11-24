@@ -263,8 +263,59 @@ public final class ConversationListViewModel {
                 let results = try await self.apiClient.searchConversations(query: query, baseURL: baseURL)
                 guard !Task.isCancelled else { return }
                 let byID = Dictionary(self.workspaceFilteredConversations.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+                let allByID = Dictionary(self.conversations.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
                 self.contentHits = results.compactMap { r in
-                    byID[r.cascadeId].map { ContentSearchHit(result: r, item: $0) }
+                    if let existing = byID[r.cascadeId] {
+                        if r.isSideQuestion == true && (!existing.isSideQuestion || existing.branchParentId == nil) {
+                            let parentId = r.parentConversationId?.trimmingCharacters(in: .whitespacesAndNewlines)
+                            let parent = parentId.flatMap { allByID[$0] }
+                            let enriched = ConversationItem(
+                                id: existing.id,
+                                title: existing.title,
+                                status: existing.status,
+                                stepCount: existing.stepCount,
+                                workspaceName: existing.workspaceName,
+                                lastModified: existing.lastModified,
+                                isSubagent: existing.isSubagent,
+                                isUnread: existing.isUnread,
+                                draftProject: existing.draftProject,
+                                parentConversationId: existing.parentConversationId,
+                                nestingDepth: existing.nestingDepth,
+                                isPinned: existing.isPinned,
+                                hasRunningTasks: existing.hasRunningTasks,
+                                hasRunningSubagents: existing.hasRunningSubagents,
+                                currentBranch: existing.currentBranch,
+                                pullRequest: existing.pullRequest,
+                                isSideQuestion: true,
+                                branchParentId: parentId?.isEmpty == false ? parentId : existing.branchParentId,
+                                branchParentTitle: parent?.title ?? existing.branchParentTitle,
+                                forkStepIndex: existing.forkStepIndex
+                            )
+                            return ContentSearchHit(result: r, item: enriched)
+                        }
+                        return ContentSearchHit(result: r, item: existing)
+                    }
+                    // Antigravity 2.35 parity: preserve /btw side-question hits even when not directly listed.
+                    if r.isSideQuestion == true {
+                        let parentId = r.parentConversationId?.trimmingCharacters(in: .whitespacesAndNewlines)
+                        let parent = parentId.flatMap { allByID[$0] }
+                        if let filter = self.selectedWorkspaceFilter {
+                            if let parent, !filter.matches(parent) { return nil }
+                        }
+                        let synth = ConversationItem(
+                            id: r.cascadeId,
+                            title: r.title.isEmpty ? String(localized: "未命名会话") : r.title,
+                            status: .idle,
+                            stepCount: 0,
+                            workspaceName: parent?.workspaceName ?? r.workspaceName ?? "Chat",
+                            lastModified: nil,
+                            isSideQuestion: true,
+                            branchParentId: parentId?.isEmpty == false ? parentId : nil,
+                            branchParentTitle: parent?.title
+                        )
+                        return ContentSearchHit(result: r, item: synth)
+                    }
+                    return nil
                 }
             } catch {
                 guard !Task.isCancelled else { return }

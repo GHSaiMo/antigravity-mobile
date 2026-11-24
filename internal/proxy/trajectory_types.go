@@ -233,12 +233,13 @@ type ApprovalPreviewDetails struct {
 }
 
 type PendingInteraction struct {
-	Type               string                   `json:"type"` // "permission", "ask_question", "file_permission", "run_command"
-	TrajectoryID       string                   `json:"trajectoryId"`
-	StepIndex          int                      `json:"stepIndex"`
-	Title              string                   `json:"title"`
-	Target             string                   `json:"target,omitempty"`
-	Action             string                   `json:"action,omitempty"`
+	Type                    string                   `json:"type"` // "permission", "ask_question", "file_permission", "run_command"
+	TrajectoryID            string                   `json:"trajectoryId"`
+	StepIndex               int                      `json:"stepIndex"`
+	Title                   string                   `json:"title"`
+	Target                  string                   `json:"target,omitempty"`
+	SuggestedDirectoryScope string                   `json:"suggestedDirectoryScope,omitempty"`
+	Action                  string                   `json:"action,omitempty"`
 	Description        string                   `json:"description,omitempty"`
 	PermissionGrant    *PermissionGrantDetails  `json:"permissionGrant,omitempty"`
 	WorkflowApproval   *WorkflowApprovalDetails `json:"workflowApproval,omitempty"`

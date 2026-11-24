@@ -322,7 +322,33 @@ class MainActivity : ComponentActivity() {
                             },
                             dismissModalsTrigger = dismissModalsTrigger,
                             openQuotaRequested = openQuotaRequested,
-                            onConsumeOpenQuota = { openQuotaRequestedFlow.value = false }
+                            onConsumeOpenQuota = { openQuotaRequestedFlow.value = false },
+                            onSelectSideQuestionFromSearch = { parentId, sideId, sideTitle, lastModifiedTime ->
+                                val parentConv = conversationListViewModel.getConversation(parentId)
+                                val parentTitle = parentConv?.displayTitle ?: "会话详情".loc
+                                val parentStatus = parentConv?.status ?: ConversationStatus.IDLE
+                                val encodedParentTitle = URLEncoder.encode(parentTitle, "UTF-8")
+                                navController.navigate("chat/$parentId/$encodedParentTitle?isNew=false&isUnread=false&status=${parentStatus.name}")
+
+                                conversationListViewModel.notifySessionFocus(sideId)
+                                val wsName = (conversationListViewModel.getWorkspaceName(sideId) ?: "")
+                                    .ifBlank { parentConv?.workspaceName ?: "" }
+                                val sideConv = conversationListViewModel.getConversation(sideId)
+                                val sideStatus = sideConv?.status ?: ConversationStatus.UNKNOWN
+                                chatViewModel.prepareSession(
+                                    cascadeId = sideId,
+                                    initialTitle = sideTitle,
+                                    isNewConversation = false,
+                                    workspaceName = wsName,
+                                    isUnread = sideConv?.isUnread ?: false,
+                                    conversationStatus = sideStatus,
+                                    draftProject = null,
+                                    lastModifiedTime = lastModifiedTime
+                                )
+                                conversationListViewModel.markConversationAsRead(sideId)
+                                val encodedSideTitle = URLEncoder.encode(sideTitle, "UTF-8")
+                                navController.navigate("chat/$sideId/$encodedSideTitle?isNew=false&isUnread=false&status=${sideStatus.name}")
+                            }
                         )
                     }
 

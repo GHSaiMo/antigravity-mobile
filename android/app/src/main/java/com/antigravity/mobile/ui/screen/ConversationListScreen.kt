@@ -83,7 +83,8 @@ fun ConversationListScreen(
     modifier: Modifier = Modifier,
     dismissModalsTrigger: Int = 0,
     openQuotaRequested: Boolean = false,
-    onConsumeOpenQuota: () -> Unit = {}
+    onConsumeOpenQuota: () -> Unit = {},
+    onSelectSideQuestionFromSearch: ((parentId: String, sideId: String, sideTitle: String, lastModifiedTime: String?) -> Unit)? = null
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
@@ -409,6 +410,7 @@ fun ConversationListScreen(
                             contentResults = contentResults.filter { hit ->
                                 val matchesFilter = selectedWorkspaceFilter?.let { filter ->
                                     val known = viewModel.getConversation(hit.cascadeId)
+                                        ?: hit.parentConversationId?.let { viewModel.getConversation(it) }
                                     known != null && filter.matches(known)
                                 } ?: true
                                 matchesFilter && state.conversations.none { it.id == hit.cascadeId }
@@ -416,14 +418,26 @@ fun ConversationListScreen(
                             isSearchingContent = isSearchingContent,
                             onSelectContentHit = { hit ->
                                 val known = viewModel.getConversation(hit.cascadeId)
-                                onSelectConversation(
-                                    hit.cascadeId,
-                                    known?.displayTitle ?: hit.title.ifBlank { "未命名会话".loc },
-                                    false,
-                                    known?.isUnread ?: false,
-                                    known?.status ?: com.antigravity.mobile.data.model.ConversationStatus.UNKNOWN,
-                                    known?.lastModifiedTime ?: hit.lastModifiedTime
-                                )
+                                val resolvedTitle = known?.displayTitle ?: hit.title.ifBlank { "未命名会话".loc }
+                                val parentId = (hit.parentConversationId ?: known?.branchParentId)?.trim().orEmpty()
+                                val isSide = hit.isSideQuestion || known?.isSideQuestion == true
+                                if (isSide && parentId.isNotEmpty() && parentId != hit.cascadeId && onSelectSideQuestionFromSearch != null) {
+                                    onSelectSideQuestionFromSearch(
+                                        parentId,
+                                        hit.cascadeId,
+                                        resolvedTitle,
+                                        known?.lastModifiedTime ?: hit.lastModifiedTime
+                                    )
+                                } else {
+                                    onSelectConversation(
+                                        hit.cascadeId,
+                                        resolvedTitle,
+                                        false,
+                                        known?.isUnread ?: false,
+                                        known?.status ?: com.antigravity.mobile.data.model.ConversationStatus.UNKNOWN,
+                                        known?.lastModifiedTime ?: hit.lastModifiedTime
+                                    )
+                                }
                             },
                             largeTitleAlpha = largeTitleAlpha,
                             topPadding = topBarHeight,
@@ -1457,8 +1471,14 @@ private fun ContentHitCard(
                 overflow = TextOverflow.Ellipsis
             )
         }
-        hit.workspaceName?.takeIf { it.isNotBlank() }?.let {
-            Text(text = it, color = colors.textMuted, fontSize = 11.5.sp, maxLines = 1)
+        val wsName = hit.workspaceName?.trim().orEmpty()
+        val metaText = when {
+            hit.isSideQuestion && wsName.isNotEmpty() -> "↳ /btw · $wsName"
+            hit.isSideQuestion -> "↳ /btw"
+            else -> wsName
+        }
+        if (metaText.isNotEmpty()) {
+            Text(text = metaText, color = colors.textMuted, fontSize = 11.5.sp, maxLines = 1)
         }
     }
 }

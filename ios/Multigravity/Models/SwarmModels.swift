@@ -325,11 +325,42 @@ public struct SwarmSnapshot: Codable, Sendable, Equatable {
     public let brief: SwarmBrief
     public let members: [SwarmMemberInfo]
     public let messages: [SwarmBoardMessage]
+    public let totalMessages: Int
+    public let hasMoreBefore: Bool
+    public let oldestSeq: Int
     public let view: SwarmView?
     public let plan: SwarmPlan?
 
     enum CodingKeys: String, CodingKey {
-        case cascadeId, coordinatorId, title, etag, brief, members, messages, view, plan
+        case cascadeId, coordinatorId, title, etag, brief, members, messages, totalMessages, hasMoreBefore, oldestSeq, view, plan
+    }
+
+    public init(
+        cascadeId: String,
+        coordinatorId: String,
+        title: String,
+        etag: String?,
+        brief: SwarmBrief,
+        members: [SwarmMemberInfo],
+        messages: [SwarmBoardMessage],
+        totalMessages: Int = 0,
+        hasMoreBefore: Bool = false,
+        oldestSeq: Int = 0,
+        view: SwarmView?,
+        plan: SwarmPlan?
+    ) {
+        self.cascadeId = cascadeId
+        self.coordinatorId = coordinatorId
+        self.title = title
+        self.etag = etag
+        self.brief = brief
+        self.members = members
+        self.messages = messages
+        self.totalMessages = totalMessages
+        self.hasMoreBefore = hasMoreBefore
+        self.oldestSeq = oldestSeq
+        self.view = view
+        self.plan = plan
     }
 
     public init(from decoder: Decoder) throws {
@@ -341,8 +372,35 @@ public struct SwarmSnapshot: Codable, Sendable, Equatable {
         self.brief = try c.decodeIfPresent(SwarmBrief.self, forKey: .brief) ?? SwarmBrief()
         self.members = try c.decodeIfPresent([SwarmMemberInfo].self, forKey: .members) ?? []
         self.messages = try c.decodeIfPresent([SwarmBoardMessage].self, forKey: .messages) ?? []
+        self.totalMessages = try c.decodeIfPresent(Int.self, forKey: .totalMessages) ?? self.messages.count
+        self.hasMoreBefore = try c.decodeIfPresent(Bool.self, forKey: .hasMoreBefore) ?? false
+        self.oldestSeq = try c.decodeIfPresent(Int.self, forKey: .oldestSeq) ?? (self.messages.first?.seq ?? 0)
         self.view = try c.decodeIfPresent(SwarmView.self, forKey: .view)
         self.plan = try c.decodeIfPresent(SwarmPlan.self, forKey: .plan)
+    }
+
+    /// Merges incremental forward/backward paged messages onto an existing snapshot while keeping seq ordering unique.
+    public func mergingMessages(from incoming: SwarmSnapshot, isOlderPage: Bool) -> SwarmSnapshot {
+        var bySeq: [Int: SwarmBoardMessage] = [:]
+        for m in self.messages { bySeq[m.seq] = m }
+        for m in incoming.messages { bySeq[m.seq] = m }
+        let merged = bySeq.values.sorted { $0.seq < $1.seq }
+        let nextHasMore = isOlderPage ? incoming.hasMoreBefore : self.hasMoreBefore
+        let nextOldest = merged.first?.seq ?? (isOlderPage ? incoming.oldestSeq : self.oldestSeq)
+        return SwarmSnapshot(
+            cascadeId: incoming.cascadeId.isEmpty ? self.cascadeId : incoming.cascadeId,
+            coordinatorId: incoming.coordinatorId.isEmpty ? self.coordinatorId : incoming.coordinatorId,
+            title: incoming.title.isEmpty ? self.title : incoming.title,
+            etag: incoming.etag ?? self.etag,
+            brief: incoming.brief,
+            members: incoming.members.isEmpty ? self.members : incoming.members,
+            messages: merged,
+            totalMessages: max(incoming.totalMessages, merged.count),
+            hasMoreBefore: nextHasMore,
+            oldestSeq: nextOldest,
+            view: incoming.view ?? self.view,
+            plan: incoming.plan ?? self.plan
+        )
     }
 }
 

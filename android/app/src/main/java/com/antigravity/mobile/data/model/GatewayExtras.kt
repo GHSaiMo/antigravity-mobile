@@ -238,7 +238,9 @@ data class ConversationSearchResult(
     val snippet: String = "",
     val snippetMatchRanges: List<SearchMatchRange> = emptyList(),
     val matchSource: String = "",
-    val matchedStepIndex: Int? = null
+    val matchedStepIndex: Int? = null,
+    val isSideQuestion: Boolean = false,
+    val parentConversationId: String? = null
 )
 
 @Serializable
@@ -1206,9 +1208,33 @@ data class SwarmSnapshot(
     val brief: SwarmBrief = SwarmBrief(),
     val members: List<SwarmMemberInfo> = emptyList(),
     val messages: List<SwarmBoardMessage> = emptyList(),
+    val totalMessages: Int = 0,
+    val hasMoreBefore: Boolean = false,
+    val oldestSeq: Int = 0,
     val view: SwarmView? = null,
     val plan: SwarmPlan? = null
-)
+) {
+    fun mergingMessages(incoming: SwarmSnapshot, isOlderPage: Boolean): SwarmSnapshot {
+        val bySeq = LinkedHashMap<Int, SwarmBoardMessage>()
+        messages.forEach { bySeq[it.seq] = it }
+        incoming.messages.forEach { bySeq[it.seq] = it }
+        val merged = bySeq.values.sortedBy { it.seq }
+        return SwarmSnapshot(
+            cascadeId = incoming.cascadeId.ifBlank { cascadeId },
+            coordinatorId = incoming.coordinatorId.ifBlank { coordinatorId },
+            title = incoming.title.ifBlank { title },
+            etag = incoming.etag.ifBlank { etag },
+            brief = incoming.brief,
+            members = incoming.members.ifEmpty { members },
+            messages = merged,
+            totalMessages = maxOf(incoming.totalMessages, merged.size),
+            hasMoreBefore = if (isOlderPage) incoming.hasMoreBefore else hasMoreBefore,
+            oldestSeq = merged.firstOrNull()?.seq ?: if (isOlderPage) incoming.oldestSeq else oldestSeq,
+            view = incoming.view ?: view,
+            plan = incoming.plan ?: plan
+        )
+    }
+}
 
 @Serializable
 data class SwarmFeedbackRequest(

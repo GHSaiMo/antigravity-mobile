@@ -28,14 +28,16 @@ type SearchMatchRange struct {
 }
 
 type ConversationSearchResult struct {
-	CascadeID          string             `json:"cascadeId"`
-	Title              string             `json:"title"`
-	WorkspaceName      string             `json:"workspaceName,omitempty"`
-	LastModifiedTime   string             `json:"lastModifiedTime,omitempty"`
-	Snippet            string             `json:"snippet"`
-	SnippetMatchRanges []SearchMatchRange `json:"snippetMatchRanges"`
-	MatchSource        string             `json:"matchSource,omitempty"`
-	MatchedStepIndex   int                `json:"matchedStepIndex,omitempty"`
+	CascadeID            string             `json:"cascadeId"`
+	Title                string             `json:"title"`
+	WorkspaceName        string             `json:"workspaceName,omitempty"`
+	LastModifiedTime     string             `json:"lastModifiedTime,omitempty"`
+	Snippet              string             `json:"snippet"`
+	SnippetMatchRanges   []SearchMatchRange `json:"snippetMatchRanges"`
+	MatchSource          string             `json:"matchSource,omitempty"`
+	MatchedStepIndex     int                `json:"matchedStepIndex,omitempty"`
+	IsSideQuestion       bool               `json:"isSideQuestion,omitempty"`
+	ParentConversationID string             `json:"parentConversationId,omitempty"`
 }
 
 type ConversationSearchResponse struct {

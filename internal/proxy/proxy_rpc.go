@@ -1553,6 +1553,7 @@ func (p *Proxy) handleSearchConversations(w http.ResponseWriter, r *http.Request
 	if query != "" {
 		// Fast Path: Try local FTS5 SQLite query first (<10ms)
 		if results, err := SearchConversationsFTS5(r.Context(), query, req.Limit); err == nil && len(results) > 0 {
+			enrichSearchResultsWithSideQuestions(results)
 			respBytes, _ := json.Marshal(ConversationSearchResponse{Results: results})
 			w.Header().Set("Content-Type", "application/json")
 			w.Header().Set("X-Gateway-Search", "FTS5")
@@ -1568,7 +1569,30 @@ func (p *Proxy) handleSearchConversations(w http.ResponseWriter, r *http.Request
 		fwdReq := r.Clone(r.Context())
 		fwdReq.URL.Path = reqPath
 		fwdReq.Body = io.NopCloser(bytes.NewReader(bodyBytes))
-		rp.ServeHTTP(w, fwdReq)
+		rec := newBufferedResponseWriter()
+		defer rec.release()
+		rp.ServeHTTP(rec, fwdReq)
+		body := rec.body.Bytes()
+		if rec.statusCode == http.StatusOK && len(body) > 2 {
+			var parsed ConversationSearchResponse
+			if json.Unmarshal(body, &parsed) == nil && len(parsed.Results) > 0 {
+				enrichSearchResultsWithSideQuestions(parsed.Results)
+				if patched, err := json.Marshal(parsed); err == nil {
+					body = patched
+				}
+			}
+		}
+		for k, vals := range rec.header {
+			if strings.EqualFold(k, "Content-Length") {
+				continue
+			}
+			for _, v := range vals {
+				w.Header().Add(k, v)
+			}
+		}
+		w.Header().Set("Content-Length", strconv.Itoa(len(body)))
+		w.WriteHeader(rec.statusCode)
+		_, _ = w.Write(body)
 		return
 	}
 
@@ -1577,4 +1601,38 @@ func (p *Proxy) handleSearchConversations(w http.ResponseWriter, r *http.Request
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	w.Write(respBytes)
+}
+
+// enrichSearchResultsWithSideQuestions attaches side-question parentage metadata so clients
+// selecting a /btw search hit can open both the parent conversation and its side-question directly.
+func enrichSearchResultsWithSideQuestions(results []ConversationSearchResult) {
+	if len(results) == 0 {
+		return
+	}
+	btwSnap := defaultBtwTracker.snapshotAll()
+	for i := range results {
+		cid := strings.TrimSpace(results[i].CascadeID)
+		if cid == "" {
+			continue
+		}
+		if entry, ok := btwSnap[cid]; ok {
+			results[i].IsSideQuestion = true
+			if entry.ParentCascadeID != "" {
+				results[i].ParentConversationID = entry.ParentCascadeID
+			}
+			if results[i].Title == "" {
+				results[i].Title = strings.TrimSpace(firstNonEmpty(entry.Title, entry.Question))
+			}
+			continue
+		}
+		hierarchyMu.RLock()
+		hm, hasHierarchy := hierarchyCache[cid]
+		hierarchyMu.RUnlock()
+		if hasHierarchy && hm.parentID != "" {
+			if isSideQuestionTrajectoryMap(map[string]interface{}{}, cid) {
+				results[i].IsSideQuestion = true
+				results[i].ParentConversationID = hm.parentID
+			}
+		}
+	}
 }

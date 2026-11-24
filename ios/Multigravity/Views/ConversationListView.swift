@@ -497,9 +497,36 @@ public struct ConversationListView: View {
         }
     }
 
-    private func openConversation(_ item: ConversationItem) {
+    private func resolveParentConversationItem(for item: ConversationItem) -> ConversationItem? {
+        guard item.isSideQuestion,
+              let parentId = item.branchParentId?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !parentId.isEmpty,
+              parentId != item.id else {
+            return nil
+        }
+        if let found = viewModel.conversations.first(where: { $0.id == parentId }) {
+            return found
+        }
+        if let cached = CacheManager.shared.loadConversations().first(where: { $0.id == parentId }) {
+            return cached
+        }
+        return ConversationItem(
+            id: parentId,
+            title: (item.branchParentTitle?.isEmpty == false ? item.branchParentTitle! : String(localized: "会话详情")),
+            status: .idle,
+            stepCount: 0,
+            workspaceName: item.workspaceName,
+            lastModified: item.lastModified
+        )
+    }
+
+    private func openConversation(_ item: ConversationItem, includeSideQuestionParent: Bool = false) {
         if usesSplitLayout {
             navigationPath = [item]
+        } else if includeSideQuestionParent,
+                  let parentItem = resolveParentConversationItem(for: item),
+                  navigationPath.last?.id != parentItem.id {
+            navigationPath = [parentItem, item]
         } else {
             navigationPath.append(item)
         }
@@ -541,6 +568,8 @@ public struct ConversationListView: View {
                   let parentId = targetItem.branchParentId,
                   navigationPath.last?.id == parentId {
             navigationPath.append(targetItem)
+        } else if let parentItem = resolveParentConversationItem(for: targetItem) {
+            navigationPath = [parentItem, targetItem]
         } else {
             navigationPath = [targetItem]
         }
@@ -1174,7 +1203,7 @@ public struct ConversationListView: View {
                     ForEach(unmatchedContentHits) { hit in
                         contentHitRow(hit)
                             .contentShape(Rectangle())
-                            .onTapGesture { openConversation(hit.item) }
+                            .onTapGesture { openConversation(hit.item, includeSideQuestionParent: true) }
                             .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
                             .listRowSeparator(.hidden)
                             .listRowBackground(Color.clear)
@@ -1227,8 +1256,18 @@ public struct ConversationListView: View {
                     .foregroundColor(.secondary)
                     .lineLimit(3)
             }
-            if !hit.item.workspaceName.isEmpty {
-                Text(hit.item.workspaceName)
+            let isSide = hit.result.isSideQuestion == true || hit.item.isSideQuestion
+            let metaText: String = {
+                if isSide && !hit.item.workspaceName.isEmpty {
+                    return "↳ /btw · \(hit.item.workspaceName)"
+                } else if isSide {
+                    return "↳ /btw"
+                } else {
+                    return hit.item.workspaceName
+                }
+            }()
+            if !metaText.isEmpty {
+                Text(metaText)
                     .font(.system(size: 11.5))
                     .foregroundColor(.secondary.opacity(0.8))
                     .lineLimit(1)

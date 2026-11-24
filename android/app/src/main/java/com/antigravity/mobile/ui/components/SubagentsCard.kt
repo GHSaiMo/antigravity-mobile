@@ -359,3 +359,88 @@ fun SubagentInlineCard(
         }
     }
 }
+
+/** Antigravity 2.35 parity: collapses consecutive parallel subagent launches into a single expandable row. */
+@Composable
+fun SubagentGroupInlineCard(
+    items: List<SubagentItem>,
+    onClick: ((SubagentItem) -> Unit)?,
+    modifier: Modifier = Modifier
+) {
+    if (items.isEmpty()) return
+    val colors = AntigravityTheme.colors
+    var isExpanded by remember(items.first().conversationId) { mutableStateOf(false) }
+    val runningCount = items.count { it.isRunning }
+    val doneCount = items.count { !it.isRunning && !it.isGone }
+    val statusSummary = when {
+        runningCount > 0 && doneCount > 0 -> "$runningCount 运行中 · $doneCount 已完成".loc
+        runningCount > 0 -> "$runningCount 运行中".loc
+        else -> "全部已完成".loc
+    }
+
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(colors.surface)
+                .border(0.8.dp, colors.border.copy(alpha = 0.6f), RoundedCornerShape(12.dp))
+                .clickable { isExpanded = !isExpanded }
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            if (runningCount > 0) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(16.dp),
+                    strokeWidth = 2.dp,
+                    color = colors.accentIndigo,
+                    trackColor = colors.accentIndigo.copy(alpha = 0.2f)
+                )
+            } else {
+                Icon(Icons.Default.CheckCircleOutline, null, tint = colors.textMuted, modifier = Modifier.size(18.dp))
+            }
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    text = "并行启动 ${items.size} 个子代理".loc,
+                    color = colors.textPrimary,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = statusSummary,
+                    color = colors.textSecondary,
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            Icon(
+                imageVector = if (isExpanded) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowRight,
+                contentDescription = null,
+                tint = colors.textMuted,
+                modifier = Modifier.size(18.dp)
+            )
+        }
+
+        AnimatedVisibility(visible = isExpanded) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                items.forEach { sub ->
+                    SubagentInlineCard(item = sub, onClick = onClick)
+                }
+            }
+        }
+    }
+}

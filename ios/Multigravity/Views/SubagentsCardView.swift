@@ -321,3 +321,82 @@ public struct SubagentInlineCardView: View {
         }
     }
 }
+
+/// Antigravity 2.35 parity: collapses consecutive parallel subagent launches into a single expandable row.
+public struct SubagentGroupInlineCardView: View {
+    public let items: [SubagentItem]
+    @State private var isExpanded: Bool = false
+
+    public init(items: [SubagentItem]) {
+        self.items = items
+    }
+
+    private var runningCount: Int {
+        items.filter(\.isRunning).count
+    }
+
+    private var statusSummary: String {
+        let running = runningCount
+        let done = items.filter { !$0.isRunning && !$0.isGone }.count
+        if running > 0 {
+            return done > 0
+                ? String(localized: "\(running) 运行中 · \(done) 已完成")
+                : String(localized: "\(running) 运行中")
+        }
+        return String(localized: "全部已完成")
+    }
+
+    public var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Button(action: {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                    isExpanded.toggle()
+                }
+            }) {
+                HStack(spacing: 10) {
+                    if runningCount > 0 {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Image(systemName: "checkmark.circle")
+                            .font(.system(size: 16))
+                            .foregroundColor(.secondary)
+                    }
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(String(localized: "并行启动 \(items.count) 个子代理"))
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(.primary)
+                            .lineLimit(1)
+                        Text(statusSummary)
+                            .font(.system(size: 12))
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                    }
+                    Spacer(minLength: 8)
+                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(.secondary.opacity(0.7))
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color(uiColor: .secondarySystemGroupedBackground))
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(Color.primary.opacity(0.08), lineWidth: 0.8)
+                )
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if isExpanded {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(items) { sub in
+                        SubagentInlineCardView(item: sub)
+                    }
+                }
+                .padding(.leading, 10)
+            }
+        }
+    }
+}

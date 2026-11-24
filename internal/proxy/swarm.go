@@ -152,6 +152,9 @@ type SwarmSnapshot struct {
 	Brief         SwarmBrief          `json:"brief"`
 	Members       []SwarmMemberInfo   `json:"members"`
 	Messages      []SwarmBoardMessage `json:"messages"`
+	TotalMessages int                 `json:"totalMessages,omitempty"`
+	HasMoreBefore bool                `json:"hasMoreBefore,omitempty"`
+	OldestSeq     int                 `json:"oldestSeq,omitempty"`
 	View          *SwarmView          `json:"view,omitempty"`
 	Plan          *SwarmPlan          `json:"plan,omitempty"`
 }
@@ -967,6 +970,12 @@ func readMemberTranscriptActivity(transcriptPath string) (statusOverride string,
 
 // GetSwarmSnapshot returns full details of the swarm, checking ETag.
 func GetSwarmSnapshot(cascadeID string, afterSeq int, clientETag string) (*SwarmSnapshot, bool, error) {
+	return GetSwarmSnapshotPaged(cascadeID, afterSeq, 0, 0, clientETag)
+}
+
+// GetSwarmSnapshotPaged returns swarm state with optional tail-window pagination (limit),
+// backward paging (beforeSeq), or forward incremental polling (afterSeq), plus ETag short-circuit.
+func GetSwarmSnapshotPaged(cascadeID string, afterSeq, beforeSeq, limit int, clientETag string) (*SwarmSnapshot, bool, error) {
 	swarmDir, coordID := resolveSwarmDir(cascadeID)
 	if swarmDir == "" {
 		return nil, false, os.ErrNotExist
@@ -1008,14 +1017,19 @@ func GetSwarmSnapshot(cascadeID string, afterSeq int, clientETag string) (*Swarm
 	plan, planMod, planSize := readSwarmPlan(swarmDir)
 	tDigest := computeMembersTranscriptDigest(brainBase, rawMembers.Members)
 
-	currentETag := fmt.Sprintf(`"%d-%d-%d-%d-%d-%d-%d-%x"`, fiMembers.ModTime().UnixNano(), fiMembers.Size(), boardMod, boardSize, viewMod, planMod, planSize, tDigest)
+	currentETag := fmt.Sprintf(`"%d-%d-%d-%d-%d-%d-%d-%x-%d-%d-%d"`,
+		fiMembers.ModTime().UnixNano(), fiMembers.Size(), boardMod, boardSize,
+		viewMod, planMod, planSize, tDigest, afterSeq, beforeSeq, limit)
 	if clientETag != "" && clientETag == currentETag {
 		return nil, true, nil
 	}
 
-	// Read board.jsonl
+	// Read board.jsonl once: always aggregate member post stats & total count,
+	// while bounding retained messages by afterSeq / beforeSeq / limit.
 	messages := make([]SwarmBoardMessage, 0)
 	latestSeq := 0
+	totalMessages := 0
+	hasMoreBefore := false
 	postCounts := make(map[string]int)
 	lastPostSeqs := make(map[string]int)
 	if boardFile, err := os.Open(boardPath); err == nil {
@@ -1029,6 +1043,7 @@ func GetSwarmSnapshot(cascadeID string, afterSeq int, clientETag string) (*Swarm
 			}
 			var msg SwarmBoardMessage
 			if err := json.Unmarshal(line, &msg); err == nil {
+				totalMessages++
 				if msg.Seq > latestSeq {
 					latestSeq = msg.Seq
 				}
@@ -1038,20 +1053,39 @@ func GetSwarmSnapshot(cascadeID string, afterSeq int, clientETag string) (*Swarm
 						lastPostSeqs[msg.Agent] = msg.Seq
 					}
 				}
-				if msg.Seq > afterSeq {
-					// extract mentions
-					found := mentionRegex.FindAllStringSubmatch(msg.Text, -1)
-					mentions := make([]string, 0, len(found))
-					for _, m := range found {
-						if len(m) > 1 {
-							mentions = append(mentions, m[1])
-						}
+				if beforeSeq > 0 {
+					if msg.Seq < beforeSeq {
+						messages = append(messages, msg)
 					}
-					msg.Mentions = mentions
+				} else if msg.Seq > afterSeq {
 					messages = append(messages, msg)
 				}
 			}
 		}
+	}
+
+	if limit > 0 && len(messages) > limit {
+		if beforeSeq > 0 || afterSeq == 0 {
+			// Keep newest `limit` messages in the window (tail window for initial load or beforeSeq page).
+			messages = messages[len(messages)-limit:]
+			hasMoreBefore = true
+		} else {
+			messages = messages[:limit]
+		}
+	}
+	for i := range messages {
+		found := mentionRegex.FindAllStringSubmatch(messages[i].Text, -1)
+		mentions := make([]string, 0, len(found))
+		for _, m := range found {
+			if len(m) > 1 {
+				mentions = append(mentions, m[1])
+			}
+		}
+		messages[i].Mentions = mentions
+	}
+	oldestSeq := 0
+	if len(messages) > 0 {
+		oldestSeq = messages[0].Seq
 	}
 
 	members := make([]SwarmMemberInfo, 0, len(rawMembers.Members))
@@ -1170,6 +1204,9 @@ func GetSwarmSnapshot(cascadeID string, afterSeq int, clientETag string) (*Swarm
 		Brief:         brief,
 		Members:       members,
 		Messages:      messages,
+		TotalMessages: totalMessages,
+		HasMoreBefore: hasMoreBefore,
+		OldestSeq:     oldestSeq,
 		View:          view,
 		Plan:          plan,
 	}
@@ -1206,9 +1243,28 @@ func (p *Proxy) HandleGetSwarm(w http.ResponseWriter, r *http.Request) {
 			afterSeq = n
 		}
 	}
+	beforeSeq := 0
+	if s := r.URL.Query().Get("beforeSeq"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n > 0 {
+			beforeSeq = n
+		}
+	} else if s := r.URL.Query().Get("before_seq"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n > 0 {
+			beforeSeq = n
+		}
+	}
+	limit := 0
+	if s := r.URL.Query().Get("limit"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n > 0 {
+			if n > 500 {
+				n = 500
+			}
+			limit = n
+		}
+	}
 	clientETag := r.Header.Get("If-None-Match")
 
-	snap, notModified, err := GetSwarmSnapshot(cascadeID, afterSeq, clientETag)
+	snap, notModified, err := GetSwarmSnapshotPaged(cascadeID, afterSeq, beforeSeq, limit, clientETag)
 	if err != nil {
 		if os.IsNotExist(err) {
 			writeJSONError(w, "no active swarm found for this conversation", http.StatusNotFound)

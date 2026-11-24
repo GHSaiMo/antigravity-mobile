@@ -6,6 +6,9 @@ const SwarmManager = (() => {
   let swarmSnapshot = null;
   let activeTab = "overview";
   let pollInterval = null;
+  let lastETag = "";
+  let loadingEarlier = false;
+  const SWARM_PAGE_SIZE = 80;
 
   function init() {
     createSwarmUI();
@@ -82,12 +85,16 @@ const SwarmManager = (() => {
 
   function sync(data) {
     if (!data) return;
-    activeCascadeId = data.cascadeId;
+    if (activeCascadeId !== data.cascadeId) {
+      activeCascadeId = data.cascadeId;
+      swarmSnapshot = null;
+      lastETag = "";
+    }
     if (data.swarm && data.swarm.active) {
       swarmBrief = data.swarm;
       updateHeaderPill(true);
       if (!document.getElementById("swarm-modal")?.classList.contains("hidden")) {
-        fetchSnapshot();
+        fetchSnapshot(true);
       }
     } else {
       swarmBrief = null;
@@ -125,9 +132,9 @@ const SwarmManager = (() => {
     if (!modal) return;
     if (open) {
       modal.classList.remove("hidden");
-      fetchSnapshot();
+      fetchSnapshot(false);
       if (!pollInterval) {
-        pollInterval = setInterval(fetchSnapshot, 2500);
+        pollInterval = setInterval(() => fetchSnapshot(true), 2500);
       }
     } else {
       modal.classList.add("hidden");
@@ -138,17 +145,80 @@ const SwarmManager = (() => {
     }
   }
 
-  async function fetchSnapshot() {
+  function mergeSwarmMessages(existing, incoming) {
+    const bySeq = new Map();
+    for (const m of (existing || [])) bySeq.set(m.seq, m);
+    for (const m of (incoming || [])) bySeq.set(m.seq, m);
+    return Array.from(bySeq.values()).sort((a, b) => a.seq - b.seq);
+  }
+
+  async function fetchSnapshot(incremental = false) {
     if (!activeCascadeId || document.visibilityState !== "visible") return;
     try {
-      const res = await fetch(`/gateway/swarm?cascadeId=${encodeURIComponent(activeCascadeId)}`);
+      const params = new URLSearchParams({ cascadeId: activeCascadeId });
+      const hasExisting = Boolean(incremental && swarmSnapshot && Array.isArray(swarmSnapshot.messages) && swarmSnapshot.messages.length > 0);
+      if (hasExisting) {
+        const latestSeq = swarmSnapshot.messages[swarmSnapshot.messages.length - 1]?.seq || 0;
+        if (latestSeq > 0) params.set("afterSeq", String(latestSeq));
+      } else {
+        params.set("limit", String(SWARM_PAGE_SIZE));
+      }
+      const headers = {};
+      if (hasExisting && lastETag) headers["If-None-Match"] = lastETag;
+      const res = await fetch(`/gateway/swarm?${params.toString()}`, { headers });
+      if (res.status === 304) return;
       if (res.ok) {
-        swarmSnapshot = await res.json();
+        const incoming = await res.json();
+        lastETag = res.headers.get("ETag") || incoming.etag || lastETag;
+        if (hasExisting) {
+          const mergedMsgs = mergeSwarmMessages(swarmSnapshot.messages, incoming.messages);
+          swarmSnapshot = {
+            ...incoming,
+            messages: mergedMsgs,
+            hasMoreBefore: swarmSnapshot.hasMoreBefore,
+            oldestSeq: mergedMsgs[0]?.seq || swarmSnapshot.oldestSeq || 0,
+            totalMessages: Math.max(incoming.totalMessages || 0, mergedMsgs.length),
+          };
+        } else {
+          swarmSnapshot = incoming;
+        }
         updateModalHeader();
         renderCurrentTab();
       }
     } catch (err) {
       console.warn("[Swarm] Failed to fetch snapshot:", err);
+    }
+  }
+
+  async function loadEarlierMessages() {
+    if (!activeCascadeId || !swarmSnapshot || loadingEarlier || !swarmSnapshot.hasMoreBefore) return;
+    const oldest = swarmSnapshot.oldestSeq || (swarmSnapshot.messages?.[0]?.seq || 0);
+    if (!oldest) return;
+    loadingEarlier = true;
+    renderCurrentTab();
+    try {
+      const params = new URLSearchParams({
+        cascadeId: activeCascadeId,
+        beforeSeq: String(oldest),
+        limit: String(SWARM_PAGE_SIZE),
+      });
+      const res = await fetch(`/gateway/swarm?${params.toString()}`);
+      if (res.ok) {
+        const older = await res.json();
+        const mergedMsgs = mergeSwarmMessages(older.messages, swarmSnapshot.messages);
+        swarmSnapshot = {
+          ...swarmSnapshot,
+          messages: mergedMsgs,
+          hasMoreBefore: Boolean(older.hasMoreBefore),
+          oldestSeq: mergedMsgs[0]?.seq || older.oldestSeq || 0,
+          totalMessages: Math.max(older.totalMessages || 0, mergedMsgs.length),
+        };
+      }
+    } catch (err) {
+      console.warn("[Swarm] Failed to load earlier messages:", err);
+    } finally {
+      loadingEarlier = false;
+      renderCurrentTab();
     }
   }
 
@@ -291,8 +361,13 @@ const SwarmManager = (() => {
       return;
     }
 
+    const loadMoreHtml = swarmSnapshot.hasMoreBefore
+      ? `<div style="text-align:center;padding:8px 0 12px;"><button id="swarm-load-earlier-btn" class="swarm-nudge-btn" ${loadingEarlier ? "disabled" : ""}>${loadingEarlier ? "正在加载更早消息..." : "加载更早消息"}</button></div>`
+      : "";
+
     container.innerHTML = `
       <div class="swarm-board-container">
+        ${loadMoreHtml}
         ${msgs.map(m => {
           let text = escapeHtml(m.text || "");
           // Highlight @mentions
@@ -310,6 +385,10 @@ const SwarmManager = (() => {
         }).join("")}
       </div>
     `;
+    const earlierBtn = document.getElementById("swarm-load-earlier-btn");
+    if (earlierBtn) {
+      earlierBtn.onclick = () => loadEarlierMessages();
+    }
   }
 
   function renderMembersTab(container) {

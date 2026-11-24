@@ -910,8 +910,17 @@
     });
   }
 
-  // --- 6. In-App Find in Page (TreeWalker + CSS.highlights + <dialog popover="manual">) ---
+  // --- 6. In-App Find in Page (TreeWalker + CSS.highlights + sandboxed HTML iframe bridge) ---
+  function activeHtmlFindFrame() {
+    const rootEl = currentFindRoot || document.getElementById("md-viewer-content");
+    return rootEl?.querySelector?.("iframe.html-artifact-preview-frame") || null;
+  }
+
   function clearFindHighlights() {
+    const htmlFrame = activeHtmlFindFrame();
+    if (htmlFrame?.contentWindow) {
+      try { htmlFrame.contentWindow.postMessage({ type: "mgy-html-find-clear" }, "*"); } catch (_) {}
+    }
     if ("highlights" in CSS) {
       // MANDATORY: Clear previous highlights before registering new ones.
       CSS.highlights.clear();
@@ -973,6 +982,19 @@
   }
 
   function runFindQuery(query) {
+    const htmlFrame = activeHtmlFindFrame();
+    if (htmlFrame?.contentWindow) {
+      const q = String(query || "").trim();
+      if (!q) {
+        try { htmlFrame.contentWindow.postMessage({ type: "mgy-html-find-clear" }, "*"); } catch (_) {}
+        const countEl = document.getElementById("md-find-count");
+        if (countEl) countEl.textContent = "0/0";
+        return;
+      }
+      try { htmlFrame.contentWindow.postMessage({ type: "mgy-html-find", query: q }, "*"); } catch (_) {}
+      return;
+    }
+
     clearFindHighlights();
     const rootEl = currentFindRoot || document.getElementById("md-viewer-content");
     const q = String(query || "").trim().toLowerCase();
@@ -1015,6 +1037,11 @@
   }
 
   function stepFindMatch(delta) {
+    const htmlFrame = activeHtmlFindFrame();
+    if (htmlFrame?.contentWindow) {
+      try { htmlFrame.contentWindow.postMessage({ type: "mgy-html-find-step", delta }, "*"); } catch (_) {}
+      return;
+    }
     if (!currentFindMatches.length) return;
     currentFindIndex = (currentFindIndex + delta + currentFindMatches.length) % currentFindMatches.length;
     applyFindHighlights();
@@ -1054,6 +1081,25 @@
   }
 
   function initFindInPage() {
+    window.addEventListener("message", (e) => {
+      const d = e?.data;
+      if (!d || d.type !== "mgy-html-find-result") return;
+      const htmlFrame = activeHtmlFindFrame();
+      if (!htmlFrame || e.source !== htmlFrame.contentWindow) return;
+      const countEl = document.getElementById("md-find-count");
+      if (countEl) {
+        countEl.textContent = d.total > 0 ? `${d.current}/${d.total}` : "0/0";
+      }
+    });
+    document.addEventListener("keydown", (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f") {
+        const sheet = document.getElementById("sheet-markdown-viewer");
+        if (sheet && !sheet.classList.contains("hidden")) {
+          e.preventDefault();
+          openFindPopover(document.getElementById("md-viewer-content"));
+        }
+      }
+    });
     document.getElementById("btn-md-viewer-find")?.addEventListener("click", () => {
       openFindPopover(document.getElementById("md-viewer-content"));
     });

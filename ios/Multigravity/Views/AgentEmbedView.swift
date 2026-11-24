@@ -331,6 +331,127 @@ private enum AgentEmbedSecurityPolicy {
 
 // MARK: - AgentEmbed WKWebView Representable
 
+public final class AgentEmbedWebViewController {
+    fileprivate weak var webView: WKWebView?
+    public init() {}
+
+    @MainActor
+    public func findInPage(query: String, completion: @escaping @MainActor (Int, Int) -> Void) {
+        guard let webView else { completion(0, 0); return }
+        let encoded = Self.jsStringLiteral(query)
+        let js = Self.findHelperJS + "\nwindow.__mgyHtmlFind(\(encoded));"
+        webView.evaluateJavaScript(js) { result, _ in
+            let parsed = Self.parseMatchResult(result)
+            Task { @MainActor in completion(parsed.current, parsed.total) }
+        }
+    }
+
+    @MainActor
+    public func stepFind(delta: Int, completion: @escaping @MainActor (Int, Int) -> Void) {
+        guard let webView else { completion(0, 0); return }
+        let js = Self.findHelperJS + "\nwindow.__mgyHtmlFindStep(\(delta));"
+        webView.evaluateJavaScript(js) { result, _ in
+            let parsed = Self.parseMatchResult(result)
+            Task { @MainActor in completion(parsed.current, parsed.total) }
+        }
+    }
+
+    @MainActor
+    public func clearFind() {
+        guard let webView else { return }
+        webView.evaluateJavaScript(Self.findHelperJS + "\nwindow.__mgyHtmlFindClear();", completionHandler: nil)
+    }
+
+    private static func jsStringLiteral(_ s: String) -> String {
+        if let data = try? JSONEncoder().encode(s), let json = String(data: data, encoding: .utf8) {
+            return json
+        }
+        return "\"\""
+    }
+
+    private static func parseMatchResult(_ raw: Any?) -> (current: Int, total: Int) {
+        guard let str = raw as? String,
+              let data = str.data(using: .utf8),
+              let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return (0, 0)
+        }
+        let total = dict["total"] as? Int ?? 0
+        let current = dict["current"] as? Int ?? 0
+        return (current, total)
+    }
+
+    private static let findHelperJS = """
+    (function(){
+      if (window.__mgyHtmlFindReady) return;
+      window.__mgyHtmlFindReady = true;
+      var marks = [];
+      var activeIdx = -1;
+      function clearMarks() {
+        for (var i = 0; i < marks.length; i++) {
+          var m = marks[i];
+          if (m && m.parentNode) {
+            var p = m.parentNode;
+            p.replaceChild(document.createTextNode(m.textContent || ''), m);
+            p.normalize();
+          }
+        }
+        marks = [];
+        activeIdx = -1;
+      }
+      function focusIdx(idx) {
+        if (!marks.length) return JSON.stringify({current:0,total:0});
+        if (activeIdx >= 0 && marks[activeIdx]) {
+          marks[activeIdx].style.background = '#fde047';
+          marks[activeIdx].style.color = '#111827';
+        }
+        activeIdx = ((idx % marks.length) + marks.length) % marks.length;
+        var el = marks[activeIdx];
+        el.style.background = '#f97316';
+        el.style.color = '#ffffff';
+        try { el.scrollIntoView({block:'center', behavior:'smooth'}); } catch(e) {}
+        return JSON.stringify({current: activeIdx + 1, total: marks.length});
+      }
+      window.__mgyHtmlFindClear = function() { clearMarks(); return JSON.stringify({current:0,total:0}); };
+      window.__mgyHtmlFindStep = function(delta) { return focusIdx(activeIdx + (delta || 1)); };
+      window.__mgyHtmlFind = function(q) {
+        clearMarks();
+        var needle = (q || '').trim();
+        if (!needle || !document.body) return JSON.stringify({current:0,total:0});
+        var lowerNeedle = needle.toLowerCase();
+        var skip = {SCRIPT:1, STYLE:1, NOSCRIPT:1, TEXTAREA:1, INPUT:1, SELECT:1};
+        var nodes = [];
+        var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null);
+        var n;
+        while ((n = walker.nextNode())) {
+          if (!n.nodeValue || !n.parentNode || skip[n.parentNode.nodeName]) continue;
+          if (n.nodeValue.toLowerCase().indexOf(lowerNeedle) !== -1) nodes.push(n);
+        }
+        for (var i = 0; i < nodes.length && marks.length < 400; i++) {
+          var tn = nodes[i];
+          var text = tn.nodeValue;
+          var lower = text.toLowerCase();
+          var frag = document.createDocumentFragment();
+          var pos = 0;
+          var found;
+          while ((found = lower.indexOf(lowerNeedle, pos)) !== -1 && marks.length < 400) {
+            if (found > pos) frag.appendChild(document.createTextNode(text.slice(pos, found)));
+            var mk = document.createElement('mark');
+            mk.setAttribute('data-mgy-find', '1');
+            mk.style.cssText = 'background:#fde047;color:#111827;border-radius:2px;padding:0 1px;';
+            mk.textContent = text.slice(found, found + needle.length);
+            frag.appendChild(mk);
+            marks.push(mk);
+            pos = found + needle.length;
+          }
+          if (pos < text.length) frag.appendChild(document.createTextNode(text.slice(pos)));
+          if (tn.parentNode) tn.parentNode.replaceChild(frag, tn);
+        }
+        return focusIdx(0);
+      };
+    })();
+    """
+}
+
 public struct AgentEmbedWebView: UIViewRepresentable {
     public let htmlContent: String
     public let isDark: Bool
@@ -338,6 +459,7 @@ public struct AgentEmbedWebView: UIViewRepresentable {
     public let reloadKey: Int
     public let embedSrc: String
     public let boundCascadeId: String
+    public let controller: AgentEmbedWebViewController?
     public var onHeightChange: ((CGFloat) -> Void)? = nil
     public var onTitleDetected: ((String?) -> Void)? = nil
     
@@ -348,6 +470,7 @@ public struct AgentEmbedWebView: UIViewRepresentable {
         reloadKey: Int = 0,
         embedSrc: String = "",
         boundCascadeId: String = "",
+        controller: AgentEmbedWebViewController? = nil,
         onHeightChange: ((CGFloat) -> Void)? = nil,
         onTitleDetected: ((String?) -> Void)? = nil
     ) {
@@ -357,6 +480,7 @@ public struct AgentEmbedWebView: UIViewRepresentable {
         self.reloadKey = reloadKey
         self.embedSrc = embedSrc
         self.boundCascadeId = boundCascadeId
+        self.controller = controller
         self.onHeightChange = onHeightChange
         self.onTitleDetected = onTitleDetected
     }
@@ -392,6 +516,7 @@ public struct AgentEmbedWebView: UIViewRepresentable {
         webView.navigationDelegate = context.coordinator
         
         context.coordinator.webView = webView
+        self.controller?.webView = webView
         context.coordinator.disableZoomGestures()
         loadContent(into: webView)
         return webView
@@ -399,6 +524,7 @@ public struct AgentEmbedWebView: UIViewRepresentable {
     
     public func updateUIView(_ uiView: WKWebView, context: Context) {
         context.coordinator.parent = self
+        controller?.webView = uiView
         context.coordinator.disableZoomGestures()
         if context.coordinator.lastHtml != htmlContent ||
             context.coordinator.lastReloadKey != reloadKey {
@@ -683,6 +809,12 @@ public struct AgentEmbedFullscreenViewer: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
     @State private var reloadKey: Int = 0
+    @State private var webController = AgentEmbedWebViewController()
+    @State private var showFindBar: Bool = false
+    @State private var findQuery: String = ""
+    @State private var findCurrent: Int = 0
+    @State private var findTotal: Int = 0
+    @FocusState private var isFindFieldFocused: Bool
     
     public init(
         htmlContent: String,
@@ -700,16 +832,86 @@ public struct AgentEmbedFullscreenViewer: View {
     
     public var body: some View {
         NavigationStack {
-            AgentEmbedWebView(
-                htmlContent: htmlContent,
-                isDark: colorScheme == .dark,
-                baseURL: URL(string: "about:blank"),
-                reloadKey: reloadKey,
-                embedSrc: embedSrc,
-                boundCascadeId: boundCascadeId,
-                onHeightChange: nil,
-                onTitleDetected: nil
-            )
+            VStack(spacing: 0) {
+                if showFindBar {
+                    HStack(spacing: 8) {
+                        Image(systemName: "magnifyingglass")
+                            .font(.system(size: 13))
+                            .foregroundColor(.secondary)
+                        TextField("页内搜索...", text: $findQuery)
+                            .font(.system(size: 14))
+                            .textInputAutocapitalization(.never)
+                            .disableAutocorrection(true)
+                            .focused($isFindFieldFocused)
+                            .submitLabel(.search)
+                            .onSubmit {
+                                if findTotal > 0 {
+                                    webController.stepFind(delta: 1) { cur, tot in
+                                        findCurrent = cur; findTotal = tot
+                                    }
+                                } else {
+                                    webController.findInPage(query: findQuery) { cur, tot in
+                                        findCurrent = cur; findTotal = tot
+                                    }
+                                }
+                            }
+                            .onChange(of: findQuery) { _, next in
+                                webController.findInPage(query: next) { cur, tot in
+                                    findCurrent = cur; findTotal = tot
+                                }
+                            }
+                        if !findQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            Text(findTotal > 0 ? "\(findCurrent)/\(findTotal)" : "0")
+                                .font(.system(size: 11.5, design: .monospaced))
+                                .foregroundColor(.secondary)
+                        }
+                        Button(action: {
+                            webController.stepFind(delta: -1) { cur, tot in
+                                findCurrent = cur; findTotal = tot
+                            }
+                        }) {
+                            Image(systemName: "chevron.up")
+                                .font(.system(size: 12.5, weight: .semibold))
+                        }
+                        .disabled(findTotal == 0)
+                        Button(action: {
+                            webController.stepFind(delta: 1) { cur, tot in
+                                findCurrent = cur; findTotal = tot
+                            }
+                        }) {
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 12.5, weight: .semibold))
+                        }
+                        .disabled(findTotal == 0)
+                        Button(action: {
+                            findQuery = ""
+                            findCurrent = 0
+                            findTotal = 0
+                            webController.clearFind()
+                            showFindBar = false
+                        }) {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 14))
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(Color(uiColor: .secondarySystemBackground))
+                    Divider()
+                }
+                AgentEmbedWebView(
+                    htmlContent: htmlContent,
+                    isDark: colorScheme == .dark,
+                    baseURL: URL(string: "about:blank"),
+                    reloadKey: reloadKey,
+                    embedSrc: embedSrc,
+                    boundCascadeId: boundCascadeId,
+                    controller: webController,
+                    onHeightChange: nil,
+                    onTitleDetected: nil
+                )
+            }
             .background(Color(uiColor: .systemBackground))
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
@@ -721,9 +923,29 @@ public struct AgentEmbedFullscreenViewer: View {
                     .font(.system(size: 15, weight: .semibold))
                 }
                 
-                ToolbarItem(placement: .primaryAction) {
+                ToolbarItemGroup(placement: .primaryAction) {
                     Button(action: {
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        if showFindBar {
+                            findQuery = ""
+                            findCurrent = 0
+                            findTotal = 0
+                            webController.clearFind()
+                            showFindBar = false
+                        } else {
+                            showFindBar = true
+                            isFindFieldFocused = true
+                        }
+                    }) {
+                        Image(systemName: "magnifyingglass")
+                            .font(.system(size: 14))
+                    }
+                    .accessibilityLabel("页内搜索")
+
+                    Button(action: {
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        findCurrent = 0
+                        findTotal = 0
                         reloadKey += 1
                     }) {
                         Image(systemName: "arrow.clockwise")

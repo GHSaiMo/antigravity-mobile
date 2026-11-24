@@ -632,21 +632,30 @@ extension ChatView {
                 if viewModel.messages.isEmpty {
                     emptyStateView
                 }
-                
+
+                let subagentGrouping = consecutiveSubagentGrouping(in: viewModel.messages)
                 ForEach(viewModel.messages) { message in
-                    messageRow(
-                        message: message,
-                        isLast: message.id == lastId,
-                        isActive: (message.id == lastId) && isStreamingOrRunning,
-                        isActivePlan: message.id == activePlanId,
-                        isHighlighted: highlightedId == message.id,
-                        shouldTrackVisibility: shouldTrackVisibility,
-                        canRevert: canRevert,
-                        canExport: canExport,
-                        attachedSideQuestions: sideQuestionsMap[message.id] ?? [],
-                        canInsertToParent: false,
-                        proxy: proxy
-                    )
+                    if subagentGrouping.absorbedIds.contains(message.id) {
+                        EmptyView()
+                    } else if let groupedSubs = subagentGrouping.groupByHeadId[message.id] {
+                        SubagentGroupInlineCardView(items: groupedSubs)
+                            .padding(.horizontal, 12)
+                            .id(message.id)
+                    } else {
+                        messageRow(
+                            message: message,
+                            isLast: message.id == lastId,
+                            isActive: (message.id == lastId) && isStreamingOrRunning,
+                            isActivePlan: message.id == activePlanId,
+                            isHighlighted: highlightedId == message.id,
+                            shouldTrackVisibility: shouldTrackVisibility,
+                            canRevert: canRevert,
+                            canExport: canExport,
+                            attachedSideQuestions: sideQuestionsMap[message.id] ?? [],
+                            canInsertToParent: false,
+                            proxy: proxy
+                        )
+                    }
                 }
             }
             
@@ -667,6 +676,32 @@ extension ChatView {
         .padding(.top, 12)
         .padding(.bottom, 4)
         .frame(maxWidth: .infinity)
+    }
+
+    private func consecutiveSubagentGrouping(in messages: [ChatMessage]) -> (groupByHeadId: [String: [SubagentItem]], absorbedIds: Set<String>) {
+        var groupByHeadId: [String: [SubagentItem]] = [:]
+        var absorbedIds: Set<String> = []
+        var i = 0
+        while i < messages.count {
+            if messages[i].sender == .subagent, let firstSub = messages[i].subagent {
+                var runSubs: [SubagentItem] = [firstSub]
+                var j = i + 1
+                while j < messages.count, messages[j].sender == .subagent, let nextSub = messages[j].subagent {
+                    runSubs.append(nextSub)
+                    j += 1
+                }
+                if runSubs.count >= 2 {
+                    groupByHeadId[messages[i].id] = runSubs
+                    for k in (i + 1)..<j {
+                        absorbedIds.insert(messages[k].id)
+                    }
+                }
+                i = j
+            } else {
+                i += 1
+            }
+        }
+        return (groupByHeadId, absorbedIds)
     }
 
     private func sideQuestionsByAnchorMessageId() -> [String: [SideQuestionCardItem]] {

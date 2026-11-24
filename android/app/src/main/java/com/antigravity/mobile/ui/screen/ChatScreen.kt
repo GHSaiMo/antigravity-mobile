@@ -1873,10 +1873,53 @@ fun ChatScreen(
                                     }
                                 }
 
+                                val subagentGroupByHeadId = run {
+                                    val byHead = HashMap<String, List<com.antigravity.mobile.data.model.SubagentItem>>()
+                                    val absorbed = HashSet<String>()
+                                    var idx = 0
+                                    while (idx < branchOnlyMessages.size) {
+                                        val m = branchOnlyMessages[idx]
+                                        val firstSub = m.subagent?.takeIf { m.isSubagent }
+                                        if (firstSub != null) {
+                                            val runList = mutableListOf(firstSub)
+                                            var j = idx + 1
+                                            while (j < branchOnlyMessages.size) {
+                                                val nextSub = branchOnlyMessages[j].subagent?.takeIf { branchOnlyMessages[j].isSubagent }
+                                                if (nextSub == null) break
+                                                runList.add(nextSub)
+                                                j++
+                                            }
+                                            if (runList.size >= 2) {
+                                                byHead[m.id] = runList
+                                                for (k in (idx + 1) until j) {
+                                                    absorbed.add(branchOnlyMessages[k].id)
+                                                }
+                                            }
+                                            idx = j
+                                        } else {
+                                            idx++
+                                        }
+                                    }
+                                    byHead to absorbed
+                                }
+                                val displayBranchMessages = if (subagentGroupByHeadId.second.isEmpty()) {
+                                    branchOnlyMessages
+                                } else {
+                                    branchOnlyMessages.filterNot { subagentGroupByHeadId.second.contains(it.id) }
+                                }
+
                                 items(
-                                    branchOnlyMessages,
+                                    displayBranchMessages,
                                     key = { if (it.id.isNotBlank()) it.id else "${it.timestamp}_${it.role}_${it.stepIndex ?: 0}" }
                                 ) { rawMsg ->
+                                    val groupedSubagents = subagentGroupByHeadId.first[rawMsg.id]
+                                    if (groupedSubagents != null) {
+                                        SubagentGroupInlineCard(
+                                            items = groupedSubagents,
+                                            onClick = openSubagent
+                                        )
+                                        return@items
+                                    }
                                     val isLastAgentStreaming = uiState.isRunning && rawMsg.isAgent && rawMsg.id == uiState.messages.lastOrNull()?.id
                                     val msg = com.antigravity.mobile.ui.util.rememberPacedMessage(
                                         message = rawMsg,
@@ -2214,15 +2257,36 @@ fun ChatScreen(
                     }
 
                     if (uiState.queuedMessages.isNotEmpty()) {
+                        val nonDaemonTasks = uiState.runningTasks.filter { !it.isDaemon }
+                        val effectiveTasks = nonDaemonTasks.ifEmpty { uiState.runningTasks }
                         val hasActiveBackgroundWork = isActivelyRunningForCards ||
-                                uiState.runningTasks.isNotEmpty() ||
+                                effectiveTasks.isNotEmpty() ||
                                 runningSubagents.isNotEmpty()
+                        val blockingWorkNames = remember(runningSubagents, effectiveTasks) {
+                            buildList {
+                                runningSubagents.forEach { sa ->
+                                    val label = (sa.role?.takeIf { it.isNotBlank() } ?: sa.typeName).orEmpty().trim()
+                                    if (label.isNotEmpty()) add(label)
+                                }
+                                effectiveTasks.forEach { task ->
+                                    val raw = task.toolSummary?.takeIf { it.isNotBlank() }
+                                        ?: task.commandLine.takeIf { it.isNotBlank() }
+                                        ?: task.toolName.orEmpty()
+                                    val clean = raw.trim()
+                                    if (clean.isNotEmpty()) {
+                                        add(if (clean.length > 18) clean.take(18) + "…" else clean)
+                                    }
+                                }
+                            }
+                        }
                         QueuedMessagesCard(
                             items = uiState.queuedMessages,
                             hasActiveBackgroundWork = hasActiveBackgroundWork,
+                            blockingWorkNames = blockingWorkNames,
+                            cascadeId = uiState.cascadeId.ifBlank { cascadeId },
                             onSendNow = { item ->
-                                dismissKeyboard()
                                 if (hasActiveBackgroundWork) {
+                                    dismissKeyboard()
                                     queuedItemToSendNow = item
                                     showSendQueuedNowConfirmDialog = true
                                 } else {

@@ -1519,9 +1519,14 @@ function renderContentHits() {
     hits
       .map((h) => {
         const title = h.title && h.title.trim() ? h.title : (typeof t === "function" ? t("未命名会话") : "未命名会话");
-        const ws = h.workspaceName ? `<div class="content-hit-ws">${escapeHtml(h.workspaceName)}</div>` : "";
+        const isSide = Boolean(h.isSideQuestion);
+        const parentId = typeof h.parentConversationId === "string" ? h.parentConversationId.trim() : "";
+        const metaParts = [];
+        if (isSide) metaParts.push("↳ /btw");
+        if (h.workspaceName) metaParts.push(h.workspaceName);
+        const ws = metaParts.length ? `<div class="content-hit-ws">${escapeHtml(metaParts.join(" · "))}</div>` : "";
         const snippet = h.snippet ? `<div class="content-hit-snippet">${highlightSnippetHtml(h.snippet, h.snippetMatchRanges)}</div>` : "";
-        return `<button type="button" class="content-hit-card" data-id="${escapeHtml(h.cascadeId)}">
+        return `<button type="button" class="content-hit-card" data-id="${escapeHtml(h.cascadeId)}" data-parent-id="${escapeHtml(parentId)}" data-is-side-question="${isSide ? "1" : ""}">
           <div class="content-hit-title">${escapeHtml(title)}</div>${snippet}${ws}
         </button>`;
       })
@@ -1552,7 +1557,9 @@ function scheduleContentSearch() {
           .map(([id]) => id),
       );
       const results = Array.isArray(data.results) ? data.results : [];
-      contentSearch.results = visible.size ? results.filter((h) => visible.has(h.cascadeId)) : results;
+      contentSearch.results = visible.size
+        ? results.filter((h) => visible.has(h.cascadeId) || (h.isSideQuestion && h.parentConversationId && visible.has(h.parentConversationId)))
+        : results;
     } catch (err) {
       if (seq !== contentSearch.seq) return;
       console.warn("[ContentSearch] failed:", err);
@@ -1568,7 +1575,17 @@ function initContentSearch() {
     const card = e.target.closest(".content-hit-card");
     if (!card) return;
     const id = card.getAttribute("data-id");
-    if (id) navigateTo(`#c=${id}`);
+    const parentId = (card.getAttribute("data-parent-id") || "").trim();
+    const isSide = card.getAttribute("data-is-side-question") === "1";
+    if (!id) return;
+    if (isSide && parentId && parentId !== id) {
+      window._sideQuestionBackParent = window._sideQuestionBackParent || {};
+      window._sideQuestionBackParent[id] = parentId;
+      try {
+        history.pushState(null, "", `#c=${parentId}`);
+      } catch {}
+    }
+    navigateTo(`#c=${id}`);
   });
 }
 

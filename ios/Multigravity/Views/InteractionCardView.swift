@@ -524,9 +524,7 @@ public struct InteractionCardView: View {
             if !displayTarget.isEmpty || !cwdText.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
                     if !displayTarget.isEmpty {
-                        Text(displayTarget)
-                            .font(.system(size: 11.5, design: .monospaced))
-                            .foregroundColor(isHighRiskApproval ? .primary : .secondary)
+                        formattedTargetText(displayTarget)
                             .lineLimit(isExpanded ? 8 : 3)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
@@ -550,6 +548,21 @@ public struct InteractionCardView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             }
         }
+    }
+
+    /// Antigravity 2.35 parity: bold target path/pattern suffix for faster visual scanning.
+    private func formattedTargetText(_ raw: String) -> Text {
+        let baseFont = Font.system(size: 11.5, design: .monospaced)
+        let boldFont = Font.system(size: 11.5, weight: .bold, design: .monospaced)
+        let baseColor: Color = isHighRiskApproval ? .primary : .secondary
+        if !raw.contains("\n"), let slashIdx = raw.lastIndex(of: "/"), slashIdx < raw.index(before: raw.endIndex) {
+            let splitAfter = raw.index(after: slashIdx)
+            let prefix = String(raw[..<splitAfter])
+            let suffix = String(raw[splitAfter...])
+            return Text(prefix).font(baseFont).foregroundColor(baseColor)
+                + Text(suffix).font(boldFont).foregroundColor(.primary)
+        }
+        return Text(raw).font(boldFont).foregroundColor(.primary)
     }
 
     @ViewBuilder

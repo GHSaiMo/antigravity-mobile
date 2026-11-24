@@ -51,6 +51,7 @@ fun SwarmSheet(
 ) {
     val isDark = AntigravityTheme.colors.isDark
     val scope = rememberCoroutineScope()
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     var selectedTab by remember { mutableIntStateOf(0) } // 0: 概览, 1: 协作板, 2: 成员, 3: 拓扑
@@ -58,7 +59,10 @@ fun SwarmSheet(
 
     var snapshot by remember { mutableStateOf<SwarmSnapshot?>(null) }
     var isLoading by remember { mutableStateOf(true) }
+    var isLoadingEarlier by remember { mutableStateOf(false) }
+    var lastETag by remember { mutableStateOf<String?>(null) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    val swarmPageSize = 80
 
     // Overview feedback
     var feedbackText by remember { mutableStateOf("") }
@@ -81,23 +85,70 @@ fun SwarmSheet(
                 isLoading = true
                 errorMessage = null
             }
-            val res = apiClient.fetchSwarmSnapshot(cascadeId)
-            res.onSuccess {
-                snapshot = it
-                if (!silent) errorMessage = null
-            }.onFailure {
-                if (!silent || snapshot == null) {
-                    errorMessage = it.message ?: "加载快照失败".loc
+            val existing = snapshot
+            val latestSeq = existing?.messages?.lastOrNull()?.seq ?: 0
+            if (silent && existing != null && latestSeq > 0) {
+                val res = apiClient.fetchSwarmSnapshotIfModified(
+                    cascadeId = cascadeId,
+                    afterSeq = latestSeq,
+                    etag = lastETag
+                )
+                res.onSuccess { delta ->
+                    if (delta != null) {
+                        if (delta.etag.isNotBlank()) lastETag = delta.etag
+                        snapshot = existing.mergingMessages(delta, isOlderPage = false)
+                    }
+                }.onFailure {
+                    if (snapshot == null) {
+                        errorMessage = it.message ?: "加载快照失败".loc
+                    }
+                }
+            } else {
+                val res = apiClient.fetchSwarmSnapshot(
+                    cascadeId = cascadeId,
+                    limit = swarmPageSize
+                )
+                res.onSuccess {
+                    if (it.etag.isNotBlank()) lastETag = it.etag
+                    snapshot = it
+                    if (!silent) errorMessage = null
+                }.onFailure {
+                    if (!silent || snapshot == null) {
+                        errorMessage = it.message ?: "加载快照失败".loc
+                    }
                 }
             }
             if (!silent) isLoading = false
         }
     }
 
+    fun loadEarlierMessages() {
+        val existing = snapshot ?: return
+        if (isLoadingEarlier || !existing.hasMoreBefore) return
+        val oldest = if (existing.oldestSeq > 0) existing.oldestSeq else (existing.messages.firstOrNull()?.seq ?: 0)
+        if (oldest <= 0) return
+        scope.launch {
+            isLoadingEarlier = true
+            val res = apiClient.fetchSwarmSnapshot(
+                cascadeId = cascadeId,
+                beforeSeq = oldest,
+                limit = swarmPageSize
+            )
+            res.onSuccess { older ->
+                snapshot = existing.mergingMessages(older, isOlderPage = true)
+            }
+            isLoadingEarlier = false
+        }
+    }
+
     LaunchedEffect(cascadeId) {
+        lastETag = null
         loadData(silent = false)
         while (true) {
             delay(3000)
+            if (!lifecycleOwner.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) {
+                continue
+            }
             loadData(silent = true)
         }
     }
@@ -263,6 +314,8 @@ fun SwarmSheet(
                                     search = boardSearch,
                                     agentFilter = boardAgentFilter,
                                     expandedSeqs = expandedSeqs,
+                                    isLoadingEarlier = isLoadingEarlier,
+                                    onLoadEarlier = { loadEarlierMessages() },
                                     onSearchChange = { boardSearch = it },
                                     onFilterChange = { boardAgentFilter = it },
                                     onToggleExpand = { seq ->
@@ -996,6 +1049,8 @@ private fun SwarmBoardTabNative(
     search: String,
     agentFilter: String?,
     expandedSeqs: List<Int>,
+    isLoadingEarlier: Boolean = false,
+    onLoadEarlier: () -> Unit = {},
     onSearchChange: (String) -> Unit,
     onFilterChange: (String?) -> Unit,
     onToggleExpand: (Int) -> Unit
@@ -1111,6 +1166,36 @@ private fun SwarmBoardTabNative(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(bottom = 16.dp)
             ) {
+                if (snap.hasMoreBefore) {
+                    item(key = "swarm-load-earlier") {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 10.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            TextButton(
+                                onClick = onLoadEarlier,
+                                enabled = !isLoadingEarlier
+                            ) {
+                                if (isLoadingEarlier) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(14.dp),
+                                        strokeWidth = 2.dp,
+                                        color = SwarmColors.accent(isDark)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                }
+                                Text(
+                                    text = if (isLoadingEarlier) "正在加载更早消息...".loc else "加载更早消息".loc,
+                                    color = SwarmColors.accent(isDark),
+                                    fontSize = 12.5.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
+                    }
+                }
                 items(filteredMessages, key = { it.seq }) { msg ->
                     BoardMessageRowNative(
                         msg = msg,

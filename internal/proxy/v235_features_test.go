@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -292,5 +293,299 @@ func TestV235_PermissionPresetsDecoupleAutoAndTurbo(t *testing.T) {
 	_ = json.Unmarshal(recGet.Body.Bytes(), &stGet)
 	if stGet.Preset != "auto" || stGet.Mode != "auto" || !stGet.EnableTerminalSandbox || stGet.PermissionPreset != "AGENT_PERMISSION_PRESET_AUTO" {
 		t.Fatalf("upstream AGENT_PERMISSION_PRESET_AUTO misclassified: %+v", stGet)
+	}
+}
+
+func TestV235_SwarmTailWindowAndBeforeSeqPaging(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+
+	coordID := "cascade-swarm-paging-235"
+	swarmDir := filepath.Join(home, ".gemini", "antigravity", "brain", coordID, ".system_generated", "swarm")
+	if err := os.MkdirAll(swarmDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	membersJSON := `{
+		"title": "分页测试蜂群",
+		"members": {
+			"worker-1": {"conversation_id": "conv-pg-w1", "model": "gemini-4-carbon", "role": "worker", "wake_mode": "mentions", "last_read_seq": 5, "killed": false}
+		}
+	}`
+	if err := os.WriteFile(filepath.Join(swarmDir, "members.json"), []byte(membersJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var lines []string
+	for i := 1; i <= 10; i++ {
+		agent := "worker-1"
+		if i%2 == 1 {
+			agent = "coordinator"
+		}
+		lines = append(lines, fmt.Sprintf(`{"seq":%d,"agent":"%s","text":"@worker-1 message #%d","time":"2026-11-23T04:%02d:00Z"}`, i, agent, i, i))
+	}
+	if err := os.WriteFile(filepath.Join(swarmDir, "board.jsonl"), []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	p := &Proxy{}
+
+	// 1. Initial tail page: limit=3 returns seqs [8, 9, 10], TotalMessages=10, HasMoreBefore=true, OldestSeq=8.
+	rec1 := httptest.NewRecorder()
+	p.HandleGetSwarm(rec1, httptest.NewRequest(http.MethodGet, "/gateway/swarm?cascadeId="+coordID+"&limit=3", nil))
+	if rec1.Code != http.StatusOK {
+		t.Fatalf("tail page status=%d body=%s", rec1.Code, rec1.Body.String())
+	}
+	etag1 := rec1.Header().Get("ETag")
+	if etag1 == "" {
+		t.Fatalf("expected non-empty ETag on swarm response")
+	}
+	var snap1 SwarmSnapshot
+	if err := json.Unmarshal(rec1.Body.Bytes(), &snap1); err != nil {
+		t.Fatal(err)
+	}
+	if snap1.TotalMessages != 10 || !snap1.HasMoreBefore || snap1.OldestSeq != 8 || len(snap1.Messages) != 3 {
+		t.Fatalf("unexpected tail snapshot paging: total=%d hasMore=%v oldest=%d len=%d",
+			snap1.TotalMessages, snap1.HasMoreBefore, snap1.OldestSeq, len(snap1.Messages))
+	}
+	if snap1.Messages[0].Seq != 8 || snap1.Messages[2].Seq != 10 {
+		t.Fatalf("expected seqs [8..10], got [%d..%d]", snap1.Messages[0].Seq, snap1.Messages[2].Seq)
+	}
+	// Member post count must reflect ALL 10 board messages (worker-1 posted evens: 2,4,6,8,10 -> 5 posts).
+	if len(snap1.Members) != 1 || snap1.Members[0].Posts != 5 {
+		t.Fatalf("expected worker-1 Posts=5 across full board, got %+v", snap1.Members)
+	}
+	// Mentions must be populated on the returned window.
+	if len(snap1.Messages[0].Mentions) == 0 || snap1.Messages[0].Mentions[0] != "worker-1" {
+		t.Fatalf("expected mention extraction on retained window, got %+v", snap1.Messages[0].Mentions)
+	}
+
+	// 2. ETag 304 Not Modified short-circuit.
+	req304 := httptest.NewRequest(http.MethodGet, "/gateway/swarm?cascadeId="+coordID+"&limit=3", nil)
+	req304.Header.Set("If-None-Match", etag1)
+	rec304 := httptest.NewRecorder()
+	p.HandleGetSwarm(rec304, req304)
+	if rec304.Code != http.StatusNotModified {
+		t.Fatalf("expected 304 Not Modified for matching ETag, got %d", rec304.Code)
+	}
+
+	// 3. Load older page: beforeSeq=8&limit=3 returns [5, 6, 7], HasMoreBefore=true, OldestSeq=5.
+	recOlder := httptest.NewRecorder()
+	p.HandleGetSwarm(recOlder, httptest.NewRequest(http.MethodGet, "/gateway/swarm?cascadeId="+coordID+"&beforeSeq=8&limit=3", nil))
+	if recOlder.Code != http.StatusOK {
+		t.Fatalf("older page status=%d body=%s", recOlder.Code, recOlder.Body.String())
+	}
+	var snapOlder SwarmSnapshot
+	_ = json.Unmarshal(recOlder.Body.Bytes(), &snapOlder)
+	if len(snapOlder.Messages) != 3 || snapOlder.Messages[0].Seq != 5 || snapOlder.Messages[2].Seq != 7 || !snapOlder.HasMoreBefore || snapOlder.OldestSeq != 5 {
+		t.Fatalf("unexpected older page: len=%d seqs=[%d..%d] hasMore=%v oldest=%d",
+			len(snapOlder.Messages), snapOlder.Messages[0].Seq, snapOlder.Messages[len(snapOlder.Messages)-1].Seq, snapOlder.HasMoreBefore, snapOlder.OldestSeq)
+	}
+
+	// 4. Incremental poll: afterSeq=8 returns [9, 10] with different ETag.
+	recInc := httptest.NewRecorder()
+	p.HandleGetSwarm(recInc, httptest.NewRequest(http.MethodGet, "/gateway/swarm?cascadeId="+coordID+"&afterSeq=8", nil))
+	if recInc.Code != http.StatusOK {
+		t.Fatalf("incremental poll status=%d", recInc.Code)
+	}
+	var snapInc SwarmSnapshot
+	_ = json.Unmarshal(recInc.Body.Bytes(), &snapInc)
+	if len(snapInc.Messages) != 2 || snapInc.Messages[0].Seq != 9 || snapInc.Messages[1].Seq != 10 {
+		t.Fatalf("unexpected incremental messages: %+v", snapInc.Messages)
+	}
+}
+
+func TestV235_OutsideProjectWriteDirectoryScopeSuggestion(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+
+	workspaceDir := filepath.Join(home, "Projects", "demo")
+	outsideFile := filepath.Join(home, "Notes", "drafts", "summary.md")
+	insideFile := filepath.Join(workspaceDir, "src", "main.go")
+
+	// 1. Outside-workspace file_permission prompt gets directory-scoped suggestion "~/Notes/drafts/*".
+	rawOutside := fmt.Sprintf(`{
+		"status": "CASCADE_RUN_STATUS_RUNNING",
+		"trajectory": {
+			"cascadeId": "casc-outside-perm",
+			"workspaceUris": [%q],
+			"steps": [{
+				"type": "CORTEX_STEP_TYPE_FILE_PERMISSION",
+				"status": "CORTEX_STEP_STATUS_WAITING",
+				"requestedInteraction": {
+					"filePermission": {
+						"absolutePathUri": %q
+					}
+				}
+			}]
+		}
+	}`, "file://"+filepath.ToSlash(workspaceDir), "file://"+filepath.ToSlash(outsideFile))
+
+	var respOutside upstreamTrajectoryResp
+	if err := json.Unmarshal([]byte(rawOutside), &respOutside); err != nil {
+		t.Fatal(err)
+	}
+	piOutside := buildPendingInteraction(&respOutside, respOutside.Trajectory.Steps)
+	if piOutside == nil {
+		t.Fatalf("expected pending interaction for file_permission")
+	}
+	if piOutside.SuggestedDirectoryScope != "~/Notes/drafts/*" {
+		t.Fatalf("SuggestedDirectoryScope = %q, want ~/Notes/drafts/*", piOutside.SuggestedDirectoryScope)
+	}
+	if len(piOutside.Options) < 4 || !strings.Contains(piOutside.Options[1].Text, "~/Notes/drafts/*") {
+		t.Fatalf("expected directory-scoped option text, got %+v", piOutside.Options)
+	}
+
+	// 2. Inside-workspace write permission keeps standard options (no outside directory scope).
+	rawInside := fmt.Sprintf(`{
+		"status": "CASCADE_RUN_STATUS_RUNNING",
+		"trajectory": {
+			"cascadeId": "casc-inside-perm",
+			"workspaceUris": [%q],
+			"steps": [{
+				"type": "CORTEX_STEP_TYPE_PERMISSION",
+				"status": "CORTEX_STEP_STATUS_WAITING",
+				"requestedInteraction": {
+					"permission": {
+						"actionDescription": "Write file",
+						"resource": {
+							"action": "write_file",
+							"target": %q
+						}
+					}
+				}
+			}]
+		}
+	}`, "file://"+filepath.ToSlash(workspaceDir), insideFile)
+
+	var respInside upstreamTrajectoryResp
+	if err := json.Unmarshal([]byte(rawInside), &respInside); err != nil {
+		t.Fatal(err)
+	}
+	piInside := buildPendingInteraction(&respInside, respInside.Trajectory.Steps)
+	if piInside == nil {
+		t.Fatalf("expected pending interaction for inside permission")
+	}
+	if piInside.SuggestedDirectoryScope != "" {
+		t.Fatalf("inside-workspace write must not suggest outside directory scope, got %q", piInside.SuggestedDirectoryScope)
+	}
+
+	// 3. Read permission must NOT trigger write directory-scope suggestion.
+	rawRead := fmt.Sprintf(`{
+		"status": "CASCADE_RUN_STATUS_RUNNING",
+		"trajectory": {
+			"cascadeId": "casc-outside-read",
+			"workspaceUris": [%q],
+			"steps": [{
+				"type": "CORTEX_STEP_TYPE_PERMISSION",
+				"status": "CORTEX_STEP_STATUS_WAITING",
+				"requestedInteraction": {
+					"permission": {
+						"actionDescription": "Read file",
+						"resource": {
+							"action": "read_file",
+							"target": %q
+						}
+					}
+				}
+			}]
+		}
+	}`, "file://"+filepath.ToSlash(workspaceDir), outsideFile)
+	var respRead upstreamTrajectoryResp
+	if err := json.Unmarshal([]byte(rawRead), &respRead); err != nil {
+		t.Fatal(err)
+	}
+	piRead := buildPendingInteraction(&respRead, respRead.Trajectory.Steps)
+	if piRead == nil || piRead.SuggestedDirectoryScope != "" {
+		t.Fatalf("read_file permission must not suggest write directory scope, got %+v", piRead)
+	}
+}
+
+func TestV235_MergeAdjacentToolsWithoutInterveningOutput(t *testing.T) {
+	raw := `{
+		"status": "CASCADE_RUN_STATUS_IDLE",
+		"trajectory": {
+			"cascadeId": "casc-merge-tools",
+			"steps": [
+				{
+					"type": "CORTEX_STEP_TYPE_USER_INPUT",
+					"userInput": {"userResponse": "inspect repo"}
+				},
+				{
+					"type": "CORTEX_STEP_TYPE_VIEW_FILE",
+					"status": "CORTEX_STEP_STATUS_DONE",
+					"viewFile": {"absolutePathUri": "file:///tmp/a.go"}
+				},
+				{
+					"type": "CORTEX_STEP_TYPE_INVOKE_SUBAGENT",
+					"status": "CORTEX_STEP_STATUS_DONE",
+					"invokeSubagent": {"subagents": [], "results": []}
+				},
+				{
+					"type": "CORTEX_STEP_TYPE_GREP_SEARCH",
+					"status": "CORTEX_STEP_STATUS_DONE",
+					"grepSearch": {"query": "TODO"}
+				},
+				{
+					"type": "CORTEX_STEP_TYPE_PLANNER_RESPONSE",
+					"status": "CORTEX_STEP_STATUS_DONE",
+					"plannerResponse": {"response": "Done checking."}
+				}
+			]
+		}
+	}`
+	var resp upstreamTrajectoryResp
+	if err := json.Unmarshal([]byte(raw), &resp); err != nil {
+		t.Fatal(err)
+	}
+	msgs, totalTools := buildTrajectoryMessages(resp.Trajectory.Steps)
+	if totalTools != 2 {
+		t.Fatalf("expected 2 tools total, got %d", totalTools)
+	}
+	toolCapsules := 0
+	for _, m := range msgs {
+		if m.Type == "tools" {
+			toolCapsules++
+			if m.ToolCount != 2 {
+				t.Fatalf("expected merged tools capsule ToolCount=2, got %d", m.ToolCount)
+			}
+		}
+	}
+	if toolCapsules != 1 {
+		t.Fatalf("expected adjacent tool sections to merge into 1 capsule, got %d (msgs=%+v)", toolCapsules, msgs)
+	}
+}
+
+func TestV235_SearchConversationsEnrichesSideQuestions(t *testing.T) {
+	sideID := "casc-btw-side-235-test"
+	parentID := "casc-btw-parent-235-test"
+	defaultBtwTracker.record(BtwSideQuestionEntry{
+		CascadeID:       sideID,
+		ParentCascadeID: parentID,
+		Title:           "解释一下 ETag",
+		Question:        "解释一下 ETag",
+	})
+	t.Cleanup(func() {
+		defaultBtwTracker.mu.Lock()
+		delete(defaultBtwTracker.bySide, sideID)
+		delete(defaultBtwTracker.byParent, parentID)
+		defaultBtwTracker.mu.Unlock()
+	})
+
+	results := []ConversationSearchResult{
+		{CascadeID: sideID, Title: "", Snippet: "ETag 304 缓存命中"},
+		{CascadeID: "casc-normal-235-test", Title: "普通会话", Snippet: "正文"},
+	}
+	enrichSearchResultsWithSideQuestions(results)
+
+	if !results[0].IsSideQuestion || results[0].ParentConversationID != parentID {
+		t.Fatalf("expected side-question enrichment, got %+v", results[0])
+	}
+	if results[0].Title != "解释一下 ETag" {
+		t.Fatalf("expected fallback title from btw tracker, got %q", results[0].Title)
+	}
+	if results[1].IsSideQuestion || results[1].ParentConversationID != "" {
+		t.Fatalf("ordinary conversation must not be marked side-question: %+v", results[1])
 	}
 }

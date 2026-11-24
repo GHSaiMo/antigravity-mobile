@@ -431,9 +431,20 @@ function renderInteractionCard(resetScroll = false) {
       <span>${escapeHtml(riskSummary.text)}</span>
     </div>
   ` : "";
+  const formatBoldTargetHtml = (raw) => {
+    const s = String(raw || "");
+    if (!s) return "";
+    if (!s.includes("\n")) {
+      const slash = s.lastIndexOf("/");
+      if (slash >= 0 && slash < s.length - 1) {
+        return `${escapeHtml(s.slice(0, slash + 1))}<strong style="color:var(--text-primary);font-weight:700;">${escapeHtml(s.slice(slash + 1))}</strong>`;
+      }
+    }
+    return `<strong style="color:var(--text-primary);font-weight:600;">${escapeHtml(s)}</strong>`;
+  };
   const targetBoxHtml = (displayTarget || cwdText) ? `
     <div class="interaction-target-box" style="padding: 6px 10px; border-radius: 6px; background: rgba(0,0,0,0.2); font-family: monospace; font-size: 11.5px; color: ${isHighRisk ? 'var(--text-primary)' : 'var(--text-secondary)'}; word-break: break-all; white-space: pre-wrap;">
-      ${displayTarget ? `<div>${escapeHtml(displayTarget)}</div>` : ""}
+      ${displayTarget ? `<div>${formatBoldTargetHtml(displayTarget)}</div>` : ""}
       ${cwdText ? `<div class="interaction-target-cwd">📁 ${escapeHtml(cwdText)}</div>` : ""}
     </div>
   ` : "";
@@ -1239,6 +1250,7 @@ async function connectStreamWs(cascadeId) {
 
         RunningTasksManager.syncFromServer(data.runningTasks);
         SubagentManager.sync(data);
+        if (LocalQueueManager.queue.length > 0) LocalQueueManager.render();
         if (typeof SwarmManager !== "undefined") SwarmManager.sync(data);
         if (window.Phase3?.syncStreamData) window.Phase3.syncStreamData(data);
         window.V233?.syncBranchState?.(cascadeId, data);
@@ -1708,22 +1720,41 @@ function groupSteps(steps) {
         }
       }
     } else if (type === "CORTEX_STEP_TYPE_INVOKE_SUBAGENT") {
-      // 与桌面端一致：在调用位置内联展示每个子代理的卡片，而不是折进「已执行 N 项操作」
-      flushBatch();
+      // 与桌面端一致：在调用位置内联展示子代理卡片；Antigravity 2.35 起连续并行启动折叠为单行可展开项
       const inv = s.invokeSubagent || {};
       const specs = Array.isArray(inv.subagents) ? inv.subagents : [];
+      const validSubs = [];
       (Array.isArray(inv.results) ? inv.results : []).forEach((res, k) => {
         const conversationId = (res && res.conversationId || "").trim();
         if (!conversationId) return;
         const spec = specs[k] || {};
-        items.push({
-          type: "subagent",
-          id: `item-subagent-${conversationId}`,
-          index: i,
-          sub: { conversationId, typeName: spec.typeName || "", role: spec.role || "", prompt: spec.initialPrompt || "" },
-          step: s
-        });
+        validSubs.push({ conversationId, typeName: spec.typeName || "", role: spec.role || "", prompt: spec.initialPrompt || "" });
       });
+      if (validSubs.length > 0) {
+        flushBatch();
+        for (const sub of validSubs) {
+          const prev = items[items.length - 1];
+          if (prev && prev.type === "subagent_group") {
+            prev.subs.push(sub);
+          } else if (prev && prev.type === "subagent") {
+            items[items.length - 1] = {
+              type: "subagent_group",
+              id: `item-subagent-group-${prev.sub.conversationId}`,
+              index: prev.index,
+              subs: [prev.sub, sub],
+              step: s
+            };
+          } else {
+            items.push({
+              type: "subagent",
+              id: `item-subagent-${sub.conversationId}`,
+              index: i,
+              sub,
+              step: s
+            });
+          }
+        }
+      }
     } else if (s.workflow || type === "CORTEX_STEP_TYPE_RUN_WORKFLOW" || (s.toolCall && s.toolCall.name === "run_workflow")) {
       flushBatch();
       let wfData = s.workflow;
@@ -1898,6 +1929,13 @@ function getItemFingerprint(item, isRunning, isLastItem, isActivePlan = false) {
   if (item.type === "subagent") {
     const live = SubagentManager.byId.get(item.sub.conversationId);
     return `s:${item.sub.conversationId}:${live ? live.status : ""}:${live ? live.stepCount || 0 : 0}`;
+  }
+  if (item.type === "subagent_group") {
+    const parts = (item.subs || []).map((sub) => {
+      const live = SubagentManager.byId.get(sub.conversationId);
+      return `${sub.conversationId}:${live ? live.status : ""}:${live ? live.stepCount || 0 : 0}`;
+    });
+    return `sg:${parts.join("|")}`;
   }
   if (item.type === "workflow") {
     const wf = item.workflow || {};
@@ -2214,6 +2252,38 @@ function generateItemHtml(item, isRunning, isLastItem, isActivePlan = false) {
   }
   if (item.type === "subagent") {
     return buildSubagentCardHtml(item.sub);
+  }
+  if (item.type === "subagent_group") {
+    const subs = item.subs || [];
+    let running = 0;
+    let done = 0;
+    for (const sub of subs) {
+      const live = SubagentManager.byId.get(sub.conversationId);
+      const st = live?.status || sub.status || "";
+      if (st === "running") running++;
+      else if (st !== "gone") done++;
+    }
+    const statusText = running > 0
+      ? (done > 0 ? `${running} 运行中 · ${done} 已完成` : `${running} 运行中`)
+      : "全部已完成";
+    const iconHtml = running > 0
+      ? '<div class="ios-spinner subagent-icon-spin"></div>'
+      : '<span class="subagent-icon done">✓</span>';
+    return `
+      <details class="subagent-group-card">
+        <summary class="subagent-card" style="list-style:none;cursor:pointer;">
+          ${iconHtml}
+          <span class="subagent-main">
+            <span class="subagent-name">并行启动 ${subs.length} 个子代理</span>
+            <span class="subagent-meta">${escapeHtml(statusText)}</span>
+          </span>
+          <span class="subagent-arrow">⌄</span>
+        </summary>
+        <div class="subagent-group-list" style="padding-left:10px;display:flex;flex-direction:column;gap:6px;margin-top:6px;">
+          ${subs.map((sub) => buildSubagentCardHtml(sub)).join("")}
+        </div>
+      </details>
+    `;
   }
   if (item.type === "workflow") {
     return buildWorkflowCardHtml(item.workflow);
@@ -3206,6 +3276,36 @@ const LocalQueueManager = {
 
     cardEl.classList.remove("hidden");
     countEl.textContent = this.queue.length;
+
+    const subEl = cardEl.querySelector(".queued-subtitle");
+    if (subEl) {
+      const blockers = [];
+      if (typeof SubagentManager !== "undefined" && Array.isArray(SubagentManager.items)) {
+        for (const sa of SubagentManager.items) {
+          if (sa && sa.status === "running") {
+            const name = (sa.role || sa.typeName || "").trim();
+            if (name) blockers.push(name);
+          }
+        }
+      }
+      const rTasks = (typeof RunningTasksManager !== "undefined" && Array.isArray(RunningTasksManager.tasks))
+        ? RunningTasksManager.tasks : [];
+      const nonDaemon = rTasks.filter((t) => !t.isDaemon);
+      for (const t of (nonDaemon.length > 0 ? nonDaemon : rTasks)) {
+        const raw = (t.toolSummary || t.commandLine || t.toolName || "").trim();
+        if (raw) blockers.push(raw.length > 18 ? raw.slice(0, 18) + "…" : raw);
+      }
+      if (blockers.length > 0) {
+        const head = blockers.slice(0, 2).join("、");
+        subEl.textContent = blockers.length > 2
+          ? `等待 ${head} 等${blockers.length}项完成后出列`
+          : `等待 ${head} 完成后出列`;
+        subEl.style.color = "#f59e0b";
+      } else {
+        subEl.textContent = "当前任务完成后自动发送";
+        subEl.style.color = "";
+      }
+    }
 
     if (this.isExpanded) {
       wrapperEl.classList.remove("collapsed");

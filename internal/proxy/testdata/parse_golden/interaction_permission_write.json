@@ -45,6 +45,7 @@
       "stepIndex": 1,
       "title": "Allow write access to this path?",
       "target": "/a/b",
+      "suggestedDirectoryScope": "/a/*",
       "action": "edit_file",
       "options": [
         {
@@ -54,17 +55,17 @@
         },
         {
           "id": "2",
-          "text": "Yes, and always allow in this conversation",
+          "text": "Yes, allow /a/* in this conversation",
           "scope": 2
         },
         {
           "id": "3",
-          "text": "Yes, and always allow in this project",
+          "text": "Yes, always allow /a/* in this project",
           "scope": 3
         },
         {
           "id": "4",
-          "text": "Yes, and always allow",
+          "text": "Yes, always allow /a/*",
           "scope": 4
         },
         {

@@ -102,9 +102,13 @@ const SubagentManager = {
     }
   },
 
-  // 返回目标：子代理会话回到父会话，其余回到列表
+  // 返回目标：子代理或搜索直达的 /btw 旁路会话回到父会话，其余回到列表
   backHash() {
-    return this.parentId ? `#c=${this.parentId}` : "#";
+    if (this.parentId) return `#c=${this.parentId}`;
+    const active = typeof activeCascadeId === "string" ? activeCascadeId : "";
+    const btwParent = active && window._sideQuestionBackParent && window._sideQuestionBackParent[active];
+    if (btwParent && btwParent !== active) return `#c=${btwParent}`;
+    return "#";
   },
 };
 

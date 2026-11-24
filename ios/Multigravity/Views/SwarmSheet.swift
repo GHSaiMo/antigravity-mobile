@@ -2,6 +2,7 @@ import SwiftUI
 
 public struct SwarmSheet: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
     @State private var settings = AppSettings.shared
 
     public let cascadeId: String
@@ -10,7 +11,10 @@ public struct SwarmSheet: View {
     @State private var selectedTab: Tab = .overview
     @State private var snapshot: SwarmSnapshot? = nil
     @State private var isLoading: Bool = false
+    @State private var isLoadingEarlier: Bool = false
+    @State private var lastETag: String? = nil
     @State private var errorMessage: String? = nil
+    private let swarmPageSize = 80
 
     // Overview feedback & interactive state
     @State private var feedbackText: String = ""
@@ -107,10 +111,11 @@ public struct SwarmSheet: View {
         .animation(.easeInOut(duration: 0.2), value: toastMessage)
         .task {
             await loadSnapshot(silent: false)
-            // Live auto-refresh every 3 seconds while sheet is open
+            // Live auto-refresh every 3 seconds while sheet is open and app is foreground active
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 3_000_000_000)
                 if Task.isCancelled { break }
+                if scenePhase != .active { continue }
                 await loadSnapshot(silent: true)
             }
         }
@@ -1062,6 +1067,31 @@ public struct SwarmSheet: View {
             } else {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
+                        if snap.hasMoreBefore {
+                            HStack {
+                                Spacer()
+                                Button(action: {
+                                    Task { await loadEarlierMessages() }
+                                }) {
+                                    HStack(spacing: 6) {
+                                        if isLoadingEarlier {
+                                            ProgressView().scaleEffect(0.75)
+                                        }
+                                        Text(isLoadingEarlier ? String(localized: "正在加载更早消息...") : String(localized: "加载更早消息"))
+                                            .font(.system(size: 12, weight: .medium))
+                                            .foregroundColor(SwarmTheme.accent)
+                                    }
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 6)
+                                    .background(SwarmTheme.cardBg)
+                                    .clipShape(Capsule())
+                                }
+                                .buttonStyle(.plain)
+                                .disabled(isLoadingEarlier)
+                                Spacer()
+                            }
+                            .padding(.vertical, 10)
+                        }
                         ForEach(filtered) { msg in
                             boardMessageRow(msg)
                             Divider()
@@ -1582,8 +1612,25 @@ public struct SwarmSheet: View {
             errorMessage = nil
         }
         do {
-            let snap = try await APIClient.shared.fetchSwarmSnapshot(cascadeId: cascadeId, baseURL: url)
-            self.snapshot = snap
+            if silent, let existing = self.snapshot, let latestSeq = existing.messages.last?.seq, latestSeq > 0 {
+                if let delta = try await APIClient.shared.fetchSwarmSnapshotIfModified(
+                    cascadeId: cascadeId,
+                    afterSeq: latestSeq,
+                    etag: lastETag,
+                    baseURL: url
+                ) {
+                    self.lastETag = delta.etag ?? self.lastETag
+                    self.snapshot = existing.mergingMessages(from: delta, isOlderPage: false)
+                }
+            } else {
+                let snap = try await APIClient.shared.fetchSwarmSnapshot(
+                    cascadeId: cascadeId,
+                    limit: swarmPageSize,
+                    baseURL: url
+                )
+                self.lastETag = snap.etag
+                self.snapshot = snap
+            }
             self.errorMessage = nil
         } catch {
             if !silent || self.snapshot == nil {
@@ -1592,6 +1639,28 @@ public struct SwarmSheet: View {
         }
         if !silent {
             isLoading = false
+        }
+    }
+
+    private func loadEarlierMessages() async {
+        guard !isLoadingEarlier,
+              let url = settings.serverURL,
+              let existing = self.snapshot,
+              existing.hasMoreBefore else { return }
+        let oldest = existing.oldestSeq > 0 ? existing.oldestSeq : (existing.messages.first?.seq ?? 0)
+        guard oldest > 0 else { return }
+        isLoadingEarlier = true
+        defer { isLoadingEarlier = false }
+        do {
+            let older = try await APIClient.shared.fetchSwarmSnapshot(
+                cascadeId: cascadeId,
+                beforeSeq: oldest,
+                limit: swarmPageSize,
+                baseURL: url
+            )
+            self.snapshot = existing.mergingMessages(from: older, isOlderPage: true)
+        } catch {
+            showToast(error.localizedDescription)
         }
     }
 

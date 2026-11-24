@@ -235,6 +235,43 @@ func buildTrajectoryMessages(steps []TrajectoryStep) ([]CascadeMessageItem, int)
 		if pendingTools == 0 && pendingThinking == "" {
 			return
 		}
+		// Antigravity 2.35 parity: merge adjacent tool/thinking sections when there was no
+		// intervening user-visible output between them instead of emitting duplicate capsules.
+		if len(allMessages) > 0 && allMessages[len(allMessages)-1].Type == "tools" {
+			prev := &allMessages[len(allMessages)-1]
+			prev.ToolCount += pendingTools
+			prev.ToolNames = append(prev.ToolNames, toolNames...)
+			prev.ToolDetails = append(prev.ToolDetails, toolDetails...)
+			if pendingThinking != "" {
+				if prev.Thinking != "" {
+					prev.Thinking += "\n\n" + pendingThinking
+				} else {
+					prev.Thinking = pendingThinking
+				}
+			}
+			if pendingThinkingDuration != "" {
+				prev.ThinkingDuration = pendingThinkingDuration
+			}
+			if pendingFocus != "" {
+				prev.FocusText = pendingFocus
+			}
+			if prev.StartedAt == "" && pendingToolsStartedAt != "" {
+				prev.StartedAt = pendingToolsStartedAt
+			}
+			if prev.ToolCount > 0 {
+				prev.Text = fmt.Sprintf("已思考并执行 %d 项操作", prev.ToolCount)
+			} else {
+				prev.Text = "💭 已深度思考"
+			}
+			prev.Content = prev.Text
+			pendingTools = 0
+			toolNames = nil
+			toolDetails = nil
+			pendingThinking = ""
+			pendingThinkingDuration = ""
+			pendingToolsStartedAt = ""
+			return
+		}
 		text := "💭 已深度思考"
 		if pendingTools > 0 {
 			text = fmt.Sprintf("已思考并执行 %d 项操作", pendingTools)
@@ -471,8 +508,12 @@ func buildTrajectoryMessages(steps []TrajectoryStep) ([]CascadeMessageItem, int)
 			}
 		} else if stepType == stepTypeInvokeSubagent {
 			// 与桌面端一致：在调用位置内联展示每个子代理的卡片，而不是折进「已执行 N 项操作」
+			subs := subagentsOfStep(s, idx)
+			if len(subs) == 0 {
+				continue
+			}
 			flushTools()
-			for _, sa := range subagentsOfStep(s, idx) {
+			for _, sa := range subs {
 				sa := sa
 				stepIdx := idx
 				label := sa.Role
@@ -1342,7 +1383,18 @@ func buildPendingInteraction(rawResp *upstreamTrajectoryResp, steps []Trajectory
 					}
 				}
 
-				applyPermissionOptions(pi)
+				actionLower := strings.ToLower(pi.Action)
+				isOutsideWriteAction := strings.Contains(actionLower, "write") || strings.Contains(actionLower, "edit") || strings.Contains(actionLower, "create")
+				if isOutsideWriteAction {
+					if dirScope := suggestedOutsideDirectoryScope(pi.Target, rawResp.Trajectory.WorkspaceUris, false); dirScope != "" {
+						pi.SuggestedDirectoryScope = dirScope
+						applyDirectoryScopedPermissionOptions(pi, dirScope)
+					} else {
+						applyPermissionOptions(pi)
+					}
+				} else {
+					applyPermissionOptions(pi)
+				}
 			} else if req.AskQuestion != nil && len(req.AskQuestion.Questions) > 0 {
 				pi.Type = "ask_question"
 				var questions []InteractionQuestion
@@ -1380,7 +1432,12 @@ func buildPendingInteraction(rawResp *upstreamTrajectoryResp, steps []Trajectory
 				pi.Type = "file_permission"
 				pi.Target = req.FilePermission.AbsolutePathURI
 				pi.Title = "Allow access to this file outside workspace?"
-				applyPermissionOptions(pi)
+				if dirScope := suggestedOutsideDirectoryScope(pi.Target, rawResp.Trajectory.WorkspaceUris, true); dirScope != "" {
+					pi.SuggestedDirectoryScope = dirScope
+					applyDirectoryScopedPermissionOptions(pi, dirScope)
+				} else {
+					applyPermissionOptions(pi)
+				}
 			} else if req.RunCommand != nil {
 				pi.Type = "run_command"
 				pi.Target = req.RunCommand.CommandLine
@@ -1628,6 +1685,66 @@ func applyPermissionOptions(pi *PendingInteraction) {
 		{ID: "2", Text: "Yes, and always allow in this conversation", Scope: 2},
 		{ID: "3", Text: "Yes, and always allow in this project", Scope: 3},
 		{ID: "4", Text: "Yes, and always allow", Scope: 4},
+		{ID: "5", Text: "No", IsDeny: true},
+	}
+	applyDenyWriteIn(pi)
+}
+
+// suggestedOutsideDirectoryScope derives a directory-level glob suggestion (e.g. "~/notes/*")
+// for Antigravity 2.35+ outside-project file write prompts so users can approve a folder scope
+// instead of repeatedly approving single files.
+func suggestedOutsideDirectoryScope(rawTarget string, workspaceURIs []string, alwaysOutside bool) string {
+	clean := strings.TrimSpace(rawTarget)
+	if clean == "" {
+		return ""
+	}
+	if strings.HasPrefix(clean, "file://") {
+		clean = uriToFilePath(clean)
+	}
+	if strings.HasPrefix(clean, "~/") {
+		if home, err := os.UserHomeDir(); err == nil && home != "" {
+			clean = filepath.Join(home, clean[2:])
+		}
+	}
+	if !filepath.IsAbs(clean) || strings.Contains(clean, "*") {
+		return ""
+	}
+	clean = filepath.Clean(clean)
+	if !alwaysOutside && len(workspaceURIs) > 0 {
+		for _, ws := range workspaceURIs {
+			wsPath := filepath.Clean(uriToFilePath(ws))
+			if wsPath == "" || wsPath == "." {
+				continue
+			}
+			if clean == wsPath || strings.HasPrefix(clean, wsPath+string(filepath.Separator)) {
+				return ""
+			}
+		}
+	}
+	dir := filepath.Dir(clean)
+	if dir == "" || dir == "." || dir == string(filepath.Separator) || dir == clean {
+		return ""
+	}
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		cleanHome := filepath.Clean(home)
+		if dir == cleanHome {
+			return ""
+		}
+		if strings.HasPrefix(dir, cleanHome+string(filepath.Separator)) {
+			rel := filepath.ToSlash(strings.TrimPrefix(dir, cleanHome+string(filepath.Separator)))
+			return "~/" + rel + "/*"
+		}
+	}
+	return filepath.ToSlash(dir) + "/*"
+}
+
+// applyDirectoryScopedPermissionOptions suggests directory-level scopes for outside-project file prompts.
+func applyDirectoryScopedPermissionOptions(pi *PendingInteraction, dirScope string) {
+	pi.Options = []InteractionOption{
+		{ID: "1", Text: "Yes, allow this time", Scope: 1},
+		{ID: "2", Text: fmt.Sprintf("Yes, allow %s in this conversation", dirScope), Scope: 2},
+		{ID: "3", Text: fmt.Sprintf("Yes, always allow %s in this project", dirScope), Scope: 3},
+		{ID: "4", Text: fmt.Sprintf("Yes, always allow %s", dirScope), Scope: 4},
 		{ID: "5", Text: "No", IsDeny: true},
 	}
 	applyDenyWriteIn(pi)

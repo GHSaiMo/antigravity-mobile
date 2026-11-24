@@ -463,9 +463,34 @@ fun InteractionCard(
                             verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             if (!displayTarget.isNullOrBlank()) {
+                                val styledTarget = remember(displayTarget, isHighRisk, colors) {
+                                    androidx.compose.ui.text.buildAnnotatedString {
+                                        val slash = if (!displayTarget.contains('\n')) displayTarget.lastIndexOf('/') else -1
+                                        if (slash in 0 until displayTarget.length - 1) {
+                                            pushStyle(androidx.compose.ui.text.SpanStyle(
+                                                color = if (isHighRisk) colors.textPrimary else colors.textSecondary,
+                                                fontWeight = FontWeight.Normal
+                                            ))
+                                            append(displayTarget.substring(0, slash + 1))
+                                            pop()
+                                            pushStyle(androidx.compose.ui.text.SpanStyle(
+                                                color = colors.textPrimary,
+                                                fontWeight = FontWeight.Bold
+                                            ))
+                                            append(displayTarget.substring(slash + 1))
+                                            pop()
+                                        } else {
+                                            pushStyle(androidx.compose.ui.text.SpanStyle(
+                                                color = colors.textPrimary,
+                                                fontWeight = FontWeight.SemiBold
+                                            ))
+                                            append(displayTarget)
+                                            pop()
+                                        }
+                                    }
+                                }
                                 Text(
-                                    text = displayTarget,
-                                    color = if (isHighRisk) colors.textPrimary else colors.textSecondary,
+                                    text = styledTarget,
                                     fontSize = 11.5.sp,
                                     fontFamily = FontFamily.Monospace,
                                     maxLines = if (isExpanded) 12 else 4,

@@ -1,8 +1,15 @@
 import SwiftUI
 
+@MainActor
+private enum QueueExpandMemory {
+    static var byCascade: [String: Bool] = [:]
+}
+
 public struct QueuedMessagesCardView: View {
+    public let cascadeId: String
     public let items: [QueuedMessageItem]
     public let hasActiveBackgroundWork: Bool
+    public let blockingWorkNames: [String]
     public let onSendNow: @MainActor @Sendable (QueuedMessageItem) -> Void
     public let onEdit: @MainActor @Sendable (QueuedMessageItem) -> Void
     public let onDelete: @MainActor @Sendable (QueuedMessageItem) -> Void
@@ -13,19 +20,43 @@ public struct QueuedMessagesCardView: View {
     @State private var previewImage: IdentifiableImage? = nil
     
     public init(
+        cascadeId: String = "",
         items: [QueuedMessageItem],
         hasActiveBackgroundWork: Bool = false,
+        blockingWorkNames: [String] = [],
         onSendNow: @escaping @MainActor @Sendable (QueuedMessageItem) -> Void,
         onEdit: @escaping @MainActor @Sendable (QueuedMessageItem) -> Void,
         onDelete: @escaping @MainActor @Sendable (QueuedMessageItem) -> Void,
         onToggleExpand: (@MainActor @Sendable (Bool) -> Void)? = nil
     ) {
+        self.cascadeId = cascadeId
         self.items = items
         self.hasActiveBackgroundWork = hasActiveBackgroundWork
+        self.blockingWorkNames = blockingWorkNames
         self.onSendNow = onSendNow
         self.onEdit = onEdit
         self.onDelete = onDelete
         self.onToggleExpand = onToggleExpand
+        if !cascadeId.isEmpty, let remembered = QueueExpandMemory.byCascade[cascadeId] {
+            _isExpanded = State(initialValue: remembered)
+        }
+    }
+
+    private var statusSubtitleText: String {
+        guard hasActiveBackgroundWork else {
+            return String(localized: "当前任务完成后自动发送")
+        }
+        let cleaned = blockingWorkNames
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        if cleaned.isEmpty {
+            return String(localized: "后台任务运行中，完成后出列")
+        }
+        let head = cleaned.prefix(2).joined(separator: "、")
+        if cleaned.count > 2 {
+            return String(localized: "等待 \(head) 等\(cleaned.count)项完成后出列")
+        }
+        return String(localized: "等待 \(head) 完成后出列")
     }
     
     public var body: some View {
@@ -51,10 +82,11 @@ public struct QueuedMessagesCardView: View {
                         .frame(width: 6, height: 6)
                 }
 
-                Text(hasActiveBackgroundWork ? String(localized: "后台任务运行中，完成后出列") : String(localized: "当前任务完成后自动发送"))
+                Text(statusSubtitleText)
                     .font(.system(size: 12))
                     .foregroundColor(hasActiveBackgroundWork ? .orange : .secondary)
                     .lineLimit(1)
+                    .truncationMode(.tail)
                 
                 Spacer()
                 
@@ -62,6 +94,9 @@ public struct QueuedMessagesCardView: View {
                 Button(action: {
                     withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
                         isExpanded.toggle()
+                    }
+                    if !cascadeId.isEmpty {
+                        QueueExpandMemory.byCascade[cascadeId] = isExpanded
                     }
                     onToggleExpand?(isExpanded)
                 }) {
@@ -136,6 +171,11 @@ public struct QueuedMessagesCardView: View {
         .shadow(color: Color.black.opacity(0.12), radius: 10, x: 0, y: 4)
         .padding(.horizontal, 12)
         .padding(.bottom, 6)
+        .onChange(of: cascadeId) { _, newId in
+            if !newId.isEmpty {
+                isExpanded = QueueExpandMemory.byCascade[newId] ?? true
+            }
+        }
         .onChange(of: items) { _, newItems in
             let validIds = Set(newItems.map(\.id))
             tappedActionItemIds = tappedActionItemIds.intersection(validIds)
